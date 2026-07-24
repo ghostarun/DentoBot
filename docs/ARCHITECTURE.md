@@ -278,8 +278,26 @@ segmentation selector and a grouped, FDI-aware label explorer. Search and
 selection live in the widget; segment visibility, per-segment emphasis, global
 2D/3D visibility, and opacity live in the segmentation display node and
 therefore follow normal scene persistence. `Show All`, `Hide All`, and
-`Isolate Selected` act only on display properties. Correction, approval state,
-and Segment Editor handoff remain later Step 3 increments.
+`Isolate Selected` act only on display properties.
+
+Step 3B keeps quantitative inspection and provenance on the authoritative
+segmentation node so an MRB scene does not depend on a live WSL process. The
+source CBCT is a proper node reference with role `DENTOBOT.SourceVolume`.
+Namespaced `DENTOBOT.*` attributes store the run, backend/model/package,
+device, timing, artifact-path, aggregate-metric, and review-state fields.
+`DENTOBOT.SegmentMetricsJson` is a versioned compact document keyed by stable
+segment ID and contains each detected label's model ID, source name, voxel
+count, and physical volume. New Bridge C imports write this metadata after all
+result validation succeeds. An older imported Bridge C segmentation may
+migrate once from its retained validated `result.json`; inability to restore
+that file is non-fatal and leaves the masks available with an explicit
+metadata warning.
+
+Review state applies to the whole segmentation and is limited to
+`Unreviewed`, `Needs Correction`, or `Reviewed`, with a UTC update timestamp.
+It is a researcher workflow marker, not an approval signature or anatomical,
+clinical, regulatory, or treatment validation. Correction, edit-driven review
+invalidation, and Segment Editor handoff remain later Step 3 increments.
 
 ## Service evolution
 

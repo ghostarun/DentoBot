@@ -194,7 +194,7 @@ remain required before a reproducible release or robustness claim:
 
 ## Step 3: Segmentation review and visualization
 
-**Status:** Step 3A implemented in source; in-Slicer acceptance pending
+**Status:** Steps 3A and 3B implemented in source; in-Slicer acceptance pending
 
 Goal: let the researcher inspect and curate dental labels before planning.
 
@@ -212,11 +212,27 @@ Step 3A implemented scope:
   exit, cleanup, and scene close
 - automatic transition from a successful Bridge C run to the review panel
 
+Step 3B implemented scope:
+
+- selected-label anatomy, source name, FDI number, model label ID, voxel
+  count, and physical volume
+- compact run, source-volume, backend, TotalSegmentator, model/dataset,
+  device, timing, and completion provenance
+- proper MRML source-volume reference plus versioned per-segment metrics
+  persisted on the authoritative segmentation node
+- segmentation-level `Unreviewed`, `Needs Correction`, and `Reviewed`
+  workflow state with a UTC update timestamp
+- direct metadata enrichment for new Bridge C imports and non-fatal migration
+  of older imported results from retained `result.json`
+- explicit UI language that review state is not anatomical or clinical
+  validation
+- Slicer-native logic coverage for metadata mapping, node references,
+  provenance presentation, selected-label metrics, review-state transitions,
+  and invalid state rejection
+
 Remaining Step 3 increments:
 
 - richer opacity/color presets and optional anatomy presets
-- selected-label metrics and segmentation provenance summary
-- segmentation-level `Unreviewed`, `Needs Correction`, and `Reviewed` state
 - correction handoff to Segment Editor
 - approval invalidation after manual edits or source replacement
 
@@ -224,8 +240,11 @@ Step 3A acceptance requires an in-Slicer run against the retained 60-segment
 Bridge C result: search for an FDI tooth, toggle it, emphasize and isolate it,
 restore all labels, change 2D/3D opacity, switch segmentation nodes, and
 confirm that scene saving preserves the selected node and display state.
-Later Step 3 acceptance will add editable segments, provenance/review state,
-approval invalidation, and persistence of those workflow decisions.
+Step 3B acceptance additionally requires checking a known label against
+`result.json`, changing and persisting the segmentation-level workflow state,
+and confirming that source reference, provenance, metrics, and review
+timestamp survive MRB save/reopen. Later Step 3 acceptance will add editable
+segments and edit-driven review invalidation.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 

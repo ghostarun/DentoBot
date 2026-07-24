@@ -25,6 +25,74 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-24 15:06:56 IST (UTC+05:30) — Step 3B implementation session
+
+### Request and scope
+
+- After accepting Step 3A, the developer approved proceeding to increment B
+  of the segmentation-review plan.
+- The increment was bounded to selected-label metrics, run provenance, and a
+  whole-segmentation workflow review state. Segment Editor correction and
+  edit-driven invalidation remain Step 3C.
+
+### Design decisions
+
+- The imported `vtkMRMLSegmentationNode` remains the authoritative result.
+  Metrics and provenance are persisted there rather than being read from WSL
+  on every UI interaction or copied into parallel data nodes.
+- The source CBCT is represented by a proper node reference so Slicer can
+  preserve and repair scene relationships. The original source node ID is
+  also retained as diagnostic provenance.
+- Per-label metrics use a versioned compact JSON attribute keyed by stable
+  Slicer segment ID. The stored subset contains the validated model label ID,
+  source name, voxel count, and physical volume; it does not duplicate the
+  entire backend report.
+- Future Bridge C imports write the metadata after report, geometry, label,
+  and segment-count validation. Existing imported results remain usable and
+  attempt a compatibility migration from their retained `result.json`.
+  Failure to find or validate that file is shown as unavailable metadata, not
+  treated as a mask failure.
+- `Unreviewed`, `Needs Correction`, and `Reviewed` describe the research
+  workflow status of the whole segmentation. No per-label approval state was
+  introduced, and `Reviewed` deliberately carries no claim of anatomical or
+  clinical correctness.
+
+### Implementation
+
+- Added selected-label inspection fields for display/source names, FDI,
+  label ID, voxel count, and physical volume.
+- Added compact source/backend/model/device/timing provenance and editable
+  segmentation-level review state with UTC modification time.
+- Added MRML metadata enrichment, retained-result migration, selected-label
+  detail access, provenance formatting, and review-state logic.
+- Routed successful Bridge C imports through the enrichment path while
+  preserving the existing inference/import sequence and automatic transition
+  to the review panel.
+- Extended Slicer-native tests with a synthetic validated teeth report and
+  three labeled segments to check ID/name mapping, metrics, references,
+  provenance, state transitions, and invalid state rejection.
+- Updated `AGENTS.md`, `ARCHITECTURE.md`, and `DEVELOPMENT_PLAN.md` to make the
+  persisted schema and safety semantics part of the accepted project context.
+
+### Verification, limitations, and next action
+
+- Static validation passed for all 11 Python ASTs, the Qt UI XML, all 54
+  Python-to-UI object references, and all 15 statically discovered signal
+  callback methods.
+- The five changed design/history Markdown files were replaced in place in
+  `IITM Dentobot/docs`; folder readback confirmed their stable Drive IDs and
+  byte-for-byte size agreement with the local canonical files.
+- No Slicer, WSL, CUDA, model, DICOM, or patient-data process was run.
+- Runtime acceptance is still required in official Slicer 5.12.2: reload the
+  module, run the self-test, inspect a known label against retained
+  `result.json`, change each review state, save an MRB, reopen it, and verify
+  the segmentation selection, source reference, metrics, provenance, state,
+  and update timestamp.
+- Step 3C remains the next implementation increment after review: a deliberate
+  Segment Editor correction handoff plus invalidation of prior review state
+  when masks are edited.
+- Nothing was reverted.
+
 ## 2026-07-24 15:00:25 IST (UTC+05:30) — Git repository setup
 
 ### Request and decision

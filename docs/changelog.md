@@ -21,6 +21,59 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-24 15:06:56 IST (UTC+05:30) — Step 3B metrics, provenance, and review state
+
+### Added and changed
+
+- Extended the `Segmentation Review` panel with selected-label details:
+  human-facing anatomy, source label, FDI number, model label ID, voxel count,
+  and physical volume in mm³ and cm³.
+- Added a compact provenance summary for run ID, source CBCT, backend and
+  TotalSegmentator versions, model task/dataset/crop, CUDA device, inference
+  and total time, and completion timestamp.
+- Added segmentation-level `Unreviewed`, `Needs Correction`, and `Reviewed`
+  workflow states with a persistent UTC update timestamp. UI warnings state
+  explicitly that `Reviewed` is not clinical validation.
+- Added a proper `DENTOBOT.SourceVolume` MRML node reference and versioned
+  `DENTOBOT.SegmentMetricsJson` data keyed by stable segment ID. New Bridge C
+  imports now persist the validated result's per-label metrics and expanded
+  provenance directly on the segmentation node.
+- Added a non-fatal compatibility path for older imported Bridge C results:
+  when versioned review metadata is absent, the module attempts to validate
+  and migrate the retained `result.json`. Missing or invalid retained
+  metadata produces a visible warning without discarding the segmentation.
+- Consolidated Bridge C provenance assignment through the new metadata
+  enrichment routine after successful output validation and import.
+- Extended Slicer-native logic tests for source-node references, per-label
+  metric mapping, provenance rendering, review-state persistence, and invalid
+  review-state rejection.
+- Updated the controlled agent, architecture, and development-plan documents
+  to record the Step 3B schema and remaining Step 3C boundary.
+
+### Preserved
+
+- Segment masks, reference geometry, inference commands, CUDA-only policy,
+  artifact validation, and the Step 3A display behavior are unchanged.
+- Segment Editor correction, edit-driven review invalidation, clinical
+  approval, registration, planning, navigation, robot control, and ROS remain
+  outside this increment.
+
+### Verification and limitations
+
+- All 11 repository Python files passed AST parsing without importing the
+  Slicer module in system Python.
+- `DENTOWorkflow.ui` passed XML parsing; all 54 `self.ui.*` references resolve
+  to declared UI objects, and all 15 statically discovered signal callback
+  methods exist.
+- Slicer, WSL, CUDA, TotalSegmentator, DICOM, patient data, and installed
+  Slicer files were not launched or modified.
+- Updated the existing Drive files for `AGENTS.md`, `ARCHITECTURE.md`,
+  `DEVELOPMENT_PLAN.md`, `changelog.md`, and `logbook.md` in place. Folder
+  readback confirmed the same five file IDs and matching byte sizes.
+- The extended Slicer-native test, known-label metric comparison, and MRB
+  scene save/reopen acceptance remain pending in official Slicer 5.12.2.
+  Nothing was reverted.
+
 ## 2026-07-24 15:00:25 IST (UTC+05:30) — Git version-control baseline
 
 ### Added and changed

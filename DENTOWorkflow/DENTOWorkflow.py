@@ -1824,7 +1824,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             self.SOURCE_VOLUME_REFERENCE_ROLE
         )
         sourceVolumeText = (
-            sourceVolume.GetName()
+            sourceVolume.GetName() or _("Unnamed volume")
             if sourceVolume
             else segmentationNode.GetAttribute("DENTOBOT.SourceVolumeID")
             or _("Unavailable")
@@ -2968,13 +2968,14 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         )
         segmentationNode.CreateDefaultDisplayNodes()
         segmentSpecifications = (
-            ("tooth-16", "upper_right_first_molar_fdi16"),
-            ("pulp-33", "lower_left_canine_pulp_fdi133"),
-            ("jaw", "upper_jawbone"),
+            ("tooth-16", "upper_right_first_molar_fdi16", 11),
+            ("pulp-33", "lower_left_canine_pulp_fdi133", 63),
+            ("jaw", "upper_jawbone", 2),
         )
-        for segmentId, segmentName in segmentSpecifications:
+        for segmentId, segmentName, labelValue in segmentSpecifications:
             segment = slicer.vtkSegment()
             segment.SetName(segmentName)
+            segment.SetLabelValue(labelValue)
             segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
 
         self.assertEqual(logic.getLatestTeethSegmentationNode(), segmentationNode)
@@ -2988,7 +2989,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         displayNode = segmentationNode.GetDisplayNode()
         logic.setAllSegmentationSegmentsVisibility(segmentationNode, False)
-        for segmentId, _segmentName in segmentSpecifications:
+        for segmentId, _segmentName, _labelValue in segmentSpecifications:
             self.assertFalse(displayNode.GetSegmentVisibility(segmentId))
 
         logic.setSegmentationSegmentVisibility(
@@ -3041,4 +3042,136 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         with self.assertRaisesRegex(ValueError, "between 0 and 1"):
             logic.setSegmentationOpacity3D(segmentationNode, 1.1)
 
-        self.delayDisplay("DENTOWorkflow Step 3A logic tests passed")
+        sourceVolume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode",
+            "ReviewSourceCBCT",
+        )
+        reviewReport = {
+            "schemaVersion": "1.0",
+            "command": "segment-teeth",
+            "runId": "review-run",
+            "status": "ok",
+            "errors": [],
+            "geometryMatch": True,
+            "labelValidationPassed": True,
+            "model": {
+                "task": "teeth",
+                "taskId": 113,
+                "sourceDataset": "ToothFairy3",
+                "cropTask": "craniofacial_structures",
+                "cropTaskId": 115,
+            },
+            "device": {
+                "requested": "cuda:0",
+                "actual": "cuda:0",
+                "peakAllocatedBytes": 2147483648,
+            },
+            "backend": {
+                "name": "dentobot-inference",
+                "version": "0.2.0",
+                "pythonVersion": "3.10.20",
+                "packages": {
+                    "TotalSegmentator": "2.16.0",
+                    "torch": "2.10.0+cu130",
+                },
+            },
+            "labels": [
+                {"id": 11, "name": "upper_right_first_molar_fdi16"},
+                {"id": 63, "name": "lower_left_canine_pulp_fdi133"},
+                {"id": 2, "name": "upper_jawbone"},
+            ],
+            "metrics": {
+                "detectedLabelIds": [2, 11, 63],
+                "segmentCount": 3,
+                "foregroundVoxelCount": 600,
+                "foregroundVolumeMm3": 75.0,
+                "voxelVolumeMm3": 0.125,
+                "perLabel": [
+                    {
+                        "id": 2,
+                        "name": "upper_jawbone",
+                        "voxelCount": 300,
+                        "volumeMm3": 37.5,
+                    },
+                    {
+                        "id": 11,
+                        "name": "upper_right_first_molar_fdi16",
+                        "voxelCount": 200,
+                        "volumeMm3": 25.0,
+                    },
+                    {
+                        "id": 63,
+                        "name": "lower_left_canine_pulp_fdi133",
+                        "voxelCount": 100,
+                        "volumeMm3": 12.5,
+                    },
+                ],
+            },
+            "runtimeSeconds": 75.2,
+            "inferenceSeconds": 70.1,
+            "startedAtUtc": "2026-07-24T08:00:00+00:00",
+            "completedAtUtc": "2026-07-24T08:01:15.200000+00:00",
+        }
+        metadataWarning = logic.applyTeethSegmentationReviewMetadata(
+            segmentationNode,
+            sourceVolume,
+            reviewReport,
+            resultMetadataPath=Path(r"C:\DENTOBOTRuns\review-run\result.json"),
+            segmentationNiftiPath=Path(
+                r"C:\DENTOBOTRuns\review-run\teeth-segmentation.nii"
+            ),
+        )
+        self.assertEqual(metadataWarning, "")
+        self.assertEqual(
+            segmentationNode.GetNodeReference(
+                logic.SOURCE_VOLUME_REFERENCE_ROLE
+            ),
+            sourceVolume,
+        )
+        self.assertEqual(
+            segmentationNode.GetAttribute("DENTOBOT.ReviewMetadataStatus"),
+            "complete",
+        )
+        self.assertEqual(
+            logic.getSegmentationReviewState(segmentationNode),
+            "Unreviewed",
+        )
+
+        toothDetails = logic.getSegmentationSegmentDetails(
+            segmentationNode,
+            "tooth-16",
+        )
+        self.assertEqual(toothDetails["labelId"], 11)
+        self.assertEqual(toothDetails["voxelCount"], 200)
+        self.assertAlmostEqual(toothDetails["volumeMm3"], 25.0)
+        self.assertEqual(toothDetails["fdiNumber"], "16")
+
+        provenance = logic.getSegmentationProvenance(segmentationNode)
+        self.assertEqual(provenance["runId"], "review-run")
+        self.assertEqual(provenance["sourceVolume"], "ReviewSourceCBCT")
+        self.assertIn("dentobot-inference 0.2.0", provenance["backend"])
+        self.assertIn("TotalSegmentator 2.16.0", provenance["backend"])
+        self.assertIn("ToothFairy3", provenance["model"])
+        self.assertEqual(provenance["device"], "cuda:0")
+
+        reviewTimestamp = "2026-07-24T09:00:00+00:00"
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc=reviewTimestamp,
+        )
+        self.assertEqual(
+            logic.getSegmentationReviewState(segmentationNode),
+            "Reviewed",
+        )
+        self.assertEqual(
+            segmentationNode.GetAttribute("DENTOBOT.ReviewUpdatedUtc"),
+            reviewTimestamp,
+        )
+        with self.assertRaisesRegex(ValueError, "review state"):
+            logic.setSegmentationReviewState(
+                segmentationNode,
+                "Clinically Validated",
+            )
+
+        self.delayDisplay("DENTOWorkflow Step 3A/3B logic tests passed")
