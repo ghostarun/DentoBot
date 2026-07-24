@@ -1,0 +1,8 @@
+name: dentobot
+channels:
+  - conda-forge
+dependencies:
+  # Bootstrap only. Python packages are installed from the validated pip
+  # manifests under requirements/ so there is one documented source of pins.
+  - python=3.10.20
+  - pip

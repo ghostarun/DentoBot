@@ -1,0 +1,6 @@
+# Install this file using the official PyTorch CUDA 13.0 wheel index:
+# python -m pip install --index-url https://download.pytorch.org/whl/cu130 \
+#   -r requirements/pytorch-cu130.txt
+#
+# This is the PyTorch build verified by DENTOBOT Bridge C on 2026-07-23.
+torch==2.10.0+cu130

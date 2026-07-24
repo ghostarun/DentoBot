@@ -1,0 +1,53 @@
+# Python bytecode, caches, and packaging output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local Python environments
+.venv/
+venv/
+env/
+.conda/
+
+# CMake and native build output
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+out/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db
+
+# Runtime output, temporary files, and local secrets
+*.log
+*.tmp
+*.temp
+.env
+.env.*
+!.env.example
+artifacts/
+runs/
+
+# Medical/research image data should not be committed by default
+*.dcm
+*.dicom
+*.nii
+*.nii.gz
+*.nrrd
+*.mha
+*.mhd
+*.mrb

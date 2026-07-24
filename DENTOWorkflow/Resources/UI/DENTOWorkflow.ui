@@ -1,0 +1,1198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DENTOWorkflow</class>
+ <widget class="qMRMLWidget" name="DENTOWorkflow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>380</width>
+    <height>650</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="productTitleLabel">
+     <property name="styleSheet">
+      <string notr="true">font-size: 22px; font-weight: 700;</string>
+     </property>
+     <property name="text">
+      <string>DENTOBOT</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="stepTitleLabel">
+     <property name="styleSheet">
+      <string notr="true">font-size: 14px; font-weight: 600; color: #4a7fa8;</string>
+     </property>
+     <property name="text">
+      <string>CASE IMAGING  /  AI SEGMENTATION REVIEW</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="introLabel">
+     <property name="text">
+      <string>Load CBCT data, run the external dental segmentation, and inspect its anatomical labels in Slicer's linked 2D and 3D views.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="caseCollapsibleButton">
+     <property name="text">
+      <string>Case</string>
+     </property>
+     <layout class="QVBoxLayout" name="caseVerticalLayout">
+      <item>
+       <layout class="QFormLayout" name="caseFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="caseNameLabel">
+          <property name="text">
+           <string>Case label:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="caseNameLineEdit">
+          <property name="toolTip">
+           <string>Use a de-identified research case label. Do not enter patient identifiers.</string>
+          </property>
+          <property name="placeholderText">
+           <string>De-identified label</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>caseName</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="caseButtonGridLayout">
+        <item row="0" column="0">
+         <widget class="QPushButton" name="newCaseButton">
+          <property name="toolTip">
+           <string>Clear the current MRML scene after confirmation. Original DICOM files are not changed.</string>
+          </property>
+          <property name="text">
+           <string>New Empty Case</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="openSceneButton">
+          <property name="toolTip">
+           <string>Open a previously saved Slicer MRML scene or MRB bundle.</string>
+          </property>
+          <property name="text">
+           <string>Open Saved Scene</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="imagingCollapsibleButton">
+     <property name="text">
+      <string>CBCT Imaging</string>
+     </property>
+     <layout class="QVBoxLayout" name="imagingVerticalLayout">
+      <item>
+       <widget class="QPushButton" name="openDicomButton">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Open Slicer's standard DICOM browser to import and load a CBCT series.</string>
+        </property>
+        <property name="text">
+         <string>Open DICOM Browser</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="dicomInstructionLabel">
+        <property name="text">
+         <string>In the DICOM browser: import a folder, select the CBCT series, click Load, then return to DENTO Workflow.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="volumeFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="inputVolumeLabel">
+          <property name="text">
+           <string>Selected volume:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+          <property name="toolTip">
+           <string>Select a scalar CBCT volume already loaded in the scene.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLScalarVolumeNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>inputVolume</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="showVolumeButton">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Set the selected volume as the background in Slicer's slice viewers and fit the views.</string>
+        </property>
+        <property name="text">
+         <string>Show in Slice Views</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="statusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>No CBCT volume selected.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="metadataGroupBox">
+     <property name="title">
+      <string>Selected Volume Metadata</string>
+     </property>
+     <layout class="QFormLayout" name="metadataFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="volumeNameLabel">
+        <property name="text">
+         <string>Name:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="volumeNameValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+        <property name="textInteractionFlags">
+         <set>Qt::TextSelectableByMouse</set>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="dimensionsLabel">
+        <property name="text">
+         <string>Dimensions:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLabel" name="dimensionsValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="spacingLabel">
+        <property name="text">
+         <string>Spacing:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLabel" name="spacingValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="scalarTypeLabel">
+        <property name="text">
+         <string>Scalar type:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLabel" name="scalarTypeValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="scalarRangeLabel">
+        <property name="text">
+         <string>Scalar range:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QLabel" name="scalarRangeValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="orientationLabel">
+        <property name="text">
+         <string>Orientation:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QLabel" name="orientationValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="geometryStatusLabel">
+        <property name="text">
+         <string>Geometry:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QLabel" name="geometryStatusValueLabel">
+        <property name="text">
+         <string>--</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="backendCollapsibleButton">
+     <property name="text">
+      <string>AI Backend Bridge</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="backendVerticalLayout">
+      <item>
+       <widget class="QLabel" name="backendDescriptionLabel">
+        <property name="text">
+         <string>Slicer keeps the UI and MRML scene. A named WSL distribution and its dedicated Conda Python run dependency-heavy computation externally.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="backendFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="wslDistributionLabel">
+          <property name="text">
+           <string>WSL distribution:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="wslDistributionLineEdit">
+          <property name="toolTip">
+           <string>Exact distribution name shown by wsl.exe --list --verbose, for example Ubuntu-24.04.</string>
+          </property>
+          <property name="placeholderText">
+           <string>Ubuntu-24.04</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>wslDistribution</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="wslPythonPathLabel">
+          <property name="text">
+           <string>Environment Python:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="wslPythonPathLineEdit">
+          <property name="toolTip">
+           <string>Absolute Linux path to python inside the dedicated DENTOBOT Conda environment. No shell activation is used.</string>
+          </property>
+          <property name="placeholderText">
+           <string>/home/user/miniconda3/envs/dentobot-inference/bin/python</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>wslPythonPath</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="stagingRootLabel">
+          <property name="text">
+           <string>Run artifacts:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLineEdit" name="stagingRootLineEdit">
+          <property name="toolTip">
+           <string>Local Windows directory for isolated NIfTI and JSON run artifacts. Do not use a patient DICOM folder.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>stagingRoot</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="bridgeInputLabel">
+          <property name="text">
+           <string>Bridge input:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QLabel" name="bridgeInputValueLabel">
+          <property name="toolTip">
+           <string>This is the exact Selected volume that bridge tests and teeth segmentation will export.</string>
+          </property>
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="roundTripOutputLabel">
+          <property name="text">
+           <string>Returned volume:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QLabel" name="roundTripOutputValueLabel">
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="teethSegmentationLabel">
+          <property name="text">
+           <string>Teeth segmentation:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QLabel" name="teethSegmentationValueLabel">
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item row="6" column="0">
+         <widget class="QLabel" name="teethMetricsLabel">
+          <property name="text">
+           <string>Inference metrics:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="6" column="1">
+         <widget class="QLabel" name="teethMetricsValueLabel">
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="backendButtonGridLayout">
+        <item row="0" column="0">
+         <widget class="QPushButton" name="checkBackendButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Run a read-only environment and CUDA health check. This does not install packages or download models.</string>
+          </property>
+          <property name="text">
+           <string>Check WSL + CUDA</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="roundTripButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Export the selected volume to NIfTI, rewrite it in WSL, validate it, and import the returned volume.</string>
+          </property>
+          <property name="text">
+           <string>Test NIfTI Round Trip</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="cancelBackendButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>Cancel</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0" colspan="3">
+         <widget class="QPushButton" name="segmentTeethButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Run TotalSegmentator teeth on CUDA device 0. Both teeth and craniofacial model weights must already be cached in WSL; this action never downloads models or falls back to CPU.</string>
+          </property>
+          <property name="text">
+           <string>Run Teeth Segmentation (GPU)</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="segmentationSafetyLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Research output only. Review all generated labels before using them for planning.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="backendStatusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #555555;</string>
+        </property>
+        <property name="text">
+         <string>Configure the WSL distribution and environment Python, then check the backend.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPlainTextEdit" name="backendLogTextEdit">
+        <property name="maximumBlockCount">
+         <number>2000</number>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>140</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Structured output from the active backend process. Do not include patient identifiers in backend messages.</string>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+        <property name="placeholderText">
+         <string>Backend output will appear here.</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+   </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="segmentationReviewCollapsibleButton">
+     <property name="text">
+      <string>Segmentation Review</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="segmentationReviewVerticalLayout">
+      <item>
+       <widget class="QLabel" name="segmentationReviewDescriptionLabel">
+        <property name="text">
+         <string>Explore the selected segmentation without changing its masks. Visibility and opacity are MRML display settings and are saved with the scene.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="segmentationReviewFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="reviewSegmentationLabel">
+          <property name="text">
+           <string>Segmentation:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="reviewSegmentationSelector">
+          <property name="toolTip">
+           <string>Select a segmentation already loaded in the MRML scene. The latest DENTOBOT teeth result is selected automatically.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLSegmentationNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>teethSegmentation</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="segmentSearchLineEdit">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Search by anatomy, source label, category, or FDI number.</string>
+        </property>
+        <property name="placeholderText">
+         <string>Search anatomy or FDI number...</string>
+        </property>
+        <property name="clearButtonEnabled">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QTreeWidget" name="segmentTreeWidget">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>230</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>320</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Check labels to show them. Selecting a label emphasizes it in 2D and 3D and enables isolated inspection.</string>
+        </property>
+        <property name="alternatingRowColors">
+         <bool>true</bool>
+        </property>
+        <property name="rootIsDecorated">
+         <bool>true</bool>
+        </property>
+        <property name="uniformRowHeights">
+         <bool>true</bool>
+        </property>
+        <property name="columnCount">
+         <number>2</number>
+        </property>
+        <column>
+         <property name="text">
+          <string>Anatomy</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Source label</string>
+         </property>
+        </column>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="segmentVisibilityButtonGridLayout">
+        <item row="0" column="0">
+         <widget class="QPushButton" name="showAllSegmentsButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>Show All</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="hideAllSegmentsButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>Hide All</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="isolateSegmentButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Hide every other segment while keeping the selected label visible.</string>
+          </property>
+          <property name="text">
+           <string>Isolate Selected</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="selectedSegmentDetailsGroupBox">
+        <property name="title">
+         <string>Selected Label Details</string>
+        </property>
+        <layout class="QFormLayout" name="selectedSegmentDetailsFormLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="selectedAnatomyLabel">
+           <property name="text">
+            <string>Anatomy:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="selectedAnatomyValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="selectedSourceLabelLabel">
+           <property name="text">
+            <string>Source label:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="selectedSourceLabelValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="selectedFdiLabel">
+           <property name="text">
+            <string>FDI:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="selectedFdiValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="selectedLabelIdLabel">
+           <property name="text">
+            <string>Model label ID:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLabel" name="selectedLabelIdValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="selectedVoxelCountLabel">
+           <property name="text">
+            <string>Voxel count:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QLabel" name="selectedVoxelCountValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="selectedVolumeLabel">
+           <property name="text">
+            <string>Physical volume:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QLabel" name="selectedVolumeValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="toolTip">
+            <string>Volume is calculated by the external backend from the validated output labelmap geometry.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="segmentationDisplayGridLayout">
+        <item row="0" column="0">
+         <widget class="QCheckBox" name="segmentation2DCheckBox">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>2D overlays</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QSlider" name="segmentation2DOpacitySlider">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Adjust global 2D fill and outline opacity.</string>
+          </property>
+          <property name="minimum">
+           <number>0</number>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>50</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="segmentation2DOpacityValueLabel">
+          <property name="minimumSize">
+           <size>
+            <width>34</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>50%</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QCheckBox" name="segmentation3DCheckBox">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="text">
+           <string>3D surfaces</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QSlider" name="segmentation3DOpacitySlider">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Adjust global 3D closed-surface opacity.</string>
+          </property>
+          <property name="minimum">
+           <number>0</number>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>55</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="segmentation3DOpacityValueLabel">
+          <property name="minimumSize">
+           <size>
+            <width>34</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>55%</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="segmentationProvenanceGroupBox">
+        <property name="title">
+         <string>Result Provenance and Review State</string>
+        </property>
+        <layout class="QFormLayout" name="segmentationProvenanceFormLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="provenanceRunIdLabel">
+           <property name="text">
+            <string>Run ID:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="provenanceRunIdValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="provenanceSourceVolumeLabel">
+           <property name="text">
+            <string>Source CBCT:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="provenanceSourceVolumeValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="provenanceBackendLabel">
+           <property name="text">
+            <string>Backend:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="provenanceBackendValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="provenanceModelLabel">
+           <property name="text">
+            <string>Model:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLabel" name="provenanceModelValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="provenanceDeviceLabel">
+           <property name="text">
+            <string>Device:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QLabel" name="provenanceDeviceValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="provenanceTimingLabel">
+           <property name="text">
+            <string>Timing:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QLabel" name="provenanceTimingValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0">
+          <widget class="QLabel" name="provenanceCompletedLabel">
+           <property name="text">
+            <string>Completed UTC:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QLabel" name="provenanceCompletedValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="0">
+          <widget class="QLabel" name="reviewStateLabel">
+           <property name="text">
+            <string>Review state:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="1">
+          <widget class="QComboBox" name="reviewStateComboBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="toolTip">
+            <string>Workflow status for the whole segmentation. Reviewed does not mean clinically validated.</string>
+           </property>
+           <item>
+            <property name="text">
+             <string>Unreviewed</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Needs Correction</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Reviewed</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="8" column="0">
+          <widget class="QLabel" name="reviewUpdatedLabel">
+           <property name="text">
+            <string>Review updated UTC:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="8" column="1">
+          <widget class="QLabel" name="reviewUpdatedValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="9" column="0" colspan="2">
+          <widget class="QLabel" name="provenanceWarningLabel">
+           <property name="styleSheet">
+            <string notr="true">color: #b36b00;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="segmentationReviewStatusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Select a segmentation to review.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="segmentationReviewSafetyLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Visual inspection and the workflow state “Reviewed” are not anatomical or clinical validation. Generated labels require independent review.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>qMRMLWidget</class>
+   <extends>QWidget</extends>
+   <header>qMRMLWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>qMRMLNodeComboBox</class>
+   <extends>QWidget</extends>
+   <header>qMRMLNodeComboBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>ctkCollapsibleButton</class>
+   <extends>QWidget</extends>
+   <header>ctkCollapsibleButton.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>inputVolumeSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>reviewSegmentationSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+ </connections>
+</ui>

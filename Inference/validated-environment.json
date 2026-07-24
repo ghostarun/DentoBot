@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0",
+  "status": "validated-happy-path",
+  "validationDate": "2026-07-23",
+  "scope": "One successful GPU teeth-segmentation run and Slicer import/display",
+  "application": {
+    "name": "DENTOBOT",
+    "backendVersion": "0.2.0",
+    "slicerVersion": "5.12.2"
+  },
+  "platform": {
+    "executionLayer": "WSL2",
+    "distribution": "Ubuntu",
+    "pythonVersion": "3.10.20",
+    "pythonExecutable": "/home/tarun/miniconda3/envs/dentobot/bin/python"
+  },
+  "packages": {
+    "numpy": "2.2.6",
+    "nibabel": "5.4.2",
+    "torch": "2.10.0+cu130",
+    "TotalSegmentator": "2.16.0",
+    "nnunetv2": "2.8.1"
+  },
+  "accelerator": {
+    "requestedDevice": "cuda:0",
+    "actualDevice": "cuda:0",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "torchCudaVersion": "13.0"
+  },
+  "models": {
+    "primaryTask": {
+      "name": "teeth",
+      "taskId": 113
+    },
+    "cropTask": {
+      "name": "craniofacial_structures",
+      "taskId": 115
+    }
+  },
+  "evidence": {
+    "runId": "93cbd5d102734cb6918de0d7b11374b4",
+    "inputShape": [580, 580, 300],
+    "inputSpacingMm": [0.25, 0.25, 0.25],
+    "segmentCount": 60,
+    "runtimeSeconds": 75.232826,
+    "inferenceSeconds": 70.287118,
+    "peakGpuAllocationGiB": 2.16
+  },
+  "deferredValidation": [
+    "Five new segmentation-focused WSL unit tests",
+    "Missing dependency, missing model, and unavailable CUDA paths",
+    "Cancellation and process-tree cleanup",
+    "Out-of-memory and partial-output handling",
+    "MRB save and reopen persistence",
+    "Anatomical and clinical ground-truth validation",
+    "Complete transitive dependency lock and clean-machine reconstruction"
+  ],
+  "warning": "Research prototype only. This record establishes technical happy-path reproducibility, not anatomical or clinical validity."
+}

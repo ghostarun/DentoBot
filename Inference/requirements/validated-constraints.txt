@@ -1,0 +1,9 @@
+# Exact top-level versions observed in the successful Bridge C environment.
+# This is not a complete transitive lock file. Capture a platform-specific
+# conda explicit export and pip freeze before a formal release.
+numpy==2.2.6
+nibabel==5.4.2
+torch==2.10.0+cu130
+TotalSegmentator==2.16.0
+nnunetv2==2.8.1
+pytest==8.4.2

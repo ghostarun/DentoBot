@@ -1,0 +1,6 @@
+# Validated top-level runtime dependencies for backend 0.2.0.
+# See validated-constraints.txt and docs/REPRODUCIBILITY_AND_TRACEABILITY.md.
+numpy==2.2.6
+nibabel==5.4.2
+TotalSegmentator==2.16.0
+nnunetv2==2.8.1
