@@ -60,15 +60,16 @@ used as an autonomous patient-treatment system.
   review workflow works as intended, including its universal
   segmentation-level review state. Do not reinterpret that state as
   per-label approval or anatomical/clinical validation.
-- **Step 3C correction handoff is implemented in source and awaits in-Slicer
-  acceptance.** The selected label and persisted source CBCT are handed to
-  Slicer's built-in Segment Editor. Starting correction conservatively changes
-  the whole segmentation to `Needs Correction`, timestamps the correction
-  revision, and identifies imported inference metrics as baseline-only.
+- **Step 3C correction handoff is developer-verified in Slicer 5.12.2.** The
+  developer completed the full acceptance checklist: the selected label,
+  authoritative segmentation, and persisted source CBCT were correctly handed
+  to Slicer's built-in Segment Editor; correction changed the universal state
+  to `Needs Correction`; baseline-metric messaging and correction activity
+  were shown; and the MRB scene round trip preserved the expected state.
   Source-representation edits and segment addition/removal are observed while
   DENTO Workflow is active; display, naming, selection, and provenance changes
-  do not invalidate review. Do not claim Step 3C passes until it is run in
-  Slicer 5.12.2.
+  do not invalidate review. This evidence confirms workflow behavior, not
+  anatomical or clinical accuracy.
 
 ## Product strategy
 

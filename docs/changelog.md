@@ -21,6 +21,36 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C acceptance and quiet negative test
+
+### Accepted and changed
+
+- Recorded the developer's successful completion of the complete Step 3C
+  checklist in Slicer 5.12.2. The selected label, authoritative segmentation,
+  and source CBCT were correctly handed to Segment Editor; correction state,
+  baseline-metric messaging, correction activity, and MRB persistence behaved
+  as intended.
+- Marked Steps 3A, 3B, and 3C developer-verified at the current Step 3 scope.
+- Reworked the missing-source negative test to temporarily remove and restore
+  the source reference on the existing valid test segmentation instead of
+  creating a scene-owned orphan segmentation. This preserves the same
+  `ValueError` coverage while avoiding expected Subject Hierarchy warnings.
+
+### Verification and limitations
+
+- The application workflow and Step 3C checklist were run by the developer in
+  Slicer 5.12.2 and reported successful.
+- The observed `CorrectionWithoutSource` Qt messages were traced to the
+  deliberate negative-test fixture, not the real segmentation or correction
+  workflow. The revised quiet fixture is statically validated here but still
+  needs one future in-Slicer self-test run to confirm the console is quiet.
+- Replaced `AGENTS.md`, `DEVELOPMENT_PLAN.md`, `changelog.md`, and
+  `logbook.md` in place in the Drive mirror. Metadata readback confirmed the
+  existing file IDs and byte sizes matching the local files.
+- No anatomical or clinical accuracy claim was added. Corrected-mask metric
+  recomputation and per-label review states remain optional later work.
+- Nothing was reverted.
+
 ## 2026-07-24 15:50:44 IST (UTC+05:30) — Step 3C correction handoff
 
 ### Added and changed

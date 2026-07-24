@@ -194,8 +194,7 @@ remain required before a reproducible release or robustness claim:
 
 ## Step 3: Segmentation review and visualization
 
-**Status:** Steps 3A/3B developer-verified; Step 3C implemented in source with
-in-Slicer acceptance pending
+**Status:** Steps 3A, 3B, and 3C developer-verified in Slicer 5.12.2
 
 Goal: let the researcher inspect and curate dental labels before planning.
 
@@ -256,12 +255,14 @@ Remaining Step 3 increments:
 - optional per-label review state, only if the research workflow later needs
   tooth-by-tooth acceptance
 
-The developer reports that Steps 3A and 3B work as intended in Slicer 5.12.2.
-Step 3C acceptance requires selecting a known label, opening Segment Editor,
-confirming the exact segmentation/source CBCT/segment selections, making and
-undoing a small test edit, returning to DENTO Workflow, and verifying
-`Needs Correction`, baseline-metric messaging, correction activity, and MRB
-scene persistence. Anatomical accuracy remains a separate validation problem.
+The developer reports that Steps 3A and 3B work as intended in Slicer 5.12.2
+and completed the Step 3C acceptance checklist. The exact segmentation,
+source CBCT, and selected segment were handed to Segment Editor; a small
+edit/undo cycle and return to DENTO Workflow produced the intended
+`Needs Correction` state, baseline-metric messaging, correction activity, and
+MRB scene persistence. Step 3 is therefore accepted at its current scope.
+Anatomical accuracy, corrected-mask metric recomputation, and optional
+per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 

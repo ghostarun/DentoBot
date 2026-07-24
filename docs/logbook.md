@@ -25,6 +25,38 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C accepted in Slicer
+
+### Developer evidence
+
+- The developer completed the previously documented Step 3C checklist in
+  Slicer 5.12.2 and reported that segmentation handoff and correction work as
+  intended.
+- The exact segmentation, selected label, and source CBCT were present in
+  Segment Editor. The universal `Needs Correction` transition, baseline
+  inference-metric warning, correction activity, and scene save/reopen
+  behavior were also verified.
+- This closes the in-Slicer acceptance item for Step 3C. It does not validate
+  label anatomy or clinical suitability.
+
+### Warning diagnosis and cleanup
+
+- The self-test printed two Subject Hierarchy warnings naming
+  `CorrectionWithoutSource`. They occurred when the missing-source negative
+  test created a new scene-owned segmentation and immediately added a segment
+  before Subject Hierarchy had an item for that temporary node.
+- The warnings were test-fixture noise and did not originate from the
+  developer's real segmentation or Segment Editor correction workflow.
+- The negative test now removes the source node reference and diagnostic
+  source ID from the already valid test segmentation, asserts the same
+  actionable `ValueError`, and restores both values in a `finally` block.
+  This avoids the unnecessary orphan segmentation without weakening coverage.
+- The test-only cleanup still requires an in-Slicer self-test rerun before the
+  warning-removal claim can be marked verified. Nothing was reverted.
+- The four changed controlled/history documents were replaced in place in the
+  existing Drive mirror; metadata readback confirmed stable IDs and local
+  byte-size agreement.
+
 ## 2026-07-24 15:50:44 IST (UTC+05:30) — Step 3C implementation session
 
 ### Request and clarified behavior

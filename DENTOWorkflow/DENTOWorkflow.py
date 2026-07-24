@@ -3580,20 +3580,26 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "2026-07-24T09:26:00+00:00",
         )
 
-        orphanSegmentation = slicer.mrmlScene.AddNewNodeByClass(
-            "vtkMRMLSegmentationNode",
-            "CorrectionWithoutSource",
+        sourceVolumeId = sourceVolume.GetID()
+        segmentationNode.SetNodeReferenceID(
+            logic.SOURCE_VOLUME_REFERENCE_ROLE,
+            None,
         )
-        orphanSegment = slicer.vtkSegment()
-        orphanSegment.SetName("orphan")
-        orphanSegmentation.GetSegmentation().AddSegment(
-            orphanSegment,
-            "orphan",
-        )
-        with self.assertRaisesRegex(ValueError, "source CBCT"):
-            logic.beginSegmentationCorrection(
-                orphanSegmentation,
-                "orphan",
+        segmentationNode.SetAttribute("DENTOBOT.SourceVolumeID", None)
+        try:
+            with self.assertRaisesRegex(ValueError, "source CBCT"):
+                logic.beginSegmentationCorrection(
+                    segmentationNode,
+                    "tooth-16",
+                )
+        finally:
+            segmentationNode.SetNodeReferenceID(
+                logic.SOURCE_VOLUME_REFERENCE_ROLE,
+                sourceVolumeId,
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.SourceVolumeID",
+                sourceVolumeId,
             )
 
         self.delayDisplay("DENTOWorkflow Step 3A/3B/3C logic tests passed")
