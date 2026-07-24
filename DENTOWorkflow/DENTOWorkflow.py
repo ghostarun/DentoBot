@@ -80,6 +80,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._segmentReviewRecordsById: dict[str, dict] = {}
         self._reviewMetadataWarning = ""
         self._updatingSegmentationReviewUI = False
+        self._processingSegmentationContentChange = False
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -123,6 +124,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.showAllSegmentsButton.connect("clicked(bool)", self.onShowAllSegments)
         self.ui.hideAllSegmentsButton.connect("clicked(bool)", self.onHideAllSegments)
         self.ui.isolateSegmentButton.connect("clicked(bool)", self.onIsolateSelectedSegment)
+        self.ui.editSelectedSegmentButton.connect(
+            "clicked(bool)",
+            self.onEditSelectedSegment,
+        )
         self.ui.segmentation2DCheckBox.connect(
             "toggled(bool)",
             self.onSegmentation2DVisibilityToggled,
@@ -289,6 +294,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 vtk.vtkCommand.ModifiedEvent,
                 self._onReviewSegmentationModified,
             )
+            for segmentationEvent in (
+                slicer.vtkSegmentation.SourceRepresentationModified,
+                slicer.vtkSegmentation.SegmentAdded,
+                slicer.vtkSegmentation.SegmentRemoved,
+            ):
+                self.removeObserver(
+                    self._reviewSegmentationNode,
+                    segmentationEvent,
+                    self._onReviewSegmentationContentModified,
+                )
         if self._reviewDisplayNode:
             self.removeObserver(
                 self._reviewDisplayNode,
@@ -309,6 +324,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             vtk.vtkCommand.ModifiedEvent,
             self._onReviewSegmentationModified,
         )
+        for segmentationEvent in (
+            slicer.vtkSegmentation.SourceRepresentationModified,
+            slicer.vtkSegmentation.SegmentAdded,
+            slicer.vtkSegmentation.SegmentRemoved,
+        ):
+            self.addObserver(
+                segmentationNode,
+                segmentationEvent,
+                self._onReviewSegmentationContentModified,
+            )
         if self._reviewDisplayNode:
             self.addObserver(
                 self._reviewDisplayNode,
@@ -324,6 +349,43 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _onReviewDisplayModified(self, caller=None, event=None) -> None:
         if not self._updatingSegmentationReviewUI:
             self._syncSegmentationDisplayControls()
+
+    def _onReviewSegmentationContentModified(
+        self,
+        caller=None,
+        event=None,
+    ) -> None:
+        del event
+        if (
+            self._processingSegmentationContentChange
+            or not self.logic
+            or not self._reviewSegmentationNode
+        ):
+            return
+        self._processingSegmentationContentChange = True
+        self._updatingSegmentationReviewUI = True
+        try:
+            wasReviewed = self.logic.invalidateSegmentationReviewAfterEdit(
+                self._reviewSegmentationNode
+            )
+        finally:
+            self._updatingSegmentationReviewUI = False
+            self._processingSegmentationContentChange = False
+
+        self._rebuildSegmentTree()
+        self._refreshSegmentationInspection()
+        self.ui.segmentationReviewStatusLabel.text = (
+            _(
+                "Mask content changed. Review state was reset to "
+                "Needs Correction."
+            )
+            if wasReviewed
+            else _(
+                "Mask content changed. Inference metrics now describe the "
+                "pre-edit result."
+            )
+        )
+        self.ui.segmentationReviewStatusLabel.styleSheet = "color: #b36b00;"
 
     def _clearSegmentationReview(self) -> None:
         if not hasattr(self, "ui"):
@@ -364,9 +426,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             widget.enabled = enabled
         currentItem = self.ui.segmentTreeWidget.currentItem()
-        self.ui.isolateSegmentButton.enabled = bool(
+        hasSelectedSegment = bool(
             enabled and currentItem and currentItem.data(0, qt.Qt.UserRole)
         )
+        self.ui.isolateSegmentButton.enabled = hasSelectedSegment
+        self.ui.editSelectedSegmentButton.enabled = hasSelectedSegment
 
     def _updateSegmentationReview(self) -> None:
         if not self._reviewSegmentationNode or not self.logic:
@@ -576,6 +640,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             else None
         )
         self.ui.isolateSegmentButton.enabled = bool(segmentId)
+        self.ui.editSelectedSegmentButton.enabled = bool(segmentId)
         if not segmentId:
             self._setSelectedSegmentDetailPlaceholders()
             if self._reviewSegmentationNode and self.logic:
@@ -632,6 +697,56 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 segmentId,
             )
 
+    def onEditSelectedSegment(self) -> None:
+        segmentId = self._selectedReviewSegmentId()
+        if not segmentId or not self._reviewSegmentationNode or not self.logic:
+            slicer.util.errorDisplay(
+                _("Select a segmentation label before opening Segment Editor.")
+            )
+            return
+
+        with slicer.util.tryWithErrorDisplay(
+            _("Could not open the selected label in Segment Editor.")
+        ):
+            segmentEditorModule = getattr(
+                slicer.modules,
+                "segmenteditor",
+                None,
+            )
+            if not segmentEditorModule:
+                raise RuntimeError(
+                    _("The built-in Segment Editor module is unavailable.")
+                )
+            moduleWidget = segmentEditorModule.widgetRepresentation().self()
+            if not moduleWidget or not moduleWidget.editor:
+                raise RuntimeError(
+                    _("The built-in Segment Editor widget is unavailable.")
+                )
+            handoff = self.logic.beginSegmentationCorrection(
+                self._reviewSegmentationNode,
+                segmentId,
+            )
+            self.logic.setSegmentationSegmentHighlight(
+                self._reviewSegmentationNode,
+                None,
+            )
+            self.logic.setSegmentationSegmentVisibility(
+                self._reviewSegmentationNode,
+                segmentId,
+                True,
+            )
+            slicer.util.setSliceViewerLayers(
+                background=handoff["sourceVolume"],
+                fit=False,
+            )
+            moduleWidget.editor.setSegmentationNode(
+                handoff["segmentationNode"]
+            )
+            moduleWidget.editor.setSourceVolumeNode(handoff["sourceVolume"])
+            moduleWidget.editor.setCurrentSegmentID(handoff["segmentId"])
+            moduleWidget.editor.setActiveEffect(None)
+            slicer.util.selectModule("SegmentEditor")
+
     def onSegmentation2DVisibilityToggled(self, visible: bool) -> None:
         if (
             not self._updatingSegmentationReviewUI
@@ -686,6 +801,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.selectedLabelIdValueLabel,
             self.ui.selectedVoxelCountValueLabel,
             self.ui.selectedVolumeValueLabel,
+            self.ui.selectedMetricsStatusValueLabel,
         ):
             label.text = _("--")
 
@@ -699,6 +815,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.provenanceTimingValueLabel,
             self.ui.provenanceCompletedValueLabel,
             self.ui.reviewUpdatedValueLabel,
+            self.ui.correctionActivityValueLabel,
         ):
             label.text = _("--")
         self.ui.reviewStateComboBox.setCurrentIndex(0)
@@ -745,6 +862,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if volumeMm3 is not None
             else _("--")
         )
+        if details["voxelCount"] is None or details["volumeMm3"] is None:
+            metricsStatus = _("Inference metrics unavailable")
+        elif details["metricsValidity"] == "current":
+            metricsStatus = _("Current for imported inference result")
+        else:
+            metricsStatus = _("Baseline inference values retained for comparison")
+        self.ui.selectedMetricsStatusValueLabel.text = metricsStatus
 
     def _updateSegmentationProvenance(self) -> None:
         if not self._reviewSegmentationNode or not self.logic:
@@ -772,7 +896,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.reviewUpdatedValueLabel.text = provenance[
                 "reviewUpdatedUtc"
             ]
-            self.ui.provenanceWarningLabel.text = self._reviewMetadataWarning
+            self.ui.correctionActivityValueLabel.text = provenance[
+                "correctionActivityUtc"
+            ]
+            warnings = []
+            if self._reviewMetadataWarning:
+                warnings.append(self._reviewMetadataWarning)
+            if provenance["metricsValidity"] != "current":
+                warnings.append(
+                    _(
+                        "Per-label voxel and volume values describe the "
+                        "imported inference result and may not match corrected "
+                        "masks."
+                    )
+                )
+            self.ui.provenanceWarningLabel.text = " ".join(warnings)
         finally:
             self._updatingSegmentationReviewUI = False
 
@@ -1676,6 +1814,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 "DENTOBOT.ReviewMetadataStatus",
                 metadataStatus,
             )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.SegmentMetricsValidity",
+                (
+                    "pre-correction-inference"
+                    if segmentationNode.GetAttribute(
+                        "DENTOBOT.CorrectionStartedUtc"
+                    )
+                    else "current"
+                ),
+            )
             if not segmentationNode.GetAttribute("DENTOBOT.ReviewState"):
                 segmentationNode.SetAttribute(
                     "DENTOBOT.ReviewState",
@@ -1811,6 +1959,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "voxelCount": metric.get("voxelCount") if metric else None,
             "volumeMm3": metric.get("volumeMm3") if metric else None,
             "runId": segmentationNode.GetAttribute("DENTOBOT.RunId") or "",
+            "metricsValidity": (
+                segmentationNode.GetAttribute(
+                    "DENTOBOT.SegmentMetricsValidity"
+                )
+                or "current"
+            ),
         }
 
     def getSegmentationProvenance(
@@ -1912,6 +2066,25 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 "DENTOBOT.ReviewUpdatedUtc"
             )
             or _("Not yet changed"),
+            "lastSegmentationEditUtc": segmentationNode.GetAttribute(
+                "DENTOBOT.LastSegmentationEditUtc"
+            )
+            or _("No edits recorded"),
+            "correctionActivityUtc": (
+                segmentationNode.GetAttribute(
+                    "DENTOBOT.LastSegmentationEditUtc"
+                )
+                or segmentationNode.GetAttribute(
+                    "DENTOBOT.CorrectionStartedUtc"
+                )
+                or _("No correction recorded")
+            ),
+            "metricsValidity": (
+                segmentationNode.GetAttribute(
+                    "DENTOBOT.SegmentMetricsValidity"
+                )
+                or "current"
+            ),
         }
 
     def getSegmentationReviewState(
@@ -1942,8 +2115,145 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 "DENTOBOT.ReviewUpdatedUtc",
                 timestamp,
             )
+            if state == "Reviewed":
+                segmentationNode.SetAttribute(
+                    "DENTOBOT.ReviewInvalidationReason",
+                    None,
+                )
         finally:
             segmentationNode.EndModify(wasModifying)
+
+    def getSegmentationSourceVolume(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+    ) -> vtkMRMLScalarVolumeNode:
+        """Return the persisted source CBCT required by Segment Editor."""
+
+        self._segmentationAndDisplayNode(segmentationNode)
+        sourceVolume = segmentationNode.GetNodeReference(
+            self.SOURCE_VOLUME_REFERENCE_ROLE
+        )
+        if not sourceVolume:
+            sourceVolumeId = segmentationNode.GetAttribute(
+                "DENTOBOT.SourceVolumeID"
+            )
+            sourceVolume = (
+                slicer.mrmlScene.GetNodeByID(sourceVolumeId)
+                if sourceVolumeId
+                else None
+            )
+            if sourceVolume:
+                segmentationNode.SetNodeReferenceID(
+                    self.SOURCE_VOLUME_REFERENCE_ROLE,
+                    sourceVolume.GetID(),
+                )
+        if (
+            not sourceVolume
+            or not sourceVolume.IsA("vtkMRMLScalarVolumeNode")
+            or not sourceVolume.GetImageData()
+        ):
+            raise ValueError(
+                _(
+                    "The segmentation's source CBCT is unavailable. Restore "
+                    "the source volume before correction."
+                )
+            )
+        return sourceVolume
+
+    def beginSegmentationCorrection(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+        startedUtc: str | None = None,
+    ) -> dict[str, object]:
+        """Validate an editor handoff and begin a conservative correction revision."""
+
+        segmentation, _displayNode = self._segmentationAndDisplayNode(
+            segmentationNode
+        )
+        if not segmentId or not segmentation.GetSegment(segmentId):
+            raise ValueError(_("The selected segment does not exist."))
+        sourceVolume = self.getSegmentationSourceVolume(segmentationNode)
+        timestamp = startedUtc or datetime.now(timezone.utc).isoformat()
+        wasModifying = segmentationNode.StartModify()
+        try:
+            segmentationNode.SetAttribute(
+                "DENTOBOT.CorrectionStartedUtc",
+                timestamp,
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.SegmentMetricsValidity",
+                "pre-correction-inference",
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.ReviewState",
+                "Needs Correction",
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.ReviewUpdatedUtc",
+                timestamp,
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.ReviewInvalidationReason",
+                "Correction workflow opened",
+            )
+        finally:
+            segmentationNode.EndModify(wasModifying)
+        logging.info(
+            "DENTOBOT correction started for segment %s in node %s",
+            segmentId,
+            segmentationNode.GetID(),
+        )
+        return {
+            "segmentationNode": segmentationNode,
+            "sourceVolume": sourceVolume,
+            "segmentId": segmentId,
+        }
+
+    def invalidateSegmentationReviewAfterEdit(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        editedUtc: str | None = None,
+    ) -> bool:
+        """Record a mask edit and invalidate a previously reviewed result."""
+
+        self._segmentationAndDisplayNode(segmentationNode)
+        timestamp = editedUtc or datetime.now(timezone.utc).isoformat()
+        wasReviewed = (
+            self.getSegmentationReviewState(segmentationNode) == "Reviewed"
+        )
+        wasModifying = segmentationNode.StartModify()
+        try:
+            segmentationNode.SetAttribute(
+                "DENTOBOT.LastSegmentationEditUtc",
+                timestamp,
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.SegmentMetricsValidity",
+                "pre-correction-inference",
+            )
+            segmentationNode.SetAttribute(
+                "DENTOBOT.ReviewInvalidationReason",
+                "Segmentation mask content changed",
+            )
+            if wasReviewed:
+                segmentationNode.SetAttribute(
+                    "DENTOBOT.ReviewState",
+                    "Needs Correction",
+                )
+                segmentationNode.SetAttribute(
+                    "DENTOBOT.ReviewUpdatedUtc",
+                    timestamp,
+                )
+        finally:
+            segmentationNode.EndModify(wasModifying)
+        logging.info(
+            "DENTOBOT segmentation content change recorded for node %s; "
+            "previously reviewed=%s",
+            segmentationNode.GetID(),
+            wasReviewed,
+        )
+        return wasReviewed
 
     @classmethod
     def describeSegmentForReview(cls, sourceName: str) -> dict[str, str | None]:
@@ -3046,6 +3356,11 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "vtkMRMLScalarVolumeNode",
             "ReviewSourceCBCT",
         )
+        sourceImageData = vtk.vtkImageData()
+        sourceImageData.SetDimensions(3, 3, 3)
+        sourceImageData.AllocateScalars(vtk.VTK_SHORT, 1)
+        sourceImageData.GetPointData().GetScalars().FillComponent(0, 0)
+        sourceVolume.SetAndObserveImageData(sourceImageData)
         reviewReport = {
             "schemaVersion": "1.0",
             "command": "segment-teeth",
@@ -3168,10 +3483,117 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             segmentationNode.GetAttribute("DENTOBOT.ReviewUpdatedUtc"),
             reviewTimestamp,
         )
+        self.assertEqual(
+            segmentationNode.GetAttribute(
+                "DENTOBOT.SegmentMetricsValidity"
+            ),
+            "current",
+        )
         with self.assertRaisesRegex(ValueError, "review state"):
             logic.setSegmentationReviewState(
                 segmentationNode,
                 "Clinically Validated",
             )
 
-        self.delayDisplay("DENTOWorkflow Step 3A/3B logic tests passed")
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            logic.beginSegmentationCorrection(
+                segmentationNode,
+                "missing",
+            )
+        correctionTimestamp = "2026-07-24T09:15:00+00:00"
+        handoff = logic.beginSegmentationCorrection(
+            segmentationNode,
+            "tooth-16",
+            startedUtc=correctionTimestamp,
+        )
+        self.assertEqual(handoff["segmentationNode"], segmentationNode)
+        self.assertEqual(handoff["sourceVolume"], sourceVolume)
+        self.assertEqual(handoff["segmentId"], "tooth-16")
+        self.assertEqual(
+            logic.getSegmentationReviewState(segmentationNode),
+            "Needs Correction",
+        )
+        self.assertEqual(
+            segmentationNode.GetAttribute("DENTOBOT.CorrectionStartedUtc"),
+            correctionTimestamp,
+        )
+        self.assertEqual(
+            logic.getSegmentationSegmentDetails(
+                segmentationNode,
+                "tooth-16",
+            )["metricsValidity"],
+            "pre-correction-inference",
+        )
+        self.assertEqual(
+            logic.getSegmentationProvenance(segmentationNode)[
+                "correctionActivityUtc"
+            ],
+            correctionTimestamp,
+        )
+
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-07-24T09:20:00+00:00",
+        )
+        self.assertIsNone(
+            segmentationNode.GetAttribute(
+                "DENTOBOT.ReviewInvalidationReason"
+            )
+        )
+        editTimestamp = "2026-07-24T09:25:00+00:00"
+        self.assertTrue(
+            logic.invalidateSegmentationReviewAfterEdit(
+                segmentationNode,
+                editedUtc=editTimestamp,
+            )
+        )
+        self.assertEqual(
+            logic.getSegmentationReviewState(segmentationNode),
+            "Needs Correction",
+        )
+        self.assertEqual(
+            segmentationNode.GetAttribute(
+                "DENTOBOT.LastSegmentationEditUtc"
+            ),
+            editTimestamp,
+        )
+        self.assertFalse(
+            logic.invalidateSegmentationReviewAfterEdit(
+                segmentationNode,
+                editedUtc="2026-07-24T09:26:00+00:00",
+            )
+        )
+        correctedProvenance = logic.getSegmentationProvenance(
+            segmentationNode
+        )
+        self.assertEqual(
+            correctedProvenance["lastSegmentationEditUtc"],
+            "2026-07-24T09:26:00+00:00",
+        )
+        self.assertEqual(
+            correctedProvenance["metricsValidity"],
+            "pre-correction-inference",
+        )
+        self.assertEqual(
+            correctedProvenance["correctionActivityUtc"],
+            "2026-07-24T09:26:00+00:00",
+        )
+
+        orphanSegmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "CorrectionWithoutSource",
+        )
+        orphanSegment = slicer.vtkSegment()
+        orphanSegment.SetName("orphan")
+        orphanSegmentation.GetSegmentation().AddSegment(
+            orphanSegment,
+            "orphan",
+        )
+        with self.assertRaisesRegex(ValueError, "source CBCT"):
+            logic.beginSegmentationCorrection(
+                orphanSegmentation,
+                "orphan",
+            )
+
+        self.delayDisplay("DENTOWorkflow Step 3A/3B/3C logic tests passed")

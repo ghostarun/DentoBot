@@ -296,8 +296,28 @@ metadata warning.
 Review state applies to the whole segmentation and is limited to
 `Unreviewed`, `Needs Correction`, or `Reviewed`, with a UTC update timestamp.
 It is a researcher workflow marker, not an approval signature or anatomical,
-clinical, regulatory, or treatment validation. Correction, edit-driven review
-invalidation, and Segment Editor handoff remain later Step 3 increments.
+clinical, regulatory, or treatment validation.
+
+Step 3C delegates mask correction to Slicer's built-in Segment Editor. DENTO
+Workflow validates the selected segment and the persisted
+`DENTOBOT.SourceVolume` reference, configures Segment Editor with that
+segmentation/source/segment triple, clears display-only emphasis, and switches
+modules. Beginning a correction revision immediately changes the universal
+state to `Needs Correction`, stores `DENTOBOT.CorrectionStartedUtc`, and marks
+`DENTOBOT.SegmentMetricsValidity` as `pre-correction-inference`. This
+conservative transition is required because DENTO Workflow releases its MRML
+observers when Segment Editor becomes active; a previously `Reviewed` result
+must not remain approved during an external editing session.
+
+When DENTO Workflow is active, only `vtkSegmentation` source-representation
+content changes and segment addition/removal record
+`DENTOBOT.LastSegmentationEditUtc` and invalidate a previously reviewed state.
+Generic segment metadata changes and display-node changes are intentionally
+excluded. The original inference metrics remain available as provenance but
+are explicitly labelled baseline-only after correction begins; Step 3C does
+not silently present them as measurements of corrected masks. Review remains
+segmentation-wide; per-label approval state is not part of the current data
+model.
 
 ## Service evolution
 

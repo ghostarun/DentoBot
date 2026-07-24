@@ -55,19 +55,19 @@ used as an autonomous patient-treatment system.
   lock or clean-machine reconstruction. The developer has explicitly deferred
   the remaining Bridge C failure, cancellation, persistence, and accuracy
   checks; keep them on the roadmap and do not silently treat them as passed.
-- **Step 3A exploration and Step 3B inspection/provenance are implemented in
-  source and await their first in-Slicer acceptance run.** `DENTOWorkflow`
-  binds the selected segmentation through the existing `teethSegmentation`
-  parameter-node reference and provides FDI-aware grouped search,
-  per-segment visibility, selection emphasis, show/hide/isolate actions,
-  independent 2D/3D display control, selected-label voxel/volume metrics,
-  inference provenance, and a scene-persistent segmentation-level
-  `Unreviewed`/`Needs Correction`/`Reviewed` workflow state. New Bridge C
-  imports persist the validated review metadata directly in MRML; older
-  imported results attempt migration from their retained `result.json`.
-  Display controls and review metadata do not modify mask geometry, and
-  `Reviewed` must never be represented as anatomical or clinical validation.
-  Do not claim the UI or its Slicer-native tests pass until they are run in
+- **Step 3A exploration and Step 3B inspection/provenance are developer-
+  verified in Slicer 5.12.2.** The developer reports that the implemented
+  review workflow works as intended, including its universal
+  segmentation-level review state. Do not reinterpret that state as
+  per-label approval or anatomical/clinical validation.
+- **Step 3C correction handoff is implemented in source and awaits in-Slicer
+  acceptance.** The selected label and persisted source CBCT are handed to
+  Slicer's built-in Segment Editor. Starting correction conservatively changes
+  the whole segmentation to `Needs Correction`, timestamps the correction
+  revision, and identifies imported inference metrics as baseline-only.
+  Source-representation edits and segment addition/removal are observed while
+  DENTO Workflow is active; display, naming, selection, and provenance changes
+  do not invalidate review. Do not claim Step 3C passes until it is run in
   Slicer 5.12.2.
 
 ## Product strategy

@@ -194,7 +194,8 @@ remain required before a reproducible release or robustness claim:
 
 ## Step 3: Segmentation review and visualization
 
-**Status:** Steps 3A and 3B implemented in source; in-Slicer acceptance pending
+**Status:** Steps 3A/3B developer-verified; Step 3C implemented in source with
+in-Slicer acceptance pending
 
 Goal: let the researcher inspect and curate dental labels before planning.
 
@@ -230,21 +231,37 @@ Step 3B implemented scope:
   provenance presentation, selected-label metrics, review-state transitions,
   and invalid state rejection
 
+Step 3C implemented scope:
+
+- one-button handoff of the selected label to Slicer's built-in Segment Editor
+- strict validation and binding of the authoritative segmentation, persisted
+  source CBCT, and selected segment ID
+- conservative whole-segmentation transition to `Needs Correction` when a
+  correction revision starts
+- correction-start and mask-edit timestamps persisted as `DENTOBOT.*`
+  attributes
+- inference metrics retained as provenance but explicitly marked
+  baseline-only after correction starts
+- content-specific observers for source-representation edits and segment
+  addition/removal while DENTO Workflow is active
+- display, selection, naming, and provenance changes excluded from review
+  invalidation
+- Slicer-native logic coverage for correction validation, source-node
+  recovery, state transition, metric validity, timestamps, and invalid inputs
+
 Remaining Step 3 increments:
 
 - richer opacity/color presets and optional anatomy presets
-- correction handoff to Segment Editor
-- approval invalidation after manual edits or source replacement
+- optional corrected-mask metric recomputation
+- optional per-label review state, only if the research workflow later needs
+  tooth-by-tooth acceptance
 
-Step 3A acceptance requires an in-Slicer run against the retained 60-segment
-Bridge C result: search for an FDI tooth, toggle it, emphasize and isolate it,
-restore all labels, change 2D/3D opacity, switch segmentation nodes, and
-confirm that scene saving preserves the selected node and display state.
-Step 3B acceptance additionally requires checking a known label against
-`result.json`, changing and persisting the segmentation-level workflow state,
-and confirming that source reference, provenance, metrics, and review
-timestamp survive MRB save/reopen. Later Step 3 acceptance will add editable
-segments and edit-driven review invalidation.
+The developer reports that Steps 3A and 3B work as intended in Slicer 5.12.2.
+Step 3C acceptance requires selecting a known label, opening Segment Editor,
+confirming the exact segmentation/source CBCT/segment selections, making and
+undoing a small test edit, returning to DENTO Workflow, and verifying
+`Needs Correction`, baseline-metric messaging, correction activity, and MRB
+scene persistence. Anatomical accuracy remains a separate validation problem.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 

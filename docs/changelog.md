@@ -21,6 +21,58 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-24 15:50:44 IST (UTC+05:30) — Step 3C correction handoff
+
+### Added and changed
+
+- Added `Edit Selected Label in Segment Editor` to the segmentation review
+  panel.
+- Added strict handoff validation for the selected segment and the
+  segmentation's persisted `DENTOBOT.SourceVolume` CBCT reference.
+- Configured Slicer's built-in Segment Editor with the authoritative
+  segmentation, source volume, and selected segment instead of copying masks
+  or embedding another editing implementation.
+- Starting a correction revision now conservatively sets the whole
+  segmentation to `Needs Correction`, records a UTC correction-start time,
+  and marks imported voxel/volume metrics as pre-correction inference
+  baselines.
+- Added content-specific observation of source-representation modifications
+  and segment addition/removal while DENTO Workflow is active. These changes
+  record the mask-edit timestamp and invalidate a previously `Reviewed`
+  result; display, naming, selection, and metadata changes do not.
+- Updated selected-label and provenance UI language so original inference
+  metrics are not presented as current measurements after correction begins.
+- Extended Slicer-native logic tests for source-volume validation, correction
+  handoff state, metric validity, edit timestamps, automatic review
+  invalidation, and invalid segment IDs.
+- Recorded the developer's confirmation that Steps 3A and 3B work as intended
+  in Slicer 5.12.2 and that the universal review state is intentional.
+
+### Preserved
+
+- The authoritative segmentation node, source geometry, original inference
+  artifacts/provenance, and universal review-state model are preserved.
+- No per-label approval state, corrected-mask metric recomputation,
+  registration, planning, navigation, robotics, ROS, or clinical validation
+  was added.
+
+### Verification and limitations
+
+- Official Slicer source and Slicer 5.12 developer documentation were checked
+  for Segment Editor setters and `vtkSegmentation` event semantics.
+- All 11 repository Python files passed AST parsing without importing the
+  Slicer module in system Python. The Qt UI passed XML parsing; all 57
+  `self.ui.*` references and 16 statically discovered callbacks resolve, UI
+  object names are unique, Markdown fences are balanced, and `git diff
+  --check` is clean.
+- Slicer, WSL, CUDA, TotalSegmentator, DICOM, patient data, and installed
+  Slicer files were not launched or modified during implementation.
+- Replaced `AGENTS.md`, `ARCHITECTURE.md`, `DEVELOPMENT_PLAN.md`,
+  `changelog.md`, and `logbook.md` in place in the Drive mirror. Folder
+  readback confirmed stable file IDs and byte sizes matching the local files.
+- Step 3C's Slicer-native test and manual Segment Editor handoff remain
+  pending in the developer's Slicer 5.12.2 runtime. Nothing was reverted.
+
 ## 2026-07-24 15:06:56 IST (UTC+05:30) — Step 3B metrics, provenance, and review state
 
 ### Added and changed

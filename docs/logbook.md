@@ -25,6 +25,72 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-24 15:50:44 IST (UTC+05:30) — Step 3C implementation session
+
+### Request and clarified behavior
+
+- The developer authorized Step 3C after confirming that everything through
+  Steps 3A and 3B works as intended in Slicer 5.12.2.
+- The developer also confirmed the observed review state is universal for the
+  complete segmentation set. That is the intended current design; individual
+  labels remain selectable/editable but do not receive independent approval
+  states.
+- Step 3C was bounded to correction handoff and safe review invalidation. It
+  does not introduce a second segmentation editor or recalculate measurements
+  for corrected masks.
+
+### API and lifecycle investigation
+
+- Official Slicer documentation confirmed that Segment Editor requires a
+  segmentation and source volume and edits the segmentation's binary-labelmap
+  source representation.
+- Official Slicer source confirmed
+  `qMRMLSegmentEditorWidget.setSegmentationNode`,
+  `setSourceVolumeNode`, and `setCurrentSegmentID`.
+- `vtkSegmentation.SourceRepresentationModified` is specifically emitted for
+  source-representation content changes. Generic `SegmentModified` explicitly
+  covers names/tags and excludes representation content, so it was rejected
+  for edit invalidation.
+- DENTO Workflow correctly removes MRML observers during module exit. Because
+  control transfers to Segment Editor, a conservative correction-start
+  transition is safer than allowing a previously `Reviewed` result to remain
+  approved while the DENTO widget is inactive.
+
+### Implementation decisions
+
+- One button validates the current segment and persisted source CBCT,
+  configures the built-in Segment Editor, makes the selected segment visible,
+  clears temporary display emphasis, and changes modules.
+- Beginning correction sets the universal state to `Needs Correction`, stores
+  `DENTOBOT.CorrectionStartedUtc`, and sets
+  `DENTOBOT.SegmentMetricsValidity=pre-correction-inference`.
+- Original inference voxel and volume metrics are retained for provenance and
+  comparison. UI labels and warnings make clear that they may not match
+  corrected masks.
+- While DENTO Workflow is active, source-mask modifications plus segment
+  addition/removal record `DENTOBOT.LastSegmentationEditUtc` and invalidate a
+  previously reviewed state. Visibility, opacity, selection, segment naming,
+  and provenance attributes do not.
+- Slicer-native tests were extended with a real scalar-volume image payload,
+  correction handoff validation, deterministic timestamps, metric-validity
+  transitions, reviewed-state invalidation, and negative inputs.
+
+### Verification and next action
+
+- Static validation passed for all 11 repository Python ASTs, the Qt UI XML,
+  57 Python-to-UI references, 16 statically discovered callbacks, unique UI
+  object names, balanced Markdown fences, and clean diff whitespace.
+- The five changed controlled/history documents were replaced in place in the
+  existing Drive mirror; folder readback confirmed their stable IDs and local
+  byte-size agreement.
+- Slicer was not launched during implementation. The developer must reload
+  DENTO Workflow, run its self-test, select a known label, open Segment
+  Editor, verify the three bound selections, make/undo a small test edit,
+  return to DENTO Workflow, and verify state, warnings, timestamps, and MRB
+  persistence.
+- Corrected-mask metric recomputation and optional per-label review states are
+  explicitly deferred. Nothing was reverted.
+
 ## 2026-07-24 15:06:56 IST (UTC+05:30) — Step 3B implementation session
 
 ### Request and scope
