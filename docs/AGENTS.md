@@ -70,17 +70,20 @@ used as an autonomous patient-treatment system.
   DENTO Workflow is active; display, naming, selection, and provenance changes
   do not invalidate review. This evidence confirms workflow behavior, not
   anatomical or clinical accuracy.
-- **The Step 4A target-tooth and trajectory-input foundation is implemented in
-  source but not yet runtime-verified.** DENTO Workflow now filters the
+- **The Step 4A target-tooth and trajectory-input foundation is implemented
+  and automated-runtime-verified in an isolated Slicer 5.12.2 process.**
+  DENTO Workflow now filters the
   authoritative segmentation to whole-tooth targets, persists one selected
   segment ID, creates/selects a two-point Markups line, labels its world-RAS
   points as Entry and Target, displays its geometric length, and associates
   the line with the target segmentation and segment. The implementation
   deliberately excludes procedure semantics, plan approval, anatomical safety
   checks, template generation, registration, and drilling authorization. Its
-  Slicer-native tests and manual MRB round trip remain pending in Slicer
-  5.12.2 and later require compatibility verification in the Ubuntu Slicer
-  5.10 container.
+  complete Slicer-native suite, segmentation-selection widget path, known
+  13-millimetre trajectory, and synthetic MRB save/reopen passed in Slicer
+  5.12.2. Interactive placement against the retained teeth phantom remains a
+  developer acceptance check, and compatibility verification remains pending
+  in the Ubuntu Slicer 5.10 container.
 
 ## Product strategy
 

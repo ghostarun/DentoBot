@@ -21,6 +21,44 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-30 22:14:45 IST (UTC+05:30) — Step 4A automated Slicer acceptance
+
+### Authorized verification
+
+- After explicit developer authorization, launched isolated hidden Slicer
+  5.12.2 processes without starting WSL, inference, CUDA, models, DICOM,
+  robot, or hardware operations.
+- Ran the complete `DENTOWorkflowTest` Slicer-native suite.
+- Exercised the actual widget path with an already-existing synthetic
+  segmentation containing one whole tooth, one pulp segment, and one jaw
+  segment.
+- Confirmed that selecting the segmentation enables Step 4A and produces one
+  eligible FDI 16 target plus the placeholder.
+- Selected and persisted `tooth-16`, created a
+  `vtkMRMLMarkupsLineNode`, labelled its points Entry and Target, retained
+  `SlicerRASmm` and `Draft` attributes, and verified the known 3-4-12
+  trajectory length of 13.0 millimetres.
+- Saved and reopened a synthetic MRB and confirmed restoration of the target
+  segment ID, segmentation reference, trajectory reference, trajectory
+  geometry, and trajectory-to-segmentation node reference.
+
+### Test-harness findings and limitations
+
+- The first widget-harness attempt constructed the widget without a parent,
+  causing Slicer's base class to call `setup()` before subclass initialization.
+  The harness was corrected to use Slicer's registered-widget construction
+  pattern; no product source change was required.
+- The first persistence fixture used empty segments and could not be stored as
+  an MRB. Adding synthetic closed-surface representations corrected the
+  fixture, after which save/reopen passed.
+- The Windows app-control bridge was unavailable, so the test used Slicer's
+  supported command-line/Python runtime rather than clicking the developer's
+  visible Slicer instance.
+- Manual point placement on the retained teeth phantom and Ubuntu Slicer 5.10
+  compatibility remain pending. The disposable test script, result JSON, and
+  synthetic MRB were removed after verification. Nothing in product source
+  was reverted.
+
 ## 2026-07-30 20:39:31 IST (UTC+05:30) — Step 4A segmentation-selection refresh fix
 
 ### Observed and corrected

@@ -25,6 +25,58 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-30 22:14:45 IST (UTC+05:30) — Authorized Step 4A Slicer verification
+
+### Authorization and boundary
+
+- The developer explicitly authorized direct Slicer testing.
+- The bundled Windows app-control workflow was initialized but its privileged
+  Windows pipe was unavailable in this session. Testing therefore used an
+  isolated hidden Slicer 5.12.2 command-line/Python process.
+- WSL, inference, CUDA, model loading, DICOM, research data, robot, and
+  hardware operations remained outside the test.
+
+### Attempts and corrections
+
+- The complete Slicer-native regression suite ran successfully before the
+  widget-level test.
+- The first widget attempt instantiated `DENTOWorkflowWidget` without a
+  parent. Slicer's base class automatically called `setup()` before subclass
+  fields were initialized, producing an `_sceneObserversActive` attribute
+  error. This was a harness construction error, not the registered module
+  path; the fixture was corrected to supply a proper `qMRMLWidget` parent.
+- The corrected widget test passed the segmentation-selection, target,
+  trajectory, labels, attributes, and length checks.
+- The first MRB attempt used empty synthetic segments and produced no
+  storable segmentation data. The fixture was corrected with simple closed
+  surfaces and the MRB round trip then passed.
+
+### Final evidence
+
+- Slicer version: 5.12.2, revision `f7879b5`.
+- Complete `DENTOWorkflowTest`: passed.
+- Existing-segmentation widget path: passed.
+- Target selector: enabled with one eligible FDI 16 target and one
+  placeholder.
+- Persisted target segment ID: `tooth-16`.
+- Trajectory class: `vtkMRMLMarkupsLineNode`.
+- Entry/Target labels: restored correctly.
+- Coordinate convention: `SlicerRASmm`.
+- Planning status: `Draft`.
+- Known 3-4-12 trajectory: 13.0 millimetres.
+- Synthetic MRB save/reopen: passed.
+- Restored parameter-node segmentation/trajectory references and the
+  trajectory-to-segmentation node reference: passed.
+- Disposable test script, JSON result, and MRB were removed after the run.
+
+### Remaining acceptance
+
+- Reload the updated module in the developer's visible Slicer instance and
+  confirm the retained teeth phantom populates Step 4A.
+- Manually place Entry and Target on that phantom and inspect the displayed
+  RAS coordinates and length.
+- Repeat the compatibility gate later in Ubuntu Slicer 5.10.
+
 ## 2026-07-30 20:39:31 IST (UTC+05:30) — Step 4A first-test diagnosis
 
 ### Developer observation
