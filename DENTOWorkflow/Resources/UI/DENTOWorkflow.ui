@@ -1196,7 +1196,7 @@
    <item>
     <widget class="ctkCollapsibleButton" name="planningCollapsibleButton">
      <property name="text">
-      <string>Target Tooth and Trajectory</string>
+      <string>Step 4A — Target Tooth and Trajectory</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>

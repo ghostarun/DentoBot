@@ -70,7 +70,7 @@ used as an autonomous patient-treatment system.
   DENTO Workflow is active; display, naming, selection, and provenance changes
   do not invalidate review. This evidence confirms workflow behavior, not
   anatomical or clinical accuracy.
-- **The Step 4 target-tooth and trajectory-input foundation is implemented in
+- **The Step 4A target-tooth and trajectory-input foundation is implemented in
   source but not yet runtime-verified.** DENTO Workflow now filters the
   authoritative segmentation to whole-tooth targets, persists one selected
   segment ID, creates/selects a two-point Markups line, labels its world-RAS

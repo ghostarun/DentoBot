@@ -649,6 +649,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._parameterNode.teethSegmentation = segmentationNode
         self._bindSegmentationReviewNode(segmentationNode)
         self._updateSegmentationReview()
+        # Parameter-node GUI bindings do not guarantee that the planning
+        # refresh observer runs after this selection callback on every Slicer
+        # version. Refresh Step 4A explicitly so existing segmentations become
+        # immediately available to the target-tooth selector.
+        self._updatePlanning()
 
     def onSegmentSearchTextChanged(self, filterText: str) -> None:
         if not self._updatingSegmentationReviewUI:

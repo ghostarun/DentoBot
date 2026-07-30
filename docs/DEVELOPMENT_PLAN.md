@@ -266,13 +266,14 @@ per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 
-**Status:** target-tooth and trajectory-input source implemented; Slicer
+**Status:** Step 4A target-tooth and trajectory-input source implemented;
+Slicer
 runtime verification and clinical semantics remain unresolved
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
 
-Implemented foundation:
+Step 4A implemented scope:
 
 - filter the authoritative segmentation to whole-tooth target candidates;
 - persist one target segment ID with the workflow parameter node;

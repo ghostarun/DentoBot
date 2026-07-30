@@ -21,11 +21,36 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
-## 2026-07-30 18:25:34 IST (UTC+05:30) — Target-tooth and draft trajectory inputs
+## 2026-07-30 20:39:31 IST (UTC+05:30) — Step 4A segmentation-selection refresh fix
+
+### Observed and corrected
+
+- During the first interactive Step 4A test, the developer reported that the
+  target-tooth selector remained disabled after an existing segmentation was
+  selected in the Step 3 review panel.
+- Confirmed that Step 4A does not require a new inference run or any additional
+  backend output. It consumes existing whole-tooth segment names ending in
+  valid two-digit FDI codes.
+- Added an explicit planning refresh after the review-segmentation selection
+  handler. This avoids relying on parameter-node observer ordering that may
+  differ across Slicer versions.
+- Restored the agreed `Step 4A` identifier in the panel and controlled
+  documentation.
+
+### Verification and limitations
+
+- Static Python parsing and UI XML/reference checks passed after the fix.
+- Interactive retest in the developer's running Slicer session remains
+  pending. No inference, WSL, CUDA, model, DICOM, or hardware process was
+  launched for this correction.
+- Selecting a tooth in the Step 3 explorer remains a non-destructive review
+  highlight. The target must be explicitly chosen in Step 4A.
+
+## 2026-07-30 18:25:34 IST (UTC+05:30) — Step 4A target-tooth and draft trajectory inputs
 
 ### Added and changed
 
-- Added the first Step 4 planning panel to DENTO Workflow.
+- Added the Step 4A planning panel to DENTO Workflow.
 - Added persistent `targetToothSegmentId` and
   `vtkMRMLMarkupsLineNode` parameter-node state.
 - Restricted target choices to whole-tooth records from the authoritative

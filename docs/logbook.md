@@ -25,7 +25,45 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
-## 2026-07-30 18:25:34 IST (UTC+05:30) — Step 4 foundation and transfer preparation
+## 2026-07-30 20:39:31 IST (UTC+05:30) — Step 4A first-test diagnosis
+
+### Developer observation
+
+- In the first interactive test, the developer loaded an existing
+  segmentation and selected a tooth in the Step 3 explorer, but the Step 4A
+  target-tooth selector remained disabled.
+- The developer asked whether a fresh segmentation was required and whether
+  Step 4A had added new inference output requirements.
+
+### Diagnosis and correction
+
+- No new inference data is required. Step 4A filters the existing
+  `vtkMRMLSegmentationNode` records and recognizes whole teeth from the
+  established `_fdiNN` segment names.
+- The review-segmentation selection handler updated Step 3 but did not
+  explicitly refresh Step 4A. It relied on the parameter-node modified
+  observer being delivered in the required order, which was not reliable in
+  the tested runtime path.
+- Added an explicit `_updatePlanning()` call after the segmentation review
+  refresh.
+- Corrected the feature identifier from generic Step 4 wording to the agreed
+  `Step 4A` designation in the UI and controlled documentation.
+- Kept Step 3 tooth selection and Step 4A target assignment separate:
+  selecting a Step 3 tree item only highlights anatomy, while Step 4A requires
+  an explicit target choice.
+
+### Verification and next action
+
+- Static Python, UI XML, UI-reference, callback, object-name, Markdown, and
+  whitespace checks passed.
+- Reload DENTO Workflow in the existing Slicer scene, reselect the
+  segmentation in Step 3 if necessary, and confirm that Step 4A lists its
+  recognized whole-tooth FDI segments.
+- A new segmentation run is unnecessary unless the loaded object is not a
+  segmentation node or its segment names no longer contain recognizable
+  tooth identities.
+
+## 2026-07-30 18:25:34 IST (UTC+05:30) — Step 4A foundation and transfer preparation
 
 ### Request and scope
 

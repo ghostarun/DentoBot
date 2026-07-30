@@ -377,7 +377,7 @@ are excluded.
 - Metrics such as FRE, target error, lateral error, angular error, and depth
   error are computed in reusable logic and displayed by the workflow UI.
 
-The first Step 4 source increment keeps planning inputs inside
+The Step 4A source increment keeps planning inputs inside
 `DENTOWorkflow`. The authoritative teeth segmentation remains the source of
 target anatomy. Only records classified as whole teeth are eligible for the
 draft target selector; pulp, canal, jaw, implant, and other segments remain
