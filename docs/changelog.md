@@ -21,6 +21,58 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-30 23:09:46 IST (UTC+05:30) — Step 4A manual-test correction batch
+
+### Developer findings recorded
+
+- Target assignment and Step 3 review highlighting behaved independently;
+  the planning target did not own the 2D/3D viewport emphasis.
+- Entry and Target could be placed anywhere in the CT world instead of being
+  constrained to the selected tooth.
+- The dentist prefers precise placement in 2D slices; the requested
+  horizontal orientation/focus lock needs a defined anatomical reference
+  plane.
+- Mouse placement created `F_*` fiducial lists instead of populating one
+  two-point trajectory.
+- The workflow exposed no direct undo, reset, or point-lock controls.
+
+### Corrected
+
+- Made the Step 4A target the priority 2D/3D segmentation highlight and
+  synchronized the Step 3 tree back to that target.
+- Added a locked orange `vtkMRMLMarkupsROINode` for the active tooth's
+  axis-aligned world-RAS bounds.
+- Added continuous bounds enforcement: reject a new out-of-bounds point or
+  restore a moved point to its last valid location.
+- Added explicit Markups point-defined, point-modified, and point-removed
+  observers after the expanded test found that the generic MRML modified event
+  could arrive before the first point became defined.
+- Reproduced the `F_*` failure in Slicer 5.12.2. `StartPlaceMode(0)` retained
+  the line node ID but reset the active class to
+  `vtkMRMLMarkupsFiducialNode`. Reasserting the active line class and node
+  after entering place mode fixed the state.
+- Changed the placement instruction to one Entry-then-Target action and kept
+  the Markups line's maximum at two points.
+- Added Undo Last Point, confirmed Clear Both Points, and lock/unlock controls
+  for a complete non-zero in-bounds pair.
+- Persisted the active target-bounds ROI and associated it with the selected
+  segmentation, segment, and trajectory.
+
+### Verification and limitations
+
+- The complete Slicer-native suite passed in Slicer 5.12.2 revision
+  `f7879b5`.
+- A widget-level correction test passed target-priority highlight in 2D/3D,
+  ROI creation, out-of-bounds Entry and Target rejection, restoration of an
+  existing point moved outside the bounds, corrected line placement class,
+  undo, confirmed reset, and lock/unlock.
+- Orientation lock was not guessed. It is recorded as Step 4B until scanner
+  axial versus occlusal versus tooth-local reference is decided with the
+  dentist.
+- The AABB is a coarse phantom-PoC constraint, not an anatomical or clinical
+  safety boundary. Manual phantom retest remains pending. WSL, inference,
+  CUDA, models, DICOM, robot, and hardware were not launched.
+
 ## 2026-07-30 22:14:45 IST (UTC+05:30) — Step 4A automated Slicer acceptance
 
 ### Authorized verification

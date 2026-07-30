@@ -15,6 +15,7 @@ import vtk
 import slicer
 from slicer import (
     vtkMRMLMarkupsLineNode,
+    vtkMRMLMarkupsROINode,
     vtkMRMLScalarVolumeNode,
     vtkMRMLSegmentationNode,
 )
@@ -42,6 +43,7 @@ class DENTOWorkflowParameterNode:
     roundTripVolume: vtkMRMLScalarVolumeNode
     teethSegmentation: vtkMRMLSegmentationNode
     targetToothSegmentId: str = ""
+    targetToothBoundsRoi: vtkMRMLMarkupsROINode
     trajectoryLine: vtkMRMLMarkupsLineNode
 
 
@@ -90,6 +92,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._planningTrajectoryNode = None
         self._targetToothRecordsById: dict[str, dict] = {}
         self._updatingPlanningUI = False
+        self._planningConstraintWarning = ""
+        self._validTrajectoryPointsByNodeId: dict[str, list[list[float]]] = {}
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -172,6 +176,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.placeTrajectoryButton.connect(
             "clicked(bool)",
             self.onPlaceTrajectory,
+        )
+        self.ui.undoTrajectoryPointButton.connect(
+            "clicked(bool)",
+            self.onUndoTrajectoryPoint,
+        )
+        self.ui.resetTrajectoryButton.connect(
+            "clicked(bool)",
+            self.onResetTrajectory,
+        )
+        self.ui.lockTrajectoryButton.connect(
+            "toggled(bool)",
+            self.onTrajectoryLockToggled,
         )
 
         self._addSceneObservers()
@@ -404,6 +420,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self._rebuildSegmentTree()
         self._refreshSegmentationInspection()
+        self._validTrajectoryPointsByNodeId.clear()
         self._updatePlanning()
         self.ui.segmentationReviewStatusLabel.text = (
             _(
@@ -645,7 +662,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.logic.clearTrajectoryTarget(
                     self._parameterNode.trajectoryLine
                 )
+                self._parameterNode.trajectoryLine.SetNodeReferenceID(
+                    self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+                    None,
+                )
+            if (
+                self._parameterNode.targetToothBoundsRoi
+                and self._parameterNode.targetToothBoundsRoi.GetDisplayNode()
+            ):
+                self._parameterNode.targetToothBoundsRoi.GetDisplayNode(
+                ).SetVisibility(False)
             self._parameterNode.targetToothSegmentId = ""
+            self._validTrajectoryPointsByNodeId.clear()
+            self._planningConstraintWarning = ""
             self._parameterNode.teethSegmentation = segmentationNode
         self._bindSegmentationReviewNode(segmentationNode)
         self._updateSegmentationReview()
@@ -685,21 +714,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not segmentId:
             self._setSelectedSegmentDetailPlaceholders()
             if self._reviewSegmentationNode and self.logic:
-                self.logic.setSegmentationSegmentHighlight(
-                    self._reviewSegmentationNode,
-                    None,
-                )
+                self._applyTargetPriorityHighlight()
             return
         record = self._segmentReviewRecordsById.get(segmentId)
         if record:
             if self._reviewSegmentationNode and self.logic:
-                self.logic.setSegmentationSegmentHighlight(
-                    self._reviewSegmentationNode,
-                    segmentId,
-                )
+                self._applyTargetPriorityHighlight()
             self.ui.segmentationReviewStatusLabel.text = (
-                _("Selected: %1. Use Isolate Selected to inspect it alone.")
-                .replace("%1", record["displayName"])
+                _(
+                    "Review selection: %1. The Step 4A target remains the "
+                    "priority viewport highlight when one is assigned."
+                ).replace("%1", record["displayName"])
             )
             self.ui.segmentationReviewStatusLabel.styleSheet = "color: #1f5f99;"
             self._updateSelectedSegmentDetails(segmentId)
@@ -985,18 +1010,30 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if trajectoryNode is self._planningTrajectoryNode:
             return
         if self._planningTrajectoryNode:
-            self.removeObserver(
-                self._planningTrajectoryNode,
+            for trajectoryEvent in (
                 vtk.vtkCommand.ModifiedEvent,
-                self._onPlanningTrajectoryModified,
-            )
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.removeObserver(
+                    self._planningTrajectoryNode,
+                    trajectoryEvent,
+                    self._onPlanningTrajectoryModified,
+                )
         self._planningTrajectoryNode = trajectoryNode
         if trajectoryNode:
-            self.addObserver(
-                trajectoryNode,
+            for trajectoryEvent in (
                 vtk.vtkCommand.ModifiedEvent,
-                self._onPlanningTrajectoryModified,
-            )
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.addObserver(
+                    trajectoryNode,
+                    trajectoryEvent,
+                    self._onPlanningTrajectoryModified,
+                )
 
     def _onPlanningTrajectoryModified(self, caller=None, event=None) -> None:
         del caller, event
@@ -1008,9 +1045,182 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.logic.labelTrajectoryControlPoints(
                     self._planningTrajectoryNode
                 )
+                self._enforceTrajectoryBounds(
+                    self._planningTrajectoryNode
+                )
         finally:
             self._updatingPlanningUI = False
         self._updatePlanning()
+
+    def _ensureTargetBounds(
+        self,
+        segmentationNode,
+        targetRecord: dict,
+    ) -> tuple[float, ...] | None:
+        """Create/update the visible active-tooth AABB and persist its node."""
+
+        if not self._parameterNode or not self.logic:
+            return None
+        try:
+            roiNode, bounds = self.logic.createOrUpdateTargetBoundsRoi(
+                segmentationNode,
+                targetRecord["segmentId"],
+                self._parameterNode.targetToothBoundsRoi,
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._planningConstraintWarning = str(exc)
+            self.ui.targetBoundsValueLabel.text = _("--")
+            return None
+
+        if self._parameterNode.targetToothBoundsRoi is not roiNode:
+            self._parameterNode.targetToothBoundsRoi = roiNode
+        self.ui.targetBoundsValueLabel.text = (
+            self.logic.formatRasBounds(bounds)
+        )
+        trajectoryNode = self._parameterNode.trajectoryLine
+        if trajectoryNode:
+            if trajectoryNode.GetNodeReference(
+                self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE
+            ) is not roiNode:
+                trajectoryNode.SetNodeReferenceID(
+                    self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+                    roiNode.GetID(),
+                )
+        return bounds
+
+    def _enforceTrajectoryBounds(self, trajectoryNode) -> bool:
+        """Reject or restore any trajectory point outside the target-tooth AABB."""
+
+        if (
+            not trajectoryNode
+            or not self._parameterNode
+            or not self.logic
+            or not self._parameterNode.teethSegmentation
+            or not self._parameterNode.targetToothSegmentId
+        ):
+            return True
+        try:
+            report = self.logic.getTrajectoryBoundsReport(
+                trajectoryNode,
+                self._parameterNode.teethSegmentation,
+                self._parameterNode.targetToothSegmentId,
+            )
+        except ValueError as exc:
+            self._planningConstraintWarning = str(exc)
+            return False
+
+        invalidIndices = report["invalidPointIndices"]
+        if not invalidIndices:
+            summary = report["summary"]
+            currentPoints = [
+                list(point)
+                for point in (
+                    summary["entryRas"],
+                    summary["targetRas"],
+                )
+                if point is not None
+            ]
+            previousPoints = self._validTrajectoryPointsByNodeId.get(
+                trajectoryNode.GetID(),
+                [],
+            )
+            if (
+                not self._planningConstraintWarning
+                or currentPoints != previousPoints
+            ):
+                self._planningConstraintWarning = ""
+            self._validTrajectoryPointsByNodeId[
+                trajectoryNode.GetID()
+            ] = currentPoints
+            return True
+
+        previousPoints = self._validTrajectoryPointsByNodeId.get(
+            trajectoryNode.GetID(),
+            [],
+        )
+        bounds = report["bounds"]
+        wasModifying = trajectoryNode.StartModify()
+        try:
+            for pointIndex in sorted(invalidIndices, reverse=True):
+                previousPoint = (
+                    previousPoints[pointIndex]
+                    if pointIndex < len(previousPoints)
+                    else None
+                )
+                if (
+                    previousPoint is not None
+                    and self.logic.isRasPointWithinBounds(
+                        previousPoint,
+                        bounds,
+                    )
+                ):
+                    trajectoryNode.SetNthControlPointPositionWorld(
+                        pointIndex,
+                        previousPoint,
+                    )
+                else:
+                    trajectoryNode.RemoveNthControlPoint(pointIndex)
+        finally:
+            trajectoryNode.EndModify(wasModifying)
+
+        rejectedNames = ", ".join(
+            ("Entry", "Target")[index] for index in invalidIndices
+        )
+        self._planningConstraintWarning = (
+            _(
+                "%1 was outside the selected tooth bounds and was rejected. "
+                "Place both points inside the orange target box."
+            ).replace("%1", rejectedNames)
+        )
+        return False
+
+    def _applyTargetPriorityHighlight(self) -> None:
+        """Keep the Step 4A target dominant over Step 3 review selection."""
+
+        if (
+            not self._parameterNode
+            or not self.logic
+            or not self._parameterNode.teethSegmentation
+        ):
+            return
+        segmentationNode = self._parameterNode.teethSegmentation
+        targetId = self._parameterNode.targetToothSegmentId
+        if targetId in self._targetToothRecordsById:
+            self.logic.setSegmentationVisibility2D(segmentationNode, True)
+            self.logic.setSegmentationVisibility3D(segmentationNode, True)
+            self.logic.setSegmentationSegmentVisibility(
+                segmentationNode,
+                targetId,
+                True,
+            )
+            self.logic.setSegmentationSegmentHighlight(
+                segmentationNode,
+                targetId,
+            )
+            treeWidget = self.ui.segmentTreeWidget
+            targetItem = None
+            for groupIndex in range(treeWidget.topLevelItemCount):
+                groupItem = treeWidget.topLevelItem(groupIndex)
+                for childIndex in range(groupItem.childCount()):
+                    item = groupItem.child(childIndex)
+                    if str(item.data(0, qt.Qt.UserRole)) == targetId:
+                        targetItem = item
+                        break
+                if targetItem:
+                    break
+            if targetItem and treeWidget.currentItem() is not targetItem:
+                self._updatingSegmentationReviewUI = True
+                try:
+                    treeWidget.setCurrentItem(targetItem)
+                finally:
+                    self._updatingSegmentationReviewUI = False
+                self._updateSelectedSegmentDetails(targetId)
+        else:
+            selectedId = self._selectedReviewSegmentId()
+            self.logic.setSegmentationSegmentHighlight(
+                segmentationNode,
+                selectedId,
+            )
 
     def _clearPlanning(self) -> None:
         if not hasattr(self, "ui"):
@@ -1025,9 +1235,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.targetToothSourceValueLabel.text = _("--")
             self.ui.createTrajectoryButton.enabled = False
             self.ui.placeTrajectoryButton.enabled = False
+            self.ui.placeTrajectoryButton.text = _("Place Both Points")
+            self.ui.undoTrajectoryPointButton.enabled = False
+            self.ui.resetTrajectoryButton.enabled = False
+            self.ui.lockTrajectoryButton.enabled = False
+            self.ui.lockTrajectoryButton.checked = False
             self.ui.trajectoryEntryValueLabel.text = _("--")
             self.ui.trajectoryTargetValueLabel.text = _("--")
             self.ui.trajectoryLengthValueLabel.text = _("--")
+            self.ui.targetBoundsValueLabel.text = _("--")
+            self._planningConstraintWarning = ""
             self.ui.planningStatusLabel.text = _(
                 "Select a dental segmentation before defining a target tooth."
             )
@@ -1092,6 +1309,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             self._updatingPlanningUI = False
 
+        targetBounds = None
+        if targetRecord:
+            targetBounds = self._ensureTargetBounds(
+                segmentationNode,
+                targetRecord,
+            )
+            self._applyTargetPriorityHighlight()
+        else:
+            self.ui.targetBoundsValueLabel.text = _("--")
+            roiNode = self._parameterNode.targetToothBoundsRoi
+            if roiNode and roiNode.GetDisplayNode():
+                roiNode.GetDisplayNode().SetVisibility(False)
+
         trajectoryNode = self._parameterNode.trajectoryLine
         self._bindPlanningTrajectoryNode(trajectoryNode)
         if targetRecord and trajectoryNode:
@@ -1114,9 +1344,66 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     )
                 finally:
                     self._updatingPlanningUI = False
-        self.ui.placeTrajectoryButton.enabled = bool(
-            targetRecord and trajectoryNode
-        )
+            roiNode = self._parameterNode.targetToothBoundsRoi
+            if roiNode and trajectoryNode.GetNodeReference(
+                self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE
+            ) is not roiNode:
+                trajectoryNode.SetNodeReferenceID(
+                    self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+                    roiNode.GetID(),
+                )
+            if (
+                targetBounds is not None
+                and not self._planningConstraintWarning
+            ):
+                self._enforceTrajectoryBounds(trajectoryNode)
+
+        summary = None
+        if trajectoryNode:
+            try:
+                summary = self.logic.getTrajectorySummary(trajectoryNode)
+            except ValueError:
+                summary = None
+        pointCount = summary["definedPointCount"] if summary else 0
+        isLocked = bool(trajectoryNode and trajectoryNode.GetLocked())
+        self._updatingPlanningUI = True
+        try:
+            self.ui.placeTrajectoryButton.enabled = bool(
+                targetRecord
+                and targetBounds is not None
+                and trajectoryNode
+                and not isLocked
+                and pointCount < 2
+            )
+            self.ui.placeTrajectoryButton.text = (
+                _("Place Both Points")
+                if pointCount == 0
+                else _("Place Target")
+                if pointCount == 1
+                else _("Trajectory Complete")
+            )
+            self.ui.undoTrajectoryPointButton.enabled = bool(
+                trajectoryNode and pointCount > 0 and not isLocked
+            )
+            self.ui.resetTrajectoryButton.enabled = bool(
+                trajectoryNode and pointCount > 0
+            )
+            canLock = bool(
+                targetRecord
+                and trajectoryNode
+                and summary
+                and summary["isValid"]
+                and not self._planningConstraintWarning
+            )
+            self.ui.lockTrajectoryButton.enabled = bool(canLock or isLocked)
+            self.ui.lockTrajectoryButton.checked = isLocked
+            self.ui.lockTrajectoryButton.text = (
+                _("Unlock Entry / Target Pair")
+                if isLocked
+                else _("Lock Valid Entry / Target Pair")
+            )
+        finally:
+            self._updatingPlanningUI = False
         self._updateTrajectoryDetails(trajectoryNode)
         self._updatePlanningStatus(
             segmentationNode,
@@ -1175,6 +1462,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
             self.ui.planningStatusLabel.styleSheet = "color: #b36b00;"
             return
+        if self._planningConstraintWarning:
+            self.ui.planningStatusLabel.text = self._planningConstraintWarning
+            self.ui.planningStatusLabel.styleSheet = "color: #b00020;"
+            return
         if not trajectoryNode or not self.logic:
             self.ui.planningStatusLabel.text = _(
                 "Target tooth saved. Create or select a trajectory line."
@@ -1225,21 +1516,33 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if index >= 0 and self.ui.targetToothComboBox.itemData(index)
             else ""
         )
-        self._parameterNode.targetToothSegmentId = segmentId
-        if not segmentId and self._parameterNode.trajectoryLine:
-            self.logic.clearTrajectoryTarget(
-                self._parameterNode.trajectoryLine
+        trajectoryNode = self._parameterNode.trajectoryLine
+        if trajectoryNode:
+            self._validTrajectoryPointsByNodeId.pop(
+                trajectoryNode.GetID(),
+                None,
             )
-        elif segmentId and self._parameterNode.trajectoryLine:
+        self._planningConstraintWarning = ""
+        self._parameterNode.targetToothSegmentId = segmentId
+        if not segmentId and trajectoryNode:
+            self.logic.clearTrajectoryTarget(
+                trajectoryNode
+            )
+            trajectoryNode.SetNodeReferenceID(
+                self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+                None,
+            )
+        elif segmentId and trajectoryNode:
             try:
                 self.logic.configureTrajectoryTarget(
-                    self._parameterNode.trajectoryLine,
+                    trajectoryNode,
                     self._parameterNode.teethSegmentation,
                     segmentId,
                 )
             except ValueError as exc:
                 slicer.util.errorDisplay(str(exc))
         self._updatePlanning()
+        self._applyTargetPriorityHighlight()
 
     def onTrajectorySelectionChanged(self, trajectoryNode) -> None:
         if not self._parameterNode or not self.logic:
@@ -1249,6 +1552,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         selectedNodeId = trajectoryNode.GetID() if trajectoryNode else None
         if currentNodeId != selectedNodeId:
             self._parameterNode.trajectoryLine = trajectoryNode
+            if currentNodeId:
+                self._validTrajectoryPointsByNodeId.pop(
+                    currentNodeId,
+                    None,
+                )
         self._bindPlanningTrajectoryNode(trajectoryNode)
         targetId = self._parameterNode.targetToothSegmentId
         if trajectoryNode and targetId:
@@ -1303,6 +1611,103 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._updatePlanning()
         except (RuntimeError, ValueError) as exc:
             slicer.util.errorDisplay(str(exc))
+
+    def onUndoTrajectoryPoint(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        trajectoryNode = self._parameterNode.trajectoryLine
+        if not trajectoryNode:
+            return
+        try:
+            if trajectoryNode.GetLocked():
+                raise ValueError(
+                    _("Unlock the trajectory before removing a point.")
+                )
+            summary = self.logic.getTrajectorySummary(trajectoryNode)
+            if summary["definedPointCount"] == 0:
+                raise ValueError(_("The trajectory has no point to undo."))
+            self.logic.stopTrajectoryPlacement()
+            trajectoryNode.RemoveNthControlPoint(
+                summary["definedPointCount"] - 1
+            )
+            self._validTrajectoryPointsByNodeId.pop(
+                trajectoryNode.GetID(),
+                None,
+            )
+            self._planningConstraintWarning = ""
+            self._enforceTrajectoryBounds(trajectoryNode)
+            self._updatePlanning()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onResetTrajectory(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        trajectoryNode = self._parameterNode.trajectoryLine
+        if not trajectoryNode:
+            return
+        summary = self.logic.getTrajectorySummary(trajectoryNode)
+        if summary["definedPointCount"] == 0:
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Clear both Entry and Target points from the selected "
+                "trajectory? This cannot be undone after the scene is saved."
+            ),
+            windowTitle=_("Clear Step 4A trajectory"),
+        ):
+            return
+        self.logic.stopTrajectoryPlacement()
+        trajectoryNode.SetLocked(False)
+        trajectoryNode.RemoveAllControlPoints()
+        self._validTrajectoryPointsByNodeId.pop(
+            trajectoryNode.GetID(),
+            None,
+        )
+        self._planningConstraintWarning = ""
+        self._updatePlanning()
+
+    def onTrajectoryLockToggled(self, locked: bool) -> None:
+        if (
+            self._updatingPlanningUI
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        trajectoryNode = self._parameterNode.trajectoryLine
+        if not trajectoryNode:
+            return
+        if locked:
+            try:
+                summary = self.logic.getTrajectorySummary(trajectoryNode)
+                boundsReport = self.logic.getTrajectoryBoundsReport(
+                    trajectoryNode,
+                    self._parameterNode.teethSegmentation,
+                    self._parameterNode.targetToothSegmentId,
+                )
+                if (
+                    not summary["isValid"]
+                    or summary["definedPointCount"] != 2
+                    or not boundsReport["allDefinedPointsWithinBounds"]
+                ):
+                    raise ValueError(
+                        _(
+                            "A complete non-zero Entry/Target pair inside the "
+                            "target bounds is required before locking."
+                        )
+                    )
+                self.logic.stopTrajectoryPlacement()
+                trajectoryNode.SetLocked(True)
+            except (RuntimeError, ValueError) as exc:
+                self._updatingPlanningUI = True
+                try:
+                    self.ui.lockTrajectoryButton.checked = False
+                finally:
+                    self._updatingPlanningUI = False
+                slicer.util.errorDisplay(str(exc))
+        else:
+            trajectoryNode.SetLocked(False)
+        self._updatePlanning()
 
     def _setMetadataPlaceholders(self) -> None:
         for label in (
@@ -1954,6 +2359,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
     SOURCE_VOLUME_REFERENCE_ROLE = "DENTOBOT.SourceVolume"
     TARGET_SEGMENTATION_REFERENCE_ROLE = "DENTOBOT.TargetSegmentation"
+    TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE = (
+        "DENTOBOT.TargetBoundsSegmentation"
+    )
+    TARGET_BOUNDS_ROI_REFERENCE_ROLE = "DENTOBOT.TargetBoundsROI"
     SEGMENT_REVIEW_CATEGORY_ORDER = (
         "Teeth",
         "Pulp and root canals",
@@ -2022,6 +2431,180 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 )
             )
         return record
+
+    def getTargetToothBoundsWorld(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> tuple[float, float, float, float, float, float]:
+        """Return finite axis-aligned world-RAS bounds for one whole tooth."""
+
+        self.validateTargetTooth(segmentationNode, segmentId)
+        closedSurface = vtk.vtkPolyData()
+        success = (
+            slicer.vtkSlicerSegmentationsModuleLogic
+            .GetSegmentClosedSurfaceRepresentation(
+                segmentationNode,
+                segmentId,
+                closedSurface,
+            )
+        )
+        if not success or closedSurface.GetNumberOfPoints() == 0:
+            raise ValueError(
+                _(
+                    "The selected target tooth has no closed surface from "
+                    "which to calculate placement bounds."
+                )
+            )
+        bounds = tuple(float(value) for value in closedSurface.GetBounds())
+        if (
+            len(bounds) != 6
+            or any(not math.isfinite(value) for value in bounds)
+            or any(
+                bounds[axis * 2 + 1] <= bounds[axis * 2]
+                for axis in range(3)
+            )
+        ):
+            raise ValueError(
+                _("The selected target tooth has invalid world-RAS bounds.")
+            )
+        return bounds
+
+    @staticmethod
+    def formatRasBounds(
+        bounds: tuple[float, float, float, float, float, float],
+    ) -> str:
+        """Format world-RAS axis-aligned bounds for the planning panel."""
+
+        if len(bounds) != 6:
+            raise ValueError(_("Six target-bound values are required."))
+        return (
+            f"R [{bounds[0]:.3f}, {bounds[1]:.3f}], "
+            f"A [{bounds[2]:.3f}, {bounds[3]:.3f}], "
+            f"S [{bounds[4]:.3f}, {bounds[5]:.3f}] mm"
+        )
+
+    def createOrUpdateTargetBoundsRoi(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+        roiNode: vtkMRMLMarkupsROINode | None = None,
+    ) -> tuple[vtkMRMLMarkupsROINode, tuple[float, ...]]:
+        """Create a locked visible ROI matching the selected tooth's RAS AABB."""
+
+        targetRecord = self.validateTargetTooth(
+            segmentationNode,
+            segmentId,
+        )
+        bounds = self.getTargetToothBoundsWorld(
+            segmentationNode,
+            segmentId,
+        )
+        if not roiNode or not roiNode.IsA("vtkMRMLMarkupsROINode"):
+            roiNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsROINode",
+                f'DENTO Target Bounds FDI {targetRecord["fdiNumber"]}',
+            )
+        if not roiNode:
+            raise RuntimeError(_("Slicer could not create target bounds."))
+
+        center = [
+            (bounds[axis * 2] + bounds[axis * 2 + 1]) / 2.0
+            for axis in range(3)
+        ]
+        size = [
+            bounds[axis * 2 + 1] - bounds[axis * 2]
+            for axis in range(3)
+        ]
+        wasModifying = roiNode.StartModify()
+        try:
+            roiNode.SetName(
+                f'DENTO Target Bounds FDI {targetRecord["fdiNumber"]}'
+            )
+            roiNode.SetCenterWorld(center)
+            roiNode.SetSizeWorld(size)
+            roiNode.SetLocked(True)
+            roiNode.SetAttribute("DENTOBOT.BoundsRole", "TargetToothAABB")
+            roiNode.SetAttribute(
+                "DENTOBOT.CoordinateSystem",
+                "SlicerRASmm",
+            )
+            roiNode.SetAttribute(
+                "DENTOBOT.TargetSegmentID",
+                targetRecord["segmentId"],
+            )
+            roiNode.SetAttribute(
+                "DENTOBOT.TargetFdiNumber",
+                targetRecord["fdiNumber"] or "",
+            )
+            roiNode.SetNodeReferenceID(
+                self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE,
+                segmentationNode.GetID(),
+            )
+        finally:
+            roiNode.EndModify(wasModifying)
+
+        roiNode.CreateDefaultDisplayNodes()
+        displayNode = roiNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetVisibility2D(True)
+            displayNode.SetVisibility3D(True)
+            displayNode.SetFillVisibility(False)
+            displayNode.SetOutlineVisibility(True)
+            displayNode.SetPropertiesLabelVisibility(False)
+            displayNode.SetColor(1.0, 0.65, 0.0)
+            displayNode.SetSelectedColor(1.0, 0.8, 0.2)
+            if hasattr(displayNode, "SetHandlesInteractive"):
+                displayNode.SetHandlesInteractive(False)
+        return roiNode, bounds
+
+    @staticmethod
+    def isRasPointWithinBounds(
+        point: list[float] | tuple[float, ...],
+        bounds: tuple[float, float, float, float, float, float],
+        toleranceMm: float = 1e-3,
+    ) -> bool:
+        """Return whether a point lies inside an inclusive world-RAS AABB."""
+
+        if len(point) != 3 or len(bounds) != 6:
+            raise ValueError(_("Invalid point or target bounds."))
+        toleranceMm = float(toleranceMm)
+        if not math.isfinite(toleranceMm) or toleranceMm < 0.0:
+            raise ValueError(_("Bounds tolerance must be non-negative."))
+        return all(
+            bounds[axis * 2] - toleranceMm
+            <= float(point[axis])
+            <= bounds[axis * 2 + 1] + toleranceMm
+            for axis in range(3)
+        )
+
+    def getTrajectoryBoundsReport(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> dict:
+        """Report any Entry/Target points outside the selected tooth AABB."""
+
+        summary = self.getTrajectorySummary(trajectoryNode)
+        bounds = self.getTargetToothBoundsWorld(
+            segmentationNode,
+            segmentId,
+        )
+        points = (summary["entryRas"], summary["targetRas"])
+        invalidIndices = [
+            index
+            for index, point in enumerate(points)
+            if point is not None
+            and not self.isRasPointWithinBounds(point, bounds)
+        ]
+        return {
+            "bounds": bounds,
+            "invalidPointIndices": invalidIndices,
+            "allDefinedPointsWithinBounds": not invalidIndices,
+            "summary": summary,
+        }
 
     def createTrajectoryNode(
         self,
@@ -2104,6 +2687,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         try:
             trajectoryNode.SetNodeReferenceID(
                 self.TARGET_SEGMENTATION_REFERENCE_ROLE,
+                None,
+            )
+            trajectoryNode.SetNodeReferenceID(
+                self.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
                 None,
             )
             for attributeName in (
@@ -2206,6 +2793,35 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
         selectionNode.SetActivePlaceNodeID(trajectoryNode.GetID())
         slicer.modules.markups.logic().StartPlaceMode(0)
+        # Slicer 5.12 resets the active placement class to Fiducial when
+        # StartPlaceMode is called. Reassert the selected line afterwards so
+        # view clicks populate this two-point line instead of creating F_*
+        # fiducial lists.
+        selectionNode.SetActivePlaceNodeClassName(
+            "vtkMRMLMarkupsLineNode"
+        )
+        selectionNode.SetActivePlaceNodeID(trajectoryNode.GetID())
+        if (
+            selectionNode.GetActivePlaceNodeID() != trajectoryNode.GetID()
+            or selectionNode.GetActivePlaceNodeClassName()
+            != "vtkMRMLMarkupsLineNode"
+            or not selectionNode.GetActivePlaceNodePlacementValid()
+        ):
+            self.stopTrajectoryPlacement()
+            raise RuntimeError(
+                _("Slicer could not activate the selected trajectory line.")
+            )
+
+    @staticmethod
+    def stopTrajectoryPlacement() -> None:
+        """Return Slicer to view interaction without altering line geometry."""
+
+        interactionNode = (
+            slicer.app.applicationLogic().GetInteractionNode()
+        )
+        if not interactionNode:
+            raise RuntimeError(_("Slicer's interaction node is unavailable."))
+        interactionNode.SwitchToViewTransformMode()
 
     def applyTeethSegmentationReviewMetadata(
         self,
@@ -4207,6 +4823,14 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         ):
             segment = slicer.vtkSegment()
             segment.SetName(segmentName)
+            cube = vtk.vtkCubeSource()
+            cube.SetBounds(-1.0, 1.0, -2.0, 2.0, -3.0, 3.0)
+            cube.Update()
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                cube.GetOutput(),
+            )
             segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
 
         targetRecords = logic.getTargetToothRecords(segmentationNode)
@@ -4224,6 +4848,38 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             logic.validateTargetTooth(segmentationNode, "pulp-16")
         with self.assertRaisesRegex(ValueError, "target tooth"):
             logic.validateTargetTooth(segmentationNode, "")
+
+        targetBounds = logic.getTargetToothBoundsWorld(
+            segmentationNode,
+            "tooth-16",
+        )
+        self.assertEqual(
+            targetBounds,
+            (-1.0, 1.0, -2.0, 2.0, -3.0, 3.0),
+        )
+        self.assertTrue(
+            logic.isRasPointWithinBounds(
+                [0.0, 0.0, 0.0],
+                targetBounds,
+            )
+        )
+        self.assertFalse(
+            logic.isRasPointWithinBounds(
+                [2.0, 0.0, 0.0],
+                targetBounds,
+            )
+        )
+        targetBoundsRoi, roiBounds = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-16",
+        )
+        self.assertTrue(targetBoundsRoi.IsA("vtkMRMLMarkupsROINode"))
+        self.assertEqual(roiBounds, targetBounds)
+        self.assertTrue(targetBoundsRoi.GetLocked())
+        self.assertEqual(
+            targetBoundsRoi.GetAttribute("DENTOBOT.TargetSegmentID"),
+            "tooth-16",
+        )
 
         with self.assertRaisesRegex(ValueError, "must not be empty"):
             logic.createTrajectoryNode(" ")
@@ -4307,15 +4963,53 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(coincidentSummary["lengthMm"], 0.0)
         self.assertFalse(coincidentSummary["isValid"])
 
+        constrainedTrajectory = logic.createTrajectoryNode(
+            "ConstrainedTrajectory"
+        )
+        constrainedTrajectory.AddControlPoint(
+            vtk.vtkVector3d(0.0, 0.0, 0.0)
+        )
+        constrainedTrajectory.AddControlPoint(
+            vtk.vtkVector3d(2.0, 0.0, 0.0)
+        )
+        boundsReport = logic.getTrajectoryBoundsReport(
+            constrainedTrajectory,
+            segmentationNode,
+            "tooth-16",
+        )
+        self.assertEqual(boundsReport["invalidPointIndices"], [1])
+        self.assertFalse(boundsReport["allDefinedPointsWithinBounds"])
+
+        placementTrajectory = logic.createTrajectoryNode(
+            "PlacementTrajectory"
+        )
+        logic.startTrajectoryPlacement(placementTrajectory)
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        self.assertEqual(
+            selectionNode.GetActivePlaceNodeID(),
+            placementTrajectory.GetID(),
+        )
+        self.assertEqual(
+            selectionNode.GetActivePlaceNodeClassName(),
+            "vtkMRMLMarkupsLineNode",
+        )
+        self.assertTrue(selectionNode.GetActivePlaceNodePlacementValid())
+        logic.stopTrajectoryPlacement()
+
         parameterNode = logic.getParameterNode()
         parameterNode.teethSegmentation = segmentationNode
         parameterNode.targetToothSegmentId = "tooth-16"
+        parameterNode.targetToothBoundsRoi = targetBoundsRoi
         parameterNode.trajectoryLine = trajectoryNode
         self.assertEqual(
             parameterNode.teethSegmentation.GetID(),
             segmentationNode.GetID(),
         )
         self.assertEqual(parameterNode.targetToothSegmentId, "tooth-16")
+        self.assertEqual(
+            parameterNode.targetToothBoundsRoi.GetID(),
+            targetBoundsRoi.GetID(),
+        )
         self.assertEqual(
             parameterNode.trajectoryLine.GetID(),
             trajectoryNode.GetID(),

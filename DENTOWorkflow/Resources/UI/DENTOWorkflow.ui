@@ -1205,7 +1205,7 @@
       <item>
        <widget class="QLabel" name="planningDescriptionLabel">
         <property name="text">
-         <string>Select one whole-tooth segment and define a two-point Markups line. Point 1 is Entry and point 2 is Target; coordinates are world RAS millimetres.</string>
+         <string>Select one whole-tooth segment, then place Entry followed by Target in a 2D slice view. Both points must remain inside the orange target-tooth bounds; coordinates are world RAS millimetres.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1287,11 +1287,53 @@
           <property name="enabled">
            <bool>false</bool>
           </property>
-          <property name="toolTip">
-           <string>Activate Slicer's Markups placement mode. Place Entry first and Target second in a slice or 3D view.</string>
+         <property name="toolTip">
+           <string>Activate the selected two-point Markups line. Press once, then place Entry followed by Target in a slice view. If placement is interrupted after Entry, press again to place Target.</string>
           </property>
           <property name="text">
-           <string>Place Entry / Target</string>
+           <string>Place Both Points</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPushButton" name="undoTrajectoryPointButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Remove the most recently placed trajectory point. Entry is removed only after Target has already been removed.</string>
+          </property>
+          <property name="text">
+           <string>Undo Last Point</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPushButton" name="resetTrajectoryButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Clear both Entry and Target after confirmation so the trajectory can be placed again.</string>
+          </property>
+          <property name="text">
+           <string>Clear Both Points</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="2">
+         <widget class="QPushButton" name="lockTrajectoryButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>Lock a complete valid Entry/Target pair to prevent accidental movement. Uncheck to edit it again.</string>
+          </property>
+          <property name="text">
+           <string>Lock Valid Entry / Target Pair</string>
           </property>
          </widget>
         </item>
@@ -1388,6 +1430,26 @@
           <widget class="QLabel" name="trajectoryLengthValueLabel">
            <property name="text">
             <string>--</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="targetBoundsLabel">
+           <property name="text">
+            <string>Allowed bounds:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QLabel" name="targetBoundsValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
            </property>
           </widget>
          </item>

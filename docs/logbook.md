@@ -25,6 +25,72 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-30 23:09:46 IST (UTC+05:30) — Step 4A manual findings and correction
+
+### Manual-test findings
+
+1. Step 3 review selection controlled the visible highlight independently of
+   the Step 4A target. The chosen planning target must supersede review
+   selection as the priority 2D and 3D highlight.
+2. Entry and Target placement was unconstrained. Both points must remain
+   within a per-target-tooth bounding box.
+3. Manual placement needs a dentist-focused 2D workflow. The developer
+   suggested a horizontal plane parallel to the viewport with orientation
+   lock, and reported dentist feedback that 2D slices are easier than 3D for
+   precise placement.
+4. Repeated Place Entry/Target actions produced labels resembling `F_1-1`,
+   `F_2-1`, and `F_3-1`; no usable paired trajectory was visible.
+5. No direct undo or delete/reset controls were exposed for this accuracy-
+   critical manual operation.
+
+### Diagnosis
+
+- Finding 4 was reproduced in an isolated Slicer 5.12.2 placement-state probe.
+  Before `StartPlaceMode(0)`, the active node class and ID both referenced the
+  line. After the call, the ID still referenced the line but the active class
+  had reset to `vtkMRMLMarkupsFiducialNode`. This explains the separate
+  `F_*` nodes and confirms that the developer did not misuse the interface.
+- Reasserting `vtkMRMLMarkupsLineNode` and the selected line ID after
+  `StartPlaceMode(0)` produced a valid line-placement state.
+- Finding 3 is not safely reducible to a generic axial lock. Scanner axial,
+  dental occlusal, and a target-tooth local plane have different meanings.
+  The decision is routed to Step 4B with 2D placement primary and 3D
+  contextual.
+
+### Implemented correction
+
+- Target selection now forces visibility and priority opacity for the target
+  in 2D and 3D and synchronizes the Step 3 tree to it.
+- One locked orange Markups ROI is created or updated from the selected
+  tooth's closed-surface axis-aligned world-RAS bounds.
+- Newly placed points outside the bounds are removed. Previously valid points
+  dragged outside are restored rather than silently changed.
+- Constraint observation uses Markups point-defined, point-modified, and
+  point-removed events in addition to generic modification. An expanded test
+  showed that relying on the generic event alone could miss an out-of-bounds
+  first point because that event arrived before the point was fully defined.
+- Place mode is explicitly rebound to the selected Markups line after Slicer
+  enters placement mode.
+- The control remains a two-point line. The UI directs one action followed by
+  Entry and Target, or resumes Target if Entry already exists.
+- Added Undo Last Point, confirmed Clear Both Points, and lock/unlock for a
+  complete valid pair.
+
+### Verification and disposition
+
+- Static Python and UI XML checks passed during implementation.
+- Full Slicer-native suite: passed in Slicer 5.12.2 revision `f7879b5`.
+- Widget correction test: target priority in 2D/3D, target ROI, invalid Entry
+  and Target rejection, restoration of a moved point, line placement class,
+  undo, reset, and lock/unlock all passed.
+- The constraint is deliberately described as an AABB workflow guard, not
+  proof that a point is inside tooth material and not clinical validation.
+- Manual retest on the retained teeth phantom remains required before Step 4A
+  acceptance.
+- Step 4B must define the dentist-approved reference plane, target focus,
+  slice rotation lock, slice scrolling behavior, point projection, and
+  synchronized view behavior.
+
 ## 2026-07-30 22:14:45 IST (UTC+05:30) — Authorized Step 4A Slicer verification
 
 ### Authorization and boundary

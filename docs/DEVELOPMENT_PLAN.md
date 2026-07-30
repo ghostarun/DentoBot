@@ -266,9 +266,10 @@ per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 
-**Status:** Step 4A target-tooth and trajectory-input source implemented and
-automated-runtime-verified in Slicer 5.12.2; interactive phantom acceptance,
-Ubuntu Slicer 5.10 compatibility, and clinical semantics remain unresolved
+**Status:** Step 4A manual-test corrections implemented and
+automated-runtime-verified in Slicer 5.12.2; phantom manual retest, Step 4B
+dentist-focused 2D orientation design, Ubuntu Slicer 5.10 compatibility, and
+clinical semantics remain unresolved
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
@@ -286,6 +287,14 @@ Step 4A implemented scope:
 - clear stale target associations when the segmentation or segment changes;
 - present the result explicitly as a draft research input rather than an
   approved drilling plan.
+- give the selected target priority over Step 3 review highlighting in both
+  2D and 3D;
+- generate a locked visible axis-aligned world-RAS bounding box from the
+  active tooth surface and reject/restore points that leave it;
+- explicitly rebind Slicer placement to the selected Markups line so one line
+  receives exactly Entry and Target rather than creating fiducial lists;
+- provide Undo Last Point, confirmed Clear Both Points, and lock/unlock for a
+  complete valid pair.
 
 Implementation themes:
 
@@ -304,6 +313,21 @@ The reusable two-point creation and length concepts from the disabled legacy
 experiment have now been migrated into DENTO Workflow with target-tooth
 association, persistence, stale-reference handling, and draft-only safety
 language. The remaining themes above are not implemented by this increment.
+
+Step 4B dentist-focused 2D planning scope:
+
+- make 2D slice placement the primary workflow and treat 3D placement as
+  secondary;
+- provide one action to focus slice views on the selected target and bounds;
+- define the intended planning plane before implementing orientation lock:
+  scanner axial, dental occlusal, and tooth-local planes are not equivalent;
+- once the reference plane is accepted, lock slice rotation while preserving
+  deliberate slice scrolling through the target;
+- evaluate projection visibility, point jumping, zoom, and cross-view
+  synchronization with the dentist rather than optimizing for a non-clinical
+  operator;
+- retain the current 3D view for context and verification, not as the primary
+  precision-placement interface.
 
 ## Step 5: Planning constraints and verification
 

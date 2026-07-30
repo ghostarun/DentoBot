@@ -391,6 +391,20 @@ convention, and `Draft` status. Control point 0 is Entry and control point 1 is
 Target. Their positions and Euclidean length are read in world RAS
 millimetres.
 
+The active target also owns a persistent `vtkMRMLMarkupsROINode` representing
+the whole-tooth closed surface's axis-aligned world-RAS bounding box. The ROI
+is visible and locked. Initial placement and later drag edits are constrained
+at the workflow layer: a newly placed out-of-bounds point is removed, while an
+existing point dragged out of bounds is restored to its last valid position.
+This AABB is a coarse PoC workflow constraint, not proof that a point lies
+inside tooth material and not an anatomical safety margin.
+
+Step 4A target selection has display priority over the independent Step 3
+review selection. The target is emphasized in both 2D and 3D while other
+segments remain contextual. The Markups interaction mode is explicitly
+rebound to the selected line after Slicer enters place mode because Slicer
+5.12.2 otherwise resets the active placement class to Fiducial.
+
 This increment does not define a dental procedure, interpret entry/target
 anatomy, approve a plan, calculate clearance, generate a template, or
 authorize drilling. Those remain later planning and validation increments.

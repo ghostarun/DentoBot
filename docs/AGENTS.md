@@ -71,19 +71,24 @@ used as an autonomous patient-treatment system.
   do not invalidate review. This evidence confirms workflow behavior, not
   anatomical or clinical accuracy.
 - **The Step 4A target-tooth and trajectory-input foundation is implemented
-  and automated-runtime-verified in an isolated Slicer 5.12.2 process.**
+  with a first manual-test correction batch automated-runtime-verified in an
+  isolated Slicer 5.12.2 process.**
   DENTO Workflow now filters the
   authoritative segmentation to whole-tooth targets, persists one selected
-  segment ID, creates/selects a two-point Markups line, labels its world-RAS
-  points as Entry and Target, displays its geometric length, and associates
-  the line with the target segmentation and segment. The implementation
+  segment ID, makes that target the priority 2D/3D highlight, creates a locked
+  visible world-RAS bounding-box ROI, and rejects trajectory points outside
+  it. The workflow creates/selects one two-point Markups line, labels its
+  points Entry and Target, displays its geometric length, offers undo/reset
+  and pair locking, and associates the line with the target segmentation,
+  segment, and bounds. The implementation
   deliberately excludes procedure semantics, plan approval, anatomical safety
   checks, template generation, registration, and drilling authorization. Its
-  complete Slicer-native suite, segmentation-selection widget path, known
-  13-millimetre trajectory, and synthetic MRB save/reopen passed in Slicer
-  5.12.2. Interactive placement against the retained teeth phantom remains a
-  developer acceptance check, and compatibility verification remains pending
-  in the Ubuntu Slicer 5.10 container.
+  complete Slicer-native suite and automated correction widget path passed in
+  Slicer 5.12.2. Manual retest against the retained teeth phantom remains an
+  acceptance gate. Dentist-focused 2D orientation/focus locking is a Step 4B
+  design problem because the intended reference plane is not yet specified.
+  Compatibility verification also remains pending in the Ubuntu Slicer 5.10
+  container.
 
 ## Product strategy
 
