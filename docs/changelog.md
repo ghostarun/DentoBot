@@ -21,6 +21,61 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-30 18:25:34 IST (UTC+05:30) — Target-tooth and draft trajectory inputs
+
+### Added and changed
+
+- Added the first Step 4 planning panel to DENTO Workflow.
+- Added persistent `targetToothSegmentId` and
+  `vtkMRMLMarkupsLineNode` parameter-node state.
+- Restricted target choices to whole-tooth records from the authoritative
+  segmentation. Pulp, canal, jaw, implant, restoration, and other anatomy
+  remain reviewable but are excluded from target-tooth selection.
+- Added draft trajectory creation and selection, explicit Entry/Target point
+  labels, interactive Markups placement, world-RAS coordinates, and Euclidean
+  length.
+- Associated each configured trajectory with its target segmentation using an
+  MRML node reference and with its target segment using namespaced
+  `DENTOBOT.*` attributes.
+- Cleared stale target associations when the selected segmentation changes, the
+  target is cleared, or the retained segment no longer qualifies.
+- Added Slicer-native logic-test source for target filtering, invalid targets,
+  target references, point labels, partial and complete lines, a known
+  13-millimetre trajectory, coincident points, and parameter-node
+  persistence.
+- Updated the controlled architecture, roadmap, and agent state.
+- Added `docs/UBUNTU_TRANSFER.md` with the verified Git boundary, non-Git
+  manifest, safe comparison clone procedure, Slicer 5.10 compatibility gates,
+  and external-backend migration sequence.
+
+### Preserved
+
+- The authoritative segmentation, Step 3 review/correction behavior, inference
+  process contract, source CBCT, masks, and run artifacts are unchanged.
+- The increment does not define procedure-specific anatomy, approve a plan,
+  calculate clearance, generate a patient-specific template, perform
+  registration, or authorize drilling.
+- The disabled legacy trajectory scaffold remains unchanged as historical
+  source; its two-point creation and length concepts were reimplemented under
+  current DENTO Workflow ownership rather than enabling the old module.
+
+### Verification and limitations
+
+- All 11 repository Python files passed static AST parsing without importing a
+  Slicer module in ordinary Python.
+- `DENTOWorkflow.ui` parsed as XML; all 67 Python `self.ui.*` references
+  resolve, all statically discovered callbacks resolve, and UI object names
+  are unique.
+- `git diff --check` passed apart from informational line-ending warnings.
+- An ordinary Windows-Python `pytest` attempt did not run because that
+  interpreter does not have pytest installed. This is not a failure of the
+  Slicer-native planning tests or the separately controlled WSL environment.
+- Slicer, WSL, CUDA, TotalSegmentator, DICOM, research data, robot, and
+  hardware processes were not launched. Module reload, interactive placement,
+  the Slicer-native test, and MRB persistence remain pending in Slicer 5.12.2;
+  compatibility must then be verified in Ubuntu Slicer 5.10.
+- Nothing was reverted.
+
 ## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C acceptance and quiet negative test
 
 ### Accepted and changed

@@ -377,6 +377,24 @@ are excluded.
 - Metrics such as FRE, target error, lateral error, angular error, and depth
   error are computed in reusable logic and displayed by the workflow UI.
 
+The first Step 4 source increment keeps planning inputs inside
+`DENTOWorkflow`. The authoritative teeth segmentation remains the source of
+target anatomy. Only records classified as whole teeth are eligible for the
+draft target selector; pulp, canal, jaw, implant, and other segments remain
+available for review but are not silently promoted to target teeth.
+
+The selected target segment ID and `vtkMRMLMarkupsLineNode` are persisted by
+the workflow parameter node. The trajectory stores a proper node reference to
+the target segmentation plus namespaced attributes for the target segment ID,
+source name, FDI number, `EntryToTarget` role, `SlicerRASmm` coordinate
+convention, and `Draft` status. Control point 0 is Entry and control point 1 is
+Target. Their positions and Euclidean length are read in world RAS
+millimetres.
+
+This increment does not define a dental procedure, interpret entry/target
+anatomy, approve a plan, calculate clearance, generate a template, or
+authorize drilling. Those remain later planning and validation increments.
+
 ## Robot architecture and ROS decision gate
 
 Slicer communicates only with a high-level `RobotAdapter` interface:

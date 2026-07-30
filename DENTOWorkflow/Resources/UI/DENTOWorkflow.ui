@@ -30,14 +30,14 @@
       <string notr="true">font-size: 14px; font-weight: 600; color: #4a7fa8;</string>
      </property>
      <property name="text">
-      <string>CASE IMAGING  /  AI SEGMENTATION REVIEW</string>
+      <string>CASE IMAGING  /  SEGMENTATION REVIEW  /  DRAFT PLANNING</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QLabel" name="introLabel">
      <property name="text">
-      <string>Load CBCT data, run the external dental segmentation, and inspect its anatomical labels in Slicer's linked 2D and 3D views.</string>
+      <string>Load CBCT data, review the external dental segmentation, select a target tooth, and define a draft entry-to-target trajectory in Slicer's linked 2D and 3D views.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -1194,6 +1194,236 @@
     </widget>
    </item>
    <item>
+    <widget class="ctkCollapsibleButton" name="planningCollapsibleButton">
+     <property name="text">
+      <string>Target Tooth and Trajectory</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="planningVerticalLayout">
+      <item>
+       <widget class="QLabel" name="planningDescriptionLabel">
+        <property name="text">
+         <string>Select one whole-tooth segment and define a two-point Markups line. Point 1 is Entry and point 2 is Target; coordinates are world RAS millimetres.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="planningInputFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="targetToothLabel">
+          <property name="text">
+           <string>Target tooth:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="targetToothComboBox">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Choose one whole-tooth label from the authoritative segmentation. Pulp, jaw, canal, implant, and other labels are excluded.</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="trajectoryLabel">
+          <property name="text">
+           <string>Trajectory:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="qMRMLNodeComboBox" name="trajectorySelector">
+          <property name="toolTip">
+           <string>Select a two-point Markups line already loaded in the MRML scene, or create a new DENTO trajectory below.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLMarkupsLineNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>trajectoryLine</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="planningButtonGridLayout">
+        <item row="0" column="0">
+         <widget class="QPushButton" name="createTrajectoryButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Create a draft two-point Markups line associated with the selected target tooth.</string>
+          </property>
+          <property name="text">
+           <string>Create New Trajectory</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="placeTrajectoryButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Activate Slicer's Markups placement mode. Place Entry first and Target second in a slice or 3D view.</string>
+          </property>
+          <property name="text">
+           <string>Place Entry / Target</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="planningSummaryGroupBox">
+        <property name="title">
+         <string>Draft Planning Inputs</string>
+        </property>
+        <layout class="QFormLayout" name="planningSummaryFormLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="targetToothValueTitleLabel">
+           <property name="text">
+            <string>Tooth:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="targetToothValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="targetToothSourceLabel">
+           <property name="text">
+            <string>Source label:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="targetToothSourceValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="trajectoryEntryLabel">
+           <property name="text">
+            <string>Entry RAS:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="trajectoryEntryValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="trajectoryTargetLabel">
+           <property name="text">
+            <string>Target RAS:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLabel" name="trajectoryTargetValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+           <property name="textInteractionFlags">
+            <set>Qt::TextSelectableByMouse</set>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="trajectoryLengthLabel">
+           <property name="text">
+            <string>Length:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QLabel" name="trajectoryLengthValueLabel">
+           <property name="text">
+            <string>--</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="planningStatusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Select a dental segmentation before defining a target tooth.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="planningSafetyLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Draft research input only. Target selection and geometric length do not establish anatomical safety, clinical suitability, plan approval, or authorization to drill.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -1239,6 +1469,12 @@
    <sender>DENTOWorkflow</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>reviewSegmentationSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>trajectorySelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
  </connections>

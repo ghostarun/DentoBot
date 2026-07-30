@@ -266,10 +266,25 @@ per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 
-**Status:** planned; clinical semantics unresolved
+**Status:** target-tooth and trajectory-input source implemented; Slicer
+runtime verification and clinical semantics remain unresolved
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
+
+Implemented foundation:
+
+- filter the authoritative segmentation to whole-tooth target candidates;
+- persist one target segment ID with the workflow parameter node;
+- create or select a persistent `vtkMRMLMarkupsLineNode`;
+- associate the line with its target segmentation and segment using an MRML
+  node reference and `DENTOBOT.*` attributes;
+- label control point 0 as Entry and control point 1 as Target;
+- display both points in world RAS millimetres and calculate non-zero
+  Euclidean length;
+- clear stale target associations when the segmentation or segment changes;
+- present the result explicitly as a draft research input rather than an
+  approved drilling plan.
 
 Implementation themes:
 
@@ -283,6 +298,11 @@ Implementation themes:
 
 The existing trajectory experiment may be reused only after it is reviewed
 against these requirements.
+
+The reusable two-point creation and length concepts from the disabled legacy
+experiment have now been migrated into DENTO Workflow with target-tooth
+association, persistence, stale-reference handling, and draft-only safety
+language. The remaining themes above are not implemented by this increment.
 
 ## Step 5: Planning constraints and verification
 

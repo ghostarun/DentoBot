@@ -25,6 +25,103 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-30 18:25:34 IST (UTC+05:30) — Step 4 foundation and transfer preparation
+
+### Request and scope
+
+- The developer is working from home without access to the Ubuntu workstation
+  and requested an achievable 17:30–22:00 session.
+- The selected implementation scope was target-tooth planning followed by
+  trajectory input, with Ubuntu transfer initiation included in the closeout.
+- The work was bounded to Slicer/MRML planning inputs. Patient-specific
+  template mesh generation, gingival clearance, mounting holes, registration,
+  plan approval, safety constraints, and robot behavior were not pulled into
+  this increment.
+
+### Repository and transfer reconnaissance
+
+- The Windows repository was clean on `main`.
+- The configured remote is
+  `https://github.com/ghostarun/DentoBot.git`.
+- Local `main`, the remote-tracking branch, and a live read-only GitHub query
+  all identified
+  `81836a7fdf9385b0a746097b8934568e7a329dd6` as the pre-feature baseline.
+- Git tracks the extension, inference source/tests, top-level dependency
+  manifests, controlled documentation, and repository history.
+- Model weights, the Conda environment, patient/research data, MRB and run
+  artifacts, Slicer settings, credentials, and the Ubuntu Compose/ROS
+  workspace remain outside this Git repository.
+- Created `codex/target-tooth-trajectory` for the implementation.
+
+### Design decisions
+
+- Reused the existing deterministic segmentation-review records instead of
+  introducing a second anatomy list.
+- Limited eligible target choices to records classified as `Teeth`.
+- Kept the target segment ID and trajectory node reference in the typed
+  workflow parameter node so scene save/reopen can preserve workflow state.
+- Stored the target segmentation as a proper MRML node reference on the
+  trajectory and retained the target segment ID, source name, and FDI number
+  as `DENTOBOT.*` attributes.
+- Defined the line as draft `EntryToTarget` geometry in `SlicerRASmm`.
+  Control point 0 is Entry and control point 1 is Target.
+- A segmentation switch or invalid/cleared tooth selection removes the stale
+  trajectory-to-target association without deleting the trajectory geometry.
+- Used Slicer's documented Markups selection and `StartPlaceMode(0)` path,
+  which is documented for both the Windows-era Slicer line and the Ubuntu
+  Slicer 5.10 target. Runtime compatibility still requires direct testing.
+
+### Implementation
+
+- Extended `DENTOWorkflowParameterNode` with target-tooth and trajectory state.
+- Added the `Target Tooth and Trajectory` panel with a whole-tooth selector,
+  Markups-line selector, create/place actions, target summary, Entry/Target
+  RAS values, length, status, and explicit draft-only safety language.
+- Added reusable logic for target filtering/validation, line creation,
+  target association/clearing, point labels, RAS formatting, partial/complete
+  trajectory summaries, zero-length detection, and placement activation.
+- Added trajectory observation and planning-state refresh across node edits,
+  scene lifecycle, segmentation changes, and parameter-node restoration.
+- Added Slicer-native test source covering target filtering, validation,
+  association, stale-target clearing, point labels, partial input, a
+  3-4-12/13-millimetre trajectory, coincident points, and persistence.
+- Added `docs/UBUNTU_TRANSFER.md` with a non-destructive clone-and-compare
+  workflow and ordered compatibility gates.
+
+### Verification and current disposition
+
+- All 11 Python files passed AST parsing in ordinary Windows Python without
+  importing Slicer.
+- The UI parsed as XML. All 67 `self.ui.*` references and statically
+  discovered callbacks resolve; UI object names are unique.
+- Whitespace validation passed apart from informational LF-to-CRLF warnings.
+- `python -m pytest Inference/tests -q` did not run because the ordinary
+  Windows Python lacks pytest. No inference code changed, and this result does
+  not replace the separately controlled WSL test status.
+- The active Ubuntu Drive documentation was read for context but not modified.
+  The available connector exposed no upload or update operation, so Git is the
+  authoritative handoff path and Drive reconciliation remains pending.
+- Slicer was not launched because this session has not yet received separate
+  authorization to launch it. Therefore the new Slicer-native test,
+  interactive point placement, UI behavior, and MRB persistence remain
+  pending.
+- No WSL, CUDA, model, DICOM, patient/research data, robot, or hardware
+  operation was performed. Nothing was reverted.
+
+### Next action
+
+1. Commit and push the source checkpoint on
+   `codex/target-tooth-trajectory`.
+2. Reload DENTO Workflow in Slicer 5.12.2.
+3. Run the module self-test.
+4. Select a known teeth segmentation and FDI target.
+5. Create the trajectory, place Entry then Target, and verify the displayed
+   RAS points and length.
+6. Save/reopen an MRB and verify target and trajectory persistence.
+7. Address any runtime-only issue in a follow-up commit.
+8. On Ubuntu, clone into a comparison directory and run the transfer gates in
+   `docs/UBUNTU_TRANSFER.md`.
+
 ## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C accepted in Slicer
 
 ### Developer evidence
