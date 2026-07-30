@@ -26,6 +26,13 @@ The repository was clean before the feature branch was created. A live
 `git ls-remote` check confirmed that GitHub `main` contained the recorded
 baseline.
 
+At Windows closeout, Step 4A was developer-verified on the retained teeth
+phantom in Slicer 5.12.2 at the current PoC interaction scope. The remote
+feature branch still requires a final push and hash confirmation before the
+Ubuntu clone is the authoritative copy. Earlier isolated automated Slicer
+results are retained only as diagnostic history; they are not the manual
+acceptance authority.
+
 ## What Git retrieves
 
 Git contains:
@@ -37,7 +44,7 @@ Git contains:
 - `validated-environment.json`;
 - the disabled legacy scaffold retained for traceability;
 - controlled architecture, roadmap, reproducibility, changelog, and logbook
-  documents;
+  documents, including this transfer guide;
 - complete repository history from the Git baseline onward.
 
 Git does not contain installed applications, Python environments, model
@@ -50,7 +57,7 @@ weights, generated build products, medical/research data, or credentials.
 | DENTOWorkflow and inference source | Yes | Clone and verify the handoff commit. |
 | Top-level Python requirements | Yes | Use for reconstruction; they are not a complete transitive lock. |
 | Conda environment directory | No | Do not copy. Recreate and verify in the selected Ubuntu execution layer. |
-| Complete Conda/pip inventory | Not yet | Capture from the verified WSL environment after reviewing it for local paths. |
+| Complete Conda/pip inventory | Not yet | Optional reconstruction evidence; capture from the verified WSL environment only after reviewing it for local paths. |
 | TotalSegmentator tasks 113 and 115 | No | Download explicitly or transfer separately with file inventory and hashes. |
 | `C:\DENTOBOTRuns` artifacts | No | Do not copy wholesale. Retain only approved, de-identified evidence needed for validation. |
 | DICOM, NIfTI, NRRD, MRB, STL, and other research data | No | Transfer only through an approved local channel; never Git or the documentation Drive mirror. |
@@ -64,25 +71,31 @@ weights, generated build products, medical/research data, or credentials.
 
 ## Windows closeout before transfer
 
-1. Confirm the working tree contains only the intended feature and
-   documentation changes.
-2. Run static Python, UI XML, UI-reference, callback, and whitespace checks.
-3. Run DENTOWorkflow's Slicer-native self-test in Slicer 5.12.2 when
-   explicitly authorized.
-4. Manually verify target selection, trajectory placement, world-RAS values,
-   and MRB save/reopen.
-5. Update `docs/changelog.md` and `docs/logbook.md` with the exact evidence and
-   limitations.
-6. Commit and push `codex/target-tooth-trajectory`.
-7. Record the pushed commit in the session handoff.
-8. Reconcile changed documentation with
-   `IITM Dentobot/active-development-ubuntu` without replacing Ubuntu-only
-   history.
+- [x] Confirm the repository contains only intended Step 4A and documentation
+  changes plus ignored generated caches.
+- [x] Manually verify the corrected Step 4A target, bounds, paired placement,
+  undo/reset, and lock interaction on the retained teeth phantom.
+- [x] Record that manual result as the current PoC acceptance authority.
+- [x] Pass static Python AST, UI XML/object/reference/callback, Markdown fence,
+  and Git whitespace checks.
+- [x] Update the controlled local documentation and verify its Drive mirror.
+- [ ] Commit this final closeout.
+- [ ] Push `codex/target-tooth-trajectory`.
+- [ ] Record the exact pushed commit in the session handoff.
+- [ ] On Ubuntu, reconcile the Git documentation with
+  `IITM Dentobot/active-development-ubuntu` without replacing Ubuntu-only
+  history.
 
-The active Drive documentation was read during the Windows session, but the
-available connector did not expose a file upload or update operation. The Git
-handoff is therefore the authoritative transfer path for this increment, and
-Drive reconciliation remains an explicit Ubuntu-side task.
+Assistant-launched Slicer testing is not currently authorized. Static source,
+UI, callback, Markdown, and whitespace checks remain part of Windows closeout.
+The developer owns live Slicer acceptance unless explicit authorization is
+renewed for a specific automated runtime action.
+
+The repository `docs/` files are mirrored to the raw Markdown folder
+`IITM Dentobot/docs` for cross-session context. That mirror is not a transfer
+channel for data, model weights, credentials, or runtime artifacts. Ubuntu's
+active development documents remain a separate reconciliation input and must
+not be overwritten automatically.
 
 Optional environment evidence commands, run inside the verified WSL
 `dentobot` environment:
@@ -102,6 +115,29 @@ python -m dentobot_inference health --json --require-cuda \
 Review all evidence for local editable paths, usernames, credentials, and
 sensitive paths before deciding whether it belongs in Git or a local transfer
 bundle.
+
+The environment-evidence capture is optional for the initial source transfer.
+It becomes important before claiming clean-machine inference
+reconstruction. Do not delay the Git source handoff merely to copy an
+environment directory; environments must be recreated.
+
+## Handoff manifest for anything outside Git
+
+Create a separate manifest only for non-Git material actually required on the
+Ubuntu workstation. Each entry must record:
+
+- a non-identifying item name and purpose;
+- source and intended destination;
+- byte size and SHA-256 checksum;
+- data classification and transfer approval;
+- whether it is reconstructible, a model cache, a de-identified fixture, or
+  unique evidence.
+
+Do not add an item just because it exists on Windows. For the initial source
+and Step 4A compatibility work, Git is sufficient. A separate approved
+transfer is needed only if Ubuntu lacks required cached model weights, a
+governed de-identified validation fixture, or unique evidence that cannot be
+reconstructed.
 
 ## Safe Ubuntu retrieval
 
@@ -124,6 +160,11 @@ git -C /home/light-tarun/dentobot-migration/DentoBot \
   rev-parse HEAD
 ```
 
+Before using the clone, compare its reported hash with the exact pushed hash
+in the Windows handoff. If the feature branch is absent or the hashes differ,
+stop and correct the Git handoff rather than copying local source files
+ad hoc.
+
 Compare before choosing the final layout:
 
 - Git repository source and documentation;
@@ -138,6 +179,23 @@ extension source path to the container. Do not copy it into an installed Slicer
 tree and do not convert the existing Ubuntu root into a Git repository until
 the layout decision and file comparison are recorded.
 
+## First Ubuntu session
+
+1. Preserve and inventory `/home/light-tarun/dentobot`; do not overwrite it.
+2. Clone the pushed feature branch into the comparison location and verify its
+   hash.
+3. Compare Compose, ROS workspace, bind mounts, persistent Slicer settings,
+   model-cache paths, data paths, and active Ubuntu documentation.
+4. Complete Gate 1 before launching runtime compatibility work.
+5. Complete the Slicer-only part of Gate 2 with the retained phantom before
+   adapting inference.
+6. Choose and document the native-Ubuntu backend boundary before attempting
+   Bridges A, B, or C.
+
+The source/UI and Slicer-only gates can proceed without copying the Windows
+Conda environment, Slicer installation, run artifacts, or patient/research
+data.
+
 ## Compatibility gates
 
 ### Gate 1: source and UI
@@ -145,15 +203,19 @@ the layout decision and file comparison are recorded.
 - parse every Python source file without importing Slicer in ordinary Python;
 - parse `DENTOWorkflow.ui`;
 - confirm all `self.ui.*` references and callbacks resolve;
+- inspect MRML observer removal and transient planning-state cleanup paths;
 - confirm the extension is discoverable in Slicer 5.10.
 
 ### Gate 2: Slicer-only workflow
 
 - reload DENTO Workflow in the Ubuntu Slicer 5.10 container;
-- run the Slicer-native self-test;
+- run the Slicer-native self-test only under the testing authorization active
+  for that Ubuntu session;
 - select a retained segmentation;
 - select one whole-tooth target;
 - create and place Entry and Target;
+- verify target-priority highlighting, the visible locked bounds ROI,
+  out-of-bounds rejection, undo/reset, and pair locking;
 - verify world-RAS coordinates, non-zero length, target association, and
   explicit draft status;
 - save and reopen an MRB and verify parameter-node and MRML references.

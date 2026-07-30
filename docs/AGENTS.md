@@ -70,10 +70,9 @@ used as an autonomous patient-treatment system.
   DENTO Workflow is active; display, naming, selection, and provenance changes
   do not invalidate review. This evidence confirms workflow behavior, not
   anatomical or clinical accuracy.
-- **The Step 4A target-tooth and trajectory-input foundation is implemented
-  with a first manual-test correction batch automated-runtime-verified in an
-  isolated Slicer 5.12.2 process.**
-  DENTO Workflow now filters the
+- **The Step 4A target-tooth and trajectory-input foundation is developer-
+  verified on the retained teeth phantom in Slicer 5.12.2 at the current PoC
+  interaction scope.** DENTO Workflow now filters the
   authoritative segmentation to whole-tooth targets, persists one selected
   segment ID, makes that target the priority 2D/3D highlight, creates a locked
   visible world-RAS bounding-box ROI, and rejects trajectory points outside
@@ -83,12 +82,17 @@ used as an autonomous patient-treatment system.
   segment, and bounds. The implementation
   deliberately excludes procedure semantics, plan approval, anatomical safety
   checks, template generation, registration, and drilling authorization. Its
-  complete Slicer-native suite and automated correction widget path passed in
-  Slicer 5.12.2. Manual retest against the retained teeth phantom remains an
-  acceptance gate. Dentist-focused 2D orientation/focus locking is a Step 4B
-  design problem because the intended reference plane is not yet specified.
-  Compatibility verification also remains pending in the Ubuntu Slicer 5.10
-  container.
+  first manual test exposed five interaction defects; after the correction
+  batch, the developer reported that the target highlight, target bounds,
+  paired placement, and edit/lock controls work as intended. Earlier isolated
+  automated Slicer results remain diagnostic history and are not the
+  acceptance authority. Current working policy prioritizes rigorous
+  ordinary-Python logic tests and static checks, while the developer performs
+  live Slicer acceptance unless explicit authorization is renewed for a
+  specific automated runtime action. Dentist-focused 2D orientation/focus
+  locking is a Step 4B design problem because the intended reference plane is
+  not yet specified. Compatibility and scene-persistence verification remain
+  pending in the Ubuntu Slicer 5.10 container.
 
 ## Product strategy
 
@@ -210,7 +214,7 @@ Do not build a custom Slicer application during early workflow milestones.
   diagnostic bundles, and reconstruction. Do not use `changelog.md` or
   `logbook.md` as the installation procedure.
 - The repository `docs/` directory is the canonical documentation source. Its
-  seven Markdown files are mirrored as raw `.md` files in the connected Google
+  eight Markdown files are mirrored as raw `.md` files in the connected Google
   Drive folder `IITM Dentobot/docs`:
   `https://drive.google.com/drive/folders/1M5uicX_Vkk2Y130p5k4rme1TjfavWJuO`.
 - Preserve these Drive file IDs during synchronization:
@@ -220,6 +224,7 @@ Do not build a custom Slicer application during early workflow milestones.
   `PROJECT_CONTEXT.md` = `1w-ZyVP5neW_uOljPntXUxdaqHRR0Q4Yw`;
   `REPRODUCIBILITY_AND_TRACEABILITY.md` =
   `1urW1C4iTqaMLqavON10zbRNnPnEm83Hf`;
+  `UBUNTU_TRANSFER.md` = `1lQ9QJFInl-FM-OuqOBJBIcNmLCjrc0_X`;
   `changelog.md` = `1C2LbkEE914W_xzAcBMMcTcMBJm_suAQl`;
   `logbook.md` = `1zBztLFd-es_91NglYrHYJ-rtYEQ0at6E`.
 - Whenever the user asks to update `changelog.md` or `logbook.md`, update the

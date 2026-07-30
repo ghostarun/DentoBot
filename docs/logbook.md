@@ -25,6 +25,68 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-31 03:45:04 IST (UTC+05:30) — Manual Step 4A acceptance and day close
+
+### Developer evidence and testing policy
+
+- The developer manually tested the corrected Step 4A workflow on the
+  retained teeth phantom in Slicer 5.12.2 and reported that it works perfectly
+  as intended.
+- This closes the five reported interaction findings at the current
+  fast-track phantom PoC scope: Step 4A owns the active highlight; the target
+  has a visible bounds ROI; placement is constrained; one line receives Entry
+  and Target; and undo, clear, and pair locking are available.
+- The developer withdrew the prior authorization for assistant-run automated
+  Slicer testing because it consumed disproportionate resources and could
+  produce misleading verification. The earlier runs remain in history as
+  engineering diagnostics but no longer supply acceptance authority.
+- Future implementation must prioritize rigorous isolated logic tests,
+  boundary and invalid-state tests, UI/callback/static checks, and explicit
+  observer/node-lifecycle review. Live Slicer testing is developer-run unless
+  a specific automated runtime action receives new explicit authorization.
+
+### Transfer audit and decisions
+
+- The local feature branch contains the Step 4A source, UI, tests, and
+  documentation, but it is ahead of the GitHub feature branch. Ubuntu cannot
+  retrieve the final correction and closeout until the branch is pushed and
+  its exact remote hash is recorded.
+- Git is sufficient for the initial source/UI and Slicer-only compatibility
+  work. No Windows Slicer installation, environment directory, generated
+  cache, or run-artifact directory should be copied.
+- Separate transfer is conditional: cached model weights, a governed
+  de-identified validation fixture, or unique evidence should move only if
+  Ubuntu lacks it and only with source/destination, size, SHA-256,
+  classification, and approval recorded.
+- The existing Ubuntu root owns Compose, ROS 2, persistent data/settings, and
+  Ubuntu-specific documentation. Tomorrow's migration must begin with a
+  separate comparison clone and inventory rather than an overwrite.
+- The Windows-specific `wsl.exe` backend adapter cannot be reused unchanged on
+  native Ubuntu. Gate 1 and the Slicer-only part of Gate 2 come first; the
+  container/host/backend execution boundary must then be chosen explicitly
+  before Bridges A–C are adapted.
+
+### Closeout scope and next actions
+
+- No Slicer, WSL, CUDA, inference, model, DICOM, robot, or hardware process was
+  launched during closeout.
+- All 11 Python sources passed AST parsing; the UI parsed with 156 unique
+  object names; all 71 UI references and 29 connected callbacks resolved;
+  eight Markdown files had balanced code fences; and Git whitespace checking
+  passed with line-ending warnings only.
+- Parameter-node, segmentation, display, and trajectory observer teardown plus
+  transient valid-point cache cleanup were inspected statically. No orphaned
+  observer path was found, but this is not a runtime memory-leak measurement.
+- `Inference/tests` could not run in ordinary Windows Python because `pytest`
+  is not installed. No package was installed and WSL was not launched.
+- The Drive docs mirror was brought to eight files, including the new Ubuntu
+  transfer guide. Existing IDs were preserved, the new guide ID was recorded
+  in `AGENTS.md`, and folder readback matched every local byte size.
+- Commit the closeout, then obtain approval before pushing the branch.
+- On Ubuntu, verify the pushed hash, compare local-only assets, and test
+  Slicer 5.10 compatibility before merging or changing the existing
+  workstation layout.
+
 ## 2026-07-30 23:09:46 IST (UTC+05:30) — Step 4A manual findings and correction
 
 ### Manual-test findings

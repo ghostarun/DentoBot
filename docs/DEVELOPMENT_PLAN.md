@@ -266,10 +266,10 @@ per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 
-**Status:** Step 4A manual-test corrections implemented and
-automated-runtime-verified in Slicer 5.12.2; phantom manual retest, Step 4B
-dentist-focused 2D orientation design, Ubuntu Slicer 5.10 compatibility, and
-clinical semantics remain unresolved
+**Status:** Step 4A developer-verified on the retained teeth phantom in Slicer
+5.12.2 at the current PoC interaction scope; Step 4B dentist-focused 2D
+orientation design, Ubuntu Slicer 5.10 compatibility and scene persistence,
+and clinical semantics remain unresolved
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
@@ -295,6 +295,17 @@ Step 4A implemented scope:
   receives exactly Entry and Target rather than creating fiducial lists;
 - provide Undo Last Point, confirmed Clear Both Points, and lock/unlock for a
   complete valid pair.
+
+The developer reports that the corrected Step 4A interaction works as
+intended on the retained teeth phantom. This accepts the current target,
+bounds, two-point placement, and correction-control behavior for fast-track
+PoC development. It does not establish anatomical accuracy, a clinically
+meaningful entry or target, an approved plan, or Ubuntu compatibility.
+Earlier isolated automated Slicer runs are retained as diagnostic history,
+not as the acceptance authority. Live Slicer validation is developer-run
+unless explicit authorization is renewed for a specific automated action;
+ordinary-Python logic tests and static checks remain required for every
+increment.
 
 Implementation themes:
 

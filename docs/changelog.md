@@ -21,6 +21,64 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-31 03:45:04 IST (UTC+05:30) — Step 4A manual acceptance and transfer closeout
+
+### Accepted and documented
+
+- The developer manually retested the Step 4A correction batch on the retained
+  teeth phantom in Slicer 5.12.2 and reported that it works as intended.
+- Accepted the current PoC interaction scope: target-priority highlighting,
+  target bounding ROI and point constraint, paired Entry/Target placement,
+  and the undo/reset/lock controls.
+- Superseded the active acceptance wording that relied on an isolated
+  automated Slicer run. Those earlier results remain historical diagnostic
+  evidence, while developer-run live testing is the acceptance authority.
+- Recorded the current testing policy: rigorous ordinary-Python logic and
+  static verification remain required, but assistant-launched Slicer testing
+  requires new explicit authorization for the specific action.
+
+### Transfer preparation
+
+- Updated the Ubuntu transfer guide with a checked Windows closeout,
+  Git-versus-non-Git handoff boundary, minimum manifest for approved non-Git
+  material, exact-hash verification, first Ubuntu session order, and expanded
+  Step 4A compatibility checks.
+- Confirmed that Git tracks the extension, inference package, dependency
+  manifests, controlled documentation, and transfer guide. Installed Slicer,
+  environments, model weights, generated caches, run artifacts, research
+  data, credentials, and the existing Ubuntu Compose/ROS workspace remain
+  outside Git.
+- Preserved the non-destructive migration rule: clone into a comparison
+  location and do not overwrite `/home/light-tarun/dentobot`.
+
+### Verification and limitations
+
+- All 11 repository Python files passed AST parsing. The DENTO Workflow UI
+  parsed successfully with 156 uniquely named UI objects; all 71 Python UI
+  references and all 29 connected callbacks resolved. All eight local
+  Markdown files had balanced code fences, and `git diff --check` passed with
+  line-ending warnings only.
+- Observer and transient-state cleanup paths were reviewed: parameter-node,
+  segmentation, display-node, and trajectory observers are removed on
+  rebinding/exit/cleanup, and cached valid trajectory points are cleared or
+  removed during planning resets and node changes. This is static lifecycle
+  evidence, not a runtime leak measurement.
+- The ordinary Windows Python could not run `Inference/tests` because
+  `pytest` is not installed. No dependency was installed, WSL was not used,
+  and the separately controlled backend test status was not reclassified.
+- Replaced the changed controlled Markdown files in the existing
+  `IITM Dentobot/docs` Drive mirror without changing their IDs, added
+  `UBUNTU_TRANSFER.md` as the eighth mirrored file with ID
+  `1lQ9QJFInl-FM-OuqOBJBIcNmLCjrc0_X`, and verified all eight names, IDs, and
+  byte sizes against the local canonical files.
+- This closeout changes documentation only; no Slicer, WSL, CUDA, inference,
+  model, DICOM, robot, or hardware process was launched.
+- The manual report does not establish anatomical accuracy, clinical safety,
+  procedure semantics, MRB persistence on Ubuntu, or Slicer 5.10
+  compatibility.
+- The feature branch still requires a final push and exact remote-hash
+  confirmation before Ubuntu retrieval is complete.
+
 ## 2026-07-30 23:09:46 IST (UTC+05:30) — Step 4A manual-test correction batch
 
 ### Developer findings recorded
