@@ -1,0 +1,10 @@
+# Ubuntu CPU/OpenVINO migration constraints.
+# Validated on the DENTOBOT SlicerROS2 Ubuntu 24.04 container with Python 3.12.
+# This is a top-level compatibility constraint, not a complete transitive lock.
+numpy==2.2.6
+nibabel==5.4.2
+torch==2.10.0+cpu
+TotalSegmentator==2.16.0
+nnunetv2==2.8.1
+pytest==8.4.2
+openvino==2026.2.0

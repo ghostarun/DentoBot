@@ -11,12 +11,16 @@
 
 ## Current baseline: imaging plus external-process bridge
 
-**Status:** Step 0 and Bridge A/B work in the developer's Slicer workflow.
-Bridge C has completed a real-CBCT GPU inference and safe Slicer import/display
-with 60 validated segments in 2D and 3D. Its validated top-level dependency
-versions and reconstruction procedure are now documented. Five new WSL unit
-tests, cancellation/error paths, a complete transitive dependency lock,
-anatomical validation, and MRB scene persistence remain pending.
+**Status:** Step 0 and Bridge A/B work in the developer's Windows Slicer
+workflow. Bridge C completed the established real-CBCT CUDA run with 60
+validated segments. On 2026-07-31 the migrated native-Ubuntu path also passed:
+13 backend tests, the complete Slicer-native workflow suite, standalone CPU
+inference on a public dental CBCT, 54-label Slicer import/closed-surface
+creation, and a 25.7 MB MRB save. The Ubuntu run used Slicer 5.10, Python
+3.12.3, PyTorch 2.10.0+cpu, and TotalSegmentator 2.16.0. This establishes an
+engineering compatibility path, not anatomical or clinical accuracy.
+Cancellation/error paths, a complete transitive dependency lock, independent
+MRB reopen verification, and anatomical validation remain pending.
 
 The Extension Wizard scaffold and exploratory trajectory code exist, but the
 trajectory-first sequence has been superseded. The extension project is now
@@ -29,14 +33,44 @@ Acceptance criteria:
 
 - Project context, architecture, agent rules, and roadmap agree.
 - Early extension development and later custom-app packaging are distinct.
-- WSL2 inference is isolated from Slicer's Python environment.
-- Slicer controls inference through direct asynchronous `wsl.exe` process
-  execution rather than a watched-folder job system.
+- External inference is isolated from Slicer's Python environment.
+- Slicer controls inference through a direct asynchronous argument-list
+  process adapter (`wsl.exe` on Windows, local Linux Python on Ubuntu) rather
+  than a watched-folder job system.
 - ROS is deferred to a documented robotics decision gate.
 - Timestamped low-level development history is maintained in `changelog.md`
   and `logbook.md`.
 - Installed Slicer files and Slicer's embedded Python environment remain
   unchanged.
+
+### Immediate Ubuntu task set after the 2026-07-31 checkpoint
+
+Execute these in order. Do not start another expensive segmentation run until
+the preceding gate is closed.
+
+1. **Deterministic process shutdown:** reproduce only with Bridge A health,
+   make the Slicer 5.10 `QProcess` adapter disconnect/close cleanly, and prove
+   that both the child and headless Slicer exit. Gate: two consecutive health
+   tests finish within 60 seconds with no matching process left behind.
+2. **Clean image reconstruction:** build
+   `Infrastructure/Dockerfile.ubuntu-cpu` from scratch and run `pip check`, all
+   backend tests, Bridge A health, and the Slicer-native test class. Gate: no
+   dependency installation or manual repair inside the resulting container.
+3. **NPU visibility only:** map `/dev/accel/accel0` and the render device into
+   a disposable container and record OpenVINO device discovery. Gate: report
+   only visibility/driver evidence; do not run or claim dental inference on
+   NPU.
+4. **Scene persistence:** reopen the saved Ubuntu MRB in a new Slicer process
+   and verify the source reference, 54 segments, closed surfaces, review
+   metadata, and CPU provenance. Gate: the fresh Slicer process also exits
+   cleanly.
+5. **Bounded bridge regression:** run Bridge B once. Run Bridge C again only
+   if source changed after this checkpoint or a specific unresolved contract
+   requires it. Apply a 15-minute wall-clock cap and inspect child processes
+   before retrying any failure.
+6. **Planning continuation:** after the Ubuntu runtime gates, resume Step 4B
+   dentist-focused 2D planning design. Keep robot motion and drilling outside
+   scope until their later safety gate.
 
 ## Step 0: Minimal workflow shell and DICOM viewer
 
@@ -76,13 +110,13 @@ Acceptance criteria:
 
 ## Step 1: Standalone WSL2 inference foundation
 
-**Status:** health, NIfTI round trip, and GPU-only `segment-teeth` are
-implemented. The three pre-Bridge-C WSL tests and CUDA health pass. Cached
-tasks 113/115 and a representative real-CBCT inference have now completed
-successfully; the five new segmentation unit tests remain pending. Exact
-validated top-level dependencies are now pinned, but a complete
-platform-specific transitive lock and clean-machine reconstruction remain
-pending.
+**Status:** health, NIfTI round trip, and explicit-device `segment-teeth` are
+implemented. The Windows WSL/CUDA evidence remains valid. On Ubuntu, 13
+ordinary-Python tests and explicit CPU health passed; cached tasks 113, 115,
+and transitive crop task 298 completed a public-CBCT inference in 217.85
+seconds. Exact Ubuntu top-level constraints and a container build/install
+recipe are present, but a complete platform-specific transitive lock and
+clean-image rebuild remain pending.
 
 Goal: make dental segmentation independently runnable and testable without
 Slicer.
@@ -109,8 +143,8 @@ Implementation:
 
 Acceptance criteria:
 
-1. Backend tests run entirely inside WSL2.
-2. Health check identifies the RTX GPU and usable CUDA PyTorch runtime.
+1. Backend tests run entirely in the isolated external Python environment.
+2. Health identifies and enforces the explicitly requested CPU or CUDA device.
 3. A command segments a representative CBCT NIfTI without Slicer running.
 4. Output contains the expected dental label map and physical geometry.
 5. Complete result metadata is produced for success and failure.
@@ -139,27 +173,31 @@ implementation; it does not count as Bridge C runtime acceptance.
 
 ## Step 2: One-click segmentation bridge
 
-**Status:** core happy-path runtime verified; completion testing remains
+**Status:** Windows CUDA and Ubuntu CPU happy paths verified; robustness and
+clinical/anatomical validation remain
 
-Goal: run the validated WSL backend from DENTOBOT and receive a segmentation
-in the MRML scene.
+Goal: run the validated external backend from DENTOBOT and receive a
+segmentation in the MRML scene.
 
 Implementation:
 
 - Add output segmentation state, a GPU Run action, Cancel, progress, live log,
   and compact metrics to the focused workflow UI.
 - Export the selected CBCT to an isolated run-artifact directory as NIfTI.
-- Invoke the configured WSL Python interpreter directly with an argument-safe,
-  asynchronous process call; do not create a watched-folder queue.
+- Invoke the configured external Python interpreter through the platform
+  adapter with an argument-safe, asynchronous process call; do not create a
+  watched-folder queue.
 - Stream progress without freezing the UI and support cancellation.
 - Handle the process exit code and validate result metadata and NIfTI geometry.
 - Import labels into a `vtkMRMLSegmentationNode` with names and source links.
 - Create binary-labelmap and closed-surface representations for immediate 2D
   and 3D display.
 - Store backend metadata as `DENTOBOT.*` attributes and parameter-node state.
-- Require CUDA device 0; reject unavailable CUDA without CPU fallback.
+- Require an explicit `cpu` or `cuda:0` device and reject an unavailable
+  request without fallback.
 - Prevent implicit model acquisition by replacing TotalSegmentator's runtime
-  downloader with a cache-only guard for tasks 113 and 115.
+  downloader with a cache-only guard for tasks 113, 115, and transitive crop
+  task 298.
 
 Acceptance criteria:
 
@@ -171,11 +209,11 @@ Acceptance criteria:
 5. Original CBCT/DICOM data and the Slicer installation remain unchanged.
 6. Scene save/reopen retains source and output node references.
 
-Current evidence satisfies criteria 1, 3, 4, and 5 for one representative
-CBCT. Dependency/model/CUDA happy-path handling is demonstrated, but the
-distinct failure cases in criterion 2 and scene save/reopen in criterion 6
-remain to be exercised. Visual alignment is not anatomical ground-truth
-validation.
+Current Windows and Ubuntu evidence satisfies criteria 1, 3, 4, and 5 for
+representative CBCTs. Ubuntu also saved an MRB containing the imported
+segmentation, but an independent reopen inspection remains for criterion 6.
+Distinct cancellation, out-of-memory, and malformed-output cases remain.
+Visual alignment is not anatomical ground-truth validation.
 
 ### Deferred Bridge C validation backlog
 
@@ -183,8 +221,10 @@ The developer elected to continue beyond the verified happy path and return to
 the following work later. Deferral is non-blocking for Step 3, but these items
 remain required before a reproducible release or robustness claim:
 
-1. run the five new segmentation-focused WSL tests;
-2. exercise missing dependency, missing model, and unavailable CUDA paths;
+1. preserve the passing 13-test Ubuntu backend baseline and rerun the complete
+   suite from a clean rebuilt image;
+2. exercise missing dependency, missing model, unavailable CPU/CUDA, and
+   device-mismatch paths;
 3. verify cancellation and descendant-process cleanup;
 4. verify out-of-memory, malformed-output, and partial-output behavior;
 5. verify source/output references after MRB save and reopen;

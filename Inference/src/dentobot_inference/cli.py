@@ -1,4 +1,4 @@
-"""Command-line interface used by Slicer's asynchronous WSL adapter."""
+"""Command-line interface used by Slicer's asynchronous process adapters."""
 
 from __future__ import annotations
 
@@ -20,10 +20,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     health_parser = subparsers.add_parser(
         "health",
-        help="Report interpreter, package, and CUDA health.",
+        help="Report interpreter, package, and compute-device health.",
     )
     health_parser.add_argument("--json", action="store_true", dest="as_json")
     health_parser.add_argument("--require-cuda", action="store_true")
+    health_parser.add_argument(
+        "--require-device",
+        choices=("cpu", "cuda:0"),
+        help="Require the explicitly selected segmentation device.",
+    )
 
     roundtrip_parser = subparsers.add_parser(
         "roundtrip",
@@ -36,12 +41,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     teeth_parser = subparsers.add_parser(
         "segment-teeth",
-        help="Run GPU-only TotalSegmentator teeth segmentation.",
+        help="Run TotalSegmentator teeth segmentation on an explicit device.",
     )
     teeth_parser.add_argument("--input", type=Path, required=True)
     teeth_parser.add_argument("--output", type=Path, required=True)
     teeth_parser.add_argument("--result-json", type=Path, required=True)
     teeth_parser.add_argument("--run-id", required=True)
+    teeth_parser.add_argument(
+        "--device",
+        choices=("cpu", "cuda:0"),
+        default="cuda:0",
+        help="Execution device. CPU use is explicit and never a fallback.",
+    )
 
     return parser
 
@@ -50,7 +61,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     if args.command == "health":
-        report = collect_health(require_cuda=args.require_cuda)
+        report = collect_health(
+            require_cuda=args.require_cuda,
+            require_device=args.require_device,
+        )
         if args.as_json:
             _emit_json(report)
         else:
@@ -78,6 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path=args.output,
             result_json_path=args.result_json,
             run_id=args.run_id,
+            device=args.device,
             progress_callback=_emit_json,
         )
         _emit_json(report)

@@ -8,6 +8,7 @@ import pytest
 from dentobot_inference.segmentation import (
     TeethSegmentationError,
     _install_offline_weight_guard,
+    _install_totalsegmentator_cpu_device_compatibility,
     run_teeth_segmentation,
     validate_segmentation_output,
 )
@@ -72,12 +73,43 @@ def test_missing_input_writes_failure_without_model_import(tmp_path: Path):
     assert not (tmp_path / "segmentation.nii").exists()
 
 
+def test_missing_input_accepts_explicit_cpu_without_model_import(tmp_path: Path):
+    result_path = tmp_path / "result.json"
+
+    result = run_teeth_segmentation(
+        input_path=tmp_path / "missing.nii",
+        output_path=tmp_path / "segmentation.nii",
+        result_json_path=result_path,
+        run_id="missing-input-cpu",
+        device="cpu",
+    )
+
+    assert result["status"] == "error"
+    assert result["errorCode"] == "INPUT_NOT_FOUND"
+    assert result["device"]["requested"] == "cpu"
+
+
+def test_totalsegmentator_cpu_device_compatibility_preserves_other_devices():
+    fake_python_api = SimpleNamespace(
+        convert_device_to_string=lambda value: f"upstream:{value}"
+    )
+
+    _install_totalsegmentator_cpu_device_compatibility(fake_python_api)
+
+    assert fake_python_api.convert_device_to_string("cpu") == "cpu"
+    assert fake_python_api.convert_device_to_string("cuda:0") == "upstream:cuda:0"
+
+
 def test_offline_weight_guard_accepts_cache_without_downloading(
     tmp_path: Path,
     monkeypatch,
 ):
     results_directory = tmp_path / "nnunet" / "results"
-    for dataset_name in ("Dataset113_ToothFairy3", "Dataset115_mandible"):
+    for dataset_name in (
+        "Dataset113_ToothFairy3",
+        "Dataset115_mandible",
+        "Dataset298_TotalSegmentator_total_6mm_1559subj",
+    ):
         model_directory = (
             results_directory
             / dataset_name
@@ -98,8 +130,9 @@ def test_offline_weight_guard_accepts_cache_without_downloading(
     cached_models = _install_offline_weight_guard(fake_python_api)
     fake_python_api.download_pretrained_weights(113)
     fake_python_api.download_pretrained_weights(115)
+    fake_python_api.download_pretrained_weights(298)
 
-    assert sorted(cached_models) == [113, 115]
+    assert sorted(cached_models) == [113, 115, 298]
 
 
 def test_offline_weight_guard_rejects_missing_cache(

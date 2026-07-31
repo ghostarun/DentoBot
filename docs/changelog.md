@@ -21,6 +21,91 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-31 15:07:38 IST (UTC+05:30) — Slicer-launched Ubuntu run and checkpoint close
+
+### Completed
+
+- Added a Slicer 5.10-compatible asynchronous `QProcess` fallback because its
+  installed `launchConsoleProcess` helper lacks the newer callback and
+  non-blocking arguments. The fallback reconstructs Slicer's startup
+  environment, decodes PythonQt output incrementally, preserves bounded live
+  logging, and retains completion/cancellation callbacks.
+- Added headless Bridge A and Bridge C Ubuntu integration harnesses. Bridge A
+  passed with explicit CPU health and OpenVINO reporting `CPU`.
+- Added software-only SlicerROS2 image-bridge and geometry-sensitive synthetic
+  MRML/NIfTI round-trip harnesses for later bounded regression. Their presence
+  is not a claim that those separate harnesses passed during this close.
+- The final Slicer-launched Bridge C run returned `status: ok`, produced 54
+  validated segments, and saved a 25.7 MB MRB. Added artifact hashes and the
+  ordered post-checkpoint task gates to controlled documentation.
+
+### Known defect and close disposition
+
+- The headless Slicer process did not exit cleanly after its controlling
+  session was interrupted, even though the backend completed and no inference
+  child remained. Stale exact test processes were identified and terminated.
+  Deterministic process shutdown is the first next task and must use
+  health-only probes before another expensive inference is considered.
+- A local 11.0 GB Docker checkpoint image was created for immediate recovery;
+  clean Dockerfile reconstruction remains pending.
+- Static close checks and backend/Slicer evidence are recorded separately.
+  No runtime image, model, medical image, MRB, or result artifact was added to
+  Git or Drive. No robot/hardware motion or clinical validation occurred.
+- Close verification passed `git diff --check`, 19 Python AST parses, two UI
+  XML parses, eight-document fence checks, container `pip check`, and all 13
+  backend tests. No further Slicer/inference execution was used for closeout.
+- The local checkpoint commit/tag were created. GitHub push was attempted
+  without force but stopped before upload because this Ubuntu clone lacks
+  readable HTTPS credentials. Remote publication remains an explicit
+  authentication blocker, not a successful push.
+
+## 2026-07-31 14:45:38 IST (UTC+05:30) — Native Ubuntu CPU workflow baseline
+
+### Added and changed
+
+- Added a platform-neutral local Linux process adapter alongside the existing
+  Windows/WSL adapter. Ubuntu defaults use the isolated
+  `/opt/dentobot-venv/bin/python`, persistent native run paths, and explicit
+  CPU execution.
+- Generalized backend health and segmentation contracts to an explicit
+  `cpu`/`cuda:0` device without fallback. Health records OpenVINO availability
+  and visible devices; segmentation metadata records the requested/actual
+  device.
+- Added TotalSegmentator 2.16 CPU compatibility handling, explicit transitive
+  task-298 model metadata/cache guarding, and CPU-safe Slicer metrics/provenance.
+- Added Ubuntu CPU constraints, a complete top-level requirement set, an
+  idempotent backend installer, a SlicerROS2 Dockerfile, and a Compose
+  device-mapping example for the Intel accelerator.
+- Added backend CLI/health/segmentation tests and a headless Slicer import,
+  closed-surface, review-metadata, and MRB-save test using a public fixture.
+- Added a root `AGENTS.md`, close-day check script, and standing
+  `"close my day"` / `"close the day"` procedure covering traceability,
+  commit/tag/push, in-place Drive synchronization, verification, and next-day
+  notes.
+- Updated architecture, project context, roadmap, reproducibility, and Ubuntu
+  transfer documentation with the native execution boundary and verified
+  evidence.
+
+### Verification and limits
+
+- `pip check` passed; all 13 backend tests passed in Python 3.12.3 with one
+  multiprocessing/fork deprecation warning; the complete Slicer-native
+  `DENTOWorkflowTest` passed in Slicer 5.10.
+- TotalSegmentator CPU inference on Slicer's public 360 x 360 x 330 dental
+  CBCT completed in 217.85 seconds. Geometry and label validation passed with
+  54 detected labels. Slicer imported 54 segments, created closed surfaces,
+  attached review metadata, and saved a 25.7 MB MRB.
+- Model tasks 113, 115, and 298 were downloaded explicitly to the persistent
+  local cache and cryptographically inventoried. Models and runtime artifacts
+  remain outside Git and Drive.
+- OpenVINO is installed, but the existing container sees only CPU because host
+  accelerator devices are not mapped. Intel NPU dental inference is not
+  claimed: TotalSegmentator has no direct OpenVINO device and conversion plus
+  numerical validation remain pending.
+- Clean-image reconstruction, independent MRB reopen, full UI-driven
+  asynchronous Bridge A/B/C, cancellation/error robustness, and anatomical or
+  clinical validation remain pending. No robot or hardware motion occurred.
+
 ## 2026-07-31 11:33:22 IST (UTC+05:30) — Git handoff published for Ubuntu transfer
 
 ### Transfer state

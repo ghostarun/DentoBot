@@ -328,7 +328,7 @@
       <item>
        <widget class="QLabel" name="backendDescriptionLabel">
         <property name="text">
-         <string>Slicer keeps the UI and MRML scene. A named WSL distribution and its dedicated Conda Python run dependency-heavy computation externally.</string>
+         <string>Slicer keeps the UI and MRML scene. A dedicated external Python environment runs dependency-heavy computation.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -478,7 +478,7 @@
            <bool>false</bool>
           </property>
           <property name="toolTip">
-           <string>Run a read-only environment and CUDA health check. This does not install packages or download models.</string>
+           <string>Run a read-only backend and explicit-device health check. This does not install packages or download models.</string>
           </property>
           <property name="text">
            <string>Check WSL + CUDA</string>
@@ -514,10 +514,10 @@
            <bool>false</bool>
           </property>
           <property name="toolTip">
-           <string>Run TotalSegmentator teeth on CUDA device 0. Both teeth and craniofacial model weights must already be cached in WSL; this action never downloads models or falls back to CPU.</string>
+           <string>Run TotalSegmentator teeth on the explicitly configured device. Both teeth and craniofacial model weights must already be cached; this action never downloads models or changes devices.</string>
           </property>
           <property name="text">
-           <string>Run Teeth Segmentation (GPU)</string>
+           <string>Run Teeth Segmentation</string>
           </property>
          </widget>
         </item>
@@ -542,7 +542,7 @@
          <string notr="true">color: #555555;</string>
         </property>
         <property name="text">
-         <string>Configure the WSL distribution and environment Python, then check the backend.</string>
+         <string>Configure the dedicated environment Python, then check the backend.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>

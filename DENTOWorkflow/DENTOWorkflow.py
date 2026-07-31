@@ -40,6 +40,7 @@ class DENTOWorkflowParameterNode:
     wslDistribution: str = ""
     wslPythonPath: str = ""
     stagingRoot: str = r"C:\DENTOBOTRuns"
+    inferenceDevice: str = "cuda:0"
     roundTripVolume: vtkMRMLScalarVolumeNode
     teethSegmentation: vtkMRMLSegmentationNode
     targetToothSegmentId: str = ""
@@ -58,7 +59,7 @@ class DENTOWorkflow(ScriptedLoadableModule):
         self.parent.contributors = ["Taruneswar (IITM)"]
         self.parent.helpText = _(
             "DENTOBOT provides a focused workflow for opening a case, loading "
-            "CBCT DICOM data through Slicer, running the external WSL inference "
+            "CBCT DICOM data through Slicer, running the external inference "
             "backend, and interactively reviewing the returned dental anatomy."
         )
         self.parent.acknowledgementText = _(
@@ -82,6 +83,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._backendProcess = None
         self._activeBackendRun: dict | None = None
         self._backendOutputLines: list[str] = []
+        self._backendOutputBuffer = ""
         self._backendCancellationRequested = False
         self._reviewSegmentationNode = None
         self._reviewDisplayNode = None
@@ -105,6 +107,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         uiWidget.setMRMLScene(slicer.mrmlScene)
 
         self.logic = DENTOWorkflowLogic()
+        if os.name != "nt":
+            self.ui.wslDistributionLabel.visible = False
+            self.ui.wslDistributionLineEdit.visible = False
+            self.ui.wslPythonPathLabel.text = _("Backend Python:")
+            self.ui.wslPythonPathLineEdit.toolTip = _(
+                "Absolute path to the dedicated DENTOBOT backend Python in this container."
+            )
+            self.ui.stagingRootLineEdit.toolTip = _(
+                "Absolute Linux directory for isolated NIfTI and JSON artifacts."
+            )
+            self.ui.backendDescriptionLabel.text = _(
+                "Slicer owns UI and MRML. A separate Python environment in the "
+                "Ubuntu container owns dependency-heavy inference."
+            )
+            self.ui.checkBackendButton.text = _("Check Ubuntu Backend")
+            self.ui.roundTripButton.toolTip = _(
+                "Export the selected volume to NIfTI, rewrite it in the "
+                "isolated Ubuntu backend, validate it, and import it."
+            )
+            self.ui.segmentTeethButton.text = _("Run Teeth Segmentation (CPU)")
 
         self.ui.newCaseButton.connect("clicked(bool)", self.onNewCase)
         self.ui.openSceneButton.connect("clicked(bool)", self.onOpenScene)
@@ -239,6 +261,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         self.setParameterNode(self.logic.getParameterNode())
+        if os.name != "nt":
+            if not self._parameterNode.wslPythonPath:
+                self._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
+            if self._parameterNode.stagingRoot == r"C:\DENTOBOTRuns":
+                self._parameterNode.stagingRoot = "/workspace/data/dentobot-runs"
+            if self._parameterNode.inferenceDevice == "cuda:0":
+                self._parameterNode.inferenceDevice = "cpu"
 
         newlyLoadedVolume = self._newlyLoadedDicomVolume()
         if newlyLoadedVolume:
@@ -1783,13 +1812,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         slicer.mrmlScene.Clear(0)
         logging.info("Started a new empty DENTOBOT scene")
 
-    def _backendConfiguration(self) -> tuple[str, str, str]:
+    def _backendConfiguration(self) -> tuple[str, str, str, str, str]:
         if not self._parameterNode:
-            return "", "", ""
+            return "", "", "", "", ""
         return (
+            "wsl" if os.name == "nt" else "local",
             self._parameterNode.wslDistribution.strip(),
             self._parameterNode.wslPythonPath.strip(),
             self._parameterNode.stagingRoot.strip(),
+            self._parameterNode.inferenceDevice.strip(),
         )
 
     def _backendIsRunning(self) -> bool:
@@ -1798,8 +1829,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _updateBackendControls(self) -> None:
         if not self._parameterNode:
             return
-        distribution, pythonPath, stagingRoot = self._backendConfiguration()
-        configured = bool(distribution and pythonPath)
+        executionMode, distribution, pythonPath, stagingRoot, _device = (
+            self._backendConfiguration()
+        )
+        configured = bool(
+            pythonPath and (executionMode == "local" or distribution)
+        )
         running = self._backendIsRunning()
         self.ui.checkBackendButton.enabled = configured and not running
         self.ui.roundTripButton.enabled = bool(
@@ -1844,24 +1879,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         peakAllocatedBytes = segmentationNode.GetAttribute(
             "DENTOBOT.PeakAllocatedBytes"
         )
-        if not all(
-            (
-                segmentCount,
-                runtimeSeconds,
-                foregroundVolumeMm3,
-                peakAllocatedBytes,
-            )
-        ):
+        if not all((segmentCount, runtimeSeconds, foregroundVolumeMm3)):
             return _("Metrics unavailable")
+        device = segmentationNode.GetAttribute("DENTOBOT.ActualDevice") or _("unknown")
+        memoryText = ""
+        if peakAllocatedBytes and peakAllocatedBytes.lower() not in ("none", "null"):
+            memoryText = (
+                f"; {float(peakAllocatedBytes) / (1024.0 ** 3):.2f} GiB peak GPU"
+            )
         return (
-            _("%1 segments; %2 s; %3 cm^3 foreground; %4 GiB peak GPU")
+            _("%1 segments; %2 s; %3 cm^3 foreground; %4%5")
             .replace("%1", segmentCount)
             .replace("%2", f"{float(runtimeSeconds):.1f}")
             .replace("%3", f"{float(foregroundVolumeMm3) / 1000.0:.2f}")
-            .replace(
-                "%4",
-                f"{float(peakAllocatedBytes) / (1024.0 ** 3):.2f}",
-            )
+            .replace("%4", device)
+            .replace("%5", memoryText)
         )
 
     def _setBackendStatus(self, message: str, state: str = "neutral") -> None:
@@ -1894,17 +1926,24 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             self._setBackendStatus(str(progressEvent["message"]), "working")
 
-    def _validateBackendConfiguration(self, requireStagingRoot: bool) -> tuple[str, str, str]:
-        distribution, pythonPath, stagingRoot = self._backendConfiguration()
-        if not distribution:
+    def _validateBackendConfiguration(
+        self,
+        requireStagingRoot: bool,
+    ) -> tuple[str, str, str, str, str]:
+        executionMode, distribution, pythonPath, stagingRoot, device = (
+            self._backendConfiguration()
+        )
+        if executionMode == "wsl" and not distribution:
             raise ValueError(_("Enter the exact WSL distribution name."))
         if not pythonPath.startswith("/"):
             raise ValueError(
                 _("Enter an absolute Linux path to the DENTOBOT Conda environment's Python.")
             )
         if requireStagingRoot:
-            self.logic.validateWindowsStagingRoot(stagingRoot)
-        return distribution, pythonPath, stagingRoot
+            self.logic.validateStagingRoot(stagingRoot, executionMode)
+        if device not in ("cpu", "cuda:0"):
+            raise ValueError(_("Inference device must be cpu or cuda:0."))
+        return executionMode, distribution, pythonPath, stagingRoot, device
 
     def _startBackendProcess(
         self,
@@ -1917,6 +1956,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             raise RuntimeError(_("Another DENTOBOT backend process is already running."))
 
         self._backendOutputLines = []
+        self._backendOutputBuffer = ""
         self.ui.backendLogTextEdit.clear()
         self._backendCancellationRequested = False
         self._activeBackendRun = {
@@ -1924,7 +1964,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "runId": runId,
             **(runContext or {}),
         }
-        self._setBackendStatus(_("Starting WSL backend..."), "working")
+        self._setBackendStatus(_("Starting inference backend..."), "working")
 
         def logCallback(line: str) -> None:
             if self._activeBackendRun and self._activeBackendRun["runId"] == runId:
@@ -1934,13 +1974,70 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._onBackendCompleted(runId, int(returnCode))
 
         try:
-            self._backendProcess = slicer.util.launchConsoleProcess(
-                arguments,
-                useStartupEnvironment=True,
-                blocking=False,
-                logCallback=logCallback,
-                completedCallback=completedCallback,
-            )
+            try:
+                self._backendProcess = slicer.util.launchConsoleProcess(
+                    arguments,
+                    useStartupEnvironment=True,
+                    blocking=False,
+                    logCallback=logCallback,
+                    completedCallback=completedCallback,
+                )
+            except TypeError as exc:
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+                process = qt.QProcess()
+                process.setProcessChannelMode(qt.QProcess.MergedChannels)
+                processEnvironment = qt.QProcessEnvironment()
+                for environmentName, environmentValue in (
+                    slicer.util.startupEnvironment().items()
+                ):
+                    processEnvironment.insert(
+                        str(environmentName),
+                        str(environmentValue),
+                    )
+                process.setProcessEnvironment(processEnvironment)
+
+                def drainOutput() -> None:
+                    rawOutput = process.readAllStandardOutput().data()
+                    if isinstance(rawOutput, str):
+                        chunk = rawOutput
+                    else:
+                        chunk = rawOutput.decode("utf-8", errors="replace")
+                    self._backendOutputBuffer += chunk
+                    completeLines = self._backendOutputBuffer.splitlines(
+                        keepends=True
+                    )
+                    self._backendOutputBuffer = ""
+                    for outputLine in completeLines:
+                        if outputLine.endswith(("\n", "\r")):
+                            logCallback(outputLine.rstrip("\r\n"))
+                        else:
+                            self._backendOutputBuffer = outputLine
+
+                def processFinished(
+                    returnCode: int,
+                    _exitStatus,
+                ) -> None:
+                    drainOutput()
+                    if self._backendOutputBuffer:
+                        logCallback(self._backendOutputBuffer)
+                        self._backendOutputBuffer = ""
+                    completedCallback(returnCode)
+
+                process.connect(
+                    "readyReadStandardOutput()",
+                    drainOutput,
+                )
+                process.connect(
+                    "finished(int,QProcess::ExitStatus)",
+                    processFinished,
+                )
+                process.start(arguments[0], arguments[1:])
+                if not process.waitForStarted(5000):
+                    raise RuntimeError(
+                        _("The inference backend process could not be started.")
+                    )
+                self._backendProcess = process
         except Exception:
             self._activeBackendRun = None
             self._backendCancellationRequested = False
@@ -1955,15 +2052,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         with slicer.util.tryWithErrorDisplay(
             _("Could not start the DENTOBOT backend health check.")
         ):
-            distribution, pythonPath, _stagingRoot = self._validateBackendConfiguration(
+            executionMode, distribution, pythonPath, _stagingRoot, device = self._validateBackendConfiguration(
                 requireStagingRoot=False
             )
             runId = uuid.uuid4().hex
             arguments = self.logic.buildHealthCommand(
                 distribution=distribution,
                 pythonPath=pythonPath,
+                executionMode=executionMode,
+                device=device,
             )
-            self._startBackendProcess(arguments, "health", runId)
+            self._startBackendProcess(
+                arguments,
+                "health",
+                runId,
+                {"device": device},
+            )
 
     def onRunRoundTrip(self) -> None:
         if not self.logic or not self._parameterNode:
@@ -1988,7 +2092,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     )
                 )
 
-            distribution, pythonPath, stagingRoot = self._validateBackendConfiguration(
+            executionMode, distribution, pythonPath, stagingRoot, _device = self._validateBackendConfiguration(
                 requireStagingRoot=True
             )
             self._setBackendStatus(
@@ -1997,7 +2101,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "working",
             )
             runId = uuid.uuid4().hex
-            runPaths = self.logic.createRoundTripRunPaths(stagingRoot, runId)
+            runPaths = self.logic.createRoundTripRunPaths(
+                stagingRoot,
+                runId,
+                executionMode=executionMode,
+            )
             exported = slicer.util.exportNode(volumeNode, str(runPaths["input"]))
             if not exported or not runPaths["input"].is_file():
                 raise RuntimeError(_("Slicer could not export the selected volume as NIfTI."))
@@ -2009,6 +2117,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 outputPath=runPaths["output"],
                 resultJsonPath=runPaths["result"],
                 runId=runId,
+                executionMode=executionMode,
             )
             self._startBackendProcess(
                 arguments,
@@ -2043,18 +2152,20 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     )
                 )
 
-            distribution, pythonPath, stagingRoot = self._validateBackendConfiguration(
+            executionMode, distribution, pythonPath, stagingRoot, device = self._validateBackendConfiguration(
                 requireStagingRoot=True
             )
             self._setBackendStatus(
-                _("Exporting %1 for GPU teeth segmentation...")
-                .replace("%1", volumeNode.GetName() or _("Unnamed volume")),
+                _("Exporting %1 for teeth segmentation on %2...")
+                .replace("%1", volumeNode.GetName() or _("Unnamed volume"))
+                .replace("%2", device),
                 "working",
             )
             runId = uuid.uuid4().hex
             runPaths = self.logic.createTeethSegmentationRunPaths(
                 stagingRoot,
                 runId,
+                executionMode=executionMode,
             )
             exported = slicer.util.exportNode(volumeNode, str(runPaths["input"]))
             if not exported or not runPaths["input"].is_file():
@@ -2069,6 +2180,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 outputPath=runPaths["output"],
                 resultJsonPath=runPaths["result"],
                 runId=runId,
+                executionMode=executionMode,
+                device=device,
             )
             self._startBackendProcess(
                 arguments,
@@ -2077,6 +2190,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 {
                     "paths": runPaths,
                     "sourceVolumeId": volumeNode.GetID(),
+                    "device": device,
                 },
             )
 
@@ -2146,14 +2260,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             ]
             raise RuntimeError(" ".join(str(error) for error in errors))
 
-        cuda = report.get("cuda", {})
-        devices = cuda.get("devices") or []
-        deviceText = ", ".join(str(device) for device in devices) or _("CUDA device")
+        requestedDevice = str(report.get("requestedDevice") or _("unspecified"))
+        openvinoDevices = report.get("openvino", {}).get("devices") or []
+        acceleratorText = (
+            _("; OpenVINO sees %1").replace(
+                "%1", ", ".join(str(device) for device in openvinoDevices)
+            )
+            if openvinoDevices
+            else ""
+        )
         pythonVersion = report.get("python", {}).get("version", _("unknown"))
         self._setBackendStatus(
-            _("Backend healthy: Python %1; CUDA ready on %2.")
+            _("Backend healthy: Python %1; explicit device %2%3.")
             .replace("%1", str(pythonVersion))
-            .replace("%2", deviceText),
+            .replace("%2", requestedDevice)
+            .replace("%3", acceleratorText),
             "success",
         )
 
@@ -2173,6 +2294,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic.validateTeethSegmentationReport(
             report,
             runContext["runId"],
+            expectedDevice=runContext.get("device"),
         )
         if returnCode != 0 or report.get("status") != "ok":
             errorCode = report.get("errorCode")
@@ -2286,9 +2408,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self._setBackendStatus(
             _(
-                "GPU teeth segmentation completed: %1 validated segments are "
+                "Teeth segmentation completed on %1: %2 validated segments are "
                 "visible in 2D and 3D. Review this research output before use."
-            ).replace("%1", str(report["metrics"]["segmentCount"])),
+            )
+            .replace("%1", str(report["device"]["actual"]))
+            .replace("%2", str(report["metrics"]["segmentCount"])),
             "success",
         )
 
@@ -2999,7 +3123,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             )
             segmentationNode.SetAttribute(
                 "DENTOBOT.PeakAllocatedBytes",
-                str(device["peakAllocatedBytes"]),
+                (
+                    str(device["peakAllocatedBytes"])
+                    if device["peakAllocatedBytes"] is not None
+                    else ""
+                ),
             )
             segmentationNode.SetAttribute(
                 "DENTOBOT.SegmentMetricsJson",
@@ -3771,6 +3899,21 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         return Path(stagingRoot)
 
     @staticmethod
+    def validateStagingRoot(stagingRoot: str, executionMode: str) -> Path:
+        """Validate the artifact root for the selected process boundary."""
+
+        if executionMode == "wsl":
+            return DENTOWorkflowLogic.validateWindowsStagingRoot(stagingRoot)
+        if executionMode != "local":
+            raise ValueError(_("Unsupported backend execution mode."))
+        if not stagingRoot:
+            raise ValueError(_("Enter an absolute Linux staging directory."))
+        rootPath = Path(stagingRoot)
+        if not rootPath.is_absolute():
+            raise ValueError(_("Use an absolute Linux staging directory."))
+        return rootPath
+
+    @staticmethod
     def windowsPathToWslPath(windowsPath: str | Path) -> str:
         """Map an absolute Windows drive path to WSL's conventional /mnt path."""
 
@@ -3812,13 +3955,47 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             *backendArguments,
         ]
 
-    def buildHealthCommand(self, distribution: str, pythonPath: str) -> list[str]:
+    def _buildBackendPythonCommand(
+        self,
+        executionMode: str,
+        distribution: str,
+        pythonPath: str,
+        backendArguments: list[str],
+    ) -> list[str]:
+        if executionMode == "wsl":
+            return self._buildWslPythonCommand(
+                distribution,
+                pythonPath,
+                backendArguments,
+            )
+        if executionMode != "local":
+            raise ValueError(_("Unsupported backend execution mode."))
+        if not pythonPath.startswith("/"):
+            raise ValueError(_("The backend Python path must be absolute."))
+        return [pythonPath, "-m", self.BACKEND_MODULE, *backendArguments]
+
+    @staticmethod
+    def _backendVisiblePath(path: Path, executionMode: str) -> str:
+        if executionMode == "wsl":
+            return DENTOWorkflowLogic.windowsPathToWslPath(path)
+        if executionMode == "local":
+            return str(path)
+        raise ValueError(_("Unsupported backend execution mode."))
+
+    def buildHealthCommand(
+        self,
+        distribution: str,
+        pythonPath: str,
+        executionMode: str = "wsl",
+        device: str = "cuda:0",
+    ) -> list[str]:
         """Build Bridge A without invoking a shell or activating an environment."""
 
-        return self._buildWslPythonCommand(
+        return self._buildBackendPythonCommand(
+            executionMode,
             distribution,
             pythonPath,
-            ["health", "--json", "--require-cuda"],
+            ["health", "--json", "--require-device", device],
         )
 
     def buildRoundTripCommand(
@@ -3829,20 +4006,22 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         outputPath: Path,
         resultJsonPath: Path,
         runId: str,
+        executionMode: str = "wsl",
     ) -> list[str]:
         """Build Bridge B with explicit arguments and WSL-visible artifact paths."""
 
-        return self._buildWslPythonCommand(
+        return self._buildBackendPythonCommand(
+            executionMode,
             distribution,
             pythonPath,
             [
                 "roundtrip",
                 "--input",
-                self.windowsPathToWslPath(inputPath),
+                self._backendVisiblePath(inputPath, executionMode),
                 "--output",
-                self.windowsPathToWslPath(outputPath),
+                self._backendVisiblePath(outputPath, executionMode),
                 "--result-json",
-                self.windowsPathToWslPath(resultJsonPath),
+                self._backendVisiblePath(resultJsonPath, executionMode),
                 "--run-id",
                 runId,
             ],
@@ -3856,31 +4035,41 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         outputPath: Path,
         resultJsonPath: Path,
         runId: str,
+        executionMode: str = "wsl",
+        device: str = "cuda:0",
     ) -> list[str]:
         """Build Bridge C without shell activation or implicit CPU fallback."""
 
-        return self._buildWslPythonCommand(
+        return self._buildBackendPythonCommand(
+            executionMode,
             distribution,
             pythonPath,
             [
                 "segment-teeth",
                 "--input",
-                self.windowsPathToWslPath(inputPath),
+                self._backendVisiblePath(inputPath, executionMode),
                 "--output",
-                self.windowsPathToWslPath(outputPath),
+                self._backendVisiblePath(outputPath, executionMode),
                 "--result-json",
-                self.windowsPathToWslPath(resultJsonPath),
+                self._backendVisiblePath(resultJsonPath, executionMode),
                 "--run-id",
                 runId,
+                "--device",
+                device,
             ],
         )
 
-    def createRoundTripRunPaths(self, stagingRoot: str, runId: str) -> dict[str, Path]:
-        """Create one isolated Windows artifact directory for a bridge run."""
+    def createRoundTripRunPaths(
+        self,
+        stagingRoot: str,
+        runId: str,
+        executionMode: str = "wsl",
+    ) -> dict[str, Path]:
+        """Create one isolated artifact directory for a bridge run."""
 
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", runId):
             raise ValueError(_("The generated run ID is invalid."))
-        rootPath = self.validateWindowsStagingRoot(stagingRoot)
+        rootPath = self.validateStagingRoot(stagingRoot, executionMode)
         runDirectory = rootPath / runId
         runDirectory.mkdir(parents=True, exist_ok=False)
         return {
@@ -3894,12 +4083,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         self,
         stagingRoot: str,
         runId: str,
+        executionMode: str = "wsl",
     ) -> dict[str, Path]:
         """Create one isolated artifact directory for a Bridge C inference."""
 
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", runId):
             raise ValueError(_("The generated run ID is invalid."))
-        rootPath = self.validateWindowsStagingRoot(stagingRoot)
+        rootPath = self.validateStagingRoot(stagingRoot, executionMode)
         runDirectory = rootPath / runId
         runDirectory.mkdir(parents=True, exist_ok=False)
         return {
@@ -3923,7 +4113,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         return None
 
     @staticmethod
-    def validateTeethSegmentationReport(report: dict, runId: str) -> None:
+    def validateTeethSegmentationReport(
+        report: dict,
+        runId: str,
+        expectedDevice: str | None = None,
+    ) -> None:
         """Validate the schema before any returned label map enters MRML."""
 
         if not isinstance(report, dict):
@@ -3956,12 +4150,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             raise ValueError(_("The backend did not report the required teeth model."))
         if model.get("taskId") != 113 or model.get("cropTaskId") != 115:
             raise ValueError(_("The backend model task identifiers are unexpected."))
+        if not isinstance(device, dict):
+            raise ValueError(_("The segmentation device metadata is missing."))
+        requestedDevice = device.get("requested")
+        actualDevice = device.get("actual")
         if (
-            not isinstance(device, dict)
-            or device.get("requested") != "cuda:0"
-            or device.get("actual") != "cuda:0"
+            requestedDevice not in ("cpu", "cuda:0")
+            or actualDevice != requestedDevice
+            or (expectedDevice and requestedDevice != expectedDevice)
         ):
-            raise ValueError(_("The segmentation was not verified on CUDA device 0."))
+            raise ValueError(_("The segmentation device does not match the request."))
         if (
             not isinstance(backend, dict)
             or not isinstance(backend.get("packages"), dict)
@@ -4060,8 +4258,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     .replace("%1", metricName)
                 )
         peakAllocatedBytes = device.get("peakAllocatedBytes")
-        if not isinstance(peakAllocatedBytes, int) or peakAllocatedBytes < 0:
-            raise ValueError(_("Peak GPU memory metadata is invalid."))
+        if requestedDevice == "cuda:0":
+            if not isinstance(peakAllocatedBytes, int) or peakAllocatedBytes < 0:
+                raise ValueError(_("Peak GPU memory metadata is invalid."))
+        elif peakAllocatedBytes is not None:
+            raise ValueError(_("CPU inference must not report CUDA memory."))
 
     @staticmethod
     def validateLabelmapAgainstReport(labelmapNode, report: dict) -> None:
@@ -4250,6 +4451,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         parameterNode.wslDistribution = "Ubuntu-24.04"
         parameterNode.wslPythonPath = "/opt/conda/envs/dentobot/bin/python"
         parameterNode.stagingRoot = r"C:\DENTOBOTRuns"
+        parameterNode.inferenceDevice = "cuda:0"
         parameterNode.roundTripVolume = volumeNode
         segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLSegmentationNode",
@@ -4263,6 +4465,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             parameterNode.wslPythonPath,
             "/opt/conda/envs/dentobot/bin/python",
         )
+        self.assertEqual(parameterNode.inferenceDevice, "cuda:0")
         self.assertEqual(parameterNode.roundTripVolume.GetID(), volumeNode.GetID())
         self.assertEqual(
             parameterNode.teethSegmentation.GetID(),
@@ -4290,7 +4493,23 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertIsInstance(healthCommand, list)
         self.assertIn("--exec", healthCommand)
         self.assertIn("dentobot_inference", healthCommand)
-        self.assertEqual(healthCommand[-3:], ["health", "--json", "--require-cuda"])
+        self.assertEqual(
+            healthCommand[-4:],
+            ["health", "--json", "--require-device", "cuda:0"],
+        )
+
+        localHealthCommand = logic.buildHealthCommand(
+            "",
+            "/opt/dentobot-venv/bin/python",
+            executionMode="local",
+            device="cpu",
+        )
+        self.assertEqual(localHealthCommand[0], "/opt/dentobot-venv/bin/python")
+        self.assertNotIn("--exec", localHealthCommand)
+        self.assertEqual(
+            localHealthCommand[-4:],
+            ["health", "--json", "--require-device", "cpu"],
+        )
 
         inputPath = Path(r"C:\DENTOBOTRuns\run-1\input.nii.gz")
         outputPath = Path(r"C:\DENTOBOTRuns\run-1\roundtrip.nii.gz")
@@ -4319,7 +4538,21 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "/mnt/c/DENTOBOTRuns/run-2/teeth-segmentation.nii",
             teethCommand,
         )
-        self.assertEqual(teethCommand[-2:], ["--run-id", "run-2"])
+        self.assertIn("--run-id", teethCommand)
+        self.assertEqual(teethCommand[-2:], ["--device", "cuda:0"])
+        localTeethCommand = logic.buildTeethSegmentationCommand(
+            "",
+            "/opt/dentobot-venv/bin/python",
+            Path("/workspace/data/run-3/input.nii"),
+            Path("/workspace/data/run-3/teeth-segmentation.nii"),
+            Path("/workspace/data/run-3/result.json"),
+            "run-3",
+            executionMode="local",
+            device="cpu",
+        )
+        self.assertEqual(localTeethCommand[0], "/opt/dentobot-venv/bin/python")
+        self.assertIn("/workspace/data/run-3/input.nii", localTeethCommand)
+        self.assertEqual(localTeethCommand[-2:], ["--device", "cpu"])
 
         healthReport = {"command": "health", "status": "ok"}
         self.assertEqual(
@@ -4397,6 +4630,30 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "inferenceSeconds": 10.0,
         }
         logic.validateTeethSegmentationReport(teethReport, "run-2")
+        cpuReport = json.loads(json.dumps(teethReport))
+        cpuReport["device"] = {
+            "requested": "cpu",
+            "actual": "cpu",
+            "peakAllocatedBytes": None,
+        }
+        logic.validateTeethSegmentationReport(
+            cpuReport,
+            "run-2",
+            expectedDevice="cpu",
+        )
+        cpuMetricsNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "CpuMetrics",
+        )
+        cpuMetricsNode.SetAttribute("DENTOBOT.SegmentCount", "1")
+        cpuMetricsNode.SetAttribute("DENTOBOT.RuntimeSeconds", "12.0")
+        cpuMetricsNode.SetAttribute("DENTOBOT.ForegroundVolumeMm3", "24.0")
+        cpuMetricsNode.SetAttribute("DENTOBOT.ActualDevice", "cpu")
+        cpuMetricsNode.SetAttribute("DENTOBOT.PeakAllocatedBytes", "")
+        self.assertEqual(
+            DENTOWorkflowWidget._teethMetricsText(cpuMetricsNode),
+            "1 segments; 12.0 s; 0.02 cm^3 foreground; cpu",
+        )
         with self.assertRaisesRegex(ValueError, "run ID"):
             logic.validateTeethSegmentationReport(teethReport, "different-run")
 

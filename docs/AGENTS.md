@@ -55,6 +55,23 @@ used as an autonomous patient-treatment system.
   lock or clean-machine reconstruction. The developer has explicitly deferred
   the remaining Bridge C failure, cancellation, persistence, and accuracy
   checks; keep them on the roadmap and do not silently treat them as passed.
+- **The native-Ubuntu CPU compatibility path is engineering-verified in the
+  SlicerROS2 Slicer 5.10 container as of 2026-07-31.** The repository is on
+  `codex/ubuntu-migration` from published feature hash
+  `72da94207d33234a12f5d904c23733ff382f9e43`. The local process adapter,
+  explicit CPU device, 13 backend tests, full Slicer-native test class,
+  public-fixture standalone inference, 54-label MRML import/closed surfaces,
+  and MRB save passed. The run does not establish anatomical or clinical
+  accuracy, a clean-image rebuild, cancellation robustness, or robot/hardware
+  readiness. TotalSegmentator requires cached tasks 113, 115, and transitive
+  crop task 298. OpenVINO discovery is separate from inference; do not claim
+  the Intel NPU runs the nnU-Net dental model without a converted and validated
+  model path.
+- Slicer-launched Bridge A and Bridge C subsequently produced successful
+  reports, including 54 imported segments and a saved MRB. The headless Slicer
+  test process failed to terminate cleanly after interruption even though no
+  inference child remained. Fix and prove process shutdown using health-only
+  tests before authorizing another expensive Bridge C run.
 - **Step 3A exploration and Step 3B inspection/provenance are developer-
   verified in Slicer 5.12.2.** The developer reports that the implemented
   review workflow works as intended, including its universal
@@ -283,3 +300,39 @@ After editing:
 6. If the task includes a changelog/logbook update, complete and verify the
    Google Drive mirror described in the documentation rules before handoff
    whenever the connector is available.
+
+## Standing close-day protocol
+
+The phrases **"close my day"** and **"close the day"** are standing
+authorization to execute this protocol for the current repository. The phrase
+does not authorize a force-push, robot/hardware motion, deletion of research
+data, or upload of patient data, model weights, runtime artifacts, credentials,
+or secrets.
+
+1. Inspect the current branch, upstream, status, diff, and recent commits.
+   Separate intended work from pre-existing or unrelated changes; never stage
+   unrelated files.
+2. Run `Infrastructure/close_day_checks.sh`, supplying
+   `DENTOBOT_BACKEND_PYTHON` when the dedicated backend exists. Run any
+   additional environment-specific checks needed for work performed that day.
+3. Update `logbook.md` newest-first with the request, decisions, experiments,
+   failures and diagnoses, exact evidence, unresolved risks, and tomorrow's
+   first actions. Update `changelog.md` and any controlled architecture,
+   roadmap, reproducibility, or transfer document affected by the work.
+4. State accomplishments in two frames: today's explicit agenda and the
+   overall development plan. Keep research/engineering evidence distinct from
+   anatomical, clinical, robot, or hardware validation.
+5. Review the complete diff, stage only intended repository files, and create
+   one descriptive Git commit. Create an annotated tag named
+   `checkpoint/YYYY-MM-DD-HHMM-IST` at that commit.
+6. Push the current branch and tag without force when an upstream exists or
+   can be safely established. If authentication or network access prevents the
+   push, preserve the local commit/tag and report the exact blocker.
+7. Replace changed controlled Markdown bytes in the existing Drive files,
+   preserving the IDs listed above. Reconcile Ubuntu-only active-development
+   notes rather than overwriting their history. Verify names, IDs, modified
+   state, and content after synchronization.
+8. Report the commit hash, tag, push result, Drive synchronization result,
+   checks run, remaining limitations, and tomorrow's first concrete command or
+   task. A close is complete only when every step either succeeded or has an
+   explicit recorded blocker.

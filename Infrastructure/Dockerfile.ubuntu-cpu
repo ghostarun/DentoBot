@@ -1,0 +1,20 @@
+ARG BASE_IMAGE=ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0
+FROM ${BASE_IMAGE}
+
+USER root
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /opt/dentobot-source
+
+RUN DENTOBOT_VENV_PATH=/opt/dentobot-venv \
+    /opt/dentobot-source/Infrastructure/install_ubuntu_backend.sh \
+    /opt/dentobot-source
+
+ENV PATH="/opt/dentobot-venv/bin:${PATH}"
+ENV TOTALSEG_HOME_DIR="/workspace/data/model-cache/totalsegmentator"
+
+WORKDIR /workspace/ros2_ws/src/DentoBot

@@ -1,0 +1,13 @@
+services:
+  slicerros2:
+    build:
+      context: ./ros2_ws/src/DentoBot
+      dockerfile: Infrastructure/Dockerfile.ubuntu-cpu
+    image: dentobot/slicerros2:ubuntu-cpu
+    environment:
+      TOTALSEG_HOME_DIR: /workspace/data/model-cache/totalsegmentator
+    devices:
+      - /dev/accel/accel0:/dev/accel/accel0
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${DENTOBOT_RENDER_GID:-992}"

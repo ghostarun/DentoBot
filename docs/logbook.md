@@ -25,6 +25,183 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-31 15:07:38 IST (UTC+05:30) — Ubuntu migration day close
+
+### Final result and correction to the live narrative
+
+- The developer stopped the long-running terminal after correctly observing
+  that more than an hour of sequential verification had become
+  disproportionate. The session made material progress, but continued from an
+  already-sufficient standalone inference plus Slicer import into an overly
+  strict one-click automation loop without an early stop gate.
+- A read-only process audit showed why the terminal appeared endless: two
+  interrupted headless Slicer harnesses and one child `SlicerApp-real` process
+  survived, including an earlier invalid test invocation. No
+  `dentobot_inference`, nnU-Net, or TotalSegmentator child remained. The exact
+  stale PIDs were terminated and a follow-up audit found no matching process.
+- Inspection of the final run artifacts established that the Slicer-launched
+  Bridge C computation itself had succeeded before the forced stop. Run
+  `794b7570c5e24583b0a62ffe2a7d8471` recorded `status: ok`, 54 segments, and
+  372.777041 seconds; its NIfTI and the 25,699,131-byte final MRB exist and
+  were hashed. The remaining defect is deterministic headless Slicer/process
+  shutdown, not infinite AI inference.
+
+### Compatibility findings retained
+
+- Slicer 5.10 lacks the newer callback/blocking signature used by
+  `slicer.util.launchConsoleProcess`. The Ubuntu adapter now uses asynchronous
+  `QProcess` as a narrow fallback, captures partial stdout safely through
+  PythonQt `QByteArray.data()`, and reconstructs Slicer's startup environment
+  so `_ctypes` and system Python libraries resolve in the isolated child.
+- Slicer-launched Bridge A passed after the environment fix: Python 3.12.3,
+  explicit CPU, and OpenVINO device list `CPU`.
+- A local Docker checkpoint image completed as
+  `sha256:b7b02f5d37e2b6d6edec6f0bd06783464a4714a7fd24b5ca248abf32acf81512`
+  with reported size 11,006,005,340 bytes. It is an immediate local recovery
+  point, not a substitute for the checked-in clean build recipe.
+
+### Accomplishments against today's agenda
+
+- Reconciled the latest Windows handoff and active Ubuntu context without
+  overwriting the workstation layout or Ubuntu-only history.
+- Migrated the complete source workflow to a native Ubuntu local-process
+  backend, reconstructed and tested its CPU environment, cached and inventoried
+  all three required models, and completed both standalone and Slicer-launched
+  AI segmentation on a public fixture.
+- Verified Slicer-native logic, MRML import, 54 closed-surface segments,
+  provenance/review metadata, and scene save. No patient data entered Git or
+  Drive.
+- Established the durable close-day protocol, reproducible environment files,
+  traceability evidence, and ordered next-task gates.
+
+### Overall-plan position and tomorrow's first work
+
+- Native Ubuntu compatibility for imaging and Bridge A/C happy paths is now an
+  engineering baseline. Step 4A remains the accepted planning foundation from
+  Windows; Step 4B design has not started on Ubuntu.
+- Tomorrow starts with deterministic `QProcess` and Slicer shutdown using two
+  health-only runs. Do not rerun AI segmentation during that diagnosis.
+- Next: clean Dockerfile reconstruction, NPU visibility-only probe,
+  independent MRB reopen, bounded Bridge B regression, then Step 4B planning.
+- OpenVINO seeing `CPU` is not NPU dental inference. No robot motion, drilling,
+  patient-facing use, anatomical accuracy, or clinical safety was tested.
+
+### Close checks
+
+- `git diff --check` passed. Close-day checks passed for 19 Python ASTs, two
+  Qt UI XML files, and balanced fences in all eight controlled Markdown files.
+- Container `pip check` reported no broken requirements. All 13 backend tests
+  passed in 1.51 seconds with the existing multiprocessing/fork deprecation
+  warning.
+- No additional Slicer or inference run was performed during closeout. The
+  successful Bridge A/C evidence above is retained; clean headless shutdown
+  remains explicitly open.
+- Added reusable software-only SlicerROS2 image-bridge and synthetic
+  MRML/NIfTI round-trip harnesses under `Testing/`. They are retained as next-
+  gate tools; this close does not classify them as passed acceptance evidence.
+- Created the local `codex/ubuntu-migration` close commit and annotated tag
+  `checkpoint/2026-07-31-1511-IST`. The non-force GitHub push failed before
+  upload because the Ubuntu clone has no readable HTTPS GitHub credentials:
+  `could not read Username for 'https://github.com'`. Preserve the local
+  commit/tag and authenticate Git before the next push attempt; do not
+  force-push.
+
+## 2026-07-31 14:45:38 IST (UTC+05:30) — Native Ubuntu migration and CPU AI run
+
+### Request and context reconciliation
+
+- The developer asked to make the latest Drive documentation and the published
+  Windows work the Ubuntu starting point, migrate the workflow into the
+  existing workstation layout, complete a software-only run including AI
+  segmentation, investigate the workstation Intel NPU/OpenVINO path, and
+  establish a durable `"close my day"` / `"close the day"` checkpoint
+  procedure.
+- Read the active Ubuntu Drive folder without overwriting its Ubuntu-only
+  history, then found the newer Windows closeout documents in the controlled
+  `IITM Dentobot/docs` mirror. Verified the remote feature branch at
+  `72da94207d33234a12f5d904c23733ff382f9e43`.
+- Preserved the separate comparison clone and created the active source
+  checkout at `/home/light-tarun/dentobot/ros2_ws/src/DentoBot` on
+  `codex/ubuntu-migration`. The existing Compose, persistent data, and Slicer
+  settings were not replaced.
+
+### Runtime decision and implementation
+
+- Selected a direct local child-process boundary inside the SlicerROS2
+  container. It preserves the existing NIfTI/stdout/exit/JSON contract while
+  replacing only the Windows `wsl.exe` adapter. Linux defaults are
+  `/opt/dentobot-venv/bin/python`,
+  `/workspace/data/dentobot-runs`, and explicit `cpu`.
+- Generalized backend health and segmentation to explicit `cpu` or `cuda:0`,
+  retained no-fallback behavior, added OpenVINO discovery, and updated Slicer
+  UI/configuration/result validation for the local CPU adapter.
+- Added Ubuntu CPU constraints and install/build/Compose recipes. PyTorch must
+  be installed first from the official CPU index; an initial unconstrained
+  resolver attempt tried to replace it with a newer CUDA PyTorch build and was
+  stopped before acceptance.
+- Added root repository instructions and deterministic close-day checks. The
+  standing trigger requires docs/logbook/roadmap updates, intended-file-only
+  staging, a commit, annotated checkpoint tag, non-force push where possible,
+  in-place Drive synchronization, verification, and an explicit next-day
+  starting action.
+
+### Failures found and corrected
+
+- The first CPU CLI attempt still requested CUDA because the new device
+  argument was dispatched to the wrong subcommand. Corrected CLI dispatch and
+  added parsing tests.
+- TotalSegmentator 2.16 returned `None` when recursively converting the
+  literal CPU device string. Added a narrow compatibility adapter for CPU and
+  a regression test while preserving upstream behavior for other devices.
+- The cache-only guard then correctly exposed an undocumented transitive model
+  dependency: tasks 113 and 115 also invoke task 298 for rough whole-head
+  cropping. Made task 298 explicit in code, tests, result metadata, cache
+  documentation, and hashes.
+- Slicer imported and surfaced all labels but the metrics UI attempted to
+  convert the string `"None"` as GPU memory on a CPU run. CPU runs now store
+  an empty attribute and the renderer tolerates historical `None`/`null`
+  strings. Added a Slicer-native regression assertion.
+- A first headless import harness lacked a parent Qt layout. Corrected the
+  harness; this was test scaffolding, not product workflow logic.
+- Slicer 5.10 continues to warn that CropVolume's
+  `ResampleScalarVectorDWIVolume` dependency is unavailable and emits
+  no-main-window toolbar/debug-leak diagnostics on shutdown. The tested
+  DENTOWorkflow paths passed despite those container-level warnings.
+
+### Evidence
+
+- Host: Ubuntu 26.04, Intel Arrow Lake NPU using `intel_vpu`, no NVIDIA GPU.
+  `/dev/accel/accel0` and `/dev/dri/renderD128` exist on the host but were not
+  mapped into the existing container.
+- Container: Slicer 5.10.0, ROS 2 Jazzy base, Python 3.12.3 backend.
+  Environment pins: PyTorch 2.10.0+cpu, TotalSegmentator 2.16.0, nnUNet v2
+  2.8.1, NumPy 2.2.6, NiBabel 5.4.2, pytest 8.4.2, OpenVINO 2026.2.0.
+- `pip check` passed. All 13 backend tests passed with one Python
+  multiprocessing/fork deprecation warning. The complete
+  `DENTOWorkflowTest` class passed in headless Slicer 5.10.
+- Exported Slicer's public `CBCTDentalSurgery` pre-operative sample as a
+  360 x 360 x 330, 0.5 mm isotropic int16 NIfTI. Standalone CPU inference
+  completed in 217.848237 seconds, detected 54 labels and 579,353 foreground
+  voxels, and passed exact geometry and label validation.
+- The Slicer Bridge C completion path imported 54 MRML segments, created
+  closed surfaces and review metadata, and saved a 25,699,055-byte MRB.
+  Artifact/model hashes are in
+  `REPRODUCIBILITY_AND_TRACEABILITY.md`; no runtime artifacts, weights, or
+  images were added to Git or Drive.
+
+### Current limits and next actions
+
+- OpenVINO currently reports CPU because the running container lacks NPU
+  device mapping. Even when visible, the Intel NPU is not a drop-in
+  TotalSegmentator device; model conversion and equivalence validation are a
+  separate milestone.
+- Finish the NPU visibility probe using a clean mapped container, rebuild the
+  checked-in Dockerfile from scratch, independently reopen/inspect the saved
+  MRB, and exercise Slicer-launched health/round-trip/segmentation as a single
+  asynchronous UI-driven sequence.
+- No robot motion, drilling, patient workflow, anatomical accuracy, clinical
+  safety, or NPU dental inference was tested or authorized.
+
 ## 2026-07-31 11:33:22 IST (UTC+05:30) — Ubuntu Git transfer initiated
 
 ### Published handoff

@@ -6,10 +6,10 @@
 |---|---|
 | Document status | Controlled research-development baseline |
 | Applicable backend | DENTOBOT inference 0.2.0 |
-| Applicable host application | 3D Slicer 5.12.2 |
-| Validated execution layer | WSL2, Ubuntu, Python 3.10.20 |
-| Baseline validation date | 2026-07-23 |
-| Evidence level | One successful real-CBCT GPU happy-path run |
+| Applicable host application | 3D Slicer 5.12.2 on Windows; Slicer 5.10 on Ubuntu |
+| Validated execution layer | WSL2 Python 3.10.20 CUDA; Ubuntu container Python 3.12.3 CPU |
+| Baseline validation dates | 2026-07-23 CUDA; 2026-07-31 Ubuntu CPU |
+| Evidence level | One real-CBCT CUDA happy path and one public-fixture Ubuntu CPU/import/MRB path |
 | Intended use | Research and development only |
 
 This document is the normative procedure for reconstructing the external
@@ -70,6 +70,60 @@ isotropic spacing, produced 60 non-background segments, and completed in
 75.232826 seconds. These values identify the evidence run; they are not
 performance guarantees or accuracy claims.
 
+### 3.1 Native-Ubuntu compatibility baseline
+
+| Component | Validated value |
+|---|---|
+| Git source branch | `codex/ubuntu-migration` |
+| Migrated source baseline | `72da94207d33234a12f5d904c23733ff382f9e43` |
+| Container base | `ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0` |
+| Slicer | 5.10.0, build date 2025-11-10 |
+| Python | 3.12.3 at `/opt/dentobot-venv/bin/python` |
+| NumPy / NiBabel | 2.2.6 / 5.4.2 |
+| PyTorch | 2.10.0+cpu |
+| TotalSegmentator / nnUNet v2 | 2.16.0 / 2.8.1 |
+| OpenVINO | 2026.2.0 |
+| Requested/actual inference device | cpu / cpu |
+| TotalSegmentator tasks | teeth 113; craniofacial 115; transitive total-fast crop 298 |
+| Public fixture | Slicer `CBCTDentalSurgery`, `PreDentalSurgery` volume |
+| Input geometry | 360 x 360 x 330; 0.5 mm isotropic; int16 |
+| Inference result | 54 labels; 579,353 foreground voxels; geometry/label validation passed |
+| Runtime | 217.848237 seconds total; 217.058393 seconds inference |
+| Slicer result | 54 segments, closed surfaces, review metadata, MRB saved |
+
+A later fully Slicer-launched Bridge C run used run ID
+`794b7570c5e24583b0a62ffe2a7d8471`. Slicer exported the public fixture,
+launched the isolated CPU backend asynchronously, received `status: ok`,
+imported 54 segments, and saved the final MRB. Backend runtime was
+372.777041 seconds. The longer time than the standalone baseline is evidence
+from one concurrently active development container, not a benchmark.
+
+Artifact and model files remain outside Git and Drive. Their SHA-256 evidence:
+
+| Item | SHA-256 |
+|---|---|
+| Public fixture NIfTI | `a574237fdb32372582991932224d2fdefba98e0271f05fb2b32487b82a7019ed` |
+| Validated teeth NIfTI | `9ffb207be1c2ff305b7e190bef5def5633971e721d6b6a7e122b77bc0d839364` |
+| Result JSON | `f22b24fa02105989ff145f25e908bd4e277561e17d37c953e74fab512671f0e0` |
+| Slicer review MRB | `9acabe27aa1e35fc5de293578f0b9554a836fbc8536407b8f3970e0b6723af54` |
+| Task 113 checkpoint | `195ef8bb3f6de012c1200a961110ac5df525025cdbadbe09077ea35fd5424ef0` |
+| Task 115 checkpoint | `8a65ceca091d90e4eb42ae994840e5813cb811bc8dc587c3612c05490259b44f` |
+| Task 298 checkpoint | `3489323a4b759506ab46b489eb78b72142f2143aea6e6d828604d754bd7a9270` |
+| Slicer-launched result JSON | `250c102d3cbdbd86720fbb99a1a85be95ddcc0e8bbfaa273e84192b02f7f8fa9` |
+| Slicer-launched teeth NIfTI | `2fec20e589ee41beb5cba1e9c67e2e8d96e817bd5ea34574245a59cfaab71f79` |
+| Slicer-launched final MRB | `dadb4ceeb229aa097688685116b997182710c5dd840d575b91a88b60984eb04f` |
+
+The successful MRB save is not yet an independent close/reopen inspection.
+The public sample is useful for software compatibility but is not dental
+ground truth and does not establish anatomical accuracy.
+
+The backend and MRB completed, but the headless Slicer test process did not
+exit after the controlling terminal session was interrupted. Exact stale test
+processes were identified and terminated; no inference/nnU-Net child remained.
+Treat deterministic Slicer/QProcess shutdown as an open harness/runtime-
+lifecycle defect. It does not invalidate the completed result artifacts, but
+it blocks any claim that the automated end-to-end test terminates cleanly.
+
 ## 4. Prerequisites
 
 - official 3D Slicer 5.12.2 on Windows;
@@ -121,6 +175,27 @@ python -m pip install \
 already installed from the controlled manifests. Stop and investigate any
 resolver conflict rather than forcing incompatible packages.
 
+### 5.1 Native-Ubuntu installation
+
+Inside the SlicerROS2 container, install `python3-venv`, then run:
+
+```bash
+/workspace/ros2_ws/src/DentoBot/Infrastructure/install_ubuntu_backend.sh \
+  /workspace/ros2_ws/src/DentoBot
+```
+
+The script creates `/opt/dentobot-venv`, installs PyTorch 2.10.0 from the
+official CPU wheel index before resolving TotalSegmentator, applies
+`ubuntu-cpu-constraints.txt`, installs the backend editable, runs `pip check`
+and tests, and requires explicit CPU health. Installing PyTorch first prevents
+the TotalSegmentator resolver from replacing it with a CUDA wheel.
+
+For clean-image construction use
+`Infrastructure/Dockerfile.ubuntu-cpu`. The Compose override example shows
+persistent model/data paths and Intel accelerator device mapping. The
+hard-coded example render-group ID must be replaced with the host's actual
+group ID.
+
 ## 6. Model-cache preparation
 
 Run model downloads explicitly from the configured environment:
@@ -130,14 +205,37 @@ totalseg_download_weights -t craniofacial_structures
 totalseg_download_weights -t teeth
 ```
 
+TotalSegmentator 2.16 also invokes task 298 transitively while producing the
+rough crop needed by tasks 115 and 113. On the validated Ubuntu version its
+CLI task choices did not expose every required internal task, so task 298 was
+downloaded explicitly through TotalSegmentator's own registered library API:
+
+```bash
+TOTALSEG_HOME_DIR=/workspace/data/model-cache/totalsegmentator \
+  /opt/dentobot-venv/bin/python -c \
+  "from totalsegmentator.libs import download_pretrained_weights; download_pretrained_weights(298)"
+```
+
 TotalSegmentator's default cache is below
 `~/.totalsegmentator/nnunet/results`. The Slicer-launched runtime is
 cache-only: it must fail clearly if a required model is absent rather than
 silently initiating a download.
 
-For a formal release snapshot, record the task identifiers, cache location,
+For a formal release snapshot, record tasks 113, 115, and 298, cache location,
 file inventory, byte sizes, and cryptographic hashes without uploading model
 files to the documentation mirror.
+
+### 6.1 OpenVINO and Intel NPU boundary
+
+OpenVINO 2026.2.0 is installed so the Ubuntu backend can report devices.
+Without accelerator devices mapped into the container, the validated health
+run saw only `CPU`. TotalSegmentator 2.16 accepts CPU, CUDA, and Apple MPS
+device paths; it does not offer OpenVINO NPU as a direct execution option.
+NPU device visibility is therefore a deployment probe, not evidence that the
+dental nnU-Net model runs on the NPU. A future NPU milestone must convert the
+relevant model pipeline, compare labels/geometry against an accepted baseline,
+measure performance and memory, and preserve CPU/CUDA as explicit alternatives
+until equivalence is demonstrated.
 
 ## 7. Installation verification
 

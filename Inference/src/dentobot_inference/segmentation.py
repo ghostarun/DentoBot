@@ -1,4 +1,4 @@
-"""GPU-only TotalSegmentator teeth inference and result validation."""
+"""Explicit-device TotalSegmentator teeth inference and result validation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 import platform
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -21,6 +22,7 @@ from dentobot_inference import __version__
 ProgressCallback = Callable[[dict[str, Any]], None]
 TEETH_TASK_ID = 113
 CRANIOFACIAL_TASK_ID = 115
+TOTAL_FAST_CROP_TASK_ID = 298
 
 
 class TeethSegmentationError(RuntimeError):
@@ -231,11 +233,12 @@ def _install_offline_weight_guard(python_api_module) -> dict[int, list[str]]:
             task_name = {
                 TEETH_TASK_ID: "teeth",
                 CRANIOFACIAL_TASK_ID: "craniofacial_structures",
+                TOTAL_FAST_CROP_TASK_ID: "total_fast",
             }.get(numeric_task_id, f"task {numeric_task_id}")
             raise TeethSegmentationError(
                 "Required TotalSegmentator weights are not cached completely for "
                 f"{task_name} (Dataset{numeric_task_id:03d}). Download them "
-                "explicitly in the DENTOBOT WSL environment before using "
+                "explicitly in the DENTOBOT inference environment before using "
                 "Bridge C.",
                 "MODEL_WEIGHTS_NOT_CACHED",
             )
@@ -245,14 +248,36 @@ def _install_offline_weight_guard(python_api_module) -> dict[int, list[str]]:
     return cached_models
 
 
+def _install_totalsegmentator_cpu_device_compatibility(python_api_module) -> None:
+    """Work around TotalSegmentator 2.16 returning None for a CPU string.
+
+    The teeth task recursively invokes its craniofacial crop. Version 2.16
+    calls ``convert_device_to_string`` with the selected ``"cpu"`` string,
+    while that helper only returns a value for torch.device objects.
+    """
+
+    original_converter = python_api_module.convert_device_to_string
+
+    def convert_device_to_string(device_value):
+        if device_value == "cpu":
+            return "cpu"
+        return original_converter(device_value)
+
+    python_api_module.convert_device_to_string = convert_device_to_string
+
+
 def run_teeth_segmentation(
     input_path: Path,
     output_path: Path,
     result_json_path: Path,
     run_id: str,
+    device: str = "cuda:0",
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    """Run TotalSegmentator's ToothFairy3-backed teeth task on CUDA device 0."""
+    """Run TotalSegmentator's ToothFairy3-backed teeth task without fallback."""
+
+    if device not in ("cpu", "cuda:0"):
+        raise ValueError(f"Unsupported segmentation device: {device}")
 
     started_at = _utc_now()
     started_monotonic = time.monotonic()
@@ -283,12 +308,14 @@ def run_teeth_segmentation(
             "taskId": TEETH_TASK_ID,
             "cropTask": "craniofacial_structures",
             "cropTaskId": CRANIOFACIAL_TASK_ID,
+            "transitiveCropTask": "total_fast",
+            "transitiveCropTaskId": TOTAL_FAST_CROP_TASK_ID,
             "sourceDataset": "ToothFairy3",
             "multilabel": True,
             "cachedWeights": {},
         },
         "device": {
-            "requested": "cuda:0",
+            "requested": device,
             "actual": None,
             "name": None,
             "torchCudaVersion": None,
@@ -309,6 +336,7 @@ def run_teeth_segmentation(
         "warnings": [
             "Research output only; segmentation requires human review.",
         ],
+        "traceback": None,
     }
     current_stage = "initialization"
 
@@ -353,7 +381,7 @@ def run_teeth_segmentation(
             **_image_geometry(input_image),
         }
 
-        report("cuda", "Checking CUDA device 0")
+        report("device", f"Checking explicit {device} execution")
         try:
             import torch
         except Exception as exc:
@@ -361,21 +389,29 @@ def run_teeth_segmentation(
                 f"PyTorch import failed: {type(exc).__name__}: {exc}",
                 "PYTORCH_IMPORT_FAILED",
             ) from exc
-        if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
-            raise TeethSegmentationError(
-                "CUDA device 0 is unavailable. Bridge C does not fall back to CPU.",
-                "CUDA_UNAVAILABLE",
+        if device == "cuda:0":
+            if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+                raise TeethSegmentationError(
+                    "CUDA device 0 is unavailable. Bridge C does not fall back to CPU.",
+                    "CUDA_UNAVAILABLE",
+                )
+            torch.cuda.set_device(0)
+            torch.cuda.synchronize(0)
+            torch.cuda.reset_peak_memory_stats(0)
+            result["device"].update(
+                {
+                    "actual": "cuda:0",
+                    "name": torch.cuda.get_device_name(0),
+                    "torchCudaVersion": getattr(torch.version, "cuda", None),
+                }
             )
-        torch.cuda.set_device(0)
-        torch.cuda.synchronize(0)
-        torch.cuda.reset_peak_memory_stats(0)
-        result["device"].update(
-            {
-                "actual": "cuda:0",
-                "name": torch.cuda.get_device_name(0),
-                "torchCudaVersion": getattr(torch.version, "cuda", None),
-            }
-        )
+        else:
+            result["device"].update(
+                {
+                    "actual": "cpu",
+                    "name": platform.processor() or platform.machine() or "CPU",
+                }
+            )
 
         report("model", "Loading TotalSegmentator with network downloads disabled")
         try:
@@ -384,11 +420,15 @@ def run_teeth_segmentation(
         except Exception as exc:
             raise TeethSegmentationError(
                 "TotalSegmentator import failed. Install it in the dedicated "
-                f"DENTOBOT WSL environment: {type(exc).__name__}: {exc}",
+                f"DENTOBOT inference environment: {type(exc).__name__}: {exc}",
                 "TOTALSEGMENTATOR_IMPORT_FAILED",
             ) from exc
 
         cached_models = _install_offline_weight_guard(total_segmentator_api)
+        if device == "cpu":
+            _install_totalsegmentator_cpu_device_compatibility(
+                total_segmentator_api
+            )
         total_segmentator_api.send_usage_stats = lambda *args, **kwargs: None
         raw_label_map = class_map.get("teeth")
         if not raw_label_map:
@@ -407,7 +447,7 @@ def run_teeth_segmentation(
 
         report(
             "inference",
-            "Running TotalSegmentator teeth inference on CUDA device 0",
+            f"Running TotalSegmentator teeth inference on {device}",
         )
         inference_started = time.monotonic()
         total_segmentator_api.totalsegmentator(
@@ -415,23 +455,25 @@ def run_teeth_segmentation(
             output=output_path,
             ml=True,
             task="teeth",
-            device="gpu",
+            device="gpu" if device == "cuda:0" else "cpu",
             nr_thr_resamp=1,
             nr_thr_saving=1,
             quiet=False,
             verbose=False,
         )
-        torch.cuda.synchronize(0)
+        if device == "cuda:0":
+            torch.cuda.synchronize(0)
         result["inferenceSeconds"] = round(
             time.monotonic() - inference_started,
             6,
         )
-        result["device"]["peakAllocatedBytes"] = int(
-            torch.cuda.max_memory_allocated(0)
-        )
-        result["device"]["peakReservedBytes"] = int(
-            torch.cuda.max_memory_reserved(0)
-        )
+        if device == "cuda:0":
+            result["device"]["peakAllocatedBytes"] = int(
+                torch.cuda.max_memory_allocated(0)
+            )
+            result["device"]["peakReservedBytes"] = int(
+                torch.cuda.max_memory_reserved(0)
+            )
         result["model"]["cachedWeights"] = {
             str(task_id): paths
             for task_id, paths in sorted(cached_models.items())
@@ -474,7 +516,9 @@ def run_teeth_segmentation(
             type(exc).__name__ == "OutOfMemoryError"
             or "CUDA out of memory" in str(exc)
         ):
-            result["errorCode"] = "CUDA_OUT_OF_MEMORY"
+            result["errorCode"] = (
+                "CUDA_OUT_OF_MEMORY" if device == "cuda:0" else "CPU_OUT_OF_MEMORY"
+            )
         elif current_stage == "model":
             result["errorCode"] = "MODEL_INITIALIZATION_FAILED"
         elif current_stage == "inference":
@@ -484,6 +528,7 @@ def run_teeth_segmentation(
         else:
             result["errorCode"] = "UNEXPECTED_BACKEND_ERROR"
         result["errors"].append(error_text)
+        result["traceback"] = traceback.format_exc()
     finally:
         if result["status"] != "ok" and output_path.is_file():
             try:

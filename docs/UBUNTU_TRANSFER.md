@@ -13,6 +13,34 @@ Ubuntu workspace. The Windows/WSL implementation was verified primarily in
 3D Slicer 5.12.2. The Ubuntu container currently uses Slicer 5.10 and ROS 2
 Jazzy, so compatibility must be demonstrated rather than assumed.
 
+## Ubuntu migration status — 2026-07-31
+
+- The remote feature hash was independently verified as
+  `72da94207d33234a12f5d904c23733ff382f9e43`.
+- The comparison clone remains separate at
+  `/home/light-tarun/dentobot-migration/DentoBot`.
+- The active Git checkout is
+  `/home/light-tarun/dentobot/ros2_ws/src/DentoBot` on
+  `codex/ubuntu-migration`; the existing Compose/data/settings layout was not
+  overwritten.
+- The selected runtime boundary is a direct local process inside the existing
+  SlicerROS2 container. Slicer still owns MRML; the isolated
+  `/opt/dentobot-venv` owns PyTorch, TotalSegmentator, nnU-Net, and OpenVINO.
+- The Ubuntu source/UI, ordinary-Python backend, Slicer-native tests,
+  standalone CPU inference, MRML import/closed surfaces, and MRB save have
+  passed on a public Slicer dental CBCT fixture. Exact evidence is controlled
+  in `REPRODUCIBILITY_AND_TRACEABILITY.md`.
+- Slicer-launched Bridge A health and Bridge C also reached successful terminal
+  results. Bridge C produced 54 imported segments and a saved MRB, but the
+  headless Slicer process did not exit cleanly after interruption. Process
+  lifecycle cleanup is the first post-checkpoint gate; no expensive rerun is
+  justified before it passes with health-only probes.
+- A reproducible install script, CPU constraints, Dockerfile, and Compose
+  device-mapping example are under `Infrastructure/` and `Inference/`.
+  Clean-image reconstruction and independent MRB reopen remain pending.
+- No robot motion, drilling, patient data transfer, or clinical/anatomical
+  validation was performed.
+
 ## Verified Git source
 
 - Remote: `https://github.com/ghostarun/DentoBot.git`
@@ -58,7 +86,7 @@ weights, generated build products, medical/research data, or credentials.
 | Top-level Python requirements | Yes | Use for reconstruction; they are not a complete transitive lock. |
 | Conda environment directory | No | Do not copy. Recreate and verify in the selected Ubuntu execution layer. |
 | Complete Conda/pip inventory | Not yet | Optional reconstruction evidence; capture from the verified WSL environment only after reviewing it for local paths. |
-| TotalSegmentator tasks 113 and 115 | No | Download explicitly or transfer separately with file inventory and hashes. |
+| TotalSegmentator tasks 113, 115, and 298 | No | Download explicitly or transfer separately with file inventory and hashes. |
 | `C:\DENTOBOTRuns` artifacts | No | Do not copy wholesale. Retain only approved, de-identified evidence needed for validation. |
 | DICOM, NIfTI, NRRD, MRB, STL, and other research data | No | Transfer only through an approved local channel; never Git or the documentation Drive mirror. |
 | Representative validation CBCT | No | Select a de-identified fixture and record its governance, geometry, and checksum separately. |
@@ -246,8 +274,8 @@ Run in order:
 
 1. reconstruct the environment;
 2. `pip check` and ordinary-Python tests;
-3. GPU health with explicit CUDA requirement;
-4. verify cached model tasks 113 and 115;
+3. health with the explicitly selected CPU or CUDA device;
+4. verify cached model tasks 113, 115, and transitive crop task 298;
 5. standalone de-identified inference;
 6. Slicer-launched health;
 7. Bridge B geometry-preserving round trip;

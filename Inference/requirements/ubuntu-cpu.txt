@@ -1,0 +1,7 @@
+# Complete top-level install set for the Ubuntu CPU/OpenVINO backend.
+# Resolve with ubuntu-cpu-constraints.txt. PyTorch is installed separately
+# from the official CPU wheel index to prevent CUDA wheel resolution.
+TotalSegmentator
+nnunetv2
+openvino
+pytest

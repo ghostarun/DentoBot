@@ -3,23 +3,23 @@
 ## Architectural overview
 
 ```text
-Windows
+3D Slicer / later DENTOBOT custom Slicer application
 |
-+-- 3D Slicer / later DENTOBOT custom Slicer application
-|   |
-|   +-- DENTOWorkflow scripted module (focused user workflow)
-|   +-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
-|   +-- Direct WSL process adapter
++-- DENTOWorkflow scripted module (focused user workflow)
++-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
++-- Platform process adapter
+|   +-- Windows: direct WSL2 process
+|   `-- Ubuntu container: direct local Linux process
 |       +-- NIfTI payloads
 |       +-- structured stdout + exit status
 |       `-- JSON result metadata
 |
-+-- WSL2 inference environment
-|   |
++-- Isolated inference Python environment
 |   +-- DENTOBOT inference Python package and tests
-|   +-- PyTorch/CUDA
+|   +-- Windows/WSL: PyTorch/CUDA
+|   +-- Ubuntu: PyTorch CPU plus OpenVINO device discovery
 |   +-- TotalSegmentator `teeth` / ToothFairy3
-|   +-- Future image-processing or planning backends
+|   `-- Future image-processing or planning backends
 |
 +-- External robot-control environment (later)
     |
@@ -29,8 +29,8 @@ Windows
 ```
 
 The boundaries are deliberate. Slicer owns interactive medical-image state;
-WSL2 owns dependency-heavy compute; the robot runtime owns hardware safety and
-real-time behavior.
+an isolated external interpreter owns dependency-heavy compute; the robot
+runtime owns hardware safety and real-time behavior.
 
 ## UI strategy
 
@@ -136,9 +136,9 @@ It must run and be testable without Slicer. The first implemented commands
 are:
 
 ```text
-python -m dentobot_inference health --json --require-cuda
+python -m dentobot_inference health --json --require-device <cpu|cuda:0>
 python -m dentobot_inference roundtrip --input <input.nii> --output <roundtrip.nii> --result-json <result.json> --run-id <uuid>
-python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-segmentation.nii> --result-json <result.json> --run-id <uuid>
+python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-segmentation.nii> --result-json <result.json> --run-id <uuid> --device <cpu|cuda:0>
 ```
 
 ### Bridge A, Bridge B, and Bridge C
@@ -146,17 +146,18 @@ python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-s
 The integration slices establish one boundary in independently testable stages:
 
 - **Bridge A — environment health:** `DENTOWorkflow` launches the exact Python
-  interpreter configured by the user inside the named WSL distribution. The
+  interpreter configured by the user through the selected platform adapter. The
   backend reports interpreter identity, package versions, PyTorch import
-  health, CUDA availability, and device names as JSON. CUDA failure is
-  explicit; there is no silent CPU fallback.
+  health, requested compute device, CUDA state, and OpenVINO-visible devices as
+  JSON. Device failure is explicit; there is no silent fallback.
 - **Bridge B — image round trip:** Slicer exports the selected scalar volume to
   an isolated run directory as NIfTI. The WSL backend loads, rewrites, reloads,
   and checks its affine, shape, voxel type, and voxel checksum. Slicer then
   validates the returned MRML volume's dimensions, scalar type, and IJK-to-RAS
   matrix before retaining it in the scene.
-- **Bridge C — GPU teeth segmentation:** the same selected-volume and process
-  boundary runs TotalSegmentator `teeth` on CUDA device 0, validates a
+- **Bridge C — explicit-device teeth segmentation:** the same selected-volume
+  and process boundary runs TotalSegmentator `teeth` on either CUDA device 0
+  or CPU, validates a
   multilabel NIfTI plus schema-versioned metrics, then creates a named and
   colorized `vtkMRMLSegmentationNode`. Binary-labelmap and closed-surface
   representations provide interactive 2D and 3D display.
@@ -165,15 +166,23 @@ All commands use the same asynchronous adapter, bounded live output, process
 exit status, schema-versioned JSON, and argument-list construction. Neither
 Slicer nor the backend command installs packages, edits Slicer, or treats the
 artifact directory as a queue. Bridge C replaces TotalSegmentator's implicit
-weight downloader with a cache-only guard and rejects unavailable CUDA rather
-than silently using the CPU.
+weight downloader with a cache-only guard and rejects an unavailable requested
+device rather than silently changing devices.
+
+The native Ubuntu adapter was validated on 2026-07-31 in the SlicerROS2
+Slicer 5.10 container. It invokes `/opt/dentobot-venv/bin/python` directly,
+uses `/workspace/data/dentobot-runs`, and requests `cpu`. A public Slicer
+CBCT fixture completed standalone inference and the Slicer import/review-scene
+path. This is platform compatibility evidence, not anatomical or clinical
+validation.
 
 ### Runtime boundary
 
-The Slicer module runs in Slicer's embedded Windows Python interpreter. The
-inference package runs in a separate Linux Python interpreter inside WSL2.
-Linux PyTorch/CUDA modules cannot be imported into the Windows Slicer process,
-and MRML node objects cannot be passed directly into the Linux process.
+The Slicer module runs in Slicer's embedded Python interpreter. The inference
+package runs in a separate Linux Python environment: inside WSL2 on Windows or
+as a direct child process in the Ubuntu SlicerROS2 container. PyTorch,
+TotalSegmentator, nnU-Net, and OpenVINO are not imported into Slicer, and MRML
+node objects are never passed into the inference process.
 
 The boundary is therefore an explicitly controlled external process, not a
 Python import and not a folder-based job service.
@@ -185,10 +194,10 @@ For each inference request, the Slicer adapter:
 1. Validates the selected source volume and backend configuration.
 2. Creates a unique run ID and short staging directory.
 3. Exports the source volume to NIfTI with its affine intact.
-4. Starts `wsl.exe` asynchronously with an argument list containing the WSL
-   distribution, absolute Linux Python interpreter, module name, input,
-   output, result metadata path, and run ID. Bridge C itself fixes execution
-   to CUDA device 0.
+4. Starts the platform adapter asynchronously with an argument list containing
+   the absolute Linux Python interpreter, module name, input, output, result
+   metadata path, run ID, and explicit device. Windows prepends `wsl.exe` plus
+   the distribution; Ubuntu launches the interpreter directly.
 5. Streams structured stdout and ordinary diagnostic output into the Slicer
    UI without blocking the Qt event loop.
 6. Supports cancellation and records the terminal process exit code.
@@ -212,10 +221,15 @@ concatenate a shell command, depend on interactive environment activation, or
 use a watched folder. The WSL distribution and Python interpreter path are
 explicit configuration values verified by the health check.
 
+On Ubuntu the equivalent command begins directly with
+`/opt/dentobot-venv/bin/python`; paths remain native container paths and
+`--device cpu` is explicit.
+
 ### Run artifacts
 
-Use a short, configurable staging root such as `C:\DENTOBOTRuns`. Each run
-has an isolated UUID directory visible to WSL2 under `/mnt/c/DENTOBOTRuns`:
+Use a short, configurable staging root such as `C:\DENTOBOTRuns` on Windows
+or `/workspace/data/dentobot-runs` on Ubuntu. Each run has an isolated UUID
+directory visible to both Slicer and the backend:
 
 ```text
 <run-id>/

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dentobot-inference"
 version = "0.2.0"
-description = "External WSL2 inference boundary for the DENTOBOT research workflow"
+description = "External inference boundary for the DENTOBOT research workflow"
 requires-python = ">=3.10"
 dependencies = [
   "nibabel>=5.2,<6",
