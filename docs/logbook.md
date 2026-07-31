@@ -25,6 +25,25 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-31 15:43:26 IST (UTC+05:30) — GitHub authentication and checkpoint publication
+
+- The developer asked to authenticate the Ubuntu repository immediately after
+  day close. GitHub CLI was unavailable and `sudo` required an interactive
+  local password, so Ubuntu's signed `gh` package was downloaded and unpacked
+  under `/tmp` without changing the system installation.
+- Completed GitHub's official browser/device flow as account `ghostarun` and
+  configured Git to use GitHub CLI for HTTPS credentials. This workstation has
+  no secure credential keyring; GitHub CLI warned that its token is stored in
+  `/home/light-tarun/.config/gh/hosts.yml` protected by filesystem permissions
+  rather than an encrypted store. No token value was written to the
+  repository, Drive, or logbook.
+- Pushed `codex/ubuntu-migration` without force and established its upstream.
+  Pushed annotated tag `checkpoint/2026-07-31-1511-IST` without force.
+- Remote verification matched branch and peeled tag target to
+  `1a3d40c1a390283e4884eb0815f0a2b0659ade13`. This supersedes the authentication
+  blocker recorded in the close entry; the failed first attempt remains in
+  history for traceability.
+
 ## 2026-07-31 15:07:38 IST (UTC+05:30) — Ubuntu migration day close
 
 ### Final result and correction to the live narrative

@@ -21,6 +21,22 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-31 15:43:26 IST (UTC+05:30) — Ubuntu checkpoint published
+
+- Authenticated GitHub HTTPS through the official browser/device flow as
+  `ghostarun` using a temporary unpacked Ubuntu GitHub CLI. No Git credential
+  or token was added to the repository.
+- Published `codex/ubuntu-migration` and annotated tag
+  `checkpoint/2026-07-31-1511-IST` without force. Verified both remote refs;
+  the branch and peeled tag target equal
+  `1a3d40c1a390283e4884eb0815f0a2b0659ade13`.
+- This supersedes the close entry's push blocker. The checkpoint tag remains
+  fixed at the tested source/documentation state; this entry is a later
+  documentation-only publication record.
+- GitHub CLI reported that this workstation lacks an encrypted credential
+  keyring and stores its token in the user's filesystem-protected CLI config.
+  The token value is not recorded here or in Drive.
+
 ## 2026-07-31 15:07:38 IST (UTC+05:30) — Slicer-launched Ubuntu run and checkpoint close
 
 ### Completed

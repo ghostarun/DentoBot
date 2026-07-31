@@ -17,6 +17,9 @@ Jazzy, so compatibility must be demonstrated rather than assumed.
 
 - The remote feature hash was independently verified as
   `72da94207d33234a12f5d904c23733ff382f9e43`.
+- Native Ubuntu branch `codex/ubuntu-migration` and annotated checkpoint tag
+  `checkpoint/2026-07-31-1511-IST` are published. The verified checkpoint
+  source target is `1a3d40c1a390283e4884eb0815f0a2b0659ade13`.
 - The comparison clone remains separate at
   `/home/light-tarun/dentobot-migration/DentoBot`.
 - The active Git checkout is
