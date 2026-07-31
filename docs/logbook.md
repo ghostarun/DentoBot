@@ -25,6 +25,33 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-07-31 11:33:22 IST (UTC+05:30) — Ubuntu Git transfer initiated
+
+### Published handoff
+
+- The developer authorized the Git push and stated that Ubuntu transfer would
+  proceed next.
+- Published `codex/target-tooth-trajectory` to GitHub, including the Step 4A
+  foundation, both correction commits, developer manual acceptance, and the
+  completed transfer guide.
+- Updated the active transfer checklist, synchronized the affected Markdown
+  files to the established Drive mirror, and verified the final remote state.
+- The exact final pushed hash is supplied in the session handoff rather than
+  embedded in a commit that would necessarily change that hash.
+
+### Ubuntu continuation boundary
+
+- Clone into `/home/light-tarun/dentobot-migration/DentoBot`; do not overwrite
+  `/home/light-tarun/dentobot`.
+- Switch to `codex/target-tooth-trajectory`, verify `rev-parse HEAD` against
+  the handoff hash, then compare Ubuntu-only Compose, ROS, data, settings,
+  model cache, and documentation before integration.
+- The feature branch is not merged to `main`. Slicer 5.10 compatibility and
+  the native-Ubuntu inference execution boundary remain tomorrow's explicit
+  gates.
+- No Slicer, WSL, CUDA, inference, model, DICOM, robot, or hardware process was
+  launched during this Git handoff.
+
 ## 2026-07-31 03:45:04 IST (UTC+05:30) — Manual Step 4A acceptance and day close
 
 ### Developer evidence and testing policy

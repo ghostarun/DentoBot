@@ -21,6 +21,29 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-07-31 11:33:22 IST (UTC+05:30) — Git handoff published for Ubuntu transfer
+
+### Transfer state
+
+- Pushed `codex/target-tooth-trajectory` to GitHub, publishing the Step 4A
+  implementation, correction batch, manual acceptance record, and Ubuntu
+  transfer guide.
+- Updated the active transfer checklist from push-pending to published. The
+  exact final remote commit is intentionally reported in the session handoff
+  because a commit cannot contain its own hash.
+- Synchronized the changed transfer, changelog, and logbook files to their
+  existing Drive IDs and verified the mirror after replacement.
+
+### Verification and limitations
+
+- Verified the remote-tracking feature branch after the final push; the local
+  working tree is clean and no commits remain only on Windows.
+- No merge to `main` was performed. Ubuntu retrieval must use
+  `codex/target-tooth-trajectory` and compare `rev-parse HEAD` with the exact
+  handoff hash.
+- No Slicer, WSL, CUDA, inference, model, DICOM, robot, or hardware process was
+  launched.
+
 ## 2026-07-31 03:45:04 IST (UTC+05:30) — Step 4A manual acceptance and transfer closeout
 
 ### Accepted and documented

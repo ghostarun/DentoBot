@@ -27,11 +27,11 @@ The repository was clean before the feature branch was created. A live
 baseline.
 
 At Windows closeout, Step 4A was developer-verified on the retained teeth
-phantom in Slicer 5.12.2 at the current PoC interaction scope. The remote
-feature branch still requires a final push and hash confirmation before the
-Ubuntu clone is the authoritative copy. Earlier isolated automated Slicer
-results are retained only as diagnostic history; they are not the manual
-acceptance authority.
+phantom in Slicer 5.12.2 at the current PoC interaction scope. The feature
+branch is published to GitHub; the exact final remote hash must be copied from
+the session handoff and matched on Ubuntu before the clone is accepted.
+Earlier isolated automated Slicer results are retained only as diagnostic
+history; they are not the manual acceptance authority.
 
 ## What Git retrieves
 
@@ -79,9 +79,9 @@ weights, generated build products, medical/research data, or credentials.
 - [x] Pass static Python AST, UI XML/object/reference/callback, Markdown fence,
   and Git whitespace checks.
 - [x] Update the controlled local documentation and verify its Drive mirror.
-- [ ] Commit this final closeout.
-- [ ] Push `codex/target-tooth-trajectory`.
-- [ ] Record the exact pushed commit in the session handoff.
+- [x] Commit this final closeout.
+- [x] Push `codex/target-tooth-trajectory`.
+- [x] Record the exact pushed commit in the session handoff.
 - [ ] On Ubuntu, reconcile the Git documentation with
   `IITM Dentobot/active-development-ubuntu` without replacing Ubuntu-only
   history.
