@@ -203,6 +203,14 @@ For each inference request, the Slicer adapter:
 6. Supports cancellation and records the terminal process exit code.
 7. On success, validates the output and imports it into MRML.
 
+On Slicer 5.10, the compatibility adapter owns its fallback `QProcess` as a
+child of the module widget. After draining the final output, it disconnects
+the PythonQt signal callbacks, closes the process object, and schedules it for
+Qt deletion before completion handling continues. Headless harnesses also
+clean up the workflow widget before requesting Slicer shutdown. This prevents
+a completed backend child or a signal/closure reference cycle from retaining
+the Slicer process.
+
 Conceptually, the argument list represents:
 
 ```text
@@ -374,16 +382,26 @@ and record the reason and effect in both raw records.
 The repository files are canonical and are mirrored byte-for-byte as Markdown
 in the connected `IITM Dentobot/docs` Google Drive folder for use by the
 non-Codex project chat. Existing Drive file IDs are updated in place. A request
-to update the changelog or logbook also triggers synchronization of those
-files and any other design documents changed in the same batch. The mirror
-contains documentation only; patient data, run artifacts, models, and secrets
-are excluded.
+to update the changelog or logbook places those files and any other changed
+design documents in the next approved synchronization batch; it does not
+require a Drive/Git write after every prompt. The mirror contains
+documentation only; patient data, run artifacts, models, and secrets are
+excluded.
 
 ## Planning and registration architecture
 
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
+- Destructive planning actions require confirmation and the expected
+  DENTOBOT role. They delete the selected primary node and only its
+  unreferenced display/storage auxiliaries, then clear the corresponding
+  workflow parameter reference. Shared auxiliaries and unrelated nodes are
+  preserved.
+- Trajectory deletion retains segmentation, target tooth, and bounds. Draft-
+  model deletion retains segmentation, target, and ordered manual supports.
+  Save/reload must not restore deleted nodes or dangling references, and the
+  retained source state must remain sufficient to recreate each output.
 - Planning approval is explicit state, invalidated when relevant anatomy,
   trajectory, or registration changes.
 - Registration, calibration, tracking, and tool poses are transform nodes in
@@ -413,6 +431,12 @@ existing point dragged out of bounds is restored to its last valid position.
 This AABB is a coarse PoC workflow constraint, not proof that a point lies
 inside tooth material and not an anatomical safety margin.
 
+Clearing and deleting are distinct. **Clear Both Points** retains the selected
+trajectory node. **Delete Selected Trajectory** accepts only a line carrying
+the DENTOBOT `EntryToTarget` role, removes the line and any now-unreferenced
+display/storage auxiliaries, and clears the workflow trajectory reference.
+The target segmentation, target segment, and bounds are deliberately retained.
+
 Step 4A target selection has display priority over the independent Step 3
 review selection. The target is emphasized in both 2D and 3D while other
 segments remain contextual. The Markups interaction mode is explicitly
@@ -422,6 +446,38 @@ rebound to the selected line after Slicer enters place mode because Slicer
 This increment does not define a dental procedure, interpret entry/target
 anatomy, approve a plan, calculate clearance, generate a template, or
 authorize drilling. Those remain later planning and validation increments.
+
+### Step 5A draft support-anatomy model
+
+Step 5A adds a geometry-preserving `vtkMRMLModelNode` boundary between the
+reviewed tooth segmentation and later template-design research. The selected
+Step 4A target remains authoritative. The user manually checks one or more
+other distinct whole-tooth segments from that same Reviewed segmentation;
+there is no inferred adjacency, arch, side, ordering, or maximum count.
+
+The model contains the appended, unmodified local closed surfaces for the
+target and every checked support. It observes the same parent transform as the
+segmentation rather than hardening or silently changing coordinates. A node
+reference and namespaced attributes persist the source segmentation, target
+ID/FDI, ordered support IDs/FDIs, source names, review timestamp, source
+point/cell counts, schema version, status, and update time.
+
+Selection or segmentation-content changes do not delete or silently regenerate
+the output. They mark the model Stale, retain it visibly in orange for review,
+and require an explicit Update; current output is teal. The parameter node
+persists the ordered support selection and model reference across scene save
+and reopen.
+
+**Delete Draft Support Model** accepts only the DENTOBOT
+`TemplateSupportDraft` role, removes the model and any now-unreferenced
+display/storage auxiliaries, and clears the model reference. It retains the
+segmentation, Step 4A target, and ordered support selection for deliberate
+recreation.
+
+This boundary is anatomical source material only. It performs no smoothing,
+remeshing, Boolean union, offset/contact inference, guide-shell or sleeve
+generation, drill-channel creation, export, printability assessment, clinical
+validation, or drilling authorization.
 
 ## Robot architecture and ROS decision gate
 

@@ -16,6 +16,7 @@ import slicer
 from slicer import (
     vtkMRMLMarkupsLineNode,
     vtkMRMLMarkupsROINode,
+    vtkMRMLModelNode,
     vtkMRMLScalarVolumeNode,
     vtkMRMLSegmentationNode,
 )
@@ -46,6 +47,8 @@ class DENTOWorkflowParameterNode:
     targetToothSegmentId: str = ""
     targetToothBoundsRoi: vtkMRMLMarkupsROINode
     trajectoryLine: vtkMRMLMarkupsLineNode
+    templateSupportToothSegmentIdsJson: str = "[]"
+    draftTemplateSupportModel: vtkMRMLModelNode
 
 
 class DENTOWorkflow(ScriptedLoadableModule):
@@ -96,6 +99,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updatingPlanningUI = False
         self._planningConstraintWarning = ""
         self._validTrajectoryPointsByNodeId: dict[str, list[list[float]]] = {}
+        self._templateSupportRecordsById: dict[str, dict] = {}
+        self._updatingTemplateUI = False
+        self._templateStatusWarning = ""
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -207,9 +213,29 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onResetTrajectory,
         )
+        self.ui.deleteTrajectoryButton.connect(
+            "clicked(bool)",
+            self.onDeleteTrajectory,
+        )
         self.ui.lockTrajectoryButton.connect(
             "toggled(bool)",
             self.onTrajectoryLockToggled,
+        )
+        self.ui.templateSupportTeethListWidget.connect(
+            "itemChanged(QListWidgetItem*)",
+            self.onTemplateSupportToothItemChanged,
+        )
+        self.ui.draftTemplateSupportModelSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onDraftTemplateSupportModelSelectionChanged,
+        )
+        self.ui.createDraftTemplateSupportModelButton.connect(
+            "clicked(bool)",
+            self.onCreateDraftTemplateSupportModel,
+        )
+        self.ui.deleteDraftTemplateSupportModelButton.connect(
+            "clicked(bool)",
+            self.onDeleteDraftTemplateSupportModel,
         )
 
         self._addSceneObservers()
@@ -263,7 +289,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.setParameterNode(self.logic.getParameterNode())
         if os.name != "nt":
             if not self._parameterNode.wslPythonPath:
-                self._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
+                self._parameterNode.wslPythonPath = "/home/light-tarun/miniconda3/envs/dentobot/bin/python"
             if self._parameterNode.stagingRoot == r"C:\DENTOBOTRuns":
                 self._parameterNode.stagingRoot = "/workspace/data/dentobot-runs"
             if self._parameterNode.inferenceDevice == "cuda:0":
@@ -301,6 +327,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._clearSegmentationReview()
             self._bindPlanningTrajectoryNode(None)
             self._clearPlanning()
+            self._clearTemplateModeling()
 
     def _newlyLoadedDicomVolume(self) -> vtkMRMLScalarVolumeNode | None:
         if self._volumeNodeIdsBeforeDICOM is None or not self.logic:
@@ -325,6 +352,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateSegmentationReview()
         self._bindPlanningTrajectoryNode(self._parameterNode.trajectoryLine)
         self._updatePlanning()
+        self._updateTemplateModeling()
 
         if not volumeNode:
             self._setMetadataPlaceholders()
@@ -420,6 +448,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._rebuildSegmentTree()
             self._refreshSegmentationInspection()
             self._updatePlanning()
+            self._updateTemplateModeling()
 
     def _onReviewDisplayModified(self, caller=None, event=None) -> None:
         if not self._updatingSegmentationReviewUI:
@@ -451,6 +480,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._refreshSegmentationInspection()
         self._validTrajectoryPointsByNodeId.clear()
         self._updatePlanning()
+        self._markCurrentDraftTemplateModelStale(
+            _("Source segmentation content changed.")
+        )
+        self._updateTemplateModeling()
         self.ui.segmentationReviewStatusLabel.text = (
             _(
                 "Mask content changed. Review state was reset to "
@@ -687,6 +720,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         currentNodeId = currentNode.GetID() if currentNode else None
         selectedNodeId = segmentationNode.GetID() if segmentationNode else None
         if currentNodeId != selectedNodeId:
+            self._markCurrentDraftTemplateModelStale(
+                _("Authoritative source segmentation changed.")
+            )
             if self._parameterNode.trajectoryLine and self.logic:
                 self.logic.clearTrajectoryTarget(
                     self._parameterNode.trajectoryLine
@@ -704,6 +740,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._parameterNode.targetToothSegmentId = ""
             self._validTrajectoryPointsByNodeId.clear()
             self._planningConstraintWarning = ""
+            self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
             self._parameterNode.teethSegmentation = segmentationNode
         self._bindSegmentationReviewNode(segmentationNode)
         self._updateSegmentationReview()
@@ -712,6 +749,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # version. Refresh Step 4A explicitly so existing segmentations become
         # immediately available to the target-tooth selector.
         self._updatePlanning()
+        self._updateTemplateModeling()
 
     def onSegmentSearchTextChanged(self, filterText: str) -> None:
         if not self._updatingSegmentationReviewUI:
@@ -1267,6 +1305,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.placeTrajectoryButton.text = _("Place Both Points")
             self.ui.undoTrajectoryPointButton.enabled = False
             self.ui.resetTrajectoryButton.enabled = False
+            self.ui.deleteTrajectoryButton.enabled = False
             self.ui.lockTrajectoryButton.enabled = False
             self.ui.lockTrajectoryButton.checked = False
             self.ui.trajectoryEntryValueLabel.text = _("--")
@@ -1417,6 +1456,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.resetTrajectoryButton.enabled = bool(
                 trajectoryNode and pointCount > 0
             )
+            self.ui.deleteTrajectoryButton.enabled = bool(
+                trajectoryNode
+                and self.logic.isDentobotTrajectoryNode(trajectoryNode)
+            )
             canLock = bool(
                 targetRecord
                 and trajectoryNode
@@ -1545,6 +1588,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if index >= 0 and self.ui.targetToothComboBox.itemData(index)
             else ""
         )
+        previousTargetId = self._parameterNode.targetToothSegmentId
+        if segmentId != previousTargetId:
+            self._markCurrentDraftTemplateModelStale(
+                _("Target tooth selection changed.")
+            )
+            self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
+
         trajectoryNode = self._parameterNode.trajectoryLine
         if trajectoryNode:
             self._validTrajectoryPointsByNodeId.pop(
@@ -1571,6 +1621,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except ValueError as exc:
                 slicer.util.errorDisplay(str(exc))
         self._updatePlanning()
+        self._updateTemplateModeling()
         self._applyTargetPriorityHighlight()
 
     def onTrajectorySelectionChanged(self, trajectoryNode) -> None:
@@ -1696,6 +1747,44 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._planningConstraintWarning = ""
         self._updatePlanning()
 
+    def onDeleteTrajectory(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        trajectoryNode = self._parameterNode.trajectoryLine
+        try:
+            self.logic.validateDentobotTrajectoryForDeletion(trajectoryNode)
+        except ValueError as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        trajectoryName = trajectoryNode.GetName() or _("Unnamed trajectory")
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Permanently delete the selected trajectory “%1”? The target "
+                "tooth, source segmentation, and target bounds will be kept. "
+                "This cannot be undone after the scene is saved."
+            ).replace("%1", trajectoryName),
+            windowTitle=_("Delete Step 4A trajectory"),
+        ):
+            return
+
+        trajectoryId = trajectoryNode.GetID()
+        self._bindPlanningTrajectoryNode(None)
+        try:
+            removal = self.logic.deleteTrajectoryNode(trajectoryNode)
+        except (RuntimeError, ValueError) as exc:
+            self._bindPlanningTrajectoryNode(trajectoryNode)
+            slicer.util.errorDisplay(str(exc))
+            return
+        self._parameterNode.trajectoryLine = None
+        self._validTrajectoryPointsByNodeId.pop(trajectoryId, None)
+        self._planningConstraintWarning = ""
+        logging.info(
+            "Deleted DENTOBOT Step 4A trajectory %s and %d owned auxiliary nodes",
+            removal["nodeId"],
+            len(removal["auxiliaryNodeIds"]),
+        )
+        self._updatePlanning()
+
     def onTrajectoryLockToggled(self, locked: bool) -> None:
         if (
             self._updatingPlanningUI
@@ -1737,6 +1826,339 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             trajectoryNode.SetLocked(False)
         self._updatePlanning()
+
+    def _clearTemplateModeling(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        self._updatingTemplateUI = True
+        try:
+            self._templateSupportRecordsById = {}
+            self._templateStatusWarning = ""
+            self.ui.templateTargetToothValueLabel.text = _("--")
+            self.ui.templateSupportTeethListWidget.clear()
+            self.ui.templateSupportTeethListWidget.enabled = False
+            self.ui.draftTemplateSupportModelSelector.setCurrentNode(None)
+            self.ui.createDraftTemplateSupportModelButton.enabled = False
+            self.ui.createDraftTemplateSupportModelButton.text = _(
+                "Create Draft Support Model"
+            )
+            self.ui.deleteDraftTemplateSupportModelButton.enabled = False
+            self.ui.templateModelingStatusLabel.text = _(
+                "Select a reviewed dental segmentation and target tooth."
+            )
+            self.ui.templateModelingStatusLabel.styleSheet = "color: #b36b00;"
+        finally:
+            self._updatingTemplateUI = False
+
+    def _markCurrentDraftTemplateModelStale(self, reason: str) -> bool:
+        if not self._parameterNode or not self.logic:
+            return False
+        return self.logic.markDraftTemplateSupportModelStale(
+            self._parameterNode.draftTemplateSupportModel,
+            reason,
+        )
+
+    def _selectedTemplateSupportSegmentIds(self) -> list[str]:
+        selectedIds = []
+        listWidget = self.ui.templateSupportTeethListWidget
+        for itemIndex in range(listWidget.count):
+            item = listWidget.item(itemIndex)
+            segmentId = item.data(qt.Qt.UserRole)
+            if segmentId and item.checkState() == qt.Qt.Checked:
+                selectedIds.append(str(segmentId))
+        return selectedIds
+
+    def _updateTemplateModeling(self) -> None:
+        if self._updatingTemplateUI:
+            return
+        if not self._parameterNode or not self.logic:
+            self._clearTemplateModeling()
+            return
+
+        segmentationNode = self._parameterNode.teethSegmentation
+        targetSegmentId = self._parameterNode.targetToothSegmentId
+        targetRecord = self._targetToothRecordsById.get(targetSegmentId)
+        modelNode = self._parameterNode.draftTemplateSupportModel
+        persistedSelectionError = ""
+        try:
+            persistedSupportIds = self.logic.decodeTemplateSupportSegmentIds(
+                self._parameterNode.templateSupportToothSegmentIdsJson
+            )
+        except ValueError as exc:
+            persistedSupportIds = []
+            persistedSelectionError = str(exc)
+
+        invalidSupportIds = [
+            segmentId
+            for segmentId in persistedSupportIds
+            if (
+                segmentId == targetSegmentId
+                or segmentId not in self._targetToothRecordsById
+            )
+        ]
+        availableRecords = [
+            record
+            for record in self._targetToothRecordsById.values()
+            if record["segmentId"] != targetSegmentId
+        ]
+        self._templateSupportRecordsById = {
+            record["segmentId"]: record for record in availableRecords
+        }
+
+        self._updatingTemplateUI = True
+        try:
+            self.ui.templateTargetToothValueLabel.text = (
+                targetRecord["displayName"] if targetRecord else _("--")
+            )
+            listWidget = self.ui.templateSupportTeethListWidget
+            listWidget.clear()
+            for record in availableRecords:
+                item = qt.QListWidgetItem(record["displayName"])
+                item.setData(qt.Qt.UserRole, record["segmentId"])
+                item.setToolTip(
+                    _("Source label: %1").replace(
+                        "%1",
+                        record["sourceName"],
+                    )
+                )
+                item.setCheckState(
+                    qt.Qt.Checked
+                    if record["segmentId"] in persistedSupportIds
+                    else qt.Qt.Unchecked
+                )
+                listWidget.addItem(item)
+            listWidget.enabled = bool(targetRecord and availableRecords)
+            if self.ui.draftTemplateSupportModelSelector.currentNode() is not modelNode:
+                self.ui.draftTemplateSupportModelSelector.setCurrentNode(
+                    modelNode
+                )
+        finally:
+            self._updatingTemplateUI = False
+
+        selectedSupportIds = self._selectedTemplateSupportSegmentIds()
+        modelSummary = None
+        modelError = ""
+        if modelNode:
+            try:
+                modelSummary = self.logic.getDraftTemplateSupportModelSummary(
+                    modelNode
+                )
+            except ValueError as exc:
+                modelError = str(exc)
+
+        if (
+            modelSummary
+            and (
+                modelSummary["sourceSegmentation"] is not segmentationNode
+                or modelSummary["targetSegmentId"] != targetSegmentId
+                or modelSummary["supportSegmentIds"] != selectedSupportIds
+            )
+        ):
+            self.logic.markDraftTemplateSupportModelStale(
+                modelNode,
+                _("Current target or support-tooth selection differs."),
+            )
+            modelSummary = self.logic.getDraftTemplateSupportModelSummary(
+                modelNode
+            )
+
+        reviewState = (
+            self.logic.getSegmentationReviewState(segmentationNode)
+            if segmentationNode
+            else ""
+        )
+        canCreate = bool(
+            segmentationNode
+            and targetRecord
+            and selectedSupportIds
+            and reviewState == "Reviewed"
+            and not persistedSelectionError
+            and not invalidSupportIds
+            and not modelError
+        )
+        self.ui.createDraftTemplateSupportModelButton.enabled = canCreate
+        self.ui.createDraftTemplateSupportModelButton.text = (
+            _("Update Draft Support Model")
+            if modelSummary
+            else _("Create Draft Support Model")
+        )
+        self.ui.deleteDraftTemplateSupportModelButton.enabled = bool(
+            modelNode
+            and self.logic.isDraftTemplateSupportModelNode(modelNode)
+        )
+
+        if not segmentationNode:
+            message = _("Select the authoritative dental segmentation.")
+            style = "color: #b36b00;"
+        elif not targetRecord:
+            message = _("Select a target tooth in Step 4A.")
+            style = "color: #b36b00;"
+        elif persistedSelectionError:
+            message = persistedSelectionError
+            style = "color: #b00020;"
+        elif invalidSupportIds:
+            message = _(
+                "The saved support selection contains unavailable or invalid "
+                "whole-tooth segments: %1"
+            ).replace("%1", ", ".join(invalidSupportIds))
+            style = "color: #b00020;"
+        elif not availableRecords:
+            message = _(
+                "No additional whole-tooth segments are available as supports."
+            )
+            style = "color: #b00020;"
+        elif reviewState != "Reviewed":
+            message = _(
+                "Mark the authoritative segmentation Reviewed before creating "
+                "or updating the draft model."
+            )
+            style = "color: #b36b00;"
+        elif not selectedSupportIds:
+            message = _(
+                "Manually check one or more support teeth. Any count is "
+                "supported; no adjacency rule is imposed."
+            )
+            style = "color: #1f5f99;"
+        elif modelError:
+            message = modelError
+            style = "color: #b00020;"
+        elif modelSummary and modelSummary["geometryState"] == "Current":
+            message = (
+                _(
+                    "Draft model is current for %1 manually selected support "
+                    "teeth (%2 points, %3 cells)."
+                )
+                .replace("%1", str(len(selectedSupportIds)))
+                .replace("%2", str(modelSummary["pointCount"]))
+                .replace("%3", str(modelSummary["cellCount"]))
+            )
+            style = "color: #207227;"
+        elif modelSummary:
+            reason = modelSummary["staleReason"] or _(
+                "The source selection changed."
+            )
+            message = (
+                _("Draft model is stale: %1 Select Update to regenerate it.")
+                .replace("%1", reason)
+            )
+            style = "color: #b36b00;"
+        else:
+            message = (
+                _("Ready to create a draft model from the target and %1 support teeth.")
+                .replace("%1", str(len(selectedSupportIds)))
+            )
+            style = "color: #1f5f99;"
+
+        self.ui.templateModelingStatusLabel.text = message
+        self.ui.templateModelingStatusLabel.styleSheet = style
+
+    def onTemplateSupportToothItemChanged(self, item) -> None:
+        del item
+        if (
+            self._updatingTemplateUI
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        selectedSupportIds = self._selectedTemplateSupportSegmentIds()
+        serializedIds = self.logic.encodeTemplateSupportSegmentIds(
+            selectedSupportIds
+        )
+        if (
+            serializedIds
+            != self._parameterNode.templateSupportToothSegmentIdsJson
+        ):
+            self._markCurrentDraftTemplateModelStale(
+                _("Support-tooth selection changed.")
+            )
+            self._updatingTemplateUI = True
+            try:
+                self._parameterNode.templateSupportToothSegmentIdsJson = (
+                    serializedIds
+                )
+            finally:
+                self._updatingTemplateUI = False
+        self._updateTemplateModeling()
+
+    def onDraftTemplateSupportModelSelectionChanged(self, modelNode) -> None:
+        if self._updatingTemplateUI or not self._parameterNode:
+            return
+        currentNode = self._parameterNode.draftTemplateSupportModel
+        currentNodeId = currentNode.GetID() if currentNode else None
+        selectedNodeId = modelNode.GetID() if modelNode else None
+        if currentNodeId != selectedNodeId:
+            self._parameterNode.draftTemplateSupportModel = modelNode
+        self._updateTemplateModeling()
+
+    def onCreateDraftTemplateSupportModel(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            supportSegmentIds = self._selectedTemplateSupportSegmentIds()
+            modelNode, details = (
+                self.logic.createOrUpdateDraftTemplateSupportModel(
+                    self._parameterNode.teethSegmentation,
+                    self._parameterNode.targetToothSegmentId,
+                    supportSegmentIds,
+                    self._parameterNode.draftTemplateSupportModel,
+                )
+            )
+            self._parameterNode.templateSupportToothSegmentIdsJson = (
+                self.logic.encodeTemplateSupportSegmentIds(
+                    supportSegmentIds
+                )
+            )
+            self._parameterNode.draftTemplateSupportModel = modelNode
+            self._templateStatusWarning = ""
+            logging.info(
+                "DENTOBOT Step 5A draft model %s created/updated with "
+                "%d support teeth, %d points, and %d cells",
+                modelNode.GetID(),
+                details["supportCount"],
+                details["pointCount"],
+                details["cellCount"],
+            )
+            self._updateTemplateModeling()
+        except (RuntimeError, ValueError) as exc:
+            self._templateStatusWarning = str(exc)
+            self.ui.templateModelingStatusLabel.text = str(exc)
+            self.ui.templateModelingStatusLabel.styleSheet = "color: #b00020;"
+            slicer.util.errorDisplay(str(exc))
+
+    def onDeleteDraftTemplateSupportModel(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        modelNode = self._parameterNode.draftTemplateSupportModel
+        try:
+            self.logic.validateDraftTemplateSupportModelForDeletion(modelNode)
+        except ValueError as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        modelName = modelNode.GetName() or _("Unnamed draft support model")
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Permanently delete the draft support-anatomy model “%1”? "
+                "The source segmentation, target tooth, and checked support "
+                "teeth will be kept so a new draft can be created. This "
+                "cannot be undone after the scene is saved."
+            ).replace("%1", modelName),
+            windowTitle=_("Delete Step 5A draft support model"),
+        ):
+            return
+
+        try:
+            removal = self.logic.deleteDraftTemplateSupportModel(modelNode)
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        self._parameterNode.draftTemplateSupportModel = None
+        self._templateStatusWarning = ""
+        logging.info(
+            "Deleted DENTOBOT Step 5A draft model %s and %d owned auxiliary nodes",
+            removal["nodeId"],
+            len(removal["auxiliaryNodeIds"]),
+        )
+        self._updateTemplateModeling()
 
     def _setMetadataPlaceholders(self) -> None:
         for label in (
@@ -1985,7 +2407,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except TypeError as exc:
                 if "unexpected keyword argument" not in str(exc):
                     raise
-                process = qt.QProcess()
+                # Parent the fallback process to the module widget and break
+                # its signal/closure references when it finishes.  A
+                # parentless QProcess whose Python callbacks retain the
+                # process can keep PythonQt/Slicer alive after the child has
+                # already exited.
+                process = qt.QProcess(self.parent)
                 process.setProcessChannelMode(qt.QProcess.MergedChannels)
                 processEnvironment = qt.QProcessEnvironment()
                 for environmentName, environmentValue in (
@@ -2014,6 +2441,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         else:
                             self._backendOutputBuffer = outputLine
 
+                def releaseProcess() -> None:
+                    for signal, callback in (
+                        ("readyReadStandardOutput()", drainOutput),
+                        ("finished(int,QProcess::ExitStatus)", processFinished),
+                    ):
+                        try:
+                            process.disconnect(signal, callback)
+                        except Exception:
+                            logging.debug(
+                                "DENTOBOT backend QProcess signal was already disconnected",
+                                exc_info=True,
+                            )
+                    process.close()
+                    process.deleteLater()
+
                 def processFinished(
                     returnCode: int,
                     _exitStatus,
@@ -2022,6 +2464,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     if self._backendOutputBuffer:
                         logCallback(self._backendOutputBuffer)
                         self._backendOutputBuffer = ""
+                    releaseProcess()
                     completedCallback(returnCode)
 
                 process.connect(
@@ -2034,6 +2477,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 )
                 process.start(arguments[0], arguments[1:])
                 if not process.waitForStarted(5000):
+                    releaseProcess()
                     raise RuntimeError(
                         _("The inference backend process could not be started.")
                     )
@@ -2487,6 +2931,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         "DENTOBOT.TargetBoundsSegmentation"
     )
     TARGET_BOUNDS_ROI_REFERENCE_ROLE = "DENTOBOT.TargetBoundsROI"
+    TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateSourceSegmentation"
+    )
+    TEMPLATE_MODEL_SCHEMA_VERSION = "1.0"
     SEGMENT_REVIEW_CATEGORY_ORDER = (
         "Teeth",
         "Pulp and root canals",
@@ -2730,6 +3178,110 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "summary": summary,
         }
 
+    @staticmethod
+    def _isAuxiliaryNodeReferenced(auxiliaryNode) -> bool:
+        """Return whether another scene node still owns an auxiliary node."""
+
+        auxiliaryNodeId = auxiliaryNode.GetID() if auxiliaryNode else None
+        if not auxiliaryNodeId:
+            return False
+        if auxiliaryNode.IsA("vtkMRMLDisplayNode"):
+            for displayableNode in slicer.util.getNodesByClass(
+                "vtkMRMLDisplayableNode"
+            ):
+                for index in range(displayableNode.GetNumberOfDisplayNodes()):
+                    referencedNode = displayableNode.GetNthDisplayNode(index)
+                    if (
+                        referencedNode
+                        and referencedNode.GetID() == auxiliaryNodeId
+                    ):
+                        return True
+        if auxiliaryNode.IsA("vtkMRMLStorageNode"):
+            for storableNode in slicer.util.getNodesByClass(
+                "vtkMRMLStorableNode"
+            ):
+                referencedNode = storableNode.GetStorageNode()
+                if (
+                    referencedNode
+                    and referencedNode.GetID() == auxiliaryNodeId
+                ):
+                    return True
+        return False
+
+    @classmethod
+    def _removeSceneNodeAndOwnedAuxiliaries(cls, node) -> dict:
+        """Remove one data node and only its now-unreferenced auxiliaries."""
+
+        scene = slicer.mrmlScene
+        if not node or not node.GetID() or not scene.IsNodePresent(node):
+            raise ValueError(_("The selected node is no longer in the scene."))
+
+        nodeId = node.GetID()
+        nodeName = node.GetName() or ""
+        auxiliaryNodes = {}
+        if node.IsA("vtkMRMLDisplayableNode"):
+            for index in range(node.GetNumberOfDisplayNodes()):
+                auxiliaryNode = node.GetNthDisplayNode(index)
+                if auxiliaryNode and auxiliaryNode.GetID():
+                    auxiliaryNodes[auxiliaryNode.GetID()] = auxiliaryNode
+        if node.IsA("vtkMRMLStorableNode"):
+            storageNode = node.GetStorageNode()
+            if storageNode and storageNode.GetID():
+                auxiliaryNodes[storageNode.GetID()] = storageNode
+
+        scene.RemoveNode(node)
+        if scene.GetNodeByID(nodeId):
+            raise RuntimeError(_("Slicer did not remove the selected node."))
+
+        removedAuxiliaryNodeIds = []
+        for auxiliaryNodeId, auxiliaryNode in auxiliaryNodes.items():
+            if (
+                scene.GetNodeByID(auxiliaryNodeId)
+                and not cls._isAuxiliaryNodeReferenced(auxiliaryNode)
+            ):
+                scene.RemoveNode(auxiliaryNode)
+                removedAuxiliaryNodeIds.append(auxiliaryNodeId)
+        return {
+            "nodeId": nodeId,
+            "nodeName": nodeName,
+            "auxiliaryNodeIds": removedAuxiliaryNodeIds,
+        }
+
+    @staticmethod
+    def isDentobotTrajectoryNode(trajectoryNode) -> bool:
+        return bool(
+            trajectoryNode
+            and trajectoryNode.IsA("vtkMRMLMarkupsLineNode")
+            and trajectoryNode.GetAttribute("DENTOBOT.TrajectoryRole")
+            == "EntryToTarget"
+        )
+
+    def validateDentobotTrajectoryForDeletion(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> None:
+        if not self.isDentobotTrajectoryNode(trajectoryNode):
+            raise ValueError(
+                _("Select a DENTOBOT Step 4A trajectory to delete.")
+            )
+        if not slicer.mrmlScene.IsNodePresent(trajectoryNode):
+            raise ValueError(_("The selected trajectory is no longer in the scene."))
+
+    def deleteTrajectoryNode(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> dict:
+        """Delete one DENTOBOT trajectory without deleting its target inputs."""
+
+        self.validateDentobotTrajectoryForDeletion(trajectoryNode)
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if (
+            selectionNode
+            and selectionNode.GetActivePlaceNodeID() == trajectoryNode.GetID()
+        ):
+            self.stopTrajectoryPlacement()
+        return self._removeSceneNodeAndOwnedAuxiliaries(trajectoryNode)
+
     def createTrajectoryNode(
         self,
         name: str = "DENTO Trajectory",
@@ -2825,6 +3377,395 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 trajectoryNode.SetAttribute(attributeName, None)
         finally:
             trajectoryNode.EndModify(wasModifying)
+
+    @staticmethod
+    def encodeTemplateSupportSegmentIds(segmentIds: list[str]) -> str:
+        """Serialize an ordered, unique list of manually selected support teeth."""
+
+        if not isinstance(segmentIds, list):
+            raise ValueError(_("Support-tooth segment IDs must be provided as a list."))
+        normalizedIds = []
+        seenIds = set()
+        for value in segmentIds:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(_("Every support tooth must have a segment ID."))
+            segmentId = value.strip()
+            if segmentId in seenIds:
+                raise ValueError(_("A support tooth cannot be selected more than once."))
+            seenIds.add(segmentId)
+            normalizedIds.append(segmentId)
+        return json.dumps(normalizedIds, separators=(",", ":"))
+
+    @staticmethod
+    def decodeTemplateSupportSegmentIds(serializedIds: str) -> list[str]:
+        """Read persisted support-tooth IDs without accepting malformed state."""
+
+        try:
+            values = json.loads(serializedIds or "[]")
+        except json.JSONDecodeError as exc:
+            raise ValueError(_("Stored support-tooth selection is not valid JSON.")) from exc
+        if not isinstance(values, list):
+            raise ValueError(_("Stored support-tooth selection must be a list."))
+        return DENTOWorkflowLogic._validateUniqueSegmentIdList(values)
+
+    @staticmethod
+    def _validateUniqueSegmentIdList(segmentIds: list) -> list[str]:
+        normalizedIds = []
+        seenIds = set()
+        for value in segmentIds:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(_("Every support tooth must have a segment ID."))
+            segmentId = value.strip()
+            if segmentId in seenIds:
+                raise ValueError(_("A support tooth cannot be selected more than once."))
+            seenIds.add(segmentId)
+            normalizedIds.append(segmentId)
+        return normalizedIds
+
+    def validateTemplateSupportSelection(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        targetSegmentId: str,
+        supportSegmentIds: list[str],
+    ) -> dict:
+        """Validate one target plus any positive number of user-selected teeth."""
+
+        targetRecord = self.validateTargetTooth(
+            segmentationNode,
+            targetSegmentId,
+        )
+        if self.getSegmentationReviewState(segmentationNode) != "Reviewed":
+            raise ValueError(
+                _(
+                    "Mark the authoritative segmentation Reviewed before "
+                    "creating a draft support-anatomy model."
+                )
+            )
+        normalizedSupportIds = self._validateUniqueSegmentIdList(
+            supportSegmentIds
+        )
+        if not normalizedSupportIds:
+            raise ValueError(_("Select at least one support tooth."))
+        if targetRecord["segmentId"] in normalizedSupportIds:
+            raise ValueError(_("The target tooth cannot also be a support tooth."))
+
+        toothRecordsById = {
+            record["segmentId"]: record
+            for record in self.getTargetToothRecords(segmentationNode)
+        }
+        supportRecords = []
+        for supportId in normalizedSupportIds:
+            record = toothRecordsById.get(supportId)
+            if not record:
+                raise ValueError(
+                    _(
+                        "A selected support tooth does not exist or is not a "
+                        "whole-tooth segment: %1"
+                    ).replace("%1", supportId)
+                )
+            supportRecords.append(record)
+        return {
+            "target": targetRecord,
+            "supports": supportRecords,
+            "supportSegmentIds": normalizedSupportIds,
+        }
+
+    @staticmethod
+    def _getClosedSurfaceCopy(
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> vtk.vtkPolyData:
+        closedSurface = vtk.vtkPolyData()
+        success = (
+            slicer.vtkSlicerSegmentationsModuleLogic
+            .GetSegmentClosedSurfaceRepresentation(
+                segmentationNode,
+                segmentId,
+                closedSurface,
+            )
+        )
+        if (
+            not success
+            or closedSurface.GetNumberOfPoints() == 0
+            or closedSurface.GetNumberOfCells() == 0
+        ):
+            raise ValueError(
+                _(
+                    "Selected tooth %1 has no usable closed-surface "
+                    "representation."
+                ).replace("%1", segmentId)
+            )
+        surfaceCopy = vtk.vtkPolyData()
+        surfaceCopy.DeepCopy(closedSurface)
+        return surfaceCopy
+
+    def createOrUpdateDraftTemplateSupportModel(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        targetSegmentId: str,
+        supportSegmentIds: list[str],
+        modelNode: vtkMRMLModelNode | None = None,
+    ) -> tuple[vtkMRMLModelNode, dict]:
+        """Create a traceable draft model from unmodified whole-tooth surfaces."""
+
+        selection = self.validateTemplateSupportSelection(
+            segmentationNode,
+            targetSegmentId,
+            supportSegmentIds,
+        )
+        records = [selection["target"], *selection["supports"]]
+        appendFilter = vtk.vtkAppendPolyData()
+        sourcePointCount = 0
+        sourceCellCount = 0
+        for record in records:
+            surfaceCopy = self._getClosedSurfaceCopy(
+                segmentationNode,
+                record["segmentId"],
+            )
+            sourcePointCount += surfaceCopy.GetNumberOfPoints()
+            sourceCellCount += surfaceCopy.GetNumberOfCells()
+            appendFilter.AddInputData(surfaceCopy)
+        if self.getSegmentationReviewState(segmentationNode) != "Reviewed":
+            raise ValueError(
+                _(
+                    "The segmentation review state changed while source "
+                    "surfaces were being collected. Review it again first."
+                )
+            )
+        appendFilter.Update()
+
+        combinedSurface = vtk.vtkPolyData()
+        combinedSurface.DeepCopy(appendFilter.GetOutput())
+        bounds = tuple(float(value) for value in combinedSurface.GetBounds())
+        if (
+            combinedSurface.GetNumberOfPoints() != sourcePointCount
+            or combinedSurface.GetNumberOfCells() != sourceCellCount
+            or len(bounds) != 6
+            or any(not math.isfinite(value) for value in bounds)
+        ):
+            raise RuntimeError(
+                _("The draft support-anatomy model failed geometry validation.")
+            )
+
+        if modelNode:
+            if not modelNode.IsA("vtkMRMLModelNode"):
+                raise ValueError(_("Select a valid draft model node."))
+            if modelNode.GetAttribute("DENTOBOT.ModelRole") != "TemplateSupportDraft":
+                raise ValueError(
+                    _(
+                        "The selected model is not a DENTOBOT draft "
+                        "support-anatomy model."
+                    )
+                )
+        else:
+            modelNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode",
+            )
+        if not modelNode:
+            raise RuntimeError(_("Slicer could not create the draft support model."))
+
+        targetFdi = selection["target"].get("fdiNumber") or "Unknown"
+        supportCount = len(selection["supports"])
+        modelName = (
+            f"DENTO Template Support FDI {targetFdi} + "
+            f"{supportCount} {'Teeth' if supportCount != 1 else 'Tooth'} Draft"
+        )
+        wasModifying = modelNode.StartModify()
+        try:
+            modelNode.SetName(modelName)
+            modelNode.SetAndObservePolyData(combinedSurface)
+            modelNode.SetAndObserveTransformNodeID(
+                segmentationNode.GetTransformNodeID()
+            )
+            modelNode.SetNodeReferenceID(
+                self.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE,
+                segmentationNode.GetID(),
+            )
+            modelNode.SetAttribute("DENTOBOT.ModelRole", "TemplateSupportDraft")
+            modelNode.SetAttribute(
+                "DENTOBOT.TemplateModelSchemaVersion",
+                self.TEMPLATE_MODEL_SCHEMA_VERSION,
+            )
+            modelNode.SetAttribute("DENTOBOT.Status", "DraftResearchOnly")
+            modelNode.SetAttribute("DENTOBOT.GeometryState", "Current")
+            modelNode.SetAttribute("DENTOBOT.StaleReason", None)
+            modelNode.SetAttribute(
+                "DENTOBOT.CoordinateConvention",
+                "SegmentationLocalWithExplicitParentTransform",
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.TargetSegmentID",
+                selection["target"]["segmentId"],
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.TargetFdiNumber",
+                selection["target"].get("fdiNumber") or "",
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SupportSegmentIDsJson",
+                self.encodeTemplateSupportSegmentIds(
+                    selection["supportSegmentIds"]
+                ),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SupportFdiNumbersJson",
+                json.dumps(
+                    [
+                        record.get("fdiNumber") or ""
+                        for record in selection["supports"]
+                    ],
+                    separators=(",", ":"),
+                ),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SupportCount",
+                str(supportCount),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SourceSegmentNamesJson",
+                json.dumps(
+                    {
+                        record["segmentId"]: record["sourceName"]
+                        for record in records
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SourceReviewUpdatedUtc",
+                segmentationNode.GetAttribute("DENTOBOT.ReviewUpdatedUtc") or "",
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.UpdatedUtc",
+                datetime.now(timezone.utc).isoformat(),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SourcePointCount",
+                str(sourcePointCount),
+            )
+            modelNode.SetAttribute(
+                "DENTOBOT.SourceCellCount",
+                str(sourceCellCount),
+            )
+        finally:
+            modelNode.EndModify(wasModifying)
+
+        modelNode.CreateDefaultDisplayNodes()
+        displayNode = modelNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetVisibility2D(False)
+            displayNode.SetVisibility3D(True)
+            displayNode.SetColor(0.15, 0.72, 0.82)
+            displayNode.SetOpacity(0.65)
+
+        return modelNode, {
+            "target": selection["target"],
+            "supports": selection["supports"],
+            "supportCount": supportCount,
+            "pointCount": combinedSurface.GetNumberOfPoints(),
+            "cellCount": combinedSurface.GetNumberOfCells(),
+            "bounds": bounds,
+        }
+
+    @staticmethod
+    def isDraftTemplateSupportModelNode(modelNode) -> bool:
+        return bool(
+            modelNode
+            and modelNode.IsA("vtkMRMLModelNode")
+            and modelNode.GetAttribute("DENTOBOT.ModelRole")
+            == "TemplateSupportDraft"
+        )
+
+    def validateDraftTemplateSupportModelForDeletion(
+        self,
+        modelNode: vtkMRMLModelNode,
+    ) -> None:
+        if not self.isDraftTemplateSupportModelNode(modelNode):
+            raise ValueError(
+                _("Select a DENTOBOT Step 5A draft support model to delete.")
+            )
+        if not slicer.mrmlScene.IsNodePresent(modelNode):
+            raise ValueError(_("The selected draft model is no longer in the scene."))
+
+    def deleteDraftTemplateSupportModel(
+        self,
+        modelNode: vtkMRMLModelNode,
+    ) -> dict:
+        """Delete one Step 5A draft while preserving all source selections."""
+
+        self.validateDraftTemplateSupportModelForDeletion(modelNode)
+        return self._removeSceneNodeAndOwnedAuxiliaries(modelNode)
+
+    @staticmethod
+    def markDraftTemplateSupportModelStale(
+        modelNode: vtkMRMLModelNode | None,
+        reason: str,
+    ) -> bool:
+        """Mark only DENTOBOT draft support models stale without deleting them."""
+
+        if (
+            not modelNode
+            or not modelNode.IsA("vtkMRMLModelNode")
+            or modelNode.GetAttribute("DENTOBOT.ModelRole")
+            != "TemplateSupportDraft"
+        ):
+            return False
+        modelNode.SetAttribute("DENTOBOT.GeometryState", "Stale")
+        modelNode.SetAttribute(
+            "DENTOBOT.StaleReason",
+            str(reason).strip() or "Source selection changed.",
+        )
+        displayNode = modelNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetColor(0.95, 0.55, 0.15)
+        return True
+
+    def getDraftTemplateSupportModelSummary(
+        self,
+        modelNode: vtkMRMLModelNode,
+    ) -> dict:
+        """Return validated selection/provenance for one Step 5A model."""
+
+        if (
+            not modelNode
+            or not modelNode.IsA("vtkMRMLModelNode")
+            or modelNode.GetAttribute("DENTOBOT.ModelRole")
+            != "TemplateSupportDraft"
+        ):
+            raise ValueError(_("Select a DENTOBOT draft support model."))
+        polyData = modelNode.GetPolyData()
+        if (
+            not polyData
+            or polyData.GetNumberOfPoints() == 0
+            or polyData.GetNumberOfCells() == 0
+        ):
+            raise ValueError(_("The draft support model contains no geometry."))
+        sourceNode = modelNode.GetNodeReference(
+            self.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE
+        )
+        if not sourceNode or not sourceNode.IsA("vtkMRMLSegmentationNode"):
+            raise ValueError(
+                _("The draft support model has no authoritative segmentation.")
+            )
+        supportIds = self.decodeTemplateSupportSegmentIds(
+            modelNode.GetAttribute("DENTOBOT.SupportSegmentIDsJson") or "[]"
+        )
+        return {
+            "sourceSegmentation": sourceNode,
+            "targetSegmentId": modelNode.GetAttribute(
+                "DENTOBOT.TargetSegmentID"
+            ) or "",
+            "supportSegmentIds": supportIds,
+            "supportCount": len(supportIds),
+            "geometryState": modelNode.GetAttribute(
+                "DENTOBOT.GeometryState"
+            ) or "Unknown",
+            "staleReason": modelNode.GetAttribute("DENTOBOT.StaleReason") or "",
+            "pointCount": polyData.GetNumberOfPoints(),
+            "cellCount": polyData.GetNumberOfCells(),
+        }
 
     @staticmethod
     def labelTrajectoryControlPoints(
@@ -4416,6 +5357,8 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.test_DENTOWorkflowBridgeContracts()
             self.test_DENTOWorkflowSegmentationReviewLogic()
             self.test_DENTOWorkflowTargetToothAndTrajectoryLogic()
+            self.test_DENTOWorkflowDraftTemplateSupportModelLogic()
+            self.test_DENTOWorkflowSafeDeletionAndPersistence()
         finally:
             self.setUp()
 
@@ -4500,11 +5443,14 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         localHealthCommand = logic.buildHealthCommand(
             "",
-            "/opt/dentobot-venv/bin/python",
+            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
             executionMode="local",
             device="cpu",
         )
-        self.assertEqual(localHealthCommand[0], "/opt/dentobot-venv/bin/python")
+        self.assertEqual(
+            localHealthCommand[0],
+            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+        )
         self.assertNotIn("--exec", localHealthCommand)
         self.assertEqual(
             localHealthCommand[-4:],
@@ -4542,7 +5488,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(teethCommand[-2:], ["--device", "cuda:0"])
         localTeethCommand = logic.buildTeethSegmentationCommand(
             "",
-            "/opt/dentobot-venv/bin/python",
+            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
             Path("/workspace/data/run-3/input.nii"),
             Path("/workspace/data/run-3/teeth-segmentation.nii"),
             Path("/workspace/data/run-3/result.json"),
@@ -4550,7 +5496,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             executionMode="local",
             device="cpu",
         )
-        self.assertEqual(localTeethCommand[0], "/opt/dentobot-venv/bin/python")
+        self.assertEqual(
+            localTeethCommand[0],
+            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+        )
         self.assertIn("/workspace/data/run-3/input.nii", localTeethCommand)
         self.assertEqual(localTeethCommand[-2:], ["--device", "cpu"])
 
@@ -5274,4 +6223,450 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         self.delayDisplay(
             "DENTOWorkflow target-tooth and trajectory logic tests passed"
+        )
+
+    def test_DENTOWorkflowDraftTemplateSupportModelLogic(self) -> None:
+        logic = DENTOWorkflowLogic()
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "TemplateSupportSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        transformNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLinearTransformNode",
+            "TemplateSupportParentTransform",
+        )
+        segmentationNode.SetAndObserveTransformNodeID(transformNode.GetID())
+
+        toothFixtures = [
+            ("tooth-16", "upper_right_first_molar_fdi16"),
+            ("tooth-11", "upper_right_central_incisor_fdi11"),
+            ("tooth-12", "upper_right_lateral_incisor_fdi12"),
+            ("tooth-13", "upper_right_canine_fdi13"),
+            ("tooth-14", "upper_right_first_premolar_fdi14"),
+            ("tooth-15", "upper_right_second_premolar_fdi15"),
+            ("tooth-17", "upper_right_second_molar_fdi17"),
+            ("tooth-18", "upper_right_third_molar_fdi18"),
+            ("tooth-21", "upper_left_central_incisor_fdi21"),
+            ("tooth-22", "upper_left_lateral_incisor_fdi22"),
+            ("tooth-23", "upper_left_canine_fdi23"),
+        ]
+        sourceGeometryCounts = {}
+        for toothIndex, (segmentId, segmentName) in enumerate(toothFixtures):
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            cube = vtk.vtkCubeSource()
+            centerX = float(toothIndex * 3)
+            cube.SetBounds(
+                centerX - 1.0,
+                centerX + 1.0,
+                -1.0,
+                1.0,
+                -2.0,
+                2.0,
+            )
+            cube.Update()
+            surfaceCopy = vtk.vtkPolyData()
+            surfaceCopy.DeepCopy(cube.GetOutput())
+            sourceGeometryCounts[segmentId] = (
+                surfaceCopy.GetNumberOfPoints(),
+                surfaceCopy.GetNumberOfCells(),
+            )
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                surfaceCopy,
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+
+        pulpSegment = slicer.vtkSegment()
+        pulpSegment.SetName("upper_right_first_molar_pulp_fdi116")
+        pulpCube = vtk.vtkCubeSource()
+        pulpCube.SetBounds(-0.25, 0.25, -0.25, 0.25, -1.0, 1.0)
+        pulpCube.Update()
+        pulpSegment.AddRepresentation(
+            slicer.vtkSegmentationConverter
+            .GetSegmentationClosedSurfaceRepresentationName(),
+            pulpCube.GetOutput(),
+        )
+        segmentationNode.GetSegmentation().AddSegment(
+            pulpSegment,
+            "pulp-16",
+        )
+
+        supportIds = [segmentId for segmentId, _name in toothFixtures[1:]]
+        self.assertEqual(len(supportIds), 10)
+        encodedSupportIds = logic.encodeTemplateSupportSegmentIds(
+            supportIds
+        )
+        self.assertEqual(
+            logic.decodeTemplateSupportSegmentIds(encodedSupportIds),
+            supportIds,
+        )
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            logic.encodeTemplateSupportSegmentIds(
+                [supportIds[0], supportIds[0]]
+            )
+        with self.assertRaisesRegex(ValueError, "Reviewed"):
+            logic.createOrUpdateDraftTemplateSupportModel(
+                segmentationNode,
+                "tooth-16",
+                supportIds,
+            )
+
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-03T12:00:00+00:00",
+        )
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            logic.validateTemplateSupportSelection(
+                segmentationNode,
+                "tooth-16",
+                [],
+            )
+        with self.assertRaisesRegex(ValueError, "cannot also"):
+            logic.validateTemplateSupportSelection(
+                segmentationNode,
+                "tooth-16",
+                ["tooth-16"],
+            )
+        with self.assertRaisesRegex(ValueError, "whole-tooth"):
+            logic.validateTemplateSupportSelection(
+                segmentationNode,
+                "tooth-16",
+                ["pulp-16"],
+            )
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            logic.validateTemplateSupportSelection(
+                segmentationNode,
+                "tooth-16",
+                [supportIds[0], supportIds[0]],
+            )
+
+        modelNode, details = logic.createOrUpdateDraftTemplateSupportModel(
+            segmentationNode,
+            "tooth-16",
+            supportIds,
+        )
+        expectedPointCount = sum(
+            pointCount
+            for pointCount, _cellCount in sourceGeometryCounts.values()
+        )
+        expectedCellCount = sum(
+            cellCount
+            for _pointCount, cellCount in sourceGeometryCounts.values()
+        )
+        self.assertTrue(modelNode.IsA("vtkMRMLModelNode"))
+        self.assertEqual(details["supportCount"], 10)
+        self.assertEqual(details["pointCount"], expectedPointCount)
+        self.assertEqual(details["cellCount"], expectedCellCount)
+        self.assertEqual(
+            modelNode.GetTransformNodeID(),
+            transformNode.GetID(),
+        )
+        self.assertEqual(
+            modelNode.GetNodeReference(
+                logic.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE
+            ),
+            segmentationNode,
+        )
+        self.assertEqual(
+            modelNode.GetAttribute("DENTOBOT.ModelRole"),
+            "TemplateSupportDraft",
+        )
+        self.assertEqual(
+            modelNode.GetAttribute("DENTOBOT.GeometryState"),
+            "Current",
+        )
+        self.assertEqual(
+            modelNode.GetAttribute("DENTOBOT.SupportCount"),
+            "10",
+        )
+        self.assertEqual(
+            logic.decodeTemplateSupportSegmentIds(
+                modelNode.GetAttribute("DENTOBOT.SupportSegmentIDsJson")
+            ),
+            supportIds,
+        )
+        self.assertEqual(
+            json.loads(
+                modelNode.GetAttribute("DENTOBOT.SupportFdiNumbersJson")
+            ),
+            [segmentId.split("-")[1] for segmentId in supportIds],
+        )
+        self.assertIn("10 Teeth Draft", modelNode.GetName())
+        self.assertTrue(all(math.isfinite(value) for value in details["bounds"]))
+
+        for segmentId, expectedCounts in sourceGeometryCounts.items():
+            sourceSurface = logic._getClosedSurfaceCopy(
+                segmentationNode,
+                segmentId,
+            )
+            self.assertEqual(
+                (
+                    sourceSurface.GetNumberOfPoints(),
+                    sourceSurface.GetNumberOfCells(),
+                ),
+                expectedCounts,
+            )
+
+        summary = logic.getDraftTemplateSupportModelSummary(modelNode)
+        self.assertEqual(summary["targetSegmentId"], "tooth-16")
+        self.assertEqual(summary["supportSegmentIds"], supportIds)
+        self.assertEqual(summary["supportCount"], 10)
+        self.assertEqual(summary["geometryState"], "Current")
+
+        parameterNode = logic.getParameterNode()
+        parameterNode.teethSegmentation = segmentationNode
+        parameterNode.targetToothSegmentId = "tooth-16"
+        parameterNode.templateSupportToothSegmentIdsJson = encodedSupportIds
+        parameterNode.draftTemplateSupportModel = modelNode
+        self.assertEqual(
+            logic.decodeTemplateSupportSegmentIds(
+                parameterNode.templateSupportToothSegmentIdsJson
+            ),
+            supportIds,
+        )
+        self.assertEqual(
+            parameterNode.draftTemplateSupportModel.GetID(),
+            modelNode.GetID(),
+        )
+
+        updatedModelNode, updatedDetails = (
+            logic.createOrUpdateDraftTemplateSupportModel(
+                segmentationNode,
+                "tooth-16",
+                supportIds[:2],
+                modelNode,
+            )
+        )
+        self.assertEqual(updatedModelNode.GetID(), modelNode.GetID())
+        self.assertEqual(updatedDetails["supportCount"], 2)
+        self.assertEqual(
+            modelNode.GetAttribute("DENTOBOT.SupportCount"),
+            "2",
+        )
+        self.assertIn("2 Teeth Draft", modelNode.GetName())
+        self.assertTrue(
+            logic.markDraftTemplateSupportModelStale(
+                modelNode,
+                "Manual selection changed.",
+            )
+        )
+        staleSummary = logic.getDraftTemplateSupportModelSummary(modelNode)
+        self.assertEqual(staleSummary["geometryState"], "Stale")
+        self.assertEqual(
+            staleSummary["staleReason"],
+            "Manual selection changed.",
+        )
+
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Needs Correction",
+            updatedUtc="2026-08-03T12:05:00+00:00",
+        )
+        with self.assertRaisesRegex(ValueError, "Reviewed"):
+            logic.createOrUpdateDraftTemplateSupportModel(
+                segmentationNode,
+                "tooth-16",
+                supportIds[:2],
+                modelNode,
+            )
+
+        self.delayDisplay(
+            "DENTOWorkflow Step 5A multi-support model logic tests passed"
+        )
+
+    def test_DENTOWorkflowSafeDeletionAndPersistence(self) -> None:
+        slicer.mrmlScene.Clear(0)
+        logic = DENTOWorkflowLogic()
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "DeletionPersistenceSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        for index, (segmentId, segmentName) in enumerate(
+            (
+                ("tooth-16", "upper_right_first_molar_fdi16"),
+                ("tooth-15", "upper_right_second_premolar_fdi15"),
+            )
+        ):
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            cube = vtk.vtkCubeSource()
+            cube.SetBounds(
+                float(index * 4 - 1),
+                float(index * 4 + 1),
+                -1.0,
+                1.0,
+                -2.0,
+                2.0,
+            )
+            cube.Update()
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                cube.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-04T08:00:00+00:00",
+        )
+
+        roiNode, _bounds = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-16",
+        )
+        trajectoryNode = logic.createTrajectoryNode("Delete Me Trajectory")
+        logic.configureTrajectoryTarget(
+            trajectoryNode,
+            segmentationNode,
+            "tooth-16",
+        )
+        trajectoryNode.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            roiNode.GetID(),
+        )
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(-0.5, 0.0, 0.0))
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.5, 0.0, 0.0))
+        trajectoryNode.AddDefaultStorageNode()
+
+        modelNode, _details = logic.createOrUpdateDraftTemplateSupportModel(
+            segmentationNode,
+            "tooth-16",
+            ["tooth-15"],
+        )
+        modelNode.AddDefaultStorageNode()
+
+        parameterNode = logic.getParameterNode()
+        parameterNode.teethSegmentation = segmentationNode
+        parameterNode.targetToothSegmentId = "tooth-16"
+        parameterNode.targetToothBoundsRoi = roiNode
+        parameterNode.trajectoryLine = trajectoryNode
+        parameterNode.templateSupportToothSegmentIdsJson = (
+            logic.encodeTemplateSupportSegmentIds(["tooth-15"])
+        )
+        parameterNode.draftTemplateSupportModel = modelNode
+
+        trajectoryId = trajectoryNode.GetID()
+        trajectoryDisplayId = trajectoryNode.GetDisplayNodeID()
+        trajectoryStorageId = trajectoryNode.GetStorageNodeID()
+        modelId = modelNode.GetID()
+        modelDisplayId = modelNode.GetDisplayNodeID()
+        modelStorageId = modelNode.GetStorageNodeID()
+        segmentationId = segmentationNode.GetID()
+        roiId = roiNode.GetID()
+
+        sharedDisplayConsumer = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "SharedDisplayConsumer",
+        )
+        sharedDisplayConsumer.SetAndObservePolyData(modelNode.GetPolyData())
+        sharedDisplayConsumer.SetAndObserveDisplayNodeID(modelDisplayId)
+
+        unrelatedLine = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "Unrelated User Line",
+        )
+        unrelatedLine.CreateDefaultDisplayNodes()
+        with self.assertRaisesRegex(ValueError, "DENTOBOT Step 4A"):
+            logic.deleteTrajectoryNode(unrelatedLine)
+        unrelatedModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Unrelated User Model",
+        )
+        with self.assertRaisesRegex(ValueError, "DENTOBOT Step 5A"):
+            logic.deleteDraftTemplateSupportModel(unrelatedModel)
+
+        trajectoryRemoval = logic.deleteTrajectoryNode(trajectoryNode)
+        self.assertEqual(trajectoryRemoval["nodeId"], trajectoryId)
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(trajectoryId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(trajectoryDisplayId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(trajectoryStorageId))
+        self.assertIsNone(parameterNode.trajectoryLine)
+
+        modelRemoval = logic.deleteDraftTemplateSupportModel(modelNode)
+        self.assertEqual(modelRemoval["nodeId"], modelId)
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(modelId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(modelDisplayId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(modelStorageId))
+        self.assertIsNone(parameterNode.draftTemplateSupportModel)
+
+        self.assertEqual(parameterNode.teethSegmentation.GetID(), segmentationId)
+        self.assertEqual(parameterNode.targetToothSegmentId, "tooth-16")
+        self.assertEqual(parameterNode.targetToothBoundsRoi.GetID(), roiId)
+        self.assertEqual(
+            logic.decodeTemplateSupportSegmentIds(
+                parameterNode.templateSupportToothSegmentIdsJson
+            ),
+            ["tooth-15"],
+        )
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(segmentationId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(roiId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(unrelatedLine.GetID()))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(unrelatedModel.GetID()))
+
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-delete-persistence-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+        finally:
+            scenePath.unlink(missing_ok=True)
+
+        reloadedLogic = DENTOWorkflowLogic()
+        reloadedParameterNode = reloadedLogic.getParameterNode()
+        self.assertIsNone(reloadedParameterNode.trajectoryLine)
+        self.assertIsNone(reloadedParameterNode.draftTemplateSupportModel)
+        self.assertEqual(
+            reloadedParameterNode.teethSegmentation.GetID(),
+            segmentationId,
+        )
+        self.assertEqual(
+            reloadedParameterNode.targetToothBoundsRoi.GetID(),
+            roiId,
+        )
+        self.assertEqual(
+            reloadedParameterNode.targetToothSegmentId,
+            "tooth-16",
+        )
+        self.assertEqual(
+            reloadedLogic.decodeTemplateSupportSegmentIds(
+                reloadedParameterNode.templateSupportToothSegmentIdsJson
+            ),
+            ["tooth-15"],
+        )
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(trajectoryId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(modelId))
+
+        recreatedTrajectory = reloadedLogic.createTrajectoryNode(
+            "Recreated Trajectory"
+        )
+        reloadedLogic.configureTrajectoryTarget(
+            recreatedTrajectory,
+            reloadedParameterNode.teethSegmentation,
+            reloadedParameterNode.targetToothSegmentId,
+        )
+        recreatedModel, recreatedDetails = (
+            reloadedLogic.createOrUpdateDraftTemplateSupportModel(
+                reloadedParameterNode.teethSegmentation,
+                reloadedParameterNode.targetToothSegmentId,
+                ["tooth-15"],
+            )
+        )
+        self.assertTrue(
+            reloadedLogic.isDentobotTrajectoryNode(recreatedTrajectory)
+        )
+        self.assertTrue(
+            reloadedLogic.isDraftTemplateSupportModelNode(recreatedModel)
+        )
+        self.assertEqual(recreatedDetails["supportCount"], 1)
+
+        self.delayDisplay(
+            "DENTOWorkflow safe deletion and save/reload tests passed"
         )

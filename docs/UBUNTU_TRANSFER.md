@@ -34,13 +34,19 @@ Jazzy, so compatibility must be demonstrated rather than assumed.
   passed on a public Slicer dental CBCT fixture. Exact evidence is controlled
   in `REPRODUCIBILITY_AND_TRACEABILITY.md`.
 - Slicer-launched Bridge A health and Bridge C also reached successful terminal
-  results. Bridge C produced 54 imported segments and a saved MRB, but the
-  headless Slicer process did not exit cleanly after interruption. Process
-  lifecycle cleanup is the first post-checkpoint gate; no expensive rerun is
-  justified before it passes with health-only probes.
+  results. Bridge C produced 54 imported segments and a saved MRB. The
+  headless process-lifecycle defect was closed on 2026-08-03 using two
+  consecutive health-only Slicer 5.10 probes; both Slicer/backend processes
+  exited cleanly and no segmentation was rerun. Clean checkpoint-image
+  reconstruction is now the first remaining post-checkpoint gate.
 - A reproducible install script, CPU constraints, Dockerfile, and Compose
   device-mapping example are under `Infrastructure/` and `Inference/`.
   Clean-image reconstruction and independent MRB reopen remain pending.
+- The ordinary SlicerROS2 service now has verified direct Intel Arrow Lake-S
+  `i915` rendering through `/dev/dri/renderD128`, OpenGL 4.6, and Slicer nice
+  level 0. The repository `README.md` records the general Ubuntu container
+  graphics requirements and prioritizes this verified integrated-GPU case.
+  User-perceived FPS on the original visualization workload remains pending.
 - No robot motion, drilling, patient data transfer, or clinical/anatomical
   validation was performed.
 

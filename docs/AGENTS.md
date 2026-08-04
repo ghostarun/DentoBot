@@ -68,10 +68,11 @@ used as an autonomous patient-treatment system.
   the Intel NPU runs the nnU-Net dental model without a converted and validated
   model path.
 - Slicer-launched Bridge A and Bridge C subsequently produced successful
-  reports, including 54 imported segments and a saved MRB. The headless Slicer
-  test process failed to terminate cleanly after interruption even though no
-  inference child remained. Fix and prove process shutdown using health-only
-  tests before authorizing another expensive Bridge C run.
+  reports, including 54 imported segments and a saved MRB. The earlier
+  headless shutdown defect is closed as of 2026-08-03: the Slicer 5.10
+  `QProcess` fallback now releases its signal callbacks and process object,
+  and two consecutive network-disabled Bridge A health probes exited cleanly
+  in disposable checkpoint-image containers. No segmentation was rerun.
 - **Step 3A exploration and Step 3B inspection/provenance are developer-
   verified in Slicer 5.12.2.** The developer reports that the implemented
   review workflow works as intended, including its universal
@@ -110,8 +111,30 @@ used as an autonomous patient-treatment system.
   locking is a Step 4B design problem because the intended reference plane is
   not yet specified. Compatibility and scene-persistence verification remain
   pending in the Ubuntu Slicer 5.10 container.
+- **Explicit Step 4A trajectory deletion is implemented and statically
+  verified.** A dedicated confirmed action accepts only a DENTOBOT
+  `EntryToTarget` line, clears its workflow reference, and removes only that
+  line plus unshared display/storage auxiliaries. It preserves the reviewed
+  segmentation, target tooth, bounds, shared auxiliaries, and unrelated user
+  nodes. Added Slicer-native save/reload/recreate coverage has not yet run.
 
 ## Product strategy
+- **Step 5A draft support-anatomy modeling is implemented in source and awaits
+  developer-run Slicer acceptance.** It reuses the Step 4A target and accepts
+  any positive number of manually checked, distinct whole-tooth supports from
+  the same Reviewed segmentation, with no inferred adjacency or maximum count.
+  It creates/updates one transform-preserving, provenance-bearing draft model
+  from unmodified closed surfaces and marks it Stale after input changes.
+  Slicer-native logic coverage for two and ten supports was added but was not
+  run in the implementation session. Do not describe this output as a guide,
+  contact design, printable template, clinical validation, or drilling
+  authorization.
+- Step 5A now has a separate confirmed delete action for the DENTOBOT draft
+  model. It preserves the target and ordered manual support selection so the
+  model can be recreated, and applies the same unshared-auxiliary rule as
+  trajectory deletion. Runtime deletion/persistence acceptance remains
+  pending.
+
 
 Use two deliberate phases:
 

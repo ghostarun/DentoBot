@@ -48,11 +48,12 @@ Acceptance criteria:
 Execute these in order. Do not start another expensive segmentation run until
 the preceding gate is closed.
 
-1. **Deterministic process shutdown:** reproduce only with Bridge A health,
-   make the Slicer 5.10 `QProcess` adapter disconnect/close cleanly, and prove
-   that both the child and headless Slicer exit. Gate: two consecutive health
-   tests finish within 60 seconds with no matching process left behind.
-2. **Clean image reconstruction:** build
+1. **Deterministic process shutdown — completed 2026-08-03:** the Slicer 5.10
+   `QProcess` fallback now has explicit parent ownership and disconnect/close/
+   delete-later teardown. Two consecutive health-only probes completed in
+   7.76 and 5.91 seconds with successful CPU health, clean Slicer/backend
+   exits, and no disposable container left behind. No segmentation ran.
+2. **Clean image reconstruction — next:** build
    `Infrastructure/Dockerfile.ubuntu-cpu` from scratch and run `pip check`, all
    backend tests, Bridge A health, and the Slicer-native test class. Gate: no
    dependency installation or manual repair inside the resulting container.
@@ -309,7 +310,9 @@ per-label review state remain separate validation or enhancement problems.
 **Status:** Step 4A developer-verified on the retained teeth phantom in Slicer
 5.12.2 at the current PoC interaction scope; Step 4B dentist-focused 2D
 orientation design, Ubuntu Slicer 5.10 compatibility and scene persistence,
-and clinical semantics remain unresolved
+and clinical semantics remain unresolved. Confirmed trajectory deletion is
+implemented and statically verified; its Slicer-native persistence test is
+pending.
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
@@ -334,7 +337,10 @@ Step 4A implemented scope:
 - explicitly rebind Slicer placement to the selected Markups line so one line
   receives exactly Entry and Target rather than creating fiducial lists;
 - provide Undo Last Point, confirmed Clear Both Points, and lock/unlock for a
-  complete valid pair.
+  complete valid pair;
+- provide a separate confirmed Delete Selected Trajectory action, restricted
+  to the DENTOBOT trajectory role, that clears its workflow reference and
+  removes only the line and unshared auxiliaries while retaining target state.
 
 The developer reports that the corrected Step 4A interaction works as
 intended on the retained teeth phantom. This accepts the current target,
@@ -380,22 +386,43 @@ Step 4B dentist-focused 2D planning scope:
 - retain the current 3D view for context and verification, not as the primary
   precision-placement interface.
 
-## Step 5: Planning constraints and verification
+## Step 5: Target-region modeling and template research
 
-**Status:** planned
+**Status:** Step 5A implemented; developer-run Slicer acceptance pending
 
-Goal: quantify relationships between the plan and reviewed anatomy.
+### Step 5A — draft template support anatomy
 
-Potential scope:
+The workflow reuses the Step 4A target and lets the user manually select any
+positive number of distinct additional whole-tooth segments from the same
+Reviewed authoritative segmentation. It deliberately has no automatic
+adjacency, arch, side, or maximum-count rule.
 
-- trajectory-to-segmentation intersection checks
-- clearance and safety margins
-- canal/tooth containment metrics
-- entry-angle and depth constraints
-- warnings distinct from hard-invalid states
-- saved planning report
+Step 5A appends unmodified closed-surface copies of the target and selected
+supports into one traceable `vtkMRMLModelNode`, preserves the segmentation's
+parent transform, and persists selection/provenance. Changed inputs retain the
+last output as Stale until the user explicitly updates it. A dedicated
+confirmed delete action is restricted to the DENTOBOT draft-model role; it
+clears the model reference and removes only the model and unshared auxiliaries
+while preserving target and support selection for recreation.
 
-Thresholds require research-team decisions and validation data.
+Developer-run Slicer acceptance must exercise small and large selections,
+including two and ten supports, plus create/update, scene save/reopen,
+selection persistence, source-edit invalidation, and Current/Stale
+presentation. The added Slicer-native test covers the corresponding logic but
+has not been run in this implementation session. The lifecycle coverage also
+checks trajectory/model deletion, retained inputs, save/reload, and recreation.
+
+Step 5A is source support anatomy only. It excludes smoothing, remeshing,
+Boolean operations, offsets, contact inference, gingival clearance,
+shell/sleeve/drill-channel generation, export, printability, clinical
+validation, and drilling authorization.
+
+### Later Step 5 increments
+
+Define support/contact behavior, clearance and safety margins,
+trajectory-to-anatomy constraints, shell/sleeve geometry, validation metrics,
+warning versus hard-invalid states, and a saved planning report. Thresholds
+require research-team decisions and validation data.
 
 ## Step 6: Registration and calibration
 

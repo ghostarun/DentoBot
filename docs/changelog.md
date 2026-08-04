@@ -21,6 +21,105 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-04 13:42:57 IST (UTC+05:30) — Safe draft-output deletion and Ubuntu rendering guide
+
+### Changed
+
+- Added dedicated confirmed delete buttons for the selected Step 4A
+  DENTOBOT trajectory and Step 5A DENTOBOT draft support-anatomy model.
+- Added role-gated deletion logic that clears the relevant workflow reference
+  and removes captured display/storage auxiliaries only when no remaining
+  scene node references them. Target, reviewed segmentation, bounds, ordered
+  supports, shared auxiliaries, and unrelated user nodes remain intact.
+- Added Slicer-native lifecycle coverage for rejecting unrelated nodes,
+  selective destruction, MRB save/reload without dangling references, retained
+  source state, and successful recreation.
+- Added a repository `README.md` describing general Ubuntu container graphics
+  requirements, with the verified Intel integrated-graphics path prioritized.
+- Updated controlled architecture, roadmap, transfer, agent-state, changelog,
+  and logbook records. The developer's new workflow batches notes and requests
+  approval before Drive/Git synchronization rather than syncing every prompt.
+
+### Verification and limits
+
+- The host/container path reported direct `Mesa Intel(R) Graphics (ARL)`,
+  OpenGL 4.6, `i915` render-node use, and Slicer nice level 0. Workload-level
+  perceived FPS remains for the developer to confirm.
+- `git diff --check` and `Infrastructure/close_day_checks.sh` passed 20 Python
+  ASTs, two Qt UI files, eight controlled Markdown files, and Markdown fences.
+  Backend tests were skipped because backend source was unchanged.
+- The added Slicer-native deletion/persistence test was not run. No inference,
+  segmentation, model download, patient data, robot, motion, drilling,
+  fabrication, or clinical operation occurred.
+
+## 2026-08-03 21:33:16 IST (UTC+05:30) — Step 5A arbitrary-count support anatomy
+
+### Changed
+
+- Added persistent Step 5A parameters for ordered manual support-tooth IDs and
+  the draft model reference.
+- Added a Step 5A panel that reuses the Step 4A target and lets the user check
+  any positive number of other whole-tooth segments. No adjacency, arch, side,
+  ordering, or maximum-count rule is inferred.
+- Added validation and one-model generation by appending unmodified target and
+  support closed surfaces, with source transform preservation and namespaced
+  selection/review/geometry provenance.
+- Added explicit Current/Stale behavior: selection or segmentation-content
+  changes retain and recolor the prior model, and regeneration requires an
+  explicit Update.
+- Added Slicer-native logic coverage for ten supports, a two-support update,
+  invalid selections, geometry counts, provenance, persistence, transform
+  preservation, review gating, and stale state.
+- Updated controlled architecture, roadmap, traceability, agent state,
+  changelog, and logbook. Pre-existing interpreter-path and process-lifecycle
+  worktree changes were preserved and are not attributed to this increment.
+
+### Verification and limits
+
+- `python3 -m py_compile DENTOWorkflow/DENTOWorkflow.py` passed.
+- `Infrastructure/close_day_checks.sh` passed Git whitespace, 20 Python ASTs,
+  two Qt UI XML files, and eight Markdown fence checks. Backend tests were
+  skipped because backend source was unchanged.
+- The Slicer-native test was added but not run. The developer remains the live
+  Slicer acceptance authority; create/update and scene save/reopen remain
+  pending observation.
+- No Slicer, inference, model download, patient data, robot process, motion,
+  drilling, fabrication, or clinical operation occurred.
+- Step 5A produces draft source anatomy only. It does not generate a shell,
+  contact surface, sleeve, drill channel, printable template, or approved
+  dental guide.
+
+## 2026-08-03 17:36:17 IST (UTC+05:30) — Deterministic Slicer process shutdown
+
+### Changed
+
+- Made the Slicer 5.10 fallback `QProcess` a child of the workflow widget and
+  added explicit signal disconnection, close, and deferred deletion after
+  final output is drained.
+- Made the Bridge A health harness release its workflow widget before Slicer
+  shutdown and added a direct headless-Slicer launcher whose exit code is the
+  test authority.
+- Preserved the pre-existing uncommitted Ubuntu default-interpreter change;
+  this lifecycle batch did not author or revert it.
+
+### Verification and limits
+
+- Static close checks passed for 20 Python ASTs, two Qt UI files, eight
+  controlled Markdown files, Markdown fences, and Git whitespace.
+- The full checkpoint backend returned successful explicit-CPU health with
+  PyTorch 2.10.0+cpu, TotalSegmentator 2.16.0, and OpenVINO 2026.2.0 seeing
+  `CPU`.
+- Two consecutive network-disabled, source-read-only, disposable Slicer 5.10
+  probes passed in 7.758992707 and 5.913129843 seconds. Both Slicer processes
+  and backend children exited; both disposable containers were removed.
+- Initial diagnostic attempts correctly exposed that the ordinary Compose
+  container has only the minimal Bridge B Conda runtime and that `ros2 launch`
+  does not propagate a failed Slicer child status. A first disposable attempt
+  also exposed an `xvfb-run` wrapper leak; the final probes used explicit Xvfb
+  ownership and cleanup.
+- No segmentation, model download, patient data, robot process, motion, or
+  clinical operation occurred. Clean image reconstruction is the next gate.
+
 ## 2026-07-31 15:43:26 IST (UTC+05:30) — Ubuntu checkpoint published
 
 - Authenticated GitHub HTTPS through the official browser/device flow as

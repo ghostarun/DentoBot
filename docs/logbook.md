@@ -25,6 +25,175 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-04 13:42:57 IST (UTC+05:30) — Safe deletion, rendering guidance, and synchronization authorization
+
+### Request and decisions
+
+- The developer requested general Ubuntu GPU-involvement instructions,
+  prioritizing the current Intel integrated-graphics workstation, and
+  dedicated deletion for the Step 4A trajectory and Step 5A draft support-
+  anatomy model.
+- The developer directed that documentation and external synchronization no
+  longer occur after every prompt. Notes are batched at material checkpoints;
+  Drive and Git writes are performed after periodic reminder and approval.
+  The present notes, Drive, and Git batch was explicitly authorized.
+- Deletion uses DENTOBOT role attributes rather than editable names as
+  ownership evidence. It preserves source inputs and shared MRML auxiliaries,
+  giving destruction a narrow and reconstructible boundary.
+
+### Implementation
+
+- Extended `DENTOWorkflow.ui` with dedicated trajectory and draft-model delete
+  buttons that are enabled only for owned current selections.
+- Extended `DENTOWorkflow.py` with confirmation callbacks, role validation,
+  parameter-reference cleanup, observer/cache cleanup, and conservative
+  primary/display/storage node removal. Shared auxiliaries and unrelated nodes
+  are not destroyed.
+- Added a Slicer-native test that creates owned, shared, and unrelated nodes;
+  deletes both DENTOBOT outputs; saves/reloads an MRB; checks absent deleted
+  nodes/references and retained source/selections; then recreates both outputs.
+- Added `README.md` with Intel/AMD Mesa render-node guidance, multi-GPU and
+  group-permission cautions, the distinct NVIDIA path, priority configuration,
+  and hardware-renderer verification. It records the active Intel Arrow Lake-S
+  `i915`/`renderD128` configuration.
+
+### Evidence and pending runtime gate
+
+- Authorized recreation of the workspace Compose service produced direct
+  `Mesa Intel(R) Graphics (ARL)` rendering, OpenGL 4.6, four live Slicer
+  render-node descriptors resolving to `i915`, and nice level 0. Comparative
+  FPS on the developer's original workload remains pending.
+- `git diff --check` passed. `bash Infrastructure/close_day_checks.sh` passed
+  20 Python ASTs, two Qt UI XML files, eight Markdown fence checks, and the
+  overall static gate; backend tests were skipped because backend source did
+  not change. Three restricted stream-fd warnings were benign.
+- The Slicer-native deletion/persistence test was not run because this request
+  did not provide the separate action-specific Slicer runtime authorization
+  required by repository policy.
+- No inference, segmentation, model download, patient data, ROS test, robot,
+  motion, drilling, fabrication, or clinical operation occurred.
+
+### Google Drive synchronization
+
+- At 2026-08-04 13:51:07 IST, replaced seven changed active-Ubuntu Markdown
+  notes and seven changed nested canonical Markdown notes at their existing
+  Drive IDs. Fresh metadata readback confirmed unchanged IDs, expected names
+  and parent folders, `text/markdown` MIME type, and byte sizes equal to all
+  local sources. No duplicate was created.
+- This logbook mirror is refreshed once more to include the synchronization
+  result. The Git commit/push follows; its exact pushed hash is reported in
+  the session handoff because a commit cannot contain its own final hash.
+
+## 2026-08-03 21:33:16 IST (UTC+05:30) — Step 5A implementation
+
+### Request and accepted contract
+
+- The developer shelved the rest of Step 4 and authorized immediate Step 5A
+  work. The final selection rule is completely manual: one Step 4A target plus
+  any positive number of distinct whole-tooth supports from the same Reviewed
+  segmentation. Two, ten, or another count is supported; no automatic
+  adjacency or maximum is imposed.
+- The output is draft source anatomy for later template research, not a guide,
+  shell, sleeve, drill channel, printable part, clinical validation, or
+  drilling authorization.
+
+### Implementation
+
+- Extended `DENTOWorkflow.py` parameter state, widget callbacks, reusable
+  logic, provenance, transform preservation, and Current/Stale invalidation.
+- Extended `DENTOWorkflow.ui` with the Step 5A target display, manual
+  checkbox list, output selector, explicit create/update action, status, and
+  safety text.
+- Added Slicer-native logic coverage for a target plus ten supports, updating
+  the same model to two supports, source-geometry preservation, invalid and
+  duplicate selection rejection, review gating, provenance, persistence,
+  parent-transform preservation, and stale state.
+- Preserved all pre-existing uncommitted interpreter-default, process
+  lifecycle, health-harness, and controlled-document changes.
+
+### Commands, errors, and evidence
+
+- Inspected source, UI, tests, and documents with `rg` and `sed`.
+- The workspace `apply_patch` helper failed repeatedly because bwrap could
+  not expose `/home/light-tarun/dentobot`. Used the approved system
+  `patch --no-backup-if-mismatch -p0` fallback. A failed model-name hunk
+  generated a `.rej`; it and a later `.orig` backup were removed.
+- `python3 -m py_compile DENTOWorkflow/DENTOWorkflow.py` passed.
+- `bash Infrastructure/close_day_checks.sh` passed Git whitespace, 20 Python
+  ASTs, both Qt UI XML files, and eight controlled Markdown fence checks.
+  Backend tests were skipped because no backend source changed.
+
+### Pending
+
+- No Slicer process or Slicer-native test was run; the developer will perform
+  live acceptance.
+- Manually verify two-support and ten-support create/update, target exclusion,
+  save/reopen persistence, and source/selection stale-state behavior.
+- No inference, segmentation, model download, patient data, ROS, robot,
+  motion, drilling, export, fabrication, or clinical operation occurred.
+- At 2026-08-03 21:41:23 IST, replaced four changed active-Ubuntu documents
+  and six changed controlled documents at their existing Google Drive IDs.
+  Metadata readback confirmed expected names, parent folders, unchanged IDs,
+  and byte sizes equal to the local files. Both logbook mirrors were refreshed
+  again to include this synchronization record; no duplicate was created.
+
+## 2026-08-03 17:36:17 IST (UTC+05:30) — Bridge A process-lifecycle gate
+
+### Request and recovered scope
+
+- The developer asked to resume “dentobot 2.” The authoritative checkout was
+  recovered at `ros2_ws/src/DentoBot` on `codex/ubuntu-migration` at
+  `62f9e81`, with one pre-existing interpreter-default change preserved.
+- The first ordered post-checkpoint gate was deterministic Slicer 5.10
+  `QProcess` shutdown using health only. No inference, robot, drilling, or
+  patient-facing action was authorized or run.
+
+### Implementation
+
+- Parent-owned the fallback `QProcess` under the workflow widget. Its finish
+  path now drains remaining output, disconnects both PythonQt callbacks,
+  closes the process object, schedules deletion, and only then runs terminal
+  completion handling.
+- Added explicit widget cleanup to `UbuntuBridgeAHealthTest.py` and a direct
+  headless-Slicer launcher so the Slicer exit code is not hidden by ROS launch.
+
+### Diagnostics and corrections
+
+- The ordinary Compose container was initially stopped and was started only
+  for the explicitly authorized health probes. Its `/opt/dentobot-venv` no
+  longer exists; its mounted Conda interpreter is the intentionally minimal
+  Bridge B runtime and correctly reported missing PyTorch and
+  TotalSegmentator. The first health attempts therefore exited before Bridge A.
+- The original ROS launch wrapper returned zero even when its Slicer child
+  exited one. Replaced it with a direct Slicer launcher.
+- The first checkpoint-image attempt left only `xvfb-run` and Xvfb alive; no
+  Slicer or backend child remained. The exact disposable container was stopped
+  and auto-removed. Final probes used an explicitly tracked Xvfb PID with
+  bounded TERM/KILL cleanup.
+- The main container accumulated two defunct Xvfb entries from the failed
+  wrapper attempts. It contained no Slicer or inference process and was
+  restored to its original stopped state, which reaped them.
+
+### Evidence and next action
+
+- Direct checkpoint backend health passed with Python 3.12.3, PyTorch
+  2.10.0+cpu, TotalSegmentator 2.16.0, OpenVINO 2026.2.0, requested device
+  `cpu`, and OpenVINO device `CPU`.
+- Two consecutive network-disabled disposable Slicer 5.10 Bridge A probes,
+  with source mounted read-only, passed in 7.758992707 and 5.913129843 seconds.
+  Both Slicer/backend processes exited zero and neither disposable container
+  remained.
+- `Infrastructure/close_day_checks.sh` passed 20 Python ASTs, two Qt UI files,
+  eight Markdown fence checks, and Git whitespace checks. Backend pytest was
+  not rerun because this batch changed only Slicer lifecycle/test code; the
+  authorized direct backend health command passed.
+- At 2026-08-03 18:08:16 IST, replaced all seven changed controlled Markdown
+  files in `IITM Dentobot/docs` using their recorded Drive IDs. Metadata
+  readback confirmed the expected names, unchanged parent folder, unchanged
+  IDs, and byte sizes equal to the local files; no duplicate was created.
+- Next: reconstruct `Infrastructure/Dockerfile.ubuntu-cpu` cleanly and prove
+  the complete dependency/test gate without mutable-container repair.
+
 ## 2026-07-31 15:43:26 IST (UTC+05:30) — GitHub authentication and checkpoint publication
 
 - The developer asked to authenticate the Ubuntu repository immediately after

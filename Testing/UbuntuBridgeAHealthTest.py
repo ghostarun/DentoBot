@@ -17,33 +17,38 @@ def run_test():
     parent.setLayout(qt.QVBoxLayout())
     parent.setMRMLScene(slicer.mrmlScene)
     widget = DENTOWorkflowWidget(parent)
-    widget.setup()
-    widget.initializeParameterNode()
-    widget._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
-    widget._parameterNode.inferenceDevice = "cpu"
+    try:
+        widget.setup()
+        widget.initializeParameterNode()
+        widget._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
+        widget._parameterNode.inferenceDevice = "cpu"
 
-    widget.onCheckBackend()
-    deadline = time.monotonic() + 60
-    while widget._backendIsRunning() and time.monotonic() < deadline:
+        widget.onCheckBackend()
+        deadline = time.monotonic() + 60
+        while widget._backendIsRunning() and time.monotonic() < deadline:
+            slicer.app.processEvents()
+            time.sleep(0.02)
         slicer.app.processEvents()
-        time.sleep(0.02)
-    slicer.app.processEvents()
-    if widget._backendIsRunning():
-        widget.onCancelBackend()
-        raise TimeoutError("Bridge A exceeded the 60-second test timeout")
+        if widget._backendIsRunning():
+            widget.onCancelBackend()
+            raise TimeoutError("Bridge A exceeded the 60-second test timeout")
 
-    status = widget.ui.backendStatusLabel.text
-    if not status.startswith("Backend healthy:"):
-        raise AssertionError(status)
-    report = widget.logic.findJsonReport(widget._backendOutputLines, "health")
-    if not report or report.get("requestedDevice") != "cpu":
-        raise AssertionError("Bridge A did not return explicit CPU health")
-    return {
-        "event": "passed",
-        "status": status,
-        "requestedDevice": report["requestedDevice"],
-        "openvinoDevices": report["openvino"]["devices"],
-    }
+        status = widget.ui.backendStatusLabel.text
+        if not status.startswith("Backend healthy:"):
+            raise AssertionError(status)
+        report = widget.logic.findJsonReport(widget._backendOutputLines, "health")
+        if not report or report.get("requestedDevice") != "cpu":
+            raise AssertionError("Bridge A did not return explicit CPU health")
+        return {
+            "event": "passed",
+            "status": status,
+            "requestedDevice": report["requestedDevice"],
+            "openvinoDevices": report["openvino"]["devices"],
+        }
+    finally:
+        widget.cleanup()
+        parent.deleteLater()
+        slicer.app.processEvents()
 
 
 exit_code = 1

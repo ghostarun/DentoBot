@@ -1337,6 +1337,19 @@
           </property>
          </widget>
         </item>
+        <item row="3" column="0" colspan="2">
+         <widget class="QPushButton" name="deleteTrajectoryButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Permanently remove only the selected DENTOBOT trajectory node after confirmation. The target tooth, segmentation, and target bounds are preserved.</string>
+          </property>
+          <property name="text">
+           <string>Delete Selected Trajectory...</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
       <item>
@@ -1486,6 +1499,161 @@
     </widget>
    </item>
    <item>
+    <widget class="ctkCollapsibleButton" name="templateModelingCollapsibleButton">
+     <property name="text">
+      <string>Step 5A — Draft Template Support Anatomy</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="templateModelingVerticalLayout">
+      <item>
+       <widget class="QLabel" name="templateModelingDescriptionLabel">
+        <property name="text">
+         <string>Use the current target tooth and manually select any number of additional whole teeth. Create one traceable draft model containing unmodified copies of their closed surfaces.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="templateModelingFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="templateTargetToothTitleLabel">
+          <property name="text">
+           <string>Target tooth:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="templateTargetToothValueLabel">
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="templateSupportTeethTitleLabel">
+          <property name="text">
+           <string>Support teeth:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QListWidget" name="templateSupportTeethListWidget">
+          <property name="toolTip">
+           <string>Manually check any number of whole-tooth segments to include with the target. No adjacency, arch, or maximum-count rule is imposed.</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>120</height>
+           </size>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::NoSelection</enum>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="draftTemplateSupportModelTitleLabel">
+          <property name="text">
+           <string>Draft model:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="qMRMLNodeComboBox" name="draftTemplateSupportModelSelector">
+          <property name="toolTip">
+           <string>Authoritative Step 5A draft support-anatomy model stored in the scene.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLModelNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>draftTemplateSupportModel</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="createDraftTemplateSupportModelButton">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Create or explicitly update one draft model from the target and all checked support teeth. Source segmentation surfaces are not modified.</string>
+        </property>
+        <property name="text">
+         <string>Create Draft Support Model</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="deleteDraftTemplateSupportModelButton">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Permanently remove only the selected DENTOBOT draft support-anatomy model after confirmation. The segmentation, target tooth, and checked support teeth are preserved.</string>
+        </property>
+        <property name="text">
+         <string>Delete Draft Support Model...</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateModelingStatusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Select a reviewed dental segmentation and target tooth.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateModelingSafetyLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Draft support anatomy only. This is not a guide shell, drill channel, printable template, manufacturing approval, clinical validation, or authorization to drill.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -1537,6 +1705,12 @@
    <sender>DENTOWorkflow</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>trajectorySelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>draftTemplateSupportModelSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
  </connections>

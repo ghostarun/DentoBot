@@ -117,12 +117,23 @@ The successful MRB save is not yet an independent close/reopen inspection.
 The public sample is useful for software compatibility but is not dental
 ground truth and does not establish anatomical accuracy.
 
-The backend and MRB completed, but the headless Slicer test process did not
-exit after the controlling terminal session was interrupted. Exact stale test
-processes were identified and terminated; no inference/nnU-Net child remained.
-Treat deterministic Slicer/QProcess shutdown as an open harness/runtime-
-lifecycle defect. It does not invalidate the completed result artifacts, but
-it blocks any claim that the automated end-to-end test terminates cleanly.
+The backend and MRB completed, but the original headless Slicer test process
+did not exit after the controlling terminal session was interrupted. That
+lifecycle defect was closed on 2026-08-03 without rerunning segmentation. The
+Slicer 5.10 fallback now gives `QProcess` explicit Qt parent ownership,
+disconnects its Python callbacks after draining output, closes it, and
+schedules deletion. The health harness also explicitly releases its widget.
+
+Two consecutive Bridge A probes ran from disposable, network-disabled
+containers based on checkpoint image
+`sha256:b7b02f5d37e2b6d6edec6f0bd06783464a4714a7fd24b5ca248abf32acf81512`,
+with the repository source mounted read-only. They returned successful
+explicit-CPU health in 7.758992707 and 5.913129843 seconds, respectively;
+OpenVINO reported `CPU`, both Slicer processes exited zero, the backend child
+exited, and both disposable containers were removed. The ordinary Compose
+container remains a separate minimal Bridge B runtime and does not contain
+`/opt/dentobot-venv`; clean reconstruction of the full checkpoint environment
+is still the next gate.
 
 ## 4. Prerequisites
 
@@ -293,6 +304,27 @@ project's de-identification and retention rules, and never upload them to the
 documentation mirror.
 
 ## 10. Environment snapshot procedure
+### Step 5A MRML model traceability
+
+A Step 5A draft support-anatomy model is derived only from a Reviewed
+authoritative segmentation and remains in the MRML scene. Its node reference
+role is `DENTOBOT.TemplateSourceSegmentation`. Required namespaced attributes
+record the model role/schema/status, Current or Stale geometry state and
+reason, target segment/FDI, ordered support segment and FDI JSON lists, support
+count, source segment-name map, source review timestamp, source point/cell
+counts, coordinate convention, and update UTC time.
+
+The output retains source-local geometry and observes the segmentation's
+parent transform. Selection or mask-content changes must mark the model Stale
+instead of silently changing or deleting it. Scene save/reopen must preserve
+the parameter-node support selection, output reference, model provenance,
+geometry state, and source reference.
+
+Static coverage includes a target plus ten supports and an explicit update to
+two supports. Live Slicer creation and independent save/reopen evidence remain
+developer-run and pending; static checks alone do not establish that
+acceptance.
+
 
 After a fully verified installation, capture platform-specific evidence:
 
