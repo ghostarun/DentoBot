@@ -4,6 +4,33 @@ DENTOBOT is an academic research prototype for a focused dental
 image-guidance workflow built on 3D Slicer. It is not validated clinical
 software and does not authorize drilling or patient treatment.
 
+## Ubuntu workspace orchestration
+
+The existing repository remains at `ros2_ws/src/DentoBot`. Its tracked
+`Workspace/` directory now owns the Ubuntu launcher, Compose definition,
+helper scripts, active workspace notes, and top-level agent instructions.
+The surrounding workspace preserves the familiar `scripts`, `docs`,
+`compose.yaml`, and `AGENTS.md` paths as relative symlinks.
+
+Create the compatibility links safely in a new workspace with:
+
+```bash
+Workspace/bootstrap-workspace.bash
+```
+
+Copy `Workspace/.dentobot.env.example` to the workspace root as
+`.dentobot.env` and edit only that untracked file for the local Conda
+interpreter and graphics device. DENTO Workflow receives those values from
+the launcher automatically; no machine path needs to be remembered or saved
+in an MRB scene.
+
+From the surrounding workspace, Git can be addressed without remembering the
+nested checkout path:
+
+```bash
+scripts/git-dentobot.bash status --short --branch
+```
+
 ## Ubuntu interactive rendering
 
 A visible Slicer window does not prove hardware acceleration. On Ubuntu,

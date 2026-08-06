@@ -38,9 +38,10 @@ class DENTOWorkflowParameterNode:
 
     caseName: str = ""
     inputVolume: vtkMRMLScalarVolumeNode
+    useLauncherBackendConfiguration: bool = True
     wslDistribution: str = ""
     wslPythonPath: str = ""
-    stagingRoot: str = r"C:\DENTOBOTRuns"
+    stagingRoot: str = ""
     inferenceDevice: str = "cuda:0"
     roundTripVolume: vtkMRMLScalarVolumeNode
     teethSegmentation: vtkMRMLSegmentationNode
@@ -116,12 +117,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if os.name != "nt":
             self.ui.wslDistributionLabel.visible = False
             self.ui.wslDistributionLineEdit.visible = False
-            self.ui.wslPythonPathLabel.text = _("Backend Python:")
+            self.ui.wslPythonPathLabel.text = _("Manual backend Python:")
             self.ui.wslPythonPathLineEdit.toolTip = _(
-                "Absolute path to the dedicated DENTOBOT backend Python in this container."
+                "Advanced manual override for the dedicated DENTOBOT backend "
+                "Python in this container. Normally the launcher supplies it."
             )
             self.ui.stagingRootLineEdit.toolTip = _(
-                "Absolute Linux directory for isolated NIfTI and JSON artifacts."
+                "Advanced manual override for the local run-records folder. "
+                "Normally the launcher supplies it."
             )
             self.ui.backendDescriptionLabel.text = _(
                 "Slicer owns UI and MRML. A separate Python environment in the "
@@ -133,6 +136,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "isolated Ubuntu backend, validate it, and import it."
             )
             self.ui.segmentTeethButton.text = _("Run Teeth Segmentation (CPU)")
+        else:
+            self.ui.useLauncherBackendConfigurationCheckBox.visible = False
 
         self.ui.newCaseButton.connect("clicked(bool)", self.onNewCase)
         self.ui.openSceneButton.connect("clicked(bool)", self.onOpenScene)
@@ -141,6 +146,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.inputVolumeSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onInputVolumeSelectionChanged,
+        )
+        self.ui.useLauncherBackendConfigurationCheckBox.connect(
+            "toggled(bool)",
+            self.onUseLauncherBackendConfigurationToggled,
         )
         self.ui.checkBackendButton.connect("clicked(bool)", self.onCheckBackend)
         self.ui.roundTripButton.connect("clicked(bool)", self.onRunRoundTrip)
@@ -288,10 +297,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.setParameterNode(self.logic.getParameterNode())
         if os.name != "nt":
-            if not self._parameterNode.wslPythonPath:
-                self._parameterNode.wslPythonPath = "/home/light-tarun/miniconda3/envs/dentobot/bin/python"
-            if self._parameterNode.stagingRoot == r"C:\DENTOBOTRuns":
-                self._parameterNode.stagingRoot = "/workspace/data/dentobot-runs"
             if self._parameterNode.inferenceDevice == "cuda:0":
                 self._parameterNode.inferenceDevice = "cpu"
 
@@ -2237,13 +2242,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _backendConfiguration(self) -> tuple[str, str, str, str, str]:
         if not self._parameterNode:
             return "", "", "", "", ""
-        return (
+        return self.logic.resolveBackendConfiguration(
             "wsl" if os.name == "nt" else "local",
             self._parameterNode.wslDistribution.strip(),
             self._parameterNode.wslPythonPath.strip(),
             self._parameterNode.stagingRoot.strip(),
             self._parameterNode.inferenceDevice.strip(),
+            self._parameterNode.useLauncherBackendConfiguration,
         )
+
+    def onUseLauncherBackendConfigurationToggled(self, enabled: bool) -> None:
+        if not self._parameterNode:
+            return
+        if self._parameterNode.useLauncherBackendConfiguration != bool(enabled):
+            self._parameterNode.useLauncherBackendConfiguration = bool(enabled)
+        self._updateBackendControls()
 
     def _backendIsRunning(self) -> bool:
         return self._backendProcess is not None
@@ -2254,8 +2267,46 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         executionMode, distribution, pythonPath, stagingRoot, _device = (
             self._backendConfiguration()
         )
+        launcherPython, launcherArtifactRoot = (
+            self.logic.launcherBackendConfiguration()
+        )
+        launcherRequested = bool(
+            executionMode == "local"
+            and self._parameterNode.useLauncherBackendConfiguration
+        )
+        launcherAvailable = bool(launcherPython and launcherArtifactRoot)
+        launcherActive = launcherRequested and launcherAvailable
+        self.ui.wslPythonPathLineEdit.enabled = not launcherRequested
+        self.ui.stagingRootLineEdit.enabled = not launcherRequested
+        if launcherActive:
+            self.ui.backendConfigurationSummaryLabel.text = _(
+                "Managed automatically by the DENTOBOT launcher.\n"
+                "Backend Python: %1\nRun records: %2"
+            ).replace("%1", launcherPython).replace("%2", launcherArtifactRoot)
+            self.ui.backendConfigurationSummaryLabel.styleSheet = (
+                "color: #207227;"
+            )
+        elif launcherRequested:
+            self.ui.backendConfigurationSummaryLabel.text = _(
+                "Launcher configuration was not found. Start Slicer with "
+                "scripts/launch-dentoworkflow.bash, or disable automatic "
+                "configuration and enter the advanced overrides below."
+            )
+            self.ui.backendConfigurationSummaryLabel.styleSheet = (
+                "color: #b00020;"
+            )
+        else:
+            self.ui.backendConfigurationSummaryLabel.text = _(
+                "Advanced manual override is active. These machine-specific "
+                "paths are stored with the scene."
+            )
+            self.ui.backendConfigurationSummaryLabel.styleSheet = (
+                "color: #b36b00;"
+            )
         configured = bool(
-            pythonPath and (executionMode == "local" or distribution)
+            not (launcherRequested and not launcherAvailable)
+            and pythonPath
+            and (executionMode == "local" or distribution)
         )
         running = self._backendIsRunning()
         self.ui.checkBackendButton.enabled = configured and not running
@@ -2355,6 +2406,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         executionMode, distribution, pythonPath, stagingRoot, device = (
             self._backendConfiguration()
         )
+        launcherPython, launcherArtifactRoot = (
+            self.logic.launcherBackendConfiguration()
+        )
+        if (
+            executionMode == "local"
+            and self._parameterNode
+            and self._parameterNode.useLauncherBackendConfiguration
+            and not (launcherPython and launcherArtifactRoot)
+        ):
+            raise ValueError(
+                _(
+                    "DENTOBOT launcher configuration is unavailable. Start "
+                    "Slicer with scripts/launch-dentoworkflow.bash or disable "
+                    "automatic configuration and enter manual overrides."
+                )
+            )
         if executionMode == "wsl" and not distribution:
             raise ValueError(_("Enter the exact WSL distribution name."))
         if not pythonPath.startswith("/"):
@@ -2923,6 +2990,8 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     """Reusable MRML, volume-geometry, and external-bridge operations."""
 
     BACKEND_MODULE = "dentobot_inference"
+    BACKEND_PYTHON_ENVIRONMENT_VARIABLE = "DENTOBOT_BACKEND_PYTHON"
+    RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE = "DENTOBOT_RUN_ARTIFACT_ROOT"
     REVIEW_METADATA_VERSION = "1.0"
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
     SOURCE_VOLUME_REFERENCE_ROLE = "DENTOBOT.SourceVolume"
@@ -2947,6 +3016,59 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
 
     def getParameterNode(self) -> DENTOWorkflowParameterNode:
         return DENTOWorkflowParameterNode(super().getParameterNode())
+
+    @classmethod
+    def launcherBackendConfiguration(
+        cls,
+        environment: dict | None = None,
+    ) -> tuple[str, str]:
+        """Return launcher-provided paths without persisting them in MRML."""
+
+        source = os.environ if environment is None else environment
+        return (
+            str(
+                source.get(cls.BACKEND_PYTHON_ENVIRONMENT_VARIABLE) or ""
+            ).strip(),
+            str(
+                source.get(cls.RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE) or ""
+            ).strip(),
+        )
+
+    @classmethod
+    def resolveBackendConfiguration(
+        cls,
+        executionMode: str,
+        distribution: str,
+        pythonPath: str,
+        stagingRoot: str,
+        device: str,
+        useLauncherConfiguration: bool,
+        environment: dict | None = None,
+    ) -> tuple[str, str, str, str, str]:
+        """Resolve portable launcher settings or explicit scene overrides."""
+
+        executionMode = executionMode.strip()
+        distribution = distribution.strip()
+        pythonPath = pythonPath.strip()
+        stagingRoot = stagingRoot.strip()
+        device = device.strip()
+        if executionMode == "local" and useLauncherConfiguration:
+            launcherPython, launcherStagingRoot = (
+                cls.launcherBackendConfiguration(environment)
+            )
+            if launcherPython and launcherStagingRoot:
+                pythonPath = launcherPython
+                stagingRoot = launcherStagingRoot
+            else:
+                pythonPath = ""
+                stagingRoot = ""
+        return (
+            executionMode,
+            distribution,
+            pythonPath,
+            stagingRoot,
+            device,
+        )
 
     def getScalarVolumeNodes(self) -> list[vtkMRMLScalarVolumeNode]:
         return list(slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode"))
@@ -5391,6 +5513,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         parameterNode = logic.getParameterNode()
         parameterNode.caseName = "DeidentifiedCase"
         parameterNode.inputVolume = volumeNode
+        parameterNode.useLauncherBackendConfiguration = False
         parameterNode.wslDistribution = "Ubuntu-24.04"
         parameterNode.wslPythonPath = "/opt/conda/envs/dentobot/bin/python"
         parameterNode.stagingRoot = r"C:\DENTOBOTRuns"
@@ -5403,6 +5526,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         parameterNode.teethSegmentation = segmentationNode
         self.assertEqual(parameterNode.caseName, "DeidentifiedCase")
         self.assertEqual(parameterNode.inputVolume.GetID(), volumeNode.GetID())
+        self.assertFalse(parameterNode.useLauncherBackendConfiguration)
         self.assertEqual(parameterNode.wslDistribution, "Ubuntu-24.04")
         self.assertEqual(
             parameterNode.wslPythonPath,
@@ -5419,6 +5543,59 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
     def test_DENTOWorkflowBridgeContracts(self) -> None:
         logic = DENTOWorkflowLogic()
+        localBackendPython = "/opt/dentobot-test-env/bin/python"
+        launcherArtifactRoot = "/workspace/data/dentobot-runs"
+        launcherEnvironment = {
+            logic.BACKEND_PYTHON_ENVIRONMENT_VARIABLE: localBackendPython,
+            logic.RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE: launcherArtifactRoot,
+        }
+
+        self.assertEqual(
+            logic.launcherBackendConfiguration(launcherEnvironment),
+            (localBackendPython, launcherArtifactRoot),
+        )
+        self.assertEqual(
+            logic.resolveBackendConfiguration(
+                "local",
+                "ignored-distribution",
+                "/manual/python",
+                "/manual/runs",
+                "cpu",
+                True,
+                launcherEnvironment,
+            ),
+            (
+                "local",
+                "ignored-distribution",
+                localBackendPython,
+                launcherArtifactRoot,
+                "cpu",
+            ),
+        )
+        self.assertEqual(
+            logic.resolveBackendConfiguration(
+                "local",
+                "",
+                "/manual/python",
+                "/manual/runs",
+                "cpu",
+                False,
+                launcherEnvironment,
+            ),
+            ("local", "", "/manual/python", "/manual/runs", "cpu"),
+        )
+        self.assertEqual(
+            logic.resolveBackendConfiguration(
+                "local",
+                "",
+                "/stale/python",
+                "/stale/runs",
+                "cpu",
+                True,
+                {},
+            ),
+            ("local", "", "", "", "cpu"),
+        )
 
         self.assertEqual(
             logic.windowsPathToWslPath(r"C:\DENTOBOTRuns\a b\input.nii.gz"),
@@ -5443,13 +5620,13 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         localHealthCommand = logic.buildHealthCommand(
             "",
-            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+            localBackendPython,
             executionMode="local",
             device="cpu",
         )
         self.assertEqual(
             localHealthCommand[0],
-            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+            localBackendPython,
         )
         self.assertNotIn("--exec", localHealthCommand)
         self.assertEqual(
@@ -5488,7 +5665,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(teethCommand[-2:], ["--device", "cuda:0"])
         localTeethCommand = logic.buildTeethSegmentationCommand(
             "",
-            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+            localBackendPython,
             Path("/workspace/data/run-3/input.nii"),
             Path("/workspace/data/run-3/teeth-segmentation.nii"),
             Path("/workspace/data/run-3/result.json"),
@@ -5498,7 +5675,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         )
         self.assertEqual(
             localTeethCommand[0],
-            "/home/light-tarun/miniconda3/envs/dentobot/bin/python",
+            localBackendPython,
         )
         self.assertIn("/workspace/data/run-3/input.nii", localTeethCommand)
         self.assertEqual(localTeethCommand[-2:], ["--device", "cpu"])

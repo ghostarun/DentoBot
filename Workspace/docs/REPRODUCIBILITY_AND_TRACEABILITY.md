@@ -1,21 +1,81 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+> Ubuntu transition note (2026-07-29): the validated execution layer below is
+> the Windows/WSL2 baseline. It remains controlled historical evidence, not an
+> Ubuntu installation procedure. An Ubuntu-specific validated baseline must be
+> added without rewriting the earlier record.
+
 ## Document control
 
 | Field | Value |
 |---|---|
 | Document status | Controlled research-development baseline |
 | Applicable backend | DENTOBOT inference 0.2.0 |
-| Applicable host application | 3D Slicer 5.12.2 on Windows; Slicer 5.10 on Ubuntu |
-| Validated execution layer | WSL2 Python 3.10.20 CUDA; Ubuntu container Python 3.12.3 CPU |
-| Baseline validation dates | 2026-07-23 CUDA; 2026-07-31 Ubuntu CPU |
-| Evidence level | One real-CBCT CUDA happy path and one public-fixture Ubuntu CPU/import/MRB path |
+| Applicable host application | 3D Slicer 5.12.2 |
+| Validated execution layer | WSL2, Ubuntu, Python 3.10.20 |
+| Baseline validation date | 2026-07-23 |
+| Evidence level | One successful real-CBCT GPU happy-path run |
 | Intended use | Research and development only |
 
 This document is the normative procedure for reconstructing the external
 inference environment, checking its identity, and retaining sufficient
 evidence to trace a DENTOBOT inference run. It does not establish anatomical
 accuracy, clinical safety, or regulatory compliance.
+
+## Ubuntu synthetic Bridge B evidence
+
+On 2026-07-31, the Ubuntu workstation completed a software-only synthetic
+MRML/NIfTI round trip. This is migration evidence beneath the controlled
+Windows/WSL baseline above; it does not replace the real-CBCT evidence level
+or establish a complete segmentation inference environment.
+
+Execution components:
+
+- 3D Slicer 5.10.0 from the pinned Jazzy SlicerROS2 container
+- persistent host Conda Python 3.12.13 environment at
+  `/home/light-tarun/miniconda3/envs/dentobot/bin/python`
+- read-only bind mount of that environment at the same path in the container
+- DENTOBOT inference 0.2.0 loaded from repository source
+- NumPy 2.2.6 and NiBabel 5.4.2
+- no CUDA, model weights, inference, patient data, or hardware
+
+The source MRML volume was a generated `4 x 5 x 6` int16 grid with anisotropic
+`0.4 x 0.7 x 1.2` mm spacing, an oblique RAS direction, nonzero RAS origin,
+known voxel values, and a recorded KJI checksum. Slicer exported NIfTI, the
+standalone backend rewrote and validated it, and Slicer re-imported both
+volumes. The backend reported `geometryMatch=true` and `dataMatch=true`.
+DENTOWorkflow's validator accepted the matching pair and rejected a deliberate
+`0.01` mm matrix perturbation. The maximum unperturbed matrix difference from
+the defined IJK-to-RAS matrix was approximately `4.77e-08`.
+
+The final persistent-runtime synthetic artifacts are under
+`data/test-artifacts/bridge-b-l3V0RG`. They contain no patient data and are not
+part of the Google Drive documentation mirror. The environment persists
+independently of container recreation, and the launcher verifies its exact
+top-level Bridge B package versions on both sides of the bind mount. It is not
+a complete transitive lock and does not
+include the segmentation stack. Before an Ubuntu release claim, capture a
+complete dependency snapshot, establish the full inference environment, run
+through the interactive asynchronous DENTOWorkflow adapter, and repeat with
+governed de-identified representative imaging.
+
+### Ubuntu launcher and test configuration update — 2026-08-06
+
+The current Ubuntu workspace no longer stores the host interpreter and run
+root in multiple scripts or MRB parameter values. The untracked
+`.dentobot.env` at the workspace root supplies the exact backend interpreter
+and render node. The tracked launcher derives the Conda environment directory
+and workspace root, then supplies `DENTOBOT_BACKEND_PYTHON`,
+`DENTOBOT_BACKEND_ENV_DIR`, `DENTOBOT_RUN_ARTIFACT_ROOT`,
+`DENTOBOT_RENDER_DEVICE`, and `DENTOBOT_WORKSPACE_ROOT` to the relevant
+processes. `Workspace/.dentobot.env.example` is the reconstruction template;
+the populated local file must not be committed or mirrored to Drive.
+
+Pytest 8.4.2, already pinned in
+`Inference/requirements/test-validated.txt`, was installed into the dedicated
+Python 3.12 backend on 2026-08-06. `python -m pip check` and all 13 inference
+tests passed there. This expands test tooling only; it does not add a Slicer
+dependency, segmentation stack, model cache, or clinical evidence.
 
 ## 1. System boundary
 
@@ -28,22 +88,6 @@ DENTOBOT intentionally separates two Python environments:
 
 Slicer launches the WSL interpreter by its absolute path. It does not activate
 Conda, import WSL packages, install dependencies, or download models.
-
-### 1.1 Ubuntu configuration checkpoint — 2026-08-06
-
-The tracked `Workspace/.dentobot.env.example` defines the active Ubuntu local
-runtime configuration shape. A populated `.dentobot.env` lives only at the
-surrounding workspace root and is excluded from Git and Drive. The launcher
-derives and exports the exact backend interpreter, Conda environment
-directory, run-record root, render node, and workspace root to Compose and
-Slicer. DENTOWorkflow does not require those machine paths typed into or
-persisted with the scene.
-
-Pytest 8.4.2, already pinned by
-`Inference/requirements/test-validated.txt`, was installed in the dedicated
-Ubuntu Python 3.12 backend. `pip check` and all 13 inference tests passed. No
-package was installed into Slicer's embedded Python, and this evidence does
-not establish full segmentation/model reconstruction or anatomical accuracy.
 
 ## 2. Reproducibility levels
 
@@ -85,71 +129,6 @@ The successful evidence run processed a 580 x 580 x 300 CBCT with 0.25 mm
 isotropic spacing, produced 60 non-background segments, and completed in
 75.232826 seconds. These values identify the evidence run; they are not
 performance guarantees or accuracy claims.
-
-### 3.1 Native-Ubuntu compatibility baseline
-
-| Component | Validated value |
-|---|---|
-| Git source branch | `codex/ubuntu-migration` |
-| Migrated source baseline | `72da94207d33234a12f5d904c23733ff382f9e43` |
-| Container base | `ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0` |
-| Slicer | 5.10.0, build date 2025-11-10 |
-| Python | 3.12.3 at `/opt/dentobot-venv/bin/python` |
-| NumPy / NiBabel | 2.2.6 / 5.4.2 |
-| PyTorch | 2.10.0+cpu |
-| TotalSegmentator / nnUNet v2 | 2.16.0 / 2.8.1 |
-| OpenVINO | 2026.2.0 |
-| Requested/actual inference device | cpu / cpu |
-| TotalSegmentator tasks | teeth 113; craniofacial 115; transitive total-fast crop 298 |
-| Public fixture | Slicer `CBCTDentalSurgery`, `PreDentalSurgery` volume |
-| Input geometry | 360 x 360 x 330; 0.5 mm isotropic; int16 |
-| Inference result | 54 labels; 579,353 foreground voxels; geometry/label validation passed |
-| Runtime | 217.848237 seconds total; 217.058393 seconds inference |
-| Slicer result | 54 segments, closed surfaces, review metadata, MRB saved |
-
-A later fully Slicer-launched Bridge C run used run ID
-`794b7570c5e24583b0a62ffe2a7d8471`. Slicer exported the public fixture,
-launched the isolated CPU backend asynchronously, received `status: ok`,
-imported 54 segments, and saved the final MRB. Backend runtime was
-372.777041 seconds. The longer time than the standalone baseline is evidence
-from one concurrently active development container, not a benchmark.
-
-Artifact and model files remain outside Git and Drive. Their SHA-256 evidence:
-
-| Item | SHA-256 |
-|---|---|
-| Public fixture NIfTI | `a574237fdb32372582991932224d2fdefba98e0271f05fb2b32487b82a7019ed` |
-| Validated teeth NIfTI | `9ffb207be1c2ff305b7e190bef5def5633971e721d6b6a7e122b77bc0d839364` |
-| Result JSON | `f22b24fa02105989ff145f25e908bd4e277561e17d37c953e74fab512671f0e0` |
-| Slicer review MRB | `9acabe27aa1e35fc5de293578f0b9554a836fbc8536407b8f3970e0b6723af54` |
-| Task 113 checkpoint | `195ef8bb3f6de012c1200a961110ac5df525025cdbadbe09077ea35fd5424ef0` |
-| Task 115 checkpoint | `8a65ceca091d90e4eb42ae994840e5813cb811bc8dc587c3612c05490259b44f` |
-| Task 298 checkpoint | `3489323a4b759506ab46b489eb78b72142f2143aea6e6d828604d754bd7a9270` |
-| Slicer-launched result JSON | `250c102d3cbdbd86720fbb99a1a85be95ddcc0e8bbfaa273e84192b02f7f8fa9` |
-| Slicer-launched teeth NIfTI | `2fec20e589ee41beb5cba1e9c67e2e8d96e817bd5ea34574245a59cfaab71f79` |
-| Slicer-launched final MRB | `dadb4ceeb229aa097688685116b997182710c5dd840d575b91a88b60984eb04f` |
-
-The successful MRB save is not yet an independent close/reopen inspection.
-The public sample is useful for software compatibility but is not dental
-ground truth and does not establish anatomical accuracy.
-
-The backend and MRB completed, but the original headless Slicer test process
-did not exit after the controlling terminal session was interrupted. That
-lifecycle defect was closed on 2026-08-03 without rerunning segmentation. The
-Slicer 5.10 fallback now gives `QProcess` explicit Qt parent ownership,
-disconnects its Python callbacks after draining output, closes it, and
-schedules deletion. The health harness also explicitly releases its widget.
-
-Two consecutive Bridge A probes ran from disposable, network-disabled
-containers based on checkpoint image
-`sha256:b7b02f5d37e2b6d6edec6f0bd06783464a4714a7fd24b5ca248abf32acf81512`,
-with the repository source mounted read-only. They returned successful
-explicit-CPU health in 7.758992707 and 5.913129843 seconds, respectively;
-OpenVINO reported `CPU`, both Slicer processes exited zero, the backend child
-exited, and both disposable containers were removed. The ordinary Compose
-container remains a separate minimal Bridge B runtime and does not contain
-`/opt/dentobot-venv`; clean reconstruction of the full checkpoint environment
-is still the next gate.
 
 ## 4. Prerequisites
 
@@ -202,27 +181,6 @@ python -m pip install \
 already installed from the controlled manifests. Stop and investigate any
 resolver conflict rather than forcing incompatible packages.
 
-### 5.1 Native-Ubuntu installation
-
-Inside the SlicerROS2 container, install `python3-venv`, then run:
-
-```bash
-/workspace/ros2_ws/src/DentoBot/Infrastructure/install_ubuntu_backend.sh \
-  /workspace/ros2_ws/src/DentoBot
-```
-
-The script creates `/opt/dentobot-venv`, installs PyTorch 2.10.0 from the
-official CPU wheel index before resolving TotalSegmentator, applies
-`ubuntu-cpu-constraints.txt`, installs the backend editable, runs `pip check`
-and tests, and requires explicit CPU health. Installing PyTorch first prevents
-the TotalSegmentator resolver from replacing it with a CUDA wheel.
-
-For clean-image construction use
-`Infrastructure/Dockerfile.ubuntu-cpu`. The Compose override example shows
-persistent model/data paths and Intel accelerator device mapping. The
-hard-coded example render-group ID must be replaced with the host's actual
-group ID.
-
 ## 6. Model-cache preparation
 
 Run model downloads explicitly from the configured environment:
@@ -232,37 +190,14 @@ totalseg_download_weights -t craniofacial_structures
 totalseg_download_weights -t teeth
 ```
 
-TotalSegmentator 2.16 also invokes task 298 transitively while producing the
-rough crop needed by tasks 115 and 113. On the validated Ubuntu version its
-CLI task choices did not expose every required internal task, so task 298 was
-downloaded explicitly through TotalSegmentator's own registered library API:
-
-```bash
-TOTALSEG_HOME_DIR=/workspace/data/model-cache/totalsegmentator \
-  /opt/dentobot-venv/bin/python -c \
-  "from totalsegmentator.libs import download_pretrained_weights; download_pretrained_weights(298)"
-```
-
 TotalSegmentator's default cache is below
 `~/.totalsegmentator/nnunet/results`. The Slicer-launched runtime is
 cache-only: it must fail clearly if a required model is absent rather than
 silently initiating a download.
 
-For a formal release snapshot, record tasks 113, 115, and 298, cache location,
+For a formal release snapshot, record the task identifiers, cache location,
 file inventory, byte sizes, and cryptographic hashes without uploading model
 files to the documentation mirror.
-
-### 6.1 OpenVINO and Intel NPU boundary
-
-OpenVINO 2026.2.0 is installed so the Ubuntu backend can report devices.
-Without accelerator devices mapped into the container, the validated health
-run saw only `CPU`. TotalSegmentator 2.16 accepts CPU, CUDA, and Apple MPS
-device paths; it does not offer OpenVINO NPU as a direct execution option.
-NPU device visibility is therefore a deployment probe, not evidence that the
-dental nnU-Net model runs on the NPU. A future NPU milestone must convert the
-relevant model pipeline, compare labels/geometry against an accepted baseline,
-measure performance and memory, and preserve CPU/CUDA as explicit alternatives
-until equivalence is demonstrated.
 
 ## 7. Installation verification
 
@@ -320,27 +255,6 @@ project's de-identification and retention rules, and never upload them to the
 documentation mirror.
 
 ## 10. Environment snapshot procedure
-### Step 5A MRML model traceability
-
-A Step 5A draft support-anatomy model is derived only from a Reviewed
-authoritative segmentation and remains in the MRML scene. Its node reference
-role is `DENTOBOT.TemplateSourceSegmentation`. Required namespaced attributes
-record the model role/schema/status, Current or Stale geometry state and
-reason, target segment/FDI, ordered support segment and FDI JSON lists, support
-count, source segment-name map, source review timestamp, source point/cell
-counts, coordinate convention, and update UTC time.
-
-The output retains source-local geometry and observes the segmentation's
-parent transform. Selection or mask-content changes must mark the model Stale
-instead of silently changing or deleting it. Scene save/reopen must preserve
-the parameter-node support selection, output reference, model provenance,
-geometry state, and source reference.
-
-Static coverage includes a target plus ten supports and an explicit update to
-two supports. Live Slicer creation and independent save/reopen evidence remain
-developer-run and pending; static checks alone do not establish that
-acceptance.
-
 
 After a fully verified installation, capture platform-specific evidence:
 

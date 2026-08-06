@@ -1,6 +1,7 @@
 """Headless Slicer-launched Ubuntu Bridge A health test."""
 
 import json
+import os
 import sys
 import time
 import traceback
@@ -13,6 +14,19 @@ from DENTOWorkflow import DENTOWorkflowWidget
 
 
 def run_test():
+    missing_variables = [
+        name
+        for name in (
+            "DENTOBOT_BACKEND_PYTHON",
+            "DENTOBOT_RUN_ARTIFACT_ROOT",
+        )
+        if not os.environ.get(name, "").strip()
+    ]
+    if missing_variables:
+        raise RuntimeError(
+            "Missing launcher runtime configuration: "
+            + ", ".join(missing_variables)
+        )
     parent = slicer.qMRMLWidget()
     parent.setLayout(qt.QVBoxLayout())
     parent.setMRMLScene(slicer.mrmlScene)
@@ -20,7 +34,6 @@ def run_test():
     try:
         widget.setup()
         widget.initializeParameterNode()
-        widget._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
         widget._parameterNode.inferenceDevice = "cpu"
 
         widget.onCheckBackend()

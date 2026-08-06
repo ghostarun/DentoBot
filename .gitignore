@@ -5,6 +5,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.coverage
+coverage.xml
+htmlcov/
 *.egg-info/
 build/
 dist/
@@ -29,6 +34,8 @@ out/
 *.user
 *.suo
 *.swp
+*.orig
+*.rej
 .DS_Store
 Thumbs.db
 
@@ -39,6 +46,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+.dentobot.env
 artifacts/
 runs/
 

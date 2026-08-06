@@ -336,6 +336,38 @@
        </widget>
       </item>
       <item>
+       <widget class="QCheckBox" name="useLauncherBackendConfigurationCheckBox">
+        <property name="toolTip">
+         <string>Use the backend interpreter and run-records folder supplied when DENTOBOT launched Slicer. Disable only for an advanced manual override.</string>
+        </property>
+        <property name="text">
+         <string>Use configuration supplied by the DENTOBOT launcher (recommended)</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="SlicerParameterName" stdset="0">
+         <string>useLauncherBackendConfiguration</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="backendConfigurationSummaryLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #555555;</string>
+        </property>
+        <property name="text">
+         <string>Start Slicer with the DENTOBOT launcher to configure the backend automatically.</string>
+        </property>
+        <property name="textInteractionFlags">
+         <set>Qt::TextSelectableByMouse</set>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <layout class="QFormLayout" name="backendFormLayout">
         <item row="0" column="0">
          <widget class="QLabel" name="wslDistributionLabel">
@@ -360,7 +392,7 @@
         <item row="1" column="0">
          <widget class="QLabel" name="wslPythonPathLabel">
           <property name="text">
-           <string>Environment Python:</string>
+           <string>Manual backend Python:</string>
           </property>
          </widget>
         </item>
@@ -370,7 +402,7 @@
            <string>Absolute Linux path to python inside the dedicated DENTOBOT Conda environment. No shell activation is used.</string>
           </property>
           <property name="placeholderText">
-           <string>/home/user/miniconda3/envs/dentobot-inference/bin/python</string>
+           <string>/absolute/path/to/environment/bin/python</string>
           </property>
           <property name="SlicerParameterName" stdset="0">
            <string>wslPythonPath</string>
@@ -380,14 +412,14 @@
         <item row="2" column="0">
          <widget class="QLabel" name="stagingRootLabel">
           <property name="text">
-           <string>Run artifacts:</string>
+           <string>Manual run-records folder:</string>
           </property>
          </widget>
         </item>
         <item row="2" column="1">
          <widget class="QLineEdit" name="stagingRootLineEdit">
           <property name="toolTip">
-           <string>Local Windows directory for isolated NIfTI and JSON run artifacts. Do not use a patient DICOM folder.</string>
+           <string>Advanced override for isolated NIfTI and JSON run records. Do not use a source DICOM folder.</string>
           </property>
           <property name="SlicerParameterName" stdset="0">
            <string>stagingRoot</string>
@@ -471,6 +503,19 @@
        </layout>
       </item>
       <item>
+       <widget class="QLabel" name="runArtifactsExplanationLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #555555;</string>
+        </property>
+        <property name="text">
+         <string>Run records are automatically created per operation and contain the exported input NIfTI, returned output, and result.json used for validation and debugging. They may contain patient-derived image data, stay local, and must never be uploaded to Git or the documentation Drive.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <layout class="QGridLayout" name="backendButtonGridLayout">
         <item row="0" column="0">
          <widget class="QPushButton" name="checkBackendButton">
@@ -537,12 +582,12 @@
        </widget>
       </item>
       <item>
-       <widget class="QLabel" name="backendStatusLabel">
+      <widget class="QLabel" name="backendStatusLabel">
         <property name="styleSheet">
          <string notr="true">color: #555555;</string>
         </property>
         <property name="text">
-         <string>Configure the dedicated environment Python, then check the backend.</string>
+         <string>Start with the DENTOBOT launcher, then check the detected backend.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>

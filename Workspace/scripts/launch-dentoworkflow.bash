@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+canonical_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_directory="$(cd -- "$(dirname -- "${canonical_script}")" && pwd -P)"
+repository_root="$(cd -- "${script_directory}/../.." && pwd -P)"
+default_workspace_root="$(cd -- "${repository_root}/../../.." && pwd -P)"
+workspace_root="${DENTOBOT_WORKSPACE_ROOT:-${default_workspace_root}}"
+workspace_config="${DENTOBOT_WORKSPACE_CONFIG:-${workspace_root}/.dentobot.env}"
+compose_file="${repository_root}/Workspace/compose.yaml"
+container_name="dentobot-slicerros2"
+
+backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
+module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
+check_only=false
+print_backend_python=false
+x11_access_granted=false
+
+usage() {
+  printf '%s\n' \
+    "Usage: scripts/launch-dentoworkflow.bash [--check-only]" \
+    "" \
+    "Without options, verify the dentobot Conda backend and open" \
+    "3D Slicer with DENTO Workflow loaded from the repository source." \
+    "" \
+    "Machine configuration: ${workspace_config}" \
+    "Template: ${repository_root}/Workspace/.dentobot.env.example" \
+    "" \
+    "--check-only  Verify Compose, the backend, and module files without" \
+    "              opening a GUI." \
+    "--print-backend-python" \
+    "              Print the single configured backend interpreter path."
+}
+
+while (( $# > 0 )); do
+  case "$1" in
+    --check-only)
+      check_only=true
+      ;;
+    --print-backend-python)
+      print_backend_python=true
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [[ -f ${workspace_config} ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${workspace_config}"
+  set +a
+fi
+
+backend_python="${DENTOBOT_BACKEND_PYTHON:-}"
+render_device="${DENTOBOT_RENDER_DEVICE:-/dev/dri/renderD128}"
+run_artifact_root="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}"
+
+if [[ -z ${backend_python} ]]; then
+  printf '%s\n' \
+    "Backend Python is not configured in ${workspace_config}." \
+    "Copy ${repository_root}/Workspace/.dentobot.env.example there and edit it." >&2
+  exit 2
+fi
+
+if [[ ${print_backend_python} == true ]]; then
+  printf '%s\n' "${backend_python}"
+  exit 0
+fi
+
+if [[ ${backend_python} != /* ]]; then
+  printf 'Backend Python must be an absolute path: %s\n' "${backend_python}" >&2
+  exit 2
+fi
+backend_environment_directory="$(dirname -- "$(dirname -- "${backend_python}")")"
+if [[ ! -d ${backend_environment_directory} ]]; then
+  printf 'Backend environment directory is unavailable: %s\n' \
+    "${backend_environment_directory}" >&2
+  exit 2
+fi
+if [[ ${run_artifact_root} != /* ]]; then
+  printf 'Run-artifact root must be an absolute container path: %s\n' \
+    "${run_artifact_root}" >&2
+  exit 2
+fi
+
+export DENTOBOT_BACKEND_ENV_DIR="${backend_environment_directory}"
+export DENTOBOT_BACKEND_PYTHON="${backend_python}"
+export DENTOBOT_RENDER_DEVICE="${render_device}"
+export DENTOBOT_RUN_ARTIFACT_ROOT="${run_artifact_root}"
+export DENTOBOT_WORKSPACE_ROOT="${workspace_root}"
+
+if ! command -v docker >/dev/null 2>&1; then
+  printf 'Required command is unavailable: docker\n' >&2
+  exit 2
+fi
+if [[ ! -x ${backend_python} ]]; then
+  printf '%s\n' \
+    "The dentobot Conda environment has no Python: ${backend_python}" \
+    'Install Python 3.12 in that environment before launching.' >&2
+  exit 2
+fi
+if [[ ! -c ${render_device} ]]; then
+  printf '%s\n' \
+    "Required Intel GPU render node is unavailable: ${render_device}" \
+    'DENTO Workflow is not launched with an implicit software-rendering fallback.' >&2
+  exit 2
+fi
+
+if ! "${backend_python}" -c \
+  'import importlib.metadata as m; import nibabel, numpy, sys; assert sys.version_info[:2] == (3, 12); assert m.version("dentobot-inference") == "0.2.0"; assert nibabel.__version__ == "5.4.2"; assert numpy.__version__ == "2.2.6"' \
+  >/dev/null 2>&1; then
+  printf '%s\n' \
+    'The dentobot Conda environment is incomplete or has unexpected versions.' \
+    'Expected Python 3.12, dentobot-inference 0.2.0, NumPy 2.2.6, and NiBabel 5.4.2.' >&2
+  exit 2
+fi
+
+compose_command=(
+  docker compose
+  --project-directory "${workspace_root}"
+  -f "${compose_file}"
+)
+"${compose_command[@]}" config -q
+
+if docker inspect "${container_name}" >/dev/null 2>&1; then
+  container_status="$(docker inspect --format '{{.State.Status}}' "${container_name}")"
+  if [[ ${container_status} == "paused" ]]; then
+    printf 'Unpausing %s...\n' "${container_name}"
+    docker unpause "${container_name}" >/dev/null
+  fi
+fi
+
+printf 'Starting the DENTOBOT development container...\n'
+"${compose_command[@]}" up -d
+
+docker exec \
+  -e PYTHONPATH="${backend_source}" \
+  "${container_name}" \
+  "${backend_python}" -c \
+  'import importlib.metadata as m; import nibabel, numpy, sys; assert sys.version_info[:2] == (3, 12); assert m.version("dentobot-inference") == "0.2.0"; assert nibabel.__version__ == "5.4.2"; assert numpy.__version__ == "2.2.6"; print("Conda backend dependency check passed.")'
+docker exec "${container_name}" mkdir -p "${run_artifact_root}"
+docker exec "${container_name}" test -f "${module_path}/DENTOWorkflow.py"
+docker exec "${container_name}" test -f \
+  "${module_path}/Resources/UI/DENTOWorkflow.ui"
+docker exec "${container_name}" test -c "${render_device}"
+container_slicer_priority="$(
+  docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
+)"
+if [[ ${container_slicer_priority} != "0" ]]; then
+  printf '%s\n' \
+    'The container does not preserve normal Slicer process priority.' \
+    'Expected SLICER_BACKGROUND_THREAD_PRIORITY=0.' >&2
+  exit 2
+fi
+
+printf '%s\n' \
+  "Backend Python: ${backend_python}" \
+  "Backend environment: ${backend_environment_directory}" \
+  "Workspace root: ${workspace_root}" \
+  "Workspace configuration: ${workspace_config}" \
+  "Run artifacts: ${run_artifact_root}" \
+  "DENTO Workflow: ${module_path}" \
+  "GPU render node: ${render_device}" \
+  "Slicer background priority: ${container_slicer_priority}"
+
+if [[ ${check_only} == true ]]; then
+  printf 'DENTOBOT launcher check passed. GUI launch was skipped.\n'
+  exit 0
+fi
+
+if [[ -z ${DISPLAY:-} ]]; then
+  printf '%s\n' \
+    'DISPLAY is empty. Run this launcher from an Ubuntu desktop terminal, not SSH.' >&2
+  exit 2
+fi
+if ! command -v xhost >/dev/null 2>&1; then
+  printf 'Required GUI command is unavailable: xhost\n' >&2
+  exit 2
+fi
+
+cleanup_x11() {
+  if [[ ${x11_access_granted} == true ]]; then
+    xhost -SI:localuser:root >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_x11 EXIT INT TERM
+
+printf 'Granting local container root temporary access to DISPLAY=%s...\n' "${DISPLAY}"
+xhost +SI:localuser:root >/dev/null
+x11_access_granted=true
+
+printf 'Opening 3D Slicer directly on DENTO Workflow.\n'
+docker exec -it \
+  -e DISPLAY="${DISPLAY}" \
+  "${container_name}" \
+  bash -lc '
+    source /opt/ros/jazzy/setup.bash
+    source /workspace/ros2_ws/install/setup.bash
+    export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
+    exec ros2 launch slicer_ros2_module slicer.launch.py \
+      "slicer_args:=--no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
+  '

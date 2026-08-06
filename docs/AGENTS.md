@@ -267,6 +267,11 @@ Do not build a custom Slicer application during early workflow milestones.
   `UBUNTU_TRANSFER.md` = `1lQ9QJFInl-FM-OuqOBJBIcNmLCjrc0_X`;
   `changelog.md` = `1C2LbkEE914W_xzAcBMMcTcMBJm_suAQl`;
   `logbook.md` = `1zBztLFd-es_91NglYrHYJ-rtYEQ0at6E`.
+- The active Ubuntu wrapper controls and dated notes are also tracked in this
+  repository under `Workspace/`. Their top-level workspace paths are
+  compatibility symlinks, and their separate
+  `IITM Dentobot/active-development-ubuntu` Drive IDs remain authoritative for
+  that mirror. Do not merge same-named files across the two Drive folders.
 - Whenever the user asks to update `changelog.md` or `logbook.md`, update the
   local canonical files first and, when the connected Drive is available,
   replace the bytes of their corresponding Drive files in place. Also sync any

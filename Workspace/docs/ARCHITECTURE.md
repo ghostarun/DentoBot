@@ -1,25 +1,30 @@
 # DENTOBOT Architecture
 
+> Ubuntu transition note (2026-07-29): this architecture records the accepted
+> Windows/WSL implementation baseline through Step 3C. Platform-specific
+> process, path, GPU, and packaging boundaries are migration inputs, not yet
+> verified Ubuntu architecture.
+
 ## Architectural overview
 
 ```text
-3D Slicer / later DENTOBOT custom Slicer application
+Windows
 |
-+-- DENTOWorkflow scripted module (focused user workflow)
-+-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
-+-- Platform process adapter
-|   +-- Windows: direct WSL2 process
-|   `-- Ubuntu container: direct local Linux process
++-- 3D Slicer / later DENTOBOT custom Slicer application
+|   |
+|   +-- DENTOWorkflow scripted module (focused user workflow)
+|   +-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
+|   +-- Direct WSL process adapter
 |       +-- NIfTI payloads
 |       +-- structured stdout + exit status
 |       `-- JSON result metadata
 |
-+-- Isolated inference Python environment
++-- WSL2 inference environment
+|   |
 |   +-- DENTOBOT inference Python package and tests
-|   +-- Windows/WSL: PyTorch/CUDA
-|   +-- Ubuntu: PyTorch CPU plus OpenVINO device discovery
+|   +-- PyTorch/CUDA
 |   +-- TotalSegmentator `teeth` / ToothFairy3
-|   `-- Future image-processing or planning backends
+|   +-- Future image-processing or planning backends
 |
 +-- External robot-control environment (later)
     |
@@ -29,25 +34,40 @@
 ```
 
 The boundaries are deliberate. Slicer owns interactive medical-image state;
-an isolated external interpreter owns dependency-heavy compute; the robot
-runtime owns hardware safety and real-time behavior.
+WSL2 owns dependency-heavy compute; the robot runtime owns hardware safety and
+real-time behavior.
 
-### Ubuntu launcher-supplied runtime configuration
+## Active Ubuntu workspace and configuration boundary
 
-The active Ubuntu checkout adds a tracked `Workspace/` layer without moving
-the ROS package or rewriting Git history. Its launcher, Compose definition,
-active Ubuntu notes, and helper scripts are exposed at the surrounding
-workspace's established paths through relative symlinks. A single untracked
-`.dentobot.env` supplies the host backend interpreter and render device.
+The Ubuntu development layout preserves the DentoBot Git checkout inside the
+ROS 2 workspace while versioning its surrounding operational controls:
 
-The launcher derives the workspace and Conda environment directories and
-exports an explicit `DENTOBOT_*` runtime contract. Compose uses it for
-absolute bind sources and container environment values. On Ubuntu,
-DENTOWorkflow consumes the launcher-provided backend Python and run-record
-root automatically without persisting those machine paths in the MRB scene;
-manual values remain an advanced override. This changes configuration
-ownership, not the process boundary: Slicer still launches a separate Python
-interpreter and exchanges NIfTI plus JSON rather than importing Conda modules.
+```text
+/home/light-tarun/dentobot
+|-- .dentobot.env                     # local machine values; never Git
+|-- AGENTS.md -> .../Workspace/AGENTS.md
+|-- compose.yaml -> .../Workspace/compose.yaml
+|-- docs -> .../Workspace/docs
+|-- scripts -> .../Workspace/scripts
+`-- ros2_ws/src/DentoBot              # Git checkout
+    |-- Workspace                     # tracked wrapper/configuration
+    |-- DENTOWorkflow
+    `-- Inference
+```
+
+The tracked launcher resolves both roots from its own canonical path, reads
+the single local environment file, derives the Conda environment directory,
+and exports an explicit `DENTOBOT_*` contract to Compose and Slicer. Compose
+uses absolute workspace bind sources. DENTO Workflow consumes the launcher
+backend Python and run-record root automatically but stores only the choice to
+use launcher configuration, not the machine paths, in its parameter node.
+Manual paths remain an advanced compatibility override.
+
+This is still a two-interpreter architecture. Slicer does not activate Conda
+or import its packages. It starts the external interpreter as a child process
+and exchanges geometry-bearing NIfTI plus JSON metadata. Per-run records are
+local evidence/payload directories, never a queue and never a Git or Drive
+artifact.
 
 ## UI strategy
 
@@ -153,9 +173,9 @@ It must run and be testable without Slicer. The first implemented commands
 are:
 
 ```text
-python -m dentobot_inference health --json --require-device <cpu|cuda:0>
+python -m dentobot_inference health --json --require-cuda
 python -m dentobot_inference roundtrip --input <input.nii> --output <roundtrip.nii> --result-json <result.json> --run-id <uuid>
-python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-segmentation.nii> --result-json <result.json> --run-id <uuid> --device <cpu|cuda:0>
+python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-segmentation.nii> --result-json <result.json> --run-id <uuid>
 ```
 
 ### Bridge A, Bridge B, and Bridge C
@@ -163,18 +183,17 @@ python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-s
 The integration slices establish one boundary in independently testable stages:
 
 - **Bridge A — environment health:** `DENTOWorkflow` launches the exact Python
-  interpreter configured by the user through the selected platform adapter. The
+  interpreter configured by the user inside the named WSL distribution. The
   backend reports interpreter identity, package versions, PyTorch import
-  health, requested compute device, CUDA state, and OpenVINO-visible devices as
-  JSON. Device failure is explicit; there is no silent fallback.
+  health, CUDA availability, and device names as JSON. CUDA failure is
+  explicit; there is no silent CPU fallback.
 - **Bridge B — image round trip:** Slicer exports the selected scalar volume to
   an isolated run directory as NIfTI. The WSL backend loads, rewrites, reloads,
   and checks its affine, shape, voxel type, and voxel checksum. Slicer then
   validates the returned MRML volume's dimensions, scalar type, and IJK-to-RAS
   matrix before retaining it in the scene.
-- **Bridge C — explicit-device teeth segmentation:** the same selected-volume
-  and process boundary runs TotalSegmentator `teeth` on either CUDA device 0
-  or CPU, validates a
+- **Bridge C — GPU teeth segmentation:** the same selected-volume and process
+  boundary runs TotalSegmentator `teeth` on CUDA device 0, validates a
   multilabel NIfTI plus schema-versioned metrics, then creates a named and
   colorized `vtkMRMLSegmentationNode`. Binary-labelmap and closed-surface
   representations provide interactive 2D and 3D display.
@@ -183,23 +202,15 @@ All commands use the same asynchronous adapter, bounded live output, process
 exit status, schema-versioned JSON, and argument-list construction. Neither
 Slicer nor the backend command installs packages, edits Slicer, or treats the
 artifact directory as a queue. Bridge C replaces TotalSegmentator's implicit
-weight downloader with a cache-only guard and rejects an unavailable requested
-device rather than silently changing devices.
-
-The native Ubuntu adapter was validated on 2026-07-31 in the SlicerROS2
-Slicer 5.10 container. It invokes `/opt/dentobot-venv/bin/python` directly,
-uses `/workspace/data/dentobot-runs`, and requests `cpu`. A public Slicer
-CBCT fixture completed standalone inference and the Slicer import/review-scene
-path. This is platform compatibility evidence, not anatomical or clinical
-validation.
+weight downloader with a cache-only guard and rejects unavailable CUDA rather
+than silently using the CPU.
 
 ### Runtime boundary
 
-The Slicer module runs in Slicer's embedded Python interpreter. The inference
-package runs in a separate Linux Python environment: inside WSL2 on Windows or
-as a direct child process in the Ubuntu SlicerROS2 container. PyTorch,
-TotalSegmentator, nnU-Net, and OpenVINO are not imported into Slicer, and MRML
-node objects are never passed into the inference process.
+The Slicer module runs in Slicer's embedded Windows Python interpreter. The
+inference package runs in a separate Linux Python interpreter inside WSL2.
+Linux PyTorch/CUDA modules cannot be imported into the Windows Slicer process,
+and MRML node objects cannot be passed directly into the Linux process.
 
 The boundary is therefore an explicitly controlled external process, not a
 Python import and not a folder-based job service.
@@ -211,22 +222,14 @@ For each inference request, the Slicer adapter:
 1. Validates the selected source volume and backend configuration.
 2. Creates a unique run ID and short staging directory.
 3. Exports the source volume to NIfTI with its affine intact.
-4. Starts the platform adapter asynchronously with an argument list containing
-   the absolute Linux Python interpreter, module name, input, output, result
-   metadata path, run ID, and explicit device. Windows prepends `wsl.exe` plus
-   the distribution; Ubuntu launches the interpreter directly.
+4. Starts `wsl.exe` asynchronously with an argument list containing the WSL
+   distribution, absolute Linux Python interpreter, module name, input,
+   output, result metadata path, and run ID. Bridge C itself fixes execution
+   to CUDA device 0.
 5. Streams structured stdout and ordinary diagnostic output into the Slicer
    UI without blocking the Qt event loop.
 6. Supports cancellation and records the terminal process exit code.
 7. On success, validates the output and imports it into MRML.
-
-On Slicer 5.10, the compatibility adapter owns its fallback `QProcess` as a
-child of the module widget. After draining the final output, it disconnects
-the PythonQt signal callbacks, closes the process object, and schedules it for
-Qt deletion before completion handling continues. Headless harnesses also
-clean up the workflow widget before requesting Slicer shutdown. This prevents
-a completed backend child or a signal/closure reference cycle from retaining
-the Slicer process.
 
 Conceptually, the argument list represents:
 
@@ -246,15 +249,10 @@ concatenate a shell command, depend on interactive environment activation, or
 use a watched folder. The WSL distribution and Python interpreter path are
 explicit configuration values verified by the health check.
 
-On Ubuntu the equivalent command begins directly with
-`/opt/dentobot-venv/bin/python`; paths remain native container paths and
-`--device cpu` is explicit.
-
 ### Run artifacts
 
-Use a short, configurable staging root such as `C:\DENTOBOTRuns` on Windows
-or `/workspace/data/dentobot-runs` on Ubuntu. Each run has an isolated UUID
-directory visible to both Slicer and the backend:
+Use a short, configurable staging root such as `C:\DENTOBOTRuns`. Each run
+has an isolated UUID directory visible to WSL2 under `/mnt/c/DENTOBOTRuns`:
 
 ```text
 <run-id>/
@@ -399,102 +397,30 @@ and record the reason and effect in both raw records.
 The repository files are canonical and are mirrored byte-for-byte as Markdown
 in the connected `IITM Dentobot/docs` Google Drive folder for use by the
 non-Codex project chat. Existing Drive file IDs are updated in place. A request
-to update the changelog or logbook places those files and any other changed
-design documents in the next approved synchronization batch; it does not
-require a Drive/Git write after every prompt. The mirror contains
-documentation only; patient data, run artifacts, models, and secrets are
-excluded.
+to update the changelog or logbook also triggers synchronization of those
+files and any other design documents changed in the same batch. The mirror
+contains documentation only; patient data, run artifacts, models, and secrets
+are excluded.
 
 ## Planning and registration architecture
 
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
-- Destructive planning actions require confirmation and the expected
-  DENTOBOT role. They delete the selected primary node and only its
-  unreferenced display/storage auxiliaries, then clear the corresponding
-  workflow parameter reference. Shared auxiliaries and unrelated nodes are
-  preserved.
-- Trajectory deletion retains segmentation, target tooth, and bounds. Draft-
-  model deletion retains segmentation, target, and ordered manual supports.
-  Save/reload must not restore deleted nodes or dangling references, and the
-  retained source state must remain sufficient to recreate each output.
+- Destructive planning actions are role-gated and confirmed. Deleting a
+  DENTOBOT trajectory or draft support-anatomy model removes the primary MRML
+  node and only its unreferenced display/storage auxiliaries, then clears the
+  relevant workflow reference. Shared nodes and source inputs are preserved.
+- Trajectory deletion retains target tooth, segmentation, and bounds; draft-
+  model deletion retains target/support selection. MRML save/reload must not
+  restore deleted nodes or dangling workflow references, and retained inputs
+  must remain sufficient to recreate the output.
 - Planning approval is explicit state, invalidated when relevant anatomy,
   trajectory, or registration changes.
 - Registration, calibration, tracking, and tool poses are transform nodes in
   a documented frame tree.
 - Metrics such as FRE, target error, lateral error, angular error, and depth
   error are computed in reusable logic and displayed by the workflow UI.
-
-The Step 4A source increment keeps planning inputs inside
-`DENTOWorkflow`. The authoritative teeth segmentation remains the source of
-target anatomy. Only records classified as whole teeth are eligible for the
-draft target selector; pulp, canal, jaw, implant, and other segments remain
-available for review but are not silently promoted to target teeth.
-
-The selected target segment ID and `vtkMRMLMarkupsLineNode` are persisted by
-the workflow parameter node. The trajectory stores a proper node reference to
-the target segmentation plus namespaced attributes for the target segment ID,
-source name, FDI number, `EntryToTarget` role, `SlicerRASmm` coordinate
-convention, and `Draft` status. Control point 0 is Entry and control point 1 is
-Target. Their positions and Euclidean length are read in world RAS
-millimetres.
-
-The active target also owns a persistent `vtkMRMLMarkupsROINode` representing
-the whole-tooth closed surface's axis-aligned world-RAS bounding box. The ROI
-is visible and locked. Initial placement and later drag edits are constrained
-at the workflow layer: a newly placed out-of-bounds point is removed, while an
-existing point dragged out of bounds is restored to its last valid position.
-This AABB is a coarse PoC workflow constraint, not proof that a point lies
-inside tooth material and not an anatomical safety margin.
-
-Clearing and deleting are distinct. **Clear Both Points** retains the selected
-trajectory node. **Delete Selected Trajectory** accepts only a line carrying
-the DENTOBOT `EntryToTarget` role, removes the line and any now-unreferenced
-display/storage auxiliaries, and clears the workflow trajectory reference.
-The target segmentation, target segment, and bounds are deliberately retained.
-
-Step 4A target selection has display priority over the independent Step 3
-review selection. The target is emphasized in both 2D and 3D while other
-segments remain contextual. The Markups interaction mode is explicitly
-rebound to the selected line after Slicer enters place mode because Slicer
-5.12.2 otherwise resets the active placement class to Fiducial.
-
-This increment does not define a dental procedure, interpret entry/target
-anatomy, approve a plan, calculate clearance, generate a template, or
-authorize drilling. Those remain later planning and validation increments.
-
-### Step 5A draft support-anatomy model
-
-Step 5A adds a geometry-preserving `vtkMRMLModelNode` boundary between the
-reviewed tooth segmentation and later template-design research. The selected
-Step 4A target remains authoritative. The user manually checks one or more
-other distinct whole-tooth segments from that same Reviewed segmentation;
-there is no inferred adjacency, arch, side, ordering, or maximum count.
-
-The model contains the appended, unmodified local closed surfaces for the
-target and every checked support. It observes the same parent transform as the
-segmentation rather than hardening or silently changing coordinates. A node
-reference and namespaced attributes persist the source segmentation, target
-ID/FDI, ordered support IDs/FDIs, source names, review timestamp, source
-point/cell counts, schema version, status, and update time.
-
-Selection or segmentation-content changes do not delete or silently regenerate
-the output. They mark the model Stale, retain it visibly in orange for review,
-and require an explicit Update; current output is teal. The parameter node
-persists the ordered support selection and model reference across scene save
-and reopen.
-
-**Delete Draft Support Model** accepts only the DENTOBOT
-`TemplateSupportDraft` role, removes the model and any now-unreferenced
-display/storage auxiliaries, and clears the model reference. It retains the
-segmentation, Step 4A target, and ordered support selection for deliberate
-recreation.
-
-This boundary is anatomical source material only. It performs no smoothing,
-remeshing, Boolean union, offset/contact inference, guide-shell or sleeve
-generation, drill-channel creation, export, printability assessment, clinical
-validation, or drilling authorization.
 
 ## Robot architecture and ROS decision gate
 

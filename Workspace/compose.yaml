@@ -1,0 +1,32 @@
+services:
+  slicerros2:
+    image: ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0
+    container_name: dentobot-slicerros2
+    network_mode: host
+    ipc: host
+
+    environment:
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      SLICER_BACKGROUND_THREAD_PRIORITY: "0"
+      DENTOBOT_BACKEND_PYTHON: ${DENTOBOT_BACKEND_PYTHON:?Run scripts/launch-dentoworkflow.bash to configure the backend}
+      DENTOBOT_RUN_ARTIFACT_ROOT: ${DENTOBOT_RUN_ARTIFACT_ROOT:?Run scripts/launch-dentoworkflow.bash to configure run artifacts}
+      ROS_DOMAIN_ID: ${DENTOBOT_ROS_DOMAIN_ID:-73}
+      ROS_AUTOMATIC_DISCOVERY_RANGE: SUBNET
+
+    devices:
+      - ${DENTOBOT_RENDER_DEVICE:?Run scripts/launch-dentoworkflow.bash to configure graphics}:${DENTOBOT_RENDER_DEVICE:?Run scripts/launch-dentoworkflow.bash to configure graphics}
+
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/ros2_ws:/workspace/ros2_ws
+      - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/data:/workspace/data
+      - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/slicer-user:/root/.config/NA-MIC
+      - type: bind
+        source: ${DENTOBOT_BACKEND_ENV_DIR:?Run scripts/launch-dentoworkflow.bash to configure the backend mount}
+        target: ${DENTOBOT_BACKEND_ENV_DIR:?Run scripts/launch-dentoworkflow.bash to configure the backend mount}
+        read_only: true
+
+    stdin_open: true
+    tty: true
+    command: sleep infinity

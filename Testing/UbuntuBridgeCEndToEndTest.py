@@ -15,12 +15,25 @@ from DENTOWorkflow import DENTOWorkflowWidget
 
 
 SOURCE_PATH = Path("/workspace/data/fixtures/cbct-dental-surgery.nii")
-STAGING_ROOT = Path("/workspace/data/dentobot-runs")
-SCENE_PATH = STAGING_ROOT / "ubuntu-bridge-c-e2e-20260731.mrb"
 TIMEOUT_SECONDS = 15 * 60
 
 
 def run_test():
+    missing_variables = [
+        name
+        for name in (
+            "DENTOBOT_BACKEND_PYTHON",
+            "DENTOBOT_RUN_ARTIFACT_ROOT",
+        )
+        if not os.environ.get(name, "").strip()
+    ]
+    if missing_variables:
+        raise RuntimeError(
+            "Missing launcher runtime configuration: "
+            + ", ".join(missing_variables)
+        )
+    staging_root = Path(os.environ["DENTOBOT_RUN_ARTIFACT_ROOT"])
+    scene_path = staging_root / "ubuntu-bridge-c-e2e-20260731.mrb"
     os.environ["TOTALSEG_HOME_DIR"] = (
         "/workspace/data/model-cache/totalsegmentator"
     )
@@ -37,8 +50,6 @@ def run_test():
     widget = DENTOWorkflowWidget(parent)
     widget.setup()
     widget.initializeParameterNode()
-    widget._parameterNode.wslPythonPath = "/opt/dentobot-venv/bin/python"
-    widget._parameterNode.stagingRoot = str(STAGING_ROOT)
     widget._parameterNode.inferenceDevice = "cpu"
     widget._parameterNode.inputVolume = source_volume
     widget.ui.inputVolumeSelector.setCurrentNode(source_volume)
@@ -70,7 +81,7 @@ def run_test():
         raise AssertionError(f"expected 54 segments, got {segment_count}")
     if segmentation.GetAttribute("DENTOBOT.ActualDevice") != "cpu":
         raise AssertionError("Bridge C did not preserve the explicit CPU device")
-    if not slicer.util.saveScene(str(SCENE_PATH)):
+    if not slicer.util.saveScene(str(scene_path)):
         raise RuntimeError("Slicer could not save the end-to-end review scene")
 
     return {
@@ -82,8 +93,8 @@ def run_test():
         ),
         "segmentCount": segment_count,
         "actualDevice": segmentation.GetAttribute("DENTOBOT.ActualDevice"),
-        "scene": str(SCENE_PATH),
-        "sceneSizeBytes": SCENE_PATH.stat().st_size,
+        "scene": str(scene_path),
+        "sceneSizeBytes": scene_path.stat().st_size,
     }
 
 

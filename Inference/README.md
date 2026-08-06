@@ -90,11 +90,17 @@ passing.
 
 ## Slicer bridge configuration
 
-In the DENTO Workflow module, configure:
+On the active Ubuntu workspace, start Slicer through
+`scripts/launch-dentoworkflow.bash`. The launcher reads the one untracked
+`.dentobot.env`, supplies the exact backend interpreter and local run-record
+root, and DENTO Workflow uses them automatically. Do not install this package
+into Slicer's Python or persist workstation paths in an MRB scene.
+
+The older Windows/WSL compatibility mode remains a manual advanced override.
+Configure:
 
 - WSL distribution: `Ubuntu`
-- Environment Python:
-  `/home/tarun/miniconda3/envs/dentobot/bin/python`
+- Environment Python: `/absolute/path/to/conda/envs/dentobot/bin/python`
 - Run artifacts: a Windows directory such as `C:\DENTOBOTRuns`
 
 Slicer calls the environment by absolute interpreter path. Activating Conda in

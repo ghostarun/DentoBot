@@ -47,8 +47,9 @@ print(f"Markdown fences: {len(markdown_files)} files passed")
 PY
 
 if [[ -n "${backend_python}" ]]; then
-  "${backend_python}" -m pip check
-  "${backend_python}" -m pytest -q "${repository_root}/Inference/tests"
+  PIP_NO_CACHE_DIR=1 "${backend_python}" -m pip check
+  "${backend_python}" -m pytest -p no:cacheprovider -q \
+    "${repository_root}/Inference/tests"
 else
   echo "Backend tests: skipped (set DENTOBOT_BACKEND_PYTHON)"
 fi

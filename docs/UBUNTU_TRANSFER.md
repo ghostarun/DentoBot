@@ -13,7 +13,7 @@ Ubuntu workspace. The Windows/WSL implementation was verified primarily in
 3D Slicer 5.12.2. The Ubuntu container currently uses Slicer 5.10 and ROS 2
 Jazzy, so compatibility must be demonstrated rather than assumed.
 
-## Ubuntu migration status — 2026-07-31
+## Ubuntu migration status — updated 2026-08-06
 
 - The remote feature hash was independently verified as
   `72da94207d33234a12f5d904c23733ff382f9e43`.
@@ -47,6 +47,11 @@ Jazzy, so compatibility must be demonstrated rather than assumed.
   level 0. The repository `README.md` records the general Ubuntu container
   graphics requirements and prioritizes this verified integrated-GPU case.
   User-perceived FPS on the original visualization workload remains pending.
+- The repository now tracks the surrounding Ubuntu orchestration and active
+  notes under `Workspace/`. Relative symlinks preserve the established
+  top-level paths, and one untracked `.dentobot.env` owns workstation-specific
+  interpreter/render settings. This supersedes the earlier disposition that
+  those text/configuration files remain outside this repository.
 - No robot motion, drilling, patient data transfer, or clinical/anatomical
   validation was performed.
 
@@ -103,8 +108,9 @@ weights, generated build products, medical/research data, or credentials.
 | Slicer user settings | No | Recreate settings deliberately. Use an approved MRB only when scene state is required. |
 | TotalSegmentator cache path | No | Record the selected Ubuntu cache path and verify cache-only behavior before inference. |
 | GitHub credentials/tokens | No | Authenticate independently on Ubuntu; never copy credentials into the repository. |
-| Ubuntu `compose.yaml`, `ros2_ws`, `data`, `slicer-user`, and active docs | No in this repository | Preserve in place and compare before integration. |
-| Active Ubuntu Drive documentation | No in this repository | Treat the Ubuntu-local copy as authoritative and reconcile rather than overwrite. |
+| Ubuntu Compose, launcher/helper scripts, active docs, and top-level agent entrypoint | Yes, under `Workspace/` | Recreate compatibility links with `Workspace/bootstrap-workspace.bash`; edit only the untracked local `.dentobot.env`. |
+| `ros2_ws` build/install/log, `data`, `slicer-user`, and `.dentobot.env` | No | Preserve/reconstruct locally; never commit runtime, medical, model, settings, or machine-configuration state. |
+| Active Ubuntu Drive documentation | Yes, under `Workspace/docs/` | Treat the Git/local copy as authoritative and update its separate existing Drive IDs in place. |
 
 ## Windows closeout before transfer
 

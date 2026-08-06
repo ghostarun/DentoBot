@@ -21,495 +21,279 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
-## 2026-08-06 19:21:52 IST (UTC+05:30) — Portable launcher configuration and tracked Ubuntu workspace
+## 2026-08-06 19:21:52 IST (UTC+05:30) — Central configuration and Git-controlled workspace
 
-### Changed
+### Added and changed
 
-- Added a Git-tracked `Workspace/` layer containing the formerly loose Ubuntu
-  Compose definition, launcher/helper scripts, active workspace notes, and
-  top-level agent entrypoint. Preserved their established workspace paths as
-  relative symlinks and added a safe, non-overwriting bootstrap plus Git
-  helper.
-- Added a tracked `.dentobot.env` template and one untracked populated local
-  file. The launcher now derives repository/workspace and Conda-environment
-  roots, exports the complete runtime contract, and invokes the canonical
-  Compose file with explicit workspace bind sources.
-- Added automatic Ubuntu launcher configuration to DENTO Workflow. Launcher
-  paths are displayed but not persisted into MRB state; manual interpreter
-  and run-record fields are retained as advanced overrides. Added an explicit
-  explanation of local per-operation NIfTI/JSON run records.
-- Updated Ubuntu Bridge A/C harnesses and the synthetic Bridge B launcher to
-  consume the same runtime environment variables instead of workstation
-  interpreter paths.
-- Expanded `.gitignore` for local machine configuration, test/coverage
-  outputs, and patch residue. Disabled pytest's cache provider in the close
-  check so root-owned container cache residue cannot produce host warnings.
-- Installed the already pinned pytest 8.4.2 dependency into the external
-  Conda backend. Slicer's embedded Python was not modified.
+- Moved the active Ubuntu launcher/helpers, Compose definition, agent
+  entrypoint, and documentation intact into the existing repository's tracked
+  `Workspace/` layer. Relative symlinks preserve all former top-level paths.
+- Added a safe workspace bootstrap, top-level Git helper, explicit absolute
+  Compose mounts, and one ignored `.dentobot.env` for workstation-specific
+  backend/render values.
+- Disabled pytest's optional cache provider in the close check so
+  container-owned cache residue does not generate host permission warnings.
+- Made the launcher the runtime configuration authority and made DENTO
+  Workflow consume its interpreter and run-record root automatically without
+  saving machine paths into MRB scenes. Manual values remain advanced
+  overrides, and the UI now explains the local input/output/JSON run records.
+- Installed repository-pinned pytest 8.4.2 in the dedicated Conda backend;
+  no Slicer Python package was changed.
+- Updated setup, decisions, tasks, architecture, traceability, transfer, and
+  synchronization guidance for the consolidated structure.
 
-### Verification and limits
+### Evidence and limitations
 
-- Shell syntax, compatibility symlinks/bootstrap, canonical and compatibility
-  launcher lookup, Git helper, and rendered Compose configuration passed.
-- Python AST and Qt UI XML checks passed. `pip check` and all 13 inference
-  tests passed in the dedicated Python 3.12 backend.
-- No Slicer GUI/native test, inference/model run, medical image, patient data,
-  robot, motion, drilling, or fabrication action was performed. Interactive
-  launcher-value display and backend health remain the next Slicer check.
-- GitHub CLI authentication was found invalid before publication; local
-  commit and Drive synchronization are handled separately from that external
-  authentication gate.
+- Shell syntax, bootstrap/symlink resolution, launcher configuration lookup,
+  Git helper, Compose rendering, Python AST, Qt UI XML, `pip check`, and all
+  13 inference tests passed.
+- No Slicer GUI/native test or inference/model process ran. No medical image,
+  run record, model, patient data, credential, robot, motion, drilling, or
+  fabrication artifact was added to Git or Drive.
+- The GitHub CLI token was invalid when checked, so non-force publication
+  requires re-authentication. Drive synchronization uses existing IDs only.
 
-## 2026-08-04 13:42:57 IST (UTC+05:30) — Safe draft-output deletion and Ubuntu rendering guide
+## 2026-08-04 13:42:57 IST (UTC+05:30) — Hardware rendering verified and safe output deletion added
 
-### Changed
+### Added and changed
 
-- Added dedicated confirmed delete buttons for the selected Step 4A
+- Generalized the Ubuntu graphics setup guidance for Mesa-backed Intel/AMD
+  render-node passthrough, multi-GPU node selection, non-root render-group
+  access, NVIDIA's distinct container path, hardware-renderer checks, and
+  Slicer's Linux process-priority override. The verified Intel Arrow Lake-S
+  `i915` configuration remains the prioritized example.
+- Added dedicated, confirmed deletion controls for the selected Step 4A
   DENTOBOT trajectory and Step 5A DENTOBOT draft support-anatomy model.
-- Added role-gated deletion logic that clears the relevant workflow reference
-  and removes captured display/storage auxiliaries only when no remaining
-  scene node references them. Target, reviewed segmentation, bounds, ordered
-  supports, shared auxiliaries, and unrelated user nodes remain intact.
-- Added Slicer-native lifecycle coverage for rejecting unrelated nodes,
-  selective destruction, MRB save/reload without dangling references, retained
-  source state, and successful recreation.
-- Added a repository `README.md` describing general Ubuntu container graphics
-  requirements, with the verified Intel integrated-graphics path prioritized.
-- Updated controlled architecture, roadmap, transfer, agent-state, changelog,
-  and logbook records. The developer's new workflow batches notes and requests
-  approval before Drive/Git synchronization rather than syncing every prompt.
+- Added role validation, workflow-reference cleanup, and conservative
+  auxiliary-node destruction: display/storage nodes are removed only when no
+  remaining scene node references them. Target, segmentation, bounds, manual
+  support selection, shared auxiliaries, and unrelated user nodes are kept.
+- Added Slicer-native coverage for deletion rejection, selective destruction,
+  MRB save/reload, absence of dangling references, preserved source state,
+  and successful recreation.
+- Recorded the developer's instruction to batch notes and request approval
+  before periodic Drive/Git synchronization rather than syncing each prompt.
 
-### Verification and limits
+### Evidence and limitations
 
-- The host/container path reported direct `Mesa Intel(R) Graphics (ARL)`,
-  OpenGL 4.6, `i915` render-node use, and Slicer nice level 0. Workload-level
-  perceived FPS remains for the developer to confirm.
-- `git diff --check` and `Infrastructure/close_day_checks.sh` passed 20 Python
-  ASTs, two Qt UI files, eight controlled Markdown files, and Markdown fences.
-  Backend tests were skipped because backend source was unchanged.
-- The added Slicer-native deletion/persistence test was not run. No inference,
-  segmentation, model download, patient data, robot, motion, drilling,
-  fabrication, or clinical operation occurred.
-
-## 2026-08-03 21:33:16 IST (UTC+05:30) — Step 5A arbitrary-count support anatomy
-
-### Changed
-
-- Added persistent Step 5A parameters for ordered manual support-tooth IDs and
-  the draft model reference.
-- Added a Step 5A panel that reuses the Step 4A target and lets the user check
-  any positive number of other whole-tooth segments. No adjacency, arch, side,
-  ordering, or maximum-count rule is inferred.
-- Added validation and one-model generation by appending unmodified target and
-  support closed surfaces, with source transform preservation and namespaced
-  selection/review/geometry provenance.
-- Added explicit Current/Stale behavior: selection or segmentation-content
-  changes retain and recolor the prior model, and regeneration requires an
-  explicit Update.
-- Added Slicer-native logic coverage for ten supports, a two-support update,
-  invalid selections, geometry counts, provenance, persistence, transform
-  preservation, review gating, and stale state.
-- Updated controlled architecture, roadmap, traceability, agent state,
-  changelog, and logbook. Pre-existing interpreter-path and process-lifecycle
-  worktree changes were preserved and are not attributed to this increment.
-
-### Verification and limits
-
-- `python3 -m py_compile DENTOWorkflow/DENTOWorkflow.py` passed.
-- `Infrastructure/close_day_checks.sh` passed Git whitespace, 20 Python ASTs,
-  two Qt UI XML files, and eight Markdown fence checks. Backend tests were
-  skipped because backend source was unchanged.
-- The Slicer-native test was added but not run. The developer remains the live
-  Slicer acceptance authority; create/update and scene save/reopen remain
-  pending observation.
-- No Slicer, inference, model download, patient data, robot process, motion,
+- After authorized service recreation, direct GLX reported
+  `Mesa Intel(R) Graphics (ARL)`, OpenGL 4.6, and direct rendering. The live
+  Slicer process remained at nice level 0 and held four descriptors to the
+  `i915` render node. User-perceived FPS on the original workload remains to
+  be confirmed.
+- `git diff --check` and `Infrastructure/close_day_checks.sh` passed: 20
+  Python ASTs, two Qt UI files, eight controlled Markdown files, and Markdown
+  fences. Backend tests were skipped because backend source was unchanged.
+- The new Slicer-native deletion/persistence test was added but not run. No
+  inference, segmentation, model download, patient data, robot, motion,
   drilling, fabrication, or clinical operation occurred.
-- Step 5A produces draft source anatomy only. It does not generate a shell,
-  contact surface, sleeve, drill channel, printable template, or approved
-  dental guide.
 
-## 2026-08-03 17:36:17 IST (UTC+05:30) — Deterministic Slicer process shutdown
-
-### Changed
-
-- Made the Slicer 5.10 fallback `QProcess` a child of the workflow widget and
-  added explicit signal disconnection, close, and deferred deletion after
-  final output is drained.
-- Made the Bridge A health harness release its workflow widget before Slicer
-  shutdown and added a direct headless-Slicer launcher whose exit code is the
-  test authority.
-- Preserved the pre-existing uncommitted Ubuntu default-interpreter change;
-  this lifecycle batch did not author or revert it.
-
-### Verification and limits
-
-- Static close checks passed for 20 Python ASTs, two Qt UI files, eight
-  controlled Markdown files, Markdown fences, and Git whitespace.
-- The full checkpoint backend returned successful explicit-CPU health with
-  PyTorch 2.10.0+cpu, TotalSegmentator 2.16.0, and OpenVINO 2026.2.0 seeing
-  `CPU`.
-- Two consecutive network-disabled, source-read-only, disposable Slicer 5.10
-  probes passed in 7.758992707 and 5.913129843 seconds. Both Slicer processes
-  and backend children exited; both disposable containers were removed.
-- Initial diagnostic attempts correctly exposed that the ordinary Compose
-  container has only the minimal Bridge B Conda runtime and that `ros2 launch`
-  does not propagate a failed Slicer child status. A first disposable attempt
-  also exposed an `xvfb-run` wrapper leak; the final probes used explicit Xvfb
-  ownership and cleanup.
-- No segmentation, model download, patient data, robot process, motion, or
-  clinical operation occurred. Clean image reconstruction is the next gate.
-
-## 2026-07-31 15:43:26 IST (UTC+05:30) — Ubuntu checkpoint published
-
-- Authenticated GitHub HTTPS through the official browser/device flow as
-  `ghostarun` using a temporary unpacked Ubuntu GitHub CLI. No Git credential
-  or token was added to the repository.
-- Published `codex/ubuntu-migration` and annotated tag
-  `checkpoint/2026-07-31-1511-IST` without force. Verified both remote refs;
-  the branch and peeled tag target equal
-  `1a3d40c1a390283e4884eb0815f0a2b0659ade13`.
-- This supersedes the close entry's push blocker. The checkpoint tag remains
-  fixed at the tested source/documentation state; this entry is a later
-  documentation-only publication record.
-- GitHub CLI reported that this workstation lacks an encrypted credential
-  keyring and stores its token in the user's filesystem-protected CLI config.
-  The token value is not recorded here or in Drive.
-
-## 2026-07-31 15:07:38 IST (UTC+05:30) — Slicer-launched Ubuntu run and checkpoint close
-
-### Completed
-
-- Added a Slicer 5.10-compatible asynchronous `QProcess` fallback because its
-  installed `launchConsoleProcess` helper lacks the newer callback and
-  non-blocking arguments. The fallback reconstructs Slicer's startup
-  environment, decodes PythonQt output incrementally, preserves bounded live
-  logging, and retains completion/cancellation callbacks.
-- Added headless Bridge A and Bridge C Ubuntu integration harnesses. Bridge A
-  passed with explicit CPU health and OpenVINO reporting `CPU`.
-- Added software-only SlicerROS2 image-bridge and geometry-sensitive synthetic
-  MRML/NIfTI round-trip harnesses for later bounded regression. Their presence
-  is not a claim that those separate harnesses passed during this close.
-- The final Slicer-launched Bridge C run returned `status: ok`, produced 54
-  validated segments, and saved a 25.7 MB MRB. Added artifact hashes and the
-  ordered post-checkpoint task gates to controlled documentation.
-
-### Known defect and close disposition
-
-- The headless Slicer process did not exit cleanly after its controlling
-  session was interrupted, even though the backend completed and no inference
-  child remained. Stale exact test processes were identified and terminated.
-  Deterministic process shutdown is the first next task and must use
-  health-only probes before another expensive inference is considered.
-- A local 11.0 GB Docker checkpoint image was created for immediate recovery;
-  clean Dockerfile reconstruction remains pending.
-- Static close checks and backend/Slicer evidence are recorded separately.
-  No runtime image, model, medical image, MRB, or result artifact was added to
-  Git or Drive. No robot/hardware motion or clinical validation occurred.
-- Close verification passed `git diff --check`, 19 Python AST parses, two UI
-  XML parses, eight-document fence checks, container `pip check`, and all 13
-  backend tests. No further Slicer/inference execution was used for closeout.
-- The local checkpoint commit/tag were created. GitHub push was attempted
-  without force but stopped before upload because this Ubuntu clone lacks
-  readable HTTPS credentials. Remote publication remains an explicit
-  authentication blocker, not a successful push.
-
-## 2026-07-31 14:45:38 IST (UTC+05:30) — Native Ubuntu CPU workflow baseline
+## 2026-08-04 13:13:58 IST (UTC+05:30) — Slicer rendering bottlenecks configured for correction
 
 ### Added and changed
 
-- Added a platform-neutral local Linux process adapter alongside the existing
-  Windows/WSL adapter. Ubuntu defaults use the isolated
-  `/opt/dentobot-venv/bin/python`, persistent native run paths, and explicit
-  CPU execution.
-- Generalized backend health and segmentation contracts to an explicit
-  `cpu`/`cuda:0` device without fallback. Health records OpenVINO availability
-  and visible devices; segmentation metadata records the requested/actual
-  device.
-- Added TotalSegmentator 2.16 CPU compatibility handling, explicit transitive
-  task-298 model metadata/cache guarding, and CPU-safe Slicer metrics/provenance.
-- Added Ubuntu CPU constraints, a complete top-level requirement set, an
-  idempotent backend installer, a SlicerROS2 Dockerfile, and a Compose
-  device-mapping example for the Intel accelerator.
-- Added backend CLI/health/segmentation tests and a headless Slicer import,
-  closed-surface, review-metadata, and MRB-save test using a public fixture.
-- Added a root `AGENTS.md`, close-day check script, and standing
-  `"close my day"` / `"close the day"` procedure covering traceability,
-  commit/tag/push, in-place Drive synchronization, verification, and next-day
-  notes.
-- Updated architecture, project context, roadmap, reproducibility, and Ubuntu
-  transfer documentation with the native execution boundary and verified
-  evidence.
+- Added Intel `/dev/dri/renderD128` passthrough to the ordinary SlicerROS2
+  Compose service.
+- Set Slicer's documented `SLICER_BACKGROUND_THREAD_PRIORITY=0` environment
+  override to prevent its Linux background-thread setup from lowering the
+  entire interactive process to nice level 19.
+- Extended the daily launcher to require the host render node, verify it in
+  the container, and verify the priority override before opening Slicer.
+- Updated the active setup, decision, task, and dated logbook records.
 
-### Verification and limits
+### Evidence and limitations
 
-- `pip check` passed; all 13 backend tests passed in Python 3.12.3 with one
-  multiprocessing/fork deprecation warning; the complete Slicer-native
-  `DENTOWorkflowTest` passed in Slicer 5.10.
-- TotalSegmentator CPU inference on Slicer's public 360 x 360 x 330 dental
-  CBCT completed in 217.85 seconds. Geometry and label validation passed with
-  54 detected labels. Slicer imported 54 segments, created closed surfaces,
-  attached review metadata, and saved a 25.7 MB MRB.
-- Model tasks 113, 115, and 298 were downloaded explicitly to the persistent
-  local cache and cryptographically inventoried. Models and runtime artifacts
-  remain outside Git and Drive.
-- OpenVINO is installed, but the existing container sees only CPU because host
-  accelerator devices are not mapped. Intel NPU dental inference is not
-  claimed: TotalSegmentator has no direct OpenVINO device and conversion plus
-  numerical validation remain pending.
-- Clean-image reconstruction, independent MRB reopen, full UI-driven
-  asynchronous Bridge A/B/C, cancellation/error robustness, and anatomical or
-  clinical validation remain pending. No robot or hardware motion occurred.
+- The pre-change live container had no `/dev/dri`; `SlicerApp-real` ran at
+  nice level 19 and loaded Mesa/LLVM while the developer observed low FPS.
+  The host exposes an Intel Arrow Lake-S render node and uses the `i915`
+  kernel driver. The image includes Mesa's Intel `iris` driver path.
+- `bash -n scripts/launch-dentoworkflow.bash` and `docker compose config -q`
+  passed, and rendered Compose output contains the expected device and
+  environment settings.
+- The running service was deliberately not recreated because Slicer is open
+  and its scene may be unsaved. Hardware renderer identity, live process
+  priority, device use, comparative FPS, and user-perceived responsiveness
+  remain unverified. No inference, model, patient data, ROS test, robot,
+  motion, drilling, or fabrication operation occurred.
 
-## 2026-07-31 11:33:22 IST (UTC+05:30) — Git handoff published for Ubuntu transfer
-
-### Transfer state
-
-- Pushed `codex/target-tooth-trajectory` to GitHub, publishing the Step 4A
-  implementation, correction batch, manual acceptance record, and Ubuntu
-  transfer guide.
-- Updated the active transfer checklist from push-pending to published. The
-  exact final remote commit is intentionally reported in the session handoff
-  because a commit cannot contain its own hash.
-- Synchronized the changed transfer, changelog, and logbook files to their
-  existing Drive IDs and verified the mirror after replacement.
-
-### Verification and limitations
-
-- Verified the remote-tracking feature branch after the final push; the local
-  working tree is clean and no commits remain only on Windows.
-- No merge to `main` was performed. Ubuntu retrieval must use
-  `codex/target-tooth-trajectory` and compare `rev-parse HEAD` with the exact
-  handoff hash.
-- No Slicer, WSL, CUDA, inference, model, DICOM, robot, or hardware process was
-  launched.
-
-## 2026-07-31 03:45:04 IST (UTC+05:30) — Step 4A manual acceptance and transfer closeout
-
-### Accepted and documented
-
-- The developer manually retested the Step 4A correction batch on the retained
-  teeth phantom in Slicer 5.12.2 and reported that it works as intended.
-- Accepted the current PoC interaction scope: target-priority highlighting,
-  target bounding ROI and point constraint, paired Entry/Target placement,
-  and the undo/reset/lock controls.
-- Superseded the active acceptance wording that relied on an isolated
-  automated Slicer run. Those earlier results remain historical diagnostic
-  evidence, while developer-run live testing is the acceptance authority.
-- Recorded the current testing policy: rigorous ordinary-Python logic and
-  static verification remain required, but assistant-launched Slicer testing
-  requires new explicit authorization for the specific action.
-
-### Transfer preparation
-
-- Updated the Ubuntu transfer guide with a checked Windows closeout,
-  Git-versus-non-Git handoff boundary, minimum manifest for approved non-Git
-  material, exact-hash verification, first Ubuntu session order, and expanded
-  Step 4A compatibility checks.
-- Confirmed that Git tracks the extension, inference package, dependency
-  manifests, controlled documentation, and transfer guide. Installed Slicer,
-  environments, model weights, generated caches, run artifacts, research
-  data, credentials, and the existing Ubuntu Compose/ROS workspace remain
-  outside Git.
-- Preserved the non-destructive migration rule: clone into a comparison
-  location and do not overwrite `/home/light-tarun/dentobot`.
-
-### Verification and limitations
-
-- All 11 repository Python files passed AST parsing. The DENTO Workflow UI
-  parsed successfully with 156 uniquely named UI objects; all 71 Python UI
-  references and all 29 connected callbacks resolved. All eight local
-  Markdown files had balanced code fences, and `git diff --check` passed with
-  line-ending warnings only.
-- Observer and transient-state cleanup paths were reviewed: parameter-node,
-  segmentation, display-node, and trajectory observers are removed on
-  rebinding/exit/cleanup, and cached valid trajectory points are cleared or
-  removed during planning resets and node changes. This is static lifecycle
-  evidence, not a runtime leak measurement.
-- The ordinary Windows Python could not run `Inference/tests` because
-  `pytest` is not installed. No dependency was installed, WSL was not used,
-  and the separately controlled backend test status was not reclassified.
-- Replaced the changed controlled Markdown files in the existing
-  `IITM Dentobot/docs` Drive mirror without changing their IDs, added
-  `UBUNTU_TRANSFER.md` as the eighth mirrored file with ID
-  `1lQ9QJFInl-FM-OuqOBJBIcNmLCjrc0_X`, and verified all eight names, IDs, and
-  byte sizes against the local canonical files.
-- This closeout changes documentation only; no Slicer, WSL, CUDA, inference,
-  model, DICOM, robot, or hardware process was launched.
-- The manual report does not establish anatomical accuracy, clinical safety,
-  procedure semantics, MRB persistence on Ubuntu, or Slicer 5.10
-  compatibility.
-- The feature branch still requires a final push and exact remote-hash
-  confirmation before Ubuntu retrieval is complete.
-
-## 2026-07-30 23:09:46 IST (UTC+05:30) — Step 4A manual-test correction batch
-
-### Developer findings recorded
-
-- Target assignment and Step 3 review highlighting behaved independently;
-  the planning target did not own the 2D/3D viewport emphasis.
-- Entry and Target could be placed anywhere in the CT world instead of being
-  constrained to the selected tooth.
-- The dentist prefers precise placement in 2D slices; the requested
-  horizontal orientation/focus lock needs a defined anatomical reference
-  plane.
-- Mouse placement created `F_*` fiducial lists instead of populating one
-  two-point trajectory.
-- The workflow exposed no direct undo, reset, or point-lock controls.
-
-### Corrected
-
-- Made the Step 4A target the priority 2D/3D segmentation highlight and
-  synchronized the Step 3 tree back to that target.
-- Added a locked orange `vtkMRMLMarkupsROINode` for the active tooth's
-  axis-aligned world-RAS bounds.
-- Added continuous bounds enforcement: reject a new out-of-bounds point or
-  restore a moved point to its last valid location.
-- Added explicit Markups point-defined, point-modified, and point-removed
-  observers after the expanded test found that the generic MRML modified event
-  could arrive before the first point became defined.
-- Reproduced the `F_*` failure in Slicer 5.12.2. `StartPlaceMode(0)` retained
-  the line node ID but reset the active class to
-  `vtkMRMLMarkupsFiducialNode`. Reasserting the active line class and node
-  after entering place mode fixed the state.
-- Changed the placement instruction to one Entry-then-Target action and kept
-  the Markups line's maximum at two points.
-- Added Undo Last Point, confirmed Clear Both Points, and lock/unlock controls
-  for a complete non-zero in-bounds pair.
-- Persisted the active target-bounds ROI and associated it with the selected
-  segmentation, segment, and trajectory.
-
-### Verification and limitations
-
-- The complete Slicer-native suite passed in Slicer 5.12.2 revision
-  `f7879b5`.
-- A widget-level correction test passed target-priority highlight in 2D/3D,
-  ROI creation, out-of-bounds Entry and Target rejection, restoration of an
-  existing point moved outside the bounds, corrected line placement class,
-  undo, confirmed reset, and lock/unlock.
-- Orientation lock was not guessed. It is recorded as Step 4B until scanner
-  axial versus occlusal versus tooth-local reference is decided with the
-  dentist.
-- The AABB is a coarse phantom-PoC constraint, not an anatomical or clinical
-  safety boundary. Manual phantom retest remains pending. WSL, inference,
-  CUDA, models, DICOM, robot, and hardware were not launched.
-
-## 2026-07-30 22:14:45 IST (UTC+05:30) — Step 4A automated Slicer acceptance
-
-### Authorized verification
-
-- After explicit developer authorization, launched isolated hidden Slicer
-  5.12.2 processes without starting WSL, inference, CUDA, models, DICOM,
-  robot, or hardware operations.
-- Ran the complete `DENTOWorkflowTest` Slicer-native suite.
-- Exercised the actual widget path with an already-existing synthetic
-  segmentation containing one whole tooth, one pulp segment, and one jaw
-  segment.
-- Confirmed that selecting the segmentation enables Step 4A and produces one
-  eligible FDI 16 target plus the placeholder.
-- Selected and persisted `tooth-16`, created a
-  `vtkMRMLMarkupsLineNode`, labelled its points Entry and Target, retained
-  `SlicerRASmm` and `Draft` attributes, and verified the known 3-4-12
-  trajectory length of 13.0 millimetres.
-- Saved and reopened a synthetic MRB and confirmed restoration of the target
-  segment ID, segmentation reference, trajectory reference, trajectory
-  geometry, and trajectory-to-segmentation node reference.
-
-### Test-harness findings and limitations
-
-- The first widget-harness attempt constructed the widget without a parent,
-  causing Slicer's base class to call `setup()` before subclass initialization.
-  The harness was corrected to use Slicer's registered-widget construction
-  pattern; no product source change was required.
-- The first persistence fixture used empty segments and could not be stored as
-  an MRB. Adding synthetic closed-surface representations corrected the
-  fixture, after which save/reopen passed.
-- The Windows app-control bridge was unavailable, so the test used Slicer's
-  supported command-line/Python runtime rather than clicking the developer's
-  visible Slicer instance.
-- Manual point placement on the retained teeth phantom and Ubuntu Slicer 5.10
-  compatibility remain pending. The disposable test script, result JSON, and
-  synthetic MRB were removed after verification. Nothing in product source
-  was reverted.
-
-## 2026-07-30 20:39:31 IST (UTC+05:30) — Step 4A segmentation-selection refresh fix
-
-### Observed and corrected
-
-- During the first interactive Step 4A test, the developer reported that the
-  target-tooth selector remained disabled after an existing segmentation was
-  selected in the Step 3 review panel.
-- Confirmed that Step 4A does not require a new inference run or any additional
-  backend output. It consumes existing whole-tooth segment names ending in
-  valid two-digit FDI codes.
-- Added an explicit planning refresh after the review-segmentation selection
-  handler. This avoids relying on parameter-node observer ordering that may
-  differ across Slicer versions.
-- Restored the agreed `Step 4A` identifier in the panel and controlled
-  documentation.
-
-### Verification and limitations
-
-- Static Python parsing and UI XML/reference checks passed after the fix.
-- Interactive retest in the developer's running Slicer session remains
-  pending. No inference, WSL, CUDA, model, DICOM, or hardware process was
-  launched for this correction.
-- Selecting a tooth in the Step 3 explorer remains a non-destructive review
-  highlight. The target must be explicitly chosen in Step 4A.
-
-## 2026-07-30 18:25:34 IST (UTC+05:30) — Step 4A target-tooth and draft trajectory inputs
+## 2026-08-03 17:36:17 IST (UTC+05:30) — Slicer health-process lifecycle gate closed
 
 ### Added and changed
 
-- Added the Step 4A planning panel to DENTO Workflow.
-- Added persistent `targetToothSegmentId` and
-  `vtkMRMLMarkupsLineNode` parameter-node state.
-- Restricted target choices to whole-tooth records from the authoritative
-  segmentation. Pulp, canal, jaw, implant, restoration, and other anatomy
-  remain reviewable but are excluded from target-tooth selection.
-- Added draft trajectory creation and selection, explicit Entry/Target point
-  labels, interactive Markups placement, world-RAS coordinates, and Euclidean
-  length.
-- Associated each configured trajectory with its target segmentation using an
-  MRML node reference and with its target segment using namespaced
-  `DENTOBOT.*` attributes.
-- Cleared stale target associations when the selected segmentation changes, the
-  target is cleared, or the retained segment no longer qualifies.
-- Added Slicer-native logic-test source for target filtering, invalid targets,
-  target references, point labels, partial and complete lines, a known
-  13-millimetre trajectory, coincident points, and parameter-node
-  persistence.
-- Updated the controlled architecture, roadmap, and agent state.
-- Added `docs/UBUNTU_TRANSFER.md` with the verified Git boundary, non-Git
-  manifest, safe comparison clone procedure, Slicer 5.10 compatibility gates,
-  and external-backend migration sequence.
-
-### Preserved
-
-- The authoritative segmentation, Step 3 review/correction behavior, inference
-  process contract, source CBCT, masks, and run artifacts are unchanged.
-- The increment does not define procedure-specific anatomy, approve a plan,
-  calculate clearance, generate a patient-specific template, perform
-  registration, or authorize drilling.
-- The disabled legacy trajectory scaffold remains unchanged as historical
-  source; its two-point creation and length concepts were reimplemented under
-  current DENTO Workflow ownership rather than enabling the old module.
+- Updated the nested DENTOBOT Slicer 5.10 adapter so its fallback `QProcess`
+  has explicit Qt parent ownership and disconnect/close/delete-later teardown.
+- Added deterministic Bridge A harness cleanup and a direct headless-Slicer
+  launcher with authoritative exit-code propagation.
+- Reconciled the active Ubuntu task list and technical decisions with the
+  migrated nested Git checkout and the ordered post-checkpoint gates.
 
 ### Verification and limitations
 
-- All 11 repository Python files passed static AST parsing without importing a
-  Slicer module in ordinary Python.
-- `DENTOWorkflow.ui` parsed as XML; all 67 Python `self.ui.*` references
-  resolve, all statically discovered callbacks resolve, and UI object names
-  are unique.
-- `git diff --check` passed apart from informational line-ending warnings.
-- An ordinary Windows-Python `pytest` attempt did not run because that
-  interpreter does not have pytest installed. This is not a failure of the
-  Slicer-native planning tests or the separately controlled WSL environment.
-- Slicer, WSL, CUDA, TotalSegmentator, DICOM, research data, robot, and
-  hardware processes were not launched. Module reload, interactive placement,
-  the Slicer-native test, and MRB persistence remain pending in Slicer 5.12.2;
-  compatibility must then be verified in Ubuntu Slicer 5.10.
-- Nothing was reverted.
+- Static checks passed for 20 Python ASTs, two Qt UI files, eight controlled
+  nested Markdown files, Markdown fences, and Git whitespace.
+- The full checkpoint backend passed explicit-CPU health. Two consecutive
+  network-disabled, source-read-only Slicer 5.10 Bridge A probes passed in
+  7.758992707 and 5.913129843 seconds; Slicer/backend processes exited and
+  disposable containers were removed.
+- The ordinary Compose container remains the minimal Bridge B runtime and was
+  restored to its pre-session stopped state. No segmentation, model download,
+  patient data, robot process, or clinical operation occurred.
+- Clean checkpoint-image reconstruction is the next gate. No commit, tag,
+  push, clean rebuild, NPU test, MRB reopen, Bridge B, or Bridge C run is
+  claimed by this entry.
+
+## 2026-07-31 16:30:30 IST (UTC+05:30) — Conda-backed one-command DENTO Workflow launcher
+
+### Added and changed
+
+- Added `scripts/launch-dentoworkflow.bash` as the daily Ubuntu entry point.
+  It validates the backend, starts or unpauses Compose, scopes X11 access to
+  the Slicer process, adds the repository module path, and automatically
+  selects DENTO Workflow.
+- Initialized the existing empty `dentobot` Conda environment with Python
+  3.12.13, DENTOBOT inference 0.2.0, NumPy 2.2.6, NiBabel 5.4.2, packaging
+  26.2, and typing-extensions 4.16.0.
+- Replaced the provisional `/opt/dentobot-venv` Docker-volume design with a
+  read-only bind mount of
+  `/home/light-tarun/miniconda3/envs/dentobot` at the same container path.
+- Updated DENTO Workflow's Linux default backend path and the synthetic Bridge
+  B test launcher to use the Conda interpreter.
+
+### Verification and limitations
+
+- `scripts/launch-dentoworkflow.bash --check-only` passed after Compose
+  recreated the service with the Conda mount.
+- The full synthetic Bridge B test passed under
+  `data/test-artifacts/bridge-b-l3V0RG`: backend status was `ok`, geometry and
+  data matched, and the deliberate `0.01` mm geometry error was rejected.
+- A headless Slicer startup reported `DENTO_AUTO_SELECTED=DENTOWorkflow`,
+  proving module discovery and automatic selection. Its forced headless quit
+  produced the known upstream VTK-leak exit diagnostic; interactive Slicer was
+  not visually inspected in this execution environment.
+- An initial package install from the source tree failed because generated
+  egg-info files are owned by `nobody`; installation from an isolated
+  temporary source copy succeeded. A no-write AST parse is used for source
+  syntax verification because the existing module `__pycache__` is likewise
+  not host-writable.
+- The Conda environment currently supports Bridge B only. It does not yet
+  include PyTorch, TotalSegmentator, CUDA model dependencies, or weights. No
+  patient data, robot hardware, motion, or safety-critical operation was used.
+
+## 2026-07-31 14:47:02 IST (UTC+05:30) — Synthetic MRML/NIfTI Bridge B validation
+
+### Added and changed
+
+- Added a two-phase headless Slicer test that generates an oblique,
+  anisotropic int16 MRML volume, exports it as NIfTI, and validates the
+  returned NIfTI against recorded voxels and IJK-to-RAS geometry.
+- Added a launcher and orchestration script that execute the existing
+  `dentobot_inference roundtrip` backend between Slicer export and import.
+- Added a controlled negative check that perturbs one RAS translation element
+  by `0.01` mm and requires DENTOWorkflow's geometry validator to reject it.
+- Added an Ubuntu synthetic Bridge B evidence section to the controlled
+  reproducibility record.
+
+### Verification and limitations
+
+- The final run used Slicer 5.10.0, external Python 3.12.3,
+  DENTOBOT inference 0.2.0, NumPy 2.2.6, and NiBabel 5.4.2.
+- Backend `geometryMatch` and `dataMatch` were true. Slicer re-imported exact
+  `4 x 5 x 6` int16 voxels with KJI SHA-256
+  `26f20beee1e0aa33140dbabf55d17853bc1265e1f9a9718c1e7ba92f3d557bd6`.
+- The maximum IJK-to-RAS difference was approximately `4.77e-08`, and the
+  deliberate `0.01` mm mismatch was rejected.
+- Both Slicer phases and the backend exited 0. The temporary backend reported
+  no broken Python requirements.
+- This does not validate real DICOM/CBCT, segmentation labels, the interactive
+  asynchronous adapter, anatomy, registration, or clinical behavior. No
+  patient data or hardware was used, and nothing was reverted.
+
+## 2026-07-31 14:20:54 IST (UTC+05:30) — SlicerROS2 imaging bridge verification
+
+### Added and changed
+
+- Added a host Lyrical synthetic-image probe using the system ROS Python and a
+  headless Slicer test that bridges ROS images to and from an MRML scalar
+  volume.
+- Added an upstream-CI-style launcher for reproducible headless execution.
+- Recorded standard ROS image transport as pixel plumbing rather than the
+  geometry-preserving CBCT/segmentation exchange contract.
+- The upstream suite installed `psutil 7.2.2` into the running container's
+  embedded Slicer Python because the dependency was initially absent.
+
+### Verification and limitations
+
+- All 23 upstream SlicerROS2 tests passed in 22.694 seconds.
+- The custom host/Slicer probe verified exact mono8 dimensions and pixel
+  payloads in both directions; both final processes exited 0.
+- After restarting the Compose service, domain 73, subnet discovery, and the
+  SlicerROS2 overlay remained present, and the same image probe passed again.
+- Early probe attempts exposed Miniconda `python3` shadowing the Ubuntu system
+  interpreter and a nonzero Slicer `--python-script` shutdown path. The final
+  probe uses `/usr/bin/python3`, an upstream-style `--python-code` launcher,
+  explicit MRML/ROS endpoint cleanup, and exits cleanly.
+- The Slicer run still prints upstream VTK leak diagnostics and benign
+  create-before-first-spin warnings. Real CBCT geometry, affine and RAS/LPS
+  semantics, segmentation data, custom DENTOBOT interfaces, latency,
+  registration, and safety remain unverified. No hardware or patient data was
+  used, and nothing was reverted.
+
+## 2026-07-31 13:05:16 IST (UTC+05:30) — Lyrical/Jazzy interoperability baseline
+
+### Added and changed
+
+- Extended `scripts/source-host-ros2.bash` with DENTOBOT domain 73, subnet
+  discovery, a localhost-only guard, domain override support, and conditional
+  sourcing of a future separate host-native Lyrical overlay.
+- Added matching ROS domain and discovery defaults to the SlicerROS2 Compose
+  service and recreated the existing container from the unchanged image.
+- Recorded that the project is in conceptual design, no robot hardware
+  exists, and current implementation priority is the 3D Slicer
+  medical-imaging workflow.
+
+### Verification and limitations
+
+- Helper syntax, source behavior, localhost-only rejection, and direct-
+  execution rejection passed.
+- Host Lyrical to container Jazzy and container Jazzy to host Lyrical
+  `std_msgs/msg/String` tests passed with exact payloads.
+- A host Lyrical `geometry_msgs/msg/TransformStamped` message was received
+  exactly by the Jazzy container. Its frames and pose were explicitly
+  simulated test values.
+- A final host-to-container string test passed using only the persisted
+  Compose discovery defaults.
+- These results cover basic DDS discovery, transport, and the tested standard
+  messages only. Custom SlicerROS2 interfaces, medical-image exchange,
+  coordinate semantics, registration, tracking, timing, robot control,
+  drilling, and safety were not tested. Nothing was reverted.
+
+## 2026-07-31 12:29:42 IST (UTC+05:30) — Host ROS 2 Lyrical installation
+
+### Added and changed
+
+- Added the official Resolute `ros2-apt-source` package and installed ROS 2
+  Lyrical Desktop plus `ros-dev-tools` on Ubuntu 26.04.
+- Initialized rosdep and updated the user dependency cache.
+- Added `scripts/source-host-ros2.bash` for explicit, guarded host Lyrical
+  activation. Global shell startup remains unchanged.
+- Documented the host Lyrical versus container Jazzy boundary, verification
+  commands, workspace isolation rule, and interoperability backlog.
+
+### Verification and limitations
+
+- `dpkg --audit` returned no package-state errors. Installed package status
+  was confirmed for `ros2-apt-source`, `ros-lyrical-desktop`, and
+  `ros-dev-tools`.
+- The sourced environment reported `ROS_DISTRO=lyrical`, ROS 2 version 2,
+  Python 3, 287 packages, and `rmw_fastrtps_cpp`.
+- A bounded Lyrical C++ talker published messages and the Python listener
+  received messages 2 through 9. Both commands ended by the intentional
+  10-second timeout.
+- No robot, tracker, drilling, motion, patient data, or safety-critical
+  operation was run.
+- Host Lyrical to container Jazzy interoperability, host workspace builds,
+  SlicerROS2 functional integration, and hardware behavior remain unverified.
+  Nothing was reverted.
 
 ## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C acceptance and quiet negative test
 
@@ -1338,3 +1122,27 @@ captured, so they must not be inferred from either timestamp.
   repository at this point.
 - Reported failures in the installed Slicer environment did not produce a
   repository dependency change.
+# 2026-07-29 — Ubuntu documentation continuity established
+
+- Restored the Windows-era product context, architecture, development plan,
+  inference reproducibility procedure, and changelog into the active Ubuntu
+  documentation hierarchy.
+- Preserved the Windows session history as
+  `docs/logbook/logbook-windows-history.md`.
+- Added platform-transition notices without rewriting historical validation
+  claims.
+- Established active controls, continuous design documents, change history,
+  platform history, and dated Ubuntu evidence as distinct document classes.
+- Verified the Ubuntu container, ROS 2 Jazzy environment, SlicerROS2 install
+  prefix, and running Slicer process.
+- Deferred Git migration until the documentation and development workflow have
+  been migrated.
+
+## Verification
+
+- Compared local history-file byte counts with their Drive source sizes. The
+  local copies differ only by the final newline added during local restoration.
+- Re-read the active controls and checked the imported document headings and
+  transition markers.
+- Listed the active Drive folder and logbook folder to ground every existing
+  file ID before in-place synchronization.
