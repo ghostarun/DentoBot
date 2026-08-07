@@ -16,10 +16,6 @@ Last updated: 2026-08-07
   material/process constraints, and Entry-on-surface semantics. Current UI
   values are editable research defaults only.
 
-- Re-authenticate GitHub CLI for `ghostarun`, then publish the verified
-  `codex/ubuntu-migration` checkpoint without force and create/update its
-  draft pull request. The saved CLI token was invalid when checked on
-  2026-08-06.
 - On the next authorized interactive launch, confirm DENTO Workflow displays
   the launcher-managed backend Python and run-record root, keeps manual fields
   disabled, and can run the bounded backend health check. Static configuration
@@ -131,6 +127,10 @@ dentist-focused 2D plan remains preserved in this task list and
 
 ## Completed
 
+- Published the accumulated Ubuntu workflow checkpoint to the existing remote
+  `codex/ubuntu-migration` branch without force as feature commit `56eaf34`.
+  The previously recorded Git authentication blocker no longer prevents a
+  normal branch push; no pull request was requested in this batch.
 - Added and Slicer-native synthetically verified Step 5C dentist-directed shell
   finalization. It preserves the Step 5B raw shell, supports capped Dynamic
   Modeler Plane Cut positive/negative regions and surface-snapped closed-curve

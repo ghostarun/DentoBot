@@ -59,6 +59,19 @@ Suggested entry fields are:
   lacked the additional module path; rerunning with DENTO Workflow registered
   passed. Neither failure represented retained output or a source regression.
 
+### Publication
+
+- The authorized accumulated batch was committed as `56eaf34` and pushed
+  without force to the existing `codex/ubuntu-migration` branch. The first
+  restricted-network attempt failed DNS resolution; the approved retry
+  advanced the remote from `d08ae89` to `56eaf34`.
+- Thirteen existing Google Drive Markdown files across the independent active-
+  Ubuntu and canonical mirrors were replaced at their established IDs. After
+  confirming the dated-log folder had no 2026-08-07 entry, that one new log was
+  uploaded exactly once as `14G3ggC4Ub37jcaocV3T5Ds8Yugrd3CK4`.
+- Readback matched the expected ID, name, Markdown MIME type, and exact local
+  byte size for all 14 synchronized files (`DRIVE_READBACK_FAILURES=0`).
+
 ### Safety and next action
 
 - No patient data, inference, ROS, robot, motion, drilling, or fabrication
