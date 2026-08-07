@@ -1,8 +1,20 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 
 ## Active
+
+- Run developer/dentist acceptance of Steps 5B and 5C on representative
+  reviewed dental anatomy: trim the Step 5B ROI; confirm raw-shell contact,
+  removability, channel alignment, and warnings; exercise both Step 5C plane
+  sides and a surface-snapped closed margin; save/reopen the MRB; then
+  export/reopen the finalized shell and sleeve STL parts. Synthetic
+  Slicer-native coverage has passed; anatomical fit, printability, and
+  clinical use have not.
+- Define research-team values and acceptance evidence for clearance,
+  thickness, drill-channel diameter, sleeve fit/height, gingival clearance,
+  material/process constraints, and Entry-on-surface semantics. Current UI
+  values are editable research defaults only.
 
 - Re-authenticate GitHub CLI for `ghostarun`, then publish the verified
   `codex/ubuntu-migration` checkpoint without force and create/update its
@@ -17,10 +29,15 @@ Last updated: 2026-08-06
   recreated service has already passed launcher preflight, direct Intel Mesa
   rendering, `i915` render-node use, and nice level 0; only the developer's
   workload-level responsiveness confirmation remains.
-- With explicit runtime authorization, run the bounded Slicer-native safe-
-  deletion test for the Step 4A trajectory and Step 5A draft model. Confirm
-  selective auxiliary cleanup, retained target/support/source state, MRB
-  save/reload, and recreation after reload.
+- Complete live UI acceptance of safe deletion for Steps 4A, 5A, and 5B. The
+  bounded Slicer-native suite now passes selective auxiliary cleanup, retained
+  inputs, MRB save/reload, shell-ROI reset, Step 5B-to-5C cascade cleanup, and
+  recreation/deletion behavior.
+- Confirm the closed-loop backtracking contract before implementation: a
+  meaningful Step 4A edit would confirm and cascade-delete its Step 5A/5B
+  descendants, while a Step 5A edit would confirm and delete Step 5B
+  descendants. Define the confirmation boundary before interactive point
+  editing so dialogs never fire on every mouse move.
 - Complete developer-run Slicer acceptance of Step 5A: select one target and
   any manually chosen number of distinct whole-tooth supports, create/update
   the draft support-anatomy model, save/reopen the scene, and confirm
@@ -38,38 +55,49 @@ Last updated: 2026-08-06
 
 ## Shelved — remaining Step 4
 
-The accepted Step 4A assistance backlog and Step 4B dentist-focused 2D plan
-are preserved in this task list and `docs/DEVELOPMENT_PLAN.md`. They are not
-current implementation priorities.
+The accepted Step 4A assistance backlog is complete. The Step 4B
+dentist-focused 2D plan remains preserved in this task list and
+`docs/DEVELOPMENT_PLAN.md` and is not a current implementation priority.
 
 - Accepted deferred Step 4A completion backlog:
-  - selecting a trajectory after scene reopen restores its target tooth,
+  - ~~selecting a trajectory after scene reopen restores its target tooth,
     highlight, bounds, and details from persisted MRML associations; editable
-    names never determine identity, and invalid associations produce warnings;
+    names never determine identity, and invalid associations produce warnings~~
+    — implemented and Slicer-native verified on 2026-08-06;
   - ~~keep **Clear Both Points** for clearing Entry/Target while retaining the
     node, and add a confirmed **Delete Trajectory** action that removes only
     the selected trajectory and clears its workflow references~~ — implemented
-    with static verification on 2026-08-04; Slicer-native persistence coverage
-    is added but not yet run;
-  - support multiple trajectories per tooth and show all trajectories in one
+    with static verification on 2026-08-04 and active-widget Slicer-native
+    deletion/persistence verification on 2026-08-07;
+  - ~~support multiple trajectories per tooth and show all trajectories in one
     selector, color-grouped by their authoritative target tooth; selecting a
     tooth emphasizes its associated trajectory entries and matching view
-    lines while other tooth groups remain visible;
-  - assign/persist a deterministic, distinguishable tooth-group color only
-    after the tooth has at least one trajectory;
-  - automatically name new trajectories `FDIxx-Tnn` (for example,
-    `FDI16-T01`, `FDI16-T02`) using the next sequence for that tooth,
-    without using the editable name as the association key;
-  - enforce the Markups-line invariant of at most two control points, labelled
-    Entry and Target; zero/one-point trajectories remain incomplete drafts.
+    lines while other tooth groups remain visible~~ — implemented and
+    Slicer-native verified on 2026-08-07;
+  - ~~assign/persist a deterministic, distinguishable tooth-group color only
+    after the tooth has at least one trajectory~~ — implemented across the
+    Step 4A/5A/5B reference-linked lineage and Slicer-native verified on
+    2026-08-07;
+  - ~~automatically give new and legacy-default trajectories tooth-specific,
+    sequenced, state-bearing labels~~ — implemented as, for example,
+    `DENTO FDI 16 - Trajectory 2 [Complete]`, without using the editable name
+    as the association key; exact compact `FDIxx-Tnn` formatting is superseded;
+  - ~~enforce the Markups-line invariant of at most two control points,
+    labelled Entry and Target; zero/one-point trajectories remain incomplete
+    drafts~~ — implemented and Slicer-native verified on 2026-08-07.
 
 ## Next
 
-- After Step 5A live acceptance, define the next research-template geometry
-  increment: intended support/contact behavior, clearance, shell/sleeve
-  geometry, validation metrics, and acceptance evidence. Step 5A supplies
-  source support anatomy only; it is not a printable or clinically validated
-  guide.
+- Derive and validate a dental/occlusal orientation frame and dentist-approved
+  gingival/cervical margin semantics before offering any automatic trim height
+  or 70–80 percent coverage recommendation.
+- Define how a deliberately edited expert Dynamic Modeler output may be
+  adopted into the DENTOBOT Step 5C provenance contract; arbitrary module
+  output is currently available for expert work but is not silently accepted
+  for STL export.
+- After Steps 5B/5C live acceptance, add the saved planning/geometry report
+  and refine hard-invalid versus warning rules from measured research
+  evidence.
 - Probe Intel NPU visibility only after the clean-image gate; do not claim
   nnU-Net dental inference without a converted and validated model path.
 - Reopen the saved Ubuntu MRB in a fresh, cleanly exiting Slicer process and
@@ -103,6 +131,35 @@ current implementation priorities.
 
 ## Completed
 
+- Added and Slicer-native synthetically verified Step 5C dentist-directed shell
+  finalization. It preserves the Step 5B raw shell, supports capped Dynamic
+  Modeler Plane Cut positive/negative regions and surface-snapped closed-curve
+  inside/outside trimming, rejects non-watertight output, persists edit/source
+  provenance and stale state, cleanly deletes its owned subtree, and owns the
+  only shell-plus-sleeve STL export action. The isolated anterior world-RAS
+  view, lineage controls, MRB persistence, and Step 5B cascade were also
+  exercised; representative anatomy acceptance remains active.
+- Completed and Slicer-native verified the remaining Step 4A assistance
+  backlog: multiple trajectories remain in one selector; deterministic
+  target-tooth colors persist through Step 4A/5A/5B descendants; selecting a
+  tooth emphasizes its group without hiding others or retargeting a valid
+  line; target bounds are unique per segmentation/tooth; and the two-point
+  Entry/Target invariant is enforced. Step 5A/5B now make the inherited color
+  explicit with lineage badges, selector swatches, and Step 5B visibility
+  stripes. Active-widget deletion tests also close the selector
+  auto-substitution race by clearing workflow references before MRML node
+  removal.
+- Fixed and Slicer-native verified the Step 5B shell-ROI cross-role defect.
+  The selector now exposes only Step 5B-owned ROIs, geometry/reset/deletion
+  reject Step 4A bounds and wrong-source ROIs, legacy contaminated Step 4A
+  bounds are repaired in place without duplication, and parameter refresh is
+  non-reentrant. The supplied `2026-07-23-Scene_5a.mrb` passed a read-only
+  compatibility load with no recursion or remaining cross-role ROI.
+- Added and Slicer-native verified Step 5B Scene visibility controls for the
+  selected Step 4A target box/trajectory, Step 5A anatomy, and Step 5B
+  ROI/shell/sleeve. Hidden state survives MRB save/reopen and regeneration.
+  Added role-driven `[Step 4A]`, `[Step 5A]`, and `[Step 5B]` scene-name tags
+  without using names for ownership or identity.
 - Installed the pinned pytest 8.4.2 test dependency in the dedicated external
   Conda backend, passed `pip check`, and ran all 13 inference tests without
   modifying Slicer's embedded Python.

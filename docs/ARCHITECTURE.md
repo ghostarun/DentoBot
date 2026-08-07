@@ -496,6 +496,51 @@ remeshing, Boolean union, offset/contact inference, guide-shell or sleeve
 generation, drill-channel creation, export, printability assessment, clinical
 validation, or drilling authorization.
 
+### Step 4A–5C lineage and template derivation
+
+Each trajectory is associated with an authoritative segmentation and target
+segment through MRML references and attributes, never its editable name.
+Multiple trajectories may belong to one tooth; each carries a deterministic
+persisted tooth-lineage color. That presentation color propagates through the
+matching Step 4A bounds, Step 5A support model, Step 5B ROI/shell/sleeve, and
+Step 5C edit/final-shell nodes. Roles, segment IDs, and references—not colors
+or `[Step 4A]` through `[Step 5C]` name prefixes—remain authoritative.
+
+Step 5B converts the Step 5A model to world-RAS VTK geometry and samples an
+ROI-trimmed exterior distance band. It subtracts a channel aligned to the
+locked Entry-to-Target line and creates a separate analytic annular sleeve
+extending outward from Entry. Both outputs store source, trajectory, ROI,
+parameter, revision, and topology metadata. A source, trajectory, ROI, or
+parameter change makes them Stale. The raw Step 5B shell is not exportable.
+
+The Step 5B trim ROI and Step 4A target-bounds ROI are mutually exclusive
+roles. The selector and logic accept only a Step 5B ROI referencing the
+current Step 5A model. Legacy cross-role contamination is repaired in place;
+invalid parameter references are cleared without deleting unrelated nodes.
+Visibility controls affect MRML display state only and cover the active Step
+4A bounds/trajectory, Step 5A model, and Step 5B ROI/shell/sleeve.
+
+Step 5C keeps the raw shell unchanged and creates a separate finalized shell
+using Slicer's built-in Dynamic Modeler. Plane Cut supplies capped
+positive/negative regions for the simple horizontal trim. Curve Cut supplies
+inside/outside regions for an adjustable surface-snapped closed margin;
+DENTOBOT then caps, triangulates, cleans, orients, and rejects empty or
+non-watertight retained geometry.
+
+The Step 5C front view is a world-RAS anterior parallel camera with R/L
+horizontal and S/I vertical. Its optional lock constrains camera orientation
+and the plane normal while retaining zoom and plane translation. It is not a
+dental/occlusal frame and does not encode an automatic 70–80 percent coverage
+rule. The method, kept region, markup geometry, source/edit/Dynamic-Modeler
+references, source revision, state, and topology metrics persist in MRML.
+
+Export accepts only a Current, source-matched, watertight Step 5C shell and a
+Current Step 5B sleeve. Step 5C deletion removes only its role-owned plane,
+curve, finalized shell, Dynamic Modeler node, and cut auxiliaries while
+retaining Step 5B. Confirmed Step 5B deletion first cascades through these
+children. STL creation remains a research export action, not printability,
+manufacturing, clinical, or drilling authorization.
+
 ## Robot architecture and ROS decision gate
 
 Slicer communicates only with a high-level `RobotAdapter` interface:

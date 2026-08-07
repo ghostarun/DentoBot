@@ -407,14 +407,87 @@ are excluded.
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
+- The Markups-line class contract is enforced as exactly two possible control
+  points, labelled Entry and Target. Zero/one defined points are incomplete
+  drafts; imported or programmatic lines outside that contract are rejected.
+- Selecting or reopening a persisted trajectory restores its target
+  segmentation, segment ID, target bounds ROI, tooth selector, highlight, and
+  details from MRML references/attributes as one guarded update. Managed names
+  expose FDI, sequence, and completion state for usability, but names are never
+  identity or provenance keys.
+- A target-tooth selection never retargets a trajectory already associated
+  with another tooth. It deselects that line and resolves one reusable target
+  bounds ROI for the exact segmentation/segment pair. All trajectory groups
+  remain available and visible; the selected tooth changes opacity, glyph,
+  line, and label emphasis without changing visibility.
+- Once a tooth has a trajectory, its deterministic persisted RGB lineage color
+  is propagated through reference-linked Step 4A bounds, Step 5A support
+  anatomy, Step 5B ROI/shell/sleeve nodes, and Step 5C trim/final-shell nodes.
+  This is presentation metadata; role attributes, segment IDs, and MRML
+  references remain authoritative.
+  Steps 5A/5B/5C render the same lineage as an FDI/color badge and selector
+  swatches, with Step 5B visibility-control stripes so hidden geometry still
+  has a clear parent/child cue.
 - Destructive planning actions are role-gated and confirmed. Deleting a
   DENTOBOT trajectory or draft support-anatomy model removes the primary MRML
   node and only its unreferenced display/storage auxiliaries, then clears the
-  relevant workflow reference. Shared nodes and source inputs are preserved.
+  relevant workflow reference. The reference is cleared before scene removal
+  to prevent a live selector from substituting an unrelated node. Shared nodes
+  and source inputs are preserved.
 - Trajectory deletion retains target tooth, segmentation, and bounds; draft-
   model deletion retains target/support selection. MRML save/reload must not
   restore deleted nodes or dangling workflow references, and retained inputs
   must remain sufficient to recreate the output.
+- Step 5B converts the Step 5A model to world-RAS VTK geometry before sampling
+  an ROI-trimmed exterior distance band. It subtracts a channel aligned to the
+  locked Entry-to-Target line and creates a separate analytic annular sleeve
+  extending outward from Entry. Both derived models store explicit source,
+  trajectory, and ROI references plus their parameter and topology metadata.
+- Step 5B output is stale whenever the source model revision, trajectory world
+  points, ROI world bounds, or dimensional parameters differ from the values
+  captured at generation. The resulting shell is a non-destructive raw source;
+  Step 5B does not expose STL export.
+- Step 5C stores a separate finalized shell and uses Slicer's built-in Dynamic
+  Modeler. Plane Cut supplies capped positive/negative regions for the simple
+  horizontal trim; Curve Cut supplies inside/outside regions for the adjustable
+  uneven margin, followed by an explicit capping/triangulation/normal pass.
+  Empty or non-watertight finalized geometry is rejected.
+- Step 5C's anterior view uses a world-RAS camera with R/L horizontal and S/I
+  vertical. The optional lock constrains camera orientation and the plane
+  normal while retaining plane translation and zoom. It is not a derived
+  dental/occlusal coordinate frame, so the user must verify anatomy and kept
+  side; no automatic 70–80 percent coverage rule is encoded.
+- Step 5C persists source/edit/Dynamic-Modeler references, source revision,
+  method, kept region, edit geometry, state, and topology metrics. A source,
+  method, region, or markup change makes the finalized shell Stale. Export
+  accepts only a Current, source-matched, watertight Step 5C shell and Current
+  Step 5B sleeve. STL export is an explicit local action and never implies
+  printability, manufacturing approval, or clinical/drilling authorization.
+- Deleting Step 5C removes its role-owned plane, curve, finalized shell,
+  Dynamic Modeler node, and cut-output auxiliaries while retaining the Step 5B
+  source. Confirmed Step 5B deletion first cascades through those Step 5C
+  children so it cannot leave dangling source references.
+- The Step 5B trim ROI is a separately owned, role-gated node. Deleting it
+  removes only the ROI and unshared auxiliaries; Step 5A, trajectory,
+  dimensions, shell, and sleeve remain, with the derived outputs marked Stale
+  until a new ROI is created and generation is rerun.
+- Step 4A target bounds and the Step 5B trim ROI have mutually exclusive role
+  attributes. The Step 5B selector lists only its own role; reset, generation,
+  and deletion repeat the role check in logic, and reset/generation also
+  require the ROI's source reference to match the current Step 5A model.
+  Legacy Step 4A nodes carrying stray Step 5B metadata are repaired in place;
+  invalid Step 5B references are cleared without deleting the referenced
+  upstream node. Parameter-to-widget synchronization is non-reentrant so the
+  resulting MRML repair/name/stale events cannot recurse during scene load.
+- Step 5B exposes display-only visibility controls for the selected Step 4A
+  target box and trajectory, Step 5A support model, and Step 5B trim ROI,
+  shell, and sleeve. These controls write MRML display-node visibility, which
+  persists with the scene; geometry refresh/regeneration preserves an
+  existing hidden state.
+- Workflow-owned nodes carry visible `[Step 4A]`, `[Step 5A]`, `[Step 5B]`, or
+  `[Step 5C]` name prefixes for selectors and Slicer's Data view. The prefixes
+  are UI categorization only; role attributes, stable segment IDs, and MRML
+  node references remain authoritative.
 - Planning approval is explicit state, invalidated when relevant anatomy,
   trajectory, or registration changes.
 - Registration, calibration, tracking, and tool poses are transform nodes in

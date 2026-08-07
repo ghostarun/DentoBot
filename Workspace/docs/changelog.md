@@ -21,6 +21,173 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 5C shell finalization and export gate
+
+- Moved the shell/sleeve STL action out of Step 5B and added Step 5C as a
+  non-destructive finalization boundary. The raw Step 5B shell remains intact;
+  export now requires a Current, source-matched, watertight Step 5C shell and a
+  Current Step 5B sleeve.
+- Added an isolated anterior parallel world-RAS view, optional camera/plane
+  orientation lock, one-click horizontal-height Markups plane placement,
+  positive/negative capped Dynamic Modeler Plane Cut, and adjustable
+  surface-snapped closed-curve inside/outside Curve Cut. Curve output receives
+  explicit capping, triangulation, cleanup, normals, and topology validation.
+- Persisted method, kept region, plane/curve/final-shell references, source
+  revision, edit geometry, Dynamic Modeler provenance, topology metrics,
+  lineage, and Current/Stale state. Added owned Step 5C reset, Step 5B-to-5C
+  cascade cleanup, expert Dynamic Modeler handoff, raw-shell export rejection,
+  and MRB save/reopen coverage.
+- Python compilation, Qt UI XML, and whitespace checks passed. Focused Plane
+  Cut, Curve Cut, Step 5B/5C, UI load, and isolated-view tests passed. The
+  correctly registered complete Slicer-native suite reached
+  `DENTOWORKFLOW_FULL_SUITE_PASSED`; its source-build process returned 1 only
+  after that marker because of the known VTK debug-leak reporter.
+- No automatic 70–80 percent coverage, dental/occlusal frame, gingival-margin
+  detection, fit validation, or clinical/print approval was added. No patient
+  data, inference, ROS, robot, motion, drilling, or fabrication operation ran.
+
+## 2026-08-07 17:06:17 IST (UTC+05:30) — Visible Step 5A/5B lineage controls
+
+- Corrected the downstream color presentation gap reported after the Step 4A
+  lineage work. The MRML nodes already received the inherited display color,
+  but only the Step 4A selector exposed a UI swatch.
+- Added explicit colored FDI/hex lineage badges to Steps 5A and 5B, matching
+  swatches to the Step 5A model and Step 5B ROI/shell/sleeve selectors, and
+  matching stripes to all six Step 5B Scene visibility controls. The cues are
+  refreshed from persisted lineage attributes and remain display-only.
+- Extended the active-widget regression to prove the Step 4A color reaches all
+  downstream nodes and is visible in every new control. The focused UI test
+  exited 0 with `DOWNSTREAM_LINEAGE_UI_TEST_PASSED`; the active-widget Step 5B
+  geometry test and full Slicer-native suite reached their pass markers. The
+  latter source-build processes returned 1 only after success because of the
+  known VTK debug-leak reporter.
+- A read-only older Step 5A MRB had no selected trajectory/model parameter
+  references despite retaining its target ID and role-owned nodes. Added a
+  display-only fallback that recovers the matching persisted target lineage
+  without guessing which trajectory to select. It backfilled FDI 14 into the
+  legacy Step 5A model and both badges, reaching
+  `LEGACY_DOWNSTREAM_LINEAGE_UI_CHECK_PASSED` with exit 0.
+- Git and Drive were not synchronized. No inference, export, robot, motion,
+  drilling, fabrication, or patient-facing action ran.
+
+## 2026-08-07 16:46:13 IST (UTC+05:30) — Step 4A lineage groups and invariant completion
+
+- Completed the remaining Step 4A assistance backlog. Multiple trajectories
+  stay visible in one selector; target-tooth selection emphasizes the matching
+  group and restores the correct tooth without retargeting a line that belongs
+  to another tooth. Each segmentation/tooth pair now retains its own bounds
+  ROI rather than reusing and mutating another target's box.
+- Added deterministic persisted target-tooth colors and selector swatches.
+  The same RGB lineage is propagated through MRML references to the Step 4A
+  bounds, Step 5A support anatomy, and Step 5B trim ROI, shell, and sleeve.
+  Colors remain presentation metadata; references, roles, and segment IDs are
+  authoritative.
+- Enforced the Markups-line two-control-point Entry/Target contract and added
+  active/inactive group display emphasis that preserves explicit visibility.
+  Hardened Step 4A/5A/5B deletion by clearing workflow references before MRML
+  removal, preventing live selectors from substituting unrelated nodes.
+- Extended synthetic logic, active-widget, persistence, lineage, target-switch,
+  ROI isolation, and clean-deletion regressions. Python AST parsing, Qt UI XML
+  parsing, and `git diff --check` passed. The complete Slicer-native suite
+  reached `DENTOWORKFLOW_FULL_SUITE_PASSED`; its source-build process returned
+  1 only after the marker because of the known VTK debug-leak reporter. The
+  supplied legacy MRB independently exited 0 with
+  `LEGACY_SCENE_COMPATIBILITY_CHECK_PASSED` and no cross-role ROI.
+- No inference, medical-data inspection, ROS, robot, motion, drilling,
+  fabrication, or patient-facing action ran. Git and Drive were not
+  synchronized.
+
+## 2026-08-07 15:56:00 IST (UTC+05:30) — Step 5B ROI role isolation and legacy-scene repair
+
+- Restricted the shell-ROI selector to
+  `DENTOBOT.MarkupsRole=TemplateShellTrimROI` and disabled arbitrary ROI
+  creation from the selector. Step 5B reset, generation, and deletion now
+  reject Step 4A target bounds and unrelated ROIs; reset/generation also reject
+  an ROI whose source reference is not the current Step 5A model.
+- Added an in-place legacy repair for a Step 4A bounds ROI contaminated with
+  Step 5B role/schema/source metadata. Invalid Step 5B parameter references are
+  cleared without deleting their scene nodes, and the parameter-to-widget
+  update path now has a re-entry barrier for nested MRML Modified events.
+- Added synthetic regressions for selector auto-selection, cross-role repair
+  without duplication, wrong-role/source rejection, and safe deletion. The
+  focused tests and complete DENTOWorkflow suite reached their pass markers;
+  the reported legacy `2026-07-23-Scene_5a.mrb` then passed a read-only load
+  with no recursion, invalid Step 5B reference, or remaining cross-role ROI.
+- Slicer's source-build VTK debug-leak reporter still makes the headless test
+  process return status 1 after the pass marker; the separate legacy-scene
+  compatibility process exited 0. No scene was overwritten, no medical data
+  details were logged, and Git/Drive were not synchronized.
+
+## 2026-08-07 15:18:18 IST (UTC+05:30) — Step 5B scene visibility controls
+
+- Added a Step 5B Scene visibility panel for the selected Step 4A target box
+  and trajectory, Step 5A support anatomy, Step 5B shell ROI, research shell,
+  and research sleeve. Controls change MRML display visibility only.
+- Updated target-bounds refresh, Step 5A model update, Step 5B ROI reset, and
+  shell/sleeve regeneration to preserve an existing hidden state. MRB tests
+  verify that hidden state survives save/reopen.
+- Added role-driven `[Step 4A]`, `[Step 5A]`, and `[Step 5B]` node-name
+  prefixes for DENTO selectors and Slicer's Data view. Names remain
+  presentation labels and are not used for ownership, identity, or dependency
+  decisions.
+- Extended logic and widget regression coverage. Python AST parsing, Qt UI XML
+  parsing, `git diff --check`, focused Slicer-native tests, and the complete
+  DENTOWorkflow suite passed in the existing container. Git and Drive were not
+  synchronized.
+
+## 2026-08-06 23:05:48 IST (UTC+05:30) — Step 4A restoration and Step 5B ROI reset
+
+- Restored a selected trajectory's persisted target segmentation, tooth ID,
+  target-bounds ROI, selector state, highlight, and details during both MRB
+  scene refresh and manual selector changes. Invalid partial/mismatched
+  associations are rejected rather than silently overwritten.
+- Added managed trajectory labels containing FDI, per-tooth sequence, and
+  Empty/Entry only/Complete/Invalid state. Legacy default names are upgraded;
+  editable names remain presentation only and never determine identity.
+- Added a confirmed, role-gated **Delete Shell ROI** action. It removes the ROI
+  and unshared auxiliaries, retains upstream planning and existing Step 5B
+  models, and marks retained shell/sleeve outputs Stale.
+- Added MRB persistence, duplicate-name, scene-load widget, selector widget,
+  ownership-rejection, and ROI-deletion regression coverage. AST/XML parsing,
+  `git diff --check`, focused Slicer-native tests, and the complete
+  DENTOWorkflow Slicer-native suite passed in the existing container.
+- The requested future closed-loop cascade deletion rule is awaiting scope
+  confirmation before destructive behavior is implemented. Git and Drive were
+  not synchronized.
+
+## 2026-08-06 22:07:01 IST (UTC+05:30) — EndoPlanner inspection and Step 5B research geometry
+
+### Added and changed
+
+- Made the local untracked EndoPlanner preview load for UI inspection without
+  installing packages into Slicer's embedded Python by making its optional
+  imports non-fatal and adding a Slicer 5.10 ROI-class fallback.
+- Corrected the persistent Slicer settings bind from the unused
+  `/root/.config/NA-MIC` path to `/root/.config/slicer.org`; the launcher now
+  includes the EndoPlanner checkout when it exists.
+- Added Step 5B UI, parameter-node state, MRML role/provenance contracts, and a
+  model-independent VTK geometry helper. Step 5B generates an ROI-trimmed
+  clearance shell with a trajectory channel and a separate hollow sleeve.
+- Added stale-input detection, sampling caps, topology metrics, overlap/
+  multi-region warnings, role-gated confirmed deletion, binary STL export with
+  atomic replacement, and MRB persistence coverage.
+
+### Evidence and limitations
+
+- EndoPlanner and DENTO Workflow both instantiated in isolated Slicer 5.10
+  startups. No EndoPlanner dependency was installed; its processing remains
+  incomplete because the preview omits weights and called helpers.
+- Python AST, Qt UI XML, shell syntax, launcher preflight, backend identity,
+  container recreation, GPU render-node/priority checks, the focused Step 5B
+  synthetic test, and the full Slicer-native DENTO Workflow suite passed.
+- Synthetic Step 5B outputs were watertight, exported to non-empty binary STL,
+  survived MRB save/reload, and were safely deleted while their source model,
+  trajectory, and ROI remained. No patient data, trained-model inference,
+  robot, drilling, fabrication, or clinical operation ran.
+- Representative anatomy, contact/removability, gingival clearance, sleeve/bit
+  fit, printability, material/process parameters, and clinical safety remain
+  unvalidated.
+
 ## 2026-08-06 19:21:52 IST (UTC+05:30) — Central configuration and Git-controlled workspace
 
 ### Added and changed

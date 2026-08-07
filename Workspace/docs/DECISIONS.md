@@ -1,5 +1,197 @@
 # Dentobot Technical Decisions
 
+## 2026-08-07 — Non-destructive Step 5C finalization gates STL export
+
+Status: implemented and Slicer-native synthetically verified; representative
+anatomy and dentist interaction acceptance pending
+
+Keep the generated Step 5B shell as a traceable raw source. Step 5C creates a
+separate finalized model through Slicer's built-in Dynamic Modeler and is the
+only workflow step allowed to export the shell. Export requires a Current,
+source-matched, watertight finalized shell and a Current Step 5B sleeve; it
+must reject the raw shell, stale output, missing provenance, or open topology.
+
+Provide two edits over the same provenance contract. The simple path places a
+Markups plane at a surgeon-selected height and uses capped Plane Cut with an
+explicit positive/negative kept side. The uneven-margin path uses an
+adjustable surface-snapped closed Markups curve, Curve Cut inside/outside, and
+a DENTOBOT capping/cleanup/topology pass. Persist method, kept region, markup
+geometry, source revision, references, and metrics so MRB reload and stale
+detection are deterministic. Expert Dynamic Modeler remains available for
+inspection and advanced work, but arbitrary expert output is not silently
+adopted as the exportable DENTOBOT result.
+
+Use an anterior world-RAS parallel view for the initial interaction, with R/L
+horizontal and S/I vertical. The optional lock constrains camera orientation
+and plane normal but permits zoom and plane translation. Do not encode the
+suggested 70–80 percent tooth coverage or label this an occlusal/dental frame;
+both require representative anatomy and dentist-approved definitions.
+
+Delete Step 5C as a narrow owned subtree while retaining its Step 5B source.
+When Step 5B is confirmed for deletion, cascade through Step 5C first to avoid
+dangling child provenance. This implements the parent/child backtracking rule
+for these steps without mutating the raw source during margin exploration.
+
+Reason: a planar cut is fast for ordinary cases, while an adjustable closed
+margin accommodates uneven gingival anatomy. Separating raw and finalized
+models makes retries reversible, preserves traceability, and prevents an
+unreviewed intermediate shell from being mistaken for an export-ready part.
+
+## 2026-08-07 — Target-tooth visual lineage and non-retargeting selection
+
+Status: implemented and Slicer-native verified
+
+Derive one deterministic, vivid RGB color from each trajectory's authoritative
+target segment/FDI record after that tooth has at least one trajectory. Persist
+the color and target metadata on the trajectory and propagate it through MRML
+references to the matching Step 4A target-bounds ROI, Step 5A support model,
+and Step 5B trim ROI, shell, and sleeve. The color is a visual lineage cue
+only; role attributes, stable segment IDs, and MRML references remain the
+identity and dependency contract.
+
+Expose that lineage explicitly in every affected workflow step, not only on
+MRML display nodes. Step 5A and Step 5B show a colored FDI/hex lineage badge;
+their owned-node selectors show matching swatches; and Step 5B visibility
+controls show the same stripe even when an object is hidden in the views.
+
+Keep every DENTOBOT trajectory in the shared selector. Selecting a target
+tooth emphasizes that tooth's trajectory group without hiding other groups or
+overriding explicit visibility choices. If the current trajectory belongs to
+a different tooth, clear the current selection instead of silently retargeting
+the line. Maintain one reusable target-bounds ROI per exact segmentation and
+target segment so switching teeth never mutates another tooth's bounds.
+
+Require every DENTOBOT trajectory to be a Markups line whose class invariant
+allows only Entry and Target. Reject imported or programmatic lines that do
+not satisfy that two-point contract. Before deleting any selected Step 4A,
+5A, or 5B node, clear its workflow parameter reference so a live MRML selector
+cannot auto-select an unrelated scene node during removal.
+
+Reason: multiple trajectories and descendants were difficult to correlate,
+and changing the tooth selector could otherwise overwrite a valid persisted
+association. A deterministic lineage cue makes the closed workflow legible,
+while preserving reference-based identity prevents color/name edits from
+changing provenance. Pre-clearing parameter references closes a selector race
+found by the active-widget deletion regression.
+
+## 2026-08-07 — Isolate Step 4A bounds from the Step 5B trim ROI
+
+Status: implemented and Slicer-native verified, including the reported legacy
+MRB
+
+Treat `DENTOBOT.BoundsRole=TargetToothAABB` and
+`DENTOBOT.MarkupsRole=TemplateShellTrimROI` as mutually exclusive ownership
+contracts. Filter the Step 5B selector to the Step 5B role, disallow arbitrary
+ROI creation from that selector, and require its source-model reference to be
+the current Step 5A model before reset or generation. Never adopt, delete, or
+generate from a Step 4A target-bounds ROI in Step 5B.
+
+When a legacy Step 4A bounds node contains stray Step 5B attributes, repair
+that same node in place by clearing the Step 5B role/schema/source reference
+and restoring locked target bounds. Clear an invalid Step 5B parameter
+reference without deleting the referenced scene node. Guard the complete
+parameter-to-widget refresh against re-entry because role/name migration and
+stale-state repair legitimately emit nested MRML Modified events while an MRB
+is opening.
+
+Reason: Step 5B previously listed every Markups ROI and treated an unowned
+Step 4A bounds node as reusable. One node could therefore acquire both roles,
+be resized/unlocked as a trim ROI, feed meaningless shell geometry, and cause
+nested refreshes, duplicate nodes, or a recursion crash. UI filtering alone
+would not protect loaded or programmatically corrupted scene state, so the
+logic and migration layers enforce the same boundary.
+
+## 2026-08-07 — Workflow-owned visibility controls and step-tagged scene names
+
+Status: implemented and Slicer-native verified
+
+Expose non-destructive visibility checkboxes in Step 5B for the selected Step
+4A target-bounds ROI and trajectory, Step 5A support anatomy, and Step 5B trim
+ROI, shell, and sleeve. The checkboxes manipulate MRML display-node visibility
+only; they do not delete, invalidate, or regenerate geometry. Preserve an
+existing node's visibility during bounds refresh, support-model update, ROI
+reset, and shell/sleeve regeneration, and rely on MRML to persist the display
+state in saved scenes.
+
+Prefix DENTOBOT-owned planning and template node names with `[Step 4A]`,
+`[Step 5A]`, `[Step 5B]`, or `[Step 5C]`. Apply the prefix to legacy owned
+nodes by role so the same objects are identifiable in DENTO Workflow selectors
+and Slicer's Data/Subject Hierarchy view. Names remain presentation only;
+ownership, identity, and dependencies continue to use role attributes and node
+references.
+
+Reason: the planning and trim bounding boxes are useful while editing but can
+obscure the template result. Direct workflow controls are faster and clearer
+than requiring routine Data-module navigation, while step tags make advanced
+scene inspection understandable without creating a second data model.
+
+## 2026-08-06 — Persisted trajectory identity and explicit Step 5B ROI reset
+
+Status: implemented and Slicer-native verified
+
+When a saved or manually selected Step 4A trajectory has a complete persisted
+target association, restore its authoritative segmentation, segment ID, target
+bounds ROI, tooth selector, highlight, and trajectory details as one guarded
+parameter-node update. Reject partial or mismatched saved associations instead
+of overwriting them or guessing from an editable name.
+
+Managed and legacy default trajectory names are presentation labels only. Show
+the FDI tooth, per-tooth sequence, and current Empty/Entry only/Complete/Invalid
+state so multiple trajectories can be distinguished before deletion; retain
+MRML references and segment IDs as identity. Permit deletion of the Step 5B
+shell trim ROI only when it has the DENTOBOT ROI role. Preserve Step 5A,
+trajectory, dimensions, shell, and sleeve, but mark retained Step 5B outputs
+Stale because their ROI reference was removed.
+
+Reason: scene reload previously restored the trajectory selector without
+restoring its target tooth, and duplicate default names made empty and complete
+trajectories indistinguishable. The ROI also lacked a clean reset-to-new
+lifecycle. These behaviors now have explicit ownership and persistence tests.
+
+## 2026-08-06 — Model-independent Step 5B research template geometry
+
+Status: implemented with synthetic Slicer-native verification; anatomical and
+fabrication acceptance pending
+
+Do not copy or claim execution of the incomplete public EndoPlanner preview.
+Use it only as an interaction and literature reference. Implement Step 5B in
+DENTOBOT with Slicer/VTK geometry that has no trained-model dependency: a
+world-RAS exterior distance-band shell trimmed by a user-controlled ROI, a
+trajectory-aligned drill channel, and a separate closed annular sleeve.
+
+Keep clearance, thickness, sampling, channel diameter, sleeve inner/outer
+diameters, and sleeve height as explicit persisted research parameters. Store
+shell and sleeve as separate role-gated MRML models with source-model,
+trajectory, and ROI references, parameter/geometry metadata, stale-state
+invalidation, and confirmed deletion. The original direct Step 5B STL-export
+choice is superseded by the 2026-08-07 Step 5C finalization/export decision.
+Require a current Step 5A model and a complete locked Step 4A trajectory. Treat
+multi-region shells and sleeve/anatomy overlap as visible warnings, not hidden
+success.
+
+Reason: the preview's guide method calls omitted helpers and uses fixed-index
+arch segments, fixed dimensions, voxel-grid assumptions, and incomplete
+intersection logic. Reimplementing the narrow geometry contract gives us
+testable ownership, coordinate, persistence, and export behavior without
+pretending that preview code, default dimensions, printability, or clinical
+safety has been validated.
+
+## 2026-08-06 — Inspect EndoPlanner without modifying embedded Slicer Python
+
+Status: accepted for local source inspection
+
+Patch only the untracked local preview checkout so optional third-party imports
+do not prevent UI instantiation, and add a Slicer 5.10 Markups ROI import
+fallback. Do not install its broad unpinned dependency command into Slicer's
+embedded Python merely to reveal subsequent failures. Let the launcher include
+the preview path only when the checkout exists, and persist Slicer settings at
+the build's actual `/root/.config/slicer.org` location.
+
+Reason: `nibabel` was only the first missing import. The preview also expects
+legacy package APIs, omits model weights, and references many undefined
+implementation symbols. Installing packages would mutate the wrong runtime
+without producing an operational planner.
+
 ## 2026-08-06 — Git-tracked workspace layer and launcher-owned runtime configuration
 
 Status: accepted; publication pending GitHub re-authentication
@@ -30,7 +222,7 @@ dependency; Slicer's embedded Python remains unchanged.
 
 ## 2026-08-04 — Confirmed deletion of DENTOBOT-owned draft outputs
 
-Status: accepted; Slicer-native persistence test pending
+Status: accepted and Slicer-native verified
 
 Steps 4A and 5A expose separate confirmed delete actions for the selected
 DENTOBOT trajectory and draft support-anatomy model. Deletion is permitted
@@ -49,7 +241,7 @@ Reason: Clear Both Points deliberately retains a trajectory node, while a
 discarded trajectory or draft anatomy model needs an explicit lifecycle end.
 MRML reference cleanup and save/reload behavior are part of the deletion
 contract. Static checks pass and a Slicer-native delete/save/reload/recreate
-test has been added; its execution remains a separate authorized runtime gate.
+test now passes.
 
 ## 2026-08-04 — Batch documentation and external synchronization
 

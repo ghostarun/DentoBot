@@ -4,6 +4,7 @@ set(MODULE_NAME DENTOWorkflow)
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
+  Resources/Python/DENTOTemplateGeometry.py
   )
 
 set(MODULE_PYTHON_RESOURCES

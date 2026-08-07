@@ -81,15 +81,24 @@ It is achieved using supported Slicer custom-build mechanisms.
 4. Run dental segmentation in the external inference backend.
 5. Review and correct teeth, pulp/canal, jaw, sinus, and related labels.
 6. Define and approve a dental drilling trajectory.
-7. Register image space to patient/tooth space.
-8. Calibrate tool and robot frames.
-9. Rehearse navigation and motion in simulation.
-10. Connect to a robot adapter for supervised research experiments.
-11. Record inputs, transforms, plans, events, and verification results.
+7. Assemble target/support anatomy and generate a traceable raw template shell
+   and trajectory sleeve.
+8. Finalize the shell with a dentist-directed plane or closed-curve margin,
+   verify the retained region, and export only the current finalized shell and
+   sleeve.
+9. Register image space to patient/tooth space.
+10. Calibrate tool and robot frames.
+11. Rehearse navigation and motion in simulation.
+12. Connect to a robot adapter for supervised research experiments.
+13. Record inputs, transforms, plans, events, and verification results.
 
 The precise dental procedure and the anatomical meaning of entry, target,
 depth, and safety margins must be agreed with the clinical/research team
-before trajectory-planning acceptance criteria are finalized.
+before trajectory-planning acceptance criteria are finalized. Template contact,
+gingival/cervical margin, removability, printability, and manufacturing
+acceptance likewise require dentist-approved definitions and representative
+validation data; a successful STL export is not clinical or fabrication
+approval.
 
 ## Major design decisions
 

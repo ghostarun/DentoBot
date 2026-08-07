@@ -25,6 +25,49 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 4A–5C closed workflow and finalization
+
+### Objective and decisions
+
+- The development batch hardened persisted multi-trajectory Step 4A behavior,
+  Step 5B ROI ownership and raw shell generation, cross-step visual lineage,
+  scene visibility, and clean deletion. It culminated in moving STL export to
+  a new non-destructive Step 5C shell-finalization boundary.
+- Step 5C uses built-in Markups and Dynamic Modeler: a capped positive/negative
+  Plane Cut for the fast horizontal-height path, and a surface-snapped closed
+  Curve Cut with inside/outside selection plus explicit capping/topology
+  validation for an uneven margin. The Step 5B raw shell remains unchanged.
+- The isolated interaction camera is anterior world-RAS, not a derived dental
+  or occlusal frame. No automatic 70–80 percent coverage rule is encoded.
+  Representative anatomy and dentist-approved margin/contact definitions are
+  required before automation.
+
+### Work and evidence
+
+- Updated the DENTO Workflow source/UI, built-in module dependencies,
+  parameter-node persistence, role/reference provenance, stale detection,
+  lineage display, safe subtree deletion, Step 5B-to-5C cascade, MRB
+  lifecycle, and export gating.
+- Python compilation, Qt UI XML, and whitespace checks passed. Focused
+  synthetic Plane Cut, Curve Cut, Step 5B/5C lifecycle, UI, view, lineage,
+  legacy-scene, and clean-deletion checks passed. The correctly registered
+  complete Slicer-native suite reached `DENTOWORKFLOW_FULL_SUITE_PASSED`; the
+  source build reported known VTK debug leaks after that marker.
+- A shortest-distance curve experiment left nine open/non-manifold edges on a
+  synthetic sphere and was replaced with the verified cardinal-spline plus
+  Dynamic-Modeler nearest-surface path. A separate first full-suite invocation
+  lacked the additional module path; rerunning with DENTO Workflow registered
+  passed. Neither failure represented retained output or a source regression.
+
+### Safety and next action
+
+- No patient data, inference, ROS, robot, motion, drilling, or fabrication
+  operation ran. Temporary synthetic STL output was deleted by its test.
+- Live dentist/developer acceptance remains required for contact, removability,
+  cervical/gingival margin, dental orientation, sleeve fit, and printability.
+  Arbitrary expert Dynamic Modeler output is not silently adopted by the
+  DENTOBOT export gate.
+
 ## 2026-08-06 19:21:52 IST (UTC+05:30) — Portable runtime configuration and Git-tracked workspace
 
 ### Request and architecture choice

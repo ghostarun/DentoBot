@@ -21,6 +21,43 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 4A–5C workflow hardening and shell finalization
+
+### Changed
+
+- Completed the Step 4A multi-trajectory backlog with persisted target
+  identity, per-tooth target bounds, deterministic lineage colors, sequenced
+  labels, target restoration, non-retargeting selection, and a strict
+  two-point Entry/Target invariant. Extended the same lineage presentation
+  through Steps 5A, 5B, and 5C.
+- Isolated Step 5B's role-owned shell ROI from Step 4A bounds, repaired legacy
+  cross-role state without duplication, added workflow visibility controls,
+  role-gated delete/reset behavior, raw shell/sleeve generation, provenance,
+  topology metrics, stale state, and MRB persistence.
+- Added Step 5C as a non-destructive Dynamic Modeler finalization and export
+  boundary. It supports capped Plane Cut positive/negative selection and an
+  adjustable surface-snapped closed-curve inside/outside trim with explicit
+  capping/topology validation. STL export now rejects the Step 5B raw shell
+  and requires a Current, source-matched, watertight finalized shell plus the
+  Current sleeve.
+- Added clean owned-subtree deletion, Step 5B-to-5C cascade cleanup, an
+  isolated anterior world-RAS interaction view, expert Dynamic Modeler
+  handoff, and persisted edit/source/Dynamic-Modeler provenance.
+
+### Verification and limits
+
+- Python compilation, Qt UI XML, and whitespace checks passed. Focused Plane
+  Cut, Curve Cut, Step 5B/5C lifecycle, UI, view, legacy-scene, and lineage
+  regressions passed. The registered complete Slicer-native suite reached
+  `DENTOWORKFLOW_FULL_SUITE_PASSED`; its source-build process reported known
+  VTK debug leaks only after the pass marker.
+- The interaction view is world-RAS, not a dental/occlusal frame. No automatic
+  coverage percentage, gingival-margin detection, fit/print validation,
+  clinical approval, or drilling authorization was added. Representative
+  anatomy and dentist acceptance remain pending.
+- No patient data, inference, ROS, robot, motion, drilling, or fabrication
+  operation ran.
+
 ## 2026-08-06 19:21:52 IST (UTC+05:30) — Portable launcher configuration and tracked Ubuntu workspace
 
 ### Changed

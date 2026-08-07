@@ -13,6 +13,8 @@ container_name="dentobot-slicerros2"
 
 backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
 module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
+endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
+slicer_module_paths="${module_path}"
 check_only=false
 print_backend_python=false
 x11_access_granted=false
@@ -151,6 +153,10 @@ docker exec "${container_name}" mkdir -p "${run_artifact_root}"
 docker exec "${container_name}" test -f "${module_path}/DENTOWorkflow.py"
 docker exec "${container_name}" test -f \
   "${module_path}/Resources/UI/DENTOWorkflow.ui"
+if docker exec "${container_name}" test -f \
+  "${endoplanner_module_path}/PulpChamberOpenPlanning.py"; then
+  slicer_module_paths+=" ${endoplanner_module_path}"
+fi
 docker exec "${container_name}" test -c "${render_device}"
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
@@ -169,6 +175,7 @@ printf '%s\n' \
   "Workspace configuration: ${workspace_config}" \
   "Run artifacts: ${run_artifact_root}" \
   "DENTO Workflow: ${module_path}" \
+  "Slicer module paths: ${slicer_module_paths}" \
   "GPU render node: ${render_device}" \
   "Slicer background priority: ${container_slicer_priority}"
 
@@ -201,11 +208,12 @@ x11_access_granted=true
 printf 'Opening 3D Slicer directly on DENTO Workflow.\n'
 docker exec -it \
   -e DISPLAY="${DISPLAY}" \
+  -e DENTOBOT_SLICER_MODULE_PATHS="${slicer_module_paths}" \
   "${container_name}" \
   bash -lc '
     source /opt/ros/jazzy/setup.bash
     source /workspace/ros2_ws/install/setup.bash
     export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
     exec ros2 launch slicer_ros2_module slicer.launch.py \
-      "slicer_args:=--no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
+      "slicer_args:=--no-splash --additional-module-paths ${DENTOBOT_SLICER_MODULE_PATHS} --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
   '

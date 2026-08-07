@@ -14,7 +14,8 @@ and verified here.
 - Repository/workspace root: `/home/light-tarun/dentobot`
 - ROS 2 workspace: `/home/light-tarun/dentobot/ros2_ws`
 - Project data mount: `/home/light-tarun/dentobot/data`
-- Slicer user configuration: `/home/light-tarun/dentobot/slicer-user`
+- Slicer user configuration: `/home/light-tarun/dentobot/slicer-user`, bound
+  to the container's active `/root/.config/slicer.org` directory
 - Container definition: `/home/light-tarun/dentobot/compose.yaml`
 - Git checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`
 - Git-tracked workspace layer:
@@ -122,6 +123,48 @@ The canonical Compose file is tracked at `Workspace/compose.yaml`; the
 top-level `compose.yaml` is its compatibility symlink. Host mount sources are
 resolved from the launcher-supplied `DENTOBOT_WORKSPACE_ROOT`, so Compose no
 longer depends on the current shell directory.
+
+The active Slicer build writes `Slicer.ini` under
+`/root/.config/slicer.org`. The Compose bind now targets that exact directory,
+so Additional Module Paths and other Slicer settings persist across service
+recreation. The former `/root/.config/NA-MIC` target was not used by this
+build.
+
+### Local EndoPlanner inspection checkout
+
+When
+`data/SlicerEndoPlanner-main/PulpChamberOpenPlanning/PulpChamberOpenPlanning.py`
+exists, the launcher adds its container directory to Slicer's module search
+alongside DENTO Workflow. EndoPlanner then appears under the Endodontics
+category after launch; DENTO Workflow remains the startup module.
+
+The public EndoPlanner preview imports optional scientific packages at module
+load and uses an older Markups ROI import. The local data checkout contains a
+non-packaged inspection compatibility patch that makes those imports optional
+and falls back to Slicer 5.10's top-level ROI class. This permits UI inspection
+without installing anything into Slicer's embedded Python. It does not make
+the preview algorithms complete: trained weights and multiple referenced
+network, optimization, and guide-generation helpers are absent from the public
+repository. Do not report its processing buttons as validated.
+
+Slicer runs as the container's root user, so `slicer.util.pip_install(...)`
+would target `/root/.local/lib/python3.12/site-packages` (or the embedded
+installation depending on pip options), not the external DENTOBOT Conda
+backend. No EndoPlanner dependency was installed there for this inspection.
+
+### Built-in Slicer modules used by template finalization
+
+DENTO Workflow Step 5C depends on Slicer's built-in `DynamicModeler` and
+`Markups` modules. They are declared as scripted-module dependencies and use
+the Slicer-provided VTK/MRML implementation; they do not require a Conda or
+embedded-Python package installation. A Slicer build used for DENTOBOT must
+therefore include both modules. The current container source build does.
+
+The simple finalization path uses a Markups plane and Dynamic Modeler Plane
+Cut. The adjustable margin path uses a surface-snapped Markups closed curve
+and Dynamic Modeler Curve Cut, followed by a DENTOBOT capping/topology check.
+If either built-in module is unavailable, repair or replace the Slicer build;
+do not attempt to install a similarly named package into Slicer's Python.
 
 ## Backend and run-record configuration
 

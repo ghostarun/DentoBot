@@ -388,7 +388,8 @@ Step 4B dentist-focused 2D planning scope:
 
 ## Step 5: Target-region modeling and template research
 
-**Status:** Step 5A implemented; developer-run Slicer acceptance pending
+**Status:** Steps 5A, 5B, and 5C implemented and synthetically verified;
+developer/dentist anatomical and interaction acceptance pending
 
 ### Step 5A — draft template support anatomy
 
@@ -408,21 +409,82 @@ while preserving target and support selection for recreation.
 Developer-run Slicer acceptance must exercise small and large selections,
 including two and ten supports, plus create/update, scene save/reopen,
 selection persistence, source-edit invalidation, and Current/Stale
-presentation. The added Slicer-native test covers the corresponding logic but
-has not been run in this implementation session. The lifecycle coverage also
-checks trajectory/model deletion, retained inputs, save/reload, and recreation.
+presentation. Slicer-native lifecycle coverage has passed for trajectory/model
+deletion, retained inputs, save/reload, and recreation.
 
 Step 5A is source support anatomy only. It excludes smoothing, remeshing,
 Boolean operations, offsets, contact inference, gingival clearance,
 shell/sleeve/drill-channel generation, export, printability, clinical
 validation, and drilling authorization.
 
+### Step 5B — model-independent raw research shell and sleeve
+
+Step 5B requires the current role-gated Step 5A model and a complete locked
+Entry/Target trajectory. It creates a separately owned world-RAS Markups ROI,
+samples an exterior clearance/thickness band around the anatomy inside that
+ROI, subtracts a trajectory-aligned channel, and creates a separate watertight
+annular sleeve extending outward from Entry.
+
+The shell ROI selector accepts only the Step 5B role and matching Step 5A
+source. Reset, generation, and deletion repeat those checks in logic; legacy
+Step 4A bounds contaminated with Step 5B metadata are repaired in place.
+Deleting the ROI retains upstream state and generated models but marks the
+models Stale. Scene visibility controls cover the selected Step 4A bounds and
+trajectory, Step 5A support model, and Step 5B ROI/shell/sleeve. Output nodes
+persist explicit sources, parameters, topology metrics, and Current/Stale
+state. Step 5B deliberately does not expose STL export for its unfinalized raw
+shell.
+
+Synthetic Slicer-native verification passed for geometry generation,
+watertight topology, MRB save/reload, strict ROI role/source isolation, legacy
+cross-role repair, output deletion/recreation, and existing workflow
+regressions. The public EndoPlanner preview informed comparison only; its
+trained weights and several called helpers are absent from the public checkout.
+
+### Step 5C — dentist-directed fit, margin trim, and STL export
+
+Step 5C preserves the Step 5B shell as a non-destructive source and creates a
+separate role-owned finalized shell. **Continue: Isolate Shell in Front View**
+preserves prior visibility, shows the source shell alone, and establishes an
+anterior parallel-projection world-RAS camera. The optional lock keeps R/L
+horizontal and S/I vertical while allowing zoom and edit translation; this is
+not yet a scanner-independent dental or occlusal frame.
+
+The simple path places a one-click Markups plane height and runs Dynamic
+Modeler Plane Cut with a capped positive/negative kept-side choice. The
+uneven-margin path uses an adjustable, surface-snapped Markups closed curve,
+runs Dynamic Modeler Curve Cut with inside/outside selection, then caps,
+triangulates, cleans, and orients the retained surface. Empty or non-watertight
+finalized geometry is rejected. The method, region, markup geometry,
+source/edit/Dynamic-Modeler references, source revision, and topology metrics
+persist through MRB save/reopen; any relevant change makes the result Stale.
+
+The built-in Dynamic Modeler module remains available as an expert handoff,
+but DENTOBOT export accepts only its own Current, source-matched, watertight
+Step 5C shell plus the Current Step 5B sleeve. Confirmed Step 5C reset removes
+only its role-owned markups, finalized shell, Dynamic Modeler node, and cut
+auxiliaries. Confirmed Step 5B deletion cascades through those descendants.
+
+Synthetic Slicer-native verification passed for both plane sides, Curve Cut
+and capping, source preservation, watertight output, clean auxiliary deletion,
+raw-shell export rejection, binary STL output, lineage propagation, MRB
+save/reload, UI loading, anterior-view preparation, and the complete existing
+test class. The Slicer source build reports known VTK debug leaks after the
+explicit full-suite pass marker.
+
+The earlier expert suggestion of roughly 70–80 percent tooth coverage is not
+encoded. A dental/occlusal frame, gingival-margin detection, fit/contact
+validation, and automatic trim recommendation require representative data and
+dentist-approved definitions.
+
 ### Later Step 5 increments
 
-Define support/contact behavior, clearance and safety margins,
-trajectory-to-anatomy constraints, shell/sleeve geometry, validation metrics,
-warning versus hard-invalid states, and a saved planning report. Thresholds
-require research-team decisions and validation data.
+Exercise Steps 5B/5C with representative reviewed anatomy and dentist input;
+define intended contact/removal behavior, cervical/gingival margin, dental
+orientation frame, Entry surface semantics, hard-invalid versus warning
+states, physical sleeve/bit fit, print orientation, material/process
+constraints, and a saved planning report. Parameter values and manual margins
+remain research inputs until the team supplies validation data.
 
 ## Step 6: Registration and calibration
 

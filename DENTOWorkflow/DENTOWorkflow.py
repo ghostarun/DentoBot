@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,9 @@ import vtk
 
 import slicer
 from slicer import (
+    vtkMRMLMarkupsClosedCurveNode,
     vtkMRMLMarkupsLineNode,
+    vtkMRMLMarkupsPlaneNode,
     vtkMRMLMarkupsROINode,
     vtkMRMLModelNode,
     vtkMRMLScalarVolumeNode,
@@ -30,6 +33,18 @@ from slicer.ScriptedLoadableModule import (
     ScriptedLoadableModuleWidget,
 )
 from slicer.util import VTKObservationMixin
+
+_helperDirectory = Path(__file__).resolve().parent / "Resources" / "Python"
+if str(_helperDirectory) not in sys.path:
+    sys.path.insert(0, str(_helperDirectory))
+
+from DENTOTemplateGeometry import (
+    create_hollow_sleeve,
+    create_research_shell,
+    model_polydata_in_world,
+    surface_topology,
+    write_stl_atomic,
+)
 
 
 @parameterNodeWrapper
@@ -50,6 +65,22 @@ class DENTOWorkflowParameterNode:
     trajectoryLine: vtkMRMLMarkupsLineNode
     templateSupportToothSegmentIdsJson: str = "[]"
     draftTemplateSupportModel: vtkMRMLModelNode
+    templateShellRoi: vtkMRMLMarkupsROINode
+    templateShellClearanceMm: float = 0.3
+    templateShellThicknessMm: float = 1.5
+    templateSamplingSpacingMm: float = 0.3
+    templateChannelDiameterMm: float = 1.5
+    templateSleeveOuterDiameterMm: float = 4.4
+    templateSleeveInnerDiameterMm: float = 1.5
+    templateSleeveHeightMm: float = 2.5
+    researchTemplateShellModel: vtkMRMLModelNode
+    researchTemplateSleeveModel: vtkMRMLModelNode
+    templateFinalizationMode: str = "PlaneCut"
+    templateFinalizationKeepRegion: str = "Negative"
+    templateFinalizationViewLocked: bool = True
+    templateTrimPlane: vtkMRMLMarkupsPlaneNode
+    templateTrimCurve: vtkMRMLMarkupsClosedCurveNode
+    finalizedTemplateShellModel: vtkMRMLModelNode
 
 
 class DENTOWorkflow(ScriptedLoadableModule):
@@ -59,7 +90,7 @@ class DENTOWorkflow(ScriptedLoadableModule):
         super().__init__(parent)
         self.parent.title = _("DENTO Workflow")
         self.parent.categories = [translate("qSlicerAbstractCoreModule", "DENTOBOT")]
-        self.parent.dependencies = ["DICOM"]
+        self.parent.dependencies = ["DICOM", "DynamicModeler", "Markups"]
         self.parent.contributors = ["Taruneswar (IITM)"]
         self.parent.helpText = _(
             "DENTOBOT provides a focused workflow for opening a case, loading "
@@ -81,6 +112,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic: DENTOWorkflowLogic | None = None
         self._parameterNode: DENTOWorkflowParameterNode | None = None
         self._parameterNodeGuiTag = None
+        self._updatingFromParameterNode = False
         self._sceneObserversActive = False
         self._volumeNodeIdsBeforeDICOM: set[str] | None = None
         self._lastDisplayedVolumeId: str | None = None
@@ -98,11 +130,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._planningTrajectoryNode = None
         self._targetToothRecordsById: dict[str, dict] = {}
         self._updatingPlanningUI = False
+        self._restoringTrajectoryAssociation = False
         self._planningConstraintWarning = ""
         self._validTrajectoryPointsByNodeId: dict[str, list[list[float]]] = {}
         self._templateSupportRecordsById: dict[str, dict] = {}
         self._updatingTemplateUI = False
         self._templateStatusWarning = ""
+        self._updatingTemplateGuideUI = False
+        self._updatingTemplateGuideVisibilityUI = False
+        self._updatingTemplateFinalizationUI = False
+        self._templateFinalizationPriorVisibilityByNodeId: dict[str, bool] = {}
+        self._templateFinalizationCamera = None
+        self._templateTrimPlaneNode = None
+        self._templateTrimCurveNode = None
+        self._restoringTemplateFinalizationCamera = False
+        self._restoringTemplateTrimPlane = False
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -112,6 +154,27 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
         uiWidget.setMRMLScene(slicer.mrmlScene)
+        self.ui.templateShellRoiSelector.addAttribute(
+            "vtkMRMLMarkupsROINode",
+            "DENTOBOT.MarkupsRole",
+            "TemplateShellTrimROI",
+        )
+        self.ui.templateShellRoiSelector.setCurrentNode(None)
+        self.ui.templateTrimPlaneSelector.addAttribute(
+            "vtkMRMLMarkupsPlaneNode",
+            "DENTOBOT.MarkupsRole",
+            "TemplateFinalizationPlane",
+        )
+        self.ui.templateTrimCurveSelector.addAttribute(
+            "vtkMRMLMarkupsClosedCurveNode",
+            "DENTOBOT.MarkupsRole",
+            "TemplateFinalizationCurve",
+        )
+        self.ui.finalizedTemplateShellModelSelector.addAttribute(
+            "vtkMRMLModelNode",
+            "DENTOBOT.ModelRole",
+            "FinalizedTemplateShell",
+        )
 
         self.logic = DENTOWorkflowLogic()
         if os.name != "nt":
@@ -246,6 +309,103 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onDeleteDraftTemplateSupportModel,
         )
+        self.ui.templateShellRoiSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onTemplateGuideInputChanged,
+        )
+        self.ui.createTemplateShellRoiButton.connect(
+            "clicked(bool)",
+            self.onCreateTemplateShellRoi,
+        )
+        self.ui.deleteTemplateShellRoiButton.connect(
+            "clicked(bool)",
+            self.onDeleteTemplateShellRoi,
+        )
+        for visibilityCheckBox in (
+            self.ui.targetBoundsVisibilityCheckBox,
+            self.ui.trajectoryVisibilityCheckBox,
+            self.ui.supportModelVisibilityCheckBox,
+            self.ui.shellRoiVisibilityCheckBox,
+            self.ui.shellModelVisibilityCheckBox,
+            self.ui.sleeveModelVisibilityCheckBox,
+        ):
+            visibilityCheckBox.connect(
+                "toggled(bool)",
+                self.onTemplateGuideVisibilityChanged,
+            )
+        for parameterWidget in (
+            self.ui.templateShellClearanceSpinBox,
+            self.ui.templateShellThicknessSpinBox,
+            self.ui.templateSamplingSpacingSpinBox,
+            self.ui.templateChannelDiameterSpinBox,
+            self.ui.templateSleeveOuterDiameterSpinBox,
+            self.ui.templateSleeveInnerDiameterSpinBox,
+            self.ui.templateSleeveHeightSpinBox,
+        ):
+            parameterWidget.connect(
+                "valueChanged(double)",
+                self.onTemplateGuideInputChanged,
+            )
+        self.ui.generateResearchTemplateButton.connect(
+            "clicked(bool)",
+            self.onGenerateResearchTemplate,
+        )
+        self.ui.deleteResearchTemplateButton.connect(
+            "clicked(bool)",
+            self.onDeleteResearchTemplate,
+        )
+        self.ui.continueTemplateFinalizationButton.connect(
+            "clicked(bool)",
+            self.onContinueTemplateFinalization,
+        )
+        self.ui.templateFinalizationModeComboBox.connect(
+            "currentIndexChanged(int)",
+            self.onTemplateFinalizationModeChanged,
+        )
+        self.ui.templateFinalizationKeepRegionComboBox.connect(
+            "currentIndexChanged(int)",
+            self.onTemplateFinalizationKeepRegionChanged,
+        )
+        self.ui.templateFinalizationViewLockedCheckBox.connect(
+            "toggled(bool)",
+            self.onTemplateFinalizationViewLockToggled,
+        )
+        self.ui.templateTrimPlaneSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onTemplateFinalizationInputChanged,
+        )
+        self.ui.templateTrimCurveSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onTemplateFinalizationInputChanged,
+        )
+        self.ui.createTemplateTrimPlaneButton.connect(
+            "clicked(bool)",
+            self.onCreateTemplateTrimPlane,
+        )
+        self.ui.placeTemplateTrimCurveButton.connect(
+            "clicked(bool)",
+            self.onPlaceTemplateTrimCurve,
+        )
+        self.ui.applyTemplateFinalizationButton.connect(
+            "clicked(bool)",
+            self.onApplyTemplateFinalization,
+        )
+        self.ui.restoreTemplateFinalizationViewButton.connect(
+            "clicked(bool)",
+            self.onRestoreTemplateFinalizationView,
+        )
+        self.ui.openDynamicModelerButton.connect(
+            "clicked(bool)",
+            self.onOpenDynamicModeler,
+        )
+        self.ui.deleteTemplateFinalizationButton.connect(
+            "clicked(bool)",
+            self.onDeleteTemplateFinalization,
+        )
+        self.ui.exportResearchTemplateButton.connect(
+            "clicked(bool)",
+            self.onExportResearchTemplate,
+        )
 
         self._addSceneObservers()
         self.initializeParameterNode()
@@ -333,6 +493,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._bindPlanningTrajectoryNode(None)
             self._clearPlanning()
             self._clearTemplateModeling()
+            self._clearTemplateGuide()
+            self._clearTemplateFinalization()
 
     def _newlyLoadedDicomVolume(self) -> vtkMRMLScalarVolumeNode | None:
         if self._volumeNodeIdsBeforeDICOM is None or not self.logic:
@@ -347,8 +509,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return newVolumes[-1] if newVolumes else None
 
     def _updateFromParameterNode(self, caller=None, event=None) -> None:
-        if not self._parameterNode or not self.logic:
+        del caller, event
+        if (
+            self._updatingFromParameterNode
+            or self._restoringTrajectoryAssociation
+            or not self._parameterNode
+            or not self.logic
+        ):
             return
+        self._updatingFromParameterNode = True
+        try:
+            self._updateFromParameterNodeOnce()
+        finally:
+            self._updatingFromParameterNode = False
+
+    def _updateFromParameterNodeOnce(self) -> None:
+        """Perform one non-reentrant parameter-to-widget synchronization."""
 
         volumeNode = self._parameterNode.inputVolume
         self.ui.showVolumeButton.enabled = volumeNode is not None
@@ -358,6 +534,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._bindPlanningTrajectoryNode(self._parameterNode.trajectoryLine)
         self._updatePlanning()
         self._updateTemplateModeling()
+        self._updateTemplateGuide()
+        self._updateTemplateFinalization()
 
         if not volumeNode:
             self._setMetadataPlaceholders()
@@ -719,7 +897,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return str(value) if value else None
 
     def onReviewSegmentationSelectionChanged(self, segmentationNode) -> None:
-        if not self._parameterNode:
+        if not self._parameterNode or self._restoringTrajectoryAssociation:
             return
         currentNode = self._parameterNode.teethSegmentation
         currentNodeId = currentNode.GetID() if currentNode else None
@@ -1133,17 +1311,34 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if not self._parameterNode or not self.logic:
             return None
+        previousRoi = self._parameterNode.targetToothBoundsRoi
+        candidateRoi = previousRoi
+        if not self.logic.isTargetBoundsRoiForTarget(
+            candidateRoi,
+            segmentationNode,
+            targetRecord["segmentId"],
+        ):
+            candidateRoi = self.logic.findTargetBoundsRoi(
+                segmentationNode,
+                targetRecord["segmentId"],
+            )
         try:
             roiNode, bounds = self.logic.createOrUpdateTargetBoundsRoi(
                 segmentationNode,
                 targetRecord["segmentId"],
-                self._parameterNode.targetToothBoundsRoi,
+                candidateRoi,
             )
         except (RuntimeError, ValueError) as exc:
             self._planningConstraintWarning = str(exc)
             self.ui.targetBoundsValueLabel.text = _("--")
             return None
 
+        if (
+            previousRoi
+            and previousRoi is not roiNode
+            and previousRoi.GetDisplayNode()
+        ):
+            previousRoi.GetDisplayNode().SetVisibility(False)
         if self._parameterNode.targetToothBoundsRoi is not roiNode:
             self._parameterNode.targetToothBoundsRoi = roiNode
         self.ui.targetBoundsValueLabel.text = (
@@ -1294,6 +1489,159 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 selectedId,
             )
 
+    @staticmethod
+    def _nodeSelectorComboBox(selector):
+        """Return the PythonQt-accessible combo embedded in a node selector."""
+
+        return next(
+            (
+                child
+                for child in selector.children()
+                if hasattr(child, "setItemData")
+                and hasattr(child, "count")
+            ),
+            None,
+        )
+
+    def _updateNodeSelectorLineageSwatches(
+        self,
+        selector,
+        acceptsNode,
+    ) -> None:
+        """Show persisted lineage colors beside owned nodes in a selector."""
+
+        if not selector or not self.logic:
+            return
+        comboBox = self._nodeSelectorComboBox(selector)
+        if comboBox is None:
+            return
+        for index in range(comboBox.count):
+            node = selector.nodeFromIndex(index)
+            if not acceptsNode(node):
+                continue
+            color = self.logic.lineageColorFromNode(node)
+            if not color:
+                comboBox.setItemData(
+                    index,
+                    qt.QColor(),
+                    qt.Qt.DecorationRole,
+                )
+                continue
+            qColor = qt.QColor(
+                *(int(round(component * 255.0)) for component in color)
+            )
+            comboBox.setItemData(index, qColor, qt.Qt.DecorationRole)
+
+    def _updateTrajectorySelectorColorSwatches(self) -> None:
+        """Decorate every persisted trajectory group in the shared selector."""
+
+        if not hasattr(self, "ui") or not self.logic:
+            return
+        self._updateNodeSelectorLineageSwatches(
+            self.ui.trajectorySelector,
+            self.logic.isDentobotTrajectoryNode,
+        )
+
+    @staticmethod
+    def _lineageStyleSheet(
+        color: tuple[float, float, float] | None,
+        *,
+        borderWidth: int = 8,
+    ) -> str:
+        """Return a readable Qt style using a lineage color as the anchor."""
+
+        if not color:
+            return (
+                "QLabel { color: #555555; background-color: #eeeeee; "
+                f"border-left: {borderWidth}px solid #999999; "
+                "border-radius: 3px; padding: 5px 8px; }"
+            )
+        rgb = tuple(
+            int(round(max(0.0, min(1.0, component)) * 255.0))
+            for component in color
+        )
+        background = tuple(
+            int(round(255 - (255 - component) * 0.18))
+            for component in rgb
+        )
+        return (
+            "QLabel { color: #151515; "
+            f"background-color: rgb{background}; "
+            f"border-left: {borderWidth}px solid rgb{rgb}; "
+            "border-radius: 3px; padding: 5px 8px; font-weight: 600; }"
+        )
+
+    def _lineageSourceNode(self, nodes, targetSegmentId: str = ""):
+        """Choose the first colored node matching the requested target."""
+
+        if not self.logic:
+            return None
+        for node in nodes:
+            if not node or not self.logic.lineageColorFromNode(node):
+                continue
+            if (
+                targetSegmentId
+                and node.GetAttribute(
+                    self.logic.LINEAGE_TARGET_SEGMENT_ATTRIBUTE
+                )
+                != targetSegmentId
+            ):
+                continue
+            return node
+        if targetSegmentId:
+            for className in (
+                "vtkMRMLMarkupsLineNode",
+                "vtkMRMLModelNode",
+                "vtkMRMLMarkupsROINode",
+            ):
+                for node in slicer.util.getNodesByClass(className):
+                    if (
+                        node.GetAttribute(
+                            self.logic.LINEAGE_TARGET_SEGMENT_ATTRIBUTE
+                        )
+                        == targetSegmentId
+                        and self.logic.lineageColorFromNode(node)
+                    ):
+                        return node
+        return None
+
+    def _updateLineageBadge(
+        self,
+        label,
+        node,
+        linkedSteps: str,
+        emptyText: str,
+    ) -> None:
+        """Render an explicit target-lineage badge in a downstream step."""
+
+        color = self.logic.lineageColorFromNode(node) if node else None
+        label.styleSheet = self._lineageStyleSheet(color)
+        if not color:
+            label.text = emptyText
+            return
+        fdiNumber = node.GetAttribute(
+            self.logic.LINEAGE_TARGET_FDI_ATTRIBUTE
+        ) or ""
+        segmentId = node.GetAttribute(
+            self.logic.LINEAGE_TARGET_SEGMENT_ATTRIBUTE
+        ) or ""
+        targetName = (
+            _("FDI %1").replace("%1", fdiNumber)
+            if fdiNumber
+            else segmentId
+            if segmentId
+            else _("target tooth")
+        )
+        rgb255 = tuple(int(round(component * 255.0)) for component in color)
+        colorHex = "#{:02X}{:02X}{:02X}".format(*rgb255)
+        label.text = (
+            _("%1 lineage: %2  •  %3  •  %4")
+            .replace("%1", linkedSteps)
+            .replace("%2", targetName)
+            .replace("%3", colorHex)
+            .replace("%4", _("same parent/child group"))
+        )
+
     def _clearPlanning(self) -> None:
         if not hasattr(self, "ui"):
             return
@@ -1330,10 +1678,48 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._clearPlanning()
             return
 
+        trajectoryNode = self._parameterNode.trajectoryLine
+        trajectoryAssociationError = ""
+        association = None
+        if trajectoryNode:
+            try:
+                association = self.logic.getTrajectoryTargetAssociation(
+                    trajectoryNode
+                )
+            except ValueError as exc:
+                trajectoryAssociationError = str(exc)
+        if association:
+            associatedSegmentation = association["segmentationNode"]
+            associatedTargetId = association["targetRecord"]["segmentId"]
+            associatedRoi = association["targetBoundsRoi"]
+            if (
+                self._parameterNode.teethSegmentation is not associatedSegmentation
+                or self._parameterNode.targetToothSegmentId != associatedTargetId
+                or self._parameterNode.targetToothBoundsRoi is not associatedRoi
+            ):
+                self._restoringTrajectoryAssociation = True
+                wasModifying = self._parameterNode.StartModify()
+                try:
+                    self._parameterNode.teethSegmentation = associatedSegmentation
+                    self._parameterNode.targetToothSegmentId = associatedTargetId
+                    self._parameterNode.targetToothBoundsRoi = associatedRoi
+                finally:
+                    self._parameterNode.EndModify(wasModifying)
+                    self._restoringTrajectoryAssociation = False
+
         segmentationNode = self._parameterNode.teethSegmentation
         if not segmentationNode:
             self._clearPlanning()
             return
+
+        wasUpdatingPlanningUI = self._updatingPlanningUI
+        self._updatingPlanningUI = True
+        try:
+            self.logic.refreshWorkflowLineageColors()
+            self.logic.refreshManagedTrajectoryNames()
+            self.logic.refreshWorkflowNodeStepTags()
+        finally:
+            self._updatingPlanningUI = wasUpdatingPlanningUI
 
         try:
             targetRecords = self.logic.getTargetToothRecords(segmentationNode)
@@ -1383,6 +1769,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._updatingPlanningUI = False
 
         targetBounds = None
+        if trajectoryAssociationError:
+            self._planningConstraintWarning = trajectoryAssociationError
         if targetRecord:
             targetBounds = self._ensureTargetBounds(
                 segmentationNode,
@@ -1395,9 +1783,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if roiNode and roiNode.GetDisplayNode():
                 roiNode.GetDisplayNode().SetVisibility(False)
 
-        trajectoryNode = self._parameterNode.trajectoryLine
+        self.logic.refreshWorkflowLineageColors()
+        self.logic.applyTrajectoryGroupEmphasis(
+            segmentationNode,
+            targetRecord["segmentId"] if targetRecord else "",
+        )
+        self._updateTrajectorySelectorColorSwatches()
+
         self._bindPlanningTrajectoryNode(trajectoryNode)
-        if targetRecord and trajectoryNode:
+        if targetRecord and trajectoryNode and not trajectoryAssociationError:
             currentTargetNode = trajectoryNode.GetNodeReference(
                 self.logic.TARGET_SEGMENTATION_REFERENCE_ROLE
             )
@@ -1586,7 +1980,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.planningStatusLabel.styleSheet = style
 
     def onTargetToothChanged(self, index: int) -> None:
-        if self._updatingPlanningUI or not self._parameterNode or not self.logic:
+        if (
+            self._updatingPlanningUI
+            or self._restoringTrajectoryAssociation
+            or not self._parameterNode
+            or not self.logic
+        ):
             return
         segmentId = (
             str(self.ui.targetToothComboBox.itemData(index))
@@ -1601,22 +2000,29 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
 
         trajectoryNode = self._parameterNode.trajectoryLine
+        trajectoryAssociation = None
+        trajectoryAssociationInvalid = False
         if trajectoryNode:
             self._validTrajectoryPointsByNodeId.pop(
                 trajectoryNode.GetID(),
                 None,
             )
-        self._planningConstraintWarning = ""
-        self._parameterNode.targetToothSegmentId = segmentId
-        if not segmentId and trajectoryNode:
-            self.logic.clearTrajectoryTarget(
-                trajectoryNode
-            )
-            trajectoryNode.SetNodeReferenceID(
-                self.logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
-                None,
-            )
-        elif segmentId and trajectoryNode:
+            try:
+                trajectoryAssociation = (
+                    self.logic.getTrajectoryTargetAssociation(trajectoryNode)
+                )
+            except ValueError as exc:
+                slicer.util.errorDisplay(str(exc))
+                trajectoryAssociationInvalid = True
+
+        retainedTrajectory = None if trajectoryAssociationInvalid else trajectoryNode
+        if trajectoryAssociation and not trajectoryAssociationInvalid:
+            associatedTargetId = trajectoryAssociation["targetRecord"][
+                "segmentId"
+            ]
+            if associatedTargetId != segmentId:
+                retainedTrajectory = None
+        elif trajectoryNode and segmentId:
             try:
                 self.logic.configureTrajectoryTarget(
                     trajectoryNode,
@@ -1625,35 +2031,105 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 )
             except ValueError as exc:
                 slicer.util.errorDisplay(str(exc))
+                retainedTrajectory = None
+        elif trajectoryNode and not segmentId:
+            retainedTrajectory = None
+
+        previousRoi = self._parameterNode.targetToothBoundsRoi
+        if (
+            segmentId != previousTargetId
+            and previousRoi
+            and previousRoi.GetDisplayNode()
+        ):
+            previousRoi.GetDisplayNode().SetVisibility(False)
+        self._planningConstraintWarning = ""
+        self._restoringTrajectoryAssociation = True
+        wasModifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.targetToothSegmentId = segmentId
+            self._parameterNode.trajectoryLine = retainedTrajectory
+            if segmentId != previousTargetId:
+                self._parameterNode.targetToothBoundsRoi = None
+        finally:
+            self._parameterNode.EndModify(wasModifying)
+            self._restoringTrajectoryAssociation = False
         self._updatePlanning()
         self._updateTemplateModeling()
         self._applyTargetPriorityHighlight()
 
     def onTrajectorySelectionChanged(self, trajectoryNode) -> None:
-        if not self._parameterNode or not self.logic:
+        if (
+            self._restoringTrajectoryAssociation
+            or not self._parameterNode
+            or not self.logic
+        ):
             return
-        currentNode = self._parameterNode.trajectoryLine
-        currentNodeId = currentNode.GetID() if currentNode else None
+        previousNode = self._planningTrajectoryNode
+        previousNodeId = previousNode.GetID() if previousNode else None
         selectedNodeId = trajectoryNode.GetID() if trajectoryNode else None
-        if currentNodeId != selectedNodeId:
-            self._parameterNode.trajectoryLine = trajectoryNode
-            if currentNodeId:
-                self._validTrajectoryPointsByNodeId.pop(
-                    currentNodeId,
-                    None,
-                )
-        self._bindPlanningTrajectoryNode(trajectoryNode)
-        targetId = self._parameterNode.targetToothSegmentId
-        if trajectoryNode and targetId:
+        association = None
+        if trajectoryNode:
             try:
-                self.logic.configureTrajectoryTarget(
-                    trajectoryNode,
-                    self._parameterNode.teethSegmentation,
-                    targetId,
+                association = self.logic.getTrajectoryTargetAssociation(
+                    trajectoryNode
                 )
             except ValueError as exc:
                 slicer.util.errorDisplay(str(exc))
+                self._restoringTrajectoryAssociation = True
+                try:
+                    self._parameterNode.trajectoryLine = previousNode
+                    self.ui.trajectorySelector.setCurrentNode(previousNode)
+                finally:
+                    self._restoringTrajectoryAssociation = False
+                return
+
+        previousSegmentation = self._parameterNode.teethSegmentation
+        previousTargetId = self._parameterNode.targetToothSegmentId
+        self._restoringTrajectoryAssociation = True
+        wasModifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.trajectoryLine = trajectoryNode
+            if association:
+                associatedSegmentation = association["segmentationNode"]
+                associatedTargetId = association["targetRecord"]["segmentId"]
+                associatedRoi = association["targetBoundsRoi"]
+                if (
+                    previousSegmentation is not associatedSegmentation
+                    or previousTargetId != associatedTargetId
+                ):
+                    self._markCurrentDraftTemplateModelStale(
+                        _("Selected trajectory targets a different tooth.")
+                    )
+                    self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
+                oldRoi = self._parameterNode.targetToothBoundsRoi
+                if (
+                    oldRoi
+                    and oldRoi is not associatedRoi
+                    and oldRoi.GetDisplayNode()
+                ):
+                    oldRoi.GetDisplayNode().SetVisibility(False)
+                self._parameterNode.teethSegmentation = associatedSegmentation
+                self._parameterNode.targetToothSegmentId = associatedTargetId
+                self._parameterNode.targetToothBoundsRoi = associatedRoi
+            elif trajectoryNode and self._parameterNode.targetToothSegmentId:
+                self.logic.configureTrajectoryTarget(
+                    trajectoryNode,
+                    self._parameterNode.teethSegmentation,
+                    self._parameterNode.targetToothSegmentId,
+                )
+        finally:
+            self._parameterNode.EndModify(wasModifying)
+            self._restoringTrajectoryAssociation = False
+
+        if previousNodeId and previousNodeId != selectedNodeId:
+            self._validTrajectoryPointsByNodeId.pop(previousNodeId, None)
+        self._planningConstraintWarning = ""
+        self._bindSegmentationReviewNode(self._parameterNode.teethSegmentation)
+        self._updateSegmentationReview()
+        self._bindPlanningTrajectoryNode(trajectoryNode)
         self._updatePlanning()
+        self._updateTemplateModeling()
+        self._updateTemplateGuide()
 
     def onCreateTrajectory(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -1666,6 +2142,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             trajectoryNode = self.logic.createTrajectoryNode(
                 f'DENTO Trajectory FDI {targetRecord["fdiNumber"]}'
             )
+            self.logic.enableAutomaticTrajectoryName(trajectoryNode)
             self.logic.configureTrajectoryTarget(
                 trajectoryNode,
                 self._parameterNode.teethSegmentation,
@@ -1840,6 +2317,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._templateSupportRecordsById = {}
             self._templateStatusWarning = ""
             self.ui.templateTargetToothValueLabel.text = _("--")
+            self._updateLineageBadge(
+                self.ui.templateModelingLineageLabel,
+                None,
+                _("Step 4A → Step 5A"),
+                _(
+                    "Target lineage: create a Step 4A trajectory to assign a color."
+                ),
+            )
             self.ui.templateSupportTeethListWidget.clear()
             self.ui.templateSupportTeethListWidget.enabled = False
             self.ui.draftTemplateSupportModelSelector.setCurrentNode(None)
@@ -1884,6 +2369,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         targetSegmentId = self._parameterNode.targetToothSegmentId
         targetRecord = self._targetToothRecordsById.get(targetSegmentId)
         modelNode = self._parameterNode.draftTemplateSupportModel
+        self.logic.refreshWorkflowLineageColors()
         persistedSelectionError = ""
         try:
             persistedSupportIds = self.logic.decodeTemplateSupportSegmentIds(
@@ -1939,6 +2425,27 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 )
         finally:
             self._updatingTemplateUI = False
+
+        lineageNode = self._lineageSourceNode(
+            (
+                modelNode,
+                self._parameterNode.trajectoryLine,
+                self._parameterNode.targetToothBoundsRoi,
+            ),
+            targetSegmentId,
+        )
+        self._updateLineageBadge(
+            self.ui.templateModelingLineageLabel,
+            lineageNode,
+            _("Step 4A → Step 5A"),
+            _(
+                "Target lineage: create a Step 4A trajectory to assign a color."
+            ),
+        )
+        self._updateNodeSelectorLineageSwatches(
+            self.ui.draftTemplateSupportModelSelector,
+            self.logic.isDraftTemplateSupportModelNode,
+        )
 
         selectedSupportIds = self._selectedTemplateSupportSegmentIds()
         modelSummary = None
@@ -2164,6 +2671,1144 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             len(removal["auxiliaryNodeIds"]),
         )
         self._updateTemplateModeling()
+
+    def _clearTemplateGuide(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        self._updatingTemplateGuideUI = True
+        try:
+            self.ui.templateShellRoiSelector.setCurrentNode(None)
+            self.ui.researchTemplateShellModelSelector.setCurrentNode(None)
+            self.ui.researchTemplateSleeveModelSelector.setCurrentNode(None)
+            self._updateLineageBadge(
+                self.ui.templateGuideLineageLabel,
+                None,
+                _("Step 4A → Step 5A → Step 5B"),
+                _(
+                    "Inherited lineage: waiting for a colored Step 5A/Step 4A input."
+                ),
+            )
+            self.ui.createTemplateShellRoiButton.enabled = False
+            self.ui.deleteTemplateShellRoiButton.enabled = False
+            for visibilityCheckBox in (
+                self.ui.targetBoundsVisibilityCheckBox,
+                self.ui.trajectoryVisibilityCheckBox,
+                self.ui.supportModelVisibilityCheckBox,
+                self.ui.shellRoiVisibilityCheckBox,
+                self.ui.shellModelVisibilityCheckBox,
+                self.ui.sleeveModelVisibilityCheckBox,
+            ):
+                visibilityCheckBox.enabled = False
+                visibilityCheckBox.checked = False
+            self.ui.generateResearchTemplateButton.enabled = False
+            self.ui.deleteResearchTemplateButton.enabled = False
+            self.ui.exportResearchTemplateButton.enabled = False
+            self.ui.templateGuideStatusLabel.text = _(
+                "Create a current Step 5A model and a complete locked trajectory."
+            )
+            self.ui.templateGuideStatusLabel.styleSheet = "color: #b36b00;"
+        finally:
+            self._updatingTemplateGuideUI = False
+
+    def _templateGuideParameters(self) -> dict[str, float]:
+        if not self._parameterNode:
+            return {}
+        return {
+            "clearanceMm": self._parameterNode.templateShellClearanceMm,
+            "thicknessMm": self._parameterNode.templateShellThicknessMm,
+            "samplingSpacingMm": self._parameterNode.templateSamplingSpacingMm,
+            "channelDiameterMm": self._parameterNode.templateChannelDiameterMm,
+            "sleeveOuterDiameterMm": self._parameterNode.templateSleeveOuterDiameterMm,
+            "sleeveInnerDiameterMm": self._parameterNode.templateSleeveInnerDiameterMm,
+            "sleeveHeightMm": self._parameterNode.templateSleeveHeightMm,
+        }
+
+    def _templateGuideVisibilityEntries(self) -> tuple[tuple[object, object], ...]:
+        if not self._parameterNode:
+            return ()
+        return (
+            (
+                self.ui.targetBoundsVisibilityCheckBox,
+                self._parameterNode.targetToothBoundsRoi,
+            ),
+            (
+                self.ui.trajectoryVisibilityCheckBox,
+                self._parameterNode.trajectoryLine,
+            ),
+            (
+                self.ui.supportModelVisibilityCheckBox,
+                self._parameterNode.draftTemplateSupportModel,
+            ),
+            (
+                self.ui.shellRoiVisibilityCheckBox,
+                self._parameterNode.templateShellRoi,
+            ),
+            (
+                self.ui.shellModelVisibilityCheckBox,
+                self._parameterNode.researchTemplateShellModel,
+            ),
+            (
+                self.ui.sleeveModelVisibilityCheckBox,
+                self._parameterNode.researchTemplateSleeveModel,
+            ),
+        )
+
+    def _updateTemplateGuideVisibilityControls(self) -> None:
+        self._updatingTemplateGuideVisibilityUI = True
+        try:
+            for checkBox, node in self._templateGuideVisibilityEntries():
+                displayNode = node.GetDisplayNode() if node else None
+                checkBox.enabled = bool(displayNode)
+                checkBox.checked = bool(
+                    displayNode and displayNode.GetVisibility()
+                )
+                color = (
+                    self.logic.lineageColorFromNode(node)
+                    if self.logic and node
+                    else None
+                )
+                checkBox.styleSheet = (
+                    self._lineageStyleSheet(
+                        color,
+                        borderWidth=6,
+                    ).replace("QLabel", "QCheckBox")
+                    if color
+                    else ""
+                )
+        finally:
+            self._updatingTemplateGuideVisibilityUI = False
+
+    def onTemplateGuideVisibilityChanged(self, *args) -> None:
+        del args
+        if (
+            self._updatingTemplateGuideVisibilityUI
+            or self._updatingTemplateGuideUI
+        ):
+            return
+        for checkBox, node in self._templateGuideVisibilityEntries():
+            displayNode = node.GetDisplayNode() if node else None
+            if displayNode and checkBox.enabled:
+                displayNode.SetVisibility(bool(checkBox.checked))
+        self._updateTemplateGuideVisibilityControls()
+
+    def _updateTemplateGuide(self) -> None:
+        if self._updatingTemplateGuideUI:
+            return
+        if not self._parameterNode or not self.logic:
+            self._clearTemplateGuide()
+            return
+
+        supportModel = self._parameterNode.draftTemplateSupportModel
+        trajectoryNode = self._parameterNode.trajectoryLine
+        roiNode = self._parameterNode.templateShellRoi
+        shellModel = self._parameterNode.researchTemplateShellModel
+        sleeveModel = self._parameterNode.researchTemplateSleeveModel
+        rejectedRoiWarning = ""
+        if roiNode and not self.logic.isTemplateShellRoiNode(roiNode):
+            rejectedRoiWarning = _(
+                "Ignored a non-Step 5B ROI. Create the shell trim ROI with "
+                "the Step 5B button; target-bounds and unrelated ROIs cannot "
+                "be used for shell generation."
+            )
+            logging.warning(
+                "Cleared invalid Step 5B ROI reference to %s (%s)",
+                roiNode.GetID(),
+                roiNode.GetName() or "unnamed ROI",
+            )
+            self._updatingTemplateGuideUI = True
+            try:
+                self._parameterNode.templateShellRoi = None
+                self.ui.templateShellRoiSelector.setCurrentNode(None)
+            finally:
+                self._updatingTemplateGuideUI = False
+            roiNode = None
+        self.logic.refreshWorkflowLineageColors()
+        self.logic.refreshWorkflowNodeStepTags()
+        lineageNode = self._lineageSourceNode(
+            (
+                supportModel,
+                trajectoryNode,
+                roiNode,
+                shellModel,
+                sleeveModel,
+            ),
+            self._parameterNode.targetToothSegmentId,
+        )
+        self._updateLineageBadge(
+            self.ui.templateGuideLineageLabel,
+            lineageNode,
+            _("Step 4A → Step 5A → Step 5B"),
+            _(
+                "Inherited lineage: waiting for a colored Step 5A/Step 4A input."
+            ),
+        )
+        for selector, acceptsNode in (
+            (
+                self.ui.templateShellRoiSelector,
+                self.logic.isTemplateShellRoiNode,
+            ),
+            (
+                self.ui.researchTemplateShellModelSelector,
+                self.logic.isResearchTemplateModelNode,
+            ),
+            (
+                self.ui.researchTemplateSleeveModelSelector,
+                self.logic.isResearchTemplateModelNode,
+            ),
+        ):
+            self._updateNodeSelectorLineageSwatches(
+                selector,
+                acceptsNode,
+            )
+        self._updateTemplateGuideVisibilityControls()
+        self.ui.createTemplateShellRoiButton.enabled = bool(
+            supportModel
+            and self.logic.isDraftTemplateSupportModelNode(supportModel)
+        )
+        self.ui.deleteTemplateShellRoiButton.enabled = bool(
+            self.logic.isTemplateShellRoiNode(roiNode)
+            and slicer.mrmlScene.IsNodePresent(roiNode)
+        )
+
+        inputError = ""
+        parameters = self._templateGuideParameters()
+        normalizedParameters = None
+        validatedInputs = None
+        try:
+            normalizedParameters = self.logic._templateGuideParameters(
+                parameters["clearanceMm"],
+                parameters["thicknessMm"],
+                parameters["samplingSpacingMm"],
+                parameters["channelDiameterMm"],
+                parameters["sleeveOuterDiameterMm"],
+                parameters["sleeveInnerDiameterMm"],
+                parameters["sleeveHeightMm"],
+            )
+            validatedInputs = self.logic.validateResearchTemplateInputs(
+                supportModel,
+                trajectoryNode,
+                roiNode,
+                normalizedParameters,
+            )
+        except (RuntimeError, ValueError) as exc:
+            inputError = str(exc)
+
+        summaries = []
+        outputError = ""
+        for modelNode, role in (
+            (shellModel, "ResearchTemplateShell"),
+            (sleeveModel, "ResearchTemplateSleeve"),
+        ):
+            if not modelNode:
+                summaries.append(None)
+                continue
+            try:
+                summaries.append(
+                    self.logic.getResearchTemplateModelSummary(modelNode, role)
+                )
+            except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                summaries.append(None)
+                outputError = str(exc)
+
+        shellSummary, sleeveSummary = summaries
+        if (shellSummary or sleeveSummary) and not validatedInputs:
+            self.logic.markResearchTemplateModelsStale(
+                shellModel,
+                sleeveModel,
+                inputError or _("A required Step 5B input is unavailable."),
+            )
+            if shellSummary:
+                shellSummary = self.logic.getResearchTemplateModelSummary(
+                    shellModel,
+                    "ResearchTemplateShell",
+                )
+            if sleeveSummary:
+                sleeveSummary = self.logic.getResearchTemplateModelSummary(
+                    sleeveModel,
+                    "ResearchTemplateSleeve",
+                )
+        if validatedInputs and shellSummary and sleeveSummary:
+            currentTrajectoryJson = json.dumps(
+                {
+                    "entryRas": validatedInputs["trajectorySummary"]["entryRas"],
+                    "targetRas": validatedInputs["trajectorySummary"]["targetRas"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            currentRoiJson = json.dumps(
+                validatedInputs["roiBoundsRas"],
+                separators=(",", ":"),
+            )
+            currentParametersJson = json.dumps(
+                normalizedParameters,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            sourceUpdatedUtc = supportModel.GetAttribute("DENTOBOT.UpdatedUtc") or ""
+            differs = any(
+                summary["sourceModel"] is not supportModel
+                or summary["trajectory"] is not trajectoryNode
+                or summary["roi"] is not roiNode
+                or summary["parametersJson"] != currentParametersJson
+                or summary["trajectoryGeometryJson"] != currentTrajectoryJson
+                or summary["roiBoundsRasJson"] != currentRoiJson
+                or summary["sourceModelUpdatedUtc"] != sourceUpdatedUtc
+                for summary in (shellSummary, sleeveSummary)
+            )
+            if differs:
+                self.logic.markResearchTemplateModelsStale(
+                    shellModel,
+                    sleeveModel,
+                    _("Step 5A anatomy, trajectory, ROI, or dimensions changed."),
+                )
+                shellSummary = self.logic.getResearchTemplateModelSummary(
+                    shellModel,
+                    "ResearchTemplateShell",
+                )
+                sleeveSummary = self.logic.getResearchTemplateModelSummary(
+                    sleeveModel,
+                    "ResearchTemplateSleeve",
+                )
+
+        canGenerate = bool(validatedInputs and not outputError)
+        bothCurrent = bool(
+            shellSummary
+            and sleeveSummary
+            and shellSummary["geometryState"] == "Current"
+            and sleeveSummary["geometryState"] == "Current"
+        )
+        self.ui.generateResearchTemplateButton.enabled = canGenerate
+        self.ui.deleteResearchTemplateButton.enabled = bool(
+            self.logic.isResearchTemplateModelNode(shellModel)
+            or self.logic.isResearchTemplateModelNode(sleeveModel)
+        )
+
+        if rejectedRoiWarning:
+            message, style = rejectedRoiWarning, "color: #b00020;"
+        elif outputError:
+            message, style = outputError, "color: #b00020;"
+        elif inputError:
+            message, style = inputError, "color: #b36b00;"
+        elif shellSummary and sleeveSummary and not bothCurrent:
+            message, style = (
+                _("Step 5B outputs are stale. Regenerate after reviewing the current inputs."),
+                "color: #b36b00;",
+            )
+        elif bothCurrent:
+            warnings = list(dict.fromkeys(shellSummary["warnings"] + sleeveSummary["warnings"]))
+            if warnings:
+                message = _("Research template generated with warnings: %1").replace(
+                    "%1", " ".join(warnings)
+                )
+                style = "color: #b36b00;"
+            else:
+                message = (
+                    _("Research shell and sleeve are current and ready for Step 5C fit and trim.")
+                )
+                style = "color: #207227;"
+        else:
+            message, style = (
+                _("Inputs are ready. Generate the research shell and sleeve."),
+                "color: #1f5f99;",
+            )
+        self.ui.templateGuideStatusLabel.text = message
+        self.ui.templateGuideStatusLabel.styleSheet = style
+
+    def onTemplateGuideInputChanged(self, *args) -> None:
+        del args
+        if not self._updatingTemplateGuideUI:
+            self._updateTemplateGuide()
+            self._updateTemplateFinalization()
+
+    def onCreateTemplateShellRoi(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            roiNode = self.logic.createOrResetTemplateShellRoi(
+                self._parameterNode.draftTemplateSupportModel,
+                self._parameterNode.templateShellRoi,
+            )
+            self._parameterNode.templateShellRoi = roiNode
+            self._updateTemplateGuide()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onDeleteTemplateShellRoi(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        roiNode = self._parameterNode.templateShellRoi
+        try:
+            self.logic.validateTemplateShellRoiForDeletion(roiNode)
+        except ValueError as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Permanently delete the Step 5B shell trim ROI? Existing "
+                "shell and sleeve outputs will be kept but marked stale. "
+                "The Step 5A anatomy, trajectory, and dimensions will be kept "
+                "so a fresh ROI can be created."
+            ),
+            windowTitle=_("Delete Step 5B shell trim ROI"),
+        ):
+            return
+        try:
+            removal = self.logic.deleteTemplateShellRoi(roiNode)
+            self._parameterNode.templateShellRoi = None
+            self.logic.markResearchTemplateModelsStale(
+                self._parameterNode.researchTemplateShellModel,
+                self._parameterNode.researchTemplateSleeveModel,
+                _("Shell trim ROI was deleted."),
+            )
+            logging.info(
+                "Deleted DENTOBOT Step 5B shell ROI %s and %d owned auxiliary nodes",
+                removal["nodeId"],
+                len(removal["auxiliaryNodeIds"]),
+            )
+            self._updateTemplateGuide()
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onGenerateResearchTemplate(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        parameters = self._templateGuideParameters()
+        try:
+            shellModel, sleeveModel, details = self.logic.createOrUpdateResearchTemplate(
+                self._parameterNode.draftTemplateSupportModel,
+                self._parameterNode.trajectoryLine,
+                self._parameterNode.templateShellRoi,
+                clearanceMm=parameters["clearanceMm"],
+                thicknessMm=parameters["thicknessMm"],
+                samplingSpacingMm=parameters["samplingSpacingMm"],
+                channelDiameterMm=parameters["channelDiameterMm"],
+                sleeveOuterDiameterMm=parameters["sleeveOuterDiameterMm"],
+                sleeveInnerDiameterMm=parameters["sleeveInnerDiameterMm"],
+                sleeveHeightMm=parameters["sleeveHeightMm"],
+                shellModelNode=self._parameterNode.researchTemplateShellModel,
+                sleeveModelNode=self._parameterNode.researchTemplateSleeveModel,
+            )
+            self._parameterNode.researchTemplateShellModel = shellModel
+            self._parameterNode.researchTemplateSleeveModel = sleeveModel
+            logging.info(
+                "Generated DENTOBOT Step 5B shell (%d triangles) and sleeve (%d triangles)",
+                details["shell"]["triangleCount"],
+                details["sleeve"]["triangleCount"],
+            )
+            self._updateTemplateGuide()
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            self.ui.templateGuideStatusLabel.text = str(exc)
+            self.ui.templateGuideStatusLabel.styleSheet = "color: #b00020;"
+            slicer.util.errorDisplay(str(exc))
+
+    def onDeleteResearchTemplate(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Permanently delete the DENTOBOT Step 5B shell and sleeve? "
+                "Any dependent Step 5C plane, curve, finalized shell, and Dynamic "
+                "Modeler auxiliaries will also be deleted. The Step 5A anatomy, "
+                "trajectory, ROI, and dimensions will be kept."
+            ),
+            windowTitle=_("Delete Step 5B research template"),
+        ):
+            return
+        try:
+            if (
+                self._parameterNode.templateTrimPlane
+                or self._parameterNode.templateTrimCurve
+                or self._parameterNode.finalizedTemplateShellModel
+            ):
+                self.logic.deleteTemplateFinalization(
+                    self._parameterNode.templateTrimPlane,
+                    self._parameterNode.templateTrimCurve,
+                    self._parameterNode.finalizedTemplateShellModel,
+                )
+                self._parameterNode.templateTrimPlane = None
+                self._parameterNode.templateTrimCurve = None
+                self._parameterNode.finalizedTemplateShellModel = None
+            removals = self.logic.deleteResearchTemplateModels(
+                self._parameterNode.researchTemplateShellModel,
+                self._parameterNode.researchTemplateSleeveModel,
+            )
+            self._parameterNode.researchTemplateShellModel = None
+            self._parameterNode.researchTemplateSleeveModel = None
+            logging.info(
+                "Deleted %d DENTOBOT Step 5B model nodes",
+                len(removals),
+            )
+            self._updateTemplateGuide()
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def _clearTemplateFinalization(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        self._bindTemplateFinalizationEditNodes(None, None)
+        self._updatingTemplateFinalizationUI = True
+        try:
+            self.ui.templateFinalizationSourceValueLabel.text = _("--")
+            self.ui.templateTrimPlaneSelector.setCurrentNode(None)
+            self.ui.templateTrimCurveSelector.setCurrentNode(None)
+            self.ui.finalizedTemplateShellModelSelector.setCurrentNode(None)
+            self._updateLineageBadge(
+                self.ui.templateFinalizationLineageLabel,
+                None,
+                _("Step 4A → Step 5A → Step 5B → Step 5C"),
+                _("Inherited lineage: waiting for a current Step 5B shell."),
+            )
+            for button in (
+                self.ui.continueTemplateFinalizationButton,
+                self.ui.createTemplateTrimPlaneButton,
+                self.ui.placeTemplateTrimCurveButton,
+                self.ui.applyTemplateFinalizationButton,
+                self.ui.openDynamicModelerButton,
+                self.ui.deleteTemplateFinalizationButton,
+                self.ui.exportResearchTemplateButton,
+            ):
+                button.enabled = False
+            self.ui.restoreTemplateFinalizationViewButton.enabled = bool(
+                self._templateFinalizationPriorVisibilityByNodeId
+            )
+            self.ui.templateFinalizationStatusLabel.text = _(
+                "Generate a current Step 5B shell and sleeve first."
+            )
+            self.ui.templateFinalizationStatusLabel.styleSheet = "color: #b36b00;"
+        finally:
+            self._updatingTemplateFinalizationUI = False
+
+    @staticmethod
+    def _templateFinalizationModeFromIndex(index: int) -> str:
+        return "CurveCut" if int(index) == 1 else "PlaneCut"
+
+    @staticmethod
+    def _templateFinalizationKeepChoices(mode: str) -> tuple[tuple[str, str], ...]:
+        if mode == "CurveCut":
+            return (
+                (_("Inside closed curve"), "Inside"),
+                (_("Outside closed curve"), "Outside"),
+            )
+        return (
+            (_("Below horizontal plane (inferior / −S)"), "Negative"),
+            (_("Above horizontal plane (superior / +S)"), "Positive"),
+        )
+
+    def _setTemplateFinalizationKeepChoices(self, mode: str, selected: str) -> None:
+        comboBox = self.ui.templateFinalizationKeepRegionComboBox
+        choices = self._templateFinalizationKeepChoices(mode)
+        validValues = {value for _label, value in choices}
+        if selected not in validValues:
+            selected = choices[0][1]
+            if self._parameterNode:
+                self._parameterNode.templateFinalizationKeepRegion = selected
+        comboBox.clear()
+        selectedIndex = 0
+        for index, (label, value) in enumerate(choices):
+            comboBox.addItem(label, value)
+            if value == selected:
+                selectedIndex = index
+        comboBox.setCurrentIndex(selectedIndex)
+
+    def _bindTemplateFinalizationEditNodes(self, planeNode, curveNode) -> None:
+        if self._templateTrimPlaneNode is not planeNode:
+            if self._templateTrimPlaneNode:
+                self.removeObserver(
+                    self._templateTrimPlaneNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onTemplateTrimPlaneModified,
+                )
+            self._templateTrimPlaneNode = planeNode
+            if planeNode:
+                self.addObserver(
+                    planeNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onTemplateTrimPlaneModified,
+                )
+        if self._templateTrimCurveNode is not curveNode:
+            if self._templateTrimCurveNode:
+                self.removeObserver(
+                    self._templateTrimCurveNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onTemplateTrimCurveModified,
+                )
+            self._templateTrimCurveNode = curveNode
+            if curveNode:
+                self.addObserver(
+                    curveNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onTemplateTrimCurveModified,
+                )
+
+    def _onTemplateTrimPlaneModified(self, caller=None, event=None) -> None:
+        del event
+        if (
+            self._restoringTemplateTrimPlane
+            or not self._parameterNode
+            or caller is not self._parameterNode.templateTrimPlane
+        ):
+            return
+        if (
+            self._parameterNode.templateFinalizationViewLocked
+            and caller.GetNumberOfDefinedControlPoints() >= 1
+        ):
+            normal = caller.GetNormalWorld()
+            if any(abs(float(normal[index]) - (1.0 if index == 2 else 0.0)) > 1e-6 for index in range(3)):
+                self._restoringTemplateTrimPlane = True
+                try:
+                    caller.SetNormalWorld((0.0, 0.0, 1.0))
+                finally:
+                    self._restoringTemplateTrimPlane = False
+        self.logic.markFinalizedTemplateShellStale(
+            self._parameterNode.finalizedTemplateShellModel,
+            _("The Step 5C trim plane changed."),
+        )
+        qt.QTimer.singleShot(0, self._updateTemplateFinalization)
+
+    def _onTemplateTrimCurveModified(self, caller=None, event=None) -> None:
+        del event
+        if not self._parameterNode or caller is not self._parameterNode.templateTrimCurve:
+            return
+        self.logic.markFinalizedTemplateShellStale(
+            self._parameterNode.finalizedTemplateShellModel,
+            _("The Step 5C margin curve changed."),
+        )
+        qt.QTimer.singleShot(0, self._updateTemplateFinalization)
+
+    def _updateTemplateFinalization(self) -> None:
+        if self._updatingTemplateFinalizationUI:
+            return
+        if not self._parameterNode or not self.logic:
+            self._clearTemplateFinalization()
+            return
+
+        sourceShell = self._parameterNode.researchTemplateShellModel
+        sleeveModel = self._parameterNode.researchTemplateSleeveModel
+        planeNode = self._parameterNode.templateTrimPlane
+        curveNode = self._parameterNode.templateTrimCurve
+        finalShell = self._parameterNode.finalizedTemplateShellModel
+        mode = (
+            self._parameterNode.templateFinalizationMode
+            if self._parameterNode.templateFinalizationMode in {"PlaneCut", "CurveCut"}
+            else "PlaneCut"
+        )
+        keepRegion = self._parameterNode.templateFinalizationKeepRegion
+        self._bindTemplateFinalizationEditNodes(planeNode, curveNode)
+
+        sourceSummary = None
+        sleeveSummary = None
+        sourceError = ""
+        try:
+            sourceSummary = self.logic.getResearchTemplateModelSummary(
+                sourceShell,
+                "ResearchTemplateShell",
+            )
+            sleeveSummary = self.logic.getResearchTemplateModelSummary(
+                sleeveModel,
+                "ResearchTemplateSleeve",
+            )
+            if (
+                sourceSummary["geometryState"] != "Current"
+                or sleeveSummary["geometryState"] != "Current"
+            ):
+                raise ValueError(_("Regenerate stale Step 5B shell and sleeve outputs."))
+        except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            sourceError = str(exc)
+
+        editNode = planeNode if mode == "PlaneCut" else curveNode
+        editError = ""
+        if not sourceError and editNode:
+            try:
+                self.logic.validateTemplateFinalizationEditNode(
+                    sourceShell,
+                    editNode,
+                    mode,
+                )
+            except ValueError as exc:
+                editError = str(exc)
+
+        finalSummary = None
+        finalError = ""
+        if finalShell:
+            try:
+                finalSummary = self.logic.getFinalizedTemplateShellSummary(finalShell)
+                expectedGeometryJson = (
+                    self.logic.templateFinalizationEditGeometryJson(editNode, mode)
+                    if editNode and not editError
+                    else ""
+                )
+                differs = bool(
+                    sourceError
+                    or editError
+                    or finalSummary["sourceShell"] is not sourceShell
+                    or finalSummary["sourceShellUpdatedUtc"]
+                    != (sourceShell.GetAttribute("DENTOBOT.UpdatedUtc") or "")
+                    or finalSummary["method"] != mode
+                    or finalSummary["keepRegion"] != keepRegion
+                    or finalSummary["editGeometryJson"] != expectedGeometryJson
+                )
+                if differs:
+                    self.logic.markFinalizedTemplateShellStale(
+                        finalShell,
+                        _("Step 5B source or Step 5C trim settings changed."),
+                    )
+                    finalSummary = self.logic.getFinalizedTemplateShellSummary(finalShell)
+            except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                finalError = str(exc)
+
+        self.logic.refreshWorkflowLineageColors()
+        self.logic.refreshWorkflowNodeStepTags()
+        lineageNode = self._lineageSourceNode(
+            (finalShell, editNode, sourceShell, sleeveModel),
+            self._parameterNode.targetToothSegmentId,
+        )
+        self._updateLineageBadge(
+            self.ui.templateFinalizationLineageLabel,
+            lineageNode,
+            _("Step 4A → Step 5A → Step 5B → Step 5C"),
+            _("Inherited lineage: waiting for a current Step 5B shell."),
+        )
+        for selector, acceptsNode in (
+            (self.ui.templateTrimPlaneSelector, self.logic.isTemplateTrimPlaneNode),
+            (self.ui.templateTrimCurveSelector, self.logic.isTemplateTrimCurveNode),
+            (
+                self.ui.finalizedTemplateShellModelSelector,
+                self.logic.isFinalizedTemplateShellModelNode,
+            ),
+        ):
+            self._updateNodeSelectorLineageSwatches(selector, acceptsNode)
+
+        self._updatingTemplateFinalizationUI = True
+        try:
+            self.ui.templateFinalizationSourceValueLabel.text = (
+                sourceShell.GetName() if sourceShell else _("--")
+            )
+            self.ui.templateFinalizationModeComboBox.setCurrentIndex(
+                1 if mode == "CurveCut" else 0
+            )
+            self._setTemplateFinalizationKeepChoices(mode, keepRegion)
+            self.ui.templateFinalizationViewLockedCheckBox.checked = bool(
+                self._parameterNode.templateFinalizationViewLocked
+            )
+            planeMode = mode == "PlaneCut"
+            self.ui.templateTrimPlaneLabel.visible = planeMode
+            self.ui.templateTrimPlaneSelector.visible = planeMode
+            self.ui.createTemplateTrimPlaneButton.visible = planeMode
+            self.ui.templateTrimCurveLabel.visible = not planeMode
+            self.ui.templateTrimCurveSelector.visible = not planeMode
+            self.ui.placeTemplateTrimCurveButton.visible = not planeMode
+            sourceCurrent = not sourceError
+            self.ui.continueTemplateFinalizationButton.enabled = sourceCurrent
+            self.ui.createTemplateTrimPlaneButton.enabled = sourceCurrent
+            self.ui.placeTemplateTrimCurveButton.enabled = sourceCurrent
+            self.ui.restoreTemplateFinalizationViewButton.enabled = bool(
+                self._templateFinalizationPriorVisibilityByNodeId
+            )
+            self.ui.applyTemplateFinalizationButton.enabled = bool(
+                sourceCurrent and editNode and not editError
+            )
+            self.ui.openDynamicModelerButton.enabled = bool(
+                finalSummary and finalSummary["dynamicModelerNode"]
+            )
+            self.ui.deleteTemplateFinalizationButton.enabled = bool(
+                planeNode or curveNode or finalShell
+            )
+            finalCurrent = bool(
+                finalSummary
+                and finalSummary["geometryState"] == "Current"
+                and not sourceError
+                and finalSummary["sourceShell"] is sourceShell
+            )
+            self.ui.exportResearchTemplateButton.enabled = finalCurrent
+        finally:
+            self._updatingTemplateFinalizationUI = False
+
+        if sourceError:
+            message, style = sourceError, "color: #b36b00;"
+        elif finalError:
+            message, style = finalError, "color: #b00020;"
+        elif editError:
+            message, style = editError, "color: #b36b00;"
+        elif not editNode:
+            message, style = (
+                _("Continue to isolate the raw shell, then create the selected trim control."),
+                "color: #1f5f99;",
+            )
+        elif finalSummary and finalSummary["geometryState"] != "Current":
+            message, style = (
+                _("The finalized shell is stale. Preview / Apply Trim again."),
+                "color: #b36b00;",
+            )
+        elif finalSummary:
+            message, style = (
+                _("The finalized shell is current and ready for explicit Step 5C STL export."),
+                "color: #207227;",
+            )
+        else:
+            message, style = (
+                _("Adjust the trim control, verify the retained region, then preview the cut."),
+                "color: #1f5f99;",
+            )
+        self.ui.templateFinalizationStatusLabel.text = message
+        self.ui.templateFinalizationStatusLabel.styleSheet = style
+
+    def onTemplateFinalizationInputChanged(self, *args) -> None:
+        del args
+        if not self._updatingTemplateFinalizationUI:
+            self._updateTemplateFinalization()
+
+    def onTemplateFinalizationModeChanged(self, index: int) -> None:
+        if self._updatingTemplateFinalizationUI or not self._parameterNode:
+            return
+        mode = self._templateFinalizationModeFromIndex(index)
+        self._parameterNode.templateFinalizationMode = mode
+        choices = self._templateFinalizationKeepChoices(mode)
+        self._parameterNode.templateFinalizationKeepRegion = choices[0][1]
+        self.logic.markFinalizedTemplateShellStale(
+            self._parameterNode.finalizedTemplateShellModel,
+            _("The Step 5C trim method changed."),
+        )
+        self._updateTemplateFinalization()
+
+    def onTemplateFinalizationKeepRegionChanged(self, index: int) -> None:
+        if (
+            self._updatingTemplateFinalizationUI
+            or not self._parameterNode
+            or index < 0
+        ):
+            return
+        value = self.ui.templateFinalizationKeepRegionComboBox.itemData(index)
+        if value:
+            self._parameterNode.templateFinalizationKeepRegion = str(value)
+            self.logic.markFinalizedTemplateShellStale(
+                self._parameterNode.finalizedTemplateShellModel,
+                _("The Step 5C retained region changed."),
+            )
+        self._updateTemplateFinalization()
+
+    def _setTemplateTrimPlaneOrientationLock(self, locked: bool) -> None:
+        planeNode = self._parameterNode.templateTrimPlane if self._parameterNode else None
+        if not planeNode:
+            return
+        displayNode = planeNode.GetDisplayNode()
+        if locked:
+            self._restoringTemplateTrimPlane = True
+            try:
+                planeNode.SetNormalWorld((0.0, 0.0, 1.0))
+            finally:
+                self._restoringTemplateTrimPlane = False
+        if displayNode:
+            displayNode.SetHandlesInteractive(True)
+            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetRotationHandleVisibility(not locked)
+
+    def onTemplateFinalizationViewLockToggled(self, locked: bool) -> None:
+        if self._updatingTemplateFinalizationUI or not self._parameterNode:
+            return
+        self._parameterNode.templateFinalizationViewLocked = bool(locked)
+        self._setTemplateTrimPlaneOrientationLock(bool(locked))
+        if locked and self._templateFinalizationCamera:
+            self._lockTemplateFinalizationCamera(self._templateFinalizationCamera)
+
+    def _lockTemplateFinalizationCamera(self, camera) -> None:
+        if not camera or self._restoringTemplateFinalizationCamera:
+            return
+        focalPoint = camera.GetFocalPoint()
+        position = camera.GetPosition()
+        distance = max(
+            math.sqrt(vtk.vtkMath.Distance2BetweenPoints(focalPoint, position)),
+            1.0,
+        )
+        expectedPosition = (focalPoint[0], focalPoint[1] + distance, focalPoint[2])
+        self._restoringTemplateFinalizationCamera = True
+        try:
+            camera.SetPosition(expectedPosition)
+            camera.SetViewUp(0.0, 0.0, 1.0)
+            camera.ParallelProjectionOn()
+            camera.OrthogonalizeViewUp()
+        finally:
+            self._restoringTemplateFinalizationCamera = False
+
+    def _onTemplateFinalizationCameraModified(self, caller=None, event=None) -> None:
+        del event
+        if (
+            self._parameterNode
+            and self._parameterNode.templateFinalizationViewLocked
+        ):
+            self._lockTemplateFinalizationCamera(caller)
+
+    def _prepareTemplateFinalizationView(self, sourceShell) -> None:
+        if not self._templateFinalizationPriorVisibilityByNodeId:
+            for nodeIndex in range(slicer.mrmlScene.GetNumberOfNodes()):
+                node = slicer.mrmlScene.GetNthNode(nodeIndex)
+                if not node or not node.IsA("vtkMRMLDisplayableNode"):
+                    continue
+                displayNode = node.GetDisplayNode()
+                if displayNode and node.GetID():
+                    self._templateFinalizationPriorVisibilityByNodeId[node.GetID()] = bool(
+                        displayNode.GetVisibility()
+                    )
+        for nodeId in self._templateFinalizationPriorVisibilityByNodeId:
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            displayNode = node.GetDisplayNode() if node else None
+            if displayNode:
+                displayNode.SetVisibility(False)
+        sourceShell.GetDisplayNode().SetVisibility(True)
+        editNode = (
+            self._parameterNode.templateTrimPlane
+            if self._parameterNode.templateFinalizationMode == "PlaneCut"
+            else self._parameterNode.templateTrimCurve
+        )
+        if editNode and editNode.GetDisplayNode():
+            editNode.GetDisplayNode().SetVisibility(True)
+
+        layoutManager = slicer.app.layoutManager()
+        if not layoutManager or layoutManager.threeDViewCount < 1:
+            raise RuntimeError(_("No Slicer 3D view is available."))
+        threeDView = layoutManager.threeDWidget(0).threeDView()
+        camera = threeDView.cameraNode().GetCamera()
+        if self._templateFinalizationCamera is not camera:
+            if self._templateFinalizationCamera:
+                self.removeObserver(
+                    self._templateFinalizationCamera,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onTemplateFinalizationCameraModified,
+                )
+            self._templateFinalizationCamera = camera
+            self.addObserver(
+                camera,
+                vtk.vtkCommand.ModifiedEvent,
+                self._onTemplateFinalizationCameraModified,
+            )
+        bounds = [0.0] * 6
+        sourceShell.GetRASBounds(bounds)
+        center = tuple((bounds[2 * axis] + bounds[2 * axis + 1]) / 2.0 for axis in range(3))
+        diagonal = math.sqrt(
+            sum((bounds[2 * axis + 1] - bounds[2 * axis]) ** 2 for axis in range(3))
+        )
+        self._restoringTemplateFinalizationCamera = True
+        try:
+            camera.SetFocalPoint(center)
+            camera.SetPosition(center[0], center[1] + max(diagonal * 2.0, 20.0), center[2])
+            camera.SetViewUp(0.0, 0.0, 1.0)
+            camera.ParallelProjectionOn()
+            camera.SetParallelScale(
+                max(bounds[1] - bounds[0], bounds[5] - bounds[4], 1.0) * 0.62
+            )
+            camera.OrthogonalizeViewUp()
+            threeDView.resetCamera()
+        finally:
+            self._restoringTemplateFinalizationCamera = False
+        if self._parameterNode.templateFinalizationViewLocked:
+            self._lockTemplateFinalizationCamera(camera)
+        threeDView.forceRender()
+
+    def onContinueTemplateFinalization(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            sourceShell = self.logic.validateTemplateFinalizationSourceShell(
+                self._parameterNode.researchTemplateShellModel
+            )
+            if self._parameterNode.templateFinalizationMode == "PlaneCut":
+                planeNode = self._parameterNode.templateTrimPlane
+                createdPlane = not planeNode
+                if not planeNode:
+                    planeNode = self.logic.createOrResetTemplateTrimPlane(sourceShell)
+                    self._parameterNode.templateTrimPlane = planeNode
+                self._setTemplateTrimPlaneOrientationLock(
+                    self._parameterNode.templateFinalizationViewLocked
+                )
+            else:
+                curveNode = self._parameterNode.templateTrimCurve
+                if not curveNode:
+                    curveNode = self.logic.createTemplateTrimCurve(sourceShell)
+                    self._parameterNode.templateTrimCurve = curveNode
+            self._prepareTemplateFinalizationView(sourceShell)
+            if self._parameterNode.templateFinalizationMode == "PlaneCut" and createdPlane:
+                self.logic.startHorizontalPlanePlacement(planeNode)
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onCreateTemplateTrimPlane(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            planeNode = self.logic.createOrResetTemplateTrimPlane(
+                self._parameterNode.researchTemplateShellModel,
+                self._parameterNode.templateTrimPlane,
+            )
+            self._parameterNode.templateTrimPlane = planeNode
+            self._setTemplateTrimPlaneOrientationLock(
+                self._parameterNode.templateFinalizationViewLocked
+            )
+            self._prepareTemplateFinalizationView(
+                self._parameterNode.researchTemplateShellModel
+            )
+            self.logic.startHorizontalPlanePlacement(planeNode)
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onPlaceTemplateTrimCurve(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            curveNode = self._parameterNode.templateTrimCurve
+            if not curveNode:
+                curveNode = self.logic.createTemplateTrimCurve(
+                    self._parameterNode.researchTemplateShellModel
+                )
+                self._parameterNode.templateTrimCurve = curveNode
+            else:
+                self.logic.validateTemplateFinalizationEditNode(
+                    self._parameterNode.researchTemplateShellModel,
+                    curveNode,
+                    "CurveCut",
+                    requireComplete=False,
+                )
+            self._prepareTemplateFinalizationView(
+                self._parameterNode.researchTemplateShellModel
+            )
+            self.logic.startClosedCurvePlacement(curveNode)
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onApplyTemplateFinalization(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            self.logic.stopTrajectoryPlacement()
+            finalShell, details = self.logic.createOrUpdateFinalizedTemplateShell(
+                self._parameterNode.researchTemplateShellModel,
+                self._parameterNode.templateTrimPlane,
+                self._parameterNode.templateTrimCurve,
+                self._parameterNode.templateFinalizationMode,
+                self._parameterNode.templateFinalizationKeepRegion,
+                self._parameterNode.finalizedTemplateShellModel,
+            )
+            self._parameterNode.finalizedTemplateShellModel = finalShell
+            sourceDisplay = self._parameterNode.researchTemplateShellModel.GetDisplayNode()
+            if sourceDisplay:
+                sourceDisplay.SetVisibility(False)
+            if finalShell.GetDisplayNode():
+                finalShell.GetDisplayNode().SetVisibility(True)
+            logging.info(
+                "Generated DENTOBOT Step 5C finalized shell using %s/%s (%d triangles)",
+                details["method"],
+                details["keepRegion"],
+                details["topology"]["triangleCount"],
+            )
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            self.ui.templateFinalizationStatusLabel.text = str(exc)
+            self.ui.templateFinalizationStatusLabel.styleSheet = "color: #b00020;"
+            slicer.util.errorDisplay(str(exc))
+
+    def onRestoreTemplateFinalizationView(self) -> None:
+        for nodeId, visibility in self._templateFinalizationPriorVisibilityByNodeId.items():
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            displayNode = node.GetDisplayNode() if node else None
+            if displayNode:
+                displayNode.SetVisibility(visibility)
+        self._templateFinalizationPriorVisibilityByNodeId.clear()
+        if self._templateFinalizationCamera:
+            self.removeObserver(
+                self._templateFinalizationCamera,
+                vtk.vtkCommand.ModifiedEvent,
+                self._onTemplateFinalizationCameraModified,
+            )
+            self._templateFinalizationCamera = None
+        self._updateTemplateFinalization()
+
+    def onOpenDynamicModeler(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            summary = self.logic.getFinalizedTemplateShellSummary(
+                self._parameterNode.finalizedTemplateShellModel
+            )
+            dynamicNode = summary["dynamicModelerNode"]
+            if not dynamicNode:
+                raise ValueError(_("Apply a Step 5C trim before opening Dynamic Modeler."))
+            slicer.util.selectModule("DynamicModeler")
+            moduleWidget = slicer.modules.dynamicmodeler.widgetRepresentation()
+            treeView = slicer.util.findChild(moduleWidget, "SubjectHierarchyTreeView")
+            if treeView:
+                treeView.setCurrentNode(dynamicNode)
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onDeleteTemplateFinalization(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Delete the Step 5C plane, curve, finalized shell, and owned "
+                "Dynamic Modeler auxiliaries? The raw Step 5B shell and sleeve will be kept."
+            ),
+            windowTitle=_("Delete Step 5C fit and trim"),
+        ):
+            return
+        try:
+            removals = self.logic.deleteTemplateFinalization(
+                self._parameterNode.templateTrimPlane,
+                self._parameterNode.templateTrimCurve,
+                self._parameterNode.finalizedTemplateShellModel,
+            )
+            self._parameterNode.templateTrimPlane = None
+            self._parameterNode.templateTrimCurve = None
+            self._parameterNode.finalizedTemplateShellModel = None
+            logging.info("Deleted %d DENTOBOT Step 5C nodes", len(removals))
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onExportResearchTemplate(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        directory = qt.QFileDialog.getExistingDirectory(
+            slicer.util.mainWindow(),
+            _("Select local folder for research STL files"),
+            "",
+        )
+        if isinstance(directory, tuple):
+            directory = directory[0]
+        if not directory:
+            return
+        outputPaths = (
+            Path(directory) / "DENTO_Research_Template_Shell.stl",
+            Path(directory) / "DENTO_Research_Template_Sleeve.stl",
+        )
+        overwrite = False
+        if any(path.exists() for path in outputPaths):
+            overwrite = slicer.util.confirmYesNoDisplay(
+                _("One or both STL files already exist. Replace them atomically?"),
+                windowTitle=_("Replace research STL files"),
+            )
+            if not overwrite:
+                return
+        try:
+            paths = self.logic.exportResearchTemplateStls(
+                directory,
+                self._parameterNode.finalizedTemplateShellModel,
+                self._parameterNode.researchTemplateSleeveModel,
+                overwrite=overwrite,
+            )
+            self.ui.templateFinalizationStatusLabel.text = (
+                _("Exported research STL files: %1 and %2")
+                .replace("%1", str(paths["shell"]))
+                .replace("%2", str(paths["sleeve"]))
+            )
+            self.ui.templateFinalizationStatusLabel.styleSheet = "color: #207227;"
+        except (OSError, RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
 
     def _setMetadataPlaceholders(self) -> None:
         for label in (
@@ -3000,10 +4645,32 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         "DENTOBOT.TargetBoundsSegmentation"
     )
     TARGET_BOUNDS_ROI_REFERENCE_ROLE = "DENTOBOT.TargetBoundsROI"
+    TRAJECTORY_AUTO_NAME_ATTRIBUTE = "DENTOBOT.AutomaticTrajectoryName"
+    LINEAGE_COLOR_ATTRIBUTE = "DENTOBOT.LineageColorRgb"
+    LINEAGE_TARGET_SEGMENT_ATTRIBUTE = "DENTOBOT.LineageTargetSegmentID"
+    LINEAGE_TARGET_FDI_ATTRIBUTE = "DENTOBOT.LineageTargetFdiNumber"
     TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE = (
         "DENTOBOT.TemplateSourceSegmentation"
     )
     TEMPLATE_MODEL_SCHEMA_VERSION = "1.0"
+    TEMPLATE_GUIDE_SCHEMA_VERSION = "1.0"
+    TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateGuideSourceModel"
+    )
+    TEMPLATE_GUIDE_TRAJECTORY_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateGuideTrajectory"
+    )
+    TEMPLATE_GUIDE_ROI_REFERENCE_ROLE = "DENTOBOT.TemplateGuideROI"
+    TEMPLATE_FINALIZATION_SCHEMA_VERSION = "1.0"
+    TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateFinalizationSourceShell"
+    )
+    TEMPLATE_FINALIZATION_EDIT_NODE_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateFinalizationEditNode"
+    )
+    TEMPLATE_FINALIZATION_DYNAMIC_MODELER_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateFinalizationDynamicModeler"
+    )
     SEGMENT_REVIEW_CATEGORY_ORDER = (
         "Teeth",
         "Pulp and root canals",
@@ -3178,6 +4845,395 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             f"S [{bounds[4]:.3f}, {bounds[5]:.3f}] mm"
         )
 
+    @staticmethod
+    def lineageColorForTarget(
+        segmentId: str,
+        fdiNumber: str = "",
+    ) -> tuple[float, float, float]:
+        """Return a stable vivid color for one authoritative target tooth."""
+
+        normalizedSegmentId = str(segmentId or "").strip()
+        if not normalizedSegmentId:
+            raise ValueError(_("A target segment ID is required for lineage color."))
+        fdiMatch = re.fullmatch(r"([1-4])([1-8])", str(fdiNumber or ""))
+        if fdiMatch:
+            ordinal = (int(fdiMatch.group(1)) - 1) * 8 + int(
+                fdiMatch.group(2)
+            ) - 1
+        else:
+            ordinal = (
+                uuid.uuid5(uuid.NAMESPACE_OID, normalizedSegmentId).int % 32
+            )
+        hue = (0.055 + ordinal * 0.618033988749895) % 1.0
+        return tuple(
+            round(float(component), 6)
+            for component in colorsys.hsv_to_rgb(hue, 0.74, 0.94)
+        )
+
+    @classmethod
+    def lineageColorFromNode(cls, node) -> tuple[float, float, float] | None:
+        """Read a validated persisted target-lineage color from one node."""
+
+        if not node:
+            return None
+        try:
+            values = json.loads(
+                node.GetAttribute(cls.LINEAGE_COLOR_ATTRIBUTE) or "null"
+            )
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if (
+            not isinstance(values, list)
+            or len(values) != 3
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+                or float(value) > 1.0
+                for value in values
+            )
+        ):
+            return None
+        return tuple(float(value) for value in values)
+
+    @classmethod
+    def setNodeLineageColor(
+        cls,
+        node,
+        color: tuple[float, float, float],
+        segmentId: str,
+        fdiNumber: str = "",
+    ) -> bool:
+        """Persist and display one visual lineage color without changing identity."""
+
+        normalizedColor = tuple(round(float(value), 6) for value in color)
+        if (
+            len(normalizedColor) != 3
+            or any(
+                not math.isfinite(value) or value < 0.0 or value > 1.0
+                for value in normalizedColor
+            )
+        ):
+            raise ValueError(_("A lineage color must contain three RGB values."))
+        serializedColor = json.dumps(
+            list(normalizedColor),
+            separators=(",", ":"),
+        )
+        normalizedSegmentId = str(segmentId or "").strip()
+        normalizedFdi = str(fdiNumber or "").strip()
+        changed = any(
+            (
+                node.GetAttribute(cls.LINEAGE_COLOR_ATTRIBUTE)
+                != serializedColor,
+                node.GetAttribute(cls.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
+                != normalizedSegmentId,
+                node.GetAttribute(cls.LINEAGE_TARGET_FDI_ATTRIBUTE)
+                != normalizedFdi,
+            )
+        )
+        if changed:
+            wasModifying = node.StartModify()
+            try:
+                node.SetAttribute(cls.LINEAGE_COLOR_ATTRIBUTE, serializedColor)
+                node.SetAttribute(
+                    cls.LINEAGE_TARGET_SEGMENT_ATTRIBUTE,
+                    normalizedSegmentId,
+                )
+                node.SetAttribute(
+                    cls.LINEAGE_TARGET_FDI_ATTRIBUTE,
+                    normalizedFdi,
+                )
+            finally:
+                node.EndModify(wasModifying)
+        if node.IsA("vtkMRMLDisplayableNode"):
+            node.CreateDefaultDisplayNodes()
+            displayNode = node.GetDisplayNode()
+            if displayNode:
+                displayNode.SetColor(*normalizedColor)
+                if hasattr(displayNode, "SetSelectedColor"):
+                    displayNode.SetSelectedColor(*normalizedColor)
+                if hasattr(displayNode, "SetActiveColor"):
+                    displayNode.SetActiveColor(*normalizedColor)
+        return changed
+
+    @classmethod
+    def clearNodeLineageColor(cls, node) -> None:
+        if not node:
+            return
+        attributeNames = (
+            cls.LINEAGE_COLOR_ATTRIBUTE,
+            cls.LINEAGE_TARGET_SEGMENT_ATTRIBUTE,
+            cls.LINEAGE_TARGET_FDI_ATTRIBUTE,
+        )
+        if not any(node.GetAttribute(name) for name in attributeNames):
+            return
+        wasModifying = node.StartModify()
+        try:
+            for attributeName in attributeNames:
+                node.SetAttribute(attributeName, None)
+        finally:
+            node.EndModify(wasModifying)
+
+    def dentobotTrajectoriesForTarget(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> list[vtkMRMLMarkupsLineNode]:
+        """Return every DENTOBOT trajectory in one authoritative tooth group."""
+
+        segmentationId = segmentationNode.GetID() if segmentationNode else None
+        return [
+            node
+            for node in slicer.util.getNodesByClass(
+                "vtkMRMLMarkupsLineNode"
+            )
+            if (
+                self.isDentobotTrajectoryNode(node)
+                and node.GetAttribute("DENTOBOT.TargetSegmentID") == segmentId
+                and node.GetNodeReference(
+                    self.TARGET_SEGMENTATION_REFERENCE_ROLE
+                )
+                and node.GetNodeReference(
+                    self.TARGET_SEGMENTATION_REFERENCE_ROLE
+                ).GetID()
+                == segmentationId
+            )
+        ]
+
+    def isTargetBoundsRoiForTarget(
+        self,
+        roiNode: vtkMRMLMarkupsROINode | None,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> bool:
+        """Return whether an ROI is the exact Step 4A bounds for one tooth."""
+
+        referencedSegmentation = (
+            roiNode.GetNodeReference(
+                self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE
+            )
+            if roiNode and roiNode.IsA("vtkMRMLMarkupsROINode")
+            else None
+        )
+        return bool(
+            referencedSegmentation
+            and segmentationNode
+            and referencedSegmentation.GetID() == segmentationNode.GetID()
+            and roiNode.GetAttribute("DENTOBOT.BoundsRole")
+            == "TargetToothAABB"
+            and roiNode.GetAttribute("DENTOBOT.TargetSegmentID") == segmentId
+        )
+
+    def findTargetBoundsRoi(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> vtkMRMLMarkupsROINode | None:
+        """Find an existing exact target ROI so tooth switching creates no duplicate."""
+
+        for roiNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsROINode"
+        ):
+            if self.isTargetBoundsRoiForTarget(
+                roiNode,
+                segmentationNode,
+                segmentId,
+            ):
+                return roiNode
+        return None
+
+    def refreshWorkflowLineageColors(self) -> list[str]:
+        """Propagate target-tooth colors through role/reference-linked descendants."""
+
+        changedNodeIds = []
+        groupColors: dict[tuple[str, str], tuple[float, float, float]] = {}
+        groupFdi: dict[tuple[str, str], str] = {}
+        for trajectoryNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsLineNode"
+        ):
+            if not self.isDentobotTrajectoryNode(trajectoryNode):
+                continue
+            try:
+                self.enforceTrajectoryControlPointInvariant(trajectoryNode)
+                segmentationNode = trajectoryNode.GetNodeReference(
+                    self.TARGET_SEGMENTATION_REFERENCE_ROLE
+                )
+                segmentId = trajectoryNode.GetAttribute(
+                    "DENTOBOT.TargetSegmentID"
+                ) or ""
+                targetRecord = self.validateTargetTooth(
+                    segmentationNode,
+                    segmentId,
+                )
+            except ValueError:
+                continue
+            key = (segmentationNode.GetID(), segmentId)
+            fdiNumber = targetRecord.get("fdiNumber") or ""
+            color = self.lineageColorForTarget(segmentId, fdiNumber)
+            groupColors[key] = color
+            groupFdi[key] = fdiNumber
+            if self.setNodeLineageColor(
+                trajectoryNode,
+                color,
+                segmentId,
+                fdiNumber,
+            ):
+                changedNodeIds.append(trajectoryNode.GetID())
+
+        for roiNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsROINode"
+        ):
+            if roiNode.GetAttribute("DENTOBOT.BoundsRole") != "TargetToothAABB":
+                continue
+            segmentationNode = roiNode.GetNodeReference(
+                self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE
+            )
+            segmentId = roiNode.GetAttribute("DENTOBOT.TargetSegmentID") or ""
+            key = (
+                segmentationNode.GetID() if segmentationNode else "",
+                segmentId,
+            )
+            color = groupColors.get(key)
+            if color and self.setNodeLineageColor(
+                roiNode,
+                color,
+                segmentId,
+                groupFdi.get(key, ""),
+            ):
+                changedNodeIds.append(roiNode.GetID())
+
+        supportLineages: dict[str, tuple[tuple[float, float, float], str, str]] = {}
+        for modelNode in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if not self.isDraftTemplateSupportModelNode(modelNode):
+                continue
+            segmentationNode = modelNode.GetNodeReference(
+                self.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE
+            )
+            segmentId = modelNode.GetAttribute("DENTOBOT.TargetSegmentID") or ""
+            key = (
+                segmentationNode.GetID() if segmentationNode else "",
+                segmentId,
+            )
+            color = groupColors.get(key)
+            if not color:
+                continue
+            fdiNumber = groupFdi.get(key, "")
+            if self.setNodeLineageColor(
+                modelNode,
+                color,
+                segmentId,
+                fdiNumber,
+            ):
+                changedNodeIds.append(modelNode.GetID())
+            supportLineages[modelNode.GetID()] = (
+                color,
+                segmentId,
+                fdiNumber,
+            )
+
+        for roiNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsROINode"
+        ):
+            if not self.isTemplateShellRoiNode(roiNode):
+                continue
+            supportModel = roiNode.GetNodeReference(
+                self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+            )
+            lineage = (
+                supportLineages.get(supportModel.GetID())
+                if supportModel
+                else None
+            )
+            if lineage and self.setNodeLineageColor(roiNode, *lineage):
+                changedNodeIds.append(roiNode.GetID())
+
+        researchLineages: dict[str, tuple[tuple[float, float, float], str, str]] = {}
+        for modelNode in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if not self.isResearchTemplateModelNode(modelNode):
+                continue
+            supportModel = modelNode.GetNodeReference(
+                self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+            )
+            lineage = (
+                supportLineages.get(supportModel.GetID())
+                if supportModel
+                else None
+            )
+            if lineage and self.setNodeLineageColor(modelNode, *lineage):
+                changedNodeIds.append(modelNode.GetID())
+            if lineage:
+                researchLineages[modelNode.GetID()] = lineage
+
+        for className, acceptsNode in (
+            ("vtkMRMLMarkupsPlaneNode", self.isTemplateTrimPlaneNode),
+            ("vtkMRMLMarkupsClosedCurveNode", self.isTemplateTrimCurveNode),
+        ):
+            for markupNode in slicer.util.getNodesByClass(className):
+                if not acceptsNode(markupNode):
+                    continue
+                sourceShell = markupNode.GetNodeReference(
+                    self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+                )
+                lineage = (
+                    researchLineages.get(sourceShell.GetID())
+                    if sourceShell
+                    else None
+                )
+                if lineage and self.setNodeLineageColor(markupNode, *lineage):
+                    changedNodeIds.append(markupNode.GetID())
+
+        for modelNode in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if not self.isFinalizedTemplateShellModelNode(modelNode):
+                continue
+            sourceShell = modelNode.GetNodeReference(
+                self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+            )
+            lineage = (
+                researchLineages.get(sourceShell.GetID())
+                if sourceShell
+                else None
+            )
+            if lineage and self.setNodeLineageColor(modelNode, *lineage):
+                changedNodeIds.append(modelNode.GetID())
+        return changedNodeIds
+
+    def applyTrajectoryGroupEmphasis(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode | None,
+        activeSegmentId: str,
+    ) -> None:
+        """Emphasize one tooth's trajectories while preserving visibility state."""
+
+        activeSegmentationId = (
+            segmentationNode.GetID() if segmentationNode else ""
+        )
+        for trajectoryNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsLineNode"
+        ):
+            if not self.isDentobotTrajectoryNode(trajectoryNode):
+                continue
+            displayNode = trajectoryNode.GetDisplayNode()
+            if not displayNode:
+                continue
+            targetSegmentation = trajectoryNode.GetNodeReference(
+                self.TARGET_SEGMENTATION_REFERENCE_ROLE
+            )
+            isActiveGroup = bool(
+                activeSegmentId
+                and targetSegmentation
+                and targetSegmentation.GetID() == activeSegmentationId
+                and trajectoryNode.GetAttribute("DENTOBOT.TargetSegmentID")
+                == activeSegmentId
+            )
+            hasActiveGroup = bool(activeSegmentationId and activeSegmentId)
+            displayNode.SetOpacity(
+                1.0 if isActiveGroup else 0.38 if hasActiveGroup else 0.68
+            )
+            displayNode.SetLineThickness(0.55 if isActiveGroup else 0.25)
+            displayNode.SetGlyphScale(1.45 if isActiveGroup else 1.0)
+            displayNode.SetPointLabelsVisibility(isActiveGroup)
+
     def createOrUpdateTargetBoundsRoi(
         self,
         segmentationNode: vtkMRMLSegmentationNode,
@@ -3194,10 +5250,46 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             segmentationNode,
             segmentId,
         )
-        if not roiNode or not roiNode.IsA("vtkMRMLMarkupsROINode"):
+        roiIsMarkup = bool(
+            roiNode and roiNode.IsA("vtkMRMLMarkupsROINode")
+        )
+        boundsRole = (
+            roiNode.GetAttribute("DENTOBOT.BoundsRole")
+            if roiIsMarkup
+            else None
+        )
+        markupsRole = (
+            roiNode.GetAttribute("DENTOBOT.MarkupsRole")
+            if roiIsMarkup
+            else None
+        )
+        reusedRoi = bool(
+            roiIsMarkup
+            and (
+                (
+                    boundsRole == "TargetToothAABB"
+                    and roiNode.GetAttribute("DENTOBOT.TargetSegmentID")
+                    == targetRecord["segmentId"]
+                    and roiNode.GetNodeReference(
+                        self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE
+                    )
+                    and roiNode.GetNodeReference(
+                        self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE
+                    ).GetID()
+                    == segmentationNode.GetID()
+                )
+                or (not boundsRole and not markupsRole)
+            )
+        )
+        previousVisibility = bool(
+            reusedRoi
+            and roiNode.GetDisplayNode()
+            and roiNode.GetDisplayNode().GetVisibility()
+        )
+        if not reusedRoi:
             roiNode = slicer.mrmlScene.AddNewNodeByClass(
                 "vtkMRMLMarkupsROINode",
-                f'DENTO Target Bounds FDI {targetRecord["fdiNumber"]}',
+                f'[Step 4A] DENTO Target Bounds FDI {targetRecord["fdiNumber"]}',
             )
         if not roiNode:
             raise RuntimeError(_("Slicer could not create target bounds."))
@@ -3213,12 +5305,18 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         wasModifying = roiNode.StartModify()
         try:
             roiNode.SetName(
-                f'DENTO Target Bounds FDI {targetRecord["fdiNumber"]}'
+                f'[Step 4A] DENTO Target Bounds FDI {targetRecord["fdiNumber"]}'
             )
             roiNode.SetCenterWorld(center)
             roiNode.SetSizeWorld(size)
             roiNode.SetLocked(True)
             roiNode.SetAttribute("DENTOBOT.BoundsRole", "TargetToothAABB")
+            roiNode.SetAttribute("DENTOBOT.MarkupsRole", None)
+            roiNode.SetAttribute("DENTOBOT.TemplateGuideSchemaVersion", None)
+            roiNode.SetNodeReferenceID(
+                self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+                None,
+            )
             roiNode.SetAttribute(
                 "DENTOBOT.CoordinateSystem",
                 "SlicerRASmm",
@@ -3241,16 +5339,33 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         roiNode.CreateDefaultDisplayNodes()
         displayNode = roiNode.GetDisplayNode()
         if displayNode:
-            displayNode.SetVisibility(True)
+            displayNode.SetVisibility(previousVisibility if reusedRoi else True)
             displayNode.SetVisibility2D(True)
             displayNode.SetVisibility3D(True)
             displayNode.SetFillVisibility(False)
             displayNode.SetOutlineVisibility(True)
             displayNode.SetPropertiesLabelVisibility(False)
-            displayNode.SetColor(1.0, 0.65, 0.0)
-            displayNode.SetSelectedColor(1.0, 0.8, 0.2)
             if hasattr(displayNode, "SetHandlesInteractive"):
                 displayNode.SetHandlesInteractive(False)
+        targetTrajectories = self.dentobotTrajectoriesForTarget(
+            segmentationNode,
+            targetRecord["segmentId"],
+        )
+        if targetTrajectories:
+            self.setNodeLineageColor(
+                roiNode,
+                self.lineageColorForTarget(
+                    targetRecord["segmentId"],
+                    targetRecord.get("fdiNumber") or "",
+                ),
+                targetRecord["segmentId"],
+                targetRecord.get("fdiNumber") or "",
+            )
+        else:
+            self.clearNodeLineageColor(roiNode)
+            if displayNode:
+                displayNode.SetColor(1.0, 0.65, 0.0)
+                displayNode.SetSelectedColor(1.0, 0.8, 0.2)
         return roiNode, bounds
 
     @staticmethod
@@ -3402,7 +5517,36 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             and selectionNode.GetActivePlaceNodeID() == trajectoryNode.GetID()
         ):
             self.stopTrajectoryPlacement()
+        parameterNode = self.getParameterNode()
+        if parameterNode.trajectoryLine is trajectoryNode:
+            parameterNode.trajectoryLine = None
         return self._removeSceneNodeAndOwnedAuxiliaries(trajectoryNode)
+
+    def enforceTrajectoryControlPointInvariant(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> None:
+        """Enforce a non-destructive two-point Entry/Target line contract."""
+
+        if not trajectoryNode or not trajectoryNode.IsA(
+            "vtkMRMLMarkupsLineNode"
+        ):
+            raise ValueError(_("Select a valid trajectory line node."))
+        if (
+            trajectoryNode.GetNumberOfControlPoints() > 2
+            or trajectoryNode.GetNumberOfDefinedControlPoints() > 2
+        ):
+            raise ValueError(
+                _(
+                    "A trajectory may contain only Entry and Target. Remove "
+                    "extra points before using it in DENTOBOT."
+                )
+            )
+        if trajectoryNode.GetMaximumNumberOfControlPoints() != 2:
+            raise ValueError(
+                _("The selected line does not enforce the two-point trajectory contract.")
+            )
+        self.labelTrajectoryControlPoints(trajectoryNode)
 
     def createTrajectoryNode(
         self,
@@ -3430,7 +5574,161 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "SlicerRASmm",
         )
         trajectoryNode.SetAttribute("DENTOBOT.PlanningStatus", "Draft")
+        self.enforceTrajectoryControlPointInvariant(trajectoryNode)
         return trajectoryNode
+
+    def enableAutomaticTrajectoryName(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> None:
+        """Opt a DENTOBOT trajectory into informative, managed display names."""
+
+        if not self.isDentobotTrajectoryNode(trajectoryNode):
+            raise ValueError(_("Select a DENTOBOT Step 4A trajectory."))
+        trajectoryNode.SetAttribute(self.TRAJECTORY_AUTO_NAME_ATTRIBUTE, "1")
+
+    @staticmethod
+    def _trajectoryStateLabel(trajectorySummary: dict) -> str:
+        pointCount = trajectorySummary["definedPointCount"]
+        if pointCount == 0:
+            return _("Empty")
+        if pointCount == 1:
+            return _("Entry only")
+        return _("Complete") if trajectorySummary["isValid"] else _("Invalid")
+
+    def refreshManagedTrajectoryNames(self) -> list[str]:
+        """Disambiguate managed and legacy default trajectory names.
+
+        Names are presentation only. Grouping and numbering use persisted MRML
+        references and segment IDs, never editable node names.
+        """
+
+        trajectories = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLMarkupsLineNode")
+            if self.isDentobotTrajectoryNode(node)
+        ]
+        for trajectoryNode in trajectories:
+            name = trajectoryNode.GetName() or ""
+            if re.fullmatch(
+                r"(?:\[Step 4A\]\s+)?DENTO Trajectory FDI\s+\d+",
+                name,
+            ):
+                trajectoryNode.SetAttribute(
+                    self.TRAJECTORY_AUTO_NAME_ATTRIBUTE,
+                    "1",
+                )
+
+        managedGroups: dict[tuple[str, str], list] = {}
+        for trajectoryNode in trajectories:
+            if trajectoryNode.GetAttribute(
+                self.TRAJECTORY_AUTO_NAME_ATTRIBUTE
+            ) != "1":
+                continue
+            segmentationNode = trajectoryNode.GetNodeReference(
+                self.TARGET_SEGMENTATION_REFERENCE_ROLE
+            )
+            segmentId = trajectoryNode.GetAttribute(
+                "DENTOBOT.TargetSegmentID"
+            ) or ""
+            key = (
+                segmentationNode.GetID() if segmentationNode else "",
+                segmentId,
+            )
+            managedGroups.setdefault(key, []).append(trajectoryNode)
+
+        changedNodeIds = []
+        for (_segmentationId, segmentId), group in managedGroups.items():
+            for index, trajectoryNode in enumerate(group, start=1):
+                fdiNumber = trajectoryNode.GetAttribute(
+                    "DENTOBOT.TargetFdiNumber"
+                ) or ""
+                targetLabel = (
+                    f"FDI {fdiNumber}"
+                    if fdiNumber
+                    else segmentId
+                    if segmentId
+                    else _("Unassigned")
+                )
+                stateLabel = self._trajectoryStateLabel(
+                    self.getTrajectorySummary(trajectoryNode)
+                )
+                desiredName = _("[Step 4A] DENTO %1 - Trajectory %2 [%3]")
+                desiredName = (
+                    desiredName.replace("%1", targetLabel)
+                    .replace("%2", str(index))
+                    .replace("%3", stateLabel)
+                )
+                if trajectoryNode.GetName() != desiredName:
+                    trajectoryNode.SetName(desiredName)
+                    changedNodeIds.append(trajectoryNode.GetID())
+        return changedNodeIds
+
+    @staticmethod
+    def ensureWorkflowNodeStepTag(node, stepName: str) -> bool:
+        """Prefix one workflow-owned node for clear Slicer Data-view grouping."""
+
+        if not node:
+            return False
+        currentName = node.GetName() or node.GetClassName()
+        untaggedName = re.sub(
+            r"^\[Step [^\]]+\]\s*",
+            "",
+            currentName,
+        )
+        desiredName = f"[{stepName}] {untaggedName}"
+        if currentName == desiredName:
+            return False
+        node.SetName(desiredName)
+        return True
+
+    def refreshWorkflowNodeStepTags(self) -> list[str]:
+        """Tag every DENTOBOT-owned Step 4A/5A/5B/5C scene object by role."""
+
+        taggedNodeIds = []
+        for trajectoryNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsLineNode"
+        ):
+            if (
+                self.isDentobotTrajectoryNode(trajectoryNode)
+                and self.ensureWorkflowNodeStepTag(
+                    trajectoryNode,
+                    "Step 4A",
+                )
+            ):
+                taggedNodeIds.append(trajectoryNode.GetID())
+        for roiNode in slicer.util.getNodesByClass("vtkMRMLMarkupsROINode"):
+            stepName = None
+            if roiNode.GetAttribute("DENTOBOT.BoundsRole") == "TargetToothAABB":
+                stepName = "Step 4A"
+            elif self.isTemplateShellRoiNode(roiNode):
+                stepName = "Step 5B"
+            if stepName and self.ensureWorkflowNodeStepTag(roiNode, stepName):
+                taggedNodeIds.append(roiNode.GetID())
+        for className, acceptsNode in (
+            ("vtkMRMLMarkupsPlaneNode", self.isTemplateTrimPlaneNode),
+            ("vtkMRMLMarkupsClosedCurveNode", self.isTemplateTrimCurveNode),
+        ):
+            for markupNode in slicer.util.getNodesByClass(className):
+                if (
+                    acceptsNode(markupNode)
+                    and self.ensureWorkflowNodeStepTag(markupNode, "Step 5C")
+                ):
+                    taggedNodeIds.append(markupNode.GetID())
+        for modelNode in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            role = modelNode.GetAttribute("DENTOBOT.ModelRole")
+            stepName = (
+                "Step 5A"
+                if role == "TemplateSupportDraft"
+                else "Step 5B"
+                if role in {"ResearchTemplateShell", "ResearchTemplateSleeve"}
+                else "Step 5C"
+                if role == "FinalizedTemplateShell"
+                else None
+            )
+            if stepName and self.ensureWorkflowNodeStepTag(modelNode, stepName):
+                taggedNodeIds.append(modelNode.GetID())
+        return taggedNodeIds
 
     def configureTrajectoryTarget(
         self,
@@ -3440,6 +5738,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     ) -> dict:
         """Associate a draft trajectory with one authoritative tooth segment."""
 
+        self.enforceTrajectoryControlPointInvariant(trajectoryNode)
         self.getTrajectorySummary(trajectoryNode)
         targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
         wasModifying = trajectoryNode.StartModify()
@@ -3472,7 +5771,95 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         finally:
             trajectoryNode.EndModify(wasModifying)
         self.labelTrajectoryControlPoints(trajectoryNode)
+        self.setNodeLineageColor(
+            trajectoryNode,
+            self.lineageColorForTarget(
+                targetRecord["segmentId"],
+                targetRecord.get("fdiNumber") or "",
+            ),
+            targetRecord["segmentId"],
+            targetRecord.get("fdiNumber") or "",
+        )
+        self.refreshWorkflowLineageColors()
         return targetRecord
+
+    def getTrajectoryTargetAssociation(
+        self,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> dict | None:
+        """Return and validate a trajectory's persisted target association.
+
+        An entirely unassociated Markups line returns ``None`` so it can be
+        adopted for the active tooth. Partial or dangling persisted state is
+        rejected rather than silently overwritten.
+        """
+
+        self.getTrajectorySummary(trajectoryNode)
+        segmentationNode = trajectoryNode.GetNodeReference(
+            self.TARGET_SEGMENTATION_REFERENCE_ROLE
+        )
+        segmentId = trajectoryNode.GetAttribute(
+            "DENTOBOT.TargetSegmentID"
+        ) or ""
+        roiNode = trajectoryNode.GetNodeReference(
+            self.TARGET_BOUNDS_ROI_REFERENCE_ROLE
+        )
+        hasOtherTargetMetadata = any(
+            trajectoryNode.GetAttribute(attributeName)
+            for attributeName in (
+                "DENTOBOT.TargetSegmentName",
+                "DENTOBOT.TargetFdiNumber",
+            )
+        )
+        if not segmentationNode and not segmentId:
+            if roiNode or hasOtherTargetMetadata:
+                raise ValueError(
+                    _(
+                        "The selected trajectory has an incomplete saved target "
+                        "association. Repair or delete it; DENTOBOT will not "
+                        "guess from its editable name."
+                    )
+                )
+            return None
+        if not segmentationNode or not segmentId:
+            raise ValueError(
+                _(
+                    "The selected trajectory has an incomplete saved target "
+                    "association. Repair or delete it; DENTOBOT will not guess "
+                    "from its editable name."
+                )
+            )
+        if not segmentationNode.IsA("vtkMRMLSegmentationNode"):
+            raise ValueError(
+                _("The selected trajectory references an invalid segmentation.")
+            )
+        targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
+        if roiNode:
+            if not roiNode.IsA("vtkMRMLMarkupsROINode"):
+                raise ValueError(
+                    _("The selected trajectory references an invalid target ROI.")
+                )
+            roiRole = roiNode.GetAttribute("DENTOBOT.BoundsRole")
+            roiSegmentId = roiNode.GetAttribute("DENTOBOT.TargetSegmentID")
+            roiSegmentation = roiNode.GetNodeReference(
+                self.TARGET_BOUNDS_SEGMENTATION_REFERENCE_ROLE
+            )
+            if (
+                roiRole != "TargetToothAABB"
+                or roiSegmentId != segmentId
+                or roiSegmentation is not segmentationNode
+            ):
+                raise ValueError(
+                    _(
+                        "The selected trajectory's saved target ROI does not "
+                        "match its target tooth association."
+                    )
+                )
+        return {
+            "segmentationNode": segmentationNode,
+            "targetRecord": targetRecord,
+            "targetBoundsRoi": roiNode,
+        }
 
     def clearTrajectoryTarget(
         self,
@@ -3499,6 +5886,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 trajectoryNode.SetAttribute(attributeName, None)
         finally:
             trajectoryNode.EndModify(wasModifying)
+        self.clearNodeLineageColor(trajectoryNode)
+        displayNode = trajectoryNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetColor(0.65, 0.65, 0.65)
+            displayNode.SetSelectedColor(0.75, 0.75, 0.75)
 
     @staticmethod
     def encodeTemplateSupportSegmentIds(segmentIds: list[str]) -> str:
@@ -3669,6 +6061,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 _("The draft support-anatomy model failed geometry validation.")
             )
 
+        reusedModel = bool(
+            modelNode and modelNode.IsA("vtkMRMLModelNode")
+        )
+        previousVisibility = bool(
+            reusedModel
+            and modelNode.GetDisplayNode()
+            and modelNode.GetDisplayNode().GetVisibility()
+        )
         if modelNode:
             if not modelNode.IsA("vtkMRMLModelNode"):
                 raise ValueError(_("Select a valid draft model node."))
@@ -3689,7 +6089,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         targetFdi = selection["target"].get("fdiNumber") or "Unknown"
         supportCount = len(selection["supports"])
         modelName = (
-            f"DENTO Template Support FDI {targetFdi} + "
+            f"[Step 5A] DENTO Template Support FDI {targetFdi} + "
             f"{supportCount} {'Teeth' if supportCount != 1 else 'Tooth'} Draft"
         )
         wasModifying = modelNode.StartModify()
@@ -3776,11 +6176,28 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         modelNode.CreateDefaultDisplayNodes()
         displayNode = modelNode.GetDisplayNode()
         if displayNode:
-            displayNode.SetVisibility(True)
+            displayNode.SetVisibility(previousVisibility if reusedModel else True)
             displayNode.SetVisibility2D(False)
             displayNode.SetVisibility3D(True)
-            displayNode.SetColor(0.15, 0.72, 0.82)
             displayNode.SetOpacity(0.65)
+        targetTrajectories = self.dentobotTrajectoriesForTarget(
+            segmentationNode,
+            selection["target"]["segmentId"],
+        )
+        if targetTrajectories:
+            self.setNodeLineageColor(
+                modelNode,
+                self.lineageColorForTarget(
+                    selection["target"]["segmentId"],
+                    selection["target"].get("fdiNumber") or "",
+                ),
+                selection["target"]["segmentId"],
+                selection["target"].get("fdiNumber") or "",
+            )
+        else:
+            self.clearNodeLineageColor(modelNode)
+            if displayNode:
+                displayNode.SetColor(0.15, 0.72, 0.82)
 
         return modelNode, {
             "target": selection["target"],
@@ -3818,6 +6235,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         """Delete one Step 5A draft while preserving all source selections."""
 
         self.validateDraftTemplateSupportModelForDeletion(modelNode)
+        parameterNode = self.getParameterNode()
+        if parameterNode.draftTemplateSupportModel is modelNode:
+            parameterNode.draftTemplateSupportModel = None
         return self._removeSceneNodeAndOwnedAuxiliaries(modelNode)
 
     @staticmethod
@@ -3839,9 +6259,6 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "DENTOBOT.StaleReason",
             str(reason).strip() or "Source selection changed.",
         )
-        displayNode = modelNode.GetDisplayNode()
-        if displayNode:
-            displayNode.SetColor(0.95, 0.55, 0.15)
         return True
 
     def getDraftTemplateSupportModelSummary(
@@ -3889,6 +6306,1191 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "cellCount": polyData.GetNumberOfCells(),
         }
 
+    def createOrResetTemplateShellRoi(
+        self,
+        supportModelNode: vtkMRMLModelNode,
+        roiNode: vtkMRMLMarkupsROINode | None = None,
+        marginMm: float = 2.0,
+    ) -> vtkMRMLMarkupsROINode:
+        """Create/reset a world-RAS trim ROI around current Step 5A anatomy."""
+
+        summary = self.getDraftTemplateSupportModelSummary(supportModelNode)
+        if summary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale Step 5A support model first."))
+        margin = float(marginMm)
+        if not math.isfinite(margin) or margin < 0.0:
+            raise ValueError(_("ROI margin must be a finite non-negative value."))
+        worldSurface = model_polydata_in_world(supportModelNode)
+        bounds = worldSurface.GetBounds()
+        if len(bounds) != 6 or any(not math.isfinite(value) for value in bounds):
+            raise RuntimeError(_("The Step 5A model has invalid world bounds."))
+
+        reusedRoi = bool(
+            roiNode and roiNode.IsA("vtkMRMLMarkupsROINode")
+        )
+        previousVisibility = bool(
+            reusedRoi
+            and roiNode.GetDisplayNode()
+            and roiNode.GetDisplayNode().GetVisibility()
+        )
+        if roiNode:
+            if not self.isTemplateShellRoiNode(roiNode):
+                raise ValueError(
+                    _(
+                        "Select a DENTOBOT Step 5B shell trim ROI. Target-bounds "
+                        "and unrelated ROIs cannot be adopted by Step 5B."
+                    )
+                )
+            if roiNode.GetNodeReference(
+                self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+            ) is not supportModelNode:
+                raise ValueError(
+                    _(
+                        "The selected Step 5B ROI belongs to a different Step "
+                        "5A support model. Delete it or select its source model."
+                    )
+                )
+        else:
+            roiNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsROINode",
+                "[Step 5B] DENTO Research Template Shell ROI",
+            )
+        if not roiNode:
+            raise RuntimeError(_("Slicer could not create the shell trim ROI."))
+
+        center = [
+            (float(bounds[2 * axis]) + float(bounds[2 * axis + 1])) / 2.0
+            for axis in range(3)
+        ]
+        size = [
+            float(bounds[2 * axis + 1] - bounds[2 * axis]) + 2.0 * margin
+            for axis in range(3)
+        ]
+        roiNode.SetAndObserveTransformNodeID(None)
+        roiNode.SetLocked(False)
+        roiNode.SetName("[Step 5B] DENTO Research Template Shell ROI")
+        roiNode.SetCenterWorld(*center)
+        roiNode.SetSizeWorld(*size)
+        roiNode.SetAttribute("DENTOBOT.MarkupsRole", "TemplateShellTrimROI")
+        roiNode.SetAttribute(
+            "DENTOBOT.TemplateGuideSchemaVersion",
+            self.TEMPLATE_GUIDE_SCHEMA_VERSION,
+        )
+        roiNode.SetNodeReferenceID(
+            self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            supportModelNode.GetID(),
+        )
+        roiNode.CreateDefaultDisplayNodes()
+        displayNode = roiNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(previousVisibility if reusedRoi else True)
+        self.refreshWorkflowLineageColors()
+        supportLineageColor = self.lineageColorFromNode(supportModelNode)
+        if supportLineageColor:
+            self.setNodeLineageColor(
+                roiNode,
+                supportLineageColor,
+                supportModelNode.GetAttribute("DENTOBOT.TargetSegmentID") or "",
+                supportModelNode.GetAttribute("DENTOBOT.TargetFdiNumber") or "",
+            )
+        elif displayNode:
+            self.clearNodeLineageColor(roiNode)
+            displayNode.SetColor(0.95, 0.65, 0.15)
+            displayNode.SetSelectedColor(0.95, 0.65, 0.15)
+        return roiNode
+
+    @staticmethod
+    def isTemplateShellRoiNode(roiNode) -> bool:
+        return bool(
+            roiNode
+            and roiNode.IsA("vtkMRMLMarkupsROINode")
+            and roiNode.GetAttribute("DENTOBOT.MarkupsRole")
+            == "TemplateShellTrimROI"
+            and not roiNode.GetAttribute("DENTOBOT.BoundsRole")
+        )
+
+    def validateTemplateShellRoiForDeletion(
+        self,
+        roiNode: vtkMRMLMarkupsROINode,
+    ) -> None:
+        if not self.isTemplateShellRoiNode(roiNode):
+            raise ValueError(_("Select a DENTOBOT Step 5B shell trim ROI."))
+        if not slicer.mrmlScene.IsNodePresent(roiNode):
+            raise ValueError(_("The selected shell trim ROI is no longer in the scene."))
+
+    def deleteTemplateShellRoi(
+        self,
+        roiNode: vtkMRMLMarkupsROINode,
+    ) -> dict:
+        """Delete only a DENTOBOT Step 5B ROI and its unshared auxiliaries."""
+
+        self.validateTemplateShellRoiForDeletion(roiNode)
+        parameterNode = self.getParameterNode()
+        if parameterNode.templateShellRoi is roiNode:
+            parameterNode.templateShellRoi = None
+        return self._removeSceneNodeAndOwnedAuxiliaries(roiNode)
+
+    @staticmethod
+    def _templateGuideParameters(
+        clearanceMm: float,
+        thicknessMm: float,
+        samplingSpacingMm: float,
+        channelDiameterMm: float,
+        sleeveOuterDiameterMm: float,
+        sleeveInnerDiameterMm: float,
+        sleeveHeightMm: float,
+    ) -> dict[str, float]:
+        values = {
+            "clearanceMm": float(clearanceMm),
+            "thicknessMm": float(thicknessMm),
+            "samplingSpacingMm": float(samplingSpacingMm),
+            "channelDiameterMm": float(channelDiameterMm),
+            "sleeveOuterDiameterMm": float(sleeveOuterDiameterMm),
+            "sleeveInnerDiameterMm": float(sleeveInnerDiameterMm),
+            "sleeveHeightMm": float(sleeveHeightMm),
+        }
+        if any(not math.isfinite(value) for value in values.values()):
+            raise ValueError(_("All Step 5B dimensions must be finite."))
+        if values["clearanceMm"] < 0.0:
+            raise ValueError(_("Shell clearance must be zero or greater."))
+        for key in (
+            "thicknessMm",
+            "samplingSpacingMm",
+            "channelDiameterMm",
+            "sleeveOuterDiameterMm",
+            "sleeveInnerDiameterMm",
+            "sleeveHeightMm",
+        ):
+            if values[key] <= 0.0:
+                raise ValueError(_("All non-clearance Step 5B dimensions must be positive."))
+        if values["sleeveInnerDiameterMm"] >= values["sleeveOuterDiameterMm"]:
+            raise ValueError(_("Sleeve inner diameter must be smaller than outer diameter."))
+        if values["channelDiameterMm"] < values["sleeveInnerDiameterMm"]:
+            raise ValueError(
+                _("Shell channel diameter must be at least the sleeve inner diameter.")
+            )
+        return values
+
+    def validateResearchTemplateInputs(
+        self,
+        supportModelNode: vtkMRMLModelNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        roiNode: vtkMRMLMarkupsROINode,
+        parameters: dict[str, float],
+    ) -> dict:
+        supportSummary = self.getDraftTemplateSupportModelSummary(
+            supportModelNode
+        )
+        if supportSummary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale Step 5A support model first."))
+        if not self.isDentobotTrajectoryNode(trajectoryNode):
+            raise ValueError(_("Select a DENTOBOT Step 4A trajectory."))
+        trajectorySummary = self.getTrajectorySummary(trajectoryNode)
+        if not trajectorySummary["isValid"] or trajectorySummary["definedPointCount"] != 2:
+            raise ValueError(_("A complete non-zero Entry/Target trajectory is required."))
+        if not trajectoryNode.GetLocked():
+            raise ValueError(_("Lock the trajectory before generating Step 5B geometry."))
+        trajectoryAssociation = self.getTrajectoryTargetAssociation(
+            trajectoryNode
+        )
+        if not trajectoryAssociation:
+            raise ValueError(
+                _("Associate the Step 4A trajectory with the Step 5A target tooth.")
+            )
+        trajectorySegmentation = trajectoryAssociation["segmentationNode"]
+        if (
+            trajectorySegmentation.GetID()
+            != supportSummary["sourceSegmentation"].GetID()
+            or trajectoryAssociation["targetRecord"]["segmentId"]
+            != supportSummary["targetSegmentId"]
+        ):
+            raise ValueError(
+                _(
+                    "The Step 4A trajectory and Step 5A model must belong to "
+                    "the same target tooth lineage."
+                )
+            )
+        if not self.isTemplateShellRoiNode(roiNode):
+            raise ValueError(
+                _(
+                    "Create or select a DENTOBOT Step 5B shell trim ROI. "
+                    "Step 4A target bounds cannot be used for shell generation."
+                )
+            )
+        if roiNode.GetNodeReference(
+            self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+        ) is not supportModelNode:
+            raise ValueError(
+                _("The shell trim ROI is not associated with the current Step 5A model.")
+            )
+        roiBounds = [0.0] * 6
+        roiNode.GetRASBounds(roiBounds)
+        if (
+            any(not math.isfinite(value) for value in roiBounds)
+            or any(roiBounds[2 * axis] >= roiBounds[2 * axis + 1] for axis in range(3))
+        ):
+            raise ValueError(_("The shell trim ROI has invalid world-RAS bounds."))
+        return {
+            "supportSummary": supportSummary,
+            "trajectorySummary": trajectorySummary,
+            "roiBoundsRas": tuple(float(value) for value in roiBounds),
+            "parameters": parameters,
+        }
+
+    @staticmethod
+    def _createOrReuseRoleModel(
+        modelNode: vtkMRMLModelNode | None,
+        role: str,
+        name: str,
+    ) -> vtkMRMLModelNode:
+        if modelNode:
+            if (
+                not modelNode.IsA("vtkMRMLModelNode")
+                or modelNode.GetAttribute("DENTOBOT.ModelRole") != role
+            ):
+                raise ValueError(_("A selected Step 5B output has the wrong role."))
+        else:
+            modelNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode",
+                name,
+            )
+        if not modelNode:
+            raise RuntimeError(_("Slicer could not create a Step 5B model."))
+        modelNode.SetName(name)
+        return modelNode
+
+    def createOrUpdateResearchTemplate(
+        self,
+        supportModelNode: vtkMRMLModelNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        roiNode: vtkMRMLMarkupsROINode,
+        *,
+        clearanceMm: float,
+        thicknessMm: float,
+        samplingSpacingMm: float,
+        channelDiameterMm: float,
+        sleeveOuterDiameterMm: float,
+        sleeveInnerDiameterMm: float,
+        sleeveHeightMm: float,
+        shellModelNode: vtkMRMLModelNode | None = None,
+        sleeveModelNode: vtkMRMLModelNode | None = None,
+    ) -> tuple[vtkMRMLModelNode, vtkMRMLModelNode, dict]:
+        """Generate persistent research shell/sleeve models without trained models."""
+
+        parameters = self._templateGuideParameters(
+            clearanceMm,
+            thicknessMm,
+            samplingSpacingMm,
+            channelDiameterMm,
+            sleeveOuterDiameterMm,
+            sleeveInnerDiameterMm,
+            sleeveHeightMm,
+        )
+        inputs = self.validateResearchTemplateInputs(
+            supportModelNode,
+            trajectoryNode,
+            roiNode,
+            parameters,
+        )
+        trajectoryPoints = (
+            inputs["trajectorySummary"]["entryRas"],
+            inputs["trajectorySummary"]["targetRas"],
+        )
+        anatomyWorld = model_polydata_in_world(supportModelNode)
+        shellPolyData, shellMetrics = create_research_shell(
+            anatomyWorld,
+            inputs["roiBoundsRas"],
+            trajectoryPoints[0],
+            trajectoryPoints[1],
+            clearance_mm=parameters["clearanceMm"],
+            thickness_mm=parameters["thicknessMm"],
+            sampling_spacing_mm=parameters["samplingSpacingMm"],
+            channel_diameter_mm=parameters["channelDiameterMm"],
+            sleeve_outer_diameter_mm=parameters["sleeveOuterDiameterMm"],
+            sleeve_inner_diameter_mm=parameters["sleeveInnerDiameterMm"],
+            sleeve_height_mm=parameters["sleeveHeightMm"],
+        )
+        sleevePolyData, sleeveMetrics = create_hollow_sleeve(
+            trajectoryPoints[0],
+            trajectoryPoints[1],
+            outer_diameter_mm=parameters["sleeveOuterDiameterMm"],
+            inner_diameter_mm=parameters["sleeveInnerDiameterMm"],
+            height_mm=parameters["sleeveHeightMm"],
+        )
+
+        implicitDistance = vtk.vtkImplicitPolyDataDistance()
+        implicitDistance.SetInput(anatomyWorld)
+        sleeveDistances = [
+            float(implicitDistance.EvaluateFunction(sleevePolyData.GetPoint(index)))
+            for index in range(sleevePolyData.GetNumberOfPoints())
+        ]
+        minimumSleeveDistance = min(sleeveDistances) if sleeveDistances else math.nan
+        warnings = []
+        if minimumSleeveDistance < -parameters["samplingSpacingMm"]:
+            warnings.append(
+                _(
+                    "The sleeve surface overlaps the support anatomy; move the "
+                    "Entry point to the external tooth surface before fabrication research."
+                )
+            )
+        if shellMetrics["surfaceRegionCount"] > 2:
+            warnings.append(
+                _(
+                    "The shell contains multiple surface regions; verify that selected "
+                    "supports form one connected removable guide body."
+                )
+            )
+
+        reusedShell = bool(
+            shellModelNode and shellModelNode.IsA("vtkMRMLModelNode")
+        )
+        reusedSleeve = bool(
+            sleeveModelNode and sleeveModelNode.IsA("vtkMRMLModelNode")
+        )
+        shellVisibility = bool(
+            reusedShell
+            and shellModelNode.GetDisplayNode()
+            and shellModelNode.GetDisplayNode().GetVisibility()
+        )
+        sleeveVisibility = bool(
+            reusedSleeve
+            and sleeveModelNode.GetDisplayNode()
+            and sleeveModelNode.GetDisplayNode().GetVisibility()
+        )
+        shellModelNode = self._createOrReuseRoleModel(
+            shellModelNode,
+            "ResearchTemplateShell",
+            "[Step 5B] DENTO Research Template Shell",
+        )
+        sleeveModelNode = self._createOrReuseRoleModel(
+            sleeveModelNode,
+            "ResearchTemplateSleeve",
+            "[Step 5B] DENTO Research Template Sleeve",
+        )
+        timestamp = datetime.now(timezone.utc).isoformat()
+        parametersJson = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
+        warningsJson = json.dumps(warnings, separators=(",", ":"))
+        trajectoryGeometryJson = json.dumps(
+            {
+                "entryRas": trajectoryPoints[0],
+                "targetRas": trajectoryPoints[1],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        roiBoundsJson = json.dumps(
+            inputs["roiBoundsRas"],
+            separators=(",", ":"),
+        )
+        for modelNode, role, polyData, metrics in (
+            (shellModelNode, "ResearchTemplateShell", shellPolyData, shellMetrics),
+            (sleeveModelNode, "ResearchTemplateSleeve", sleevePolyData, sleeveMetrics),
+        ):
+            wasModifying = modelNode.StartModify()
+            try:
+                modelNode.SetAndObservePolyData(polyData)
+                modelNode.SetAndObserveTransformNodeID(None)
+                modelNode.SetAttribute("DENTOBOT.ModelRole", role)
+                modelNode.SetAttribute(
+                    "DENTOBOT.TemplateGuideSchemaVersion",
+                    self.TEMPLATE_GUIDE_SCHEMA_VERSION,
+                )
+                modelNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+                modelNode.SetAttribute("DENTOBOT.GeometryState", "Current")
+                modelNode.SetAttribute("DENTOBOT.StaleReason", None)
+                modelNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+                modelNode.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
+                modelNode.SetAttribute(
+                    "DENTOBOT.TrajectoryGeometryJson",
+                    trajectoryGeometryJson,
+                )
+                modelNode.SetAttribute("DENTOBOT.RoiBoundsRasJson", roiBoundsJson)
+                modelNode.SetAttribute(
+                    "DENTOBOT.SourceModelUpdatedUtc",
+                    supportModelNode.GetAttribute("DENTOBOT.UpdatedUtc") or "",
+                )
+                modelNode.SetAttribute(
+                    "DENTOBOT.GeometryMetricsJson",
+                    json.dumps(metrics, sort_keys=True, separators=(",", ":")),
+                )
+                modelNode.SetAttribute("DENTOBOT.ValidationWarningsJson", warningsJson)
+                modelNode.SetAttribute("DENTOBOT.UpdatedUtc", timestamp)
+                modelNode.SetNodeReferenceID(
+                    self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+                    supportModelNode.GetID(),
+                )
+                modelNode.SetNodeReferenceID(
+                    self.TEMPLATE_GUIDE_TRAJECTORY_REFERENCE_ROLE,
+                    trajectoryNode.GetID(),
+                )
+                modelNode.SetNodeReferenceID(
+                    self.TEMPLATE_GUIDE_ROI_REFERENCE_ROLE,
+                    roiNode.GetID(),
+                )
+            finally:
+                modelNode.EndModify(wasModifying)
+            modelNode.CreateDefaultDisplayNodes()
+
+        self.refreshWorkflowLineageColors()
+        lineageColor = (
+            self.lineageColorFromNode(supportModelNode)
+            or self.lineageColorFromNode(trajectoryNode)
+        )
+        lineageSegmentId = (
+            supportModelNode.GetAttribute("DENTOBOT.TargetSegmentID") or ""
+        )
+        lineageFdiNumber = (
+            supportModelNode.GetAttribute("DENTOBOT.TargetFdiNumber") or ""
+        )
+        if lineageColor:
+            for node in (
+                supportModelNode,
+                trajectoryNode,
+                roiNode,
+                shellModelNode,
+                sleeveModelNode,
+            ):
+                self.setNodeLineageColor(
+                    node,
+                    lineageColor,
+                    lineageSegmentId,
+                    lineageFdiNumber,
+                )
+
+        shellDisplay = shellModelNode.GetDisplayNode()
+        if shellDisplay:
+            shellDisplay.SetVisibility(shellVisibility if reusedShell else True)
+            if not lineageColor:
+                shellDisplay.SetColor(0.20, 0.75, 0.85)
+            shellDisplay.SetOpacity(0.72)
+        sleeveDisplay = sleeveModelNode.GetDisplayNode()
+        if sleeveDisplay:
+            sleeveDisplay.SetVisibility(sleeveVisibility if reusedSleeve else True)
+            if not lineageColor:
+                sleeveDisplay.SetColor(0.80, 0.35, 0.85)
+            sleeveDisplay.SetOpacity(0.90)
+        return shellModelNode, sleeveModelNode, {
+            "parameters": parameters,
+            "shell": shellMetrics,
+            "sleeve": sleeveMetrics,
+            "minimumSleeveToAnatomyDistanceMm": minimumSleeveDistance,
+            "warnings": warnings,
+        }
+
+    def validateTemplateFinalizationSourceShell(
+        self,
+        sourceShell: vtkMRMLModelNode,
+    ) -> vtkMRMLModelNode:
+        summary = self.getResearchTemplateModelSummary(
+            sourceShell,
+            "ResearchTemplateShell",
+        )
+        if summary["geometryState"] != "Current":
+            raise ValueError(_("Regenerate the stale Step 5B shell before finalization."))
+        return sourceShell
+
+    @staticmethod
+    def isTemplateTrimPlaneNode(node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsPlaneNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole")
+            == "TemplateFinalizationPlane"
+        )
+
+    @staticmethod
+    def isTemplateTrimCurveNode(node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsClosedCurveNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole")
+            == "TemplateFinalizationCurve"
+        )
+
+    @staticmethod
+    def isFinalizedTemplateShellModelNode(node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLModelNode")
+            and node.GetAttribute("DENTOBOT.ModelRole")
+            == "FinalizedTemplateShell"
+        )
+
+    def createOrResetTemplateTrimPlane(
+        self,
+        sourceShell: vtkMRMLModelNode,
+        planeNode: vtkMRMLMarkupsPlaneNode | None = None,
+    ) -> vtkMRMLMarkupsPlaneNode:
+        sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
+        if planeNode:
+            if not self.isTemplateTrimPlaneNode(planeNode):
+                raise ValueError(_("Select a DENTOBOT Step 5C horizontal trim plane."))
+            associatedSource = planeNode.GetNodeReference(
+                self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+            )
+            if associatedSource is not sourceShell:
+                raise ValueError(
+                    _("The selected trim plane belongs to a different Step 5B shell.")
+                )
+        else:
+            planeNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsPlaneNode",
+                "[Step 5C] DENTO Horizontal Shell Trim Plane",
+            )
+        if not planeNode:
+            raise RuntimeError(_("Slicer could not create the Step 5C trim plane."))
+
+        bounds = [0.0] * 6
+        sourceShell.GetRASBounds(bounds)
+        center = tuple(
+            (bounds[2 * axis] + bounds[2 * axis + 1]) / 2.0
+            for axis in range(3)
+        )
+        planeNode.SetName("[Step 5C] DENTO Horizontal Shell Trim Plane")
+        planeNode.SetPlaneType(planeNode.PlaneTypePointNormal)
+        planeNode.SetOriginWorld(center)
+        planeNode.SetNormalWorld((0.0, 0.0, 1.0))
+        planeNode.SetSize(
+            max((bounds[1] - bounds[0]) * 1.25, 1.0),
+            max((bounds[3] - bounds[2]) * 1.25, 1.0),
+        )
+        planeNode.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TemplateFinalizationPlane",
+        )
+        planeNode.SetAttribute(
+            "DENTOBOT.TemplateFinalizationSchemaVersion",
+            self.TEMPLATE_FINALIZATION_SCHEMA_VERSION,
+        )
+        planeNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+        planeNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        planeNode.SetNodeReferenceID(
+            self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE,
+            sourceShell.GetID(),
+        )
+        planeNode.CreateDefaultDisplayNodes()
+        displayNode = planeNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetHandlesInteractive(True)
+            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetRotationHandleVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(False)
+        lineageColor = self.lineageColorFromNode(sourceShell)
+        if lineageColor:
+            self.setNodeLineageColor(
+                planeNode,
+                lineageColor,
+                sourceShell.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or "",
+                sourceShell.GetAttribute(self.LINEAGE_TARGET_FDI_ATTRIBUTE) or "",
+            )
+        return planeNode
+
+    def createTemplateTrimCurve(
+        self,
+        sourceShell: vtkMRMLModelNode,
+    ) -> vtkMRMLMarkupsClosedCurveNode:
+        sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
+        curveNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsClosedCurveNode",
+            "[Step 5C] DENTO Closed Shell Margin Curve",
+        )
+        if not curveNode:
+            raise RuntimeError(_("Slicer could not create the Step 5C margin curve."))
+        curveNode.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TemplateFinalizationCurve",
+        )
+        curveNode.SetAttribute(
+            "DENTOBOT.TemplateFinalizationSchemaVersion",
+            self.TEMPLATE_FINALIZATION_SCHEMA_VERSION,
+        )
+        curveNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+        curveNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        curveNode.SetNodeReferenceID(
+            self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE,
+            sourceShell.GetID(),
+        )
+        # Dynamic Modeler's Curve Cut maps this smooth closed path to the mesh.
+        # Control points snap to the visible shell; using the shortest-distance
+        # curve type itself can leave non-manifold seams on otherwise closed meshes.
+        curveNode.SetCurveTypeToCardinalSpline()
+        curveNode.CreateDefaultDisplayNodes()
+        displayNode = curveNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetPointLabelsVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(False)
+            displayNode.SetSnapMode(displayNode.SnapModeToVisibleSurface)
+            displayNode.SetGlyphScale(1.2)
+        lineageColor = self.lineageColorFromNode(sourceShell)
+        if lineageColor:
+            self.setNodeLineageColor(
+                curveNode,
+                lineageColor,
+                sourceShell.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or "",
+                sourceShell.GetAttribute(self.LINEAGE_TARGET_FDI_ATTRIBUTE) or "",
+            )
+        return curveNode
+
+    def validateTemplateFinalizationEditNode(
+        self,
+        sourceShell: vtkMRMLModelNode,
+        editNode,
+        mode: str,
+        *,
+        requireComplete: bool = True,
+    ):
+        self.validateTemplateFinalizationSourceShell(sourceShell)
+        if mode not in {"PlaneCut", "CurveCut"}:
+            raise ValueError(_("Select a supported Step 5C trim method."))
+        if mode == "PlaneCut":
+            if not self.isTemplateTrimPlaneNode(editNode):
+                raise ValueError(_("Create the DENTOBOT Step 5C horizontal trim plane."))
+            if requireComplete and editNode.GetNumberOfDefinedControlPoints() < 1:
+                raise ValueError(_("The horizontal trim plane has no defined origin."))
+        else:
+            if not self.isTemplateTrimCurveNode(editNode):
+                raise ValueError(_("Create the DENTOBOT Step 5C closed margin curve."))
+            if requireComplete and editNode.GetNumberOfDefinedControlPoints() < 3:
+                raise ValueError(
+                    _("Place at least three points to define the closed margin curve.")
+                )
+            if (
+                requireComplete
+                and (
+                    not editNode.GetCurvePointsWorld()
+                    or editNode.GetCurvePointsWorld().GetNumberOfPoints() < 3
+                )
+            ):
+                raise ValueError(_("The closed margin curve does not form a usable path."))
+        if editNode.GetNodeReference(
+            self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+        ) is not sourceShell:
+            raise ValueError(
+                _("The Step 5C trim control belongs to a different raw shell.")
+            )
+        return editNode
+
+    def templateFinalizationEditGeometryJson(self, editNode, mode: str) -> str:
+        if mode == "PlaneCut":
+            origin = editNode.GetOriginWorld()
+            normal = editNode.GetNormalWorld()
+            payload = {
+                "normalRas": [float(value) for value in normal],
+                "originRas": [float(value) for value in origin],
+            }
+        elif mode == "CurveCut":
+            points = []
+            for index in range(editNode.GetNumberOfDefinedControlPoints()):
+                position = [0.0, 0.0, 0.0]
+                editNode.GetNthControlPointPositionWorld(index, position)
+                points.append([float(value) for value in position])
+            payload = {
+                "closed": bool(editNode.GetCurveClosed()),
+                "controlPointsRas": points,
+                "curveType": editNode.GetCurveTypeAsString(editNode.GetCurveType()),
+            }
+        else:
+            raise ValueError(_("Select a supported Step 5C trim method."))
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _preparedFinalizationPolyData(polyData, capOpenBoundaries: bool) -> vtk.vtkPolyData:
+        if not polyData or not polyData.GetNumberOfPoints() or not polyData.GetNumberOfCells():
+            raise ValueError(_("The selected Dynamic Modeler cut region is empty."))
+        previousPort = None
+        if capOpenBoundaries:
+            bounds = polyData.GetBounds()
+            diagonal = math.sqrt(
+                sum((bounds[2 * axis + 1] - bounds[2 * axis]) ** 2 for axis in range(3))
+            )
+            fillHoles = vtk.vtkFillHolesFilter()
+            fillHoles.SetInputData(polyData)
+            fillHoles.SetHoleSize(max(diagonal * 2.0, 1.0))
+            previousPort = fillHoles.GetOutputPort()
+        triangleFilter = vtk.vtkTriangleFilter()
+        if previousPort:
+            triangleFilter.SetInputConnection(previousPort)
+        else:
+            triangleFilter.SetInputData(polyData)
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(triangleFilter.GetOutputPort())
+        normals = vtk.vtkPolyDataNormals()
+        normals.SetInputConnection(cleanFilter.GetOutputPort())
+        normals.ConsistencyOn()
+        normals.AutoOrientNormalsOn()
+        normals.SplittingOff()
+        normals.Update()
+        output = vtk.vtkPolyData()
+        output.DeepCopy(normals.GetOutput())
+        return output
+
+    @staticmethod
+    def _finalizationDynamicOutputRoles() -> tuple[str, ...]:
+        return (
+            "PlaneCut.OutputNegativeModel",
+            "PlaneCut.OutputPositiveModel",
+            "CurveCut.OutputInside",
+            "CurveCut.OutputOutside",
+        )
+
+    def _removeTemplateFinalizationProcessingNodes(
+        self,
+        finalShell: vtkMRMLModelNode,
+    ) -> list[dict]:
+        removals = []
+        dynamicNode = finalShell.GetNodeReference(
+            self.TEMPLATE_FINALIZATION_DYNAMIC_MODELER_REFERENCE_ROLE
+        )
+        if not dynamicNode:
+            return removals
+        outputNodes = []
+        for role in self._finalizationDynamicOutputRoles():
+            outputNode = dynamicNode.GetNodeReference(role)
+            if outputNode and outputNode not in outputNodes:
+                outputNodes.append(outputNode)
+        finalShell.SetNodeReferenceID(
+            self.TEMPLATE_FINALIZATION_DYNAMIC_MODELER_REFERENCE_ROLE,
+            None,
+        )
+        if slicer.mrmlScene.IsNodePresent(dynamicNode):
+            dynamicNode.SetContinuousUpdate(False)
+            dynamicNodeId = dynamicNode.GetID()
+            slicer.mrmlScene.RemoveNode(dynamicNode)
+            removals.append(
+                {"nodeId": dynamicNodeId, "nodeName": dynamicNode.GetName() or "", "auxiliaryNodeIds": []}
+            )
+        for outputNode in outputNodes:
+            if (
+                slicer.mrmlScene.IsNodePresent(outputNode)
+                and outputNode.GetAttribute("DENTOBOT.ModelRole")
+                == "TemplateFinalizationCutAuxiliary"
+                and outputNode.GetAttribute("DENTOBOT.AuxiliaryOwnerNodeID")
+                == finalShell.GetID()
+            ):
+                removals.append(self._removeSceneNodeAndOwnedAuxiliaries(outputNode))
+        return removals
+
+    def createOrUpdateFinalizedTemplateShell(
+        self,
+        sourceShell: vtkMRMLModelNode,
+        planeNode: vtkMRMLMarkupsPlaneNode | None,
+        curveNode: vtkMRMLMarkupsClosedCurveNode | None,
+        mode: str,
+        keepRegion: str,
+        finalShell: vtkMRMLModelNode | None = None,
+    ) -> tuple[vtkMRMLModelNode, dict]:
+        sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
+        editNode = planeNode if mode == "PlaneCut" else curveNode
+        self.validateTemplateFinalizationEditNode(sourceShell, editNode, mode)
+        allowedRegions = (
+            {"Negative", "Positive"}
+            if mode == "PlaneCut"
+            else {"Inside", "Outside"}
+        )
+        if keepRegion not in allowedRegions:
+            raise ValueError(_("Select which Step 5C cut region to keep."))
+        if not getattr(slicer.modules, "dynamicmodeler", None):
+            raise RuntimeError(_("Slicer's Dynamic Modeler module is unavailable."))
+
+        createdFinalShell = finalShell is None
+        if finalShell and not self.isFinalizedTemplateShellModelNode(finalShell):
+            raise ValueError(_("Select the DENTOBOT Step 5C finalized shell."))
+        if not finalShell:
+            finalShell = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode",
+                "[Step 5C] DENTO Finalized Research Template Shell",
+            )
+        if not finalShell:
+            raise RuntimeError(_("Slicer could not create the Step 5C finalized shell."))
+        if not createdFinalShell:
+            self._removeTemplateFinalizationProcessingNodes(finalShell)
+
+        dynamicNode = None
+        outputNodes = []
+        try:
+            dynamicNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLDynamicModelerNode",
+                f"[Step 5C] DENTO {mode} Dynamic Modeler",
+            )
+            if not dynamicNode:
+                raise RuntimeError(_("Slicer could not create a Dynamic Modeler node."))
+            dynamicNode.SetAttribute(
+                "DENTOBOT.DynamicModelerRole",
+                "TemplateFinalizationCut",
+            )
+            dynamicNode.SetAttribute("DENTOBOT.AuxiliaryOwnerNodeID", finalShell.GetID())
+            dynamicNode.SetContinuousUpdate(False)
+
+            if mode == "PlaneCut":
+                outputRoleByRegion = {
+                    "Negative": "PlaneCut.OutputNegativeModel",
+                    "Positive": "PlaneCut.OutputPositiveModel",
+                }
+                dynamicNode.SetToolName("Plane cut")
+                dynamicNode.SetNodeReferenceID("PlaneCut.InputModel", sourceShell.GetID())
+                dynamicNode.SetNodeReferenceID("PlaneCut.InputPlane", editNode.GetID())
+                dynamicNode.SetAttribute("CapSurface", "1")
+                dynamicNode.SetAttribute("OperationType", "Union")
+            else:
+                outputRoleByRegion = {
+                    "Inside": "CurveCut.OutputInside",
+                    "Outside": "CurveCut.OutputOutside",
+                }
+                dynamicNode.SetToolName("Curve cut")
+                dynamicNode.SetNodeReferenceID("CurveCut.InputModel", sourceShell.GetID())
+                dynamicNode.SetNodeReferenceID("CurveCut.InputCurve", editNode.GetID())
+                dynamicNode.SetAttribute("CurveCut.StraightCut", "1")
+
+            for region, outputRole in outputRoleByRegion.items():
+                outputNode = slicer.mrmlScene.AddNewNodeByClass(
+                    "vtkMRMLModelNode",
+                    f"[Step 5C] DENTO {mode} {region} (auxiliary)",
+                )
+                if not outputNode:
+                    raise RuntimeError(_("Slicer could not create a cut output node."))
+                outputNode.SetAttribute(
+                    "DENTOBOT.ModelRole",
+                    "TemplateFinalizationCutAuxiliary",
+                )
+                outputNode.SetAttribute("DENTOBOT.AuxiliaryOwnerNodeID", finalShell.GetID())
+                outputNode.CreateDefaultDisplayNodes()
+                outputNode.GetDisplayNode().SetVisibility(False)
+                outputNodes.append(outputNode)
+                dynamicNode.SetNodeReferenceID(outputRole, outputNode.GetID())
+
+            slicer.modules.dynamicmodeler.logic().RunDynamicModelerTool(dynamicNode)
+            keptOutput = dynamicNode.GetNodeReference(outputRoleByRegion[keepRegion])
+            finalizedPolyData = self._preparedFinalizationPolyData(
+                keptOutput.GetPolyData() if keptOutput else None,
+                capOpenBoundaries=mode == "CurveCut",
+            )
+            topology = surface_topology(finalizedPolyData)
+            if topology["boundaryOrNonManifoldEdgeCount"] != 0:
+                raise ValueError(
+                    _(
+                        "The Step 5C result is not watertight after capping; "
+                        "adjust the trim control before export."
+                    )
+                )
+
+            timestamp = datetime.now(timezone.utc).isoformat()
+            finalShell.SetName("[Step 5C] DENTO Finalized Research Template Shell")
+            finalShell.SetAndObservePolyData(finalizedPolyData)
+            finalShell.SetAndObserveTransformNodeID(None)
+            finalShell.SetAttribute("DENTOBOT.ModelRole", "FinalizedTemplateShell")
+            finalShell.SetAttribute(
+                "DENTOBOT.TemplateFinalizationSchemaVersion",
+                self.TEMPLATE_FINALIZATION_SCHEMA_VERSION,
+            )
+            finalShell.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+            finalShell.SetAttribute("DENTOBOT.GeometryState", "Current")
+            finalShell.SetAttribute("DENTOBOT.StaleReason", None)
+            finalShell.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+            finalShell.SetAttribute("DENTOBOT.FinalizationMethod", mode)
+            finalShell.SetAttribute("DENTOBOT.FinalizationKeepRegion", keepRegion)
+            finalShell.SetAttribute(
+                "DENTOBOT.FinalizationEditGeometryJson",
+                self.templateFinalizationEditGeometryJson(editNode, mode),
+            )
+            finalShell.SetAttribute(
+                "DENTOBOT.SourceShellUpdatedUtc",
+                sourceShell.GetAttribute("DENTOBOT.UpdatedUtc") or "",
+            )
+            finalShell.SetAttribute(
+                "DENTOBOT.GeometryMetricsJson",
+                json.dumps(topology, sort_keys=True, separators=(",", ":")),
+            )
+            finalShell.SetAttribute("DENTOBOT.UpdatedUtc", timestamp)
+            finalShell.SetNodeReferenceID(
+                self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE,
+                sourceShell.GetID(),
+            )
+            finalShell.SetNodeReferenceID(
+                self.TEMPLATE_FINALIZATION_EDIT_NODE_REFERENCE_ROLE,
+                editNode.GetID(),
+            )
+            finalShell.SetNodeReferenceID(
+                self.TEMPLATE_FINALIZATION_DYNAMIC_MODELER_REFERENCE_ROLE,
+                dynamicNode.GetID(),
+            )
+            finalShell.CreateDefaultDisplayNodes()
+            lineageColor = self.lineageColorFromNode(sourceShell)
+            if lineageColor:
+                self.setNodeLineageColor(
+                    finalShell,
+                    lineageColor,
+                    sourceShell.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or "",
+                    sourceShell.GetAttribute(self.LINEAGE_TARGET_FDI_ATTRIBUTE) or "",
+                )
+            finalShell.GetDisplayNode().SetOpacity(0.82)
+            finalShell.GetDisplayNode().SetVisibility(True)
+            self.refreshWorkflowLineageColors()
+            self.refreshWorkflowNodeStepTags()
+            return finalShell, {
+                "method": mode,
+                "keepRegion": keepRegion,
+                "topology": topology,
+                "dynamicModelerNode": dynamicNode,
+            }
+        except Exception:
+            if dynamicNode and slicer.mrmlScene.IsNodePresent(dynamicNode):
+                slicer.mrmlScene.RemoveNode(dynamicNode)
+            for outputNode in outputNodes:
+                if slicer.mrmlScene.IsNodePresent(outputNode):
+                    self._removeSceneNodeAndOwnedAuxiliaries(outputNode)
+            if createdFinalShell and slicer.mrmlScene.IsNodePresent(finalShell):
+                self._removeSceneNodeAndOwnedAuxiliaries(finalShell)
+            elif finalShell:
+                self.markFinalizedTemplateShellStale(
+                    finalShell,
+                    _("The latest Step 5C trim failed."),
+                )
+            raise
+
+    def getFinalizedTemplateShellSummary(
+        self,
+        finalShell: vtkMRMLModelNode,
+    ) -> dict:
+        if not self.isFinalizedTemplateShellModelNode(finalShell):
+            raise ValueError(_("Select the DENTOBOT Step 5C finalized shell."))
+        polyData = finalShell.GetPolyData()
+        if not polyData or not polyData.GetNumberOfPoints() or not polyData.GetNumberOfCells():
+            raise ValueError(_("The Step 5C finalized shell contains no geometry."))
+        return {
+            "geometryState": finalShell.GetAttribute("DENTOBOT.GeometryState") or "Unknown",
+            "staleReason": finalShell.GetAttribute("DENTOBOT.StaleReason") or "",
+            "method": finalShell.GetAttribute("DENTOBOT.FinalizationMethod") or "",
+            "keepRegion": finalShell.GetAttribute("DENTOBOT.FinalizationKeepRegion") or "",
+            "editGeometryJson": finalShell.GetAttribute(
+                "DENTOBOT.FinalizationEditGeometryJson"
+            ) or "",
+            "sourceShellUpdatedUtc": finalShell.GetAttribute(
+                "DENTOBOT.SourceShellUpdatedUtc"
+            ) or "",
+            "sourceShell": finalShell.GetNodeReference(
+                self.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+            ),
+            "editNode": finalShell.GetNodeReference(
+                self.TEMPLATE_FINALIZATION_EDIT_NODE_REFERENCE_ROLE
+            ),
+            "dynamicModelerNode": finalShell.GetNodeReference(
+                self.TEMPLATE_FINALIZATION_DYNAMIC_MODELER_REFERENCE_ROLE
+            ),
+            **surface_topology(polyData),
+        }
+
+    @staticmethod
+    def markFinalizedTemplateShellStale(
+        finalShell: vtkMRMLModelNode | None,
+        reason: str,
+    ) -> bool:
+        if not DENTOWorkflowLogic.isFinalizedTemplateShellModelNode(finalShell):
+            return False
+        finalShell.SetAttribute("DENTOBOT.GeometryState", "Stale")
+        finalShell.SetAttribute(
+            "DENTOBOT.StaleReason",
+            str(reason).strip() or "Step 5C inputs changed.",
+        )
+        return True
+
+    def deleteTemplateFinalization(
+        self,
+        planeNode: vtkMRMLMarkupsPlaneNode | None,
+        curveNode: vtkMRMLMarkupsClosedCurveNode | None,
+        finalShell: vtkMRMLModelNode | None,
+    ) -> list[dict]:
+        nodes = [node for node in (planeNode, curveNode, finalShell) if node]
+        if not nodes:
+            raise ValueError(_("There is no DENTOBOT Step 5C edit to delete."))
+        if planeNode and not self.isTemplateTrimPlaneNode(planeNode):
+            raise ValueError(_("The selected plane is not owned by DENTOBOT Step 5C."))
+        if curveNode and not self.isTemplateTrimCurveNode(curveNode):
+            raise ValueError(_("The selected curve is not owned by DENTOBOT Step 5C."))
+        if finalShell and not self.isFinalizedTemplateShellModelNode(finalShell):
+            raise ValueError(_("The selected shell is not owned by DENTOBOT Step 5C."))
+
+        parameterNode = self.getParameterNode()
+        parameterNode.templateTrimPlane = None
+        parameterNode.templateTrimCurve = None
+        parameterNode.finalizedTemplateShellModel = None
+        removals = []
+        if finalShell:
+            removals.extend(self._removeTemplateFinalizationProcessingNodes(finalShell))
+            if slicer.mrmlScene.IsNodePresent(finalShell):
+                removals.append(self._removeSceneNodeAndOwnedAuxiliaries(finalShell))
+        for editNode in (planeNode, curveNode):
+            if editNode and slicer.mrmlScene.IsNodePresent(editNode):
+                removals.append(self._removeSceneNodeAndOwnedAuxiliaries(editNode))
+        return removals
+
+    @staticmethod
+    def startHorizontalPlanePlacement(planeNode: vtkMRMLMarkupsPlaneNode) -> None:
+        if not DENTOWorkflowLogic.isTemplateTrimPlaneNode(planeNode):
+            raise ValueError(_("Select a DENTOBOT Step 5C horizontal trim plane."))
+        planeNode.RemoveAllControlPoints()
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if not selectionNode:
+            raise RuntimeError(_("Slicer's selection node is unavailable."))
+        selectionNode.SetReferenceActivePlaceNodeClassName(
+            "vtkMRMLMarkupsPlaneNode"
+        )
+        selectionNode.SetActivePlaceNodeID(planeNode.GetID())
+        slicer.modules.markups.logic().StartPlaceMode(0)
+        selectionNode.SetActivePlaceNodeClassName(
+            "vtkMRMLMarkupsPlaneNode"
+        )
+        selectionNode.SetActivePlaceNodeID(planeNode.GetID())
+
+    @staticmethod
+    def startClosedCurvePlacement(curveNode: vtkMRMLMarkupsClosedCurveNode) -> None:
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if not selectionNode:
+            raise RuntimeError(_("Slicer's selection node is unavailable."))
+        selectionNode.SetReferenceActivePlaceNodeClassName(
+            "vtkMRMLMarkupsClosedCurveNode"
+        )
+        selectionNode.SetActivePlaceNodeID(curveNode.GetID())
+        slicer.modules.markups.logic().StartPlaceMode(1)
+        selectionNode.SetActivePlaceNodeClassName(
+            "vtkMRMLMarkupsClosedCurveNode"
+        )
+        selectionNode.SetActivePlaceNodeID(curveNode.GetID())
+
+    @staticmethod
+    def isResearchTemplateModelNode(modelNode, role: str | None = None) -> bool:
+        if not modelNode or not modelNode.IsA("vtkMRMLModelNode"):
+            return False
+        actualRole = modelNode.GetAttribute("DENTOBOT.ModelRole")
+        validRoles = {"ResearchTemplateShell", "ResearchTemplateSleeve"}
+        return actualRole == role if role else actualRole in validRoles
+
+    def getResearchTemplateModelSummary(
+        self,
+        modelNode: vtkMRMLModelNode,
+        expectedRole: str,
+    ) -> dict:
+        if not self.isResearchTemplateModelNode(modelNode, expectedRole):
+            raise ValueError(_("Select the matching DENTOBOT Step 5B output model."))
+        polyData = modelNode.GetPolyData()
+        if not polyData or not polyData.GetNumberOfPoints() or not polyData.GetNumberOfCells():
+            raise ValueError(_("A Step 5B output model contains no geometry."))
+        topology = surface_topology(polyData)
+        return {
+            "role": expectedRole,
+            "geometryState": modelNode.GetAttribute("DENTOBOT.GeometryState") or "Unknown",
+            "staleReason": modelNode.GetAttribute("DENTOBOT.StaleReason") or "",
+            "sourceModel": modelNode.GetNodeReference(
+                self.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+            ),
+            "trajectory": modelNode.GetNodeReference(
+                self.TEMPLATE_GUIDE_TRAJECTORY_REFERENCE_ROLE
+            ),
+            "roi": modelNode.GetNodeReference(self.TEMPLATE_GUIDE_ROI_REFERENCE_ROLE),
+            "parametersJson": modelNode.GetAttribute("DENTOBOT.ParametersJson") or "{}",
+            "trajectoryGeometryJson": modelNode.GetAttribute(
+                "DENTOBOT.TrajectoryGeometryJson"
+            ) or "{}",
+            "roiBoundsRasJson": modelNode.GetAttribute(
+                "DENTOBOT.RoiBoundsRasJson"
+            ) or "[]",
+            "sourceModelUpdatedUtc": modelNode.GetAttribute(
+                "DENTOBOT.SourceModelUpdatedUtc"
+            ) or "",
+            "warnings": json.loads(
+                modelNode.GetAttribute("DENTOBOT.ValidationWarningsJson") or "[]"
+            ),
+            **topology,
+        }
+
+    @staticmethod
+    def markResearchTemplateModelsStale(
+        shellModelNode: vtkMRMLModelNode | None,
+        sleeveModelNode: vtkMRMLModelNode | None,
+        reason: str,
+    ) -> bool:
+        changed = False
+        for modelNode in (shellModelNode, sleeveModelNode):
+            if not DENTOWorkflowLogic.isResearchTemplateModelNode(modelNode):
+                continue
+            modelNode.SetAttribute("DENTOBOT.GeometryState", "Stale")
+            modelNode.SetAttribute(
+                "DENTOBOT.StaleReason",
+                str(reason).strip() or "Step 5B inputs changed.",
+            )
+            changed = True
+        return changed
+
+    def deleteResearchTemplateModels(
+        self,
+        shellModelNode: vtkMRMLModelNode | None,
+        sleeveModelNode: vtkMRMLModelNode | None,
+    ) -> list[dict]:
+        nodes = [node for node in (shellModelNode, sleeveModelNode) if node]
+        if not nodes:
+            raise ValueError(_("There is no DENTOBOT Step 5B output to delete."))
+        for node in nodes:
+            if not self.isResearchTemplateModelNode(node):
+                raise ValueError(_("A selected output is not owned by DENTOBOT Step 5B."))
+        parameterNode = self.getParameterNode()
+        if any(
+            parameterNode.researchTemplateShellModel is node
+            for node in nodes
+        ):
+            parameterNode.researchTemplateShellModel = None
+        if any(
+            parameterNode.researchTemplateSleeveModel is node
+            for node in nodes
+        ):
+            parameterNode.researchTemplateSleeveModel = None
+        return [self._removeSceneNodeAndOwnedAuxiliaries(node) for node in nodes]
+
+    def exportResearchTemplateStls(
+        self,
+        directory: str | Path,
+        shellModelNode: vtkMRMLModelNode,
+        sleeveModelNode: vtkMRMLModelNode,
+        *,
+        overwrite: bool = False,
+    ) -> dict[str, Path]:
+        shellSummary = self.getFinalizedTemplateShellSummary(shellModelNode)
+        sleeveSummary = self.getResearchTemplateModelSummary(
+            sleeveModelNode,
+            "ResearchTemplateSleeve",
+        )
+        if shellSummary["geometryState"] != "Current" or sleeveSummary["geometryState"] != "Current":
+            raise ValueError(_("Regenerate stale Step 5B/5C outputs before STL export."))
+        sourceShell = shellSummary["sourceShell"]
+        sourceSummary = self.getResearchTemplateModelSummary(
+            sourceShell,
+            "ResearchTemplateShell",
+        )
+        if (
+            sourceSummary["geometryState"] != "Current"
+            or shellSummary["sourceShellUpdatedUtc"]
+            != (sourceShell.GetAttribute("DENTOBOT.UpdatedUtc") or "")
+        ):
+            raise ValueError(_("Reapply Step 5C after the Step 5B source shell changes."))
+        if shellSummary["boundaryOrNonManifoldEdgeCount"] != 0:
+            raise ValueError(_("The Step 5C finalized shell is not watertight."))
+        outputDirectory = Path(directory)
+        if not outputDirectory.is_dir():
+            raise ValueError(_("Select an existing local STL output directory."))
+        paths = {
+            "shell": outputDirectory / "DENTO_Research_Template_Shell.stl",
+            "sleeve": outputDirectory / "DENTO_Research_Template_Sleeve.stl",
+        }
+        existing = [path.name for path in paths.values() if path.exists()]
+        if existing and not overwrite:
+            raise FileExistsError(
+                _("STL output already exists: %1").replace("%1", ", ".join(existing))
+            )
+        return {
+            "shell": write_stl_atomic(shellModelNode.GetPolyData(), paths["shell"]),
+            "sleeve": write_stl_atomic(sleeveModelNode.GetPolyData(), paths["sleeve"]),
+        }
+
     @staticmethod
     def labelTrajectoryControlPoints(
         trajectoryNode: vtkMRMLMarkupsLineNode,
@@ -3926,10 +7528,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "vtkMRMLMarkupsLineNode"
         ):
             raise ValueError(_("Select a valid trajectory line node."))
-        if trajectoryNode.GetMaximumNumberOfControlPoints() != 2:
-            raise ValueError(
-                _("The trajectory line must enforce exactly two control points.")
-            )
+        self.enforceTrajectoryControlPointInvariant(trajectoryNode)
 
         pointCount = trajectoryNode.GetNumberOfDefinedControlPoints()
         if pointCount < 0 or pointCount > 2:
@@ -5480,7 +9079,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.test_DENTOWorkflowSegmentationReviewLogic()
             self.test_DENTOWorkflowTargetToothAndTrajectoryLogic()
             self.test_DENTOWorkflowDraftTemplateSupportModelLogic()
+            self.test_DENTOWorkflowTemplateFinalizationDynamicModeler()
+            self.test_DENTOWorkflowResearchTemplateGeometry()
             self.test_DENTOWorkflowSafeDeletionAndPersistence()
+            self.test_DENTOWorkflowTrajectorySelectionRestoresTargetWidget()
         finally:
             self.setUp()
 
@@ -6263,6 +9865,70 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             targetBoundsRoi.GetAttribute("DENTOBOT.TargetSegmentID"),
             "tooth-16",
         )
+        self.assertTrue(targetBoundsRoi.GetName().startswith("[Step 4A]"))
+        targetBoundsRoi.GetDisplayNode().SetVisibility(False)
+        reusedTargetBoundsRoi, _reusedBounds = (
+            logic.createOrUpdateTargetBoundsRoi(
+                segmentationNode,
+                "tooth-16",
+                targetBoundsRoi,
+            )
+        )
+        self.assertIs(reusedTargetBoundsRoi, targetBoundsRoi)
+        self.assertFalse(targetBoundsRoi.GetDisplayNode().GetVisibility())
+
+        legacyGuideSource = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Legacy Cross-Role Guide Source",
+        )
+        targetBoundsRoi.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TemplateShellTrimROI",
+        )
+        targetBoundsRoi.SetAttribute(
+            "DENTOBOT.TemplateGuideSchemaVersion",
+            logic.TEMPLATE_GUIDE_SCHEMA_VERSION,
+        )
+        targetBoundsRoi.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            legacyGuideSource.GetID(),
+        )
+        roiCountBeforeRepair = (
+            slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsROINode")
+            .GetNumberOfItems()
+        )
+        repairedTargetBoundsRoi, repairedBounds = (
+            logic.createOrUpdateTargetBoundsRoi(
+                segmentationNode,
+                "tooth-16",
+                targetBoundsRoi,
+            )
+        )
+        self.assertIs(repairedTargetBoundsRoi, targetBoundsRoi)
+        self.assertEqual(repairedBounds, targetBounds)
+        self.assertEqual(
+            slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsROINode")
+            .GetNumberOfItems(),
+            roiCountBeforeRepair,
+        )
+        self.assertEqual(
+            targetBoundsRoi.GetAttribute("DENTOBOT.BoundsRole"),
+            "TargetToothAABB",
+        )
+        self.assertIsNone(
+            targetBoundsRoi.GetAttribute("DENTOBOT.MarkupsRole")
+        )
+        self.assertIsNone(
+            targetBoundsRoi.GetAttribute(
+                "DENTOBOT.TemplateGuideSchemaVersion"
+            )
+        )
+        self.assertIsNone(
+            targetBoundsRoi.GetNodeReference(
+                logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE
+            )
+        )
+        self.assertTrue(targetBoundsRoi.GetLocked())
 
         with self.assertRaisesRegex(ValueError, "must not be empty"):
             logic.createTrajectoryNode(" ")
@@ -6297,6 +9963,101 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             trajectoryNode.GetAttribute("DENTOBOT.TargetFdiNumber"),
             "16",
         )
+        trajectoryNode.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            targetBoundsRoi.GetID(),
+        )
+        logic.refreshWorkflowLineageColors()
+        lineage16 = logic.lineageColorFromNode(trajectoryNode)
+        self.assertIsNotNone(lineage16)
+        self.assertEqual(
+            logic.lineageColorFromNode(targetBoundsRoi),
+            lineage16,
+        )
+        self.assertEqual(
+            trajectoryNode.GetAttribute(
+                logic.LINEAGE_TARGET_SEGMENT_ATTRIBUTE
+            ),
+            "tooth-16",
+        )
+
+        secondTrajectory16 = logic.createTrajectoryNode(
+            "Second FDI 16 trajectory"
+        )
+        logic.configureTrajectoryTarget(
+            secondTrajectory16,
+            segmentationNode,
+            "tooth-16",
+        )
+        secondTrajectory16.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            targetBoundsRoi.GetID(),
+        )
+        self.assertEqual(
+            logic.lineageColorFromNode(secondTrajectory16),
+            lineage16,
+        )
+
+        tooth15Segment = slicer.vtkSegment()
+        tooth15Segment.SetName("upper_right_second_premolar_fdi15")
+        tooth15Cube = vtk.vtkCubeSource()
+        tooth15Cube.SetBounds(4.0, 6.0, -2.0, 2.0, -3.0, 3.0)
+        tooth15Cube.Update()
+        tooth15Segment.AddRepresentation(
+            slicer.vtkSegmentationConverter
+            .GetSegmentationClosedSurfaceRepresentationName(),
+            tooth15Cube.GetOutput(),
+        )
+        segmentationNode.GetSegmentation().AddSegment(
+            tooth15Segment,
+            "tooth-15",
+        )
+        targetBoundsRoi15, _bounds15 = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-15",
+            targetBoundsRoi,
+        )
+        self.assertIsNot(targetBoundsRoi15, targetBoundsRoi)
+        self.assertEqual(
+            targetBoundsRoi.GetAttribute("DENTOBOT.TargetSegmentID"),
+            "tooth-16",
+        )
+        self.assertIsNone(logic.lineageColorFromNode(targetBoundsRoi15))
+        trajectory15 = logic.createTrajectoryNode("FDI 15 trajectory")
+        logic.configureTrajectoryTarget(
+            trajectory15,
+            segmentationNode,
+            "tooth-15",
+        )
+        trajectory15.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            targetBoundsRoi15.GetID(),
+        )
+        logic.refreshWorkflowLineageColors()
+        lineage15 = logic.lineageColorFromNode(trajectory15)
+        self.assertIsNotNone(lineage15)
+        self.assertNotEqual(lineage15, lineage16)
+        self.assertEqual(
+            logic.lineageColorFromNode(targetBoundsRoi15),
+            lineage15,
+        )
+
+        trajectoryNode.SetName("User-renamed trajectory")
+        persistedAssociation = logic.getTrajectoryTargetAssociation(
+            trajectoryNode
+        )
+        self.assertEqual(
+            persistedAssociation["targetRecord"]["segmentId"],
+            "tooth-16",
+        )
+        self.assertIs(
+            persistedAssociation["segmentationNode"],
+            segmentationNode,
+        )
+        self.assertIs(
+            persistedAssociation["targetBoundsRoi"],
+            targetBoundsRoi,
+        )
         logic.clearTrajectoryTarget(trajectoryNode)
         self.assertIsNone(
             trajectoryNode.GetNodeReference(
@@ -6310,6 +10071,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             trajectoryNode,
             segmentationNode,
             "tooth-16",
+        )
+        trajectoryNode.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            targetBoundsRoi.GetID(),
         )
 
         trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, 0.0))
@@ -6336,6 +10101,22 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             logic.formatRasPoint(completeSummary["targetRas"]),
             "3.000, 4.000, 12.000 mm",
         )
+
+        importedLine = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "Imported over-defined line",
+        )
+        importedLine.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, 0.0))
+        importedLine.AddControlPoint(vtk.vtkVector3d(0.1, 0.0, 0.0))
+        rejectedPointIndex = importedLine.AddControlPoint(
+            vtk.vtkVector3d(0.2, 0.0, 0.0)
+        )
+        logic.enforceTrajectoryControlPointInvariant(importedLine)
+        self.assertEqual(importedLine.GetMaximumNumberOfControlPoints(), 2)
+        self.assertEqual(importedLine.GetNumberOfDefinedControlPoints(), 2)
+        self.assertLess(rejectedPointIndex, 0)
+        self.assertEqual(importedLine.GetNthControlPointLabel(0), "Entry")
+        self.assertEqual(importedLine.GetNthControlPointLabel(1), "Target")
 
         coincidentTrajectory = logic.createTrajectoryNode(
             "CoincidentTrajectory"
@@ -6398,8 +10179,436 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             trajectoryNode.GetID(),
         )
 
+        legacyEmpty = logic.createTrajectoryNode(
+            "DENTO Trajectory FDI 16"
+        )
+        legacyComplete = logic.createTrajectoryNode(
+            "DENTO Trajectory FDI 16"
+        )
+        for legacyTrajectory in (legacyEmpty, legacyComplete):
+            logic.configureTrajectoryTarget(
+                legacyTrajectory,
+                segmentationNode,
+                "tooth-16",
+            )
+        legacyComplete.AddControlPoint(vtk.vtkVector3d(-0.5, 0.0, 0.0))
+        legacyComplete.AddControlPoint(vtk.vtkVector3d(0.5, 0.0, 0.0))
+        renamedNodeIds = logic.refreshManagedTrajectoryNames()
+        self.assertIn(legacyEmpty.GetID(), renamedNodeIds)
+        self.assertIn(legacyComplete.GetID(), renamedNodeIds)
+        self.assertNotEqual(legacyEmpty.GetName(), legacyComplete.GetName())
+        self.assertIn("Empty", legacyEmpty.GetName())
+        self.assertIn("Complete", legacyComplete.GetName())
+        self.assertIn("Trajectory 1", legacyEmpty.GetName())
+        self.assertIn("Trajectory 2", legacyComplete.GetName())
+        self.assertTrue(legacyEmpty.GetName().startswith("[Step 4A]"))
+        self.assertTrue(legacyComplete.GetName().startswith("[Step 4A]"))
+
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-trajectory-association-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+        finally:
+            scenePath.unlink(missing_ok=True)
+        reloadedLogic = DENTOWorkflowLogic()
+        reloadedParameterNode = reloadedLogic.getParameterNode()
+        reloadedAssociation = reloadedLogic.getTrajectoryTargetAssociation(
+            reloadedParameterNode.trajectoryLine
+        )
+        self.assertEqual(
+            reloadedAssociation["targetRecord"]["segmentId"],
+            "tooth-16",
+        )
+        self.assertIs(
+            reloadedAssociation["segmentationNode"],
+            reloadedParameterNode.teethSegmentation,
+        )
+        self.assertIs(
+            reloadedAssociation["targetBoundsRoi"],
+            reloadedParameterNode.targetToothBoundsRoi,
+        )
+        self.assertFalse(
+            reloadedParameterNode.targetToothBoundsRoi
+            .GetDisplayNode()
+            .GetVisibility()
+        )
+        self.assertEqual(
+            reloadedLogic.lineageColorFromNode(
+                reloadedParameterNode.trajectoryLine
+            ),
+            reloadedLogic.lineageColorFromNode(
+                reloadedParameterNode.targetToothBoundsRoi
+            ),
+        )
+
         self.delayDisplay(
-            "DENTOWorkflow target-tooth and trajectory logic tests passed"
+            "DENTOWorkflow target association, naming, and trajectory logic tests passed"
+        )
+
+    def test_DENTOWorkflowTrajectorySelectionRestoresTargetWidget(self) -> None:
+        slicer.mrmlScene.Clear(0)
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        logic = widget.logic
+
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "WidgetTrajectoryRestoreSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        for segmentId, segmentName, centerX in (
+            ("tooth-14", "upper_right_first_premolar_fdi14", 0.0),
+            ("tooth-15", "upper_right_second_premolar_fdi15", 5.0),
+        ):
+            cube = vtk.vtkCubeSource()
+            cube.SetBounds(
+                centerX - 1.0,
+                centerX + 1.0,
+                -1.0,
+                1.0,
+                -1.0,
+                1.0,
+            )
+            cube.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                cube.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+
+        roi14, _bounds14 = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-14",
+        )
+        roi15, _bounds15 = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-15",
+        )
+        self.assertIsNone(widget._parameterNode.templateShellRoi)
+        self.assertIsNone(widget.ui.templateShellRoiSelector.currentNode())
+        trajectory14 = logic.createTrajectoryNode(
+            "DENTO Trajectory FDI 14"
+        )
+        logic.configureTrajectoryTarget(
+            trajectory14,
+            segmentationNode,
+            "tooth-14",
+        )
+        trajectory14.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            roi14.GetID(),
+        )
+        trajectory14.AddControlPoint(vtk.vtkVector3d(-0.5, 0.0, 0.0))
+        trajectory14.AddControlPoint(vtk.vtkVector3d(0.5, 0.0, 0.0))
+        trajectory15 = logic.createTrajectoryNode(
+            "DENTO Trajectory FDI 15"
+        )
+        logic.configureTrajectoryTarget(
+            trajectory15,
+            segmentationNode,
+            "tooth-15",
+        )
+        trajectory15.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE,
+            roi15.GetID(),
+        )
+        trajectory15.AddControlPoint(vtk.vtkVector3d(4.5, 0.0, 0.0))
+        trajectory15.AddControlPoint(vtk.vtkVector3d(5.5, 0.0, 0.0))
+        logic.refreshWorkflowLineageColors()
+        self.assertNotEqual(
+            logic.lineageColorFromNode(trajectory14),
+            logic.lineageColorFromNode(trajectory15),
+        )
+
+        parameterNode = widget._parameterNode
+        widget._restoringTrajectoryAssociation = True
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.teethSegmentation = segmentationNode
+            parameterNode.targetToothSegmentId = ""
+            parameterNode.targetToothBoundsRoi = None
+            parameterNode.trajectoryLine = trajectory14
+        finally:
+            parameterNode.EndModify(wasModifying)
+            widget._restoringTrajectoryAssociation = False
+        widget._updateFromParameterNode()
+        self.assertEqual(parameterNode.targetToothSegmentId, "tooth-14")
+        self.assertIs(parameterNode.targetToothBoundsRoi, roi14)
+        self.assertIsNone(parameterNode.templateShellRoi)
+        self.assertIsNone(widget.ui.templateShellRoiSelector.currentNode())
+        self.assertEqual(
+            str(
+                widget.ui.targetToothComboBox.itemData(
+                    widget.ui.targetToothComboBox.currentIndex
+                )
+            ),
+            "tooth-14",
+        )
+        self.assertAlmostEqual(
+            trajectory14.GetDisplayNode().GetOpacity(),
+            1.0,
+        )
+        self.assertAlmostEqual(
+            trajectory15.GetDisplayNode().GetOpacity(),
+            0.38,
+        )
+        self.assertTrue(
+            trajectory14.GetDisplayNode().GetPointLabelsVisibility()
+        )
+        self.assertFalse(
+            trajectory15.GetDisplayNode().GetPointLabelsVisibility()
+        )
+        selectorComboBox = next(
+            child
+            for child in widget.ui.trajectorySelector.children()
+            if hasattr(child, "setItemData")
+            and hasattr(child, "count")
+        )
+        decoratedTrajectoryIds = set()
+        for selectorIndex in range(selectorComboBox.count):
+            selectorNode = widget.ui.trajectorySelector.nodeFromIndex(
+                selectorIndex
+            )
+            if selectorNode in (trajectory14, trajectory15):
+                decoration = selectorComboBox.itemData(
+                    selectorIndex,
+                    qt.Qt.DecorationRole,
+                )
+                self.assertTrue(decoration.isValid())
+                decoratedTrajectoryIds.add(selectorNode.GetID())
+        self.assertEqual(
+            decoratedTrajectoryIds,
+            {trajectory14.GetID(), trajectory15.GetID()},
+        )
+
+        tooth15Index = next(
+            index
+            for index in range(widget.ui.targetToothComboBox.count)
+            if str(widget.ui.targetToothComboBox.itemData(index))
+            == "tooth-15"
+        )
+        widget.ui.targetToothComboBox.setCurrentIndex(tooth15Index)
+        self.assertEqual(parameterNode.targetToothSegmentId, "tooth-15")
+        self.assertIsNone(parameterNode.trajectoryLine)
+        self.assertIs(parameterNode.targetToothBoundsRoi, roi15)
+        self.assertEqual(
+            trajectory14.GetAttribute("DENTOBOT.TargetSegmentID"),
+            "tooth-14",
+        )
+        self.assertIs(
+            trajectory14.GetNodeReference(
+                logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE
+            ),
+            roi14,
+        )
+        self.assertTrue(trajectory14.GetDisplayNode().GetVisibility())
+        self.assertTrue(trajectory15.GetDisplayNode().GetVisibility())
+        self.assertAlmostEqual(
+            trajectory14.GetDisplayNode().GetOpacity(),
+            0.38,
+        )
+        self.assertAlmostEqual(
+            trajectory15.GetDisplayNode().GetOpacity(),
+            1.0,
+        )
+        self.assertFalse(roi14.GetDisplayNode().GetVisibility())
+        self.assertTrue(roi15.GetDisplayNode().GetVisibility())
+
+        widget._restoringTrajectoryAssociation = True
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.teethSegmentation = segmentationNode
+            parameterNode.targetToothSegmentId = "tooth-15"
+            parameterNode.targetToothBoundsRoi = roi15
+            parameterNode.trajectoryLine = None
+        finally:
+            parameterNode.EndModify(wasModifying)
+            widget._restoringTrajectoryAssociation = False
+        widget._updateFromParameterNode()
+
+        widget.onTrajectorySelectionChanged(trajectory14)
+        self.assertIs(parameterNode.teethSegmentation, segmentationNode)
+        self.assertEqual(parameterNode.targetToothSegmentId, "tooth-14")
+        self.assertIs(parameterNode.targetToothBoundsRoi, roi14)
+        self.assertIs(parameterNode.trajectoryLine, trajectory14)
+        self.assertEqual(
+            str(
+                widget.ui.targetToothComboBox.itemData(
+                    widget.ui.targetToothComboBox.currentIndex
+                )
+            ),
+            "tooth-14",
+        )
+        self.assertTrue(
+            segmentationNode.GetDisplayNode().GetSegmentVisibility(
+                "tooth-14"
+            )
+        )
+        # Target restoration must not undo the user's/step switch's ROI hide.
+        self.assertFalse(roi14.GetDisplayNode().GetVisibility())
+        self.assertFalse(roi15.GetDisplayNode().GetVisibility())
+        self.assertNotEqual(widget.ui.trajectoryLengthValueLabel.text, "--")
+
+        parameterNode.templateShellRoi = roi14
+        widget._updateFromParameterNode()
+        self.assertIsNone(parameterNode.templateShellRoi)
+        self.assertIsNone(widget.ui.templateShellRoiSelector.currentNode())
+        self.assertTrue(slicer.mrmlScene.IsNodePresent(roi14))
+        self.assertEqual(
+            roi14.GetAttribute("DENTOBOT.BoundsRole"),
+            "TargetToothAABB",
+        )
+        self.assertIsNone(roi14.GetAttribute("DENTOBOT.MarkupsRole"))
+
+        supportModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Visibility Support",
+        )
+        supportModel.SetAttribute("DENTOBOT.ModelRole", "TemplateSupportDraft")
+        supportModel.SetAttribute("DENTOBOT.TargetSegmentID", "tooth-14")
+        supportModel.SetAttribute("DENTOBOT.TargetFdiNumber", "14")
+        supportModel.SetNodeReferenceID(
+            logic.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE,
+            segmentationNode.GetID(),
+        )
+        shellRoi = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsROINode",
+            "Visibility Shell ROI",
+        )
+        shellRoi.SetAttribute("DENTOBOT.MarkupsRole", "TemplateShellTrimROI")
+        shellRoi.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            supportModel.GetID(),
+        )
+        shellModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Visibility Shell",
+        )
+        shellModel.SetAttribute("DENTOBOT.ModelRole", "ResearchTemplateShell")
+        shellModel.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            supportModel.GetID(),
+        )
+        sleeveModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Visibility Sleeve",
+        )
+        sleeveModel.SetAttribute("DENTOBOT.ModelRole", "ResearchTemplateSleeve")
+        sleeveModel.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            supportModel.GetID(),
+        )
+        for node in (supportModel, shellRoi, shellModel, sleeveModel):
+            node.CreateDefaultDisplayNodes()
+            node.GetDisplayNode().SetVisibility(True)
+        logic.refreshWorkflowLineageColors()
+        lineage14 = logic.lineageColorFromNode(trajectory14)
+        for descendantNode in (
+            supportModel,
+            shellRoi,
+            shellModel,
+            sleeveModel,
+        ):
+            self.assertEqual(
+                logic.lineageColorFromNode(descendantNode),
+                lineage14,
+            )
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.draftTemplateSupportModel = supportModel
+            parameterNode.templateShellRoi = shellRoi
+            parameterNode.researchTemplateShellModel = shellModel
+            parameterNode.researchTemplateSleeveModel = sleeveModel
+        finally:
+            parameterNode.EndModify(wasModifying)
+        widget._updateTemplateModeling()
+        widget._updateTemplateGuide()
+        slicer.app.processEvents()
+        self.assertIn("FDI 14", widget.ui.templateModelingLineageLabel.text)
+        self.assertIn("FDI 14", widget.ui.templateGuideLineageLabel.text)
+        self.assertIn(
+            "border-left",
+            widget.ui.templateModelingLineageLabel.styleSheet,
+        )
+        self.assertIn(
+            "border-left",
+            widget.ui.templateGuideLineageLabel.styleSheet,
+        )
+        for selector, expectedNode in (
+            (widget.ui.draftTemplateSupportModelSelector, supportModel),
+            (widget.ui.templateShellRoiSelector, shellRoi),
+            (widget.ui.researchTemplateShellModelSelector, shellModel),
+            (widget.ui.researchTemplateSleeveModelSelector, sleeveModel),
+        ):
+            selectorComboBox = widget._nodeSelectorComboBox(selector)
+            decorated = False
+            for selectorIndex in range(selectorComboBox.count):
+                if selector.nodeFromIndex(selectorIndex) is not expectedNode:
+                    continue
+                decoration = selectorComboBox.itemData(
+                    selectorIndex,
+                    qt.Qt.DecorationRole,
+                )
+                decorated = decoration.isValid()
+                break
+            self.assertTrue(decorated)
+        widget._updateTemplateGuideVisibilityControls()
+        visibilityEntries = widget._templateGuideVisibilityEntries()
+        self.assertEqual(len(visibilityEntries), 6)
+        self.assertTrue(all(checkBox.enabled for checkBox, _node in visibilityEntries))
+        self.assertTrue(
+            all(
+                "border-left" in checkBox.styleSheet
+                for checkBox, _node in visibilityEntries
+            )
+        )
+        widget._updatingTemplateGuideVisibilityUI = True
+        try:
+            for checkBox, _node in visibilityEntries:
+                checkBox.checked = False
+        finally:
+            widget._updatingTemplateGuideVisibilityUI = False
+        widget.onTemplateGuideVisibilityChanged()
+        self.assertTrue(
+            all(
+                not node.GetDisplayNode().GetVisibility()
+                for _checkBox, node in visibilityEntries
+            )
+        )
+        widget.ui.shellRoiVisibilityCheckBox.checked = True
+        self.assertTrue(shellRoi.GetDisplayNode().GetVisibility())
+        self.assertFalse(roi14.GetDisplayNode().GetVisibility())
+
+        # Legacy scenes may retain a target ID and owned nodes while their
+        # parameter-node selections are empty. Show lineage without guessing
+        # which of several matching trajectories should become selected.
+        widget._restoringTrajectoryAssociation = True
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.teethSegmentation = None
+            parameterNode.targetToothSegmentId = "tooth-14"
+            parameterNode.targetToothBoundsRoi = None
+            parameterNode.trajectoryLine = None
+            parameterNode.draftTemplateSupportModel = None
+            parameterNode.templateShellRoi = None
+            parameterNode.researchTemplateShellModel = None
+            parameterNode.researchTemplateSleeveModel = None
+        finally:
+            parameterNode.EndModify(wasModifying)
+            widget._restoringTrajectoryAssociation = False
+        widget._updateTemplateModeling()
+        widget._updateTemplateGuide()
+        self.assertIn("FDI 14", widget.ui.templateModelingLineageLabel.text)
+        self.assertIn("FDI 14", widget.ui.templateGuideLineageLabel.text)
+
+        self.delayDisplay(
+            "DENTOWorkflow widget trajectory restoration and visibility test passed"
         )
 
     def test_DENTOWorkflowDraftTemplateSupportModelLogic(self) -> None:
@@ -6573,6 +10782,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             [segmentId.split("-")[1] for segmentId in supportIds],
         )
         self.assertIn("10 Teeth Draft", modelNode.GetName())
+        self.assertTrue(modelNode.GetName().startswith("[Step 5A]"))
         self.assertTrue(all(math.isfinite(value) for value in details["bounds"]))
 
         for segmentId, expectedCounts in sourceGeometryCounts.items():
@@ -6610,6 +10820,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             modelNode.GetID(),
         )
 
+        modelNode.GetDisplayNode().SetVisibility(False)
         updatedModelNode, updatedDetails = (
             logic.createOrUpdateDraftTemplateSupportModel(
                 segmentationNode,
@@ -6620,6 +10831,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         )
         self.assertEqual(updatedModelNode.GetID(), modelNode.GetID())
         self.assertEqual(updatedDetails["supportCount"], 2)
+        self.assertFalse(modelNode.GetDisplayNode().GetVisibility())
         self.assertEqual(
             modelNode.GetAttribute("DENTOBOT.SupportCount"),
             "2",
@@ -6653,6 +10865,541 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         self.delayDisplay(
             "DENTOWorkflow Step 5A multi-support model logic tests passed"
+        )
+
+    def test_DENTOWorkflowTemplateFinalizationDynamicModeler(self) -> None:
+        slicer.mrmlScene.Clear(0)
+        logic = DENTOWorkflowLogic()
+        sphere = vtk.vtkSphereSource()
+        sphere.SetRadius(10.0)
+        sphere.SetThetaResolution(64)
+        sphere.SetPhiResolution(48)
+        sphere.Update()
+        sourceShell = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Synthetic current Step 5B shell",
+        )
+        sourceShell.SetAndObservePolyData(sphere.GetOutput())
+        sourceShell.SetAttribute("DENTOBOT.ModelRole", "ResearchTemplateShell")
+        sourceShell.SetAttribute("DENTOBOT.GeometryState", "Current")
+        sourceShell.SetAttribute("DENTOBOT.UpdatedUtc", "2026-08-07T12:00:00+00:00")
+        sourcePointCount = sourceShell.GetPolyData().GetNumberOfPoints()
+        sourceCellCount = sourceShell.GetPolyData().GetNumberOfCells()
+
+        planeNode = logic.createOrResetTemplateTrimPlane(sourceShell)
+        planeNode.SetOriginWorld((0.0, 0.0, 2.0))
+        self.assertTrue(logic.isTemplateTrimPlaneNode(planeNode))
+        self.assertIs(
+            planeNode.GetNodeReference(
+                logic.TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE
+            ),
+            sourceShell,
+        )
+        finalShell, planeResult = logic.createOrUpdateFinalizedTemplateShell(
+            sourceShell,
+            planeNode,
+            None,
+            "PlaneCut",
+            "Negative",
+        )
+        self.assertEqual(planeResult["topology"]["boundaryOrNonManifoldEdgeCount"], 0)
+        negativeTriangleCount = planeResult["topology"]["triangleCount"]
+        finalShell, flippedPlaneResult = logic.createOrUpdateFinalizedTemplateShell(
+            sourceShell,
+            planeNode,
+            None,
+            "PlaneCut",
+            "Positive",
+            finalShell,
+        )
+        self.assertEqual(
+            flippedPlaneResult["topology"]["boundaryOrNonManifoldEdgeCount"],
+            0,
+        )
+        self.assertNotEqual(
+            negativeTriangleCount,
+            flippedPlaneResult["topology"]["triangleCount"],
+        )
+
+        curveNode = logic.createTemplateTrimCurve(sourceShell)
+        curveRadius = math.sqrt(96.0)
+        for index in range(16):
+            angle = 2.0 * math.pi * index / 16.0
+            curveNode.AddControlPointWorld(
+                vtk.vtkVector3d(
+                    curveRadius * math.cos(angle),
+                    curveRadius * math.sin(angle),
+                    2.0,
+                )
+            )
+        finalShell, curveResult = logic.createOrUpdateFinalizedTemplateShell(
+            sourceShell,
+            planeNode,
+            curveNode,
+            "CurveCut",
+            "Outside",
+            finalShell,
+        )
+        self.assertEqual(curveResult["topology"]["boundaryOrNonManifoldEdgeCount"], 0)
+        finalSummary = logic.getFinalizedTemplateShellSummary(finalShell)
+        self.assertEqual(finalSummary["method"], "CurveCut")
+        self.assertEqual(finalSummary["keepRegion"], "Outside")
+        self.assertIs(finalSummary["sourceShell"], sourceShell)
+        self.assertIs(finalSummary["editNode"], curveNode)
+        self.assertIsNotNone(finalSummary["dynamicModelerNode"])
+        self.assertEqual(sourceShell.GetPolyData().GetNumberOfPoints(), sourcePointCount)
+        self.assertEqual(sourceShell.GetPolyData().GetNumberOfCells(), sourceCellCount)
+
+        parameterNode = logic.getParameterNode()
+        parameterNode.templateTrimPlane = planeNode
+        parameterNode.templateTrimCurve = curveNode
+        parameterNode.finalizedTemplateShellModel = finalShell
+        finalId = finalShell.GetID()
+        dynamicId = finalSummary["dynamicModelerNode"].GetID()
+        removals = logic.deleteTemplateFinalization(
+            planeNode,
+            curveNode,
+            finalShell,
+        )
+        self.assertGreaterEqual(len(removals), 6)
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(finalId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(dynamicId))
+        self.assertTrue(slicer.mrmlScene.IsNodePresent(sourceShell))
+        self.delayDisplay(
+            "DENTOWorkflow Step 5C plane/curve Dynamic Modeler and clean deletion tests passed"
+        )
+
+    def test_DENTOWorkflowResearchTemplateGeometry(self) -> None:
+        slicer.mrmlScene.Clear(0)
+        logic = DENTOWorkflowLogic()
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "ResearchTemplateSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        for segmentId, segmentName, centerX in (
+            ("tooth-16", "upper_right_first_molar_fdi16", 0.0),
+            ("tooth-15", "upper_right_second_premolar_fdi15", 6.5),
+        ):
+            sphere = vtk.vtkSphereSource()
+            sphere.SetCenter(centerX, 0.0, 0.0)
+            sphere.SetRadius(4.0)
+            sphere.SetThetaResolution(32)
+            sphere.SetPhiResolution(24)
+            sphere.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                sphere.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-06T12:00:00+00:00",
+        )
+        supportModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
+            segmentationNode,
+            "tooth-16",
+            ["tooth-15"],
+        )
+        trajectoryNode = logic.createTrajectoryNode("Research Template Trajectory")
+        logic.configureTrajectoryTarget(
+            trajectoryNode,
+            segmentationNode,
+            "tooth-16",
+        )
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, 4.0))
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, 0.0))
+        trajectoryNode.SetLocked(True)
+        targetBoundsRoi, _targetBounds = logic.createOrUpdateTargetBoundsRoi(
+            segmentationNode,
+            "tooth-16",
+        )
+        lineageColor = logic.lineageColorFromNode(trajectoryNode)
+        self.assertIsNotNone(lineageColor)
+        for lineageNode in (
+            targetBoundsRoi,
+            trajectoryNode,
+            supportModel,
+        ):
+            self.assertEqual(
+                logic.lineageColorFromNode(lineageNode),
+                lineageColor,
+            )
+        roiCountBeforeRejectedReset = (
+            slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsROINode")
+            .GetNumberOfItems()
+        )
+        with self.assertRaisesRegex(ValueError, "Step 5B shell trim ROI"):
+            logic.createOrResetTemplateShellRoi(
+                supportModel,
+                targetBoundsRoi,
+            )
+        self.assertEqual(
+            slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsROINode")
+            .GetNumberOfItems(),
+            roiCountBeforeRejectedReset,
+        )
+        self.assertEqual(
+            targetBoundsRoi.GetAttribute("DENTOBOT.BoundsRole"),
+            "TargetToothAABB",
+        )
+        self.assertIsNone(
+            targetBoundsRoi.GetAttribute("DENTOBOT.MarkupsRole")
+        )
+        with self.assertRaisesRegex(ValueError, "Step 5B shell trim ROI"):
+            logic.deleteTemplateShellRoi(targetBoundsRoi)
+        self.assertTrue(slicer.mrmlScene.IsNodePresent(targetBoundsRoi))
+
+        templateParameters = logic._templateGuideParameters(
+            0.5,
+            1.5,
+            0.5,
+            2.0,
+            4.0,
+            2.0,
+            4.0,
+        )
+        with self.assertRaisesRegex(ValueError, "Step 4A target bounds"):
+            logic.validateResearchTemplateInputs(
+                supportModel,
+                trajectoryNode,
+                targetBoundsRoi,
+                templateParameters,
+            )
+
+        roiNode = logic.createOrResetTemplateShellRoi(supportModel)
+        unrelatedSupportModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Unrelated Step 5A Model",
+        )
+        roiNode.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            unrelatedSupportModel.GetID(),
+        )
+        with self.assertRaisesRegex(ValueError, "different Step 5A"):
+            logic.createOrResetTemplateShellRoi(supportModel, roiNode)
+        with self.assertRaisesRegex(ValueError, "not associated"):
+            logic.validateResearchTemplateInputs(
+                supportModel,
+                trajectoryNode,
+                roiNode,
+                templateParameters,
+            )
+        roiNode.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
+            supportModel.GetID(),
+        )
+        wrongTargetTrajectory = logic.createTrajectoryNode(
+            "Wrong target lineage"
+        )
+        logic.configureTrajectoryTarget(
+            wrongTargetTrajectory,
+            segmentationNode,
+            "tooth-15",
+        )
+        wrongTargetTrajectory.AddControlPoint(
+            vtk.vtkVector3d(6.5, 0.0, 4.0)
+        )
+        wrongTargetTrajectory.AddControlPoint(
+            vtk.vtkVector3d(6.5, 0.0, 0.0)
+        )
+        wrongTargetTrajectory.SetLocked(True)
+        with self.assertRaisesRegex(ValueError, "same target tooth lineage"):
+            logic.validateResearchTemplateInputs(
+                supportModel,
+                wrongTargetTrajectory,
+                roiNode,
+                templateParameters,
+            )
+
+        shellModel, sleeveModel, result = logic.createOrUpdateResearchTemplate(
+            supportModel,
+            trajectoryNode,
+            roiNode,
+            clearanceMm=0.5,
+            thicknessMm=1.5,
+            samplingSpacingMm=0.5,
+            channelDiameterMm=2.0,
+            sleeveOuterDiameterMm=4.0,
+            sleeveInnerDiameterMm=2.0,
+            sleeveHeightMm=4.0,
+        )
+        self.assertTrue(
+            logic.isResearchTemplateModelNode(
+                shellModel,
+                "ResearchTemplateShell",
+            )
+        )
+        self.assertTrue(
+            logic.isResearchTemplateModelNode(
+                sleeveModel,
+                "ResearchTemplateSleeve",
+            )
+        )
+        self.assertEqual(
+            result["shell"]["boundaryOrNonManifoldEdgeCount"],
+            0,
+        )
+        self.assertEqual(
+            result["sleeve"]["boundaryOrNonManifoldEdgeCount"],
+            0,
+        )
+        self.assertGreater(result["shell"]["triangleCount"], 0)
+        self.assertGreater(result["sleeve"]["triangleCount"], 0)
+        logic.refreshWorkflowNodeStepTags()
+        self.assertTrue(supportModel.GetName().startswith("[Step 5A]"))
+        self.assertTrue(trajectoryNode.GetName().startswith("[Step 4A]"))
+        self.assertTrue(roiNode.GetName().startswith("[Step 5B]"))
+        self.assertTrue(shellModel.GetName().startswith("[Step 5B]"))
+        self.assertTrue(sleeveModel.GetName().startswith("[Step 5B]"))
+        for lineageNode in (
+            targetBoundsRoi,
+            trajectoryNode,
+            supportModel,
+            roiNode,
+            shellModel,
+            sleeveModel,
+        ):
+            self.assertEqual(
+                logic.lineageColorFromNode(lineageNode),
+                lineageColor,
+            )
+            displayColor = lineageNode.GetDisplayNode().GetColor()
+            for componentIndex in range(3):
+                self.assertAlmostEqual(
+                    displayColor[componentIndex],
+                    lineageColor[componentIndex],
+                    places=5,
+                )
+
+        roiNode.GetDisplayNode().SetVisibility(False)
+        shellModel.GetDisplayNode().SetVisibility(False)
+        sleeveModel.GetDisplayNode().SetVisibility(False)
+
+        # Match the live workflow: all parent inputs are already selected
+        # before an update creates or replaces the derived Step 5B outputs.
+        parameterNode = logic.getParameterNode()
+        parameterNode.teethSegmentation = segmentationNode
+        parameterNode.targetToothSegmentId = "tooth-16"
+        parameterNode.templateSupportToothSegmentIdsJson = '["tooth-15"]'
+        parameterNode.templateShellClearanceMm = 0.5
+        parameterNode.templateShellThicknessMm = 1.5
+        parameterNode.templateSamplingSpacingMm = 0.5
+        parameterNode.templateChannelDiameterMm = 2.0
+        parameterNode.templateSleeveOuterDiameterMm = 4.0
+        parameterNode.templateSleeveInnerDiameterMm = 2.0
+        parameterNode.templateSleeveHeightMm = 4.0
+        parameterNode.draftTemplateSupportModel = supportModel
+        parameterNode.trajectoryLine = trajectoryNode
+        parameterNode.templateShellRoi = roiNode
+        self.assertIs(
+            logic.createOrResetTemplateShellRoi(supportModel, roiNode),
+            roiNode,
+        )
+        shellModel, sleeveModel, _updatedResult = (
+            logic.createOrUpdateResearchTemplate(
+                supportModel,
+                trajectoryNode,
+                roiNode,
+                clearanceMm=0.5,
+                thicknessMm=1.5,
+                samplingSpacingMm=0.5,
+                channelDiameterMm=2.0,
+                sleeveOuterDiameterMm=4.0,
+                sleeveInnerDiameterMm=2.0,
+                sleeveHeightMm=4.0,
+                shellModelNode=shellModel,
+                sleeveModelNode=sleeveModel,
+            )
+        )
+        self.assertFalse(roiNode.GetDisplayNode().GetVisibility())
+        self.assertFalse(shellModel.GetDisplayNode().GetVisibility())
+        self.assertFalse(sleeveModel.GetDisplayNode().GetVisibility())
+
+        parameterNode.researchTemplateShellModel = shellModel
+        parameterNode.researchTemplateSleeveModel = sleeveModel
+        trimPlane = logic.createOrResetTemplateTrimPlane(shellModel)
+        finalizedShell, finalizationResult = (
+            logic.createOrUpdateFinalizedTemplateShell(
+                shellModel,
+                trimPlane,
+                None,
+                "PlaneCut",
+                "Negative",
+            )
+        )
+        self.assertEqual(
+            finalizationResult["topology"]["boundaryOrNonManifoldEdgeCount"],
+            0,
+        )
+        parameterNode.templateFinalizationMode = "PlaneCut"
+        parameterNode.templateFinalizationKeepRegion = "Negative"
+        parameterNode.templateTrimPlane = trimPlane
+        parameterNode.finalizedTemplateShellModel = finalizedShell
+
+        exportDirectory = Path(slicer.app.temporaryPath) / (
+            f"dentobot-step5c-export-{uuid.uuid4().hex}"
+        )
+        exportDirectory.mkdir(parents=True)
+        try:
+            with self.assertRaisesRegex(ValueError, "Step 5C finalized"):
+                logic.exportResearchTemplateStls(
+                    exportDirectory,
+                    shellModel,
+                    sleeveModel,
+                )
+            exported = logic.exportResearchTemplateStls(
+                exportDirectory,
+                finalizedShell,
+                sleeveModel,
+            )
+            for path in exported.values():
+                self.assertTrue(path.is_file())
+                self.assertGreater(path.stat().st_size, 84)
+        finally:
+            for path in exportDirectory.glob("*"):
+                path.unlink()
+            exportDirectory.rmdir()
+
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-step5b-persistence-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+        finally:
+            scenePath.unlink(missing_ok=True)
+
+        reloadedLogic = DENTOWorkflowLogic()
+        reloadedParameterNode = reloadedLogic.getParameterNode()
+        reloadedShell = reloadedParameterNode.researchTemplateShellModel
+        reloadedSleeve = reloadedParameterNode.researchTemplateSleeveModel
+        reloadedTrimPlane = reloadedParameterNode.templateTrimPlane
+        reloadedFinalizedShell = (
+            reloadedParameterNode.finalizedTemplateShellModel
+        )
+        reloadedLineageColor = reloadedLogic.lineageColorFromNode(
+            reloadedParameterNode.trajectoryLine
+        )
+        for lineageNode in (
+            reloadedParameterNode.draftTemplateSupportModel,
+            reloadedParameterNode.templateShellRoi,
+            reloadedShell,
+            reloadedSleeve,
+            reloadedTrimPlane,
+            reloadedFinalizedShell,
+        ):
+            self.assertEqual(
+                reloadedLogic.lineageColorFromNode(lineageNode),
+                reloadedLineageColor,
+            )
+        self.assertFalse(
+            reloadedParameterNode.templateShellRoi
+            .GetDisplayNode()
+            .GetVisibility()
+        )
+        self.assertFalse(reloadedShell.GetDisplayNode().GetVisibility())
+        self.assertFalse(reloadedSleeve.GetDisplayNode().GetVisibility())
+        self.assertTrue(reloadedLogic.isTemplateTrimPlaneNode(reloadedTrimPlane))
+        self.assertEqual(
+            reloadedLogic.getFinalizedTemplateShellSummary(
+                reloadedFinalizedShell
+            )["geometryState"],
+            "Current",
+        )
+        self.assertEqual(
+            reloadedLogic.getResearchTemplateModelSummary(
+                reloadedShell,
+                "ResearchTemplateShell",
+            )["geometryState"],
+            "Current",
+        )
+        self.assertEqual(
+            reloadedLogic.getResearchTemplateModelSummary(
+                reloadedSleeve,
+                "ResearchTemplateSleeve",
+            )["geometryState"],
+            "Current",
+        )
+        retainedSourceId = reloadedParameterNode.draftTemplateSupportModel.GetID()
+        retainedTrajectoryId = reloadedParameterNode.trajectoryLine.GetID()
+        retainedRoiId = reloadedParameterNode.templateShellRoi.GetID()
+        retainedShellId = reloadedShell.GetID()
+        retainedSleeveId = reloadedSleeve.GetID()
+        retainedFinalizedShellId = reloadedFinalizedShell.GetID()
+        unrelatedRoi = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsROINode",
+            "Unrelated ROI",
+        )
+        with self.assertRaisesRegex(ValueError, "DENTOBOT Step 5B"):
+            reloadedLogic.deleteTemplateShellRoi(unrelatedRoi)
+        roiRemoval = reloadedLogic.deleteTemplateShellRoi(
+            reloadedParameterNode.templateShellRoi
+        )
+        reloadedParameterNode.templateShellRoi = None
+        reloadedLogic.markResearchTemplateModelsStale(
+            reloadedShell,
+            reloadedSleeve,
+            "Shell trim ROI was deleted.",
+        )
+        reloadedLogic.markFinalizedTemplateShellStale(
+            reloadedFinalizedShell,
+            "The Step 5B source shell became stale.",
+        )
+        self.assertEqual(roiRemoval["nodeId"], retainedRoiId)
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(retainedRoiId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedSourceId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedTrajectoryId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedShellId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedSleeveId))
+        self.assertIsNotNone(
+            slicer.mrmlScene.GetNodeByID(retainedFinalizedShellId)
+        )
+        for modelNode, role in (
+            (reloadedShell, "ResearchTemplateShell"),
+            (reloadedSleeve, "ResearchTemplateSleeve"),
+        ):
+            staleSummary = reloadedLogic.getResearchTemplateModelSummary(
+                modelNode,
+                role,
+            )
+            self.assertEqual(staleSummary["geometryState"], "Stale")
+            self.assertEqual(
+                staleSummary["staleReason"],
+                "Shell trim ROI was deleted.",
+            )
+            self.assertIsNone(staleSummary["roi"])
+        self.assertEqual(
+            reloadedLogic.getFinalizedTemplateShellSummary(
+                reloadedFinalizedShell
+            )["geometryState"],
+            "Stale",
+        )
+        finalizationRemovals = reloadedLogic.deleteTemplateFinalization(
+            reloadedTrimPlane,
+            reloadedParameterNode.templateTrimCurve,
+            reloadedFinalizedShell,
+        )
+        self.assertGreaterEqual(len(finalizationRemovals), 5)
+        removals = reloadedLogic.deleteResearchTemplateModels(
+            reloadedShell,
+            reloadedSleeve,
+        )
+        reloadedParameterNode.researchTemplateShellModel = None
+        reloadedParameterNode.researchTemplateSleeveModel = None
+        self.assertEqual(len(removals), 2)
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedSourceId))
+        self.assertIsNotNone(slicer.mrmlScene.GetNodeByID(retainedTrajectoryId))
+        self.assertIsNone(slicer.mrmlScene.GetNodeByID(retainedRoiId))
+
+        self.delayDisplay(
+            "DENTOWorkflow Steps 5B/5C geometry, STL, save/reload, ROI reset, and deletion tests passed"
         )
 
     def test_DENTOWorkflowSafeDeletionAndPersistence(self) -> None:

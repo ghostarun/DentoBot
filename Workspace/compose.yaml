@@ -21,7 +21,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/ros2_ws:/workspace/ros2_ws
       - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/data:/workspace/data
-      - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/slicer-user:/root/.config/NA-MIC
+      - ${DENTOBOT_WORKSPACE_ROOT:?Run scripts/launch-dentoworkflow.bash to configure the workspace}/slicer-user:/root/.config/slicer.org
       - type: bind
         source: ${DENTOBOT_BACKEND_ENV_DIR:?Run scripts/launch-dentoworkflow.bash to configure the backend mount}
         target: ${DENTOBOT_BACKEND_ENV_DIR:?Run scripts/launch-dentoworkflow.bash to configure the backend mount}

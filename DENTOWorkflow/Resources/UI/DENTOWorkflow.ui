@@ -1250,7 +1250,7 @@
       <item>
        <widget class="QLabel" name="planningDescriptionLabel">
         <property name="text">
-         <string>Select one whole-tooth segment, then place Entry followed by Target in a 2D slice view. Both points must remain inside the orange target-tooth bounds; coordinates are world RAS millimetres.</string>
+         <string>Select one whole-tooth segment, then place Entry followed by Target in a 2D slice view. Both points must remain inside its target-tooth bounds; coordinates are world RAS millimetres. After the first trajectory is created, the tooth lineage receives one persistent color shared by its Step 4A, 5A, and 5B descendants.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1286,7 +1286,7 @@
         <item row="1" column="1">
          <widget class="qMRMLNodeComboBox" name="trajectorySelector">
           <property name="toolTip">
-           <string>Select a two-point Markups line already loaded in the MRML scene, or create a new DENTO trajectory below.</string>
+           <string>All loaded trajectory lines remain available here. DENTOBOT trajectories are grouped by target-tooth names and persistent color swatches; selecting a tooth emphasizes its group without retargeting existing trajectories.</string>
           </property>
           <property name="nodeTypes">
            <stringlist notr="true">
@@ -1563,6 +1563,28 @@
        </widget>
       </item>
       <item>
+       <widget class="QLabel" name="templateModelingLineageLabel">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>28</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>The color is inherited from the authoritative Step 4A target-tooth trajectory. MRML references and target IDs remain authoritative.</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QLabel { color: #555555; background-color: #eeeeee; border-left: 8px solid #999999; border-radius: 3px; padding: 5px 8px; }</string>
+        </property>
+        <property name="text">
+         <string>Target lineage: create a Step 4A trajectory to assign a color.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <layout class="QFormLayout" name="templateModelingFormLayout">
         <item row="0" column="0">
          <widget class="QLabel" name="templateTargetToothTitleLabel">
@@ -1699,6 +1721,445 @@
     </widget>
    </item>
    <item>
+    <widget class="ctkCollapsibleButton" name="templateGuideCollapsibleButton">
+     <property name="text">
+      <string>Step 5B — Research Shell and Sleeve</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="templateGuideVerticalLayout">
+      <item>
+       <widget class="QLabel" name="templateGuideDescriptionLabel">
+        <property name="text">
+         <string>Create a non-destructive raw shell from the current Step 5A anatomy, cut a trajectory-aligned channel, and create a separate hollow sleeve. Step 5C owns final margin trimming and STL export.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateGuideLineageLabel">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>28</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Step 5B inputs and outputs inherit the authoritative Step 4A target-tooth color through their Step 5A/MRML references.</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QLabel { color: #555555; background-color: #eeeeee; border-left: 8px solid #999999; border-radius: 3px; padding: 5px 8px; }</string>
+        </property>
+        <property name="text">
+         <string>Inherited lineage: waiting for a colored Step 5A/Step 4A input.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="templateGuideFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="templateShellRoiLabel">
+          <property name="text">
+           <string>Shell trim ROI:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="templateShellRoiSelector">
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLMarkupsROINode</string>
+           </stringlist>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>templateShellRoi</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <layout class="QHBoxLayout" name="templateShellRoiButtonLayout">
+          <item>
+           <widget class="QPushButton" name="createTemplateShellRoiButton">
+            <property name="text">
+             <string>Create / Reset ROI Around Support Anatomy</string>
+            </property>
+            <property name="toolTip">
+             <string>Create or reset a world-RAS ROI around the Step 5A model. Adjust it in the views to control how much anatomy the shell covers.</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="deleteTemplateShellRoiButton">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Delete Shell ROI...</string>
+            </property>
+            <property name="toolTip">
+             <string>Delete only the DENTOBOT-owned Step 5B shell trim ROI so a fresh ROI can be created. Existing shell and sleeve outputs are retained but marked stale.</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="templateShellClearanceLabel">
+          <property name="text">
+           <string>Shell clearance:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QDoubleSpinBox" name="templateShellClearanceSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.000000000000000</double></property>
+          <property name="maximum"><double>5.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateShellClearanceMm</string></property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="templateShellThicknessLabel">
+          <property name="text"><string>Shell thickness:</string></property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QDoubleSpinBox" name="templateShellThicknessSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.100000000000000</double></property>
+          <property name="maximum"><double>10.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateShellThicknessMm</string></property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="templateSamplingSpacingLabel">
+          <property name="text"><string>Geometry sampling:</string></property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QDoubleSpinBox" name="templateSamplingSpacingSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.100000000000000</double></property>
+          <property name="maximum"><double>2.000000000000000</double></property>
+          <property name="singleStep"><double>0.050000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSamplingSpacingMm</string></property>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="templateChannelDiameterLabel">
+          <property name="text"><string>Shell channel diameter:</string></property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QDoubleSpinBox" name="templateChannelDiameterSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.100000000000000</double></property>
+          <property name="maximum"><double>10.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateChannelDiameterMm</string></property>
+         </widget>
+        </item>
+        <item row="6" column="0">
+         <widget class="QLabel" name="templateSleeveOuterDiameterLabel">
+          <property name="text"><string>Sleeve outer diameter:</string></property>
+         </widget>
+        </item>
+        <item row="6" column="1">
+         <widget class="QDoubleSpinBox" name="templateSleeveOuterDiameterSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.200000000000000</double></property>
+          <property name="maximum"><double>20.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSleeveOuterDiameterMm</string></property>
+         </widget>
+        </item>
+        <item row="7" column="0">
+         <widget class="QLabel" name="templateSleeveInnerDiameterLabel">
+          <property name="text"><string>Sleeve inner diameter:</string></property>
+         </widget>
+        </item>
+        <item row="7" column="1">
+         <widget class="QDoubleSpinBox" name="templateSleeveInnerDiameterSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.100000000000000</double></property>
+          <property name="maximum"><double>15.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSleeveInnerDiameterMm</string></property>
+         </widget>
+        </item>
+        <item row="8" column="0">
+         <widget class="QLabel" name="templateSleeveHeightLabel">
+          <property name="text"><string>Sleeve height:</string></property>
+         </widget>
+        </item>
+        <item row="8" column="1">
+         <widget class="QDoubleSpinBox" name="templateSleeveHeightSpinBox">
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.500000000000000</double></property>
+          <property name="maximum"><double>30.000000000000000</double></property>
+          <property name="singleStep"><double>0.500000000000000</double></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSleeveHeightMm</string></property>
+         </widget>
+        </item>
+        <item row="9" column="0">
+         <widget class="QLabel" name="researchTemplateShellModelLabel">
+          <property name="text"><string>Research shell:</string></property>
+         </widget>
+        </item>
+        <item row="9" column="1">
+         <widget class="qMRMLNodeComboBox" name="researchTemplateShellModelSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>researchTemplateShellModel</string></property>
+         </widget>
+        </item>
+        <item row="10" column="0">
+         <widget class="QLabel" name="researchTemplateSleeveModelLabel">
+          <property name="text"><string>Research sleeve:</string></property>
+         </widget>
+        </item>
+        <item row="10" column="1">
+         <widget class="qMRMLNodeComboBox" name="researchTemplateSleeveModelSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>researchTemplateSleeveModel</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="templateGuideVisibilityGroupBox">
+        <property name="title">
+         <string>Scene visibility</string>
+        </property>
+        <property name="toolTip">
+         <string>Show or hide DENTOBOT workflow objects without deleting them. These step tags also identify the same nodes in Slicer's Data view.</string>
+        </property>
+        <layout class="QGridLayout" name="templateGuideVisibilityGridLayout">
+         <item row="0" column="0">
+          <widget class="QCheckBox" name="targetBoundsVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 4A] Target bounds box</string></property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QCheckBox" name="trajectoryVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 4A] Trajectory</string></property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QCheckBox" name="supportModelVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5A] Support anatomy</string></property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QCheckBox" name="shellRoiVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Shell trim ROI box</string></property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QCheckBox" name="shellModelVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Research shell</string></property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QCheckBox" name="sleeveModelVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Research sleeve</string></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="templateGuideButtonLayout">
+        <item>
+         <widget class="QPushButton" name="generateResearchTemplateButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="text"><string>Generate / Update Research Template</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="deleteResearchTemplateButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="text"><string>Delete Research Template...</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateGuideStatusLabel">
+        <property name="styleSheet"><string notr="true">color: #b36b00;</string></property>
+        <property name="text"><string>Create a current Step 5A model and a complete locked trajectory.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateGuideSafetyLabel">
+        <property name="styleSheet"><string notr="true">color: #b36b00;</string></property>
+        <property name="text"><string>Research geometry only. Step 5B output is an unfinalized source and cannot be exported directly.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="templateFinalizationCollapsibleButton">
+     <property name="text">
+      <string>Step 5C — Fit, Trim, and STL Export</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="templateFinalizationVerticalLayout">
+      <item>
+       <widget class="QLabel" name="templateFinalizationDescriptionLabel">
+        <property name="text">
+         <string>Preserve the raw Step 5B shell, then create a separate finalized shell with Slicer's Dynamic Modeler. Use a horizontal plane for the simple workflow or an adjustable closed curve for an uneven cervical/gingival margin.</string>
+        </property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateFinalizationLineageLabel">
+        <property name="minimumSize"><size><width>0</width><height>28</height></size></property>
+        <property name="toolTip"><string>Step 5C inputs and outputs inherit the authoritative Step 4A target-tooth color through their Step 5B source-shell reference.</string></property>
+        <property name="styleSheet"><string notr="true">QLabel { color: #555555; background-color: #eeeeee; border-left: 8px solid #999999; border-radius: 3px; padding: 5px 8px; }</string></property>
+        <property name="text"><string>Inherited lineage: waiting for a current Step 5B shell.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="templateFinalizationFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="templateFinalizationSourceLabel"><property name="text"><string>Raw source shell:</string></property></widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="templateFinalizationSourceValueLabel"><property name="text"><string>--</string></property><property name="wordWrap"><bool>true</bool></property></widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="templateFinalizationModeLabel"><property name="text"><string>Trim method:</string></property></widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QComboBox" name="templateFinalizationModeComboBox">
+          <item><property name="text"><string>Simple horizontal plane cut</string></property></item>
+          <item><property name="text"><string>Adjustable closed-curve cut</string></property></item>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="templateFinalizationKeepRegionLabel"><property name="text"><string>Keep:</string></property></widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QComboBox" name="templateFinalizationKeepRegionComboBox"/>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="templateTrimPlaneLabel"><property name="text"><string>Horizontal plane:</string></property></widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="qMRMLNodeComboBox" name="templateTrimPlaneSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateTrimPlane</string></property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="templateTrimCurveLabel"><property name="text"><string>Closed margin curve:</string></property></widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="qMRMLNodeComboBox" name="templateTrimCurveSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsClosedCurveNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateTrimCurve</string></property>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="finalizedTemplateShellModelLabel"><property name="text"><string>Finalized shell:</string></property></widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="qMRMLNodeComboBox" name="finalizedTemplateShellModelSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>finalizedTemplateShellModel</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="templateFinalizationViewLockedCheckBox">
+        <property name="checked"><bool>true</bool></property>
+        <property name="text"><string>Lock anterior view and horizontal plane orientation (R/L horizontal, S/I vertical)</string></property>
+        <property name="toolTip"><string>Locks the camera to an anterior world-RAS view and keeps the plane normal on the S/I axis while still allowing translation and zoom. Uncheck to rotate the view or plane.</string></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="templateFinalizationPreparationButtonLayout">
+        <item><widget class="QPushButton" name="continueTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Continue: Isolate Shell in Front View</string></property></widget></item>
+        <item><widget class="QPushButton" name="restoreTemplateFinalizationViewButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Restore Workflow Visibility</string></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="templateFinalizationEditButtonLayout">
+        <item><widget class="QPushButton" name="createTemplateTrimPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Pick Horizontal Cut Height</string></property><property name="toolTip"><string>Reset the horizontal plane, then click once on the isolated shell to choose its S/I height. Drag the plane translation handle for fine adjustment.</string></property></widget></item>
+        <item><widget class="QPushButton" name="placeTemplateTrimCurveButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Create / Place Closed Margin Curve</string></property><property name="toolTip"><string>Place at least three points on the visible shell. Double-click or right-click to finish, then drag the control points to refine the margin.</string></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="templateFinalizationActionButtonLayout">
+        <item><widget class="QPushButton" name="applyTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Preview / Apply Trim</string></property></widget></item>
+        <item><widget class="QPushButton" name="openDynamicModelerButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Open Dynamic Modeler...</string></property><property name="toolTip"><string>Open Slicer's expert Dynamic Modeler interface with the DENTOBOT cut node available for further inspection.</string></property></widget></item>
+        <item><widget class="QPushButton" name="deleteTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 5C Edit...</string></property></widget></item>
+        <item><widget class="QPushButton" name="exportResearchTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Export Final Shell + Sleeve STL...</string></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateFinalizationStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Generate a current Step 5B shell and sleeve first.</string></property><property name="wordWrap"><bool>true</bool></property></widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateFinalizationSafetyLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Research-only manual margin selection. The default plane position has no anatomical or clinical meaning. A dentist must verify orientation, retained side, fit, wall integrity, and fabrication suitability before any downstream use.</string></property><property name="wordWrap"><bool>true</bool></property></widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -1756,6 +2217,42 @@
    <sender>DENTOWorkflow</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>draftTemplateSupportModelSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>templateShellRoiSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>researchTemplateShellModelSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>researchTemplateSleeveModelSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>templateTrimPlaneSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>templateTrimCurveSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+  </connection>
+  <connection>
+   <sender>DENTOWorkflow</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>finalizedTemplateShellModelSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
  </connections>
