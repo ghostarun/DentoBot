@@ -21,6 +21,34 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-10 15:59:55 IST (UTC+05:30) — Zoomable Step 5C and constrained cut height
+
+### Fixed
+
+- Preserve mouse-wheel zoom in the isolated ROI-aligned view under both
+  orientation lock modes. Explicit isolation still establishes the initial
+  ROI fit; subsequent edit actions retain the user's zoom.
+- Constrain the simple Markups plane to one origin point on the Step 5B ROI Z
+  axis with normal ROI `+Z`. Hide transform handles, persist its ROI reference,
+  reapply the constraint after reload, and validate it before cutting.
+- Added focused ROI-plane coverage. Python/UI/whitespace/repository static
+  checks passed; live Slicer behavior remains pending. No Git publication or
+  Drive sync occurred.
+
+## 2026-08-10 15:38:25 IST (UTC+05:30) — Stable in-view trajectory correction
+
+### Fixed
+
+- Prevented Entry/Target edits from rebuilding the selected slider angle on a
+  new world-reference basis and jumping to another circumferential MPR view.
+- Hold the native slice matrix during a Markups drag. At release, minimally
+  transport the previous plane normal onto the corrected axis and continue
+  slider changes by angle delta; an in-plane edit retains the exact plane.
+  Reset remains the deterministic world-reference-zero operation.
+- Added focused transport/fallback geometry cases. Python, UI XML, and
+  whitespace checks passed; live correction UX and Slicer-native execution
+  remain pending. No Slicer launch, Git publication, or Drive sync occurred.
+
 ## 2026-08-10 14:50:42 IST (UTC+05:30) — Trajectory-oriented oblique MPR verification
 
 ### Added

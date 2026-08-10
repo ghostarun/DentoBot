@@ -7,15 +7,22 @@ Last updated: 2026-08-10
 - Live-test Step 4A trajectory-aligned longitudinal oblique MPR: verify the
   selected source CBCT appears in one native slice with Entry→Target vertical,
   the existing line remains overlaid, `-180°..+180°` changes circumferential
-  anatomy without moving either point, valid point edits update immediately,
-  vertical/near-vertical paths remain finite, and disable/save/module-exit
-  restores the exact prior slice/composite/display state. Measure slider FPS.
+  anatomy without moving either point, the slice stays fixed beneath the
+  pointer during correction, an in-view point edit preserves the selected
+  circumferential plane after release, later slider movement remains
+  continuous, vertical/near-vertical paths remain finite, and
+  disable/save/module-exit restores the exact prior slice/composite/display
+  state. Measure slider and correction FPS.
 - Live-test the corrected Step 5C ROI-frame isolation in Slicer: confirm a
   one-up 3D layout, `+X` right/`+Z` up/looking `+Y` at yaw zero, Step 5B ROI
-  top/bottom viewport fit, yaw-only mouse orbit, complete freeze with yaw
-  lock, free-camera mode, and exact restoration of layout, camera, crosshair,
-  visibility, and 2D verification views. Compare interaction FPS with the
-  superseded multi-view camera observer.
+  top/bottom initial viewport fit, usable mouse-wheel zoom under both lock
+  states, yaw-plus-zoom orbit, fixed-orientation-plus-zoom mode, free-camera
+  mode, and exact restoration of layout, camera, crosshair, visibility, and
+  2D verification views. Confirm the simple plane accepts one point/height,
+  remains parallel to the ROI top/bottom faces, cannot rotate/scale/translate
+  laterally, survives save/reopen with its ROI link, and cuts the requested
+  ROI −Z/+Z side. Compare interaction FPS with the superseded multi-view
+  camera observer.
 - Confirm that both new and reopened Step 4A/5B bounds ROIs remain visible but
   cannot be picked, translated, rotated, or resized from slice or 3D views.
   Static/source assertions cover locked/selectable/handle state; live Slicer
@@ -147,14 +154,16 @@ dentist-focused 2D plan remains preserved in this task list and
   Step 4A longitudinal trajectory MPR. It reuses the existing trajectory and
   referenced CBCT, constructs an orthonormal singularity-safe frame, updates
   native `SliceToRAS` only, coalesces interactive events, projects the same
-  line as an overlay, and restores transient presentation state. Python/UI/
-  repository static gates passed on 2026-08-10; live acceptance remains active.
+  line as an overlay, freezes the slice during point drags, transports the
+  selected plane continuously after correction, and restores transient
+  presentation state. Python/UI/repository static gates passed on 2026-08-10;
+  live acceptance remains active.
 - Replaced the Step 5C fixed-anterior multi-view isolation source behavior
   with an ROI-aligned, one-up 3D yaw workspace; added separate non-yaw/yaw
-  locks and full presentation-state restoration; separated isolation from
-  markup placement; and made Step 4A/5B ROIs immutable in views. Python/UI/
-  repository static checks passed on 2026-08-10; live Slicer acceptance
-  remains active.
+  locks with zoom retained, full presentation-state restoration, and an
+  ROI-Z-height-only simple plane; separated isolation from markup placement;
+  and made Step 4A/5B ROIs immutable in views. Python/UI/repository static
+  checks passed on 2026-08-10; live Slicer acceptance remains active.
 - Published the accumulated Ubuntu workflow checkpoint to the existing remote
   `codex/ubuntu-migration` branch without force as feature commit `56eaf34`.
   The previously recorded Git authentication blocker no longer prevents a

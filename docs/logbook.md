@@ -25,6 +25,59 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-10 15:59:55 IST (UTC+05:30) — Step 5C zoom and plane constraint
+
+### Observation and implementation
+
+- The camera lock restored `ParallelScale` on each modification, preventing
+  useful zoom recovery. It now constrains orientation/position only: explicit
+  isolation applies the initial ROI fit, while zoom remains available with
+  yaw enabled or locked and survives later plane/curve actions.
+- The simple plane now has one control point. Its origin is projected onto the
+  current Step 5B ROI Z axis and its normal remains ROI `+Z`, with transform
+  handles hidden. The ROI MRML reference persists and is re-enforced after
+  reload and before cutting; validation rejects any bypassed tilt or lateral
+  displacement. Read-only installed Slicer headers confirmed both the ROI
+  world-Z getter and the one-point Point-Normal plane contract.
+
+### Evidence and external state
+
+- Added a rotated-ROI synthetic constraint case. Python compilation, UI XML,
+  whitespace checks, and the repository static gate passed. Live Slicer zoom,
+  placement, persistence, and cutting remain developer acceptance items; no
+  runtime was launched.
+- No patient data, inference, mesh/STL work, robot action, Git commit/push, or
+  Drive sync occurred. Changes remain uncommitted above `c574094`.
+
+## 2026-08-10 15:38:25 IST (UTC+05:30) — MPR correction continuity
+
+### Observation and cause
+
+- The first live review found that correcting Entry or Target after selecting
+  an MPR angle abruptly reoriented the view. The implementation reapplied the
+  same slider number to transverse axes freshly derived from world `+Z/+Y`;
+  the number stayed constant but the clinical plane did not.
+- Read-only Slicer 5.10 source inspection confirmed Markups point start/end
+  interaction events. An unavailable container `rg` command was retried
+  successfully with `grep`; no Slicer process was launched.
+
+### Implementation and evidence
+
+- Freeze `SliceToRAS` during the point drag. At release, project the prior
+  plane normal perpendicular to the corrected trajectory and reconstruct the
+  closest longitudinal frame. In-view edits retain the exact plane, later
+  slider motion is delta-based, and a prior-X fallback handles the parallel
+  singularity. Reset still reconstructs deterministic world-reference 0°.
+- Added focused in-plane, off-plane, fallback, delta, containment,
+  orthonormality, handedness, and invalid-input coverage. Python compilation,
+  UI XML, and whitespace checks passed. The repository static gate passed 22
+  Python AST files, two UI XML files, and eight Markdown fence checks; backend
+  tests were skipped because backend source did not change. Live pointer
+  stability and FPS remain developer acceptance items.
+- No patient data, inference, geometry generation, Slicer launch, robot or
+  drilling action, Git commit/push, or Drive synchronization occurred. The
+  correction is uncommitted on top of local commit `c574094`.
+
 ## 2026-08-10 14:50:42 IST (UTC+05:30) — Longitudinal trajectory MPR extension
 
 ### Request and decision

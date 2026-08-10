@@ -343,10 +343,21 @@ module exit, scene close, cleanup, Step 5C isolation, and scene saving restore
 the prior slice/composite/display presentation; saving then resumes the live
 view without serializing the transient override.
 
+The first live review found that recomputing the same numeric angle from a new
+world-reference basis made point correction jump to another circumferential
+view. The correction path now freezes the slice throughout a Markups drag and,
+at interaction end, minimally transports the prior plane normal onto the new
+trajectory. In-plane corrections preserve the exact plane, slider motion
+continues by relative angle from it, and Reset explicitly reconstructs the
+deterministic zero frame. Focused source tests cover in-plane preservation,
+off-plane transport, the parallel fallback, handedness, and finite geometry;
+live correction usability remains pending.
+
 Live acceptance must confirm vertical overlay, circumferential anatomy change,
-point immutability under rotation, immediate valid-point updates, source-CBCT
-selection, state restoration, MRB save/reopen behavior, vertical-axis safety,
-and interactive FPS. Perpendicular cross-sections, depth scrolling,
+point immutability under rotation, stable under-pointer point dragging, exact
+plane preservation after in-view correction, source-CBCT selection, state
+restoration, MRB save/reopen behavior, vertical-axis safety, and interactive
+FPS. Perpendicular cross-sections, depth scrolling,
 optimization, collision/wall-thickness analysis, bur volume, and warnings are
 future scope.
 
@@ -484,13 +495,16 @@ Implemented behavior:
 - at zero yaw look along ROI `+Y`, put ROI `+X` to viewport right and ROI `+Z`
   upward, and use half the ROI Z size as parallel scale so its top/bottom meet
   the viewport boundaries;
-- lock X/Y/Z translation, zoom, pitch, and roll by default while retaining a
-  360-degree yaw orbit around ROI `+Z`; provide a second checkbox to freeze yaw
-  too, and allow a fully free camera when the first lock is deliberately
-  cleared;
-- keep the plane normal locked to ROI `+Z` while preserving height
-  translation. Isolation itself creates no markup and starts no placement;
-  the plane/curve buttons are separate deliberate actions;
+- lock X/Y/Z translation, pitch, and roll by default while retaining a
+  360-degree yaw orbit around ROI `+Z` and interactive zoom; provide a second
+  checkbox to freeze yaw while still allowing zoom, and allow a fully free
+  camera when the first lock is deliberately cleared;
+- keep the simple plane parallel to the ROI top/bottom faces with normal ROI
+  `+Z`; use exactly one origin point, project it onto the ROI Z axis, and hide
+  all translation/rotation/scale handles so signed Z height is the only cut
+  input. Reapply and validate this constraint after reload and before cutting.
+  Isolation itself creates no markup and starts no placement; the plane/curve
+  buttons are separate deliberate actions;
 - implement the simple workflow as a one-click height placement of a Markups
   plane followed by Dynamic Modeler **Plane cut** with capped surface and an
   explicit choice to keep the inferior/negative or superior/positive side;
@@ -518,11 +532,12 @@ save/reload, and the complete pre-existing test class. The source-build
 process still reports its known VTK debug leaks after the explicit full-suite
 pass marker.
 
-The 2026-08-10 ROI-frame/isolation correction passed Python compilation, UI
-XML parsing, repository static checks, and added camera-math/ROI-lock
-regression coverage. Its mouse interaction, layout/camera restoration, exact
-viewport fit, and FPS remain pending developer-run Slicer acceptance; no new
-Slicer process was authorized or launched for that correction.
+The 2026-08-10 ROI-frame corrections passed Python compilation, UI XML
+parsing, repository static checks, and added camera-math, ROI-lock, and
+ROI-Z-only plane regressions. Live yaw/zoom interaction, constrained height
+placement, layout/camera restoration, initial viewport fit, and FPS remain
+pending developer-run Slicer acceptance; no new Slicer process was authorized
+or launched for these corrections.
 
 The plane starts without an anatomical default after the user requests a new
 height, and the earlier expert suggestion of roughly 70–80 percent tooth

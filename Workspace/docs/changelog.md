@@ -21,6 +21,40 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-10 15:59:55 IST (UTC+05:30) — Step 5C zoom and ROI-height cut constraint
+
+- Stopped the ROI-aligned camera lock from restoring its initial parallel
+  scale after every camera event. The explicit isolate action still performs
+  the initial ROI top-to-bottom fit; zoom then remains available with either
+  yaw state, and plane/curve actions preserve the current zoom.
+- Reduced the simple cut plane to one Point-Normal origin control. The origin
+  is projected onto the current Step 5B ROI Z axis and the normal is fixed to
+  ROI `+Z`; transform handles are hidden and validation rejects a tilted,
+  laterally displaced, or wrong-ROI plane.
+- Added ROI-reference persistence and reapplication after scene refresh and
+  immediately before cutting, plus a focused Slicer-native constraint test.
+  Python compilation, UI XML, whitespace, and repository static checks passed.
+  Live zoom/placement/save-reopen acceptance remains pending because Slicer
+  was not launched. No Git commit/push or Drive sync occurred.
+
+## 2026-08-10 15:38:25 IST (UTC+05:30) — Continuous MPR trajectory correction
+
+- Fixed the live-review defect where moving Entry or Target rebuilt the same
+  slider angle against a different world-reference frame and could jump to a
+  substantially different circumferential anatomy view.
+- Added Markups point start/end interaction handling. The MPR matrix now stays
+  fixed under the pointer throughout a drag, then updates once at release.
+- Added continuity-preserving frame transport: project the old plane normal
+  perpendicular to the corrected trajectory, reconstruct the closest valid
+  longitudinal frame, and apply only the slider-angle delta. In-plane edits
+  retain the exact plane; a previous-X fallback handles the singular case.
+  Reset still deliberately rebuilds deterministic world-reference 0°.
+- Extended Slicer-native math coverage for in-plane preservation, off-plane
+  transport, singular fallback, slider delta, orthonormality, handedness, and
+  endpoint containment. Python compilation, Qt UI XML, and whitespace checks
+  passed. Live correction UX and the Slicer-native suite remain pending; no
+  Slicer launch, inference, Git commit/push, or Drive sync occurred.
+
 ## 2026-08-10 14:50:42 IST (UTC+05:30) — Trajectory-aligned longitudinal oblique MPR
 
 - Added a compact Step 4A Trajectory Verification group with enable, an

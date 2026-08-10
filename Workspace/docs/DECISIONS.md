@@ -1,5 +1,30 @@
 # Dentobot Technical Decisions
 
+## 2026-08-10 — Step 5C zoom and ROI-Z-only plane control
+
+Status: implemented with static verification; live Slicer interaction pending
+
+Keep the initial one-up 3D camera aligned and fitted to the automatic Step 5B
+ROI, but do not continuously constrain parallel scale. The normal isolation
+lock fixes translation, pitch, and roll while permitting both yaw and zoom;
+the yaw lock fixes orientation while zoom remains available. Re-entering the
+explicit isolate action resets yaw and the initial ROI fit. Subsequent plane
+or curve actions must preserve the user's zoom.
+
+Represent the simple cut as one Point-Normal Markups plane origin constrained
+to the Step 5B ROI Z axis. The normal is always ROI `+Z`, so the plane remains
+parallel to the locked ROI top/bottom faces. Project each placed or moved
+origin onto that axis, preserve only its signed Z height, require exactly one
+control point, and hide translation/rotation/scale handles. Reapply this
+constraint after scene load and immediately before finalization; validation
+rejects a missing ROI reference, tilted normal, or lateral origin.
+
+Reason: locking camera scale made relevant anatomy leave the practical editing
+window with no recovery. A free zoom does not change the ROI coordinate frame.
+Likewise, X/Y plane translation has no effect on an infinite plane but exposes
+confusing controls, while rotation violates the intended simple horizontal
+cut. One ROI-Z height is the complete minimal input.
+
 ## 2026-08-10 — Native trajectory-aligned longitudinal oblique MPR
 
 Status: implemented with static verification; live Slicer interaction and
@@ -25,6 +50,16 @@ scene save, module exit, scene close, cleanup, or Step 5C isolation, then
 resume after save. Event-loop-coalesce point/slider updates and write only
 changed MRML properties.
 
+Point correction must preserve the clinician-selected view. Freeze the slice
+matrix while a Markups control point is actively dragged. At interaction end,
+project the prior slice normal onto the plane perpendicular to the corrected
+Entry→Target axis and reconstruct the closest valid longitudinal frame; an
+in-plane edit therefore retains the exact circumferential plane. Apply later
+slider changes as angle deltas from that transported frame. Use the prior
+horizontal axis as the finite fallback only when the corrected trajectory is
+parallel to the old normal. **Reset Orientation** deliberately discards this
+interaction history and reconstructs deterministic world-reference 0°.
+
 Reason: longitudinal circumferential CBCT inspection is standard oblique MPR
 and belongs at the existing trajectory/view boundary. Native slice reslicing
 is more responsive and traceable than generating angle-specific volumes, and
@@ -44,12 +79,12 @@ the view-frame authority: at zero yaw the camera looks along ROI `+Y`, ROI
 half the ROI Z size so its top and bottom align with the viewport boundaries.
 Yaw orbits around ROI `+Z` through 360 degrees.
 
-Use two explicit camera locks. **Lock X/Y/Z translation, zoom, pitch, and
-roll** is on by default and leaves yaw as the only camera motion. **Lock yaw
-too** freezes the remaining angle and implies the first lock. Unchecking the
-first lock also clears yaw lock and permits a free camera. The horizontal trim
-plane stays normal to ROI `+Z` independently of camera locks, while retaining
-translation for height adjustment.
+Use two explicit camera locks. **Lock X/Y/Z translation, pitch, and roll** is
+on by default and leaves yaw and zoom available. **Lock yaw too** freezes the
+remaining orientation angle, keeps zoom available, and implies the first lock.
+Unchecking the first lock also clears yaw lock and permits a free camera. The
+horizontal trim plane stays normal to ROI `+Z` independently of camera locks;
+its one origin point supplies only the constrained ROI-Z height.
 
 Isolation stores and replaces presentation state only: layout, camera,
 crosshair, and node visibility are restored on explicit exit, module exit,

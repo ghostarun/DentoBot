@@ -507,6 +507,14 @@ matrix; no duplicate trajectory or resampled volume is created. The prior
 slice/composite and trajectory-display state is restored when verification
 ends and kept out of saved presentation state.
 
+Point correction preserves the selected circumferential view. Markups
+start/end-interaction events hold the slice fixed while Entry or Target is
+dragged. On release, the previous plane normal is minimally projected onto
+the corrected trajectory's perpendicular space and the longitudinal frame is
+rebuilt around it; an in-plane edit therefore keeps the exact plane. Further
+slider movement applies angle deltas from that transported frame, while Reset
+alone reconstructs deterministic world-reference 0°.
+
 Each trajectory is associated with an authoritative segmentation and target
 segment through MRML references and attributes, never its editable name.
 Multiple trajectories may belong to one tooth; each carries a deterministic
@@ -543,14 +551,16 @@ non-watertight retained geometry.
 
 Step 5C isolation temporarily switches to one ROI-aligned 3D view. At zero
 yaw the camera looks along ROI `+Y`, ROI `+X` is viewport right, and ROI `+Z`
-is viewport up. Half the ROI Z extent is the parallel scale, aligning the
-bounds top/bottom with the viewport. An in-viewport XYZ axes marker exposes
-that frame; its prior marker and axis-label settings are restored on exit.
-Translation, zoom, pitch, and roll are
-locked by default while yaw orbits around `+Z`; a separate lock freezes yaw
-too. The horizontal cut remains normal to ROI `+Z`. This is not an
-anatomy-derived dental/occlusal frame and encodes no automatic 70–80 percent
-coverage rule.
+is viewport up. Half the ROI Z extent is the initial parallel scale, aligning
+the bounds top/bottom with the viewport. An in-viewport XYZ axes marker
+exposes that frame; its prior marker and axis-label settings are restored on
+exit. Translation, pitch, and roll are locked by default while yaw orbits
+around `+Z` and mouse-wheel zoom remains available; a separate lock freezes
+yaw while still permitting zoom. The simple cut uses one editable origin
+point projected onto the ROI Z axis and keeps its normal at ROI `+Z`, so the
+plane remains parallel to the locked ROI top/bottom faces and only its signed
+height can change. This is not an anatomy-derived dental/occlusal frame and
+encodes no automatic 70–80 percent coverage rule.
 
 Isolation stores layout, camera, crosshair, and display visibility and
 restores them before returning to 2D verification. The isolate action starts

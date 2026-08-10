@@ -1548,7 +1548,7 @@
               <bool>false</bool>
              </property>
              <property name="toolTip">
-              <string>Rotate the longitudinal slice plane around the fixed Entry-to-Target axis. This changes only native slice reslicing.</string>
+              <string>Rotate the longitudinal slice plane around the Entry-to-Target axis. You can correct either point in this view: the slice stays fixed during the drag, then preserves the selected circumferential plane around the corrected trajectory.</string>
              </property>
              <property name="minimum">
               <number>-180</number>
@@ -2240,26 +2240,26 @@
       <item>
        <widget class="QCheckBox" name="templateFinalizationViewLockedCheckBox">
         <property name="checked"><bool>true</bool></property>
-        <property name="text"><string>Lock X/Y/Z translation, zoom, pitch, and roll (allow yaw-only orbit)</string></property>
-        <property name="toolTip"><string>Keep the ROI centered and vertically fitted while permitting only 360-degree yaw around ROI +Z. Uncheck for a fully free camera; the trim plane remains horizontal.</string></property>
+        <property name="text"><string>Lock X/Y/Z translation, pitch, and roll (allow yaw + zoom)</string></property>
+        <property name="toolTip"><string>Keep the ROI centered and the camera level while permitting 360-degree yaw around ROI +Z and interactive zoom. Uncheck for a fully free camera; the trim plane remains ROI-horizontal.</string></property>
        </widget>
       </item>
       <item>
        <widget class="QCheckBox" name="templateFinalizationYawLockedCheckBox">
         <property name="checked"><bool>false</bool></property>
-        <property name="text"><string>Lock yaw too (freeze the ROI-aligned 3D view)</string></property>
-        <property name="toolTip"><string>Freeze the current yaw angle as well as translation, zoom, pitch, and roll. Enabling this also enables the non-yaw lock.</string></property>
+        <property name="text"><string>Lock yaw too (keep orientation fixed; zoom remains enabled)</string></property>
+        <property name="toolTip"><string>Freeze the current yaw angle as well as translation, pitch, and roll while retaining interactive zoom. Enabling this also enables the non-yaw lock.</string></property>
        </widget>
       </item>
       <item>
        <layout class="QHBoxLayout" name="templateFinalizationPreparationButtonLayout">
-        <item><widget class="QPushButton" name="continueTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Isolate Shell in ROI-Aligned 3D View</string></property><property name="toolTip"><string>Temporarily switch to one 3D view, hide unrelated nodes, fit the Step 5B ROI top-to-bottom, and start at yaw 0 degrees.</string></property></widget></item>
+        <item><widget class="QPushButton" name="continueTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Isolate Shell in ROI-Aligned 3D View</string></property><property name="toolTip"><string>Temporarily switch to one 3D view, hide unrelated nodes, initially fit the Step 5B ROI top-to-bottom, and start at yaw 0 degrees. Mouse-wheel zoom remains enabled.</string></property></widget></item>
         <item><widget class="QPushButton" name="restoreTemplateFinalizationViewButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Exit Isolation / Restore 2D + 3D</string></property><property name="toolTip"><string>Restore the previous Slicer layout, camera, crosshair, and node visibility for deliberate 2D verification.</string></property></widget></item>
        </layout>
       </item>
       <item>
        <layout class="QHBoxLayout" name="templateFinalizationEditButtonLayout">
-        <item><widget class="QPushButton" name="createTemplateTrimPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Pick Horizontal Cut Height</string></property><property name="toolTip"><string>Reset the horizontal plane, then click once on the isolated shell to choose its S/I height. Drag the plane translation handle for fine adjustment.</string></property></widget></item>
+        <item><widget class="QPushButton" name="createTemplateTrimPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Pick ROI-Z Cut Height</string></property><property name="toolTip"><string>Click once to choose only the cut height along ROI Z. The plane is hard-constrained parallel to the locked ROI top/bottom faces; drag its single origin point vertically for fine adjustment.</string></property></widget></item>
         <item><widget class="QPushButton" name="placeTemplateTrimCurveButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Create / Place Closed Margin Curve</string></property><property name="toolTip"><string>Place at least three points on the visible shell. Double-click or right-click to finish, then drag the control points to refine the margin.</string></property></widget></item>
        </layout>
       </item>

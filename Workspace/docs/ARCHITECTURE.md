@@ -415,6 +415,13 @@ are excluded.
   rotates anatomy circumferentially without moving the line or creating a
   derived volume. The prior slice/composite/line-display state is restored
   when verification ends and is excluded from saved presentation state.
+- During 2D Entry/Target correction, Markups start/end-interaction events hold
+  that slice matrix fixed under the pointer. After the drag, the previous
+  plane normal is minimally projected onto the corrected trajectory's
+  perpendicular space, then the longitudinal frame is rebuilt around it. An
+  edit made in the displayed plane keeps that exact circumferential plane;
+  subsequent slider motion is delta-based from the transported frame. Reset
+  alone returns to the deterministic world-reference zero frame.
 - The Markups-line class contract is enforced as exactly two possible control
   points, labelled Entry and Target. Zero/one defined points are incomplete
   drafts; imported or programmatic lines outside that contract are rejected.
@@ -466,10 +473,12 @@ are excluded.
   parallel scale, aligning its top/bottom with the viewport. An in-viewport XYZ
   axes marker makes that frame visible; its prior marker and axis-label settings
   are restored on exit. The default lock
-  fixes translation, zoom, pitch, and roll while allowing yaw around ROI `+Z`;
-  a second lock freezes yaw too. The horizontal plane remains normal to ROI
-  `+Z`. This is an ROI frame, not an anatomy-derived dental/occlusal frame, and
-  no automatic 70–80 percent coverage rule is encoded.
+  fixes translation, pitch, and roll while allowing yaw around ROI `+Z` and
+  interactive zoom; a second lock freezes yaw but still permits zoom. The
+  horizontal plane has exactly one editable origin point, remains normal to
+  ROI `+Z`, and projects its origin onto the ROI Z axis so only signed height
+  can change. This is an ROI frame, not an anatomy-derived dental/occlusal
+  frame, and no automatic 70–80 percent coverage rule is encoded.
 - Isolation saves the previous layout, camera, crosshair, and display
   visibility; explicit exit, module exit, scene close, and cleanup restore
   them. It does not create a markup or enter placement mode. Plane/curve

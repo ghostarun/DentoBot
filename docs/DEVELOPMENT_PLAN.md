@@ -367,9 +367,19 @@ and restores prior slice/composite/line-display state on disable and lifecycle
 boundaries. Focused frame/matrix coverage includes arbitrary and vertical
 axes, orthonormality, midpoint placement, rotation, and degenerate inputs.
 
-Live acceptance remains required for overlay/rotation UX, MRB save behavior,
-restoration, vertical-axis safety, and FPS. Perpendicular depth cross-sections
-and anatomical safety analysis remain future work.
+The first live review found that rebuilding the same slider angle from a new
+world-reference basis made point correction jump between circumferential
+views. The correction path now freezes the slice during a Markups drag and
+minimally transports the prior plane normal onto the corrected trajectory at
+release. In-plane edits retain the exact plane, later slider changes remain
+continuous from it, and Reset deliberately rebuilds deterministic 0°.
+Focused coverage adds in-plane preservation, off-plane transport, and the
+parallel-axis finite fallback.
+
+Live acceptance remains required for overlay/rotation UX, stable under-pointer
+correction, exact in-view plane preservation, MRB save behavior, restoration,
+vertical-axis safety, and FPS. Perpendicular depth cross-sections and
+anatomical safety analysis remain future work.
 
 Implementation themes:
 
@@ -470,20 +480,25 @@ separate role-owned finalized shell. **Isolate Shell in ROI-Aligned 3D View**
 saves layout, camera, crosshair, and visibility; switches to one 3D view; and
 shows the source shell alone. At yaw zero it looks along ROI `+Y`, with ROI
 `+X` right and ROI `+Z` up, and fits the ROI Z extent top-to-bottom. The
-default lock leaves only yaw around ROI `+Z`; a second lock freezes yaw too,
-while clearing the first allows a free camera. Isolation creates no markup and
-starts no placement; restoration returns the previous 2D/3D presentation for
-manual verification. This remains an ROI frame rather than an
-anatomy-derived dental/occlusal frame.
+default lock leaves yaw around ROI `+Z` and mouse-wheel zoom available; a
+second lock freezes yaw but retains zoom, while clearing the first allows a
+free camera. Explicitly entering isolation restores the initial ROI fit, but
+plane/curve actions preserve the user's current zoom. Isolation creates no
+markup and starts no placement; restoration returns the previous 2D/3D
+presentation for manual verification. This remains an ROI frame rather than
+an anatomy-derived dental/occlusal frame.
 
-The simple path places a one-click Markups plane height and runs Dynamic
-Modeler Plane Cut with a capped positive/negative kept-side choice. The
-uneven-margin path uses an adjustable, surface-snapped Markups closed curve,
-runs Dynamic Modeler Curve Cut with inside/outside selection, then caps,
-triangulates, cleans, and orients the retained surface. Empty or non-watertight
-finalized geometry is rejected. The method, region, markup geometry,
-source/edit/Dynamic-Modeler references, source revision, and topology metrics
-persist through MRB save/reopen; any relevant change makes the result Stale.
+The simple path places one Markups origin point. Its world position is
+projected onto the Step 5B ROI Z axis and the plane normal is fixed to ROI
+`+Z`, leaving only signed cut height editable and keeping the plane parallel
+to the ROI top/bottom faces. Dynamic Modeler Plane Cut then applies a capped
+positive/negative kept-side choice. The uneven-margin path uses an adjustable,
+surface-snapped Markups closed curve, runs Dynamic Modeler Curve Cut with
+inside/outside selection, then caps, triangulates, cleans, and orients the
+retained surface. Empty or non-watertight finalized geometry is rejected. The
+method, region, markup geometry, source/edit/ROI/Dynamic-Modeler references,
+source revision, and topology metrics persist through MRB save/reopen; any
+relevant change makes the result Stale.
 
 The built-in Dynamic Modeler module remains available as an expert handoff,
 but DENTOBOT export accepts only its own Current, source-matched, watertight
@@ -498,10 +513,11 @@ save/reload, UI loading, anterior-view preparation, and the complete existing
 test class. The Slicer source build reports known VTK debug leaks after the
 explicit full-suite pass marker.
 
-The 2026-08-10 isolation correction added static camera-math and immutable-ROI
-regression coverage. Python compilation, UI XML, and repository static checks
-passed; live mouse yaw, viewport fit, layout restoration, and FPS acceptance
-remain developer-run because no Slicer launch was authorized for that batch.
+The 2026-08-10 isolation corrections added static camera-math, immutable-ROI,
+and ROI-Z-only plane regression coverage. Python compilation, UI XML, and
+repository static checks passed; live mouse yaw/zoom, constrained height
+placement, viewport fit, layout restoration, and FPS acceptance remain
+developer-run because no Slicer launch was authorized for that batch.
 
 The earlier expert suggestion of roughly 70–80 percent tooth coverage is not
 encoded. A dental/occlusal frame, gingival-margin detection, fit/contact

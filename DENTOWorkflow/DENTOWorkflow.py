@@ -139,8 +139,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._trajectoryVerificationPriorSliceState: dict | None = None
         self._trajectoryVerificationPriorDisplayState: dict | None = None
         self._trajectoryVerificationUpdatePending = False
+        self._trajectoryVerificationPointInteractionActive = False
+        self._trajectoryVerificationAppliedTrajectoryNodeId: str | None = None
+        self._trajectoryVerificationLastAppliedAngleDeg: float | None = None
         self._updatingTrajectoryVerificationUI = False
         self._resumeTrajectoryVerificationAfterSave = False
+        self._trajectoryVerificationResumeStateAfterSave: dict | None = None
         self._templateSupportRecordsById: dict[str, dict] = {}
         self._updatingTemplateUI = False
         self._templateStatusWarning = ""
@@ -480,6 +484,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onSceneStartClose(self, caller=None, event=None) -> None:
         self._resumeTrajectoryVerificationAfterSave = False
+        self._trajectoryVerificationResumeStateAfterSave = None
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreTemplateFinalizationViewState(updateUi=False)
         self._cancelBackendProcess(
@@ -501,6 +506,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._trajectoryVerificationEnabled
         )
         if self._resumeTrajectoryVerificationAfterSave:
+            priorState = self._trajectoryVerificationPriorSliceState or {}
+            sliceNodeId = priorState.get("sliceNodeId")
+            sliceNode = (
+                slicer.mrmlScene.GetNodeByID(sliceNodeId)
+                if sliceNodeId
+                else None
+            )
+            trajectoryNode = (
+                self._parameterNode.trajectoryLine if self._parameterNode else None
+            )
+            self._trajectoryVerificationResumeStateAfterSave = (
+                {
+                    "trajectoryNodeId": trajectoryNode.GetID(),
+                    "sliceNodeId": sliceNode.GetID(),
+                    "sliceToRas": self._captureSliceToRasElements(sliceNode),
+                    "angleDeg": self._trajectoryVerificationAngleDeg,
+                }
+                if trajectoryNode and sliceNode
+                else None
+            )
             self._restoreTrajectoryVerificationViewState(updateUi=False)
 
     def onSceneEndSave(self, caller=None, event=None) -> None:
@@ -508,8 +533,37 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._resumeTrajectoryVerificationAfterSave:
             return
         self._resumeTrajectoryVerificationAfterSave = False
+        resumeState = self._trajectoryVerificationResumeStateAfterSave
+        self._trajectoryVerificationResumeStateAfterSave = None
         try:
             self._enableTrajectoryVerificationView()
+            trajectoryNode = (
+                self._parameterNode.trajectoryLine if self._parameterNode else None
+            )
+            sliceNode = (
+                slicer.mrmlScene.GetNodeByID(resumeState["sliceNodeId"])
+                if resumeState
+                else None
+            )
+            if (
+                resumeState
+                and trajectoryNode
+                and trajectoryNode.GetID() == resumeState["trajectoryNodeId"]
+                and sliceNode
+            ):
+                matrix = self._matrixFromElements(resumeState["sliceToRas"])
+                sliceNode.GetSliceToRAS().DeepCopy(matrix)
+                sliceNode.UpdateMatrices()
+                self._trajectoryVerificationAngleDeg = float(
+                    resumeState["angleDeg"]
+                )
+                self._trajectoryVerificationAppliedTrajectoryNodeId = (
+                    trajectoryNode.GetID()
+                )
+                self._trajectoryVerificationLastAppliedAngleDeg = (
+                    self._trajectoryVerificationAngleDeg
+                )
+                self._updateTrajectoryVerificationControls()
         except (RuntimeError, ValueError) as exc:
             self._setTrajectoryVerificationEnabledUi(False)
             self._setTrajectoryVerificationStatus(str(exc), error=True)
@@ -1334,6 +1388,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     trajectoryEvent,
                     self._onPlanningTrajectoryModified,
                 )
+            self.removeObserver(
+                self._planningTrajectoryNode,
+                slicer.vtkMRMLMarkupsNode.PointStartInteractionEvent,
+                self._onPlanningTrajectoryInteractionStarted,
+            )
+            self.removeObserver(
+                self._planningTrajectoryNode,
+                slicer.vtkMRMLMarkupsNode.PointEndInteractionEvent,
+                self._onPlanningTrajectoryInteractionEnded,
+            )
+        self._trajectoryVerificationPointInteractionActive = False
         self._planningTrajectoryNode = trajectoryNode
         if trajectoryNode:
             for trajectoryEvent in (
@@ -1347,6 +1412,29 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     trajectoryEvent,
                     self._onPlanningTrajectoryModified,
                 )
+            self.addObserver(
+                trajectoryNode,
+                slicer.vtkMRMLMarkupsNode.PointStartInteractionEvent,
+                self._onPlanningTrajectoryInteractionStarted,
+            )
+            self.addObserver(
+                trajectoryNode,
+                slicer.vtkMRMLMarkupsNode.PointEndInteractionEvent,
+                self._onPlanningTrajectoryInteractionEnded,
+            )
+
+    def _onPlanningTrajectoryInteractionStarted(self, caller=None, event=None) -> None:
+        del caller, event
+        if self._trajectoryVerificationEnabled:
+            self._trajectoryVerificationPointInteractionActive = True
+
+    def _onPlanningTrajectoryInteractionEnded(self, caller=None, event=None) -> None:
+        del caller, event
+        wasActive = self._trajectoryVerificationPointInteractionActive
+        self._trajectoryVerificationPointInteractionActive = False
+        if not wasActive or not self._trajectoryVerificationEnabled:
+            return
+        self._updatePlanning()
 
     def _onPlanningTrajectoryModified(self, caller=None, event=None) -> None:
         del caller, event
@@ -1600,7 +1688,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         height = max(contentHeight, contentWidth / max(aspect, 1e-6))
         return height * aspect, height
 
-    def _applyTrajectoryVerificationView(self, *, fit: bool) -> None:
+    def _applyTrajectoryVerificationView(
+        self,
+        *,
+        fit: bool,
+        deterministicOrientation: bool = False,
+    ) -> None:
         if not self._trajectoryVerificationEnabled:
             return
         inputs = self._trajectoryVerificationInputs()
@@ -1621,20 +1714,42 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             self._captureTrajectoryVerificationDisplayState(inputs["trajectoryNode"])
 
-        matrix = self.logic.computeTrajectorySliceMatrix(
-            inputs["summary"]["entryRas"],
-            inputs["summary"]["targetRas"],
-            self._trajectoryVerificationAngleDeg,
-        )
         compositeNode = inputs["compositeNode"]
         if compositeNode.GetLinkedControl():
             compositeNode.SetLinkedControl(False)
         if compositeNode.GetHotLinkedControl():
             compositeNode.SetHotLinkedControl(False)
         sliceNode = inputs["sliceNode"]
+        trajectoryNodeId = inputs["trajectoryNode"].GetID()
+        continuousOrientationAvailable = bool(
+            not deterministicOrientation
+            and trajectoryNodeId == self._trajectoryVerificationAppliedTrajectoryNodeId
+            and self._trajectoryVerificationLastAppliedAngleDeg is not None
+        )
+        if continuousOrientationAvailable:
+            angleDeltaDeg = (
+                self._trajectoryVerificationAngleDeg
+                - self._trajectoryVerificationLastAppliedAngleDeg
+            )
+            matrix = self.logic.transportTrajectorySliceMatrix(
+                sliceNode.GetSliceToRAS(),
+                inputs["summary"]["entryRas"],
+                inputs["summary"]["targetRas"],
+                angleDeltaDeg,
+            )
+        else:
+            matrix = self.logic.computeTrajectorySliceMatrix(
+                inputs["summary"]["entryRas"],
+                inputs["summary"]["targetRas"],
+                self._trajectoryVerificationAngleDeg,
+            )
         if self._sliceMatricesDiffer(sliceNode.GetSliceToRAS(), matrix):
             sliceNode.GetSliceToRAS().DeepCopy(matrix)
             sliceNode.UpdateMatrices()
+        self._trajectoryVerificationAppliedTrajectoryNodeId = trajectoryNodeId
+        self._trajectoryVerificationLastAppliedAngleDeg = (
+            self._trajectoryVerificationAngleDeg
+        )
         if fit:
             width, height = self._trajectoryVerificationFieldOfView(inputs, matrix)
             currentFieldOfView = sliceNode.GetFieldOfView()
@@ -1644,7 +1759,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             compositeNode.SetBackgroundVolumeID(inputs["volumeNode"].GetID())
 
         self._setTrajectoryVerificationStatus(
-            _("%1 view: longitudinal Entry→Target plane at %2°. Drag rotation to inspect circumference.")
+            _(
+                "%1 view: longitudinal Entry→Target plane at %2°. "
+                "Point drags stay in this plane; use Rotation to inspect circumference."
+            )
             .replace("%1", inputs["sliceViewName"])
             .replace("%2", f"{self._trajectoryVerificationAngleDeg:.0f}"),
             active=True,
@@ -1652,7 +1770,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def _applyPendingTrajectoryVerificationUpdate(self) -> None:
         self._trajectoryVerificationUpdatePending = False
-        if not self._trajectoryVerificationEnabled:
+        if (
+            not self._trajectoryVerificationEnabled
+            or self._trajectoryVerificationPointInteractionActive
+        ):
             return
         try:
             self._applyTrajectoryVerificationView(fit=False)
@@ -1663,6 +1784,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _scheduleTrajectoryVerificationUpdate(self) -> None:
         if (
             not self._trajectoryVerificationEnabled
+            or self._trajectoryVerificationPointInteractionActive
             or self._trajectoryVerificationUpdatePending
         ):
             return
@@ -1680,9 +1802,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._captureTrajectoryVerificationSliceState(inputs)
         )
         self._trajectoryVerificationEnabled = True
+        self._trajectoryVerificationPointInteractionActive = False
+        self._trajectoryVerificationAppliedTrajectoryNodeId = None
+        self._trajectoryVerificationLastAppliedAngleDeg = None
         self._captureTrajectoryVerificationDisplayState(inputs["trajectoryNode"])
         try:
-            self._applyTrajectoryVerificationView(fit=True)
+            self._applyTrajectoryVerificationView(
+                fit=True,
+                deterministicOrientation=True,
+            )
         except Exception:
             self._restoreTrajectoryVerificationViewState(updateUi=False)
             raise
@@ -1693,6 +1821,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._trajectoryVerificationPriorSliceState = None
         self._trajectoryVerificationEnabled = False
         self._trajectoryVerificationUpdatePending = False
+        self._trajectoryVerificationPointInteractionActive = False
+        self._trajectoryVerificationAppliedTrajectoryNodeId = None
+        self._trajectoryVerificationLastAppliedAngleDeg = None
         self._restoreTrajectoryVerificationDisplayState()
         if state:
             sliceNode = slicer.mrmlScene.GetNodeByID(state["sliceNodeId"])
@@ -1746,7 +1877,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._updatingTrajectoryVerificationUI = False
         if self._trajectoryVerificationEnabled:
             try:
-                self._applyTrajectoryVerificationView(fit=True)
+                self._applyTrajectoryVerificationView(
+                    fit=True,
+                    deterministicOrientation=True,
+                )
             except (RuntimeError, ValueError) as exc:
                 self._restoreTrajectoryVerificationViewState(updateUi=True)
                 self._setTrajectoryVerificationStatus(str(exc), error=True)
@@ -3699,8 +3833,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 (_("Outside closed curve"), "Outside"),
             )
         return (
-            (_("Below horizontal plane (inferior / −S)"), "Negative"),
-            (_("Above horizontal plane (superior / +S)"), "Positive"),
+            (_("Below ROI-horizontal plane (ROI −Z side)"), "Negative"),
+            (_("Above ROI-horizontal plane (ROI +Z side)"), "Positive"),
         )
 
     def _setTemplateFinalizationKeepChoices(self, mode: str, selected: str) -> None:
@@ -3758,17 +3892,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             return
         if caller.GetNumberOfDefinedControlPoints() >= 1:
-            expectedNormal = self._templateFinalizationPlaneNormalWorld()
-            normal = caller.GetNormalWorld()
-            if any(
-                abs(float(normal[index]) - expectedNormal[index]) > 1e-6
-                for index in range(3)
-            ):
-                self._restoringTemplateTrimPlane = True
-                try:
-                    caller.SetNormalWorld(expectedNormal)
-                finally:
-                    self._restoringTemplateTrimPlane = False
+            self._enforceTemplateTrimPlaneOrientation()
         self.logic.markFinalizedTemplateShellStale(
             self._parameterNode.finalizedTemplateShellModel,
             _("The Step 5C trim plane changed."),
@@ -3810,6 +3934,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         keepRegion = self._parameterNode.templateFinalizationKeepRegion
         self._bindTemplateFinalizationEditNodes(planeNode, curveNode)
+        if planeNode:
+            self._enforceTemplateTrimPlaneOrientation()
 
         sourceSummary = None
         sleeveSummary = None
@@ -4033,25 +4159,37 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return (0.0, 0.0, 1.0)
 
     def _enforceTemplateTrimPlaneOrientation(self) -> None:
-        """Keep the simple Step 5C cut horizontal in the locked ROI frame."""
+        """Constrain the simple cut to one height along the locked ROI Z axis."""
 
         planeNode = self._parameterNode.templateTrimPlane if self._parameterNode else None
         if not planeNode:
             return
-        normal = self._templateFinalizationPlaneNormalWorld()
-        currentNormal = planeNode.GetNormalWorld()
-        if any(abs(float(currentNormal[index]) - normal[index]) > 1e-6 for index in range(3)):
+        roiNode = self._parameterNode.templateShellRoi
+        if self.logic and self.logic.isTemplateShellRoiNode(roiNode):
             self._restoringTemplateTrimPlane = True
             try:
-                planeNode.SetNormalWorld(normal)
+                self.logic.constrainTemplateTrimPlaneToRoi(planeNode, roiNode)
             finally:
                 self._restoringTemplateTrimPlane = False
+        else:
+            normal = self._templateFinalizationPlaneNormalWorld()
+            currentNormal = planeNode.GetNormalWorld()
+            if any(
+                abs(float(currentNormal[index]) - normal[index]) > 1e-6
+                for index in range(3)
+            ):
+                self._restoringTemplateTrimPlane = True
+                try:
+                    planeNode.SetNormalWorld(normal)
+                finally:
+                    self._restoringTemplateTrimPlane = False
         displayNode = planeNode.GetDisplayNode()
         if displayNode:
-            displayNode.SetHandlesInteractive(True)
-            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetHandlesInteractive(False)
+            displayNode.SetTranslationHandleVisibility(False)
             displayNode.SetRotationHandleVisibility(False)
             displayNode.SetScaleHandleVisibility(False)
+            displayNode.SetPointLabelsVisibility(False)
 
     def onTemplateFinalizationViewLockToggled(self, locked: bool) -> None:
         if self._updatingTemplateFinalizationUI or not self._parameterNode:
@@ -4170,9 +4308,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             text = _("ROI frame: +X right • +Z up • looking along +Y at yaw 0°")
         else:
             if self._parameterNode and self._parameterNode.templateFinalizationYawLocked:
-                mode = _("fully locked")
+                mode = _("orientation locked • zoom enabled")
             elif self._parameterNode and self._parameterNode.templateFinalizationViewLocked:
-                mode = _("yaw-only orbit")
+                mode = _("yaw + zoom enabled")
             else:
                 mode = _("free camera")
             text = (
@@ -4224,8 +4362,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 camera.SetViewUp(pose["viewUp"])
             if not camera.GetParallelProjection():
                 camera.ParallelProjectionOn()
-            if abs(float(camera.GetParallelScale()) - pose["parallelScale"]) > 1e-6:
-                camera.SetParallelScale(pose["parallelScale"])
         finally:
             self._restoringTemplateFinalizationCamera = False
         self._updateTemplateFinalizationCameraFrameLabel()
@@ -4379,7 +4515,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             camera.SetPosition(pose["position"])
             camera.SetViewUp(pose["viewUp"])
             camera.ParallelProjectionOn()
-            camera.SetParallelScale(pose["parallelScale"])
+            if firstIsolation or resetYaw:
+                camera.SetParallelScale(pose["parallelScale"])
         finally:
             self._restoringTemplateFinalizationCamera = False
         renderer = threeDView.renderWindow().GetRenderers().GetFirstRenderer()
@@ -4400,6 +4537,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if self._parameterNode.templateFinalizationMode == "PlaneCut":
                 planeNode = self._parameterNode.templateTrimPlane
                 if planeNode:
+                    self._enforceTemplateTrimPlaneOrientation()
                     self.logic.validateTemplateFinalizationEditNode(
                         sourceShell,
                         planeNode,
@@ -4468,6 +4606,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         try:
             self.logic.stopTrajectoryPlacement()
+            if self._parameterNode.templateFinalizationMode == "PlaneCut":
+                self._enforceTemplateTrimPlaneOrientation()
             finalShell, details = self.logic.createOrUpdateFinalizedTemplateShell(
                 self._parameterNode.researchTemplateShellModel,
                 self._parameterNode.templateTrimPlane,
@@ -5507,6 +5647,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     TEMPLATE_FINALIZATION_SCHEMA_VERSION = "1.0"
     TEMPLATE_FINALIZATION_SOURCE_SHELL_REFERENCE_ROLE = (
         "DENTOBOT.TemplateFinalizationSourceShell"
+    )
+    TEMPLATE_FINALIZATION_ROI_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateFinalizationROI"
     )
     TEMPLATE_FINALIZATION_EDIT_NODE_REFERENCE_ROLE = (
         "DENTOBOT.TemplateFinalizationEditNode"
@@ -7707,6 +7850,129 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             == "FinalizedTemplateShell"
         )
 
+    @classmethod
+    def templateTrimPlaneConstraintGeometry(
+        cls,
+        roiNode: vtkMRMLMarkupsROINode,
+        originWorld,
+    ) -> dict:
+        """Project a plane origin onto the locked ROI Z axis."""
+
+        if not cls.isTemplateShellRoiNode(roiNode):
+            raise ValueError(_("Create the locked automatic Step 5B ROI first."))
+        centerValues = [0.0, 0.0, 0.0]
+        zAxisValues = [0.0, 0.0, 0.0]
+        roiNode.GetCenterWorld(centerValues)
+        roiNode.GetZAxisWorld(zAxisValues)
+        center = np.asarray(centerValues, dtype=float)
+        zAxis = np.asarray(zAxisValues, dtype=float)
+        origin = np.asarray(originWorld, dtype=float)
+        zLength = float(np.linalg.norm(zAxis))
+        if (
+            origin.shape != (3,)
+            or not np.all(np.isfinite(origin))
+            or not np.all(np.isfinite(center))
+            or not np.all(np.isfinite(zAxis))
+            or not math.isfinite(zLength)
+            or zLength <= 1e-8
+        ):
+            raise ValueError(_("The Step 5C plane or Step 5B ROI frame is invalid."))
+        zAxis /= zLength
+        heightMm = float(np.dot(origin - center, zAxis))
+        constrainedOrigin = center + heightMm * zAxis
+        return {
+            "center": tuple(float(value) for value in center),
+            "zAxis": tuple(float(value) for value in zAxis),
+            "heightMm": heightMm,
+            "origin": tuple(float(value) for value in constrainedOrigin),
+        }
+
+    @classmethod
+    def constrainTemplateTrimPlaneToRoi(
+        cls,
+        planeNode: vtkMRMLMarkupsPlaneNode,
+        roiNode: vtkMRMLMarkupsROINode,
+    ) -> dict:
+        """Make a Step 5C plane an ROI-face-parallel, Z-height-only control."""
+
+        if not cls.isTemplateTrimPlaneNode(planeNode):
+            raise ValueError(_("Select a DENTOBOT Step 5C horizontal trim plane."))
+        geometry = cls.templateTrimPlaneConstraintGeometry(
+            roiNode,
+            planeNode.GetOriginWorld(),
+        )
+        changed = False
+        wasModifying = planeNode.StartModify()
+        try:
+            if planeNode.GetPlaneType() != planeNode.PlaneTypePointNormal:
+                planeNode.SetPlaneType(planeNode.PlaneTypePointNormal)
+                changed = True
+            if planeNode.GetNormalPointRequired():
+                planeNode.SetNormalPointRequired(False)
+                changed = True
+            if not np.allclose(
+                np.asarray(planeNode.GetOriginWorld(), dtype=float),
+                np.asarray(geometry["origin"], dtype=float),
+                atol=1e-8,
+            ):
+                planeNode.SetOriginWorld(geometry["origin"])
+                changed = True
+            if not np.allclose(
+                np.asarray(planeNode.GetNormalWorld(), dtype=float),
+                np.asarray(geometry["zAxis"], dtype=float),
+                atol=1e-8,
+            ):
+                planeNode.SetNormalWorld(geometry["zAxis"])
+                changed = True
+            if planeNode.GetLocked():
+                planeNode.SetLocked(False)
+                changed = True
+            if not planeNode.GetSelectable():
+                planeNode.SetSelectable(True)
+                changed = True
+            if (
+                planeNode.GetAttribute(
+                    "DENTOBOT.TemplateFinalizationPlaneConstraint"
+                )
+                != "RoiZHeightOnly"
+            ):
+                planeNode.SetAttribute(
+                    "DENTOBOT.TemplateFinalizationPlaneConstraint",
+                    "RoiZHeightOnly",
+                )
+                changed = True
+            if planeNode.GetNodeReference(
+                cls.TEMPLATE_FINALIZATION_ROI_REFERENCE_ROLE
+            ) is not roiNode:
+                planeNode.SetNodeReferenceID(
+                    cls.TEMPLATE_FINALIZATION_ROI_REFERENCE_ROLE,
+                    roiNode.GetID(),
+                )
+                changed = True
+        finally:
+            planeNode.EndModify(wasModifying)
+        planeNode.CreateDefaultDisplayNodes()
+        displayNode = planeNode.GetDisplayNode()
+        if displayNode:
+            for getterName, setterName in (
+                ("GetHandlesInteractive", "SetHandlesInteractive"),
+                (
+                    "GetTranslationHandleVisibility",
+                    "SetTranslationHandleVisibility",
+                ),
+                ("GetRotationHandleVisibility", "SetRotationHandleVisibility"),
+                ("GetScaleHandleVisibility", "SetScaleHandleVisibility"),
+                ("GetPointLabelsVisibility", "SetPointLabelsVisibility"),
+                ("GetPropertiesLabelVisibility", "SetPropertiesLabelVisibility"),
+            ):
+                getter = getattr(displayNode, getterName, None)
+                setter = getattr(displayNode, setterName, None)
+                if getter and setter and getter():
+                    setter(False)
+                    changed = True
+        geometry["changed"] = changed
+        return geometry
+
     def createOrResetTemplateTrimPlane(
         self,
         sourceShell: vtkMRMLModelNode,
@@ -7739,6 +8005,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
         planeNode.SetName("[Step 5C] DENTO Horizontal Shell Trim Plane")
         planeNode.SetPlaneType(planeNode.PlaneTypePointNormal)
+        planeNode.SetNormalPointRequired(False)
         planeNode.SetOriginWorld(center)
         planeNode.SetNormalWorld((0.0, 0.0, 1.0))
         planeNode.SetSize(
@@ -7763,10 +8030,19 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         displayNode = planeNode.GetDisplayNode()
         if displayNode:
             displayNode.SetVisibility(True)
-            displayNode.SetHandlesInteractive(True)
-            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetHandlesInteractive(False)
+            displayNode.SetTranslationHandleVisibility(False)
             displayNode.SetRotationHandleVisibility(False)
+            displayNode.SetScaleHandleVisibility(False)
+            displayNode.SetPointLabelsVisibility(False)
             displayNode.SetPropertiesLabelVisibility(False)
+        sourceSummary = self.getResearchTemplateModelSummary(
+            sourceShell,
+            "ResearchTemplateShell",
+        )
+        roiNode = sourceSummary["roi"]
+        if self.isTemplateShellRoiNode(roiNode):
+            self.constrainTemplateTrimPlaneToRoi(planeNode, roiNode)
         lineageColor = self.lineageColorFromNode(sourceShell)
         if lineageColor:
             self.setNodeLineageColor(
@@ -7833,6 +8109,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         requireComplete: bool = True,
     ):
         self.validateTemplateFinalizationSourceShell(sourceShell)
+        sourceSummary = self.getResearchTemplateModelSummary(
+            sourceShell,
+            "ResearchTemplateShell",
+        )
         if mode not in {"PlaneCut", "CurveCut"}:
             raise ValueError(_("Select a supported Step 5C trim method."))
         if mode == "PlaneCut":
@@ -7840,6 +8120,36 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 raise ValueError(_("Create the DENTOBOT Step 5C horizontal trim plane."))
             if requireComplete and editNode.GetNumberOfDefinedControlPoints() < 1:
                 raise ValueError(_("The horizontal trim plane has no defined origin."))
+            roiNode = sourceSummary["roi"]
+            if self.isTemplateShellRoiNode(roiNode):
+                if editNode.GetNodeReference(
+                    self.TEMPLATE_FINALIZATION_ROI_REFERENCE_ROLE
+                ) is not roiNode:
+                    raise ValueError(
+                        _("The horizontal trim plane is not linked to the current Step 5B ROI.")
+                    )
+                constraint = self.templateTrimPlaneConstraintGeometry(
+                    roiNode,
+                    editNode.GetOriginWorld(),
+                )
+                normal = np.asarray(editNode.GetNormalWorld(), dtype=float)
+                expectedNormal = np.asarray(constraint["zAxis"], dtype=float)
+                if (
+                    normal.shape != (3,)
+                    or not np.all(np.isfinite(normal))
+                    or not np.allclose(normal, expectedNormal, atol=1e-6)
+                ):
+                    raise ValueError(
+                        _("The horizontal trim plane must remain parallel to the Step 5B ROI faces.")
+                    )
+                if not np.allclose(
+                    np.asarray(editNode.GetOriginWorld(), dtype=float),
+                    np.asarray(constraint["origin"], dtype=float),
+                    atol=1e-6,
+                ):
+                    raise ValueError(
+                        _("The horizontal trim plane origin must remain on the Step 5B ROI Z axis.")
+                    )
         else:
             if not self.isTemplateTrimCurveNode(editNode):
                 raise ValueError(_("Create the DENTOBOT Step 5C closed margin curve."))
@@ -8539,6 +8849,85 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         # Slicer's SliceToRAS columns are slice X, slice Y, slice normal, and
         # translation. Keeping the trajectory in column 1 makes Entry→Target
         # vertical in the 2D view; it is deliberately not the plane normal.
+        matrix = vtk.vtkMatrix4x4()
+        matrix.Identity()
+        for row in range(3):
+            matrix.SetElement(row, 0, float(xRotated[row]))
+            matrix.SetElement(row, 1, float(zAxis[row]))
+            matrix.SetElement(row, 2, float(sliceNormal[row]))
+            matrix.SetElement(row, 3, float(frame["midpoint"][row]))
+        return matrix
+
+    @classmethod
+    def transportTrajectorySliceMatrix(
+        cls,
+        previousSliceToRas,
+        entryRas,
+        targetRas,
+        angleDeltaDeg: float = 0.0,
+    ) -> vtk.vtkMatrix4x4:
+        """Keep the prior longitudinal plane continuous across trajectory edits.
+
+        The previous plane normal is projected onto the plane perpendicular to
+        the corrected Entry→Target axis. This is the smallest normal change
+        that makes the new trajectory lie in-plane. A slider delta is then
+        applied around that corrected axis. If the new trajectory is parallel
+        to the old normal, preserving the old plane is impossible; the prior
+        horizontal axis supplies a stable finite fallback.
+        """
+
+        if not previousSliceToRas:
+            raise ValueError(_("A previous SliceToRAS matrix is required."))
+        angleDelta = float(angleDeltaDeg)
+        if not math.isfinite(angleDelta):
+            raise ValueError(_("Trajectory verification rotation delta must be finite."))
+        frame = cls.computeTrajectoryFrame(entryRas, targetRas)
+        zAxis = np.asarray(frame["trajectory"], dtype=float)
+        previousX = np.asarray(
+            [previousSliceToRas.GetElement(row, 0) for row in range(3)],
+            dtype=float,
+        )
+        previousNormal = np.asarray(
+            [previousSliceToRas.GetElement(row, 2) for row in range(3)],
+            dtype=float,
+        )
+        if not np.all(np.isfinite(previousX)) or not np.all(
+            np.isfinite(previousNormal)
+        ):
+            raise ValueError(_("The previous trajectory slice axes must be finite."))
+
+        normalCandidate = previousNormal - np.dot(previousNormal, zAxis) * zAxis
+        normalLength = float(np.linalg.norm(normalCandidate))
+        if math.isfinite(normalLength) and normalLength > 1e-8:
+            transportedNormal = normalCandidate / normalLength
+            transportedX = np.cross(zAxis, transportedNormal)
+        else:
+            xCandidate = previousX - np.dot(previousX, zAxis) * zAxis
+            xLength = float(np.linalg.norm(xCandidate))
+            if not math.isfinite(xLength) or xLength <= 1e-8:
+                raise ValueError(_("Could not transport the prior trajectory slice plane."))
+            transportedX = xCandidate / xLength
+
+        transportedXLength = float(np.linalg.norm(transportedX))
+        if not math.isfinite(transportedXLength) or transportedXLength <= 1e-8:
+            raise ValueError(_("Could not construct the transported slice X axis."))
+        transportedX /= transportedXLength
+        transportedY = np.cross(zAxis, transportedX)
+        theta = math.radians(angleDelta)
+        xRotated = (
+            math.cos(theta) * transportedX
+            + math.sin(theta) * transportedY
+        )
+        xRotated /= np.linalg.norm(xRotated)
+        sliceNormal = np.cross(xRotated, zAxis)
+        sliceNormal /= np.linalg.norm(sliceNormal)
+
+        basis = np.column_stack((xRotated, zAxis, sliceNormal))
+        if not np.allclose(basis.T @ basis, np.eye(3), atol=1e-8):
+            raise ValueError(_("The transported trajectory slice is not orthonormal."))
+        if float(np.linalg.det(basis)) <= 0.0:
+            raise ValueError(_("The transported trajectory slice is not right-handed."))
+
         matrix = vtk.vtkMatrix4x4()
         matrix.Identity()
         for row in range(3):
@@ -10073,6 +10462,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.test_DENTOWorkflowTargetToothAndTrajectoryLogic()
             self.test_DENTOWorkflowDraftTemplateSupportModelLogic()
             self.test_DENTOWorkflowTemplateFinalizationCameraMath()
+            self.test_DENTOWorkflowTemplateFinalizationPlaneConstraint()
             self.test_DENTOWorkflowTemplateFinalizationDynamicModeler()
             self.test_DENTOWorkflowResearchTemplateGeometry()
             self.test_DENTOWorkflowSafeDeletionAndPersistence()
@@ -10864,10 +11254,104 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
                     0.0,
                     places=7,
                 )
+
+        inPlaneTarget = (14.0, 20.0, 50.0)
+        transportedMatrix = DENTOWorkflowLogic.transportTrajectorySliceMatrix(
+            zeroMatrix,
+            verticalFrame["entry"],
+            inPlaneTarget,
+            0.0,
+        )
+        previousNormal = np.asarray(
+            [zeroMatrix.GetElement(row, 2) for row in range(3)]
+        )
+        transportedNormal = np.asarray(
+            [transportedMatrix.GetElement(row, 2) for row in range(3)]
+        )
+        self.assertTrue(
+            np.allclose(transportedNormal, previousNormal, atol=1e-8)
+        )
+        self.assertTrue(
+            np.allclose(
+                [transportedMatrix.GetElement(row, 3) for row in range(3)],
+                (12.0, 20.0, 40.0),
+                atol=1e-8,
+            )
+        )
+
+        deltaMatrix = DENTOWorkflowLogic.transportTrajectorySliceMatrix(
+            transportedMatrix,
+            verticalFrame["entry"],
+            inPlaneTarget,
+            30.0,
+        )
+        outOfPlaneMatrix = DENTOWorkflowLogic.transportTrajectorySliceMatrix(
+            zeroMatrix,
+            verticalFrame["entry"],
+            (10.0, 30.0, 50.0),
+            0.0,
+        )
+        singularFallbackMatrix = (
+            DENTOWorkflowLogic.transportTrajectorySliceMatrix(
+                zeroMatrix,
+                verticalFrame["entry"],
+                (10.0, 0.0, 30.0),
+                0.0,
+            )
+        )
+        for matrix, entry, target in (
+            (transportedMatrix, verticalFrame["entry"], inPlaneTarget),
+            (deltaMatrix, verticalFrame["entry"], inPlaneTarget),
+            (
+                outOfPlaneMatrix,
+                verticalFrame["entry"],
+                (10.0, 30.0, 50.0),
+            ),
+            (
+                singularFallbackMatrix,
+                verticalFrame["entry"],
+                (10.0, 0.0, 30.0),
+            ),
+        ):
+            transportedBasis = np.asarray(
+                [
+                    [matrix.GetElement(row, column) for column in range(3)]
+                    for row in range(3)
+                ]
+            )
+            self.assertTrue(
+                np.allclose(
+                    transportedBasis.T @ transportedBasis,
+                    np.eye(3),
+                    atol=1e-8,
+                )
+            )
+            self.assertAlmostEqual(
+                float(np.linalg.det(transportedBasis)),
+                1.0,
+                places=7,
+            )
+            midpoint = np.asarray(
+                [matrix.GetElement(row, 3) for row in range(3)]
+            )
+            normal = transportedBasis[:, 2]
+            for point in (entry, target):
+                self.assertAlmostEqual(
+                    float(np.dot(np.asarray(point) - midpoint, normal)),
+                    0.0,
+                    places=7,
+                )
         with self.assertRaisesRegex(ValueError, "non-zero trajectory"):
             DENTOWorkflowLogic.computeTrajectoryFrame((1, 2, 3), (1, 2, 3))
         with self.assertRaisesRegex(ValueError, "rotation must be finite"):
             DENTOWorkflowLogic.computeTrajectorySliceMatrix(
+                (0, 0, 0),
+                (0, 0, 1),
+                float("nan"),
+            )
+        with self.assertRaisesRegex(ValueError, "rotation delta must be finite"):
+            DENTOWorkflowLogic.transportTrajectorySliceMatrix(
+                zeroMatrix,
                 (0, 0, 0),
                 (0, 0, 1),
                 float("nan"),
@@ -11988,6 +12472,106 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             places=6,
         )
         self.delayDisplay("DENTOWorkflow Step 5C ROI-frame camera math tests passed")
+
+    def test_DENTOWorkflowTemplateFinalizationPlaneConstraint(self) -> None:
+        slicer.mrmlScene.Clear(0)
+        logic = DENTOWorkflowLogic()
+
+        sphere = vtk.vtkSphereSource()
+        sphere.SetRadius(10.0)
+        sphere.Update()
+        sourceShell = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "Plane constraint source shell",
+        )
+        sourceShell.SetAndObservePolyData(sphere.GetOutput())
+        sourceShell.SetAttribute("DENTOBOT.ModelRole", "ResearchTemplateShell")
+        sourceShell.SetAttribute("DENTOBOT.GeometryState", "Current")
+
+        roiNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsROINode",
+            "Plane constraint ROI",
+        )
+        roiNode.SetAttribute("DENTOBOT.MarkupsRole", "TemplateShellTrimROI")
+        roiMatrix = vtk.vtkMatrix4x4()
+        roiMatrix.Identity()
+        for row, values in enumerate(
+            (
+                (1.0, 0.0, 0.0, 3.0),
+                (0.0, 0.0, 1.0, 4.0),
+                (0.0, -1.0, 0.0, 5.0),
+            )
+        ):
+            for column, value in enumerate(values):
+                roiMatrix.SetElement(row, column, value)
+        roiNode.SetAndObserveObjectToNodeMatrix(roiMatrix)
+        roiNode.SetSize(20.0, 30.0, 40.0)
+        sourceShell.SetNodeReferenceID(
+            logic.TEMPLATE_GUIDE_ROI_REFERENCE_ROLE,
+            roiNode.GetID(),
+        )
+
+        planeNode = logic.createOrResetTemplateTrimPlane(sourceShell)
+        self.assertIs(
+            planeNode.GetNodeReference(
+                logic.TEMPLATE_FINALIZATION_ROI_REFERENCE_ROLE
+            ),
+            roiNode,
+        )
+        planeNode.SetOriginWorld((8.0, 13.0, 20.0))
+        constraint = logic.constrainTemplateTrimPlaneToRoi(
+            planeNode,
+            roiNode,
+        )
+        self.assertTrue(np.allclose(constraint["zAxis"], (0.0, 1.0, 0.0)))
+        self.assertAlmostEqual(constraint["heightMm"], 9.0, places=7)
+        self.assertTrue(
+            np.allclose(planeNode.GetOriginWorld(), (3.0, 13.0, 5.0))
+        )
+        self.assertTrue(
+            np.allclose(planeNode.GetNormalWorld(), (0.0, 1.0, 0.0))
+        )
+        self.assertEqual(
+            planeNode.GetAttribute(
+                "DENTOBOT.TemplateFinalizationPlaneConstraint"
+            ),
+            "RoiZHeightOnly",
+        )
+        self.assertFalse(planeNode.GetNormalPointRequired())
+        self.assertEqual(planeNode.GetRequiredNumberOfControlPoints(), 1)
+        self.assertEqual(planeNode.GetMaximumNumberOfControlPoints(), 1)
+        self.assertFalse(planeNode.GetLocked())
+        self.assertTrue(planeNode.GetSelectable())
+        displayNode = planeNode.GetDisplayNode()
+        self.assertFalse(displayNode.GetHandlesInteractive())
+        self.assertFalse(displayNode.GetTranslationHandleVisibility())
+        self.assertFalse(displayNode.GetRotationHandleVisibility())
+        self.assertFalse(displayNode.GetScaleHandleVisibility())
+        logic.validateTemplateFinalizationEditNode(
+            sourceShell,
+            planeNode,
+            "PlaneCut",
+            requireComplete=False,
+        )
+
+        planeNode.SetNormalWorld((0.0, 0.0, 1.0))
+        with self.assertRaisesRegex(ValueError, "parallel"):
+            logic.validateTemplateFinalizationEditNode(
+                sourceShell,
+                planeNode,
+                "PlaneCut",
+                requireComplete=False,
+            )
+        logic.constrainTemplateTrimPlaneToRoi(planeNode, roiNode)
+        planeNode.SetOriginWorld((8.0, 13.0, 20.0))
+        with self.assertRaisesRegex(ValueError, "ROI Z axis"):
+            logic.validateTemplateFinalizationEditNode(
+                sourceShell,
+                planeNode,
+                "PlaneCut",
+                requireComplete=False,
+            )
+        self.delayDisplay("DENTOWorkflow Step 5C plane constraint tests passed")
 
     def test_DENTOWorkflowTemplateFinalizationDynamicModeler(self) -> None:
         slicer.mrmlScene.Clear(0)
