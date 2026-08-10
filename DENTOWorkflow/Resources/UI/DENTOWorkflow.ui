@@ -1652,7 +1652,7 @@
    <item>
     <widget class="ctkCollapsibleButton" name="templateModelingCollapsibleButton">
      <property name="text">
-      <string>Step 5A — Draft Template Support Anatomy</string>
+      <string>Step 5A — Support Teeth and Visible Support Surface</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
@@ -1661,7 +1661,7 @@
       <item>
        <widget class="QLabel" name="templateModelingDescriptionLabel">
         <property name="text">
-         <string>Use the current target tooth and manually select any number of additional whole teeth. Create one traceable draft model containing unmodified copies of their closed surfaces.</string>
+         <string>Select the target/support teeth from the authoritative segmentation, then draw an editable closed boundary around only the clinically visible erupted support surfaces. Full crown-and-root anatomy remains available for planning but is not the template fitting surface.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1769,6 +1769,67 @@
           </property>
          </widget>
         </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="templateSupportBoundaryCurveLabel">
+          <property name="text"><string>Visible-surface boundary:</string></property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="qMRMLNodeComboBox" name="templateSupportBoundaryCurveSelector">
+          <property name="toolTip"><string>Editable DENTOBOT closed curve defining the erupted tooth surfaces that may contact the template.</string></property>
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsClosedCurveNode</string></stringlist></property>
+          <property name="showChildNodeTypes"><bool>false</bool></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSupportBoundaryCurve</string></property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="templateSupportSelectionModeLabel">
+          <property name="text"><string>Enclosed side:</string></property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QComboBox" name="templateSupportSelectionModeComboBox">
+          <property name="toolTip"><string>Select the smaller enclosed patch in the normal case. The larger side is available when curve orientation/topology makes the intended patch the larger region.</string></property>
+          <item><property name="text"><string>Smaller surface region</string></property></item>
+          <item><property name="text"><string>Larger surface region</string></property></item>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="templateSupportCurveSamplingSpacingLabel">
+          <property name="text"><string>Boundary sampling:</string></property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QDoubleSpinBox" name="templateSupportCurveSamplingSpacingSpinBox">
+          <property name="toolTip"><string>World-RAS spacing used to resample the closed boundary for robust Dijkstra surface mapping. This affects derived processing only.</string></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><double>0.100000000000000</double></property>
+          <property name="maximum"><double>2.000000000000000</double></property>
+          <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="value"><double>0.500000000000000</double></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSupportCurveSamplingSpacingMm</string></property>
+         </widget>
+        </item>
+        <item row="6" column="0">
+         <widget class="QLabel" name="visibleTemplateSupportModelLabel">
+          <property name="text"><string>Visible support preview:</string></property>
+         </widget>
+        </item>
+        <item row="6" column="1">
+         <widget class="qMRMLNodeComboBox" name="visibleTemplateSupportModelSelector">
+          <property name="toolTip"><string>Derived preview containing only the selected visible patient-contact support surface. It never replaces the authoritative segmentation.</string></property>
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="showChildNodeTypes"><bool>false</bool></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>visibleTemplateSupportModel</string></property>
+         </widget>
+        </item>
        </layout>
       </item>
       <item>
@@ -1798,6 +1859,38 @@
        </widget>
       </item>
       <item>
+       <layout class="QHBoxLayout" name="templateSupportBoundaryButtonLayout">
+        <item>
+         <widget class="QPushButton" name="createTemplateSupportBoundaryButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="toolTip"><string>Create or redraw the closed visible-support boundary on the current full support model. Existing source anatomy is not modified.</string></property>
+          <property name="text"><string>Create / Redraw Support Boundary</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="generateVisibleTemplateSupportModelButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="toolTip"><string>Extract and distinctly preview the surface patch enclosed by the current boundary.</string></property>
+          <property name="text"><string>Generate / Update Visible Support Preview</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="deleteTemplateSupportSelectionButton">
+        <property name="enabled"><bool>false</bool></property>
+        <property name="toolTip"><string>Delete the DENTOBOT-owned visible support boundary and derived preview while preserving the segmentation and selected teeth.</string></property>
+        <property name="text"><string>Delete Visible Support Selection...</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="templateSupportSurfaceStatusLabel">
+        <property name="styleSheet"><string notr="true">color: #b36b00;</string></property>
+        <property name="text"><string>Create the full support model, then draw a closed boundary around the erupted support surfaces.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="templateModelingStatusLabel">
         <property name="styleSheet">
          <string notr="true">color: #b36b00;</string>
@@ -1816,7 +1909,7 @@
          <string notr="true">color: #b36b00;</string>
         </property>
         <property name="text">
-         <string>Draft support anatomy only. This is not a guide shell, drill channel, printable template, manufacturing approval, clinical validation, or authorization to drill.</string>
+         <string>The visible support preview is derived research geometry only. It is not yet an undercut-corrected fitting surface, printable template, manufacturing approval, clinical validation, or authorization to drill.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1829,7 +1922,7 @@
    <item>
     <widget class="ctkCollapsibleButton" name="templateGuideCollapsibleButton">
      <property name="text">
-      <string>Step 5B — Research Shell and Sleeve</string>
+      <string>Step 5B — Patient-Contact Shell and Guide Integration</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
@@ -1838,11 +1931,124 @@
       <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Create a non-destructive raw shell inside a locked, automatically generated Step 5B bounds ROI, cut a trajectory-aligned channel, and create a separate hollow sleeve. Step 5C owns final margin trimming and STL export.</string>
+         <string>Generate a fit-clearance shell only from the clinician-selected visible support surface. The current annular sleeve/distance-band controls remain a provisional developer path until docking integration replaces them; neither path is the final printable template.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="patientContactShellGroupBox">
+        <property name="title"><string>Current workflow — visible-support patient-contact shell</string></property>
+        <layout class="QVBoxLayout" name="patientContactShellVerticalLayout">
+         <item>
+          <layout class="QFormLayout" name="patientContactShellFormLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="patientContactShellSourceLabel"><property name="text"><string>Visible support source:</string></property></widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLabel" name="patientContactShellSourceValueLabel"><property name="text"><string>--</string></property><property name="wordWrap"><bool>true</bool></property></widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="patientContactShellModelLabel"><property name="text"><string>Patient-contact shell:</string></property></widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="qMRMLNodeComboBox" name="patientContactShellModelSelector">
+             <property name="toolTip"><string>Derived undercut-aware shell made from the current visible support surface, insertion direction, Dynamic Modeler Margin/Hollow, and a tightly cropped voxel clearance Boolean.</string></property>
+             <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+             <property name="showChildNodeTypes"><bool>false</bool></property>
+             <property name="noneEnabled"><bool>true</bool></property>
+             <property name="addEnabled"><bool>false</bool></property>
+             <property name="removeEnabled"><bool>false</bool></property>
+             <property name="SlicerParameterName" stdset="0"><string>patientContactShellModel</string></property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="templateInsertionDirectionLabel"><property name="text"><string>Insertion direction:</string></property></widget>
+           </item>
+           <item row="2" column="1">
+            <layout class="QHBoxLayout" name="templateInsertionDirectionLayout">
+             <item>
+              <widget class="qMRMLNodeComboBox" name="templateInsertionDirectionSelector">
+               <property name="toolTip"><string>Two world-RAS points: Approach first, then Seat. Removal is the exact opposite direction.</string></property>
+               <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsLineNode</string></stringlist></property>
+               <property name="showChildNodeTypes"><bool>false</bool></property>
+               <property name="noneEnabled"><bool>true</bool></property>
+               <property name="addEnabled"><bool>false</bool></property>
+               <property name="removeEnabled"><bool>false</bool></property>
+               <property name="SlicerParameterName" stdset="0"><string>templateInsertionDirection</string></property>
+              </widget>
+             </item>
+             <item><widget class="QPushButton" name="createTemplateInsertionDirectionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Create / Reset</string></property></widget></item>
+             <item><widget class="QPushButton" name="deleteTemplateInsertionDirectionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete...</string></property></widget></item>
+            </layout>
+           </item>
+           <item row="3" column="0"><widget class="QLabel" name="templateUndercutAngleToleranceLabel"><property name="text"><string>Undercut angle tolerance:</string></property></widget></item>
+           <item row="3" column="1">
+            <widget class="QDoubleSpinBox" name="templateUndercutAngleToleranceSpinBox">
+             <property name="toolTip"><string>Surface normals must point farther than this tolerance behind the removal-perpendicular plane to be classified as retentive.</string></property>
+             <property name="decimals"><number>1</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>45.000000000000000</double></property><property name="singleStep"><double>1.000000000000000</double></property><property name="suffix"><string> deg</string></property><property name="value"><double>5.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutAngleToleranceDeg</string></property>
+            </widget>
+           </item>
+           <item row="4" column="0"><widget class="QLabel" name="templateBlockoutSafetyLabel"><property name="text"><string>Blockout safety:</string></property></widget></item>
+           <item row="4" column="1">
+            <widget class="QDoubleSpinBox" name="templateBlockoutSafetySpinBox">
+             <property name="toolTip"><string>Additional removable-fit clearance applied against the directional blockout. Research default only.</string></property>
+             <property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>3.000000000000000</double></property><property name="singleStep"><double>0.050000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.100000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateBlockoutSafetyMm</string></property>
+            </widget>
+           </item>
+           <item row="5" column="0"><widget class="QLabel" name="templateShellVoxelClosingLabel"><property name="text"><string>Voxel closing:</string></property></widget></item>
+           <item row="5" column="1">
+            <widget class="QDoubleSpinBox" name="templateShellVoxelClosingSpinBox">
+             <property name="toolTip"><string>Morphological closing radius for derived shell robustness. Clearance is re-enforced afterward.</string></property>
+             <property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>5.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.300000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateShellVoxelClosingMm</string></property>
+            </widget>
+           </item>
+           <item row="6" column="0"><widget class="QLabel" name="templateUndercutSurfaceModelLabel"><property name="text"><string>Undercut preview:</string></property></widget></item>
+           <item row="6" column="1">
+            <widget class="qMRMLNodeComboBox" name="templateUndercutSurfaceModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutSurfaceModel</string></property></widget>
+           </item>
+           <item row="7" column="0"><widget class="QLabel" name="templateUndercutBlockoutModelLabel"><property name="text"><string>Directional blockout:</string></property></widget></item>
+           <item row="7" column="1">
+            <widget class="qMRMLNodeComboBox" name="templateUndercutBlockoutModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutBlockoutModel</string></property></widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="patientContactShellButtonLayout">
+           <item><widget class="QPushButton" name="analyzeTemplateUndercutsButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Analyze / Update Blockout</string></property></widget></item>
+           <item><widget class="QPushButton" name="generatePatientContactShellButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Patient-Contact Shell</string></property><property name="toolTip"><string>Use the current visible surface, insertion-direction blockout, fit clearance, shell thickness, sampling resolution, and voxel closing values.</string></property></widget></item>
+           <item><widget class="QPushButton" name="deletePatientContactShellButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Patient-Contact Shell...</string></property></widget></item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="patientContactShellStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Generate a current visible support preview in Step 5A first.</string></property><property name="wordWrap"><bool>true</bool></property></widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="templateDockingFusionGroupBox">
+        <property name="title"><string>Current workflow — multi-trajectory docking fusion</string></property>
+        <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
+         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Select every approved trajectory that requires docking geometry. The annular dimensions remain explicitly provisional until the robot rail/channel interface is finalized. Fusion uses clearance → reinforcement → docking union → channel restoration in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Only trajectories explicitly associated with the target or selected supporting teeth are listed. Lock each approved trajectory before fusion.</string></property></widget></item>
+         <item>
+          <layout class="QFormLayout" name="templateDockingFusionFormLayout">
+           <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Docking clearance:</string></property></widget></item>
+           <item row="0" column="1"><widget class="QDoubleSpinBox" name="templateDockingClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>3.000000000000000</double></property><property name="singleStep"><double>0.050000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.300000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateDockingClearanceMm</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="templateReinforcementRadialLabel"><property name="text"><string>Reinforcement radial width:</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="templateReinforcementRadialSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>8.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>1.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateReinforcementRadialMm</string></property></widget></item>
+           <item row="2" column="0"><widget class="QLabel" name="templateReinforcementDepthLabel"><property name="text"><string>Reinforcement seating depth:</string></property></widget></item>
+           <item row="2" column="1"><widget class="QDoubleSpinBox" name="templateReinforcementDepthSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>2.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateReinforcementDepthMm</string></property></widget></item>
+           <item row="3" column="0"><widget class="QLabel" name="finalPrintableTemplateModelLabel"><property name="text"><string>Unified template:</string></property></widget></item>
+           <item row="3" column="1"><widget class="qMRMLNodeComboBox" name="finalPrintableTemplateModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>finalPrintableTemplateModel</string></property></widget></item>
+          </layout>
+         </item>
+         <item><layout class="QHBoxLayout" name="templateDockingFusionButtonLayout"><item><widget class="QPushButton" name="generateFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Unified Template</string></property></widget></item><item><widget class="QPushButton" name="deleteFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Unified Template...</string></property></widget></item></layout></item>
+         <item><widget class="QLabel" name="templateDockingFusionStatusLabel"><property name="text"><string>Generate an undercut-aware patient-contact shell first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
+        </layout>
        </widget>
       </item>
       <item>
@@ -2104,6 +2310,30 @@
           <widget class="QCheckBox" name="sleeveModelVisibilityCheckBox">
            <property name="enabled"><bool>false</bool></property>
            <property name="text"><string>[Step 5B] Research sleeve</string></property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QCheckBox" name="templateInsertionDirectionVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Insertion direction</string></property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QCheckBox" name="templateUndercutVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Undercut preview</string></property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QCheckBox" name="templateBlockoutVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Directional blockout</string></property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QCheckBox" name="patientContactShellVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Patient-contact shell</string></property>
           </widget>
          </item>
         </layout>

@@ -453,15 +453,47 @@ are excluded.
   model deletion retains target/support selection. MRML save/reload must not
   restore deleted nodes or dangling workflow references, and retained inputs
   must remain sufficient to recreate the output.
-- Step 5B converts the Step 5A model to world-RAS VTK geometry before sampling
-  an ROI-trimmed exterior distance band. It subtracts a channel aligned to the
-  locked Entry-to-Target line and creates a separate analytic annular sleeve
-  extending outward from Entry. Both derived models store explicit source,
-  trajectory, and ROI references plus their parameter and topology metadata.
-- Step 5B output is stale whenever the source model revision, trajectory world
-  points, ROI world bounds, or dimensional parameters differ from the values
-  captured at generation. The resulting shell is a non-destructive raw source;
-  Step 5B does not expose STL export.
+- Step 5A full support anatomy is planning input only. Slicer's segmentation
+  extraction already returns world-RAS surfaces, so the derived combined model
+  has no parent transform and explicitly records `WorldRASmm`; applying the
+  source transform again would be a double transform.
+- A role-owned closed Markups boundary and `VisibleTemplateSupportSurface`
+  preview select only erupted/accessible support. The continuous curve bridges
+  interdental gaps visually, while its world-RAS control points are resampled
+  and assigned to the nearest connected tooth. Dijkstra surface clipping then
+  runs independently per tooth, preserving separated anatomy and explicitly
+  orienting each selected patch away from its closed source. Boundary edits,
+  selection side, resolution, or source revisions mark all descendants stale.
+- The current Step 5B vertical slice generates a `PatientContactShell` from
+  that preview. Dynamic Modeler Margin supplies fit clearance; Dynamic Modeler
+  Hollow supplies wall thickness and closes the patch boundary. A cropped,
+  resolution-limited voxel Boolean unions overlapping pieces and removes any
+  residual material inside the clearance envelope before a watertight surface
+  is extracted. The shell explicitly references the full source model, visible
+  patch, boundary, authoritative segmentation, fitting surface, Hollow
+  candidate, and both Dynamic Modeler nodes.
+- An explicit two-point `TemplateInsertionDirection` line stores
+  Approach→Seat in world RAS; removal is its opposite. Retentive triangles are
+  classified from visible-surface normals against removal with an exposed
+  angular tolerance. A cropped coordinate frame aligned to removal produces a
+  watertight height-field blockout, avoiding SlicerFSP's world-axis assumption.
+  The shell references that line and blockout and records fit, thickness,
+  resolution, blockout safety, closing, direction geometry, and revisions with
+  `UndercutState=Processed`.
+- `DENTOGuideGeometry.py` owns replaceable docking primitives and voxel fusion.
+  The current annular profile is `ProvisionalDevelopmentGeometry`, because no
+  final rail/channel contract exists. The parameter-node stores selected guide
+  trajectories as repeated MRML references; each must be a complete locked
+  DENTOBOT line associated with the selected target/support segmentation.
+- Docking integration uses a cropped binary domain: remove the outer docking
+  clearance from the patient shell, union an overlapping reinforcement collar,
+  union each docking solid, then subtract all trajectory channels. The
+  `FinalPrintableTemplate` explicitly references the patient shell, every
+  source trajectory, docking assembly, clearance, reinforcement, and channels.
+  Synthetic two-tooth/two-trajectory coverage verifies one connected,
+  watertight world-RAS model plus MRB reload and clean five-node subtree
+  deletion. Its verification state remains `NotVerified`; STL export must not
+  accept it until the final PASS/WARNING/FAIL gate is implemented.
 - Step 5C stores a separate finalized shell and uses Slicer's built-in Dynamic
   Modeler. Plane Cut supplies capped positive/negative regions for the simple
   horizontal trim; Curve Cut supplies inside/outside regions for the adjustable

@@ -390,8 +390,11 @@ plan is preserved only; no Step 4B implementation is currently authorized.
 
 ## Step 5: Target-region modeling and template research
 
-**Status:** Steps 5A, 5B, and 5C implemented and synthetically verified;
-developer/dentist anatomical and interaction acceptance pending
+**Status:** major renovation checkpoint demonstrated through multi-trajectory
+fusion. Visible-support ROI, explicit insertion direction, undercut/blockout,
+patient-contact shell, provisional docking clearance/reinforcement, and one
+connected unified model are implemented and Slicer-native synthetically
+verified. Final PASS/WARNING/FAIL verification and one-STL export remain next.
 
 ### Step 5A — draft template support anatomy
 
@@ -405,9 +408,9 @@ Implemented behavior:
   segments from the same reviewed segmentation;
 - impose no automatic adjacency, arch, side, or maximum-count rule;
 - require unique support IDs and keep the target distinct from all supports;
-- append unmodified closed surfaces for the target and selected supports into
-  one `vtkMRMLModelNode`;
-- preserve the segmentation's parent transform and persist source-node,
+- append unmodified world-RAS closed surfaces for the target and selected
+  supports into one transform-free `vtkMRMLModelNode`;
+- persist source-node,
   segment-ID, FDI, source-name, review-time, geometry-count, schema, and update
   provenance;
 - retain the last output when inputs change, but mark it Stale and require an
@@ -418,6 +421,14 @@ Implemented behavior:
   DENTOBOT draft-model role, removes the model and unshared display/storage
   auxiliaries, clears its workflow reference, and preserves the target,
   segmentation, and manual support selection for safe recreation.
+- create an editable role-owned closed boundary around only the erupted,
+  accessible support surfaces and preview the selected patch distinctly;
+- adapt SlicerFSP's Dijkstra curve clip per connected tooth surface so a single
+  boundary works with DENTOBOT's separate complete-tooth segments rather than
+  silently selecting one tooth;
+- persist explicit source/boundary/segmentation references, world-RAS control
+  points, selection side, processing resolution, revisions, metrics, and stale
+  state; delete the owned boundary/preview safely while preserving authority.
 
 Developer-run acceptance in Slicer must cover small and large selections
 (including two and ten supports), create/update behavior, target/support
@@ -426,12 +437,48 @@ Current/Stale presentation. The added Slicer-native lifecycle test also covers
 trajectory/model deletion, retained inputs and selections, save/reload, and
 recreation and has passed in the bounded container Slicer runtime.
 
-Step 5A itself still excludes smoothing, remeshing, Boolean unions, offsets,
-contact inference, gingival clearance, shell or sleeve generation, drill
-channels, export, printability, clinical validation, and drilling
-authorization. Those outputs belong to the separate Step 5B state below.
+The visible preview is not an undercut-corrected fitting surface, final shell,
+printable guide, clinical validation, or drilling authorization.
 
-### Step 5B — model-independent raw research shell and sleeve
+### Step 5B — patient-contact shell and guide integration
+
+Current renovation behavior:
+
+- require a Current visible support preview explicitly linked to the Current
+  full support model and authoritative segmentation;
+- expose fit clearance, wall thickness, and tight-domain processing resolution;
+- run native Dynamic Modeler Margin followed by Hollow, retaining both tools
+  and their fitting/candidate outputs as hidden role-owned referenced nodes;
+- voxel-union the candidate only inside a cropped support domain and subtract
+  residual material within the requested anatomy clearance;
+- reject empty/open/non-manifold results and record topology, sample-domain,
+  minimum-clearance, source-revision, warning, and parameter metadata;
+- persist/reload and cleanly delete the shell plus four owned processing nodes;
+- define insertion with an editable/persisted Approach→Seat Markups line in
+  world RAS, using the opposite vector for removal;
+- classify retentive surface triangles by normal/removal angle tolerance and
+  construct a cropped insertion-frame directional height-field blockout rather
+  than assuming anatomical direction from world axes;
+- expose/persist blockout safety and voxel-closing values, re-enforce fit
+  clearance after smoothing, and invalidate shell/final geometry after any
+  insertion, ROI, support, or parameter change;
+- select multiple complete locked trajectories by explicit repeated MRML
+  references, rejecting trajectories outside the selected target/support
+  anatomy;
+- keep the current annular docking profile explicitly provisional and
+  replaceable because no final robot rail/channel specification exists;
+- adapt the SlicerFSP integration order in a tight voxel domain: docking
+  clearance subtraction → reinforcement union → docking union → trajectory
+  channel restoration;
+- generate/persist/reload one `FinalPrintableTemplate` with explicit patient
+  shell, all trajectory, docking, clearance, reinforcement, and channel
+  references. The focused two-tooth/two-trajectory regression produces one
+  connected watertight component;
+- keep that unified model `NotVerified` and non-exportable until Step 5C's
+  dedicated verification gate is complete.
+
+The older model-independent raw research shell/sleeve behavior below is now a
+labelled provisional developer path, not the target clinical/research flow:
 
 Implemented behavior:
 

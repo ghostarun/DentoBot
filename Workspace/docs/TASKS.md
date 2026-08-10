@@ -4,6 +4,22 @@ Last updated: 2026-08-10
 
 ## Active
 
+- Build the verification gate and single `FinalPrintableTemplate` output after
+  the now-working undercut/docking fusion. Require current source snapshots, one intended
+  connected watertight component, docking-axis/dimension checks, anatomy
+  clearance, and PASS/WARNING/FAIL before the existing atomic writer may export
+  one STL. Do not invent a final rail profile; no finalized repository rail
+  specification was found, so the current annular primitive remains explicitly
+  provisional and replaceable.
+- Live-test the new visible-support workflow on anonymized representative
+  anatomy: draw/edit a margin across multiple separate teeth, switch smaller/
+  larger selection, confirm roots/subgingival surfaces are excluded, generate
+  the pre-undercut patient-contact shell, inspect seating/clearance/rims, save/
+  reload, invalidate/regenerate, and cleanly delete descendants. Also verify
+  Approach→Seat insertion semantics, retentive-surface preview, blockout
+  removability, multi-trajectory selection, docking/reinforcement placement,
+  and the one-component unified model against real crown anatomy.
+
 - Live-test Step 4A trajectory-aligned longitudinal oblique MPR: verify the
   selected source CBCT appears in one native slice with Entry→Target vertical,
   the existing line remains overlaid, `-180°..+180°` changes circumferential
@@ -149,6 +165,16 @@ dentist-focused 2D plan remains preserved in this task list and
   established.
 
 ## Completed
+
+- Completed the 2026-08-10 meeting checkpoint for the renovated template
+  vertical slice: per-tooth visible crown/support ROI, explicit world-RAS
+  insertion direction, normal-based undercut preview, directional blockout,
+  undercut-aware Dynamic Modeler/voxel patient shell, repeated MRML references
+  for multiple approved trajectories, provisional annular docking clearance
+  and reinforcement, and one connected watertight unified model. The focused
+  transformed two-tooth/two-trajectory Slicer test passed generation, topology,
+  MRB reload, reference persistence, and clean subtree deletion. The unified
+  output remains intentionally `NotVerified` and non-exportable.
 
 - Added the source implementation and focused Slicer-native math coverage for
   Step 4A longitudinal trajectory MPR. It reuses the existing trajectory and

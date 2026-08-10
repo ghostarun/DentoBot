@@ -1,5 +1,70 @@
 # Dentobot Technical Decisions
 
+## 2026-08-10 — Visible-support ROI and Dynamic Modeler patient-contact shell
+
+Status: Priorities 1–4 implemented as a demonstrable vertical slice and
+Slicer-native synthetically verified; final verification/export and
+representative-anatomy clinician acceptance pending
+
+Supersede whole-tooth geometry as the direct fitting surface. The reviewed
+`vtkMRMLSegmentationNode` remains authoritative and Step 5A may still derive a
+full target/support model for planning, but a role-owned closed Markups curve
+must explicitly select the erupted/accessible support patch before any fitting
+shell is generated. Persist the curve, preview model, source model,
+authoritative segmentation, world-RAS control-point geometry, selection side,
+sampling resolution, revisions, and metrics through explicit MRML references.
+
+Adapt SlicerFSP `SurgicalGuide.CurveAndClip()` without its name-based node
+contracts. DENTOBOT's input differs because each segmented tooth is a separate
+closed surface, so keep a continuous linear clinician boundary across
+interdental gaps, resample its world-RAS control points, assign samples to the
+nearest connected tooth, and apply `vtkSelectPolyData` Dijkstra clipping per
+tooth. Reject a boundary that does not adequately address every selected
+surface. Preserve one selected patch per tooth and explicitly orient its
+normals away from the source closed anatomy.
+
+Generate the patient-contact shell by running Dynamic Modeler
+Margin for fit clearance and Dynamic Modeler Hollow for thickness/side walls.
+Then adapt SlicerFSP's labelmap-Boolean principle in a tight bounding box: voxel
+union overlapping shell pieces, remove residual geometry within the requested
+anatomy clearance, and extract a watertight manifold surface at the exposed
+processing resolution. Keep fitting surface, Hollow candidate, and both
+Dynamic Modeler nodes as hidden role-owned auxiliaries referenced by the shell.
+Use an explicit two-point world-RAS `TemplateInsertionDirection` line whose
+semantics are Approach→Seat and whose opposite is the removal direction.
+Classify retentive visible-surface triangles by surface normal against that
+removal vector; never assume insertion from world X/Y/Z. Create a cropped
+insertion-frame height-field blockout, apply configurable blockout safety and
+voxel closing, re-enforce clearance after closing, and persist the line,
+blockout, tolerances, input revisions, and direction geometry through MRML.
+The visible shell remains `ResearchOnly` but records
+`UndercutState=Processed`.
+
+No finalized robot docking-rail specification exists in the repository.
+Therefore retain DENTOBOT's annular sleeve as explicitly provisional,
+parameterized development geometry behind a replaceable helper boundary.
+Support any number of selected, complete, locked, anatomy-associated
+trajectories and persist each as a repeated MRML node reference. Adapt the
+SlicerFSP integration sequence—not its ring contract—by subtracting docking
+clearance, adding a load-spreading reinforcement collar, unioning docking
+solids, and restoring trajectory channels in one tight cropped voxel domain.
+The resulting `FinalPrintableTemplate` is one connected watertight model in
+the synthetic regression, but remains `NotVerified` and non-exportable until
+the dedicated PASS/WARNING/FAIL gate is implemented.
+
+`GetSegmentClosedSurfaceRepresentation()` already returns world-RAS geometry.
+Derived Step 5A support models therefore have no parent transform and carry
+`CoordinateConvention=WorldRASmm`; retaining the segmentation transform would
+apply it twice. Legacy derived models with the obsolete contract must be
+explicitly updated before entering the new shell path.
+
+Reason: full CBCT crowns and roots are valid planning anatomy but are not the
+clinically accessible seating surface. A single connected-scan curve algorithm
+also silently selects only one component when used on separate tooth segments.
+The adapted per-surface selection plus native Margin/Hollow and a cropped voxel
+clearance Boolean gives traceable margins, controlled fit, clean topology, and
+a replaceable vertical slice for later undercut and docking integration.
+
 ## 2026-08-10 — Step 5C zoom and ROI-Z-only plane control
 
 Status: implemented with static verification; live Slicer interaction pending
