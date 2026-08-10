@@ -1515,6 +1515,112 @@
        </widget>
       </item>
       <item>
+       <widget class="QGroupBox" name="trajectoryVerificationGroupBox">
+        <property name="title">
+         <string>Trajectory Verification — Longitudinal Oblique MPR</string>
+        </property>
+        <layout class="QVBoxLayout" name="trajectoryVerificationVerticalLayout">
+         <item>
+          <widget class="QCheckBox" name="trajectoryVerificationEnabledCheckBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="toolTip">
+            <string>Align one available Slicer slice view through the existing Entry-to-Target axis and show the selected CBCT without creating another volume or trajectory.</string>
+           </property>
+           <property name="text">
+            <string>Enable trajectory-aligned oblique view</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="trajectoryVerificationRotationLayout">
+           <item>
+            <widget class="QLabel" name="trajectoryVerificationRotationTitleLabel">
+             <property name="text">
+              <string>Rotation:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="trajectoryVerificationRotationSlider">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="toolTip">
+              <string>Rotate the longitudinal slice plane around the fixed Entry-to-Target axis. This changes only native slice reslicing.</string>
+             </property>
+             <property name="minimum">
+              <number>-180</number>
+             </property>
+             <property name="maximum">
+              <number>180</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="pageStep">
+              <number>15</number>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+             <property name="tracking">
+              <bool>true</bool>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="trajectoryVerificationRotationValueLabel">
+             <property name="minimumSize">
+              <size>
+               <width>52</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>0°</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QPushButton" name="resetTrajectoryVerificationButton">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="toolTip">
+            <string>Return to the deterministic zero-angle longitudinal plane without moving Entry or Target.</string>
+           </property>
+           <property name="text">
+            <string>Reset Orientation to 0°</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="trajectoryVerificationStatusLabel">
+           <property name="styleSheet">
+            <string notr="true">color: #666666;</string>
+           </property>
+           <property name="text">
+            <string>Complete Entry and Target and select a CBCT to enable verification.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="planningStatusLabel">
         <property name="styleSheet">
          <string notr="true">color: #b36b00;</string>
@@ -1732,7 +1838,7 @@
       <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Create a non-destructive raw shell from the current Step 5A anatomy, cut a trajectory-aligned channel, and create a separate hollow sleeve. Step 5C owns final margin trimming and STL export.</string>
+         <string>Create a non-destructive raw shell inside a locked, automatically generated Step 5B bounds ROI, cut a trajectory-aligned channel, and create a separate hollow sleeve. Step 5C owns final margin trimming and STL export.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1766,7 +1872,7 @@
         <item row="0" column="0">
          <widget class="QLabel" name="templateShellRoiLabel">
           <property name="text">
-           <string>Shell trim ROI:</string>
+           <string>Automatic shell bounds ROI:</string>
           </property>
          </widget>
         </item>
@@ -1796,10 +1902,10 @@
           <item>
            <widget class="QPushButton" name="createTemplateShellRoiButton">
             <property name="text">
-             <string>Create / Reset ROI Around Support Anatomy</string>
+             <string>Create / Reset Automatic ROI</string>
             </property>
             <property name="toolTip">
-             <string>Create or reset a world-RAS ROI around the Step 5A model. Adjust it in the views to control how much anatomy the shell covers.</string>
+             <string>Create or recompute the locked world-RAS bounds around the Step 5A model. This workflow-owned ROI is visible for reference but cannot be picked, moved, rotated, or resized in a view.</string>
             </property>
            </widget>
           </item>
@@ -1809,10 +1915,10 @@
              <bool>false</bool>
             </property>
             <property name="text">
-             <string>Delete Shell ROI...</string>
+             <string>Delete Automatic ROI...</string>
             </property>
             <property name="toolTip">
-             <string>Delete only the DENTOBOT-owned Step 5B shell trim ROI so a fresh ROI can be created. Existing shell and sleeve outputs are retained but marked stale.</string>
+             <string>Delete only the DENTOBOT-owned automatic Step 5B bounds ROI so a fresh one can be generated. Existing shell and sleeve outputs are retained but marked stale.</string>
             </property>
            </widget>
           </item>
@@ -1985,7 +2091,7 @@
          <item row="1" column="1">
           <widget class="QCheckBox" name="shellRoiVisibilityCheckBox">
            <property name="enabled"><bool>false</bool></property>
-           <property name="text"><string>[Step 5B] Shell trim ROI box</string></property>
+           <property name="text"><string>[Step 5B] Automatic shell bounds ROI</string></property>
           </widget>
          </item>
          <item row="2" column="0">
@@ -2124,16 +2230,31 @@
        </layout>
       </item>
       <item>
+       <widget class="QLabel" name="templateFinalizationCameraFrameLabel">
+        <property name="styleSheet"><string notr="true">QLabel { color: #24557a; background-color: #eaf4fb; border: 1px solid #9bc5e1; border-radius: 3px; padding: 5px 8px; }</string></property>
+        <property name="text"><string>ROI frame: +X right • +Z up • looking along +Y at yaw 0°</string></property>
+        <property name="toolTip"><string>Isolation uses the locked Step 5B automatic ROI as a traditional XYZ frame. Yaw is rotation about ROI +Z; pitch and roll are zero in the default orbit.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
        <widget class="QCheckBox" name="templateFinalizationViewLockedCheckBox">
         <property name="checked"><bool>true</bool></property>
-        <property name="text"><string>Lock anterior view and horizontal plane orientation (R/L horizontal, S/I vertical)</string></property>
-        <property name="toolTip"><string>Locks the camera to an anterior world-RAS view and keeps the plane normal on the S/I axis while still allowing translation and zoom. Uncheck to rotate the view or plane.</string></property>
+        <property name="text"><string>Lock X/Y/Z translation, zoom, pitch, and roll (allow yaw-only orbit)</string></property>
+        <property name="toolTip"><string>Keep the ROI centered and vertically fitted while permitting only 360-degree yaw around ROI +Z. Uncheck for a fully free camera; the trim plane remains horizontal.</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="templateFinalizationYawLockedCheckBox">
+        <property name="checked"><bool>false</bool></property>
+        <property name="text"><string>Lock yaw too (freeze the ROI-aligned 3D view)</string></property>
+        <property name="toolTip"><string>Freeze the current yaw angle as well as translation, zoom, pitch, and roll. Enabling this also enables the non-yaw lock.</string></property>
        </widget>
       </item>
       <item>
        <layout class="QHBoxLayout" name="templateFinalizationPreparationButtonLayout">
-        <item><widget class="QPushButton" name="continueTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Continue: Isolate Shell in Front View</string></property></widget></item>
-        <item><widget class="QPushButton" name="restoreTemplateFinalizationViewButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Restore Workflow Visibility</string></property></widget></item>
+        <item><widget class="QPushButton" name="continueTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Isolate Shell in ROI-Aligned 3D View</string></property><property name="toolTip"><string>Temporarily switch to one 3D view, hide unrelated nodes, fit the Step 5B ROI top-to-bottom, and start at yaw 0 degrees.</string></property></widget></item>
+        <item><widget class="QPushButton" name="restoreTemplateFinalizationViewButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Exit Isolation / Restore 2D + 3D</string></property><property name="toolTip"><string>Restore the previous Slicer layout, camera, crosshair, and node visibility for deliberate 2D verification.</string></property></widget></item>
        </layout>
       </item>
       <item>

@@ -25,6 +25,81 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-10 14:50:42 IST (UTC+05:30) — Longitudinal trajectory MPR extension
+
+### Request and decision
+
+- The developer requested a native oblique CBCT plane containing the existing
+  Entry→Target trajectory, with interactive circumferential rotation and no
+  duplicate trajectory or resampled volume. Cross-sectional depth views and
+  anatomical safety calculations remain future scope.
+- Inspection confirmed reuse of the parameter-node Markups-line reference,
+  world-point summary, point observers, authoritative segmentation/source-CBCT
+  references, and Slicer's slice/composite pipeline. Installed Slicer 5.10
+  source confirmed the `SliceToRAS` column convention and Markups projection
+  API.
+
+### Implementation and evidence
+
+- Added stable right-handed frame and longitudinal `SliceToRAS` helpers,
+  including the near-parallel reference fallback. Added Step 4A enable,
+  `-180°..+180°` rotation, reset, existing-line overlay, automatic valid-point
+  updates, source-CBCT background, and rotation-invariant initial fit.
+- Coalesced slider/point updates and changed only the native slice matrix.
+  Captured and restored slice/FOV, composite layers/linking, and trajectory
+  display state on all relevant lifecycle boundaries and around scene save.
+- Added focused Slicer-native math tests. Python compilation, UI XML parsing,
+  whitespace checks, and the repository close-day static gate passed (22
+  Python AST files, two UI files, and eight Markdown fence checks; backend
+  tests skipped). Runtime tests and interaction/FPS acceptance remain pending
+  because no Slicer launch was authorized.
+- A 15:00 IST final rerun after the overlay fallback passed the same checks.
+  One harmless first whitespace-check attempt ran above the nested Git root,
+  returned exit 129, and was repeated successfully from
+  `ros2_ws/src/DentoBot`; it made no file changes.
+
+### Safety and external state
+
+- No patient data, inference, new volume, segmentation/mesh processing, robot,
+  motion, drilling, STL export, Git publication, or Drive sync occurred.
+
+## 2026-08-10 14:11:28 IST (UTC+05:30) — ROI-frame Step 5C interaction correction
+
+### Request, diagnosis, and decision
+
+- The developer replaced the fixed-anterior Step 5C isolation specification
+  with a Step 5B ROI-aligned turntable: look along ROI `+Y` at zero yaw, show
+  ROI `+X` right and `+Z` up, align ROI top/bottom to the viewport, lock every
+  camera degree of freedom except yaw, and offer a separate yaw freeze.
+- The developer also superseded all user-adjustable Step 4A/5B ROI behavior.
+  Inspection found Step 5B explicitly unlocked its ROI and the old camera
+  observer repeatedly rewrote orientation while all 2D/3D views remained
+  active.
+
+### Implementation and evidence
+
+- Added a one-up 3D isolation workspace with complete preservation/restoration
+  of layout, camera, crosshair, and visibility. Isolation no longer creates an
+  edit markup or starts placement. Camera constraints are derived from the
+  current source-matched Step 5B ROI, coalesced, and changed only when a
+  property drifts. Plane orientation stays normal to ROI `+Z`. The isolated
+  viewport shows an XYZ axes marker and restores the prior marker/axis-label
+  state on exit.
+- Added distinct persisted non-yaw/yaw locks and made both workflow ROI roles
+  locked, non-selectable from views, and handle-free on creation and refresh.
+  Step 5B recomputes axis-aligned bounds before generation while retaining its
+  historical role string for MRB compatibility.
+- Python compilation, Qt UI XML, whitespace checks, and the repository static
+  gate passed. Slicer-native camera-math and ROI-policy regressions were added
+  but not executed because no Slicer launch was authorized.
+
+### Remaining acceptance and safety
+
+- Developer-run Slicer acceptance must verify mouse yaw, exact viewport fit,
+  both lock modes, full presentation restoration, non-interactive reopened
+  ROIs, and FPS improvement. No inference, patient data, ROS, robot, motion,
+  drilling, fabrication, Git push, or Drive sync occurred.
+
 ## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 4A–5C closed workflow and finalization
 
 ### Objective and decisions

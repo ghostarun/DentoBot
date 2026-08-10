@@ -498,6 +498,15 @@ validation, or drilling authorization.
 
 ### Step 4A–5C lineage and template derivation
 
+Step 4A also provides native trajectory-aligned longitudinal oblique MPR. It
+reuses the selected Markups line and the source CBCT referenced by its
+authoritative segmentation. The slice `SliceToRAS` columns are rotated
+transverse X, Entry→Target as vertical Y, their cross-product normal, and the
+trajectory midpoint. A `-180°..+180°` control changes only this native slice
+matrix; no duplicate trajectory or resampled volume is created. The prior
+slice/composite and trajectory-display state is restored when verification
+ends and kept out of saved presentation state.
+
 Each trajectory is associated with an authoritative segmentation and target
 segment through MRML references and attributes, never its editable name.
 Multiple trajectories may belong to one tooth; each carries a deterministic
@@ -513,12 +522,17 @@ extending outward from Entry. Both outputs store source, trajectory, ROI,
 parameter, revision, and topology metadata. A source, trajectory, ROI, or
 parameter change makes them Stale. The raw Step 5B shell is not exportable.
 
-The Step 5B trim ROI and Step 4A target-bounds ROI are mutually exclusive
-roles. The selector and logic accept only a Step 5B ROI referencing the
-current Step 5A model. Legacy cross-role contamination is repaired in place;
-invalid parameter references are cleared without deleting unrelated nodes.
-Visibility controls affect MRML display state only and cover the active Step
-4A bounds/trajectory, Step 5A model, and Step 5B ROI/shell/sleeve.
+The Step 5B automatic bounds ROI and Step 4A target-bounds ROI are mutually
+exclusive roles. The historical `TemplateShellTrimROI` string is retained for
+MRB compatibility, but user-adjustable Step 5B ROI semantics are superseded.
+The selector and logic accept only a Step 5B ROI referencing the current Step
+5A model, and generation recomputes its axis-aligned bounds from that source.
+Legacy cross-role contamination is repaired in place; invalid parameter
+references are cleared without deleting unrelated nodes. Both workflow ROI
+roles are locked, non-selectable from views, and expose no translation,
+rotation, or scale handles. Visibility controls affect display state only and
+cover the active Step 4A bounds/trajectory, Step 5A model, and Step 5B
+ROI/shell/sleeve.
 
 Step 5C keeps the raw shell unchanged and creates a separate finalized shell
 using Slicer's built-in Dynamic Modeler. Plane Cut supplies capped
@@ -527,11 +541,21 @@ inside/outside regions for an adjustable surface-snapped closed margin;
 DENTOBOT then caps, triangulates, cleans, orients, and rejects empty or
 non-watertight retained geometry.
 
-The Step 5C front view is a world-RAS anterior parallel camera with R/L
-horizontal and S/I vertical. Its optional lock constrains camera orientation
-and the plane normal while retaining zoom and plane translation. It is not a
-dental/occlusal frame and does not encode an automatic 70–80 percent coverage
-rule. The method, kept region, markup geometry, source/edit/Dynamic-Modeler
+Step 5C isolation temporarily switches to one ROI-aligned 3D view. At zero
+yaw the camera looks along ROI `+Y`, ROI `+X` is viewport right, and ROI `+Z`
+is viewport up. Half the ROI Z extent is the parallel scale, aligning the
+bounds top/bottom with the viewport. An in-viewport XYZ axes marker exposes
+that frame; its prior marker and axis-label settings are restored on exit.
+Translation, zoom, pitch, and roll are
+locked by default while yaw orbits around `+Z`; a separate lock freezes yaw
+too. The horizontal cut remains normal to ROI `+Z`. This is not an
+anatomy-derived dental/occlusal frame and encodes no automatic 70–80 percent
+coverage rule.
+
+Isolation stores layout, camera, crosshair, and display visibility and
+restores them before returning to 2D verification. The isolate action starts
+no markup placement; plane and curve creation are separate explicit actions.
+The method, kept region, markup geometry, source/edit/Dynamic-Modeler
 references, source revision, state, and topology metrics persist in MRML.
 
 Export accepts only a Current, source-matched, watertight Step 5C shell and a

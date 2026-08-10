@@ -1,5 +1,76 @@
 # Dentobot Technical Decisions
 
+## 2026-08-10 — Native trajectory-aligned longitudinal oblique MPR
+
+Status: implemented with static verification; live Slicer interaction and
+performance acceptance pending
+
+Extend Step 4A with a trajectory verification view that reuses the selected
+role-owned `vtkMRMLMarkupsLineNode`, its world-RAS Entry/Target points, the
+trajectory's referenced authoritative segmentation, and that segmentation's
+source-CBCT reference. Do not create a second trajectory or resampled CBCT.
+
+Construct a stable right-handed frame around Entry→Target, using world `+Z`
+as the preferred reference and world `+Y` near the parallel singularity.
+Write native `SliceToRAS` columns as rotated transverse X, trajectory Z, and
+their cross-product normal, with the trajectory midpoint as origin. Thus the
+trajectory lies vertically in the plane; it is deliberately not the slice
+normal. A `-180°..+180°` slider changes only this matrix through Slicer's
+existing reslice pipeline.
+
+Use the first available standard slice view rather than a hard-coded MRML node
+name. Capture and restore its matrix, field of view, composite layers/link
+state, and the selected trajectory's display/projection state. Restore before
+scene save, module exit, scene close, cleanup, or Step 5C isolation, then
+resume after save. Event-loop-coalesce point/slider updates and write only
+changed MRML properties.
+
+Reason: longitudinal circumferential CBCT inspection is standard oblique MPR
+and belongs at the existing trajectory/view boundary. Native slice reslicing
+is more responsive and traceable than generating angle-specific volumes, and
+reference-based reuse prevents divergent planning state. This is verification
+assistance, not perforation detection, trajectory approval, or drilling
+authorization.
+
+## 2026-08-10 — ROI-frame yaw workspace and immutable workflow bounds
+
+Status: implemented with static verification; live Slicer interaction and
+performance acceptance pending
+
+Supersede Step 5C's fixed anterior world-RAS camera with a temporary
+ROI-aligned one-up 3D workspace. The current Step 5B automatic bounds ROI is
+the view-frame authority: at zero yaw the camera looks along ROI `+Y`, ROI
+`+X` is viewport right, and ROI `+Z` is viewport up. Parallel scale equals
+half the ROI Z size so its top and bottom align with the viewport boundaries.
+Yaw orbits around ROI `+Z` through 360 degrees.
+
+Use two explicit camera locks. **Lock X/Y/Z translation, zoom, pitch, and
+roll** is on by default and leaves yaw as the only camera motion. **Lock yaw
+too** freezes the remaining angle and implies the first lock. Unchecking the
+first lock also clears yaw lock and permits a free camera. The horizontal trim
+plane stays normal to ROI `+Z` independently of camera locks, while retaining
+translation for height adjustment.
+
+Isolation stores and replaces presentation state only: layout, camera,
+crosshair, and node visibility are restored on explicit exit, module exit,
+scene close, or cleanup. The isolate action does not create a markup or enter
+placement mode; plane and curve placement remain separate deliberate actions.
+This separates 3D editing from later 2D verification and reduces concurrent
+rendering and interaction work.
+
+Treat both `TargetToothAABB` and the compatibility-named
+`TemplateShellTrimROI` as immutable workflow-owned bounds. They remain
+optionally visible but are locked, non-selectable from views, and have all
+translation/rotation/scale handles disabled. Step 5B recomputes its ROI from
+the Step 5A anatomy before shell generation; user-adjustable Step 5B ROI
+semantics are superseded. Preserve the existing role string and node reference
+contract for MRB compatibility.
+
+Reason: simultaneous 2D/3D interaction, continuously rewritten camera state,
+and editable bounds created a laggy and error-prone margin workflow. A
+turntable-style ROI frame supports controlled 360-degree plane/curve work,
+while immutable generated bounds prevent accidental upstream geometry changes.
+
 ## 2026-08-07 — Non-destructive Step 5C finalization gates STL export
 
 Status: implemented and Slicer-native synthetically verified; representative

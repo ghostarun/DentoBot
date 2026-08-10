@@ -324,6 +324,32 @@ contract, with the points labelled Entry and Target. Active-widget deletion
 coverage also verifies that workflow references are cleared before node
 removal so selectors cannot substitute unrelated nodes during destruction.
 
+### Step 4A extension — trajectory-aligned longitudinal oblique MPR
+
+**Status:** implemented in source with static verification; live Slicer
+acceptance pending
+
+The compact **Trajectory Verification** control reuses the selected
+Entry/Target Markups line and its segmentation-to-source-CBCT MRML reference.
+It aligns one available native slice view with the trajectory vertically in
+plane, rotates the plane `-180°..+180°` about that fixed axis, updates after
+valid point edits, and temporarily projects the same Markups line as the 2D
+overlay. It creates neither a new trajectory nor an angle-specific volume.
+
+The frame/matrix logic is independently testable, handles vertical and
+near-reference trajectories, rejects degenerate/non-finite inputs, and uses
+the midpoint as slice origin. Slider and point events are coalesced. Disable,
+module exit, scene close, cleanup, Step 5C isolation, and scene saving restore
+the prior slice/composite/display presentation; saving then resumes the live
+view without serializing the transient override.
+
+Live acceptance must confirm vertical overlay, circumferential anatomy change,
+point immutability under rotation, immediate valid-point updates, source-CBCT
+selection, state restoration, MRB save/reopen behavior, vertical-axis safety,
+and interactive FPS. Perpendicular cross-sections, depth scrolling,
+optimization, collision/wall-thickness analysis, bur volume, and warnings are
+future scope.
+
 ### Shelved Step 4B plan — dentist-focused 2D placement
 
 **Status:** shelved on 2026-08-03 for later development
@@ -400,13 +426,16 @@ Implemented behavior:
 
 - require the current role-gated Step 5A support model and a complete locked
   Step 4A Entry/Target trajectory;
-- create/reset a world-RAS Markups ROI around the support model and let the
-  user trim intended shell coverage explicitly;
-- list only role-owned Step 5B trim ROIs in its selector, reject Step 4A bounds
+- create/reset a locked, non-selectable, axis-aligned world-RAS Markups ROI
+  automatically around the support model and recompute it before generation;
+  the ROI is a visible reference, not a user coverage control;
+- list only role-owned Step 5B automatic ROIs in its selector, reject Step 4A bounds
   and unrelated ROIs at the logic boundary, and require the ROI's source
   reference to match the current Step 5A model before reset or generation;
 - repair a legacy cross-role Step 4A bounds node in place and clear any invalid
   Step 5B parameter reference without deleting the Step 4A node;
+- disable selection and all translation/rotation/scale interaction handles on
+  both Step 4A and Step 5B workflow-owned ROI roles, including loaded scenes;
 - provide a dedicated confirmed, role-gated delete action for the shell ROI;
   preserve Step 5A, trajectory, dimensions, shell, and sleeve while marking
   retained Step 5B outputs Stale so a fresh ROI can be created;
@@ -448,14 +477,20 @@ Implemented behavior:
 
 - preserve the current Step 5B shell as a non-destructive source and create a
   separate role-owned finalized shell;
-- provide **Continue: Isolate Shell in Front View**, which preserves the
-  previous display visibility state, shows the source shell alone, sets an
-  anterior parallel-projection world-RAS view, and can restore the previous
-  workflow visibility;
-- optionally lock the camera to an anterior orientation and the plane normal
-  to the S/I world-RAS axis while retaining plane translation and zoom; this
-  makes screen horizontal R/L and screen vertical S/I, but does not claim a
-  scanner-independent dental or occlusal frame;
+- provide **Isolate Shell in ROI-Aligned 3D View**, which saves layout,
+  camera, crosshair, and display visibility; switches to one 3D view; shows
+  the source shell alone; and restores the complete previous presentation for
+  later 2D verification;
+- at zero yaw look along ROI `+Y`, put ROI `+X` to viewport right and ROI `+Z`
+  upward, and use half the ROI Z size as parallel scale so its top/bottom meet
+  the viewport boundaries;
+- lock X/Y/Z translation, zoom, pitch, and roll by default while retaining a
+  360-degree yaw orbit around ROI `+Z`; provide a second checkbox to freeze yaw
+  too, and allow a fully free camera when the first lock is deliberately
+  cleared;
+- keep the plane normal locked to ROI `+Z` while preserving height
+  translation. Isolation itself creates no markup and starts no placement;
+  the plane/curve buttons are separate deliberate actions;
 - implement the simple workflow as a one-click height placement of a Markups
   plane followed by Dynamic Modeler **Plane cut** with capped surface and an
   explicit choice to keep the inferior/negative or superior/positive side;
@@ -482,6 +517,12 @@ raw-shell export rejection, binary STL output, lineage propagation, MRB
 save/reload, and the complete pre-existing test class. The source-build
 process still reports its known VTK debug leaks after the explicit full-suite
 pass marker.
+
+The 2026-08-10 ROI-frame/isolation correction passed Python compilation, UI
+XML parsing, repository static checks, and added camera-math/ROI-lock
+regression coverage. Its mouse interaction, layout/camera restoration, exact
+viewport fit, and FPS remain pending developer-run Slicer acceptance; no new
+Slicer process was authorized or launched for that correction.
 
 The plane starts without an anatomical default after the user requests a new
 height, and the earlier expert suggestion of roughly 70–80 percent tooth

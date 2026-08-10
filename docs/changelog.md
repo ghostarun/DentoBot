@@ -21,6 +21,47 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-10 14:50:42 IST (UTC+05:30) — Trajectory-oriented oblique MPR verification
+
+### Added
+
+- Added Step 4A longitudinal oblique MPR over the authoritative Entry/Target
+  Markups line and referenced source CBCT. A singularity-safe orthonormal frame
+  drives native `SliceToRAS`; the trajectory is slice Y, a slider-rotated
+  transverse vector is slice X, and their cross-product is the plane normal.
+- Added enable, `-180°..+180°` rotation, zero reset, live state, automatic
+  valid-point updates, same-line 2D projection, coalesced rendering updates,
+  and restoration of prior slice/composite/display state across disable/save/
+  exit/close/cleanup and Step 5C isolation.
+- Added focused Slicer-native frame/matrix regression coverage. Python/UI/
+  whitespace checks passed; no Slicer process was launched, so runtime tests,
+  overlay/rotation UX, persistence, and FPS remain pending. No new volume,
+  trajectory, inference, robot action, Git push, or Drive sync occurred.
+
+## 2026-08-10 14:11:28 IST (UTC+05:30) — Corrected Step 5C isolation and ROI ownership
+
+### Changed
+
+- Replaced the fixed-anterior multi-view Step 5C camera with a temporary
+  ROI-aligned one-up 3D yaw workspace. Zero yaw looks along ROI `+Y`, with ROI
+  `+X` right and `+Z` up; the ROI Z size controls top-to-bottom parallel fit.
+- Added separate persisted non-yaw and yaw locks, coalesced conditional camera
+  correction, complete layout/camera/crosshair/visibility restoration, and a
+  strict separation between isolation and plane/curve placement.
+- Superseded user-adjustable Step 5B bounds. Step 4A and Step 5B workflow ROIs
+  are now locked, non-selectable from views, and have no interactive handles;
+  Step 5B recomputes automatic bounds before geometry generation while keeping
+  the legacy role string for MRB compatibility.
+
+### Verification and limits
+
+- Python compilation, Qt UI XML parsing, whitespace checks, and the repository
+  static gate passed. Added Slicer-native camera-math, ROI policy, and relock
+  assertions, but did not execute them because no Slicer launch was authorized.
+- Native mouse yaw, visual viewport fit, presentation restoration, and
+  performance remain live acceptance items. No inference, patient data, ROS,
+  robot, motion, drilling, fabrication, Git push, or Drive sync occurred.
+
 ## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 4A–5C workflow hardening and shell finalization
 
 ### Changed

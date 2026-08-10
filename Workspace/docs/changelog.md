@@ -21,6 +21,54 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-10 14:50:42 IST (UTC+05:30) — Trajectory-aligned longitudinal oblique MPR
+
+- Added a compact Step 4A Trajectory Verification group with enable, an
+  interactive `-180°..+180°` rotation slider, live angle/status text, and a
+  deterministic zero-orientation reset.
+- Reused the selected world-RAS Entry/Target Markups line and the source CBCT
+  referenced by its authoritative segmentation. Added singularity-safe,
+  right-handed frame and `SliceToRAS` construction that places trajectory in
+  slice Y, the rotated transverse direction in slice X, their cross-product in
+  the normal, and the trajectory midpoint at the origin.
+- Changed no volume or trajectory geometry. Rotation is an event-loop-coalesced
+  native slice-matrix update; no resampled volume, segmentation, mesh work, or
+  external process is created. The existing line is temporarily projected as
+  the 2D overlay.
+- Captured and restored the chosen slice matrix/FOV, composite layers/linking,
+  and trajectory display state on disable, save, module exit, scene close,
+  cleanup, and Step 5C isolation. The transient override is excluded from MRB
+  save and resumed afterward.
+- Added focused Slicer-native math cases for arbitrary and vertical axes,
+  orthonormal/right-handed bases, midpoint placement, 90-degree rotation,
+  in-plane endpoints, and degenerate/non-finite rejection. Python compilation,
+  Qt UI XML, and whitespace checks passed; the new Slicer-native tests and live
+  interaction/FPS acceptance were not run because no Slicer launch was
+  authorized. No Git/Drive synchronization occurred.
+
+## 2026-08-10 14:11:28 IST (UTC+05:30) — ROI-aligned Step 5C yaw workspace
+
+- Replaced the fixed-anterior, simultaneous multi-view isolation with a
+  temporary one-up 3D workspace driven by the current Step 5B automatic ROI.
+  At yaw zero the camera looks along ROI `+Y`, ROI `+X` is viewport right, ROI
+  `+Z` is viewport up, and the ROI Z extent fits the viewport top-to-bottom.
+- Added a default lock for translation, zoom, pitch, and roll while preserving
+  360-degree yaw around ROI `+Z`, plus an independent yaw lock that freezes the
+  view. Camera corrections are coalesced and change only drifted properties.
+  Isolation now preserves/restores layout, camera, crosshair, and visibility
+  and no longer creates a markup or enters placement mode.
+- Made Step 4A and Step 5B workflow-owned ROI nodes locked and non-selectable
+  from views with all interaction handles disabled, including loaded scenes.
+  Step 5B recomputes its axis-aligned automatic bounds before shell generation;
+  its existing role name is retained only for scene compatibility.
+- Added parameter defaults, camera-pose/yaw math coverage, ROI interaction-
+  policy assertions, and relock-after-refresh coverage. Python compilation,
+  Qt UI XML, `git diff --check`, and the repository static gate passed.
+- No Slicer process was launched, so native mouse yaw, exact visual fit,
+  layout/camera restoration, and FPS remain developer acceptance items. No
+  inference, medical-data inspection, STL export, ROS, robot, motion, drilling,
+  fabrication, Git publication, or Drive synchronization occurred.
+
 ## 2026-08-07 17:50:52 IST (UTC+05:30) — Step 5C shell finalization and export gate
 
 - Moved the shell/sleeve STL action out of Step 5B and added Step 5C as a

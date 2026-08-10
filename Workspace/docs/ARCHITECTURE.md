@@ -407,6 +407,14 @@ are excluded.
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
+- Step 4A trajectory verification reuses that same line and the source CBCT
+  referenced by its authoritative segmentation. A native slice view receives
+  a longitudinal `SliceToRAS`: column 0 is the angle-rotated transverse axis,
+  column 1 is Entry→Target, column 2 is their cross-product plane normal, and
+  column 3 is the trajectory midpoint. The `-180°..+180°` control therefore
+  rotates anatomy circumferentially without moving the line or creating a
+  derived volume. The prior slice/composite/line-display state is restored
+  when verification ends and is excluded from saved presentation state.
 - The Markups-line class contract is enforced as exactly two possible control
   points, labelled Entry and Target. Zero/one defined points are incomplete
   drafts; imported or programmatic lines outside that contract are rejected.
@@ -452,11 +460,21 @@ are excluded.
   horizontal trim; Curve Cut supplies inside/outside regions for the adjustable
   uneven margin, followed by an explicit capping/triangulation/normal pass.
   Empty or non-watertight finalized geometry is rejected.
-- Step 5C's anterior view uses a world-RAS camera with R/L horizontal and S/I
-  vertical. The optional lock constrains camera orientation and the plane
-  normal while retaining plane translation and zoom. It is not a derived
-  dental/occlusal coordinate frame, so the user must verify anatomy and kept
-  side; no automatic 70–80 percent coverage rule is encoded.
+- Step 5C isolation is a temporary one-up 3D workspace aligned to the current
+  Step 5B automatic ROI. At yaw zero the camera looks along ROI `+Y`, ROI `+X`
+  is viewport right, and ROI `+Z` is viewport up; half the ROI Z size is the
+  parallel scale, aligning its top/bottom with the viewport. An in-viewport XYZ
+  axes marker makes that frame visible; its prior marker and axis-label settings
+  are restored on exit. The default lock
+  fixes translation, zoom, pitch, and roll while allowing yaw around ROI `+Z`;
+  a second lock freezes yaw too. The horizontal plane remains normal to ROI
+  `+Z`. This is an ROI frame, not an anatomy-derived dental/occlusal frame, and
+  no automatic 70–80 percent coverage rule is encoded.
+- Isolation saves the previous layout, camera, crosshair, and display
+  visibility; explicit exit, module exit, scene close, and cleanup restore
+  them. It does not create a markup or enter placement mode. Plane/curve
+  placement is deliberate and separate, and 2D views return for later manual
+  verification instead of rendering/interacting alongside the 3D edit.
 - Step 5C persists source/edit/Dynamic-Modeler references, source revision,
   method, kept region, edit geometry, state, and topology metrics. A source,
   method, region, or markup change makes the finalized shell Stale. Export
@@ -467,18 +485,24 @@ are excluded.
   Dynamic Modeler node, and cut-output auxiliaries while retaining the Step 5B
   source. Confirmed Step 5B deletion first cascades through those Step 5C
   children so it cannot leave dangling source references.
-- The Step 5B trim ROI is a separately owned, role-gated node. Deleting it
+- The Step 5B automatic bounds ROI is a separately owned, role-gated node.
+  Its historical `TemplateShellTrimROI` role string is retained for scene
+  compatibility, but its earlier user-adjustable semantics are superseded.
+  It is recomputed from Step 5A before shell generation. Deleting it
   removes only the ROI and unshared auxiliaries; Step 5A, trajectory,
   dimensions, shell, and sleeve remain, with the derived outputs marked Stale
   until a new ROI is created and generation is rerun.
-- Step 4A target bounds and the Step 5B trim ROI have mutually exclusive role
-  attributes. The Step 5B selector lists only its own role; reset, generation,
+- Step 4A target bounds and the Step 5B automatic ROI have mutually exclusive
+  role attributes. The Step 5B selector lists only its own role; reset, generation,
   and deletion repeat the role check in logic, and reset/generation also
   require the ROI's source reference to match the current Step 5A model.
   Legacy Step 4A nodes carrying stray Step 5B metadata are repaired in place;
   invalid Step 5B references are cleared without deleting the referenced
   upstream node. Parameter-to-widget synchronization is non-reentrant so the
   resulting MRML repair/name/stale events cannot recurse during scene load.
+- Both workflow-owned ROI roles are visible-only geometry: their MRML nodes
+  are locked and non-selectable from views, and their translation, rotation,
+  and scale handles are disabled on creation, reset, scene load, and refresh.
 - Step 5B exposes display-only visibility controls for the selected Step 4A
   target box and trajectory, Step 5A support model, and Step 5B trim ROI,
   shell, and sleeve. These controls write MRML display-node visibility, which

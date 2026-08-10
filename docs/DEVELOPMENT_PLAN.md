@@ -353,6 +353,24 @@ unless explicit authorization is renewed for a specific automated action;
 ordinary-Python logic tests and static checks remain required for every
 increment.
 
+### Step 4A extension — trajectory-aligned longitudinal oblique MPR
+
+**Status:** implemented in source with static verification; live Slicer
+acceptance pending
+
+The Step 4A verification control reuses the selected Entry/Target Markups line
+and the source CBCT referenced by its authoritative segmentation. One native
+slice view places Entry→Target vertically in-plane and rotates
+`-180°..+180°` about that fixed axis by changing only `SliceToRAS`. It creates
+no duplicate trajectory or resampled volume, updates after valid point edits,
+and restores prior slice/composite/line-display state on disable and lifecycle
+boundaries. Focused frame/matrix coverage includes arbitrary and vertical
+axes, orthonormality, midpoint placement, rotation, and degenerate inputs.
+
+Live acceptance remains required for overlay/rotation UX, MRB save behavior,
+restoration, vertical-axis safety, and FPS. Perpendicular depth cross-sections
+and anatomical safety analysis remain future work.
+
 Implementation themes:
 
 - procedure type and target tooth
@@ -420,14 +438,18 @@ validation, and drilling authorization.
 ### Step 5B — model-independent raw research shell and sleeve
 
 Step 5B requires the current role-gated Step 5A model and a complete locked
-Entry/Target trajectory. It creates a separately owned world-RAS Markups ROI,
-samples an exterior clearance/thickness band around the anatomy inside that
-ROI, subtracts a trajectory-aligned channel, and creates a separate watertight
+Entry/Target trajectory. It creates a separately owned, locked, non-selectable
+axis-aligned world-RAS Markups ROI automatically around Step 5A, recomputes it
+before generation, samples an exterior clearance/thickness band inside it,
+subtracts a trajectory-aligned channel, and creates a separate watertight
 annular sleeve extending outward from Entry.
 
 The shell ROI selector accepts only the Step 5B role and matching Step 5A
 source. Reset, generation, and deletion repeat those checks in logic; legacy
 Step 4A bounds contaminated with Step 5B metadata are repaired in place.
+Step 4A and Step 5B workflow ROIs expose no translation, rotation, or scale
+handles in views; the earlier user-adjustable Step 5B ROI behavior is
+superseded while its role string remains for MRB compatibility.
 Deleting the ROI retains upstream state and generated models but marks the
 models Stale. Scene visibility controls cover the selected Step 4A bounds and
 trajectory, Step 5A support model, and Step 5B ROI/shell/sleeve. Output nodes
@@ -444,11 +466,15 @@ trained weights and several called helpers are absent from the public checkout.
 ### Step 5C — dentist-directed fit, margin trim, and STL export
 
 Step 5C preserves the Step 5B shell as a non-destructive source and creates a
-separate role-owned finalized shell. **Continue: Isolate Shell in Front View**
-preserves prior visibility, shows the source shell alone, and establishes an
-anterior parallel-projection world-RAS camera. The optional lock keeps R/L
-horizontal and S/I vertical while allowing zoom and edit translation; this is
-not yet a scanner-independent dental or occlusal frame.
+separate role-owned finalized shell. **Isolate Shell in ROI-Aligned 3D View**
+saves layout, camera, crosshair, and visibility; switches to one 3D view; and
+shows the source shell alone. At yaw zero it looks along ROI `+Y`, with ROI
+`+X` right and ROI `+Z` up, and fits the ROI Z extent top-to-bottom. The
+default lock leaves only yaw around ROI `+Z`; a second lock freezes yaw too,
+while clearing the first allows a free camera. Isolation creates no markup and
+starts no placement; restoration returns the previous 2D/3D presentation for
+manual verification. This remains an ROI frame rather than an
+anatomy-derived dental/occlusal frame.
 
 The simple path places a one-click Markups plane height and runs Dynamic
 Modeler Plane Cut with a capped positive/negative kept-side choice. The
@@ -471,6 +497,11 @@ raw-shell export rejection, binary STL output, lineage propagation, MRB
 save/reload, UI loading, anterior-view preparation, and the complete existing
 test class. The Slicer source build reports known VTK debug leaks after the
 explicit full-suite pass marker.
+
+The 2026-08-10 isolation correction added static camera-math and immutable-ROI
+regression coverage. Python compilation, UI XML, and repository static checks
+passed; live mouse yaw, viewport fit, layout restoration, and FPS acceptance
+remain developer-run because no Slicer launch was authorized for that batch.
 
 The earlier expert suggestion of roughly 70–80 percent tooth coverage is not
 encoded. A dental/occlusal frame, gingival-margin detection, fit/contact
