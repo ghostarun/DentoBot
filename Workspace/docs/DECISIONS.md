@@ -1,5 +1,23 @@
 # Dentobot Technical Decisions
 
+## 2026-08-11 — CRD is a functional display path, not a GPU acceptance path
+
+Status: accepted and developer-verified for container GUI display
+
+Launch DENTO Workflow from a terminal inside the current Chrome Remote Desktop
+session so the existing launcher inherits its dynamically assigned X11
+`DISPLAY`; do not hardcode `:0` or a prior CRD display number. Continue using
+the launcher's scoped `xhost` grant/revoke and Compose recreation behavior.
+
+Treat CRD's current `llvmpipe` renderer as sufficient for functional and visual
+workflow verification only. Hardware-rendering, responsiveness, and FPS claims
+must come from the physical Ubuntu graphical session exposed through GNOME
+Desktop Sharing/RDP, with the renderer identity explicitly checked.
+
+Reason: the developer verified that the containerized Slicer window appears in
+CRD on `:20.0`, but software rendering cannot validate the Intel iGPU path or
+the performance bottleneck that motivated the original rendering work.
+
 ## 2026-08-11 — Shared Windows/Linux launcher contract; SlicerROS2 stays Linux
 
 Status: accepted; Ubuntu runtime verified, Windows runtime acceptance pending

@@ -399,6 +399,43 @@ print(renderWindow.ReportCapabilities())
 Reject `llvmpipe` and `swrast` for the interactive workflow unless software
 rendering is an explicitly accepted diagnostic mode.
 
+### Chrome Remote Desktop virtual display
+
+Chrome Remote Desktop (CRD) creates a separate X11 desktop and normally does
+not use the physical console display `:0`. Open a terminal inside the CRD
+desktop and run the normal top-level launcher; do not export a remembered
+display number manually:
+
+```bash
+/home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash
+```
+
+The launcher inherits that terminal's current `DISPLAY`, passes it through
+Compose and the final `docker exec`, grants container root scoped X11 access
+with `xhost +SI:localuser:root`, and revokes that access on exit. `docker
+compose up -d` recreates the service when its display environment changed. A
+terminal multiplexer or a particular terminal application is not required.
+The current verified CRD session reported:
+
+```text
+DISPLAY=:20.0
+XAUTHORITY=/home/light-tarun/.Xauthority
+XDG_SESSION_TYPE=x11
+CHROME_REMOTE_DESKTOP_SESSION=1
+```
+
+On 2026-08-11 the developer confirmed that this launcher displayed container
+Slicer in the CRD desktop and opened DENTO Workflow. Closing Slicer ended the
+launcher; that observed termination was not an application-start failure.
+Future CRD sessions may receive a different display number, which is why the
+launcher must be started from a terminal in the currently viewed CRD session.
+
+CRD currently exposes `llvmpipe` software rendering on this workstation. Use
+it for functional workflow and visual correctness checks only, not for FPS,
+OpenGL, or GPU-performance acceptance. For hardware-rendering validation, use
+the physical graphical session through GNOME Desktop Sharing/RDP and confirm
+the Intel renderer with `ReportCapabilities()` or `glxinfo -B`.
+
 ### Verified DENTOBOT Intel integrated-graphics case
 
 This workstation uses Intel Arrow Lake-S integrated graphics, the `i915`

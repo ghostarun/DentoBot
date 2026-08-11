@@ -4,6 +4,11 @@ Last updated: 2026-08-11
 
 ## Active
 
+- Repeat the interactive rendering acceptance from the physical Ubuntu
+  graphical session through GNOME Desktop Sharing/RDP. Confirm Slicer reports
+  the Intel `iris` renderer rather than CRD's `llvmpipe`, then measure the
+  trajectory MPR and Step 5C interaction FPS. CRD is accepted only for
+  functional/visual checks.
 - Perform Windows 11 acceptance of the new native-Slicer/WSL2 launcher on a
   Windows workstation: PowerShell `-CheckOnly`, Slicer module discovery,
   backend health, synthetic NIfTI round trip, one cached CUDA segmentation,
@@ -213,6 +218,12 @@ dentist-focused 2D plan remains preserved in this task list and
 
 ## Completed
 
+- Verified containerized DENTO Workflow display through Chrome Remote Desktop
+  on 2026-08-11. Starting the normal top-level launcher from the active CRD
+  terminal inherited `DISPLAY=:20.0`, recreated/reconfigured the Compose
+  service as needed, granted temporary scoped X11 access, verified the backend,
+  and opened Slicer in DENTO Workflow. The CRD session used `llvmpipe`, so this
+  closes remote functional display only—not GPU-performance acceptance.
 - Added the semi-automatic Step 5A support-boundary initializer on 2026-08-11.
   A locked Markups plane uses trajectory-derived crown/root polarity, a robust
   selected-tooth crown-cap tilt estimate, and one configurable insertion-axis
