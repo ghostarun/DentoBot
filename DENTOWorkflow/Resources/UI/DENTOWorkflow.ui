@@ -526,7 +526,7 @@
            <string>Run a read-only backend and explicit-device health check. This does not install packages or download models.</string>
           </property>
           <property name="text">
-           <string>Check WSL + CUDA</string>
+           <string>Check Backend</string>
           </property>
          </widget>
         </item>
@@ -536,7 +536,7 @@
            <bool>false</bool>
           </property>
           <property name="toolTip">
-           <string>Export the selected volume to NIfTI, rewrite it in WSL, validate it, and import the returned volume.</string>
+           <string>Export the selected volume to NIfTI, process it in the configured external backend, validate it, and import the returned volume.</string>
           </property>
           <property name="text">
            <string>Test NIfTI Round Trip</string>
@@ -1827,11 +1827,28 @@
          </widget>
         </item>
         <item row="6" column="0">
+         <widget class="QLabel" name="templateTerminalSupportCoverageLabel">
+          <property name="text"><string>Terminal tooth coverage:</string></property>
+         </widget>
+        </item>
+        <item row="6" column="1">
+         <widget class="QDoubleSpinBox" name="templateTerminalSupportCoverageSpinBox">
+          <property name="toolTip"><string>Retain this inward percentage of each non-target tooth at the two ends of the selected support span. The target tooth is preserved when it is terminal, as in an edge-molar case. Adjacent unselected teeth remain collision-only anatomy.</string></property>
+          <property name="suffix"><string> %</string></property>
+          <property name="decimals"><number>0</number></property>
+          <property name="minimum"><double>25.000000000000000</double></property>
+          <property name="maximum"><double>100.000000000000000</double></property>
+          <property name="singleStep"><double>5.000000000000000</double></property>
+          <property name="value"><double>50.000000000000000</double></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateTerminalSupportCoveragePercent</string></property>
+         </widget>
+        </item>
+        <item row="7" column="0">
          <widget class="QLabel" name="visibleTemplateSupportModelLabel">
           <property name="text"><string>Visible support preview:</string></property>
          </widget>
         </item>
-        <item row="6" column="1">
+        <item row="7" column="1">
          <widget class="qMRMLNodeComboBox" name="visibleTemplateSupportModelSelector">
           <property name="toolTip"><string>Derived preview containing only the selected visible patient-contact support surface. It never replaces the authoritative segmentation.</string></property>
           <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
@@ -1842,7 +1859,73 @@
           <property name="SlicerParameterName" stdset="0"><string>visibleTemplateSupportModel</string></property>
          </widget>
         </item>
+        <item row="8" column="0">
+         <widget class="QLabel" name="templateSupportBoundaryPlaneLabel">
+          <property name="text"><string>Automatic support plane:</string></property>
+         </widget>
+        </item>
+        <item row="8" column="1">
+         <widget class="qMRMLNodeComboBox" name="templateSupportBoundaryPlaneSelector">
+          <property name="toolTip"><string>Locked plane used to initialize the editable visible-support boundary. Entry-to-Target defines crown/root polarity; selected crown caps estimate local occlusal tilt. Adjust its depth and fit percentage below.</string></property>
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
+          <property name="showChildNodeTypes"><bool>false</bool></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSupportBoundaryPlane</string></property>
+         </widget>
+        </item>
+        <item row="9" column="0">
+         <widget class="QLabel" name="templateSupportPlaneDepthLabel">
+          <property name="text"><string>Plane depth from Entry:</string></property>
+         </widget>
+        </item>
+        <item row="9" column="1">
+         <widget class="QDoubleSpinBox" name="templateSupportPlaneDepthSpinBox">
+          <property name="toolTip"><string>Move the locked plane only along Entry-to-Target. This is a research starting position, not an automatically detected gingival margin.</string></property>
+          <property name="suffix"><string> mm</string></property>
+          <property name="decimals"><number>1</number></property>
+          <property name="minimum"><double>-10.000000000000000</double></property>
+          <property name="maximum"><double>20.000000000000000</double></property>
+          <property name="singleStep"><double>0.500000000000000</double></property>
+          <property name="value"><double>3.000000000000000</double></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSupportPlaneDepthMm</string></property>
+         </widget>
+        </item>
+        <item row="10" column="0">
+         <widget class="QLabel" name="templateSupportCrownCapLabel">
+          <property name="text"><string>Crown-cap tilt fit:</string></property>
+         </widget>
+        </item>
+        <item row="10" column="1">
+         <widget class="QDoubleSpinBox" name="templateSupportCrownCapSpinBox">
+          <property name="toolTip"><string>Use this crownward percentage of each selected tooth to estimate the local occlusal-plane tilt. Entry-to-Target defines crown/root polarity. This is a geometric initializer, not gingival-margin detection.</string></property>
+          <property name="suffix"><string> %</string></property>
+          <property name="decimals"><number>0</number></property>
+          <property name="minimum"><double>5.000000000000000</double></property>
+          <property name="maximum"><double>30.000000000000000</double></property>
+          <property name="singleStep"><double>1.000000000000000</double></property>
+          <property name="value"><double>10.000000000000000</double></property>
+          <property name="SlicerParameterName" stdset="0"><string>templateSupportCrownCapPercent</string></property>
+         </widget>
+        </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="reviewSegmentationForTemplateButton">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Open the authoritative segmentation review controls. Inspect the new or corrected segmentation and explicitly set its workflow review state to Reviewed before generating derived template geometry.</string>
+        </property>
+        <property name="text">
+         <string>Open Segmentation Review</string>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QPushButton" name="createDraftTemplateSupportModelButton">
@@ -1871,12 +1954,30 @@
        </widget>
       </item>
       <item>
+       <layout class="QHBoxLayout" name="templateSupportPlaneButtonLayout">
+        <item>
+         <widget class="QPushButton" name="createTemplateSupportPlaneButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="toolTip"><string>Create or reset a locked plane whose polarity comes from Entry-to-Target and whose local tilt is fitted from selected crown caps. The position is controlled by Plane depth from Entry.</string></property>
+          <property name="text"><string>Create / Reset Support Plane</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="generateTemplateSupportBoundaryFromPlaneButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="toolTip"><string>Intersect the plane with every selected tooth, create one continuous editable outer boundary across the support group, and generate the visible support preview.</string></property>
+          <property name="text"><string>Generate Boundary + Preview</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
        <layout class="QHBoxLayout" name="templateSupportBoundaryButtonLayout">
         <item>
          <widget class="QPushButton" name="createTemplateSupportBoundaryButton">
           <property name="enabled"><bool>false</bool></property>
           <property name="toolTip"><string>Place one closed loop directly on the orange draft teeth near the intended gingival/cervical margin, then right-click to finish. The loop may address only a subset of the disconnected selected teeth; source anatomy is not modified.</string></property>
-          <property name="text"><string>Create / Redraw Support Boundary</string></property>
+          <property name="text"><string>Manual: Draw / Redraw Boundary</string></property>
          </widget>
         </item>
         <item>
@@ -2004,26 +2105,33 @@
              <property name="decimals"><number>1</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>45.000000000000000</double></property><property name="singleStep"><double>1.000000000000000</double></property><property name="suffix"><string> deg</string></property><property name="value"><double>5.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutAngleToleranceDeg</string></property>
             </widget>
            </item>
-           <item row="4" column="0"><widget class="QLabel" name="templateBlockoutSafetyLabel"><property name="text"><string>Blockout safety:</string></property></widget></item>
+           <item row="4" column="0"><widget class="QLabel" name="templateInterproximalReliefLabel"><property name="text"><string>Interproximal relief:</string></property></widget></item>
            <item row="4" column="1">
+            <widget class="QDoubleSpinBox" name="templateInterproximalReliefSpinBox">
+             <property name="toolTip"><string>Maximum transverse interdental/terminal embrasure opening to close in the insertion-frame collision blockout. Adjacent same-arch teeth are collision-only anatomy and never become fitting surfaces. Research default only.</string></property>
+             <property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>5.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>1.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateInterproximalReliefMm</string></property>
+            </widget>
+           </item>
+           <item row="5" column="0"><widget class="QLabel" name="templateBlockoutSafetyLabel"><property name="text"><string>Blockout safety:</string></property></widget></item>
+           <item row="5" column="1">
             <widget class="QDoubleSpinBox" name="templateBlockoutSafetySpinBox">
              <property name="toolTip"><string>Additional removable-fit clearance applied against the directional blockout. Research default only.</string></property>
              <property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>3.000000000000000</double></property><property name="singleStep"><double>0.050000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.100000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateBlockoutSafetyMm</string></property>
             </widget>
            </item>
-           <item row="5" column="0"><widget class="QLabel" name="templateShellVoxelClosingLabel"><property name="text"><string>Voxel closing:</string></property></widget></item>
-           <item row="5" column="1">
+           <item row="6" column="0"><widget class="QLabel" name="templateShellVoxelClosingLabel"><property name="text"><string>Voxel closing:</string></property></widget></item>
+           <item row="6" column="1">
             <widget class="QDoubleSpinBox" name="templateShellVoxelClosingSpinBox">
              <property name="toolTip"><string>Morphological closing radius for derived shell robustness. Clearance is re-enforced afterward.</string></property>
              <property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>5.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.300000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateShellVoxelClosingMm</string></property>
             </widget>
            </item>
-           <item row="6" column="0"><widget class="QLabel" name="templateUndercutSurfaceModelLabel"><property name="text"><string>Undercut preview:</string></property></widget></item>
-           <item row="6" column="1">
+           <item row="7" column="0"><widget class="QLabel" name="templateUndercutSurfaceModelLabel"><property name="text"><string>Undercut preview:</string></property></widget></item>
+           <item row="7" column="1">
             <widget class="qMRMLNodeComboBox" name="templateUndercutSurfaceModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutSurfaceModel</string></property></widget>
            </item>
-           <item row="7" column="0"><widget class="QLabel" name="templateUndercutBlockoutModelLabel"><property name="text"><string>Directional blockout:</string></property></widget></item>
-           <item row="7" column="1">
+           <item row="8" column="0"><widget class="QLabel" name="templateUndercutBlockoutModelLabel"><property name="text"><string>Directional blockout:</string></property></widget></item>
+           <item row="8" column="1">
             <widget class="qMRMLNodeComboBox" name="templateUndercutBlockoutModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>templateUndercutBlockoutModel</string></property></widget>
            </item>
           </layout>

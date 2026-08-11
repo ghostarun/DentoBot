@@ -4,6 +4,33 @@ Last updated: 2026-08-11
 
 ## Active
 
+- Perform Windows 11 acceptance of the new native-Slicer/WSL2 launcher on a
+  Windows workstation: PowerShell `-CheckOnly`, Slicer module discovery,
+  backend health, synthetic NIfTI round trip, one cached CUDA segmentation,
+  scene save/reload, cancellation, and path-with-spaces coverage. PowerShell
+  AST parsing is also pending because `pwsh` is unavailable on the Ubuntu
+  workstation. Do not claim Windows runtime verification until this passes.
+- Live-test the saved FDI 13–15 case after restarting/reloading DENTO Workflow:
+  regenerate the Step 5A preview with the 50 percent terminal-tooth coverage
+  default, confirm FDI 13 and 15 retain only their inward portions while target
+  FDI 14 remains fully supported, then regenerate undercut blockout and shell.
+  Inspect the 1.0 mm interproximal relief against actual contacts and corners.
+  Vary both exposed controls and test target-at-terminal edge-molar cases.
+  Geometry is a research approximation until phantom seating/removal and
+  clinician acceptance establish suitable values.
+- Live-test the new semi-automatic Step 5A support-boundary initializer on
+  representative premolar/molar, two-root, asymmetric-support, missing-tooth,
+  edge-molar, and tilted-arch cases. The implementation uses Entry→Target for
+  polarity, a selected-tooth crown-cap PCA fit for initial plane tilt, one
+  scalar depth from Entry, VTK surface intersections, and one resampled planar
+  outer envelope that initializes the existing editable Markups closed curve.
+  Confirm the locked plane and generated boundary remain current after scene
+  reload and that depth, tilt-fit percentage, polarity, trajectory, or curve
+  edits invalidate every dependent result. Manual curve editing remains the
+  correction path. Treat the 3 mm depth and 10 percent crown-cap fit as
+  research defaults; they do not detect the gingival margin. Continue to
+  evaluate labelled CBCT-only CEJ/alveolar-crest proxies and registered
+  intraoral/desktop surface scans before any clinical default is chosen.
 - Build the verification gate and single `FinalPrintableTemplate` output after
   the now-working undercut/docking fusion. Require current source snapshots, one intended
   connected watertight component, docking-axis/dimension checks, anatomy
@@ -74,10 +101,11 @@ Last updated: 2026-08-11
   material/process constraints, and Entry-on-surface semantics. Current UI
   values are editable research defaults only.
 
-- On the next authorized interactive launch, confirm DENTO Workflow displays
-  the launcher-managed backend Python and run-record root, keeps manual fields
-  disabled, and can run the bounded backend health check. Static configuration
-  and backend tests have passed; no Slicer GUI was launched for this change.
+- In the next Slicer session, rerun **Check Linux Backend** and then
+  retry the user-selected new-data segmentation. The external CPU backend,
+  cached weights, public-fixture inference, `pip check`, and all 13 backend
+  tests now pass; acceptance of the asynchronous UI import path on the new
+  dataset remains operator-observed work.
 
 - Compare interaction and FPS on the original visualization workload. The
   recreated service has already passed launcher preflight, direct Intel Mesa
@@ -185,6 +213,44 @@ dentist-focused 2D plan remains preserved in this task list and
 
 ## Completed
 
+- Added the semi-automatic Step 5A support-boundary initializer on 2026-08-11.
+  A locked Markups plane uses trajectory-derived crown/root polarity, a robust
+  selected-tooth crown-cap tilt estimate, and one configurable insertion-axis
+  depth. It cuts every selected tooth, joins the disconnected planar contours
+  into one resampled editable boundary, and runs the existing visible-support
+  extraction. The real `SampleStudy1/test1_5a.mrb` case intersected all three
+  selected teeth and generated an 83-point boundary plus a 1,460-point/
+  2,566-cell preview with zero omissions. Focused review-gate, draft-model,
+  manual-boundary, automatic-plane, stale-state, deletion, and MRB reload
+  regressions passed. Terminal support clipping now uses each end tooth's
+  adjacent selected tooth in the insertion frame rather than a crown/root
+  split.
+- Added the shared Windows/Linux backend runtime contract on 2026-08-11.
+  Linux now exports explicit `local`/`cpu` settings through Compose; Windows
+  has a tracked data-only configuration example and PowerShell launcher for
+  native Slicer plus WSL2 inference. Added a Slicer-independent platform
+  helper and five passing ordinary-Python tests. Core Windows planning does
+  not require Docker; current SlicerROS2 remains assigned to the verified
+  Linux profile.
+- Restored the active Ubuntu CPU TotalSegmentator backend on 2026-08-11. The
+  external Conda environment now has the complete pinned stack, including the
+  matched official CPU `torch==2.10.0+cpu` and
+  `torchvision==0.25.0+cpu` wheels. Compose/launcher persistence now supplies
+  and verifies the cache-only TotalSegmentator home. A bundled public CBCT run
+  passed geometry and label validation in 329.216 seconds with 54 detected
+  labels and 579,353 foreground voxels; `pip check`, CPU health, and 13 backend
+  tests passed in the application container.
+
+- Added insertion-frame undercut/removability processing on 2026-08-11. The
+  blockout now uses substantive same-arch authoritative tooth surfaces as
+  collision-only anatomy, performs configurable transverse interproximal
+  relief, and persists those parameters and source IDs. Added configurable
+  inward partial coverage of non-target terminal support teeth, protected
+  target-terminal edge cases, and applied the same world-RAS clip planes after
+  bridge union/closing. The saved Scene_5b resolved from six shell components
+  without relief to one watertight 31,240-triangle component with relief and
+  terminal clipping; focused math, shell fallback, full MRML save/reload,
+  docking/fusion, XML, AST, and static checks passed.
 - Replaced global Smaller/Larger support-side selection on 2026-08-11 with
   trajectory-directed per-tooth candidate scoring and an optional single
   polarity reversal. The preview now counts authoritative tooth segment IDs,

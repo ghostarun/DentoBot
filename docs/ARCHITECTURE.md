@@ -32,7 +32,26 @@ The boundaries are deliberate. Slicer owns interactive medical-image state;
 an isolated external interpreter owns dependency-heavy compute; the robot
 runtime owns hardware safety and real-time behavior.
 
-### Ubuntu launcher-supplied runtime configuration
+### Shared launcher-supplied runtime configuration
+
+Windows and Ubuntu launchers now provide one non-persistent contract:
+
+```text
+DENTOBOT_BACKEND_EXECUTION_MODE=local|wsl
+DENTOBOT_WSL_DISTRIBUTION=<required only for wsl>
+DENTOBOT_BACKEND_PYTHON=<absolute Linux interpreter>
+DENTOBOT_RUN_ARTIFACT_ROOT=<Slicer-visible absolute path>
+DENTOBOT_BACKEND_DEVICE=cpu|cuda:0
+```
+
+`DENTOPlatform.py` validates this boundary, converts local Windows drive paths
+to WSL `/mnt/<drive>` paths, and constructs shell-free command arguments.
+Native Windows Slicer is launched by `launch-dentoworkflow.ps1`; Ubuntu uses
+`launch-dentoworkflow.bash` and the pinned SlicerROS2 Linux container. Neither
+launcher installs inference dependencies into Slicer or persists workstation
+paths into the MRB scene.
+
+### Ubuntu tracked workspace layer
 
 The active Ubuntu checkout adds a tracked `Workspace/` layer without moving
 the ROS package or rewriting Git history. Its launcher, Compose definition,
@@ -594,15 +613,21 @@ The initial implementation is a simulator. The hardware adapter and transport
 (vendor SDK, local IPC, TCP, serial, or another protocol) are selected only
 after robot requirements are known.
 
-ROS/ROS2 is reconsidered if the project needs existing robot drivers, MoveIt,
-distributed nodes, standardized transform tooling, or a broader robotics
-ecosystem. It is not adopted merely as a message transport. Regardless of
-transport, low-level motion and safety never run in the Slicer Python process.
+ROS 2/SlicerROS2 is an optional robot-integration capability, not a dependency
+of Steps 0–5. The verified profile is Ubuntu/Jazzy/Linux SlicerROS2. Upstream
+SlicerROS2 1.2 currently targets Ubuntu 24.04 with source-built Slicer
+5.10/5.12, so native Windows Slicer remains the non-ROS planning profile and
+does not require Docker. A Docker Desktop/WSL2 Linux-GUI profile is unverified.
+Regardless of transport, low-level motion and safety never run in the Slicer
+Python process.
 
 ## Packaging and deployment
 
-- Development: official pinned Slicer version plus source extension path.
-- AI backend: documented WSL2 distro, isolated environment, locked Python
+- Windows planning development: native pinned Slicer plus source extension
+  path and WSL2 inference; Docker is not required.
+- Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
+  extension path.
+- AI backend: isolated Linux environment, platform-specific locked Python
   dependencies, model cache, and health check.
 - Workflow release: packaged DENTOBOT extension plus backend setup guide.
 - Final research application: custom Slicer package with DENTO modules

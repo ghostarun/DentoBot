@@ -4,6 +4,49 @@ DENTOBOT is an academic research prototype for a focused dental
 image-guidance workflow built on 3D Slicer. It is not validated clinical
 software and does not authorize drilling or patient treatment.
 
+## Supported runtime profiles
+
+DENTOWorkflow uses the same MRML, planning, and geometry code on Windows and
+Linux. Only the external-process and deployment adapters differ:
+
+| Host profile | Slicer process | Inference process | Docker | SlicerROS2 |
+|---|---|---|---|---|
+| Windows 11 | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required | Not in the supported Windows planning profile |
+| Ubuntu | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python | Required by the current verified profile | Included |
+
+The inference stack is never installed into Slicer's embedded Python. Both
+profiles launch the exact external Linux interpreter, exchange NIfTI plus
+JSON in isolated run folders, and pass the device explicitly.
+
+### Windows 11 + WSL2
+
+Copy and edit the machine-local example, then launch native Windows Slicer:
+
+```powershell
+Copy-Item Workspace\.dentobot.windows.env.example .dentobot.windows.env
+powershell -ExecutionPolicy Bypass -File `
+  Workspace\scripts\launch-dentoworkflow.ps1 -CheckOnly
+powershell -ExecutionPolicy Bypass -File `
+  Workspace\scripts\launch-dentoworkflow.ps1
+```
+
+The Windows launcher validates Slicer, the named WSL distribution, the exact
+Linux backend interpreter, the requested CPU/CUDA device, and a local Windows
+run-record directory before opening DENTO Workflow. Docker Desktop is not
+needed for segmentation, planning, template generation, verification, or STL
+export.
+
+Current upstream SlicerROS2 1.2 compatibility targets Ubuntu 24.04, ROS 2
+Jazzy, and source-built Slicer 5.10/5.12. A Linux CI image is provided, but a
+native Windows SlicerROS2 build is not an upstream tested target. Therefore,
+robot/ROS-integrated DENTOBOT work uses the verified Ubuntu profile. Running
+the Linux GUI image through Docker Desktop/WSL2 is possible to investigate,
+but it is not yet a supported or verified DENTOBOT Windows profile.
+
+Official references: [SlicerROS2 compatibility](https://slicer-ros2.readthedocs.io/en/devel/pages/compatibility.html),
+[SlicerROS2 getting started](https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html), and
+[SlicerROS2 CI image](https://slicer-ros2.readthedocs.io/en/devel/pages/ci-docker-image.html).
+
 ## Ubuntu workspace orchestration
 
 The existing repository remains at `ros2_ws/src/DentoBot`. Its tracked

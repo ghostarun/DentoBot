@@ -1,15 +1,131 @@
-# Dentobot Ubuntu Workstation Setup
+# DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-06
+Last verified: 2026-08-11
 
 ## Scope
 
-This file describes the active IITM lab workstation running Ubuntu. The older
-Windows development documents in Google Drive are reference material only and
-must not be treated as the current setup unless a step is explicitly migrated
-and verified here.
+This file defines the shared deployment contract and the two supported host
+profiles. The active IITM workstation remains the fully verified Ubuntu
+profile. The Windows profile preserves native Windows Slicer with a WSL2
+Linux inference backend and now has a tracked launcher; its final runtime
+acceptance must be repeated on a Windows 11 workstation.
 
-## Workspace
+| Host profile | Slicer | External inference | Docker | ROS/SlicerROS2 |
+|---|---|---|---|---|
+| Windows 11 | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported by the current Windows launcher |
+| Ubuntu | Pinned Linux SlicerROS2 image | Direct Linux Python | Required by the verified profile | Included and verified |
+
+The planning/template workflow is Slicer/MRML code and remains shared. Never
+install PyTorch, TotalSegmentator, nnU-Net, or the DENTOBOT inference package
+into Slicer's embedded Python on either platform.
+
+## Windows 11 + WSL2 profile
+
+### Boundary and prerequisites
+
+Use native Windows Slicer for DICOM, MRML, visualization, planning, geometry,
+and export. Use an Ubuntu WSL2 distribution only for the dependency-heavy
+Linux inference package. The process boundary is `wsl.exe --distribution ...
+--exec <absolute-linux-python>`; Conda activation in another console has no
+effect on Slicer.
+
+Required components:
+
+- Windows 11 with WSL2 and an Ubuntu distribution;
+- a native Windows Slicer version compatible with DENTOWorkflow (the prior
+  project baseline used Slicer 5.12.x);
+- the DENTOBOT inference environment installed inside WSL2;
+- for CUDA, an NVIDIA Windows driver exposing CUDA to WSL2 and the repository's
+  pinned CUDA PyTorch profile;
+- cached TotalSegmentator tasks 113, 115, and 298; and
+- a local Windows run-record root such as `C:\DENTOBOTRuns`.
+
+Do not use a DICOM source directory, removable media, UNC path, or network
+share as the run-record root. DENTOWorkflow maps an absolute local drive path
+to WSL's `/mnt/<drive>/...` form and rejects UNC paths.
+
+### WSL backend installation
+
+From an Ubuntu WSL2 shell, use the validated environment manifests:
+
+```bash
+cd /mnt/c/path/to/DentoBot/Inference
+conda env create -f environment.yml
+conda activate dentobot
+python -m pip install \
+  --index-url https://download.pytorch.org/whl/cu130 \
+  -r requirements/pytorch-cu130.txt
+python -m pip install \
+  --constraint requirements/validated-constraints.txt \
+  -r requirements/runtime-validated.txt
+python -m pip install --no-deps -e .
+python -m pip install \
+  --constraint requirements/validated-constraints.txt \
+  -r requirements/test-validated.txt
+python -m pip check
+python -m pytest -q
+python -m dentobot_inference health --json --require-device cuda:0
+```
+
+Model acquisition is a separate explicit setup action, never a Slicer launch
+side effect:
+
+```bash
+totalseg_download_weights -t craniofacial_structures
+totalseg_download_weights -t teeth
+```
+
+### Windows launcher
+
+From PowerShell in the repository root:
+
+```powershell
+Copy-Item Workspace\.dentobot.windows.env.example .dentobot.windows.env
+notepad .dentobot.windows.env
+
+powershell -ExecutionPolicy Bypass -File `
+  Workspace\scripts\launch-dentoworkflow.ps1 -CheckOnly
+powershell -ExecutionPolicy Bypass -File `
+  Workspace\scripts\launch-dentoworkflow.ps1
+```
+
+The launcher reads the configuration as data (it does not execute it), checks
+the Slicer executable and module source, runs the exact WSL backend health
+command, creates the local artifact root, and supplies this non-persistent
+runtime contract to Slicer:
+
+```text
+DENTOBOT_BACKEND_EXECUTION_MODE=wsl
+DENTOBOT_WSL_DISTRIBUTION=<exact distro>
+DENTOBOT_BACKEND_PYTHON=<absolute WSL Linux path>
+DENTOBOT_RUN_ARTIFACT_ROOT=<absolute local Windows path>
+DENTOBOT_BACKEND_DEVICE=cpu|cuda:0
+```
+
+Machine paths are not written into new MRB scenes when launcher configuration
+is active. The UI retains a visible advanced manual override for recovery.
+
+### Does Windows require Docker for SlicerROS2?
+
+No Docker is required for the current DENTOBOT imaging, segmentation,
+planning, template, verification, or export workflow. Those stages do not use
+ROS APIs.
+
+Current upstream SlicerROS2 1.2 explicitly targets Ubuntu 24.04, ROS 2 Jazzy,
+and source-built Slicer 5.10/5.12; its published CI image is Linux. Therefore
+the supported ROS-integrated DENTOBOT profile remains Ubuntu. Do not try to
+load its Linux binaries into native Windows Slicer. Hosting the Linux GUI
+container through Docker Desktop/WSL2 would replace native Windows Slicer and
+adds unverified GUI/GPU, DDS networking, device, and robot-connectivity
+boundaries. It is an experimental future profile, not a setup requirement.
+
+References:
+
+- https://slicer-ros2.readthedocs.io/en/devel/pages/compatibility.html
+- https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html
+- https://slicer-ros2.readthedocs.io/en/devel/pages/ci-docker-image.html
+
+## Ubuntu workspace
 
 - Repository/workspace root: `/home/light-tarun/dentobot`
 - ROS 2 workspace: `/home/light-tarun/dentobot/ros2_ws`
@@ -52,6 +168,10 @@ ros2_ws/src/DentoBot/Workspace/bootstrap-workspace.bash
 - Host ROS package count after sourcing Lyrical: 287
 - Host default RMW: `rmw_fastrtps_cpp`
 - Dedicated backend test runner: pytest 8.4.2
+- External CPU inference stack: DENTOBOT inference 0.2.0, Python 3.12.13,
+  NumPy 2.2.6, NiBabel 5.4.2, PyTorch 2.10.0+cpu,
+  torchvision 0.25.0+cpu, TotalSegmentator 2.16.0, nnUNet v2 2.8.1, and
+  OpenVINO 2026.2.0
 
 ## Host ROS 2 setup
 
@@ -116,6 +236,8 @@ MoveIt.
 - ROS domain ID 73 by default, overridable with
   `DENTOBOT_ROS_DOMAIN_ID` when Compose is invoked
 - ROS automatic discovery range `SUBNET`
+- TotalSegmentator cache path supplied as `TOTALSEG_HOME_DIR`, normally
+  `/workspace/data/model-cache/totalsegmentator`
 - Workspace, data, and Slicer configuration bind mounts
 - Long-running `sleep infinity` command for interactive development
 
@@ -174,13 +296,19 @@ Machine-specific configuration is stored only in the untracked workspace file
 
 ```bash
 DENTOBOT_BACKEND_PYTHON=/home/light-tarun/miniconda3/envs/dentobot/bin/python
+DENTOBOT_BACKEND_EXECUTION_MODE=local
+DENTOBOT_BACKEND_DEVICE=cpu
 DENTOBOT_RENDER_DEVICE=/dev/dri/renderD128
 DENTOBOT_RUN_ARTIFACT_ROOT=/workspace/data/dentobot-runs
+DENTOBOT_TOTALSEG_HOME_DIR=/workspace/data/model-cache/totalsegmentator
 ```
 
 The launcher validates this file and exports a small runtime contract:
 
 - `DENTOBOT_BACKEND_PYTHON`: exact external backend interpreter;
+- `DENTOBOT_BACKEND_EXECUTION_MODE=local`: Linux starts that interpreter
+  directly rather than prepending `wsl.exe`;
+- `DENTOBOT_BACKEND_DEVICE=cpu`: explicit device for health and segmentation;
 - `DENTOBOT_BACKEND_ENV_DIR`: derived Conda environment directory mounted
   read-only at the same absolute path in the container;
 - `DENTOBOT_RENDER_DEVICE`: host/container GPU render node;
@@ -446,12 +574,23 @@ Run the full software-only synthetic Bridge B test with:
 /home/light-tarun/dentobot/scripts/test-mrml-nifti-roundtrip.bash
 ```
 
-The current Conda environment remains deliberately minimal. It supports the
-current Bridge B round-trip workflow and its pytest-based unit suite, but it
-does not contain PyTorch,
-TotalSegmentator, CUDA model dependencies, or model weights. DENTO Workflow's
-full segmentation-backend health check is therefore expected to report those
-components as missing until the separate inference environment is migrated.
+The external Conda environment now owns the complete verified Ubuntu CPU
+segmentation stack. Install both `torch==2.10.0+cpu` and
+`torchvision==0.25.0+cpu` from the official PyTorch CPU wheel index before
+resolving `Inference/requirements/ubuntu-cpu.txt`; the generic torchvision
+wheel is not an accepted substitute because its compiled operators may not
+match CPU-only PyTorch. `Infrastructure/install_ubuntu_backend.sh` encodes
+this order, and the launcher checks every pinned top-level version, the model
+cache directory, and `dentobot_inference health --require-device cpu` before
+opening Slicer.
+
+Cached model tasks 113, 115, and 298 are stored below
+`/workspace/data/model-cache/totalsegmentator`. Routine health and inference
+runs are cache-only and must fail rather than download weights. The bundled
+public 360 x 360 x 330 CBCT fixture completed task 113 on CPU on 2026-08-11 in
+329.216 seconds, with matching input/output geometry, 54 detected labels, and
+579,353 foreground voxels. Evidence is retained below
+`data/dentobot-runs/ubuntu-cpu-conda-20260811-02`.
 
 This is synthetic Bridge B evidence. It does not verify DICOM import,
 real-CBCT geometry, segmentation labels, the interactive asynchronous

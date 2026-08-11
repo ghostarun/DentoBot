@@ -44,9 +44,13 @@ from DENTOTemplateGeometry import (
     create_directional_blockout,
     create_research_shell,
     create_support_boundary_bridge,
+    estimate_crown_cap_support_plane_normal,
     extract_directional_visible_support_surface,
+    insertion_aligned_support_boundary_loop,
+    largest_connected_surface_region,
     model_polydata_in_world,
     regularize_patient_contact_shell,
+    remove_single_voxel_surface_speckles,
     surface_topology,
     write_stl_atomic,
 )
@@ -54,6 +58,19 @@ from DENTOGuideGeometry import (
     create_multi_trajectory_docking_geometry,
     fuse_shell_and_docking_voxel,
     normalize_docking_parameters,
+)
+from DENTOPlatform import (
+    BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
+    BACKEND_PYTHON_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_PYTHON_ENVIRONMENT_VARIABLE,
+    EXECUTION_MODE_ENVIRONMENT_VARIABLE,
+    RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE as PLATFORM_RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE,
+    SUPPORTED_BACKEND_DEVICES,
+    SUPPORTED_EXECUTION_MODES,
+    WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE as PLATFORM_WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE,
+    build_backend_python_command,
+    default_execution_mode,
+    launcher_backend_configuration,
+    windows_path_to_wsl_path,
 )
 
 
@@ -76,12 +93,17 @@ class DENTOWorkflowParameterNode:
     templateSupportToothSegmentIdsJson: str = "[]"
     draftTemplateSupportModel: vtkMRMLModelNode
     templateSupportBoundaryCurve: vtkMRMLMarkupsClosedCurveNode
+    templateSupportBoundaryPlane: vtkMRMLMarkupsPlaneNode
+    templateSupportPlaneDepthMm: float = 3.0
+    templateSupportCrownCapPercent: float = 10.0
     templateSupportCurveSamplingSpacingMm: float = 0.5
+    templateTerminalSupportCoveragePercent: float = 50.0
     templateSupportSelectionMode: str = "Smallest"
     templateSupportDirectionReversed: bool = False
     visibleTemplateSupportModel: vtkMRMLModelNode
     templateInsertionDirection: vtkMRMLMarkupsLineNode
     templateUndercutAngleToleranceDeg: float = 5.0
+    templateInterproximalReliefMm: float = 1.0
     templateBlockoutSafetyMm: float = 0.1
     templateShellVoxelClosingMm: float = 0.3
     templateUndercutSurfaceModel: vtkMRMLModelNode
@@ -222,6 +244,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "DENTOBOT.MarkupsRole",
             "TemplateSupportBoundary",
         )
+        self.ui.templateSupportBoundaryPlaneSelector.addAttribute(
+            "vtkMRMLMarkupsPlaneNode",
+            "DENTOBOT.MarkupsRole",
+            "TemplateSupportBoundaryPlane",
+        )
         self.ui.visibleTemplateSupportModelSelector.addAttribute(
             "vtkMRMLModelNode",
             "DENTOBOT.ModelRole",
@@ -283,16 +310,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
             self.ui.backendDescriptionLabel.text = _(
                 "Slicer owns UI and MRML. A separate Python environment in the "
-                "Ubuntu container owns dependency-heavy inference."
+                "Linux runtime owns dependency-heavy inference."
             )
-            self.ui.checkBackendButton.text = _("Check Ubuntu Backend")
+            self.ui.checkBackendButton.text = _("Check Linux Backend")
             self.ui.roundTripButton.toolTip = _(
                 "Export the selected volume to NIfTI, rewrite it in the "
-                "isolated Ubuntu backend, validate it, and import it."
+                "isolated Linux backend, validate it, and import it."
             )
-            self.ui.segmentTeethButton.text = _("Run Teeth Segmentation (CPU)")
         else:
-            self.ui.useLauncherBackendConfigurationCheckBox.visible = False
+            self.ui.backendDescriptionLabel.text = _(
+                "Native Windows Slicer owns UI and MRML. The dedicated Linux "
+                "inference environment runs through WSL2."
+            )
+            self.ui.checkBackendButton.text = _("Check WSL Backend")
+            self.ui.roundTripButton.toolTip = _(
+                "Export the selected volume to a local Windows run folder, "
+                "process it in WSL2, validate it, and import it."
+            )
 
         self.ui.newCaseButton.connect("clicked(bool)", self.onNewCase)
         self.ui.openSceneButton.connect("clicked(bool)", self.onOpenScene)
@@ -409,6 +443,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onCreateDraftTemplateSupportModel,
         )
+        self.ui.reviewSegmentationForTemplateButton.connect(
+            "clicked(bool)",
+            self.onReviewSegmentationForTemplate,
+        )
         self.ui.deleteDraftTemplateSupportModelButton.connect(
             "clicked(bool)",
             self.onDeleteDraftTemplateSupportModel,
@@ -424,6 +462,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.createTemplateSupportBoundaryButton.connect(
             "clicked(bool)",
             self.onCreateTemplateSupportBoundary,
+        )
+        self.ui.createTemplateSupportPlaneButton.connect(
+            "clicked(bool)",
+            self.onCreateTemplateSupportPlane,
+        )
+        self.ui.generateTemplateSupportBoundaryFromPlaneButton.connect(
+            "clicked(bool)",
+            self.onGenerateTemplateSupportBoundaryFromPlane,
         )
         self.ui.generateVisibleTemplateSupportModelButton.connect(
             "clicked(bool)",
@@ -491,6 +537,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         for parameterWidget in (
             self.ui.templateUndercutAngleToleranceSpinBox,
+            self.ui.templateInterproximalReliefSpinBox,
             self.ui.templateBlockoutSafetySpinBox,
             self.ui.templateShellVoxelClosingSpinBox,
             self.ui.templateDockingClearanceSpinBox,
@@ -502,6 +549,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.onTemplateGuideInputChanged,
             )
         self.ui.templateSupportCurveSamplingSpacingSpinBox.connect(
+            "valueChanged(double)",
+            self.onTemplateSupportSurfaceParameterChanged,
+        )
+        self.ui.templateSupportPlaneDepthSpinBox.connect(
+            "valueChanged(double)",
+            self.onTemplateSupportPlaneDepthChanged,
+        )
+        self.ui.templateSupportCrownCapSpinBox.connect(
+            "valueChanged(double)",
+            self.onTemplateSupportPlaneDepthChanged,
+        )
+        self.ui.templateTerminalSupportCoverageSpinBox.connect(
             "valueChanged(double)",
             self.onTemplateSupportSurfaceParameterChanged,
         )
@@ -1565,6 +1624,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 .replace("%1", state)
             )
             self.ui.segmentationReviewStatusLabel.styleSheet = "color: #207227;"
+            self._updateTemplateModeling()
         except ValueError as exc:
             slicer.util.errorDisplay(str(exc))
 
@@ -3159,6 +3219,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.templateSupportTeethListWidget.enabled = False
             self.ui.draftTemplateSupportModelSelector.setCurrentNode(None)
             self.ui.templateSupportBoundaryCurveSelector.setCurrentNode(None)
+            self.ui.templateSupportBoundaryPlaneSelector.setCurrentNode(None)
             self.ui.visibleTemplateSupportModelSelector.setCurrentNode(None)
             self.ui.templateSupportDirectionValueLabel.text = _(
                 "Select a complete target trajectory in Step 4A."
@@ -3169,8 +3230,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.createDraftTemplateSupportModelButton.text = _(
                 "Create Draft Support Model"
             )
+            self.ui.createDraftTemplateSupportModelButton.toolTip = _(
+                "Create one draft model from the reviewed target and checked "
+                "support teeth. Source segmentation surfaces are not modified."
+            )
+            self.ui.reviewSegmentationForTemplateButton.visible = False
+            self.ui.reviewSegmentationForTemplateButton.enabled = False
             self.ui.deleteDraftTemplateSupportModelButton.enabled = False
             self.ui.createTemplateSupportBoundaryButton.enabled = False
+            self.ui.createTemplateSupportPlaneButton.enabled = False
+            self.ui.generateTemplateSupportBoundaryFromPlaneButton.enabled = False
             self.ui.generateVisibleTemplateSupportModelButton.enabled = False
             self.ui.deleteTemplateSupportSelectionButton.enabled = False
             self.ui.templateModelingStatusLabel.text = _(
@@ -3485,21 +3554,37 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except ValueError as exc:
                 modelError = str(exc)
 
-        if (
-            modelSummary
-            and (
+        if modelSummary:
+            automaticSelectionStaleReason = _(
+                "Current target or support-tooth selection differs."
+            )
+            selectionDiffers = bool(
                 modelSummary["sourceSegmentation"] is not segmentationNode
                 or modelSummary["targetSegmentId"] != targetSegmentId
-                or modelSummary["supportSegmentIds"] != selectedSupportIds
+                or set(modelSummary["supportSegmentIds"])
+                != set(persistedSupportIds)
             )
-        ):
-            self.logic.markDraftTemplateSupportModelStale(
-                modelNode,
-                _("Current target or support-tooth selection differs."),
-            )
-            modelSummary = self.logic.getDraftTemplateSupportModelSummary(
-                modelNode
-            )
+            if selectionDiffers:
+                self.logic.markDraftTemplateSupportModelStale(
+                    modelNode,
+                    automaticSelectionStaleReason,
+                )
+                modelSummary = self.logic.getDraftTemplateSupportModelSummary(
+                    modelNode
+                )
+            elif (
+                modelSummary["geometryState"] == "Stale"
+                and modelSummary["staleReason"] == automaticSelectionStaleReason
+            ):
+                # A scene-load UI refresh can transiently expose an empty list.
+                # The persisted IDs and model provenance are authoritative; if
+                # they agree again, clear only this automatically-created stale
+                # state. Never clear content/edit staleness here.
+                modelNode.SetAttribute("DENTOBOT.GeometryState", "Current")
+                modelNode.SetAttribute("DENTOBOT.StaleReason", None)
+                modelSummary = self.logic.getDraftTemplateSupportModelSummary(
+                    modelNode
+                )
 
         reviewState = (
             self.logic.getSegmentationReviewState(segmentationNode)
@@ -3521,6 +3606,27 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if modelSummary
             else _("Create Draft Support Model")
         )
+        needsReview = bool(segmentationNode and reviewState != "Reviewed")
+        self.ui.reviewSegmentationForTemplateButton.visible = needsReview
+        self.ui.reviewSegmentationForTemplateButton.enabled = needsReview
+        self.ui.reviewSegmentationForTemplateButton.text = (
+            _("Open Segmentation Review (%1)").replace(
+                "%1",
+                reviewState or _("Unreviewed"),
+            )
+        )
+        if needsReview:
+            self.ui.createDraftTemplateSupportModelButton.toolTip = _(
+                "Blocked because the authoritative segmentation is %1. "
+                "Open Segmentation Review, inspect it, and explicitly set "
+                "Review state to Reviewed."
+            ).replace("%1", reviewState or _("Unreviewed"))
+        else:
+            self.ui.createDraftTemplateSupportModelButton.toolTip = _(
+                "Create or explicitly update one draft model from the target "
+                "and all checked support teeth. Source segmentation surfaces "
+                "are not modified."
+            )
         self.ui.deleteDraftTemplateSupportModelButton.enabled = bool(
             modelNode
             and self.logic.isDraftTemplateSupportModelNode(modelNode)
@@ -3547,9 +3653,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
             style = "color: #b00020;"
         elif reviewState != "Reviewed":
-            message = _(
-                "Mark the authoritative segmentation Reviewed before creating "
-                "or updating the draft model."
+            message = (
+                _(
+                    "Blocked: this segmentation is %1. Your %2 checked support "
+                    "teeth are valid and preserved. Select Open Segmentation "
+                    "Review, inspect the result, and set Review state to "
+                    "Reviewed before creating derived template geometry."
+                )
+                .replace("%1", reviewState or _("Unreviewed"))
+                .replace("%2", str(len(selectedSupportIds)))
             )
             style = "color: #b36b00;"
         elif not selectedSupportIds:
@@ -3592,6 +3704,37 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.templateModelingStatusLabel.styleSheet = style
         self._updateVisibleTemplateSupportSurfaceControls(modelSummary)
 
+    def onReviewSegmentationForTemplate(self) -> None:
+        """Reveal the authoritative review gate without approving it implicitly."""
+
+        if not self._parameterNode or not self.logic:
+            return
+        segmentationNode = self._parameterNode.teethSegmentation
+        if not segmentationNode:
+            slicer.util.errorDisplay(
+                _("Select the authoritative dental segmentation first.")
+            )
+            return
+        if self.ui.reviewSegmentationSelector.currentNode() is not segmentationNode:
+            self.ui.reviewSegmentationSelector.setCurrentNode(segmentationNode)
+        self.ui.templateModelingCollapsibleButton.collapsed = True
+        self.ui.segmentationReviewCollapsibleButton.collapsed = False
+
+        def focusReviewState() -> None:
+            self.ui.reviewStateComboBox.setFocus(qt.Qt.OtherFocusReason)
+            ancestor = self.ui.reviewStateComboBox.parent()
+            while ancestor:
+                if ancestor.inherits("QScrollArea"):
+                    ancestor.ensureWidgetVisible(
+                        self.ui.reviewStateComboBox,
+                        20,
+                        20,
+                    )
+                    break
+                ancestor = ancestor.parent()
+
+        qt.QTimer.singleShot(0, focusReviewState)
+
     def _updateVisibleTemplateSupportSurfaceControls(
         self,
         sourceSummary: dict | None,
@@ -3600,17 +3743,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         sourceModel = self._parameterNode.draftTemplateSupportModel
         curveNode = self._parameterNode.templateSupportBoundaryCurve
+        planeNode = self._parameterNode.templateSupportBoundaryPlane
         previewModel = self._parameterNode.visibleTemplateSupportModel
         directionTrajectory = self._parameterNode.trajectoryLine
         reverseDirection = bool(
             self._parameterNode.templateSupportDirectionReversed
         )
         spacing = float(self._parameterNode.templateSupportCurveSamplingSpacingMm)
+        terminalCoveragePercent = float(
+            self._parameterNode.templateTerminalSupportCoveragePercent
+        )
 
         self._updatingTemplateUI = True
         try:
             if self.ui.templateSupportBoundaryCurveSelector.currentNode() is not curveNode:
                 self.ui.templateSupportBoundaryCurveSelector.setCurrentNode(curveNode)
+            if self.ui.templateSupportBoundaryPlaneSelector.currentNode() is not planeNode:
+                self.ui.templateSupportBoundaryPlaneSelector.setCurrentNode(planeNode)
             if self.ui.visibleTemplateSupportModelSelector.currentNode() is not previewModel:
                 self.ui.visibleTemplateSupportModelSelector.setCurrentNode(previewModel)
             self.ui.flipTemplateSupportDirectionButton.checked = reverseDirection
@@ -3661,6 +3810,54 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except (RuntimeError, ValueError) as exc:
                 curveError = str(exc)
 
+        planeError = ""
+        if planeNode:
+            try:
+                self.logic.validateTemplateSupportBoundaryPlane(
+                    sourceModel,
+                    planeNode,
+                    directionTrajectory,
+                )
+                if (
+                    directionSummary
+                    and planeNode.GetAttribute("DENTOBOT.DirectionGeometryJson")
+                    != directionSummary["directionGeometryJson"]
+                ):
+                    raise ValueError(
+                        _(
+                            "The target trajectory or polarity changed. Reset "
+                            "the insertion-aligned support plane."
+                        )
+                    )
+                if not math.isclose(
+                    float(
+                        planeNode.GetAttribute("DENTOBOT.DepthFromEntryMm")
+                        or "nan"
+                    ),
+                    float(self._parameterNode.templateSupportPlaneDepthMm),
+                    rel_tol=0.0,
+                    abs_tol=1e-8,
+                ):
+                    raise ValueError(
+                        _("The support-plane depth changed. Reset the support plane.")
+                    )
+                if not math.isclose(
+                    float(
+                        planeNode.GetAttribute("DENTOBOT.CrownCapPercent")
+                        or "nan"
+                    ),
+                    float(self._parameterNode.templateSupportCrownCapPercent),
+                    rel_tol=0.0,
+                    abs_tol=1e-8,
+                ):
+                    raise ValueError(
+                        _(
+                            "The crown-cap tilt fit changed. Reset the support plane."
+                        )
+                    )
+            except (RuntimeError, ValueError) as exc:
+                planeError = str(exc)
+
         previewSummary = None
         previewError = ""
         if previewModel:
@@ -3683,7 +3880,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 sourceModel.GetAttribute("DENTOBOT.UpdatedUtc") or ""
             ):
                 staleReason = _("The full support-anatomy geometry was updated.")
-            elif curveGeometryJson and previewSummary["boundaryGeometryJson"] != curveGeometryJson:
+            elif curveGeometryJson and not self.logic.templateSupportBoundaryMatchesGeometryJson(
+                curveNode,
+                previewSummary["boundaryGeometryJson"],
+            ):
                 staleReason = _("The visible support boundary geometry changed.")
             elif previewSummary["selectionMode"] != "TrajectoryDirection":
                 staleReason = _(
@@ -3707,6 +3907,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 abs_tol=1e-9,
             ):
                 staleReason = _("The boundary sampling spacing changed.")
+            elif not math.isclose(
+                previewSummary["terminalSupportCoveragePercent"],
+                terminalCoveragePercent,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                staleReason = _("The terminal support-tooth coverage changed.")
             if staleReason:
                 self._invalidateTemplateSupportSurfaceDownstream(staleReason)
                 previewSummary = self.logic.getVisibleTemplateSupportModelSummary(
@@ -3717,6 +3924,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             sourceSummary and sourceSummary["geometryState"] == "Current"
         )
         curveComplete = bool(curveNode and not curveError and curveGeometryJson)
+        planeCurrent = bool(planeNode and not planeError and directionSummary)
+        self.ui.createTemplateSupportPlaneButton.enabled = bool(
+            sourceCurrent and directionSummary
+        )
+        self.ui.generateTemplateSupportBoundaryFromPlaneButton.enabled = bool(
+            sourceCurrent and planeCurrent and not previewError
+        )
         self.ui.createTemplateSupportBoundaryButton.enabled = sourceCurrent
         self.ui.generateVisibleTemplateSupportModelButton.enabled = bool(
             sourceCurrent
@@ -3726,11 +3940,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         self.ui.deleteTemplateSupportSelectionButton.enabled = bool(
             self.logic.isTemplateSupportBoundaryNode(curveNode)
+            or self.logic.isTemplateSupportBoundaryPlaneNode(planeNode)
             or self.logic.isVisibleTemplateSupportModelNode(previewModel)
         )
 
         if not sourceCurrent:
             message = _("Create or update the full support-anatomy model first.")
+            style = "color: #b36b00;"
+        elif planeError:
+            message = planeError
             style = "color: #b36b00;"
         elif curveError:
             message = curveError
@@ -3746,11 +3964,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "restored automatically."
             )
             style = "color: #1f5f99;"
+        elif planeNode and not curveNode:
+            message = _(
+                "The insertion-aligned support plane is ready. Adjust only "
+                "Plane depth from Entry, then select Generate Boundary + "
+                "Preview. The generated curve remains editable."
+            )
+            style = "color: #1f5f99;"
         elif not curveNode:
             message = _(
-                "Click Create / Redraw Support Boundary, place one closed loop "
-                "directly on the orange draft teeth near the intended gingival/"
-                "cervical margin, then right-click to finish."
+                "Create the insertion-aligned support plane for the automatic "
+                "workflow, or use Manual: Draw / Redraw Boundary as a fallback."
             )
             style = "color: #1f5f99;"
         elif not curveComplete:
@@ -3789,6 +4013,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 for item in previewSummary["metrics"].get("toothMetrics", [])
                 if item.get("directionSelectionAmbiguous")
             )
+            terminalSupport = previewSummary["metrics"].get(
+                "terminalSupport",
+                {},
+            )
             message = (
                 _(
                     "Visible support preview is current (%1 points, %2 cells; "
@@ -3819,6 +4047,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     _("%1 tooth side choice(s) were directionally close.").replace(
                         "%1",
                         str(ambiguousCount),
+                    )
+                )
+            if terminalSupport.get("applied"):
+                message += " " + (
+                    _(
+                        "Inward %1% coverage was applied to terminal support "
+                        "tooth/teeth %2."
+                    )
+                    .replace(
+                        "%1",
+                        f"{previewSummary['terminalSupportCoveragePercent']:.0f}",
+                    )
+                    .replace(
+                        "%2",
+                        ", ".join(
+                            terminalSupport.get(
+                                "clippedTerminalSegmentIds",
+                                [],
+                            )
+                        ),
                     )
                 )
             if warnings:
@@ -3953,6 +4201,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         try:
             if (
                 self._parameterNode.templateSupportBoundaryCurve
+                or self._parameterNode.templateSupportBoundaryPlane
                 or self._parameterNode.visibleTemplateSupportModel
             ):
                 if self.logic.isPatientContactShellModelNode(
@@ -3971,6 +4220,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.logic.deleteTemplateSupportSelection(
                     self._parameterNode.templateSupportBoundaryCurve,
                     self._parameterNode.visibleTemplateSupportModel,
+                    self._parameterNode.templateSupportBoundaryPlane,
                 )
                 self._bindTemplateSupportBoundaryNode(None)
             removal = self.logic.deleteDraftTemplateSupportModel(modelNode)
@@ -4017,6 +4267,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self._updatingTemplateUI or not self._parameterNode:
             return
         spacing = float(self.ui.templateSupportCurveSamplingSpacingSpinBox.value)
+        terminalCoveragePercent = float(
+            self.ui.templateTerminalSupportCoverageSpinBox.value
+        )
         changed = bool(
             not math.isclose(
                 self._parameterNode.templateSupportCurveSamplingSpacingMm,
@@ -4024,8 +4277,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 rel_tol=0.0,
                 abs_tol=1e-9,
             )
+            or not math.isclose(
+                self._parameterNode.templateTerminalSupportCoveragePercent,
+                terminalCoveragePercent,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
         )
         self._parameterNode.templateSupportCurveSamplingSpacingMm = spacing
+        self._parameterNode.templateTerminalSupportCoveragePercent = (
+            terminalCoveragePercent
+        )
         if changed:
             self._invalidateTemplateSupportSurfaceDownstream(
                 _("Visible support-surface processing parameters changed."),
@@ -4044,6 +4306,27 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._invalidateTemplateSupportSurfaceDownstream(
                 _("The target-trajectory crown/root polarity changed."),
             )
+            if self._parameterNode.templateSupportBoundaryPlane and self.logic:
+                try:
+                    self.logic.createOrUpdateTemplateSupportBoundaryPlane(
+                        self._parameterNode.draftTemplateSupportModel,
+                        self._parameterNode.trajectoryLine,
+                        reverseDirection=reversedValue,
+                        depthFromEntryMm=(
+                            self._parameterNode.templateSupportPlaneDepthMm
+                        ),
+                        crownCapPercent=(
+                            self._parameterNode.templateSupportCrownCapPercent
+                        ),
+                        planeNode=(
+                            self._parameterNode.templateSupportBoundaryPlane
+                        ),
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    self.ui.templateSupportSurfaceStatusLabel.text = str(exc)
+                    self.ui.templateSupportSurfaceStatusLabel.styleSheet = (
+                        "color: #b00020;"
+                    )
         self._updateTemplateModeling()
 
     def onCreateTemplateSupportBoundary(self) -> None:
@@ -4077,6 +4360,107 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._restoreTemplateSupportBoundaryFocus()
             slicer.util.errorDisplay(str(exc))
 
+    def onCreateTemplateSupportPlane(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            planeNode, _geometry = (
+                self.logic.createOrUpdateTemplateSupportBoundaryPlane(
+                    self._parameterNode.draftTemplateSupportModel,
+                    self._parameterNode.trajectoryLine,
+                    reverseDirection=(
+                        self._parameterNode.templateSupportDirectionReversed
+                    ),
+                    depthFromEntryMm=(
+                        self._parameterNode.templateSupportPlaneDepthMm
+                    ),
+                    crownCapPercent=(
+                        self._parameterNode.templateSupportCrownCapPercent
+                    ),
+                    planeNode=self._parameterNode.templateSupportBoundaryPlane,
+                )
+            )
+            self._parameterNode.templateSupportBoundaryPlane = planeNode
+            self._invalidateTemplateSupportSurfaceDownstream(
+                _("The insertion-aligned support plane was created or reset."),
+            )
+            self._updateTemplateModeling()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onTemplateSupportPlaneDepthChanged(self, value: float) -> None:
+        del value
+        if self._updatingTemplateUI or not self._parameterNode or not self.logic:
+            return
+        depth = float(self.ui.templateSupportPlaneDepthSpinBox.value)
+        capPercent = float(self.ui.templateSupportCrownCapSpinBox.value)
+        self._parameterNode.templateSupportPlaneDepthMm = depth
+        self._parameterNode.templateSupportCrownCapPercent = capPercent
+        planeNode = self._parameterNode.templateSupportBoundaryPlane
+        if not planeNode:
+            self._updateTemplateModeling()
+            return
+        try:
+            self.logic.createOrUpdateTemplateSupportBoundaryPlane(
+                self._parameterNode.draftTemplateSupportModel,
+                self._parameterNode.trajectoryLine,
+                reverseDirection=(
+                    self._parameterNode.templateSupportDirectionReversed
+                ),
+                depthFromEntryMm=depth,
+                crownCapPercent=capPercent,
+                planeNode=planeNode,
+            )
+            self._invalidateTemplateSupportSurfaceDownstream(
+                _(
+                    "The support-plane depth or crown-cap tilt fit changed; "
+                    "regenerate the boundary and preview."
+                ),
+            )
+            self._updateTemplateModeling()
+        except (RuntimeError, ValueError) as exc:
+            self.ui.templateSupportSurfaceStatusLabel.text = str(exc)
+            self.ui.templateSupportSurfaceStatusLabel.styleSheet = "color: #b00020;"
+
+    def onGenerateTemplateSupportBoundaryFromPlane(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        self._restoreTemplateSupportBoundaryFocus()
+        self._restoringTemplateSupportBoundary = True
+        try:
+            curveNode, metrics = (
+                self.logic.createOrUpdateTemplateSupportBoundaryFromPlane(
+                    self._parameterNode.draftTemplateSupportModel,
+                    self._parameterNode.templateSupportBoundaryPlane,
+                    self._parameterNode.trajectoryLine,
+                    samplingSpacingMm=(
+                        self._parameterNode.templateSupportCurveSamplingSpacingMm
+                    ),
+                    curveNode=self._parameterNode.templateSupportBoundaryCurve,
+                )
+            )
+            self._parameterNode.templateSupportBoundaryCurve = curveNode
+            self._bindTemplateSupportBoundaryNode(curveNode)
+            self._invalidateTemplateSupportSurfaceDownstream(
+                _("The support boundary was regenerated from the support plane."),
+            )
+            logging.info(
+                "Initialized Step 5A support boundary from plane with %d points; "
+                "%d of %d selected teeth intersected",
+                metrics["outputLoopPointCount"],
+                metrics["intersectedToothCount"],
+                metrics["sourceToothCount"],
+            )
+        except (RuntimeError, ValueError) as exc:
+            self.ui.templateSupportSurfaceStatusLabel.text = str(exc)
+            self.ui.templateSupportSurfaceStatusLabel.styleSheet = "color: #b00020;"
+            slicer.util.errorDisplay(str(exc))
+            return
+        finally:
+            self._restoringTemplateSupportBoundary = False
+        self._updateTemplateModeling()
+        self.onGenerateVisibleTemplateSupportModel()
+
     def onGenerateVisibleTemplateSupportModel(self) -> None:
         if not self._parameterNode or not self.logic:
             return
@@ -4091,6 +4475,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 ),
                 samplingSpacingMm=(
                     self._parameterNode.templateSupportCurveSamplingSpacingMm
+                ),
+                terminalCoveragePercent=(
+                    self._parameterNode.templateTerminalSupportCoveragePercent
                 ),
                 outputModel=self._parameterNode.visibleTemplateSupportModel,
                 insertionDirectionNode=(
@@ -4168,6 +4555,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.deleteTemplateSupportSelection(
                 self._parameterNode.templateSupportBoundaryCurve,
                 self._parameterNode.visibleTemplateSupportModel,
+                self._parameterNode.templateSupportBoundaryPlane,
             )
             self._bindTemplateSupportBoundaryNode(None)
             self._updateTemplateModeling()
@@ -4701,6 +5089,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "angleToleranceDeg": float(
                 self._parameterNode.templateUndercutAngleToleranceDeg
             ),
+            "interproximalReliefMm": float(
+                self._parameterNode.templateInterproximalReliefMm
+            ),
             "processingResolutionMm": float(
                 self._parameterNode.templateSamplingSpacingMm
             ),
@@ -5213,6 +5604,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self._parameterNode.templateInsertionDirection,
                     angleToleranceDeg=(
                         self._parameterNode.templateUndercutAngleToleranceDeg
+                    ),
+                    interproximalReliefMm=(
+                        self._parameterNode.templateInterproximalReliefMm
                     ),
                     samplingSpacingMm=self._parameterNode.templateSamplingSpacingMm,
                     undercutModel=self._parameterNode.templateUndercutSurfaceModel,
@@ -6632,7 +7026,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._parameterNode:
             return "", "", "", "", ""
         return self.logic.resolveBackendConfiguration(
-            "wsl" if os.name == "nt" else "local",
+            default_execution_mode(os.name),
             self._parameterNode.wslDistribution.strip(),
             self._parameterNode.wslPythonPath.strip(),
             self._parameterNode.stagingRoot.strip(),
@@ -6656,29 +7050,47 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         executionMode, distribution, pythonPath, stagingRoot, _device = (
             self._backendConfiguration()
         )
-        launcherPython, launcherArtifactRoot = (
+        (
+            launcherMode,
+            launcherDistribution,
+            launcherPython,
+            launcherArtifactRoot,
+            launcherDevice,
+        ) = (
             self.logic.launcherBackendConfiguration()
         )
         launcherRequested = bool(
-            executionMode == "local"
-            and self._parameterNode.useLauncherBackendConfiguration
+            self._parameterNode.useLauncherBackendConfiguration
         )
-        launcherAvailable = bool(launcherPython and launcherArtifactRoot)
+        launcherAvailable = self.logic.launcherBackendConfigurationIsComplete(
+            launcherMode,
+            launcherDistribution,
+            launcherPython,
+            launcherArtifactRoot,
+            launcherDevice,
+        )
         launcherActive = launcherRequested and launcherAvailable
+        self.ui.wslDistributionLineEdit.enabled = not launcherRequested
         self.ui.wslPythonPathLineEdit.enabled = not launcherRequested
         self.ui.stagingRootLineEdit.enabled = not launcherRequested
         if launcherActive:
             self.ui.backendConfigurationSummaryLabel.text = _(
                 "Managed automatically by the DENTOBOT launcher.\n"
-                "Backend Python: %1\nRun records: %2"
-            ).replace("%1", launcherPython).replace("%2", launcherArtifactRoot)
+                "Adapter: %1%2\nBackend Python: %3\nRun records: %4\nDevice: %5"
+            ).replace("%1", launcherMode).replace(
+                "%2",
+                f" ({launcherDistribution})" if launcherDistribution else "",
+            ).replace("%3", launcherPython).replace(
+                "%4", launcherArtifactRoot
+            ).replace("%5", launcherDevice)
             self.ui.backendConfigurationSummaryLabel.styleSheet = (
                 "color: #207227;"
             )
         elif launcherRequested:
             self.ui.backendConfigurationSummaryLabel.text = _(
-                "Launcher configuration was not found. Start Slicer with "
-                "scripts/launch-dentoworkflow.bash, or disable automatic "
+                "A complete launcher configuration was not found. Start "
+                "Slicer with launch-dentoworkflow.bash on Linux or "
+                "launch-dentoworkflow.ps1 on Windows, or disable automatic "
                 "configuration and enter the advanced overrides below."
             )
             self.ui.backendConfigurationSummaryLabel.styleSheet = (
@@ -6710,6 +7122,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             and stagingRoot
             and self._parameterNode.inputVolume
             and not running
+        )
+        self.ui.segmentTeethButton.text = (
+            _("Run Teeth Segmentation (%1)").replace(
+                "%1",
+                _device.upper() if _device else _("device unavailable"),
+            )
         )
         self.ui.cancelBackendButton.enabled = running
 
@@ -6795,20 +7213,31 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         executionMode, distribution, pythonPath, stagingRoot, device = (
             self._backendConfiguration()
         )
-        launcherPython, launcherArtifactRoot = (
+        (
+            launcherMode,
+            launcherDistribution,
+            launcherPython,
+            launcherArtifactRoot,
+            launcherDevice,
+        ) = (
             self.logic.launcherBackendConfiguration()
         )
         if (
-            executionMode == "local"
-            and self._parameterNode
+            self._parameterNode
             and self._parameterNode.useLauncherBackendConfiguration
-            and not (launcherPython and launcherArtifactRoot)
+            and not self.logic.launcherBackendConfigurationIsComplete(
+                launcherMode,
+                launcherDistribution,
+                launcherPython,
+                launcherArtifactRoot,
+                launcherDevice,
+            )
         ):
             raise ValueError(
                 _(
                     "DENTOBOT launcher configuration is unavailable. Start "
-                    "Slicer with scripts/launch-dentoworkflow.bash or disable "
-                    "automatic configuration and enter manual overrides."
+                    "Slicer with the platform launcher or disable automatic "
+                    "configuration and enter manual overrides."
                 )
             )
         if executionMode == "wsl" and not distribution:
@@ -6819,7 +7248,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
         if requireStagingRoot:
             self.logic.validateStagingRoot(stagingRoot, executionMode)
-        if device not in ("cpu", "cuda:0"):
+        if device not in SUPPORTED_BACKEND_DEVICES:
             raise ValueError(_("Inference device must be cpu or cuda:0."))
         return executionMode, distribution, pythonPath, stagingRoot, device
 
@@ -7379,8 +7808,21 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     """Reusable MRML, volume-geometry, and external-bridge operations."""
 
     BACKEND_MODULE = "dentobot_inference"
-    BACKEND_PYTHON_ENVIRONMENT_VARIABLE = "DENTOBOT_BACKEND_PYTHON"
-    RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE = "DENTOBOT_RUN_ARTIFACT_ROOT"
+    BACKEND_EXECUTION_MODE_ENVIRONMENT_VARIABLE = (
+        EXECUTION_MODE_ENVIRONMENT_VARIABLE
+    )
+    BACKEND_PYTHON_ENVIRONMENT_VARIABLE = (
+        PLATFORM_BACKEND_PYTHON_ENVIRONMENT_VARIABLE
+    )
+    RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE = (
+        PLATFORM_RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE
+    )
+    WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE = (
+        PLATFORM_WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE
+    )
+    BACKEND_DEVICE_ENVIRONMENT_VARIABLE = (
+        PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE
+    )
     REVIEW_METADATA_VERSION = "1.0"
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
     SOURCE_VOLUME_REFERENCE_ROLE = "DENTOBOT.SourceVolume"
@@ -7397,9 +7839,18 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         "DENTOBOT.TemplateSourceSegmentation"
     )
     TEMPLATE_MODEL_SCHEMA_VERSION = "1.0"
-    TEMPLATE_SUPPORT_SURFACE_SCHEMA_VERSION = "2.0"
+    TEMPLATE_SUPPORT_SURFACE_SCHEMA_VERSION = "2.1"
     TEMPLATE_SUPPORT_BOUNDARY_SOURCE_MODEL_REFERENCE_ROLE = (
         "DENTOBOT.TemplateSupportBoundarySourceModel"
+    )
+    TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateSupportPlaneSourceModel"
+    )
+    TEMPLATE_SUPPORT_PLANE_SOURCE_TRAJECTORY_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateSupportPlaneSourceTrajectory"
+    )
+    TEMPLATE_SUPPORT_BOUNDARY_INITIALIZER_PLANE_REFERENCE_ROLE = (
+        "DENTOBOT.TemplateSupportBoundaryInitializerPlane"
     )
     TEMPLATE_VISIBLE_SUPPORT_SOURCE_MODEL_REFERENCE_ROLE = (
         "DENTOBOT.VisibleSupportSourceModel"
@@ -7516,17 +7967,33 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     def launcherBackendConfiguration(
         cls,
         environment: dict | None = None,
-    ) -> tuple[str, str]:
-        """Return launcher-provided paths without persisting them in MRML."""
+    ) -> tuple[str, str, str, str, str]:
+        """Return the shared launcher contract without persisting it in MRML."""
 
-        source = os.environ if environment is None else environment
+        configuration = launcher_backend_configuration(environment)
         return (
-            str(
-                source.get(cls.BACKEND_PYTHON_ENVIRONMENT_VARIABLE) or ""
-            ).strip(),
-            str(
-                source.get(cls.RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE) or ""
-            ).strip(),
+            configuration.execution_mode,
+            configuration.distribution,
+            configuration.python_path,
+            configuration.artifact_root,
+            configuration.device,
+        )
+
+    @staticmethod
+    def launcherBackendConfigurationIsComplete(
+        executionMode: str,
+        distribution: str,
+        pythonPath: str,
+        artifactRoot: str,
+        device: str,
+    ) -> bool:
+        mode = executionMode.strip().lower()
+        return bool(
+            mode in SUPPORTED_EXECUTION_MODES
+            and pythonPath.strip()
+            and artifactRoot.strip()
+            and device.strip().lower() in SUPPORTED_BACKEND_DEVICES
+            and (mode != "wsl" or distribution.strip())
         )
 
     @classmethod
@@ -7547,16 +8014,34 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         pythonPath = pythonPath.strip()
         stagingRoot = stagingRoot.strip()
         device = device.strip()
-        if executionMode == "local" and useLauncherConfiguration:
-            launcherPython, launcherStagingRoot = (
+        if useLauncherConfiguration:
+            (
+                launcherMode,
+                launcherDistribution,
+                launcherPython,
+                launcherStagingRoot,
+                launcherDevice,
+            ) = (
                 cls.launcherBackendConfiguration(environment)
             )
-            if launcherPython and launcherStagingRoot:
+            if cls.launcherBackendConfigurationIsComplete(
+                launcherMode,
+                launcherDistribution,
+                launcherPython,
+                launcherStagingRoot,
+                launcherDevice,
+            ):
+                executionMode = launcherMode
+                distribution = launcherDistribution
                 pythonPath = launcherPython
                 stagingRoot = launcherStagingRoot
+                device = launcherDevice
             else:
+                executionMode = ""
+                distribution = ""
                 pythonPath = ""
                 stagingRoot = ""
+                device = ""
         return (
             executionMode,
             distribution,
@@ -7975,6 +8460,21 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             )
             if lineage and self.setNodeLineageColor(curveNode, *lineage):
                 changedNodeIds.append(curveNode.GetID())
+        for planeNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsPlaneNode"
+        ):
+            if not self.isTemplateSupportBoundaryPlaneNode(planeNode):
+                continue
+            supportModel = planeNode.GetNodeReference(
+                self.TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE
+            )
+            lineage = (
+                supportLineages.get(supportModel.GetID())
+                if supportModel
+                else None
+            )
+            if lineage and self.setNodeLineageColor(planeNode, *lineage):
+                changedNodeIds.append(planeNode.GetID())
 
         visibleSupportLineages: dict[
             str,
@@ -8705,6 +9205,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 and self.ensureWorkflowNodeStepTag(curveNode, "Step 5A")
             ):
                 taggedNodeIds.append(curveNode.GetID())
+        for planeNode in slicer.util.getNodesByClass(
+            "vtkMRMLMarkupsPlaneNode"
+        ):
+            if (
+                self.isTemplateSupportBoundaryPlaneNode(planeNode)
+                and self.ensureWorkflowNodeStepTag(planeNode, "Step 5A")
+            ):
+                taggedNodeIds.append(planeNode.GetID())
         for modelNode in slicer.util.getNodesByClass("vtkMRMLModelNode"):
             role = modelNode.GetAttribute("DENTOBOT.ModelRole")
             stepName = (
@@ -9323,6 +9831,15 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
 
     @staticmethod
+    def isTemplateSupportBoundaryPlaneNode(node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsPlaneNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole")
+            == "TemplateSupportBoundaryPlane"
+        )
+
+    @staticmethod
     def isVisibleTemplateSupportModelNode(node) -> bool:
         return bool(
             node
@@ -9416,6 +9933,247 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             )
         return curveNode
 
+    def createOrUpdateTemplateSupportBoundaryPlane(
+        self,
+        sourceModel: vtkMRMLModelNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        *,
+        reverseDirection: bool = False,
+        depthFromEntryMm: float = 3.0,
+        crownCapPercent: float = 10.0,
+        planeNode: vtkMRMLMarkupsPlaneNode | None = None,
+    ) -> tuple[vtkMRMLMarkupsPlaneNode, dict]:
+        """Create a locked plane normal to Entry→Target at one scalar depth."""
+
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        if sourceSummary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale full support-anatomy model first."))
+        direction = self.resolveTemplateSupportTrajectoryDirection(
+            sourceModel,
+            trajectoryNode,
+            reverseDirection=reverseDirection,
+        )
+        depth = float(depthFromEntryMm)
+        if not math.isfinite(depth) or depth < -10.0 or depth > 20.0:
+            raise ValueError(_("Support-plane depth must be between -10 and 20 mm."))
+        capPercent = float(crownCapPercent)
+        if not math.isfinite(capPercent) or not 5.0 <= capPercent <= 30.0:
+            raise ValueError(_("Crown-cap tilt fit must be between 5% and 30%."))
+        entry = np.asarray(direction["entryRas"], dtype=float)
+        insertion = np.asarray(direction["insertionDirectionRas"], dtype=float)
+        origin = entry + depth * insertion
+        segmentIds = [
+            sourceSummary["targetSegmentId"],
+            *sourceSummary["supportSegmentIds"],
+        ]
+        toothSurfaces = [
+            {
+                "segmentId": segmentId,
+                "polyData": self._getClosedSurfaceCopy(
+                    sourceSummary["sourceSegmentation"],
+                    segmentId,
+                ),
+            }
+            for segmentId in segmentIds
+        ]
+        planeNormal, tiltMetrics = estimate_crown_cap_support_plane_normal(
+            toothSurfaces,
+            insertion,
+            crown_cap_fraction=capPercent / 100.0,
+        )
+        if planeNode:
+            if not self.isTemplateSupportBoundaryPlaneNode(planeNode):
+                raise ValueError(_("Select the DENTOBOT Step 5A support plane."))
+            if planeNode.GetNodeReference(
+                self.TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE
+            ) is not sourceModel:
+                raise ValueError(_("The support plane belongs to another draft model."))
+        else:
+            planeNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsPlaneNode",
+                "[Step 5A] DENTO Insertion-Aligned Support Plane",
+            )
+        if not planeNode:
+            raise RuntimeError(_("Slicer could not create the Step 5A support plane."))
+
+        bounds = [0.0] * 6
+        sourceModel.GetRASBounds(bounds)
+        diagonal = math.sqrt(
+            sum(
+                (bounds[2 * axis + 1] - bounds[2 * axis]) ** 2
+                for axis in range(3)
+            )
+        )
+        wasModifying = planeNode.StartModify()
+        try:
+            planeNode.SetName("[Step 5A] DENTO Insertion-Aligned Support Plane")
+            planeNode.SetPlaneType(planeNode.PlaneTypePointNormal)
+            if hasattr(planeNode, "SetNormalPointRequired"):
+                planeNode.SetNormalPointRequired(False)
+            planeNode.SetOriginWorld(tuple(float(value) for value in origin))
+            planeNode.SetNormalWorld(planeNormal)
+            planeNode.SetSize(max(diagonal * 1.15, 5.0), max(diagonal * 1.15, 5.0))
+            planeNode.SetLocked(True)
+            planeNode.SetSelectable(False)
+            planeNode.SetAttribute(
+                "DENTOBOT.MarkupsRole",
+                "TemplateSupportBoundaryPlane",
+            )
+            planeNode.SetAttribute(
+                "DENTOBOT.TemplateSupportSurfaceSchemaVersion",
+                self.TEMPLATE_SUPPORT_SURFACE_SCHEMA_VERSION,
+            )
+            planeNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+            planeNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+            planeNode.SetAttribute("DENTOBOT.PlaneConstraint", "TrajectoryDepthOnly")
+            planeNode.SetAttribute("DENTOBOT.DepthFromEntryMm", f"{depth:.9g}")
+            planeNode.SetAttribute("DENTOBOT.CrownCapPercent", f"{capPercent:.9g}")
+            planeNode.SetAttribute(
+                "DENTOBOT.CrownCapTiltMetricsJson",
+                json.dumps(tiltMetrics, sort_keys=True, separators=(",", ":")),
+            )
+            planeNode.SetAttribute(
+                "DENTOBOT.DirectionGeometryJson",
+                direction["directionGeometryJson"],
+            )
+            planeNode.SetNodeReferenceID(
+                self.TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE,
+                sourceModel.GetID(),
+            )
+            planeNode.SetNodeReferenceID(
+                self.TEMPLATE_SUPPORT_PLANE_SOURCE_TRAJECTORY_REFERENCE_ROLE,
+                trajectoryNode.GetID(),
+            )
+        finally:
+            planeNode.EndModify(wasModifying)
+        planeNode.CreateDefaultDisplayNodes()
+        displayNode = planeNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetVisibility2D(True)
+            displayNode.SetVisibility3D(True)
+            displayNode.SetHandlesInteractive(False)
+            displayNode.SetTranslationHandleVisibility(False)
+            displayNode.SetRotationHandleVisibility(False)
+            displayNode.SetScaleHandleVisibility(False)
+            displayNode.SetPointLabelsVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(False)
+            displayNode.SetOpacity(0.35)
+            displayNode.SetColor(1.0, 0.78, 0.12)
+        lineageColor = self.lineageColorFromNode(sourceModel)
+        if lineageColor:
+            self.setNodeLineageColor(
+                planeNode,
+                lineageColor,
+                sourceModel.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or "",
+                sourceModel.GetAttribute(self.LINEAGE_TARGET_FDI_ATTRIBUTE) or "",
+            )
+        return planeNode, {
+            "originRas": tuple(float(value) for value in origin),
+            "normalRas": planeNormal,
+            "depthFromEntryMm": depth,
+            "crownCapPercent": capPercent,
+            "tiltMetrics": tiltMetrics,
+            "directionGeometryJson": direction["directionGeometryJson"],
+        }
+
+    def validateTemplateSupportBoundaryPlane(
+        self,
+        sourceModel: vtkMRMLModelNode,
+        planeNode: vtkMRMLMarkupsPlaneNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+    ) -> vtkMRMLMarkupsPlaneNode:
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        if sourceSummary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale full support-anatomy model first."))
+        if not self.isTemplateSupportBoundaryPlaneNode(planeNode):
+            raise ValueError(_("Create the insertion-aligned Step 5A support plane."))
+        if planeNode.GetNodeReference(
+            self.TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE
+        ) is not sourceModel:
+            raise ValueError(_("The support plane belongs to another draft model."))
+        if planeNode.GetNodeReference(
+            self.TEMPLATE_SUPPORT_PLANE_SOURCE_TRAJECTORY_REFERENCE_ROLE
+        ) is not trajectoryNode:
+            raise ValueError(_("Reset the support plane for the selected trajectory."))
+        origin = np.asarray(planeNode.GetOriginWorld(), dtype=float)
+        normal = np.asarray(planeNode.GetNormalWorld(), dtype=float)
+        if (
+            origin.shape != (3,)
+            or normal.shape != (3,)
+            or not np.all(np.isfinite(origin))
+            or not np.all(np.isfinite(normal))
+            or float(np.linalg.norm(normal)) <= 1e-9
+        ):
+            raise ValueError(_("The Step 5A support plane geometry is invalid."))
+        return planeNode
+
+    def createOrUpdateTemplateSupportBoundaryFromPlane(
+        self,
+        sourceModel: vtkMRMLModelNode,
+        planeNode: vtkMRMLMarkupsPlaneNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        *,
+        samplingSpacingMm: float = 0.5,
+        curveNode: vtkMRMLMarkupsClosedCurveNode | None = None,
+    ) -> tuple[vtkMRMLMarkupsClosedCurveNode, dict]:
+        """Initialize the authoritative editable curve from the support plane."""
+
+        self.validateTemplateSupportBoundaryPlane(
+            sourceModel,
+            planeNode,
+            trajectoryNode,
+        )
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        segmentIds = [
+            sourceSummary["targetSegmentId"],
+            *sourceSummary["supportSegmentIds"],
+        ]
+        surfaces = [
+            {
+                "segmentId": segmentId,
+                "polyData": self._getClosedSurfaceCopy(
+                    sourceSummary["sourceSegmentation"],
+                    segmentId,
+                ),
+            }
+            for segmentId in segmentIds
+        ]
+        loopPoints, metrics = insertion_aligned_support_boundary_loop(
+            surfaces,
+            planeNode.GetOriginWorld(),
+            planeNode.GetNormalWorld(),
+            sampling_spacing_mm=samplingSpacingMm,
+        )
+        curveNode = self.createOrResetTemplateSupportBoundary(
+            sourceModel,
+            curveNode,
+        )
+        wasModifying = curveNode.StartModify()
+        try:
+            for pointIndex, point in enumerate(loopPoints):
+                curveNode.AddControlPointWorld(vtk.vtkVector3d(*point))
+                curveNode.SetNthControlPointLabel(pointIndex, f"P{pointIndex + 1}")
+            curveNode.SetAttribute(
+                "DENTOBOT.BoundaryMappingMethod",
+                "InsertionAlignedPlaneConvexHullThenPerToothDijkstra",
+            )
+            curveNode.SetAttribute(
+                "DENTOBOT.PlaneInitializerMetricsJson",
+                json.dumps(metrics, sort_keys=True, separators=(",", ":")),
+            )
+            curveNode.SetAttribute(
+                "DENTOBOT.GeneratedFromPlaneGeometryJson",
+                self.templateSupportBoundaryGeometryJson(curveNode),
+            )
+            curveNode.SetNodeReferenceID(
+                self.TEMPLATE_SUPPORT_BOUNDARY_INITIALIZER_PLANE_REFERENCE_ROLE,
+                planeNode.GetID(),
+            )
+        finally:
+            curveNode.EndModify(wasModifying)
+        return curveNode, metrics
+
     @staticmethod
     def templateSupportBoundaryControlPointsWorld(
         curveNode: vtkMRMLMarkupsClosedCurveNode,
@@ -9444,6 +10202,37 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             curveNode
         )
         return json.dumps(points, separators=(",", ":"))
+
+    @staticmethod
+    def templateSupportBoundaryMatchesGeometryJson(
+        curveNode: vtkMRMLMarkupsClosedCurveNode,
+        storedGeometryJson: str,
+        toleranceMm: float = 1e-4,
+    ) -> bool:
+        """Compare persisted Markups coordinates with serialization tolerance."""
+
+        try:
+            current = np.asarray(
+                DENTOWorkflowLogic.templateSupportBoundaryControlPointsWorld(
+                    curveNode
+                ),
+                dtype=float,
+            )
+            stored = np.asarray(json.loads(storedGeometryJson), dtype=float)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        return bool(
+            current.shape == stored.shape
+            and current.ndim == 2
+            and current.shape[1:] == (3,)
+            and np.all(np.isfinite(stored))
+            and np.allclose(
+                current,
+                stored,
+                rtol=0.0,
+                atol=float(toleranceMm),
+            )
+        )
 
     def validateTemplateSupportBoundary(
         self,
@@ -9556,6 +10345,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         directionTrajectory: vtkMRMLMarkupsLineNode,
         reverseDirection: bool = False,
         samplingSpacingMm: float = 0.5,
+        terminalCoveragePercent: float = 50.0,
         outputModel: vtkMRMLModelNode | None = None,
         insertionDirectionNode: vtkMRMLMarkupsLineNode | None = None,
     ) -> tuple[vtkMRMLModelNode, dict]:
@@ -9571,6 +10361,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         spacing = float(samplingSpacingMm)
         if not math.isfinite(spacing) or spacing < 0.1 or spacing > 2.0:
             raise ValueError(_("Boundary sampling must be between 0.10 and 2.00 mm."))
+        terminalCoverage = float(terminalCoveragePercent) / 100.0
+        if (
+            not math.isfinite(terminalCoverage)
+            or not 0.25 <= terminalCoverage <= 1.0
+        ):
+            raise ValueError(_("Terminal support coverage must be 25–100%."))
 
         sourceSegmentation = sourceSummary["sourceSegmentation"]
         segmentIds = [
@@ -9584,6 +10380,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             {
                 "segmentId": segmentId,
                 "displayName": sourceNames.get(segmentId) or segmentId,
+                "isTarget": segmentId == sourceSummary["targetSegmentId"],
                 "polyData": self._getClosedSurfaceCopy(
                     sourceSegmentation,
                     segmentId,
@@ -9596,6 +10393,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             self.templateSupportBoundaryControlPointsWorld(curveNode),
             directionSummary["crownDirectionRas"],
             sampling_spacing_mm=spacing,
+            terminal_coverage_fraction=terminalCoverage,
         )
         reusedOutputModel = bool(outputModel)
         if outputModel:
@@ -9652,6 +10450,18 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 ),
             )
             outputModel.SetAttribute("DENTOBOT.SamplingSpacingMm", f"{spacing:.9g}")
+            outputModel.SetAttribute(
+                "DENTOBOT.TerminalSupportCoverageFraction",
+                f"{terminalCoverage:.9g}",
+            )
+            outputModel.SetAttribute(
+                "DENTOBOT.TerminalClipPlanesJson",
+                json.dumps(
+                    metrics.get("terminalClipPlanesRas", []),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
             outputModel.SetAttribute(
                 "DENTOBOT.SupportBoundaryGeometryJson",
                 boundaryGeometryJson,
@@ -9748,6 +10558,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         metrics = json.loads(
             modelNode.GetAttribute("DENTOBOT.GeometryMetricsJson") or "{}"
         )
+        terminalClipPlanes = json.loads(
+            modelNode.GetAttribute("DENTOBOT.TerminalClipPlanesJson") or "[]"
+        )
+        if not isinstance(terminalClipPlanes, list):
+            raise ValueError(_("The visible-support terminal clipping metadata is invalid."))
         return {
             "geometryState": modelNode.GetAttribute("DENTOBOT.GeometryState") or "Unknown",
             "staleReason": modelNode.GetAttribute("DENTOBOT.StaleReason") or "",
@@ -9766,6 +10581,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "samplingSpacingMm": float(
                 modelNode.GetAttribute("DENTOBOT.SamplingSpacingMm") or "nan"
             ),
+            "terminalSupportCoveragePercent": 100.0 * float(
+                modelNode.GetAttribute(
+                    "DENTOBOT.TerminalSupportCoverageFraction"
+                )
+                or "nan"
+            ),
+            "terminalClipPlanesRas": terminalClipPlanes,
             "boundaryGeometryJson": modelNode.GetAttribute(
                 "DENTOBOT.SupportBoundaryGeometryJson"
             ) or "",
@@ -9795,17 +10617,21 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         self,
         curveNode: vtkMRMLMarkupsClosedCurveNode | None,
         modelNode: vtkMRMLModelNode | None,
+        planeNode: vtkMRMLMarkupsPlaneNode | None = None,
     ) -> list[dict]:
-        nodes = [node for node in (modelNode, curveNode) if node]
+        nodes = [node for node in (modelNode, curveNode, planeNode) if node]
         if not nodes:
             raise ValueError(_("There is no DENTOBOT visible support selection to delete."))
         if curveNode and not self.isTemplateSupportBoundaryNode(curveNode):
             raise ValueError(_("The selected curve is not owned by DENTOBOT Step 5A."))
         if modelNode and not self.isVisibleTemplateSupportModelNode(modelNode):
             raise ValueError(_("The selected preview is not owned by DENTOBOT Step 5A."))
+        if planeNode and not self.isTemplateSupportBoundaryPlaneNode(planeNode):
+            raise ValueError(_("The selected support plane is not owned by DENTOBOT Step 5A."))
         parameterNode = self.getParameterNode()
         parameterNode.visibleTemplateSupportModel = None
         parameterNode.templateSupportBoundaryCurve = None
+        parameterNode.templateSupportBoundaryPlane = None
         removals = []
         for node in nodes:
             if slicer.mrmlScene.IsNodePresent(node):
@@ -10050,6 +10876,73 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             ),
         }
 
+    def templateCollisionAnatomyWorld(
+        self,
+        sourceModel: vtkMRMLModelNode,
+    ) -> tuple[vtk.vtkPolyData, dict]:
+        """Collect substantive same-arch teeth as collision-only anatomy."""
+
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        segmentationNode = sourceSummary["sourceSegmentation"]
+        targetRecord = self.validateTargetTooth(
+            segmentationNode,
+            sourceSummary["targetSegmentId"],
+        )
+        targetFdi = targetRecord.get("fdiNumber") or ""
+        if len(targetFdi) != 2 or targetFdi[0] not in "1234":
+            raise ValueError(
+                _("The target tooth has no valid FDI arch for collision blockout.")
+            )
+        archQuadrants = "12" if targetFdi[0] in "12" else "34"
+        collisionRecords = [
+            record
+            for record in self.getTargetToothRecords(segmentationNode)
+            if len(record.get("fdiNumber") or "") == 2
+            and (record.get("fdiNumber") or "")[0] in archQuadrants
+        ]
+        if not collisionRecords:
+            raise ValueError(_("No same-arch tooth anatomy is available for blockout."))
+
+        append = vtk.vtkAppendPolyData()
+        perToothMetrics = []
+        for record in collisionRecords:
+            surface = self._getClosedSurfaceCopy(
+                segmentationNode,
+                record["segmentId"],
+            )
+            substantiveSurface, surfaceMetrics = largest_connected_surface_region(
+                surface
+            )
+            append.AddInputData(substantiveSurface)
+            perToothMetrics.append(
+                {
+                    "segmentId": record["segmentId"],
+                    "fdiNumber": record.get("fdiNumber") or "",
+                    **surfaceMetrics,
+                }
+            )
+        append.Update()
+        collisionWorld = vtk.vtkPolyData()
+        collisionWorld.DeepCopy(append.GetOutput())
+        topology = surface_topology(collisionWorld)
+        return collisionWorld, {
+            **topology,
+            "method": "AuthoritativeSameArchLargestToothSurfaces",
+            "targetFdiNumber": targetFdi,
+            "archQuadrants": archQuadrants,
+            "collisionSegmentIds": [
+                record["segmentId"] for record in collisionRecords
+            ],
+            "collisionToothCount": len(collisionRecords),
+            "ignoredSourceIslandCount": int(
+                sum(
+                    item["ignoredSurfaceRegionCount"]
+                    for item in perToothMetrics
+                )
+            ),
+            "toothMetrics": perToothMetrics,
+        }
+
     def createOrUpdateTemplateUndercutAnalysis(
         self,
         sourceModel: vtkMRMLModelNode,
@@ -10057,6 +10950,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         insertionDirection: vtkMRMLMarkupsLineNode,
         *,
         angleToleranceDeg: float,
+        interproximalReliefMm: float,
         samplingSpacingMm: float,
         undercutModel: vtkMRMLModelNode | None = None,
         blockoutModel: vtkMRMLModelNode | None = None,
@@ -10084,14 +10978,22 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 )
             )
         tolerance = float(angleToleranceDeg)
+        interproximalRelief = float(interproximalReliefMm)
         spacing = float(samplingSpacingMm)
         if not math.isfinite(tolerance) or not 0.0 <= tolerance <= 45.0:
             raise ValueError(_("Undercut angle tolerance must be 0–45 degrees."))
         if not math.isfinite(spacing) or not 0.1 <= spacing <= 2.0:
             raise ValueError(_("Undercut processing resolution must be 0.10–2.00 mm."))
+        if (
+            not math.isfinite(interproximalRelief)
+            or not 0.0 <= interproximalRelief <= 5.0
+        ):
+            raise ValueError(_("Interproximal relief must be 0.00–5.00 mm."))
 
         supportWorld = model_polydata_in_world(visibleSupportModel)
-        anatomyWorld = model_polydata_in_world(sourceModel)
+        collisionWorld, collisionMetrics = self.templateCollisionAnatomyWorld(
+            sourceModel
+        )
         undercutPolyData, undercutMetrics = analyze_surface_undercuts(
             supportWorld,
             directionSummary["insertionDirectionRas"],
@@ -10099,12 +11001,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
         padding = max(5.0, 4.0 * spacing)
         blockoutPolyData, blockoutMetrics = create_directional_blockout(
-            anatomyWorld,
+            collisionWorld,
             supportWorld,
             directionSummary["insertionDirectionRas"],
             sampling_spacing_mm=spacing,
             padding_mm=padding,
+            interproximal_relief_mm=interproximalRelief,
         )
+        blockoutMetrics["collisionAnatomy"] = collisionMetrics
         undercutModel = self._createOrReuseRoleModel(
             undercutModel,
             "TemplateUndercutSurface",
@@ -10118,6 +11022,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         timestamp = datetime.now(timezone.utc).isoformat()
         parameters = {
             "angleToleranceDeg": tolerance,
+            "interproximalReliefMm": interproximalRelief,
             "processingResolutionMm": spacing,
             "paddingMm": padding,
         }
@@ -10161,6 +11066,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 modelNode.SetAttribute(
                     "DENTOBOT.GeometryMetricsJson",
                     json.dumps(metrics, sort_keys=True, separators=(",", ":")),
+                )
+                modelNode.SetAttribute(
+                    "DENTOBOT.CollisionSegmentIDsJson",
+                    json.dumps(
+                        collisionMetrics["collisionSegmentIds"],
+                        separators=(",", ":"),
+                    ),
                 )
                 modelNode.SetAttribute("DENTOBOT.UpdatedUtc", timestamp)
                 modelNode.SetNodeReferenceID(
@@ -10675,6 +11587,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 fitting_surface_world=model_polydata_in_world(fittingSurface),
                 shell_thickness_mm=parameters["shellThicknessMm"],
                 boundary_bridge_world=bridgePolyData,
+                terminal_clip_planes_ras=(
+                    inputs["visibleSummary"]["terminalClipPlanesRas"]
+                ),
             )
             metrics["boundaryBridge"] = bridgeMetrics
             warnings = []
@@ -10691,6 +11606,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                                 "boundaryOrNonManifoldEdgeCount"
                             ]
                         ),
+                    )
+                )
+            if metrics["removedSingleVoxelSpeckleCount"]:
+                warnings.append(
+                    _(
+                        "Removed %1 isolated single-voxel contour artifacts "
+                        "before shell topology verification."
+                    ).replace(
+                        "%1",
+                        str(metrics["removedSingleVoxelSpeckleCount"]),
                     )
                 )
             if metrics["surfaceRegionCount"] != 1:
@@ -14249,15 +15174,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     def windowsPathToWslPath(windowsPath: str | Path) -> str:
         """Map an absolute Windows drive path to WSL's conventional /mnt path."""
 
-        pathText = str(windowsPath)
-        if pathText.startswith("\\\\") or pathText.startswith("//"):
-            raise ValueError(_("UNC/network paths cannot be mapped by this bridge."))
-        match = re.match(r"^([A-Za-z]):[\\/](.*)$", pathText)
-        if not match:
-            raise ValueError(_("Expected an absolute Windows drive path."))
-        drive = match.group(1).lower()
-        remainder = match.group(2).replace("\\", "/")
-        return f"/mnt/{drive}/{remainder}"
+        return windows_path_to_wsl_path(windowsPath)
 
     @staticmethod
     def _wslExecutablePath() -> str:
@@ -14270,22 +15187,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         pythonPath: str,
         backendArguments: list[str],
     ) -> list[str]:
-        distribution = distribution.strip()
-        pythonPath = pythonPath.strip()
-        if not distribution:
-            raise ValueError(_("The WSL distribution name is required."))
-        if not pythonPath.startswith("/"):
-            raise ValueError(_("The WSL Python path must be an absolute Linux path."))
-        return [
-            self._wslExecutablePath(),
-            "--distribution",
-            distribution,
-            "--exec",
-            pythonPath,
-            "-m",
-            self.BACKEND_MODULE,
-            *backendArguments,
-        ]
+        return build_backend_python_command(
+            execution_mode="wsl",
+            distribution=distribution,
+            python_path=pythonPath,
+            backend_module=self.BACKEND_MODULE,
+            backend_arguments=backendArguments,
+            wsl_executable=self._wslExecutablePath(),
+        )
 
     def _buildBackendPythonCommand(
         self,
@@ -14294,17 +15203,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         pythonPath: str,
         backendArguments: list[str],
     ) -> list[str]:
-        if executionMode == "wsl":
-            return self._buildWslPythonCommand(
-                distribution,
-                pythonPath,
-                backendArguments,
-            )
-        if executionMode != "local":
-            raise ValueError(_("Unsupported backend execution mode."))
-        if not pythonPath.startswith("/"):
-            raise ValueError(_("The backend Python path must be absolute."))
-        return [pythonPath, "-m", self.BACKEND_MODULE, *backendArguments]
+        return build_backend_python_command(
+            execution_mode=executionMode,
+            distribution=distribution,
+            python_path=pythonPath,
+            backend_module=self.BACKEND_MODULE,
+            backend_arguments=backendArguments,
+            wsl_executable=self._wslExecutablePath(),
+        )
 
     @staticmethod
     def _backendVisiblePath(path: Path, executionMode: str) -> str:
@@ -14760,6 +15666,8 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.test_DENTOWorkflowResearchTemplateGeometry()
             self.test_DENTOWorkflowSafeDeletionAndPersistence()
             self.test_DENTOWorkflowTrajectorySelectionRestoresTargetWidget()
+            self.test_DENTOWorkflowTemplateReviewGateWidget()
+            self.test_DENTOWorkflowInsertionAlignedSupportPlaneBoundary()
         finally:
             self.setUp()
 
@@ -14842,13 +15750,21 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         localBackendPython = "/opt/dentobot-test-env/bin/python"
         launcherArtifactRoot = "/workspace/data/dentobot-runs"
         launcherEnvironment = {
+            logic.BACKEND_EXECUTION_MODE_ENVIRONMENT_VARIABLE: "local",
             logic.BACKEND_PYTHON_ENVIRONMENT_VARIABLE: localBackendPython,
             logic.RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE: launcherArtifactRoot,
+            logic.BACKEND_DEVICE_ENVIRONMENT_VARIABLE: "cpu",
         }
 
         self.assertEqual(
             logic.launcherBackendConfiguration(launcherEnvironment),
-            (localBackendPython, launcherArtifactRoot),
+            (
+                "local",
+                "",
+                localBackendPython,
+                launcherArtifactRoot,
+                "cpu",
+            ),
         )
         self.assertEqual(
             logic.resolveBackendConfiguration(
@@ -14862,7 +15778,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             ),
             (
                 "local",
-                "ignored-distribution",
+                "",
                 localBackendPython,
                 launcherArtifactRoot,
                 "cpu",
@@ -14882,15 +15798,43 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         )
         self.assertEqual(
             logic.resolveBackendConfiguration(
-                "local",
-                "",
+                "wsl",
+                "stale-distribution",
                 "/stale/python",
                 "/stale/runs",
-                "cpu",
+                "cuda:0",
                 True,
                 {},
             ),
-            ("local", "", "", "", "cpu"),
+            ("", "", "", "", ""),
+        )
+
+        windowsLauncherEnvironment = {
+            logic.BACKEND_EXECUTION_MODE_ENVIRONMENT_VARIABLE: "wsl",
+            logic.WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE: "Ubuntu-24.04",
+            logic.BACKEND_PYTHON_ENVIRONMENT_VARIABLE: (
+                "/home/user/miniconda3/envs/dentobot/bin/python"
+            ),
+            logic.RUN_ARTIFACT_ROOT_ENVIRONMENT_VARIABLE: r"C:\DENTOBOTRuns",
+            logic.BACKEND_DEVICE_ENVIRONMENT_VARIABLE: "cuda:0",
+        }
+        self.assertEqual(
+            logic.resolveBackendConfiguration(
+                "wsl",
+                "manual-distribution",
+                "/manual/python",
+                r"D:\ManualRuns",
+                "cpu",
+                True,
+                windowsLauncherEnvironment,
+            ),
+            (
+                "wsl",
+                "Ubuntu-24.04",
+                "/home/user/miniconda3/envs/dentobot/bin/python",
+                r"C:\DENTOBOTRuns",
+                "cuda:0",
+            ),
         )
 
         self.assertEqual(
@@ -16745,6 +17689,261 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "DENTOWorkflow Step 5A multi-support model logic tests passed"
         )
 
+    def test_DENTOWorkflowTemplateReviewGateWidget(self) -> None:
+        """Make a new segmentation's required review action explicit in Step 5A."""
+
+        slicer.mrmlScene.Clear(0)
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        logic = widget.logic
+
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "NewUnreviewedDentalSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        widget._restoringTrajectoryAssociation = True
+        try:
+            widget.ui.reviewSegmentationSelector.setCurrentNode(segmentationNode)
+        finally:
+            widget._restoringTrajectoryAssociation = False
+        parameterNode = widget._parameterNode
+        widget._updatingFromParameterNode = True
+        try:
+            wasModifying = parameterNode.StartModify()
+            try:
+                parameterNode.teethSegmentation = segmentationNode
+                parameterNode.targetToothSegmentId = "tooth-14"
+                parameterNode.templateSupportToothSegmentIdsJson = (
+                    logic.encodeTemplateSupportSegmentIds(["tooth-15"])
+                )
+            finally:
+                parameterNode.EndModify(wasModifying)
+        finally:
+            widget._updatingFromParameterNode = False
+        widget._targetToothRecordsById = {
+            "tooth-14": {
+                "segmentId": "tooth-14",
+                "displayName": "FDI 14 — Upper Right First Premolar",
+                "sourceName": "upper_right_first_premolar_fdi14",
+            },
+            "tooth-15": {
+                "segmentId": "tooth-15",
+                "displayName": "FDI 15 — Upper Right Second Premolar",
+                "sourceName": "upper_right_second_premolar_fdi15",
+            },
+        }
+        widget._updateTemplateModeling()
+
+        self.assertEqual(
+            logic.getSegmentationReviewState(segmentationNode),
+            "Unreviewed",
+        )
+        self.assertFalse(widget.ui.createDraftTemplateSupportModelButton.enabled)
+        self.assertTrue(widget.ui.reviewSegmentationForTemplateButton.enabled)
+        self.assertIn(
+            "Unreviewed",
+            widget.ui.reviewSegmentationForTemplateButton.text,
+        )
+        self.assertIn("1 checked support", widget.ui.templateModelingStatusLabel.text)
+
+        widget.onReviewSegmentationForTemplate()
+        self.assertFalse(widget.ui.segmentationReviewCollapsibleButton.collapsed)
+        self.assertTrue(widget.ui.templateModelingCollapsibleButton.collapsed)
+        self.assertIs(
+            widget.ui.reviewSegmentationSelector.currentNode(),
+            segmentationNode,
+        )
+
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-11T12:00:00+00:00",
+        )
+        widget._updateTemplateModeling()
+        self.assertTrue(widget.ui.createDraftTemplateSupportModelButton.enabled)
+        self.assertFalse(widget.ui.reviewSegmentationForTemplateButton.visible)
+
+        self.delayDisplay(
+            "DENTOWorkflow Step 5A segmentation-review gate widget test passed"
+        )
+
+    def test_DENTOWorkflowInsertionAlignedSupportPlaneBoundary(self) -> None:
+        """Initialize a three-tooth support loop from a locked trajectory plane."""
+
+        logic = DENTOWorkflowLogic()
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "InsertionPlaneSupportSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        fixtures = (
+            ("tooth-13", "upper_right_canine_fdi13", -8.0),
+            ("tooth-14", "upper_right_first_premolar_fdi14", 0.0),
+            ("tooth-15", "upper_right_second_premolar_fdi15", 8.0),
+        )
+        for segmentId, segmentName, centerX in fixtures:
+            sphere = vtk.vtkSphereSource()
+            sphere.SetCenter(centerX, 0.0, 0.0)
+            sphere.SetRadius(4.0)
+            sphere.SetThetaResolution(32)
+            sphere.SetPhiResolution(24)
+            sphere.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                sphere.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-11T12:00:00+00:00",
+        )
+        supportModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
+            segmentationNode,
+            "tooth-14",
+            ["tooth-13", "tooth-15"],
+        )
+        trajectoryNode = logic.createTrajectoryNode("Insertion Plane Trajectory")
+        logic.configureTrajectoryTarget(
+            trajectoryNode,
+            segmentationNode,
+            "tooth-14",
+        )
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, 5.0))
+        trajectoryNode.AddControlPoint(vtk.vtkVector3d(0.0, 0.0, -5.0))
+
+        planeNode, planeGeometry = logic.createOrUpdateTemplateSupportBoundaryPlane(
+            supportModel,
+            trajectoryNode,
+            depthFromEntryMm=3.0,
+        )
+        self.assertTrue(logic.isTemplateSupportBoundaryPlaneNode(planeNode))
+        self.assertTrue(planeNode.GetLocked())
+        self.assertFalse(planeNode.GetSelectable())
+        self.assertTrue(
+            np.allclose(planeGeometry["originRas"], (0.0, 0.0, 2.0))
+        )
+        self.assertTrue(
+            np.allclose(planeGeometry["normalRas"], (0.0, 0.0, -1.0))
+        )
+
+        curveNode, boundaryMetrics = (
+            logic.createOrUpdateTemplateSupportBoundaryFromPlane(
+                supportModel,
+                planeNode,
+                trajectoryNode,
+                samplingSpacingMm=0.5,
+            )
+        )
+        self.assertEqual(boundaryMetrics["intersectedToothCount"], 3)
+        self.assertGreater(curveNode.GetNumberOfDefinedControlPoints(), 3)
+        self.assertIs(
+            curveNode.GetNodeReference(
+                logic.TEMPLATE_SUPPORT_BOUNDARY_INITIALIZER_PLANE_REFERENCE_ROLE
+            ),
+            planeNode,
+        )
+        for point in logic.templateSupportBoundaryControlPointsWorld(curveNode):
+            self.assertAlmostEqual(point[2], 2.0, places=5)
+
+        previewNode, previewMetrics = logic.createOrUpdateVisibleTemplateSupportModel(
+            supportModel,
+            curveNode,
+            directionTrajectory=trajectoryNode,
+            samplingSpacingMm=0.5,
+            terminalCoveragePercent=50.0,
+        )
+        self.assertEqual(previewMetrics["selectedToothCount"], 3)
+        self.assertEqual(previewMetrics["omittedToothCount"], 0)
+        self.assertTrue(previewMetrics["terminalSupport"]["applied"])
+        crownDirection = np.asarray(
+            previewMetrics["crownDirectionRas"],
+            dtype=float,
+        )
+        for clipPlane in previewMetrics["terminalClipPlanesRas"]:
+            inwardNormal = np.asarray(
+                clipPlane["inwardNormalRas"],
+                dtype=float,
+            )
+            self.assertAlmostEqual(
+                float(np.dot(inwardNormal, crownDirection)),
+                0.0,
+                places=6,
+            )
+            self.assertTrue(clipPlane["splitPlaneContainsInsertionAxis"])
+
+        parameterNode = logic.getParameterNode()
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.teethSegmentation = segmentationNode
+            parameterNode.targetToothSegmentId = "tooth-14"
+            parameterNode.trajectoryLine = trajectoryNode
+            parameterNode.templateSupportToothSegmentIdsJson = (
+                logic.encodeTemplateSupportSegmentIds(
+                    ["tooth-13", "tooth-15"]
+                )
+            )
+            parameterNode.draftTemplateSupportModel = supportModel
+            parameterNode.templateSupportBoundaryPlane = planeNode
+            parameterNode.templateSupportBoundaryCurve = curveNode
+            parameterNode.visibleTemplateSupportModel = previewNode
+        finally:
+            parameterNode.EndModify(wasModifying)
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-step5a-plane-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+            reloadedLogic = DENTOWorkflowLogic()
+            reloadedParameterNode = reloadedLogic.getParameterNode()
+            reloadedPlane = reloadedParameterNode.templateSupportBoundaryPlane
+            reloadedCurve = reloadedParameterNode.templateSupportBoundaryCurve
+            reloadedPreview = reloadedParameterNode.visibleTemplateSupportModel
+            self.assertTrue(
+                reloadedLogic.isTemplateSupportBoundaryPlaneNode(reloadedPlane)
+            )
+            self.assertIs(
+                reloadedCurve.GetNodeReference(
+                    reloadedLogic
+                    .TEMPLATE_SUPPORT_BOUNDARY_INITIALIZER_PLANE_REFERENCE_ROLE
+                ),
+                reloadedPlane,
+            )
+            reloadedSummary = (
+                reloadedLogic.getVisibleTemplateSupportModelSummary(
+                    reloadedPreview
+                )
+            )
+            self.assertEqual(reloadedSummary["geometryState"], "Current")
+            self.assertTrue(
+                reloadedLogic.templateSupportBoundaryMatchesGeometryJson(
+                    reloadedCurve,
+                    reloadedSummary["boundaryGeometryJson"],
+                )
+            )
+            removals = reloadedLogic.deleteTemplateSupportSelection(
+                reloadedCurve,
+                reloadedPreview,
+                reloadedPlane,
+            )
+            self.assertFalse(slicer.mrmlScene.IsNodePresent(reloadedCurve))
+            self.assertFalse(slicer.mrmlScene.IsNodePresent(reloadedPreview))
+            self.assertFalse(slicer.mrmlScene.IsNodePresent(reloadedPlane))
+        finally:
+            if scenePath.exists():
+                scenePath.unlink()
+        self.assertEqual(len(removals), 3)
+
+        self.delayDisplay(
+            "DENTOWorkflow insertion-aligned support-plane test passed"
+        )
+
     def test_DENTOWorkflowDirectionalSupportSideSelection(self) -> None:
         """Choose crown-side patches per tooth despite size and mesh islands."""
 
@@ -16777,6 +17976,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
                 {
                     "segmentId": segmentId,
                     "displayName": segmentId,
+                    "isTarget": segmentId == "tooth-small-middle",
                     "polyData": surface,
                 }
             )
@@ -16820,6 +18020,12 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(crownMetrics["omittedToothCount"], 0)
         self.assertEqual(crownMetrics["sourceSurfaceRegionCount"], 6)
         self.assertEqual(crownMetrics["ignoredSourceIslandCount"], 3)
+        self.assertTrue(crownMetrics["terminalSupport"]["applied"])
+        self.assertEqual(
+            set(crownMetrics["terminalSupport"]["clippedTerminalSegmentIds"]),
+            {"tooth-large-left", "tooth-large-right"},
+        )
+        self.assertEqual(len(crownMetrics["terminalClipPlanesRas"]), 2)
         self.assertEqual(rootMetrics["selectedToothCount"], 3)
         self.assertGreater(crownPatch.GetBounds()[5], 4.0)
         self.assertLess(rootPatch.GetBounds()[4], -4.0)
@@ -16952,6 +18158,34 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
     def test_DENTOWorkflowPatientContactShellVoxelFallback(self) -> None:
         """Repair an invalid Hollow extrusion and union its boundary bridge."""
 
+        mainCube = vtk.vtkCubeSource()
+        mainCube.SetBounds(-2.0, 2.0, -2.0, 2.0, -2.0, 2.0)
+        mainCube.Update()
+        voxelSpeckle = vtk.vtkCubeSource()
+        voxelSpeckle.SetBounds(5.0, 5.3, 5.0, 5.3, 5.0, 5.3)
+        voxelSpeckle.Update()
+        substantiveIsland = vtk.vtkCubeSource()
+        substantiveIsland.SetBounds(8.0, 9.0, 8.0, 9.0, 8.0, 9.0)
+        substantiveIsland.Update()
+        appendArtifacts = vtk.vtkAppendPolyData()
+        appendArtifacts.AddInputData(mainCube.GetOutput())
+        appendArtifacts.AddInputData(voxelSpeckle.GetOutput())
+        appendArtifacts.AddInputData(substantiveIsland.GetOutput())
+        appendArtifacts.Update()
+        filteredArtifacts, artifactMetrics = (
+            remove_single_voxel_surface_speckles(
+                appendArtifacts.GetOutput(),
+                (0.3, 0.3, 0.3),
+            )
+        )
+        self.assertEqual(artifactMetrics["rawSurfaceRegionCount"], 3)
+        self.assertEqual(
+            artifactMetrics["removedSingleVoxelSpeckleCount"],
+            1,
+        )
+        self.assertEqual(artifactMetrics["retainedSurfaceRegionCount"], 2)
+        self.assertEqual(surface_topology(filteredArtifacts)["surfaceRegionCount"], 2)
+
         anatomySource = vtk.vtkCubeSource()
         anatomySource.SetBounds(-5.0, 5.0, -5.0, 5.0, -5.0, 0.0)
         anatomySource.Update()
@@ -16994,6 +18228,20 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             fitting_surface_world=fittingSurface,
             shell_thickness_mm=1.0,
             boundary_bridge_world=bridge,
+            terminal_clip_planes_ras=[
+                {
+                    "segmentId": "left-terminal",
+                    "originRas": (-2.0, 0.0, 0.0),
+                    "inwardNormalRas": (1.0, 0.0, 0.0),
+                    "coverageFraction": 0.5,
+                },
+                {
+                    "segmentId": "right-terminal",
+                    "originRas": (2.0, 0.0, 0.0),
+                    "inwardNormalRas": (-1.0, 0.0, 0.0),
+                    "coverageFraction": 0.5,
+                },
+            ],
         )
         self.assertGreater(
             metrics["candidateTopology"]["boundaryOrNonManifoldEdgeCount"],
@@ -17010,6 +18258,9 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertTrue(metrics["boundaryBridgeIntegrated"])
         self.assertEqual(metrics["boundaryOrNonManifoldEdgeCount"], 0)
         self.assertEqual(metrics["surfaceRegionCount"], 1)
+        self.assertEqual(metrics["terminalClipPlaneCount"], 2)
+        self.assertGreaterEqual(shell.GetBounds()[0], -2.3)
+        self.assertLessEqual(shell.GetBounds()[1], 2.3)
         self.assertGreater(shell.GetNumberOfCells(), 0)
         self.delayDisplay(
             "DENTOWorkflow invalid-Hollow fallback and boundary-bridge tests passed"
@@ -17029,6 +18280,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             ("tooth-16", "upper_right_first_molar_fdi16", -4.25),
             ("tooth-15", "upper_right_second_premolar_fdi15", 4.25),
             ("tooth-14", "upper_right_first_premolar_fdi14", 20.0),
+            ("tooth-17", "upper_right_second_molar_fdi17", -12.0),
         ):
             sphere = vtk.vtkSphereSource()
             sphere.SetCenter(centerX, 0.0, 0.0)
@@ -17166,6 +18418,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
                 preview,
                 insertionDirection,
                 angleToleranceDeg=5.0,
+                interproximalReliefMm=1.0,
                 samplingSpacingMm=0.3,
             )
         )
@@ -17187,6 +18440,22 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(
             undercutDetails["blockout"]["boundaryOrNonManifoldEdgeCount"],
             0,
+        )
+        self.assertEqual(
+            undercutDetails["blockout"]["interproximalReliefMm"],
+            1.0,
+        )
+        self.assertEqual(
+            undercutDetails["blockout"]["collisionAnatomy"][
+                "collisionToothCount"
+            ],
+            4,
+        )
+        self.assertIn(
+            "tooth-17",
+            undercutDetails["blockout"]["collisionAnatomy"][
+                "collisionSegmentIds"
+            ],
         )
 
         patientShell, shellDetails = logic.createOrUpdatePatientContactShell(

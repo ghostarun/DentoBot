@@ -50,6 +50,8 @@ if [[ -n "${backend_python}" ]]; then
   PIP_NO_CACHE_DIR=1 "${backend_python}" -m pip check
   "${backend_python}" -m pytest -p no:cacheprovider -q \
     "${repository_root}/Inference/tests"
+  "${backend_python}" -m pytest -p no:cacheprovider -q \
+    "${repository_root}/Testing/test_platform_contract.py"
 else
   echo "Backend tests: skipped (set DENTOBOT_BACKEND_PYTHON)"
 fi

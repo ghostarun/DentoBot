@@ -8,8 +8,11 @@ result review. This package owns dependency-heavy image processing and AI
 inference. It does not import Slicer and must not be installed into Slicer's
 embedded Python environment.
 
-The validated Bridge C happy path uses DENTOBOT backend 0.2.0,
+The validated Windows/WSL Bridge C baseline uses DENTOBOT backend 0.2.0,
 TotalSegmentator 2.16.0, PyTorch 2.10.0 with CUDA 13.0, and Python 3.10.20.
+The active Ubuntu baseline uses the same backend/TotalSegmentator version with
+Python 3.12.13 and PyTorch 2.10.0+cpu. Each platform uses its own pinned
+manifest; these profiles are not interchangeable.
 The authoritative installation, evidence, recovery, and traceability procedure
 is [REPRODUCIBILITY_AND_TRACEABILITY.md](../docs/REPRODUCIBILITY_AND_TRACEABILITY.md).
 
@@ -21,7 +24,9 @@ baseline, not a complete transitive lock. `validated-environment.json` records
 the corresponding machine-readable runtime evidence. A full platform-specific
 environment export remains a release task.
 
-## Prerequisites
+## Runtime profiles
+
+### Windows 11 + WSL2 CUDA
 
 - Windows with WSL2 and the Ubuntu distribution
 - a working Windows NVIDIA driver exposed to WSL2
@@ -33,7 +38,18 @@ Do not install a Linux NVIDIA display driver inside WSL. DENTOBOT uses the
 CUDA support exposed by the Windows driver and the CUDA runtime supplied by
 the official PyTorch wheel.
 
-## Validated installation
+### Ubuntu CPU
+
+- Ubuntu with the repository's current container/SlicerROS2 workspace
+- Python 3.12 with `venv` support
+- the pinned `requirements/ubuntu-cpu*.txt` manifests
+- the prepared model cache mounted below `/workspace/data/model-cache`
+
+The Ubuntu launcher and `Infrastructure/install_ubuntu_backend.sh` own this
+profile. It invokes the backend directly as a Linux child process and requests
+`cpu`; it does not route through WSL.
+
+## Validated Windows/WSL installation
 
 Run these commands from `Inference/` in a WSL shell:
 
@@ -90,18 +106,13 @@ passing.
 
 ## Slicer bridge configuration
 
-On the active Ubuntu workspace, start Slicer through
-`scripts/launch-dentoworkflow.bash`. The launcher reads the one untracked
-`.dentobot.env`, supplies the exact backend interpreter and local run-record
-root, and DENTO Workflow uses them automatically. Do not install this package
-into Slicer's Python or persist workstation paths in an MRB scene.
-
-The older Windows/WSL compatibility mode remains a manual advanced override.
-Configure:
-
-- WSL distribution: `Ubuntu`
-- Environment Python: `/absolute/path/to/conda/envs/dentobot/bin/python`
-- Run artifacts: a Windows directory such as `C:\DENTOBOTRuns`
+On Ubuntu, start Slicer through `Workspace/scripts/launch-dentoworkflow.bash`.
+On Windows, copy `Workspace/.dentobot.windows.env.example` to the repository
+root as `.dentobot.windows.env` and start native Slicer through
+`Workspace/scripts/launch-dentoworkflow.ps1`. Both launchers supply the same
+adapter/Python/artifact/device contract automatically. The Windows adapter
+also supplies the exact WSL distribution. Do not install this package into
+Slicer's Python or persist workstation paths in an MRB scene.
 
 Slicer calls the environment by absolute interpreter path. Activating Conda in
 a separate terminal does not configure Slicer.
@@ -121,10 +132,12 @@ python -m dentobot_inference segment-teeth \
   --input /mnt/c/DENTOBOTRuns/<run-id>/input.nii \
   --output /mnt/c/DENTOBOTRuns/<run-id>/teeth-segmentation.nii \
   --result-json /mnt/c/DENTOBOTRuns/<run-id>/result.json \
-  --run-id <run-id>
+  --run-id <run-id> \
+  --device cuda:0
 ```
 
-`segment-teeth` requires CUDA device 0 and does not silently fall back to CPU.
+`segment-teeth` requires an explicit `--device cpu|cuda:0` in DENTOBOT
+launches and does not silently change devices.
 Each run retains its input, validated output when successful, and
 schema-versioned `result.json` under the selected artifact root. These files
 may contain patient-derived data and must follow project data-governance

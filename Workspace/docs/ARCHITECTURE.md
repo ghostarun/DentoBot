@@ -1,28 +1,30 @@
 # DENTOBOT Architecture
 
-> Ubuntu transition note (2026-07-29): this architecture records the accepted
-> Windows/WSL implementation baseline through Step 3C. Platform-specific
-> process, path, GPU, and packaging boundaries are migration inputs, not yet
-> verified Ubuntu architecture.
+> Cross-platform update (2026-08-11): the Slicer/MRML workflow is shared.
+> Windows uses native Slicer plus a WSL2 inference adapter; Ubuntu uses the
+> direct Linux adapter inside the verified SlicerROS2 container. Runtime
+> acceptance is current on Ubuntu and must be repeated on Windows 11.
 
 ## Architectural overview
 
 ```text
-Windows
+3D Slicer / later DENTOBOT custom Slicer application
 |
-+-- 3D Slicer / later DENTOBOT custom Slicer application
+|-- DENTOWorkflow scripted module (shared Windows/Linux source)
+|-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
+`-- Platform process adapter
 |   |
-|   +-- DENTOWorkflow scripted module (focused user workflow)
-|   +-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
-|   +-- Direct WSL process adapter
-|       +-- NIfTI payloads
+|   +-- Windows: native Slicer -> wsl.exe -> Linux backend Python
+|   `-- Ubuntu: container Slicer -> direct Linux backend Python
+|       +-- NIfTI payloads in an adapter-visible artifact root
 |       +-- structured stdout + exit status
-|       `-- JSON result metadata
+|       `-- schema-versioned JSON result metadata
 |
-+-- WSL2 inference environment
++-- Isolated external inference environment
 |   |
 |   +-- DENTOBOT inference Python package and tests
-|   +-- PyTorch/CUDA
+|   +-- Windows/WSL2: pinned PyTorch/CUDA profile
+|   +-- Ubuntu: pinned PyTorch CPU profile
 |   +-- TotalSegmentator `teeth` / ToothFairy3
 |   +-- Future image-processing or planning backends
 |
@@ -34,10 +36,33 @@ Windows
 ```
 
 The boundaries are deliberate. Slicer owns interactive medical-image state;
-WSL2 owns dependency-heavy compute; the robot runtime owns hardware safety and
-real-time behavior.
+the external Linux interpreter owns dependency-heavy compute; the robot
+runtime owns hardware safety and real-time behavior. DENTOWorkflow never
+imports the external environment into Slicer's embedded Python.
 
-## Active Ubuntu workspace and configuration boundary
+## Platform launch and configuration boundary
+
+Both launchers provide the same non-persistent environment contract:
+
+```text
+DENTOBOT_BACKEND_EXECUTION_MODE=local|wsl
+DENTOBOT_WSL_DISTRIBUTION=<required only for wsl>
+DENTOBOT_BACKEND_PYTHON=<absolute Linux interpreter>
+DENTOBOT_RUN_ARTIFACT_ROOT=<Slicer-visible absolute path>
+DENTOBOT_BACKEND_DEVICE=cpu|cuda:0
+```
+
+`DENTOPlatform.py` validates this contract, maps local Windows drive paths to
+WSL `/mnt/<drive>` paths, and builds shell-free argument arrays. Launcher
+paths are never required as MRML identity and are not persisted into new
+scenes. The advanced manual fields remain for recovery and legacy scenes.
+
+On Windows, `launch-dentoworkflow.ps1` starts native Windows Slicer and the
+backend adapter prepends `wsl.exe`. Docker is not part of core planning. On
+Ubuntu, `launch-dentoworkflow.bash` starts the pinned Linux SlicerROS2 image
+and the adapter calls the mounted external Linux interpreter directly.
+
+### Active Ubuntu workspace
 
 The Ubuntu development layout preserves the DentoBot Git checkout inside the
 ROS 2 workspace while versioning its surrounding operational controls:
@@ -182,18 +207,20 @@ python -m dentobot_inference segment-teeth --input <input.nii> --output <teeth-s
 
 The integration slices establish one boundary in independently testable stages:
 
-- **Bridge A — environment health:** `DENTOWorkflow` launches the exact Python
-  interpreter configured by the user inside the named WSL distribution. The
-  backend reports interpreter identity, package versions, PyTorch import
-  health, CUDA availability, and device names as JSON. CUDA failure is
-  explicit; there is no silent CPU fallback.
+- **Bridge A — environment health:** `DENTOWorkflow` launches the exact Linux
+  Python configured by the platform launcher—through the named WSL
+  distribution on Windows or directly on Linux. The backend reports
+  interpreter identity, package versions, PyTorch import health, and requested
+  device status as JSON. Device failure is explicit; there is no silent
+  CPU/CUDA fallback.
 - **Bridge B — image round trip:** Slicer exports the selected scalar volume to
   an isolated run directory as NIfTI. The WSL backend loads, rewrites, reloads,
   and checks its affine, shape, voxel type, and voxel checksum. Slicer then
   validates the returned MRML volume's dimensions, scalar type, and IJK-to-RAS
   matrix before retaining it in the scene.
-- **Bridge C — GPU teeth segmentation:** the same selected-volume and process
-  boundary runs TotalSegmentator `teeth` on CUDA device 0, validates a
+- **Bridge C — teeth segmentation:** the same selected-volume and process
+  boundary runs TotalSegmentator `teeth` on the explicit `cpu` or `cuda:0`
+  device, validates a
   multilabel NIfTI plus schema-versioned metrics, then creates a named and
   colorized `vtkMRMLSegmentationNode`. Binary-labelmap and closed-surface
   representations provide interactive 2D and 3D display.
@@ -202,15 +229,16 @@ All commands use the same asynchronous adapter, bounded live output, process
 exit status, schema-versioned JSON, and argument-list construction. Neither
 Slicer nor the backend command installs packages, edits Slicer, or treats the
 artifact directory as a queue. Bridge C replaces TotalSegmentator's implicit
-weight downloader with a cache-only guard and rejects unavailable CUDA rather
-than silently using the CPU.
+weight downloader with a cache-only guard and rejects an unavailable requested
+device rather than silently changing it.
 
 ### Runtime boundary
 
-The Slicer module runs in Slicer's embedded Windows Python interpreter. The
-inference package runs in a separate Linux Python interpreter inside WSL2.
-Linux PyTorch/CUDA modules cannot be imported into the Windows Slicer process,
-and MRML node objects cannot be passed directly into the Linux process.
+The Slicer module runs in Slicer's embedded Python interpreter. The inference
+package runs in a separate Linux Python interpreter inside WSL2 on Windows or
+as a direct child of Linux Slicer. External PyTorch/TotalSegmentator modules
+are not imported into Slicer, and MRML node objects cannot cross the process
+boundary.
 
 The boundary is therefore an explicitly controlled external process, not a
 Python import and not a folder-based job service.
@@ -222,10 +250,10 @@ For each inference request, the Slicer adapter:
 1. Validates the selected source volume and backend configuration.
 2. Creates a unique run ID and short staging directory.
 3. Exports the source volume to NIfTI with its affine intact.
-4. Starts `wsl.exe` asynchronously with an argument list containing the WSL
-   distribution, absolute Linux Python interpreter, module name, input,
-   output, result metadata path, and run ID. Bridge C itself fixes execution
-   to CUDA device 0.
+4. Starts the platform adapter asynchronously with an argument list containing
+   the absolute Linux Python interpreter, module name, input, output, result
+   metadata path, run ID, and explicit device. Windows prepends `wsl.exe` and
+   the configured distribution; Linux invokes the interpreter directly.
 5. Streams structured stdout and ordinary diagnostic output into the Slicer
    UI without blocking the Qt event loop.
 6. Supports cancellation and records the terminal process exit code.
@@ -246,13 +274,15 @@ wsl.exe
 
 The implementation passes these as separate process arguments. It does not
 concatenate a shell command, depend on interactive environment activation, or
-use a watched folder. The WSL distribution and Python interpreter path are
-explicit configuration values verified by the health check.
+use a watched folder. The adapter, WSL distribution where applicable, Python
+interpreter, artifact root, and device are explicit launcher values verified
+by the health check.
 
 ### Run artifacts
 
-Use a short, configurable staging root such as `C:\DENTOBOTRuns`. Each run
-has an isolated UUID directory visible to WSL2 under `/mnt/c/DENTOBOTRuns`:
+Use a short, configurable artifact root such as `C:\DENTOBOTRuns` on Windows
+or `/workspace/data/dentobot-runs` on Linux. Each run has an isolated UUID
+directory; Windows maps the local drive directory into WSL2 under `/mnt`:
 
 ```text
 <run-id>/
@@ -593,15 +623,22 @@ The initial implementation is a simulator. The hardware adapter and transport
 (vendor SDK, local IPC, TCP, serial, or another protocol) are selected only
 after robot requirements are known.
 
-ROS/ROS2 is reconsidered if the project needs existing robot drivers, MoveIt,
-distributed nodes, standardized transform tooling, or a broader robotics
-ecosystem. It is not adopted merely as a message transport. Regardless of
-transport, low-level motion and safety never run in the Slicer Python process.
+ROS 2/SlicerROS2 is an optional robot-integration capability, not a dependency
+of Steps 0–5. The verified ROS profile is the Ubuntu 24.04/Jazzy/Linux
+SlicerROS2 container. Current upstream SlicerROS2 1.2 does not list Windows as
+a supported build target, so native Windows Slicer remains a planning client
+without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux GUI image is an
+unverified future profile and must not be presented as native Windows module
+support. Regardless of host or transport, low-level motion and safety never
+run in the Slicer Python process.
 
 ## Packaging and deployment
 
-- Development: official pinned Slicer version plus source extension path.
-- AI backend: documented WSL2 distro, isolated environment, locked Python
+- Windows planning development: native pinned Slicer, source extension path,
+  WSL2 backend, and no Docker requirement.
+- Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
+  extension path.
+- AI backend: isolated Linux environment, platform-specific locked Python
   dependencies, model cache, and health check.
 - Workflow release: packaged DENTOBOT extension plus backend setup guide.
 - Final research application: custom Slicer package with DENTO modules

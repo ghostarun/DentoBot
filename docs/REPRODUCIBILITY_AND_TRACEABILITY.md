@@ -287,7 +287,7 @@ new segmentation-oriented WSL tests are currently deferred.
 
 ## 8. Slicer configuration
 
-Configure the DENTO Workflow bridge with:
+The Windows launcher supplies the DENTO Workflow bridge with:
 
 | Setting | Validated value |
 |---|---|
@@ -297,6 +297,10 @@ Configure the DENTO Workflow bridge with:
 
 The absolute interpreter path is authoritative. A Conda environment activated
 in an unrelated terminal does not affect the process launched by Slicer.
+Use `Workspace/scripts/launch-dentoworkflow.ps1`; the UI fields are an
+advanced fallback, not the normal machine-configuration store. Ubuntu uses
+`Workspace/scripts/launch-dentoworkflow.bash` with the `local` adapter and its
+separate CPU pins.
 
 ## 9. Per-run traceability contract
 

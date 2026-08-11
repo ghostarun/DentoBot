@@ -21,6 +21,38 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-11 20:09:17 IST (UTC+05:30) — Shared Windows/Linux runtime contract
+
+### Added and changed
+
+- Added the Slicer-independent `DENTOPlatform.py` adapter contract for direct
+  Linux and Windows-to-WSL execution, explicit launcher configuration,
+  Windows-drive artifact mapping, and shell-free backend commands.
+- Added a machine-local Windows configuration template and PowerShell launcher
+  for native Windows Slicer plus the existing WSL2 inference environment.
+- Extended DENTOWorkflow launcher configuration to both platforms, including
+  execution mode, WSL distribution where applicable, absolute Linux Python,
+  Slicer-visible artifact root, and explicit CPU/CUDA device. Updated the
+  backend UI to report the active adapter and device.
+- Made the Ubuntu launcher and Compose boundary explicitly `local`/`cpu` and
+  retained its pinned Linux SlicerROS2 Docker deployment.
+- Documented that Docker is not required for Windows Steps 0–5. Current
+  upstream SlicerROS2 1.2 is Ubuntu/Jazzy oriented, so ROS-integrated operation
+  remains assigned to the verified Linux profile; Windows Docker GUI hosting
+  is not claimed.
+
+### Verification and limits
+
+- Five ordinary-Python platform tests, 13 inference tests, Python compilation,
+  Qt UI XML parsing, Bash/static checks, real-host Linux launcher preflight,
+  and focused Slicer bridge/module-initialization checks passed. Optional
+  OpenVINO enumeration now runs in a bounded child so a native driver crash is
+  reported instead of killing backend health. PowerShell parsing and
+  end-to-end Windows acceptance remain pending because PowerShell is
+  unavailable on the Ubuntu workstation.
+- No Git publication, Drive sync, Slicer GUI launch, patient data operation,
+  inference run, ROS motion, or robot action occurred in this change batch.
+
 ## 2026-08-10 15:59:55 IST (UTC+05:30) — Zoomable Step 5C and constrained cut height
 
 ### Fixed

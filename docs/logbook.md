@@ -25,6 +25,41 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-11 20:09:17 IST (UTC+05:30) — Windows/Linux platform contract
+
+### Investigation and decision
+
+- Traced the actual DENTOWorkflow backend adapter, launcher-only Linux
+  configuration, prior manual Windows WSL mode, Compose, dependency profiles,
+  and platform tests. The geometry/MRML workflow itself contains no material
+  host dependency; launcher configuration and file/process boundaries were the
+  portability gap.
+- Current upstream SlicerROS2 documentation lists Ubuntu 24.04, Jazzy, and
+  source-built Slicer 5.10/5.12 as the tested 1.2 target and publishes a Linux
+  CI image. DENTOBOT Steps 0–5 do not require its ROS nodes. The selected
+  design uses native Windows Slicer plus WSL2 inference without Docker and
+  retains Ubuntu Docker/SlicerROS2 for ROS-integrated work.
+
+### Work and evidence
+
+- Added a platform-neutral helper, Windows configuration example/PowerShell
+  launcher, shared environment contract, platform-aware UI, explicit Linux
+  adapter/device exports, focused tests, and controlled documentation.
+- A root-owned pre-existing bytecode cache blocked the first host compile;
+  redirecting bytecode to `/tmp` resolved that non-source issue. The base
+  Conda interpreter did not include pytest, so the configured backend Python
+  ran the tests.
+- The host close-day suite initially died inside OpenVINO native device
+  enumeration, while the supported container passed all 18 combined inference
+  and platform tests. OpenVINO enumeration was isolated into a bounded child
+  probe; the subsequent host close-day gate passed 13 inference and five
+  platform tests.
+- Python/UI/Bash/static checks, the real-host Linux launcher preflight, the
+  Slicer-native bridge contract, and actual module launcher-state resolution
+  passed. PowerShell AST and Windows runtime acceptance remain open because no
+  PowerShell/Windows host is available. No external synchronization, patient
+  data, Slicer GUI, robot, motion, or drilling operation was performed.
+
 ## 2026-08-10 15:59:55 IST (UTC+05:30) — Step 5C zoom and plane constraint
 
 ### Observation and implementation

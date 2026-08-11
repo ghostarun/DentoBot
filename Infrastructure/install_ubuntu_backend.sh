@@ -19,7 +19,8 @@ fi
 "${environment_root}/bin/python" -m pip install --upgrade pip setuptools wheel
 "${environment_root}/bin/python" -m pip install \
   --index-url https://download.pytorch.org/whl/cpu \
-  "torch==2.10.0+cpu"
+  "torch==2.10.0+cpu" \
+  "torchvision==0.25.0+cpu"
 "${environment_root}/bin/python" -m pip install \
   --constraint "${repository_root}/Inference/requirements/ubuntu-cpu-constraints.txt" \
   --requirement "${repository_root}/Inference/requirements/ubuntu-cpu.txt"

@@ -1,8 +1,9 @@
 # DENTOBOT Development Plan
 
-> Ubuntu transition note (2026-07-29): completed Windows/WSL milestones remain
-> historical implementation evidence. Their source and behavior must be
-> transferred and reverified before being marked operational on Ubuntu.
+> Cross-platform note (2026-08-11): completed Windows/WSL and Ubuntu milestones
+> remain platform-qualified evidence. The workflow now shares one launcher
+> contract with `wsl` and `local` process adapters. Ubuntu is runtime verified;
+> the tracked Windows launcher still requires Windows 11 acceptance.
 
 ## Development policy
 

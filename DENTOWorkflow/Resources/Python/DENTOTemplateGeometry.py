@@ -113,6 +113,80 @@ def surface_topology(poly_data: vtk.vtkPolyData) -> dict[str, int]:
     }
 
 
+def remove_single_voxel_surface_speckles(
+    poly_data: vtk.vtkPolyData,
+    spacing_mm,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Remove only isolated contour components no larger than one sample voxel.
+
+    Flying Edges can emit closed one-voxel cubes where a distance field and a
+    clearance mask meet at isolated samples.  Those cubes are not printable
+    shell components, but counting them as such creates a false disconnection
+    failure.  This filter deliberately keeps every region that spans more than
+    one voxel in any axis or has more than a cube's small triangle budget, so a
+    genuinely disconnected tooth shell remains visible to topology checks.
+    """
+
+    surface = _triangulated_clean_surface(poly_data)
+    spacing = _finite_vector(spacing_mm, 3, "Surface sampling spacing")
+    if np.any(spacing <= 0.0):
+        raise ValueError("Surface sampling spacing must be positive.")
+
+    connectivity = vtk.vtkPolyDataConnectivityFilter()
+    connectivity.SetInputData(surface)
+    connectivity.SetExtractionModeToAllRegions()
+    connectivity.Update()
+    raw_region_count = int(connectivity.GetNumberOfExtractedRegions())
+    if raw_region_count <= 1:
+        return surface, {
+            "rawSurfaceRegionCount": raw_region_count,
+            "retainedSurfaceRegionCount": raw_region_count,
+            "removedSingleVoxelSpeckleCount": 0,
+            "removedSingleVoxelSpeckleTriangleCount": 0,
+        }
+
+    append = vtk.vtkAppendPolyData()
+    removed_region_count = 0
+    removed_triangle_count = 0
+    retained_region_count = 0
+    extent_limit = 1.1 * spacing
+    for region_index in range(raw_region_count):
+        region_filter = vtk.vtkPolyDataConnectivityFilter()
+        region_filter.SetInputData(surface)
+        region_filter.SetExtractionModeToSpecifiedRegions()
+        region_filter.AddSpecifiedRegion(region_index)
+        region_filter.Update()
+        region = _triangulated_clean_surface(region_filter.GetOutput())
+        bounds = region.GetBounds()
+        extents = np.asarray(
+            [bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]],
+            dtype=float,
+        )
+        triangle_count = int(region.GetNumberOfCells())
+        is_single_voxel_speckle = bool(
+            triangle_count <= 16 and np.all(extents <= extent_limit)
+        )
+        if is_single_voxel_speckle:
+            removed_region_count += 1
+            removed_triangle_count += triangle_count
+            continue
+        append.AddInputData(region)
+        retained_region_count += 1
+
+    if not retained_region_count:
+        raise ValueError(
+            "Patient-contact shell extraction contained only single-voxel artifacts."
+        )
+    append.Update()
+    filtered = _triangulated_clean_surface(append.GetOutput())
+    return filtered, {
+        "rawSurfaceRegionCount": raw_region_count,
+        "retainedSurfaceRegionCount": retained_region_count,
+        "removedSingleVoxelSpeckleCount": removed_region_count,
+        "removedSingleVoxelSpeckleTriangleCount": removed_triangle_count,
+    }
+
+
 def _resample_closed_loop_points(
     loop_points_ras,
     spacing_mm: float,
@@ -175,7 +249,13 @@ def _resample_closed_loop_points(
 def _connected_surface_regions(
     surface: vtk.vtkPolyData,
 ) -> list[vtk.vtkPolyData]:
-    """Return deep-cleaned connected components without changing world RAS."""
+    """Return usable deep-cleaned components without changing world RAS.
+
+    Segmentation closed surfaces may contain tiny degenerate islands that the
+    connectivity filter counts but triangulation/cleaning removes completely.
+    Such islands are diagnostics, not usable tooth anatomy, and must not make
+    an otherwise valid tooth fail extraction.
+    """
 
     connectivity = vtk.vtkPolyDataConnectivityFilter()
     connectivity.SetInputData(surface)
@@ -189,8 +269,44 @@ def _connected_surface_regions(
         extractor.SetExtractionModeToSpecifiedRegions()
         extractor.AddSpecifiedRegion(region_index)
         extractor.Update()
-        regions.append(_triangulated_clean_surface(extractor.GetOutput()))
+        try:
+            regions.append(_triangulated_clean_surface(extractor.GetOutput()))
+        except ValueError:
+            # A counted island may contain only degenerate faces after
+            # cleaning. Preserve every substantive component and omit only
+            # geometry that cannot participate in a surface operation.
+            continue
+    if not regions:
+        raise ValueError("Input anatomy contains no usable connected surface regions.")
     return regions
+
+
+def largest_connected_surface_region(
+    poly_data: vtk.vtkPolyData,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Return the substantive connected surface and report omitted islands."""
+
+    surface = _triangulated_clean_surface(poly_data)
+    regions = _connected_surface_regions(surface)
+    if not regions:
+        raise ValueError("Input anatomy contains no connected surface regions.")
+    cell_counts = [int(region.GetNumberOfCells()) for region in regions]
+    largest_index = int(np.argmax(cell_counts))
+    largest = vtk.vtkPolyData()
+    largest.DeepCopy(regions[largest_index])
+    return largest, {
+        "sourceSurfaceRegionCount": len(regions),
+        "selectedSurfaceRegionIndex": largest_index,
+        "selectedTriangleCount": cell_counts[largest_index],
+        "ignoredSurfaceRegionCount": len(regions) - 1,
+        "ignoredTriangleCount": int(
+            sum(
+                cell_count
+                for index, cell_count in enumerate(cell_counts)
+                if index != largest_index
+            )
+        ),
+    }
 
 
 def _orient_patch_outward(
@@ -410,12 +526,421 @@ def _extract_directional_connected_support_patch(
     }
 
 
+def _apply_terminal_support_coverage(
+    patch_entries: list[dict],
+    crown_direction_ras: np.ndarray,
+    coverage_fraction: float,
+) -> tuple[list[dict], dict]:
+    """Retain the inward part of non-target terminal support teeth.
+
+    The selected-patch centroids are projected into the plane perpendicular
+    to the insertion/removal axis.  Principal-component analysis supplies a
+    local span direction without assuming patient anatomy follows world X/Y/Z.
+    The two span endpoints are terminal teeth.  Each non-target endpoint is
+    clipped by a plane whose positive side points inward toward the selected
+    support group.  A target tooth at an endpoint is deliberately preserved
+    for edge-molar cases.
+    """
+
+    fraction = float(coverage_fraction)
+    if not math.isfinite(fraction) or not 0.25 <= fraction <= 1.0:
+        raise ValueError("Terminal support coverage must be between 25% and 100%.")
+    result = {
+        "method": "InsertionFrameTerminalNeighbor",
+        "requestedCoverageFraction": fraction,
+        "applied": False,
+        "reason": "",
+        "clipPlanesRas": [],
+        "terminalSegmentIds": [],
+        "clippedTerminalSegmentIds": [],
+        "preservedTargetTerminalSegmentIds": [],
+    }
+    if fraction >= 1.0 - 1e-9:
+        result["reason"] = "Full terminal-tooth coverage was requested."
+        return patch_entries, result
+    if len(patch_entries) < 3:
+        result["reason"] = (
+            "At least three mapped teeth are required to identify a stable "
+            "support span; no automatic terminal clipping was applied."
+        )
+        return patch_entries, result
+
+    crown_direction = np.asarray(crown_direction_ras, dtype=float)
+    crown_direction /= float(np.linalg.norm(crown_direction))
+    centers = np.asarray(
+        [entry["patch"].GetCenter() for entry in patch_entries],
+        dtype=float,
+    )
+    center_mean = np.mean(centers, axis=0)
+    centered = centers - center_mean
+    transverse = centered - np.outer(
+        np.dot(centered, crown_direction),
+        crown_direction,
+    )
+    covariance = transverse.T @ transverse
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    span_axis = np.asarray(eigenvectors[:, int(np.argmax(eigenvalues))], dtype=float)
+    span_axis -= float(np.dot(span_axis, crown_direction)) * crown_direction
+    span_length = float(np.linalg.norm(span_axis))
+    if span_length <= 1e-6:
+        result["reason"] = (
+            "The mapped tooth centers do not define a stable transverse support span."
+        )
+        return patch_entries, result
+    span_axis /= span_length
+    projections = np.dot(centers - center_mean, span_axis)
+    minimum_index = int(np.argmin(projections))
+    maximum_index = int(np.argmax(projections))
+    if minimum_index == maximum_index or (
+        float(projections[maximum_index] - projections[minimum_index]) <= 1e-3
+    ):
+        result["reason"] = "The mapped support span is geometrically degenerate."
+        return patch_entries, result
+
+    clipped_entries = list(patch_entries)
+    sorted_indices = np.argsort(projections)
+    terminal_specs = (
+        (minimum_index, int(sorted_indices[1]), span_axis),
+        (maximum_index, int(sorted_indices[-2]), -span_axis),
+    )
+    result["terminalSegmentIds"] = [
+        patch_entries[index]["segmentId"]
+        for index in (minimum_index, maximum_index)
+    ]
+    for entry_index, neighbor_index, fallback_inward_normal in terminal_specs:
+        entry = patch_entries[entry_index]
+        if entry.get("isTarget"):
+            result["preservedTargetTerminalSegmentIds"].append(entry["segmentId"])
+            entry["metrics"]["terminalCoverageApplied"] = False
+            entry["metrics"]["terminalCoverageReason"] = (
+                "Target tooth is terminal and was preserved for an edge-tooth case."
+            )
+            continue
+
+        # Point each terminal cut toward its actual nearest tooth in the
+        # ordered support span. This follows a curved arch more faithfully
+        # than applying the one global PCA axis to both ends. Projecting out
+        # the crown/removal direction guarantees that the resulting cut plane
+        # contains the tooth/insertion axis (a mesial/distal vertical split),
+        # never a crown/root horizontal split.
+        inward_normal = centers[neighbor_index] - centers[entry_index]
+        inward_normal -= (
+            float(np.dot(inward_normal, crown_direction)) * crown_direction
+        )
+        inward_length = float(np.linalg.norm(inward_normal))
+        if inward_length <= 1e-6:
+            inward_normal = np.asarray(fallback_inward_normal, dtype=float)
+            inward_length = float(np.linalg.norm(inward_normal))
+        inward_normal /= inward_length
+        source_patch = entry["patch"]
+        points = np.asarray(
+            vtk_to_numpy(source_patch.GetPoints().GetData()),
+            dtype=float,
+        )
+        tooth_center = centers[entry_index]
+        axial_values = np.dot(points - tooth_center, inward_normal)
+        axial_min = float(np.min(axial_values))
+        axial_max = float(np.max(axial_values))
+        axial_span = axial_max - axial_min
+        if axial_span <= 1e-6:
+            entry["metrics"]["terminalCoverageApplied"] = False
+            entry["metrics"]["terminalCoverageReason"] = (
+                "Terminal patch has no usable inward/outward extent."
+            )
+            continue
+        threshold = axial_max - fraction * axial_span
+        plane_origin = tooth_center + inward_normal * threshold
+        plane = vtk.vtkPlane()
+        plane.SetOrigin(*plane_origin)
+        plane.SetNormal(*inward_normal)
+        clip = vtk.vtkClipPolyData()
+        clip.SetInputData(source_patch)
+        clip.SetClipFunction(plane)
+        clip.SetValue(0.0)
+        clip.InsideOutOff()
+        clip.GenerateClippedOutputOff()
+        clip.Update()
+        clipped_patch = _triangulated_clean_surface(clip.GetOutput())
+        clipped_patch, connectivity_metrics = largest_connected_surface_region(
+            clipped_patch
+        )
+        clip_plane = {
+            "segmentId": entry["segmentId"],
+            "originRas": [float(value) for value in plane_origin],
+            "inwardNormalRas": [float(value) for value in inward_normal],
+            "coverageFraction": fraction,
+            "neighborSegmentId": patch_entries[neighbor_index]["segmentId"],
+            "normalDotCrownDirection": float(
+                np.dot(inward_normal, crown_direction)
+            ),
+            "splitPlaneContainsInsertionAxis": True,
+        }
+        clipped_entry = {
+            **entry,
+            "patch": clipped_patch,
+            "metrics": {
+                **entry["metrics"],
+                "terminalCoverageApplied": True,
+                "terminalCoverageFraction": fraction,
+                "terminalClipPlaneRas": clip_plane,
+                "terminalSourcePointCount": int(source_patch.GetNumberOfPoints()),
+                "terminalSourceTriangleCount": int(source_patch.GetNumberOfCells()),
+                "terminalRetainedPointCount": int(clipped_patch.GetNumberOfPoints()),
+                "terminalRetainedTriangleCount": int(clipped_patch.GetNumberOfCells()),
+                "terminalIgnoredClippedIslandCount": int(
+                    connectivity_metrics["ignoredSurfaceRegionCount"]
+                ),
+            },
+        }
+        clipped_entries[entry_index] = clipped_entry
+        result["clipPlanesRas"].append(clip_plane)
+        result["clippedTerminalSegmentIds"].append(entry["segmentId"])
+
+    result["applied"] = bool(result["clipPlanesRas"])
+    if not result["applied"] and not result["reason"]:
+        result["reason"] = "No non-target terminal support tooth could be clipped."
+    return clipped_entries, result
+
+
+def insertion_aligned_support_boundary_loop(
+    tooth_surfaces_world,
+    plane_origin_ras,
+    plane_normal_ras,
+    *,
+    sampling_spacing_mm: float = 0.5,
+) -> tuple[list[list[float]], dict]:
+    """Create an editable outer support loop from one insertion-frame plane.
+
+    Each selected tooth is intersected independently. All finite intersection
+    points are projected into the plane, and a deterministic 2-D convex hull
+    supplies one continuous outer boundary across interdental gaps. Hull
+    vertices remain actual tooth/plane intersection points; the connecting
+    edges are the intentional bridges that make one editable Markups loop.
+    """
+
+    if not isinstance(tooth_surfaces_world, (list, tuple)) or not tooth_surfaces_world:
+        raise ValueError("At least one source tooth surface is required.")
+    origin = _finite_vector(plane_origin_ras, 3, "Support plane origin")
+    normal = _finite_vector(plane_normal_ras, 3, "Support plane normal")
+    normal_length = float(np.linalg.norm(normal))
+    if normal_length <= 1e-9:
+        raise ValueError("Support plane normal must be non-zero.")
+    normal /= normal_length
+    spacing = float(sampling_spacing_mm)
+    if not math.isfinite(spacing) or spacing <= 0.0:
+        raise ValueError("Support-boundary sampling spacing must be positive.")
+
+    reference_axes = np.eye(3)
+    reference = reference_axes[int(np.argmin(np.abs(reference_axes @ normal)))]
+    axis_x = np.cross(reference, normal)
+    axis_x /= float(np.linalg.norm(axis_x))
+    axis_y = np.cross(normal, axis_x)
+    axis_y /= float(np.linalg.norm(axis_y))
+
+    intersection_points = []
+    per_tooth_counts = []
+    for item in tooth_surfaces_world:
+        if not isinstance(item, dict):
+            raise ValueError("Every source tooth must include segment metadata.")
+        segment_id = str(item.get("segmentId") or "").strip()
+        surface = _triangulated_clean_surface(item.get("polyData"))
+        plane = vtk.vtkPlane()
+        plane.SetOrigin(*origin)
+        plane.SetNormal(*normal)
+        cutter = vtk.vtkCutter()
+        cutter.SetInputData(surface)
+        cutter.SetCutFunction(plane)
+        cutter.GenerateTrianglesOff()
+        cutter.Update()
+        cut_output = cutter.GetOutput()
+        count = int(cut_output.GetNumberOfPoints()) if cut_output else 0
+        per_tooth_counts.append(
+            {
+                "segmentId": segment_id,
+                "intersectionPointCount": count,
+            }
+        )
+        if not cut_output or count < 3:
+            continue
+        points = np.asarray(
+            vtk_to_numpy(cut_output.GetPoints().GetData()),
+            dtype=float,
+        )
+        intersection_points.extend(points.tolist())
+
+    addressed = [item for item in per_tooth_counts if item["intersectionPointCount"] >= 3]
+    if not addressed:
+        raise ValueError(
+            "The insertion-aligned support plane does not intersect any selected "
+            "tooth anatomy. Move the plane toward the crowns and try again."
+        )
+    points_3d = np.asarray(intersection_points, dtype=float)
+    coordinates = np.column_stack(
+        (
+            np.dot(points_3d - origin, axis_x),
+            np.dot(points_3d - origin, axis_y),
+        )
+    )
+    rounded = np.round(coordinates, decimals=8)
+    unique_coordinates, unique_indices = np.unique(
+        rounded,
+        axis=0,
+        return_index=True,
+    )
+    if unique_coordinates.shape[0] < 3:
+        raise ValueError("The support-plane intersection is geometrically degenerate.")
+
+    ordered = sorted(
+        (float(point[0]), float(point[1]), int(index))
+        for point, index in zip(unique_coordinates, unique_indices)
+    )
+
+    def cross_2d(origin_point, point_a, point_b) -> float:
+        return (
+            (point_a[0] - origin_point[0]) * (point_b[1] - origin_point[1])
+            - (point_a[1] - origin_point[1]) * (point_b[0] - origin_point[0])
+        )
+
+    lower = []
+    for point in ordered:
+        while len(lower) >= 2 and cross_2d(lower[-2], lower[-1], point) <= 0.0:
+            lower.pop()
+        lower.append(point)
+    upper = []
+    for point in reversed(ordered):
+        while len(upper) >= 2 and cross_2d(upper[-2], upper[-1], point) <= 0.0:
+            upper.pop()
+        upper.append(point)
+    hull = lower[:-1] + upper[:-1]
+    if len(hull) < 3:
+        raise ValueError("The support-plane intersection did not form a closed hull.")
+    hull_points = np.asarray(
+        [points_3d[item[2]] for item in hull],
+        dtype=float,
+    )
+    sampled = _resample_closed_loop_points(hull_points, spacing)
+    return sampled.tolist(), {
+        "method": "InsertionAlignedPlaneConvexHull",
+        "planeOriginRas": [float(value) for value in origin],
+        "planeNormalRas": [float(value) for value in normal],
+        "planeAxisXRas": [float(value) for value in axis_x],
+        "planeAxisYRas": [float(value) for value in axis_y],
+        "sourceToothCount": len(tooth_surfaces_world),
+        "intersectedToothCount": len(addressed),
+        "omittedToothCount": len(tooth_surfaces_world) - len(addressed),
+        "perToothIntersection": per_tooth_counts,
+        "rawIntersectionPointCount": int(points_3d.shape[0]),
+        "hullVertexCount": len(hull),
+        "outputLoopPointCount": int(sampled.shape[0]),
+        "samplingSpacingMm": spacing,
+    }
+
+
+def estimate_crown_cap_support_plane_normal(
+    tooth_surfaces_world,
+    insertion_direction_ras,
+    *,
+    crown_cap_fraction: float = 0.10,
+) -> tuple[tuple[float, float, float], dict]:
+    """Fit a stable local occlusal plane to crownward surface caps.
+
+    Entry→Target supplies the crown/root polarity. The most crownward fraction
+    of each selected tooth is pooled and fitted by PCA. Implausibly steep or
+    ill-conditioned fits fall back to a plane perpendicular to insertion.
+    This is a geometric initializer only; it is not gingival-margin detection.
+    """
+
+    if not isinstance(tooth_surfaces_world, (list, tuple)) or not tooth_surfaces_world:
+        raise ValueError("At least one source tooth surface is required.")
+    insertion = _finite_vector(
+        insertion_direction_ras,
+        3,
+        "Insertion direction",
+    )
+    insertion_length = float(np.linalg.norm(insertion))
+    if insertion_length <= 1e-9:
+        raise ValueError("Insertion direction must be non-zero.")
+    insertion /= insertion_length
+    fraction = float(crown_cap_fraction)
+    if not math.isfinite(fraction) or not 0.05 <= fraction <= 0.30:
+        raise ValueError("Crown-cap fit fraction must be between 5% and 30%.")
+    crown_direction = -insertion
+
+    cap_points = []
+    tooth_metrics = []
+    for item in tooth_surfaces_world:
+        if not isinstance(item, dict):
+            raise ValueError("Every source tooth must include segment metadata.")
+        surface = _triangulated_clean_surface(item.get("polyData"))
+        points = np.asarray(
+            vtk_to_numpy(surface.GetPoints().GetData()),
+            dtype=float,
+        )
+        crown_scores = np.dot(points, crown_direction)
+        threshold = float(np.quantile(crown_scores, 1.0 - fraction))
+        selected = points[crown_scores >= threshold]
+        if selected.shape[0] < 3:
+            selected = points[np.argsort(crown_scores)[-3:]]
+        cap_points.append(selected)
+        tooth_metrics.append(
+            {
+                "segmentId": str(item.get("segmentId") or ""),
+                "sourcePointCount": int(points.shape[0]),
+                "crownCapPointCount": int(selected.shape[0]),
+                "crownScoreThresholdMm": threshold,
+                "crownCapCentroidRas": [
+                    float(value) for value in np.mean(selected, axis=0)
+                ],
+            }
+        )
+
+    pooled = np.vstack(cap_points)
+    centered = pooled - np.mean(pooled, axis=0)
+    covariance = centered.T @ centered
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    fitted_normal = np.asarray(eigenvectors[:, int(np.argmin(eigenvalues))], dtype=float)
+    fitted_length = float(np.linalg.norm(fitted_normal))
+    method = "SelectedToothCrownCapPca"
+    fallback_reason = ""
+    if fitted_length <= 1e-9:
+        fitted_normal = insertion.copy()
+        fallback_reason = "Crown-cap covariance was degenerate."
+        method = "TrajectoryPerpendicularFallback"
+    else:
+        fitted_normal /= fitted_length
+        if float(np.dot(fitted_normal, insertion)) < 0.0:
+            fitted_normal = -fitted_normal
+        insertion_alignment = float(np.dot(fitted_normal, insertion))
+        if insertion_alignment < 0.50:
+            fitted_normal = insertion.copy()
+            fallback_reason = (
+                "Crown-cap fit exceeded the 60-degree safety tilt limit."
+            )
+            method = "TrajectoryPerpendicularFallback"
+    insertion_alignment = float(np.dot(fitted_normal, insertion))
+    tilt_degrees = math.degrees(
+        math.acos(max(-1.0, min(1.0, insertion_alignment)))
+    )
+    return tuple(float(value) for value in fitted_normal), {
+        "method": method,
+        "crownCapFraction": fraction,
+        "crownCapPointCount": int(pooled.shape[0]),
+        "planeNormalRas": [float(value) for value in fitted_normal],
+        "insertionDirectionRas": [float(value) for value in insertion],
+        "tiltFromTrajectoryPerpendicularDeg": tilt_degrees,
+        "fallbackReason": fallback_reason,
+        "covarianceEigenvalues": [float(value) for value in eigenvalues],
+        "perTooth": tooth_metrics,
+    }
+
+
 def extract_directional_visible_support_surface(
     tooth_surfaces_world,
     loop_points_ras,
     crown_direction_ras,
     *,
     sampling_spacing_mm: float = 0.5,
+    terminal_coverage_fraction: float = 0.5,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Extract one trajectory-directed visible patch per addressed tooth.
 
@@ -462,6 +987,7 @@ def extract_directional_visible_support_surface(
                 "toothIndex": tooth_index,
                 "segmentId": segment_id,
                 "displayName": str(item.get("displayName") or segment_id),
+                "isTarget": bool(item.get("isTarget")),
                 "surface": surface,
                 "regions": regions,
                 "locator": locator,
@@ -484,8 +1010,7 @@ def extract_directional_visible_support_surface(
             )
     tooth_assignments = np.argmin(tooth_distances, axis=1)
 
-    append = vtk.vtkAppendPolyData()
-    tooth_metrics = []
+    patch_entries = []
     omitted_tooth_metrics = []
     raw_island_count = 0
     ignored_island_count = 0
@@ -564,19 +1089,24 @@ def extract_directional_visible_support_surface(
                 }
             )
             continue
-        append.AddInputData(tooth_patch)
-        tooth_metrics.append(
+        patch_entries.append(
             {
+                "segmentId": tooth["segmentId"],
+                "isTarget": tooth["isTarget"],
+                "patch": tooth_patch,
+                "metrics": {
                 **metrics,
                 "segmentId": tooth["segmentId"],
                 "displayName": tooth["displayName"],
+                "isTarget": tooth["isTarget"],
                 "sourceIslandCount": len(regions),
                 "selectedIslandIndex": selected_region_index,
                 "ignoredIslandCount": max(0, len(regions) - 1),
+                },
             }
         )
 
-    if not tooth_metrics:
+    if not patch_entries:
         details = "; ".join(
             f"{item['displayName']}: {item['reason']}"
             for item in omitted_tooth_metrics[:3]
@@ -587,6 +1117,15 @@ def extract_directional_visible_support_surface(
             "gingival/cervical margin and avoid self-crossings."
             + (f" Details: {details}" if details else "")
         )
+    patch_entries, terminal_metrics = _apply_terminal_support_coverage(
+        patch_entries,
+        crown_direction,
+        terminal_coverage_fraction,
+    )
+    append = vtk.vtkAppendPolyData()
+    for entry in patch_entries:
+        append.AddInputData(entry["patch"])
+    tooth_metrics = [entry["metrics"] for entry in patch_entries]
     append.Update()
     patch = _triangulated_clean_surface(append.GetOutput())
     topology = surface_topology(patch)
@@ -595,6 +1134,9 @@ def extract_directional_visible_support_surface(
         "method": "PerToothTrajectoryDirectionalDijkstra",
         "selectionBasis": "TrajectoryEntryToTargetCrownOpposite",
         "samplingSpacingMm": float(sampling_spacing_mm),
+        "terminalSupportCoverageFraction": float(terminal_coverage_fraction),
+        "terminalSupport": terminal_metrics,
+        "terminalClipPlanesRas": terminal_metrics["clipPlanesRas"],
         "loopPointCount": int(loop_points.shape[0]),
         "crownDirectionRas": [float(value) for value in crown_direction],
         "sourceToothCount": len(prepared_teeth),
@@ -957,6 +1499,7 @@ def regularize_patient_contact_shell(
     fitting_surface_world: vtk.vtkPolyData | None = None,
     shell_thickness_mm: float | None = None,
     boundary_bridge_world: vtk.vtkPolyData | None = None,
+    terminal_clip_planes_ras: list[dict] | None = None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Voxel-union a Hollow candidate and enforce anatomy fit clearance.
 
@@ -1012,6 +1555,33 @@ def regularize_patient_contact_shell(
                 "The support-boundary bridge is open or non-manifold "
                 f"({bridge_topology['boundaryOrNonManifoldEdgeCount']} invalid edges)."
             )
+
+    terminal_clip_planes = []
+    for plane_index, plane_specification in enumerate(
+        terminal_clip_planes_ras or []
+    ):
+        if not isinstance(plane_specification, dict):
+            raise ValueError("Every terminal support clip plane must be an object.")
+        origin = _finite_vector(
+            plane_specification.get("originRas"),
+            3,
+            f"Terminal clip plane {plane_index + 1} origin",
+        )
+        normal = _finite_vector(
+            plane_specification.get("inwardNormalRas"),
+            3,
+            f"Terminal clip plane {plane_index + 1} inward normal",
+        )
+        normal_length = float(np.linalg.norm(normal))
+        if normal_length <= 1e-9:
+            raise ValueError("A terminal support clip plane has a zero normal.")
+        terminal_clip_planes.append(
+            {
+                **plane_specification,
+                "originRas": origin,
+                "inwardNormalRas": normal / normal_length,
+            }
+        )
 
     bounds_sources = [candidate.GetBounds()]
     if fitting_surface is not None:
@@ -1106,6 +1676,37 @@ def regularize_patient_contact_shell(
         ).reshape(dimensions[2], dimensions[1], dimensions[0])
         shell_mask |= bridge_distances <= 0.0
     shell_mask &= anatomy_distances >= clearance_guard
+
+    def apply_terminal_clip_planes(mask: np.ndarray) -> np.ndarray:
+        if not terminal_clip_planes:
+            return mask
+        grid_origin = candidate_image.GetOrigin()
+        x_coordinates = (
+            float(grid_origin[0])
+            + np.arange(dimensions[0], dtype=float) * actual_spacing[0]
+        )[None, None, :]
+        y_coordinates = (
+            float(grid_origin[1])
+            + np.arange(dimensions[1], dtype=float) * actual_spacing[1]
+        )[None, :, None]
+        z_coordinates = (
+            float(grid_origin[2])
+            + np.arange(dimensions[2], dtype=float) * actual_spacing[2]
+        )[:, None, None]
+        half_voxel_tolerance = 0.5 * max(actual_spacing)
+        clipped = mask
+        for plane_specification in terminal_clip_planes:
+            origin = plane_specification["originRas"]
+            normal = plane_specification["inwardNormalRas"]
+            signed_distance = (
+                normal[0] * (x_coordinates - origin[0])
+                + normal[1] * (y_coordinates - origin[1])
+                + normal[2] * (z_coordinates - origin[2])
+            )
+            clipped &= signed_distance >= -half_voxel_tolerance
+        return clipped
+
+    shell_mask = apply_terminal_clip_planes(shell_mask)
     closing_kernel_size = 1
     if closing > 0.0:
         closing_radius_voxels = max(
@@ -1145,6 +1746,8 @@ def regularize_patient_contact_shell(
         ).reshape(dimensions[2], dimensions[1], dimensions[0]) > 0
         # Closing must never reintroduce material inside the fit exclusion.
         shell_mask &= anatomy_distances >= clearance_guard
+        # Closing must not regrow the structural bridge beyond a terminal latch.
+        shell_mask = apply_terminal_clip_planes(shell_mask)
     occupied_sample_count = int(np.count_nonzero(shell_mask))
     if not occupied_sample_count:
         raise ValueError(
@@ -1176,8 +1779,12 @@ def regularize_patient_contact_shell(
     normals_filter.AutoOrientNormalsOn()
     normals_filter.SplittingOff()
     normals_filter.Update()
-    shell = vtk.vtkPolyData()
-    shell.DeepCopy(normals_filter.GetOutput())
+    raw_shell = vtk.vtkPolyData()
+    raw_shell.DeepCopy(normals_filter.GetOutput())
+    shell, speckle_metrics = remove_single_voxel_surface_speckles(
+        raw_shell,
+        actual_spacing,
+    )
     topology = surface_topology(shell)
     if not shell.GetNumberOfPoints() or not shell.GetNumberOfCells():
         raise RuntimeError("The patient-contact shell extraction produced no geometry.")
@@ -1212,6 +1819,17 @@ def regularize_patient_contact_shell(
         "shellThicknessMm": thickness,
         "boundaryBridgeIntegrated": boundary_bridge is not None,
         "boundaryBridgeTopology": bridge_topology,
+        "terminalClipPlaneCount": len(terminal_clip_planes),
+        "terminalClipPlanesApplied": [
+            {
+                **plane,
+                "originRas": [float(value) for value in plane["originRas"]],
+                "inwardNormalRas": [
+                    float(value) for value in plane["inwardNormalRas"]
+                ],
+            }
+            for plane in terminal_clip_planes
+        ],
         "fitClearanceMm": clearance,
         "clearanceGuardMm": clearance_guard,
         "requestedSpacingMm": requested_spacing,
@@ -1221,6 +1839,7 @@ def regularize_patient_contact_shell(
         "sampleDimensions": dimensions,
         "samplePointCount": sample_point_count,
         "occupiedSampleCount": occupied_sample_count,
+        **speckle_metrics,
         "candidateTopology": candidate_topology,
         "minimumAnatomyDistanceMm": float(np.min(shell_clearances)),
         "fifthPercentileAnatomyDistanceMm": float(
@@ -1345,8 +1964,9 @@ def create_directional_blockout(
     *,
     sampling_spacing_mm: float,
     padding_mm: float,
+    interproximal_relief_mm: float = 0.0,
 ) -> tuple[vtk.vtkPolyData, dict]:
-    """Create a removal-axis height-field blockout in a tight local frame."""
+    """Create a removal-axis blockout with transverse embrasure relief."""
 
     insertion = _finite_vector(insertion_direction_ras, 3, "Insertion direction")
     insertion_length = float(np.linalg.norm(insertion))
@@ -1357,10 +1977,17 @@ def create_directional_blockout(
     x_axis, y_axis, z_axis = _direction_frame(removal)
     spacing = float(sampling_spacing_mm)
     padding = float(padding_mm)
+    interproximal_relief = float(interproximal_relief_mm)
     if not math.isfinite(spacing) or spacing < 0.1 or spacing > 2.0:
         raise ValueError("Blockout processing resolution must be between 0.10 and 2.00 mm.")
     if not math.isfinite(padding) or padding < 1.0 or padding > 30.0:
         raise ValueError("Blockout padding must be between 1 and 30 mm.")
+    if (
+        not math.isfinite(interproximal_relief)
+        or interproximal_relief < 0.0
+        or interproximal_relief > 5.0
+    ):
+        raise ValueError("Interproximal relief must be between 0 and 5 mm.")
 
     anatomy = _triangulated_clean_surface(anatomy_world)
     support = _triangulated_clean_surface(support_patch_world)
@@ -1428,6 +2055,47 @@ def create_directional_blockout(
         if highest >= 1:
             blockout_mask[1 : highest + 1, row, column] = True
     blockout_mask |= anatomy_mask
+    actual_spacing = tuple(float(value) for value in sampled_image.GetSpacing())
+    transverse_kernel_size = (1, 1, 1)
+    if interproximal_relief > 0.0:
+        # Close only across the plane normal to insertion/removal. This fills
+        # narrow interdental and terminal embrasures while preserving depth
+        # along the explicitly selected insertion axis. The value denotes the
+        # approximate maximum transverse opening to block out, not an offset
+        # of the complete fitting surface.
+        radius_x = max(
+            1,
+            int(math.ceil(0.5 * interproximal_relief / actual_spacing[0])),
+        )
+        radius_y = max(
+            1,
+            int(math.ceil(0.5 * interproximal_relief / actual_spacing[1])),
+        )
+        transverse_kernel_size = (2 * radius_x + 1, 2 * radius_y + 1, 1)
+        closing_image = vtk.vtkImageData()
+        closing_image.DeepCopy(sampled_image)
+        closing_scalars = numpy_to_vtk(
+            np.ascontiguousarray(blockout_mask.astype(np.uint8).ravel()),
+            deep=True,
+            array_type=vtk.VTK_UNSIGNED_CHAR,
+        )
+        closing_image.GetPointData().SetScalars(closing_scalars)
+        dilate = vtk.vtkImageDilateErode3D()
+        dilate.SetInputData(closing_image)
+        dilate.SetKernelSize(*transverse_kernel_size)
+        dilate.SetDilateValue(1)
+        dilate.SetErodeValue(0)
+        erode = vtk.vtkImageDilateErode3D()
+        erode.SetInputConnection(dilate.GetOutputPort())
+        erode.SetKernelSize(*transverse_kernel_size)
+        erode.SetDilateValue(0)
+        erode.SetErodeValue(1)
+        erode.Update()
+        blockout_mask = vtk_to_numpy(
+            erode.GetOutput().GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0]) > 0
+        # Never erode away sampled anatomy while filling its insertion shadow.
+        blockout_mask |= anatomy_mask
     # Keep a background layer around the volume so Flying Edges closes every cap.
     blockout_mask[0, :, :] = False
     blockout_mask[-1, :, :] = False
@@ -1479,8 +2147,10 @@ def create_directional_blockout(
         "frameYAxisRas": tuple(float(value) for value in y_axis),
         "frameZAxisRas": tuple(float(value) for value in z_axis),
         "requestedSpacingMm": spacing,
-        "actualSpacingMm": tuple(float(value) for value in sampled_image.GetSpacing()),
+        "actualSpacingMm": actual_spacing,
         "paddingMm": padding,
+        "interproximalReliefMm": interproximal_relief,
+        "transverseClosingKernelSizeVoxels": transverse_kernel_size,
         "sampleDimensions": dimensions,
         "samplePointCount": sample_point_count,
         "occupiedSampleCount": occupied_count,

@@ -15,6 +15,7 @@ backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
 module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
 endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
 slicer_module_paths="${module_path}"
+backend_dependency_probe='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
 check_only=false
 print_backend_python=false
 x11_access_granted=false
@@ -63,8 +64,11 @@ if [[ -f ${workspace_config} ]]; then
 fi
 
 backend_python="${DENTOBOT_BACKEND_PYTHON:-}"
+backend_execution_mode="${DENTOBOT_BACKEND_EXECUTION_MODE:-local}"
+backend_device="${DENTOBOT_BACKEND_DEVICE:-cpu}"
 render_device="${DENTOBOT_RENDER_DEVICE:-/dev/dri/renderD128}"
 run_artifact_root="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}"
+totalseg_home_dir="${DENTOBOT_TOTALSEG_HOME_DIR:-/workspace/data/model-cache/totalsegmentator}"
 
 if [[ -z ${backend_python} ]]; then
   printf '%s\n' \
@@ -82,6 +86,18 @@ if [[ ${backend_python} != /* ]]; then
   printf 'Backend Python must be an absolute path: %s\n' "${backend_python}" >&2
   exit 2
 fi
+if [[ ${backend_execution_mode} != "local" ]]; then
+  printf '%s\n' \
+    "The Linux launcher requires DENTOBOT_BACKEND_EXECUTION_MODE=local." \
+    "Use launch-dentoworkflow.ps1 for the Windows-to-WSL adapter." >&2
+  exit 2
+fi
+if [[ ${backend_device} != "cpu" ]]; then
+  printf '%s\n' \
+    "The current Ubuntu environment is pinned and verified for CPU inference." \
+    "Set DENTOBOT_BACKEND_DEVICE=cpu; a Linux CUDA profile requires its own pinned manifest." >&2
+  exit 2
+fi
 backend_environment_directory="$(dirname -- "$(dirname -- "${backend_python}")")"
 if [[ ! -d ${backend_environment_directory} ]]; then
   printf 'Backend environment directory is unavailable: %s\n' \
@@ -93,11 +109,19 @@ if [[ ${run_artifact_root} != /* ]]; then
     "${run_artifact_root}" >&2
   exit 2
 fi
+if [[ ${totalseg_home_dir} != /* ]]; then
+  printf 'TotalSegmentator cache must be an absolute container path: %s\n' \
+    "${totalseg_home_dir}" >&2
+  exit 2
+fi
 
 export DENTOBOT_BACKEND_ENV_DIR="${backend_environment_directory}"
+export DENTOBOT_BACKEND_EXECUTION_MODE="${backend_execution_mode}"
 export DENTOBOT_BACKEND_PYTHON="${backend_python}"
+export DENTOBOT_BACKEND_DEVICE="${backend_device}"
 export DENTOBOT_RENDER_DEVICE="${render_device}"
 export DENTOBOT_RUN_ARTIFACT_ROOT="${run_artifact_root}"
+export DENTOBOT_TOTALSEG_HOME_DIR="${totalseg_home_dir}"
 export DENTOBOT_WORKSPACE_ROOT="${workspace_root}"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -117,12 +141,11 @@ if [[ ! -c ${render_device} ]]; then
   exit 2
 fi
 
-if ! "${backend_python}" -c \
-  'import importlib.metadata as m; import nibabel, numpy, sys; assert sys.version_info[:2] == (3, 12); assert m.version("dentobot-inference") == "0.2.0"; assert nibabel.__version__ == "5.4.2"; assert numpy.__version__ == "2.2.6"' \
+if ! "${backend_python}" -c "${backend_dependency_probe}" \
   >/dev/null 2>&1; then
   printf '%s\n' \
     'The dentobot Conda environment is incomplete or has unexpected versions.' \
-    'Expected Python 3.12, dentobot-inference 0.2.0, NumPy 2.2.6, and NiBabel 5.4.2.' >&2
+    'Expected the repository-pinned Python 3.12 CPU segmentation stack.' >&2
   exit 2
 fi
 
@@ -147,9 +170,15 @@ printf 'Starting the DENTOBOT development container...\n'
 docker exec \
   -e PYTHONPATH="${backend_source}" \
   "${container_name}" \
-  "${backend_python}" -c \
-  'import importlib.metadata as m; import nibabel, numpy, sys; assert sys.version_info[:2] == (3, 12); assert m.version("dentobot-inference") == "0.2.0"; assert nibabel.__version__ == "5.4.2"; assert numpy.__version__ == "2.2.6"; print("Conda backend dependency check passed.")'
+  "${backend_python}" -c "${backend_dependency_probe}; print('Conda CPU segmentation dependency check passed.')"
 docker exec "${container_name}" mkdir -p "${run_artifact_root}"
+docker exec "${container_name}" test -d "${totalseg_home_dir}"
+docker exec \
+  -e PYTHONPATH="${backend_source}" \
+  "${container_name}" \
+  "${backend_python}" -m dentobot_inference health \
+  --json \
+  --require-device cpu
 docker exec "${container_name}" test -f "${module_path}/DENTOWorkflow.py"
 docker exec "${container_name}" test -f \
   "${module_path}/Resources/UI/DENTOWorkflow.ui"
@@ -170,10 +199,13 @@ fi
 
 printf '%s\n' \
   "Backend Python: ${backend_python}" \
+  "Backend adapter: ${backend_execution_mode}" \
+  "Backend device: ${backend_device}" \
   "Backend environment: ${backend_environment_directory}" \
   "Workspace root: ${workspace_root}" \
   "Workspace configuration: ${workspace_config}" \
   "Run artifacts: ${run_artifact_root}" \
+  "TotalSegmentator cache: ${totalseg_home_dir}" \
   "DENTO Workflow: ${module_path}" \
   "Slicer module paths: ${slicer_module_paths}" \
   "GPU render node: ${render_device}" \

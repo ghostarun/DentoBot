@@ -77,17 +77,51 @@ Python 3.12 backend on 2026-08-06. `python -m pip check` and all 13 inference
 tests passed there. This expands test tooling only; it does not add a Slicer
 dependency, segmentation stack, model cache, or clinical evidence.
 
+### Ubuntu CPU segmentation baseline — 2026-08-11
+
+The same external Conda environment now contains the Ubuntu CPU inference
+stack: Python 3.12.13, DENTOBOT inference 0.2.0, NumPy 2.2.6, NiBabel 5.4.2,
+PyTorch 2.10.0+cpu, torchvision 0.25.0+cpu, TotalSegmentator 2.16.0, nnUNet v2
+2.8.1, OpenVINO 2026.2.0, and pytest 8.4.2. PyTorch and torchvision are a
+matched pair from the official CPU wheel index. The first repaired run exposed
+and retained a generic-wheel mismatch as
+`ubuntu-cpu-conda-20260811`; the corrected run is
+`data/dentobot-runs/ubuntu-cpu-conda-20260811-02`.
+
+The corrected public-fixture run requested and used CPU, loaded cached tasks
+113, 115, and 298 from
+`/workspace/data/model-cache/totalsegmentator`, completed in 329.216365
+seconds, preserved 360 x 360 x 330 geometry at 0.5 mm spacing, detected 54
+non-background labels, and produced 579,353 foreground voxels. The output and
+run-record SHA-256 values are respectively
+`9ffb207be1c2ff305b7e190bef5def5633971e721d6b6a7e122b77bc0d839364` and
+`4af8b4151eb198a0e72deffe02504e42c086b384753f8a2ba8de6742b4526d1c`.
+The output hash exactly matches the preserved
+`ubuntu-cpu-standalone-20260731` checkpoint result for the same fixture.
+`pip check`, 13 container-native backend tests, backend health, output geometry,
+and label validation passed. This is execution evidence on a public fixture,
+not anatomical-accuracy or clinical evidence.
+
+The launcher passes the cache path into Compose as `TOTALSEG_HOME_DIR`, checks
+the exact CPU dependency set and cache directory, and requires a successful
+CPU health response. The Slicer process continues to own MRML/UI work only; it
+launches the external interpreter and does not import or install this stack in
+Slicer's embedded Python.
+
 ## 1. System boundary
 
-DENTOBOT intentionally separates two Python environments:
+DENTOBOT intentionally separates two Python environments on both platforms:
 
-1. 3D Slicer's embedded Windows Python owns the module UI, MRML scene, NIfTI
+1. Slicer's embedded Python owns the module UI, MRML scene, NIfTI
    export/import, validation, and visualization.
-2. A dedicated Conda Python inside WSL2 owns PyTorch, CUDA access,
-   TotalSegmentator, nnU-Net, and inference.
+2. A dedicated external Linux Python owns PyTorch, TotalSegmentator, nnU-Net,
+   and inference. Windows reaches it through WSL2; Ubuntu invokes it directly
+   from the SlicerROS2 container.
 
-Slicer launches the WSL interpreter by its absolute path. It does not activate
-Conda, import WSL packages, install dependencies, or download models.
+Both platform launchers supply the adapter, absolute Linux interpreter,
+Slicer-visible artifact root, and explicit device. Windows additionally
+supplies the WSL distribution. Slicer does not activate Conda, import external
+packages, install dependencies, or download models.
 
 ## 2. Reproducibility levels
 
@@ -107,7 +141,7 @@ Top-level pins improve repeatability but do not guarantee byte-identical
 transitive dependencies. Do not describe the current manifests as a complete
 lock file.
 
-## 3. Validated compatibility baseline
+## 3. Validated Windows/WSL compatibility baseline
 
 | Component | Validated value |
 |---|---|

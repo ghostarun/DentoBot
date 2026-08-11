@@ -47,6 +47,7 @@ Thumbs.db
 .env.*
 !.env.example
 .dentobot.env
+.dentobot.windows.env
 artifacts/
 runs/
 

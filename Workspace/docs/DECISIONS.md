@@ -1,5 +1,118 @@
 # Dentobot Technical Decisions
 
+## 2026-08-11 — Shared Windows/Linux launcher contract; SlicerROS2 stays Linux
+
+Status: accepted; Ubuntu runtime verified, Windows runtime acceptance pending
+
+DENTOWorkflow's Slicer/MRML and geometry code remains one cross-platform
+implementation. Machine differences are isolated behind a shared launcher
+contract containing execution adapter, absolute Linux backend Python,
+Slicer-visible artifact root, explicit device, and the WSL distribution only
+when applicable.
+
+- Windows 11 uses native Windows Slicer and the `wsl` process adapter. The
+  tracked PowerShell launcher validates and supplies WSL2 inference settings.
+  Docker is not required for Steps 0–5.
+- Ubuntu uses the `local` process adapter inside the pinned Linux SlicerROS2
+  Docker profile and the current CPU backend.
+- Inference dependencies remain outside Slicer's embedded Python on both
+  platforms. Launcher machine paths are not the MRML identity contract.
+
+Upstream SlicerROS2 1.2 currently targets Ubuntu 24.04, ROS 2 Jazzy, and
+source-built Slicer 5.10/5.12; its published CI image is Linux. Therefore
+native Windows SlicerROS2 is not claimed. Docker Desktop/WSL2 hosting of the
+Linux GUI image remains an experimental future profile, while ROS-integrated
+work uses the verified Ubuntu runtime.
+
+## 2026-08-11 — Active Ubuntu backend owns a matched CPU segmentation stack
+
+Status: implemented and verified on the bundled public CBCT fixture
+
+Keep PyTorch, torchvision, TotalSegmentator, nnUNet, OpenVINO, and DENTOBOT
+inference in the external host Conda environment that is mounted read-only
+into the SlicerROS2 container. Install PyTorch 2.10.0+cpu and torchvision
+0.25.0+cpu together from the official PyTorch CPU index; a generic torchvision
+wheel is rejected even when package metadata appears compatible. Keep Slicer's
+embedded Python limited to UI/MRML responsibilities.
+
+Use `/workspace/data/model-cache/totalsegmentator` as the launcher-managed,
+cache-only TotalSegmentator home. Compose receives it explicitly as
+`TOTALSEG_HOME_DIR`; the launcher validates the exact top-level dependency
+versions, cache directory, and CPU health before starting the workflow. No
+implicit CUDA fallback, embedded-Python installation, or runtime model
+download is allowed.
+
+Reason: the formerly minimal Conda backend passed transport checks but could
+not segment. Installing only CPU PyTorch was also insufficient: nnUNet's
+trainer discovery imports torchvision through `timm`, and the generic wheel
+lacked the matching compiled `torchvision::nms` operator. The matched CPU pair
+completed the repository's public fixture with valid output geometry and
+labels while preserving the existing external-process architecture.
+
+## 2026-08-11 — Trajectory/crown-cap support-plane boundary initializer
+
+Status: implemented and Slicer-native verified; clinician/phantom acceptance
+pending
+
+Keep the editable closed Markups curve as the authoritative final Step 5A
+support boundary, but initialize it from a locked derived Markups plane. Use
+Entry→Target as the crown-to-root polarity and insertion frame; never interpret
+“horizontal” as world Z. Place the plane at one visible scalar depth from Entry
+and initialize its tilt from a PCA plane fitted to configurable crown-side caps
+of all selected target/support surfaces. Fall back to the trajectory-normal
+plane when the fit is degenerate or implausibly oblique.
+
+Cut each substantive selected tooth surface independently, project every valid
+intersection into the fitted plane, form one deterministic planar outer convex
+envelope across interdental gaps, resample it, and lift it back into world RAS
+as the editable curve. Raw disconnected cutter contours are not treated as an
+already connected guide boundary. Persist explicit plane→draft and
+plane→trajectory references plus source geometry, depth, cap percentage,
+polarity, and fitted orientation attributes. A change to any input makes the
+boundary/preview and descendants stale.
+
+Reason: CBCT tooth segmentations are disconnected and do not provide a reliable
+gingival margin. The plane supplies a reproducible one-control initializer and
+the connected envelope removes the need to manually bridge every tooth, while
+the editable curve preserves clinician correction. The current 3 mm depth and
+10 percent crown-cap fraction are research defaults only; they must not be
+presented as gingival detection or clinically validated mounting parameters.
+Registered optical surface data remains the preferred future source for true
+visible crown/gingival geometry.
+
+## 2026-08-11 — Directional undercut blockout and partial terminal-tooth latches
+
+Status: implemented and verified on synthetic geometry plus the saved
+representative Scene_5b; clinician/phantom fit acceptance pending
+
+Treat normal-based undercut coloring as a diagnostic preview, not as the
+removability operation. Build the fitting exclusion as a cropped height field
+in the explicit insertion/removal frame. Use substantive closed surfaces from
+the authoritative segmentation's same-arch teeth as collision-only anatomy,
+including nearby unselected teeth; these surfaces may remove impossible
+interproximal material but must never become patient-contact surfaces. Apply a
+configurable transverse-only closing distance to block narrow interdental and
+terminal embrasures without closing along the insertion axis.
+
+Define the two ends of a mapped support span from the visible-patch centroids
+projected perpendicular to insertion direction, then use PCA to avoid assuming
+world X/Y/Z follows the dental arch. For each non-target terminal tooth, retain
+only the configured inward fraction (50 percent research default) and persist
+its world-RAS half-space. Apply the same half-spaces to the contact preview and
+again after boundary-bridge union and shell closing, so downstream processing
+cannot regrow the removed outer end. If the target itself is terminal, preserve
+it and clip only the opposite non-target end; fewer than three mapped teeth do
+not receive an automatic terminal clip.
+
+Reason: SlicerFSP's RegisterModule identifies undercut-facing normals and
+hollows/unions the result, but uses hardcoded world-axis choices and does not
+provide a complete automatic seating solver for disconnected CBCT tooth
+segments. DENTOBOT needs adjacent-tooth collision awareness, explicit
+insertion-frame blockout, and controlled terminal latches while retaining the
+clinician-selected visible surface as the only fitting basis. The current
+clearance/relief/coverage values remain configurable research defaults and
+require phantom and clinician validation.
+
 ## 2026-08-11 — Trajectory-directed per-tooth support-side selection
 
 Status: implemented and Slicer-native synthetically verified; representative

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -81,11 +83,38 @@ def collect_health(
     }
     if openvino_report["available"]:
         try:
-            import openvino as openvino_runtime
-
-            openvino_report["devices"] = list(
-                openvino_runtime.Core().available_devices
+            probe = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import json, openvino; "
+                        "print(json.dumps(list(openvino.Core().available_devices)))"
+                    ),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20.0,
             )
+            if probe.returncode != 0:
+                detail = probe.stderr.strip() or probe.stdout.strip()
+                openvino_report["error"] = (
+                    f"OpenVINO device probe exited with code {probe.returncode}"
+                    + (f": {detail}" if detail else "")
+                )
+            else:
+                output_lines = [
+                    line for line in probe.stdout.splitlines() if line.strip()
+                ]
+                if not output_lines:
+                    raise ValueError("OpenVINO device probe returned no JSON")
+                devices = json.loads(output_lines[-1])
+                if not isinstance(devices, list):
+                    raise ValueError("OpenVINO device probe did not return a list")
+                openvino_report["devices"] = [str(device) for device in devices]
+        except subprocess.TimeoutExpired:
+            openvino_report["error"] = "OpenVINO device probe timed out."
         except Exception as exc:
             openvino_report["error"] = f"{type(exc).__name__}: {exc}"
 

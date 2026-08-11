@@ -1,9 +1,9 @@
 # DENTOBOT Project Context
 
-> Ubuntu transition note (2026-07-29): this is the continuous product context
-> imported from the Windows/WSL workspace. Product and safety decisions remain
-> applicable. Windows/WSL runtime details require explicit Ubuntu migration and
-> verification.
+> Cross-platform note (2026-08-11): product and safety decisions are shared.
+> Native Windows Slicer + WSL2 inference and Ubuntu SlicerROS2 + direct Linux
+> inference now use one explicit launcher contract. Ubuntu is runtime verified;
+> the new Windows launcher still requires Windows 11 acceptance.
 
 ## Project goal
 
@@ -124,23 +124,22 @@ DENTOBOT will orchestrate rather than recreate:
 
 ### Isolate heavy Python dependencies
 
-AI inference will run in WSL2 using an ordinary, independently testable
-Python package. The initial model is TotalSegmentator's `teeth` task based on
-ToothFairy3. The Slicer extension will directly launch the configured WSL
-Python command as an asynchronous process instead of installing PyTorch into
-Slicer. NIfTI files carry image payloads, standard output carries live status,
-the process exit code carries terminal status, and JSON records reproducible
-result metadata.
+AI inference runs in an ordinary, independently testable Linux Python package.
+The initial model is TotalSegmentator's `teeth` task based on ToothFairy3.
+Native Windows Slicer launches the configured interpreter through WSL2; Linux
+Slicer launches it directly. Neither imports PyTorch into Slicer. NIfTI files
+carry image payloads, standard output carries live status, the process exit
+code carries terminal status, and JSON records reproducible result metadata.
 
-Bridge C fixes the initial execution policy to CUDA device 0, rejects CPU
+Bridge C requires an explicit `cpu` or `cuda:0` device, rejects silent device
 fallback, and requires the TotalSegmentator `teeth` and craniofacial crop
-weights to be installed and cached explicitly before Slicer launches
-inference. The Slicer action does not install dependencies or download models.
+weights to be cached before Slicer launches inference. The Slicer action does
+not install dependencies or download models.
 
-The process boundary is explicit: Slicer's Python interpreter and WSL's Linux
-Python interpreter cannot import each other's runtime objects. Slicer exports
-and imports MRML-compatible data while the WSL package remains independently
-executable and testable.
+The process boundary is explicit: Slicer's Python interpreter and the external
+Linux Python cannot import each other's runtime objects. Slicer exports and
+imports MRML-compatible data while the backend package remains independently
+executable and testable across the `wsl` and `local` adapters.
 
 ### Defer ROS
 
