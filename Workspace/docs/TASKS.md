@@ -1,8 +1,74 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
+
+The consolidated implementation/evidence boundary, improvement backlog,
+clinical-accuracy questions, mechanical ambiguities, prohibited
+interpretations, and validation gates are recorded in
+`PROJECT_CHECKPOINT_2026-08-12.md`. Use that checkpoint when converting the
+active list below into clinician, phantom, manufacturing, or robot acceptance
+work; an implemented or synthetic PASS is not a clinical claim.
 
 ## Active
+
+### Immediate Step 4/5 workload — ordered
+
+1. Live-test the compact DENTOWorkflow stage navigator in the physical Slicer
+   session at the normal narrow module-panel width. Confirm one-section
+   accordion behavior, Previous/Next and direct stage jumps, recommended-stage
+   text after new/opened scenes, optional guidance and backend-log toggles,
+   launcher-managed path hiding, volume-details expansion, dark/light theme
+   readability, and that no existing MRML-bound control or callback regressed.
+2. Live-test the new Step 4B assisted trajectory initializer on representative
+   one-root and two-root teeth. Confirm crown Entry placement, target-only mask
+   isolation, forced target-bounds visibility, exact display restoration,
+   root-branch rejection on ambiguous/fused anatomy, correct Entry↔Target
+   pairing, manual MPR correction, locking, MRB reload, and downstream repeated
+   trajectory selection. Treat every target as a geometric estimate, not a
+   canal/apex detection or safe plan.
+3. Live-test the new reference-based viewport controls. Step 4 now exposes
+   target-only focus, target framing in every active view, and exact restore;
+   Step 5A exposes the equivalent target/support focus, framing, and restore.
+   Step 5B now lists the support boundary, support plane, visible-support
+   preview, patient shell, and final template alongside its existing visibility
+   controls. Confirm colors/opacity remain readable in physical-session Intel
+   rendering and after MRB reopen; record any remaining role-color collision.
+4. Live-test bidirectional 3D/slice spatial reference through Slicer's native
+   accurate crosshair path. Enabling the workflow control uses centred slice
+   jumps and Shift-hover picking in 3D; disabling/save/exit restores the exact
+   previous crosshair state. Confirm 3D→2D and 2D→3D usability, target/support
+   frame snapping, and no conflict with Markups placement or oblique MPR.
+5. Redesign Step 4C before treating its mesh as the intended four-rail layout.
+   Remove the rejected crown-centred hub/radial-spoke assumption; use the
+   target crown/occlusal plane as the specified rail surface/tangent reference,
+   not as a solid dock-base plane; preserve a deliberate exclusion envelope
+   around every annular trajectory guide; and define four surrounding rail/dock
+   paths to the shell. Keep drill-guide attachment reinforcement distinct from
+   robot docking. Then live-test transformed/untransformed targets, common and
+   independent depths, repeated references, coplanarity, channel continuity,
+   staleness, and regeneration. Finalize the mechanical profile, tolerances,
+   materials, registration versus load-bearing roles, and structural limits
+   before fabrication claims.
+6. Resolve two-trajectory robot kinematics before claiming Z-only drilling. A
+   fixed dock Z axis cannot represent two non-parallel drill axes at once;
+   choose per-trajectory reindexing, angular adjustment, parallel-axis
+   constraint, or separate docking poses/assemblies, then record every
+   trajectory-to-occlusal-frame transform for registration/homing.
+7. Live-test the updated trajectory oblique MPR. It now prefers Red, supports
+   focused mouse-wheel slider rotation, coalesces rapid changes to about one
+   refresh per 16 ms, fits target bounds deterministically, and temporarily
+   enables native linear CBCT display interpolation with exact restoration.
+   Confirm edge readability without mistaking interpolation for acquired
+   detail, correction-plane stability, crosshair compatibility, CPU/iGPU FPS,
+   and whether a dedicated layout/view label is still needed. No volume is
+   generated per angle.
+8. Live-test the implemented Step 5B unified fusion and Step 5C
+   PASS/WARNING/FAIL gate on representative anatomy. Confirm the recorded
+   shell-contact reinforcement creates one occupied printable volume, every
+   trajectory guide hole and four dock bores remain open, stale trajectories
+   or source nodes produce FAIL, and only one atomic STL is exported. Complete
+   shell/undercut/terminal-latch, dimensional, clinician, and phantom fit
+   acceptance already listed below.
 
 - Repeat the interactive rendering acceptance from the physical Ubuntu
   graphical session through GNOME Desktop Sharing/RDP. Confirm Slicer reports
@@ -36,13 +102,12 @@ Last updated: 2026-08-11
   research defaults; they do not detect the gingival margin. Continue to
   evaluate labelled CBCT-only CEJ/alveolar-crest proxies and registered
   intraoral/desktop surface scans before any clinical default is chosen.
-- Build the verification gate and single `FinalPrintableTemplate` output after
-  the now-working undercut/docking fusion. Require current source snapshots, one intended
-  connected watertight component, docking-axis/dimension checks, anatomy
-  clearance, and PASS/WARNING/FAIL before the existing atomic writer may export
-  one STL. Do not invent a final rail profile; no finalized repository rail
-  specification was found, so the current annular primitive remains explicitly
-  provisional and replaceable.
+- Exercise the implemented verification gate and single
+  `FinalPrintableTemplate` output on real anatomy. Review all WARNING items,
+  especially anatomy collision/clearance and voxel sampling of the 1 mm dock
+  bores; compare exported STL dimensions to the MRML parameters. Do not treat
+  computational PASS/WARNING as clinical or mechanical approval. The annular
+  trajectory guide and four-dock profile remain provisional and replaceable.
 - Live-test the new visible-support workflow on anonymized representative
   anatomy: draw/edit a margin across multiple separate teeth; confirm automatic
   Entry→Target crown/root polarity selects the crown-side candidate despite
@@ -140,11 +205,12 @@ Last updated: 2026-08-11
   standard ROS image bridge carries pixels but is not the medical-image
   exchange contract.
 
-## Shelved — remaining Step 4
+## Shelved — remaining Step 4D viewport/2D placement
 
-The accepted Step 4A assistance backlog is complete. The Step 4B
-dentist-focused 2D plan remains preserved in this task list and
-`docs/DEVELOPMENT_PLAN.md` and is not a current implementation priority.
+The accepted Step 4A assistance backlog is complete. Step 4B now denotes the
+assisted-root initializer and Step 4C the docking contract. The older
+dentist-focused 2D plan is retained as Step 4D and is sequenced through the
+ordered viewport tasks above.
 
 - Accepted deferred Step 4A completion backlog:
   - ~~selecting a trajectory after scene reopen restores its target tooth,
@@ -218,6 +284,18 @@ dentist-focused 2D plan remains preserved in this task list and
 
 ## Completed
 
+- Implemented and Slicer-native verified the provisional Step 4C → 5B → 5C
+  vertical slice on 2026-08-12. Step 4C creates a world-RAS target crown frame,
+  locked reference plane, four hollow robot-side docks at a configurable
+  radial offset, radial rails, shared/independent depths, and explicit repeated
+  trajectory provenance. Step 5B combines these with one/two trajectory guide
+  holes, clearance, reinforcement, and an explicit shell-contact link into one
+  occupied watertight printable volume. Step 5C reports persisted
+  PASS/WARNING/FAIL checks, blocks FAIL, re-verifies on export, and writes one
+  atomic binary `DENTO_Final_Printable_Template.stl`. The transformed synthetic
+  test passed generation, one-voxel artifact cleanup, verification, export,
+  MRB reload, changed-trajectory failure, restored verification, and deletion.
+  Mechanical/clinical/phantom acceptance remains active.
 - Verified containerized DENTO Workflow display through Chrome Remote Desktop
   on 2026-08-11. Starting the normal top-level launcher from the active CRD
   terminal inherited `DISPLAY=:20.0`, recreated/reconfigured the Compose

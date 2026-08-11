@@ -113,6 +113,15 @@ Only implemented stages are enabled. Standard Slicer slice and 3D views stay
 visible. Developer tools and other Slicer modules remain available to the
 developer, even though routine workflow users should not need them.
 
+The current Phase-A implementation presents these functions through one compact
+stage selector over the existing CTK collapsible sections. Exactly one
+top-level stage is expanded at a time, manual section expansion stays
+synchronized with the selector, and Previous/Next navigation is presentation
+state only. A recommendation is derived from explicit parameter-node inputs but
+does not automatically move the operator after initial scene entry. Detailed
+guidance, volume metadata, backend overrides, and backend logs remain available
+on demand rather than occupying the routine workflow panel continuously.
+
 The generated `DentalNavPlanning` threshold example is not the product UI and
 is excluded from the extension build. Its useful experiments may be migrated
 into correctly named DENTO modules after review.
@@ -437,6 +446,29 @@ are excluded.
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
+- Step 4B assistance uses one temporary role-owned Markups fiducial list for
+  exactly one or two clinician crown Entry clicks. It is an input annotation,
+  not an alternative trajectory. Geometry math runs separately from the UI:
+  entry-directed tooth-axis estimation, multi-depth root-side surface caps,
+  deterministic transverse two-cluster analysis for the two-root case, and
+  Entry↔Target pairing. The only planning outputs are the same ordinary
+  Entry→Target line nodes consumed everywhere else.
+- Assisted lines reference the authoritative target segmentation/segment,
+  immutable target bounds, and input-entry markup; record their analysis; stay
+  unlocked; and carry `RequiresManualVerification`. Existing plans are never
+  overwritten. Complete-tooth surface analysis is explicitly not canal/apex
+  detection, clearance analysis, or plan approval.
+- Step 4B entry placement temporarily isolates the target segment and forces
+  its bounds visible. That presentation state is restored on generation,
+  explicit exit, save, module exit, and scene close; display state never becomes
+  the anatomy or trajectory identity contract.
+- Explicit Step 4 and Step 5A view actions reuse those same guarded focus
+  snapshots outside placement. Bounds-based framing changes only slice field of
+  view and camera focal/position state. The optional 3D↔slice locator uses
+  Slicer's singleton crosshair with accurate 3D picking and centred jumps;
+  prior crosshair mode/behavior/thickness/pick settings are restored on disable,
+  save, exit, and close. No picked point becomes a planning input unless the
+  user is separately in a Markups placement interaction.
 - Step 4A trajectory verification reuses that same line and the source CBCT
   referenced by its authoritative segmentation. A native slice view receives
   a longitudinal `SliceToRAS`: column 0 is the angle-rotated transverse axis,
@@ -445,6 +477,9 @@ are excluded.
   rotates anatomy circumferentially without moving the line or creating a
   derived volume. The prior slice/composite/line-display state is restored
   when verification ends and is excluded from saved presentation state.
+  Red is preferred when available. Slider/wheel events are coalesced to a
+  roughly 16 ms display cadence, and optional native linear CBCT interpolation
+  is restored to its prior scalar-volume display value when MPR ends.
 - During 2D Entry/Target correction, Markups start/end-interaction events hold
   that slice matrix fixed under the pointer. After the drag, the previous
   plane normal is minimally projected onto the corrected trajectory's
@@ -524,26 +559,53 @@ are excluded.
   The shell references that line and blockout and records fit, thickness,
   resolution, blockout safety, closing, direction geometry, and revisions with
   `UndercutState=Processed`.
-- `DENTOGuideGeometry.py` owns replaceable docking primitives and voxel fusion.
-  The current annular profile is `ProvisionalDevelopmentGeometry`, because no
-  final rail/channel contract exists. The parameter-node stores selected guide
-  trajectories as repeated MRML references; each must be a complete locked
-  DENTOBOT line associated with the selected target/support segmentation.
-- Docking integration uses a cropped binary domain: remove the outer docking
-  clearance from the patient shell, union an overlapping reinforcement collar,
-  union each docking solid, then subtract all trajectory channels. The
+- `DENTOGuideGeometry.py` owns replaceable trajectory-guide and target-frame
+  docking primitives plus cropped voxel fusion. The current annular guide and
+  four-dock radial-rail profile remain provisional because no final robot
+  mating/load contract exists. Step 4C consumes the complete set of one or two
+  locked trajectories for the target tooth and persists them as repeated MRML
+  references; Step 5B reuses exactly that set.
+- Step 4C derives a right-handed target frame in world RAS. Mean
+  Entry→Target is crown-to-root `+Z`; a target crown-cap PCA direction provides
+  transverse `+X`, and `+Y` is their cross product. A locked, non-selectable
+  Markups plane stores the common seating plane. Four hollow docks sit at
+  configurable `+X/+Y/-X/-Y` radial offsets and extend toward robot-side `-Z`.
+  The current defaults interpret 15 mm as radial offset and 1 mm as bore, but
+  every mechanical dimension is visible and labelled provisional.
+- The current Step 4C mesh connects those docks through a crown-centred hub and
+  radial cylindrical spokes. This topology passed a synthetic connectivity
+  check but was rejected as the intended rail design after visual review. The
+  occlusal plane is a surface/tangent reference for the future rails, not a
+  solid central dock base. The replacement must route surrounding branches to
+  shell attachment regions without a central hub and must reserve the complete
+  trajectory-guide envelope. The annular trajectory guide's local attachment
+  collar and the four robot docks are separate mechanical roles.
+- Docking integration uses a cropped binary domain: remove outer docking
+  clearance from the patient shell, union trajectory and four-dock
+  reinforcement, add a recorded closest-surface overlapping bridge between the
+  Step 4C rail assembly and shell, union all docking solids, then subtract all
+  trajectory/dock channels. The
   `FinalPrintableTemplate` explicitly references the patient shell, every
-  source trajectory, docking assembly, clearance, reinforcement, and channels.
-  Synthetic two-tooth/two-trajectory coverage verifies one connected,
-  watertight world-RAS model plus MRB reload and clean five-node subtree
-  deletion. Its verification state remains `NotVerified`; STL export must not
-  accept it until the final PASS/WARNING/FAIL gate is implemented.
-- Step 5C stores a separate finalized shell and uses Slicer's built-in Dynamic
+  source trajectory, Step 4C assembly, docking assembly, clearance,
+  reinforcement, and channels. Occupied-voxel connectivity—not polygonal
+  surface-region count—defines whether the printable material is one solid,
+  because a valid hollow object may have nested boundary surfaces. Only
+  isolated one-voxel occupied artifacts may be discarded; every larger second
+  volume is fatal. World-RAS transformed synthetic coverage verifies fusion,
+  watertight topology, MRB reload, and clean subtree deletion.
+- Step 5C owns the active final verification gate. It records
+  PASS/WARNING/FAIL source, snapshot, axis, topology, occupied-volume, channel,
+  and sampling checks. Export reruns the checks, rejects FAIL, and uses the
+  existing atomic writer for one `DENTO_Final_Printable_Template.stl`.
+  Computational WARNING/PASS does not validate fit, collision clearance,
+  strength, registration, sterilization, or robot/drilling safety.
+- The older Step 5C separate-finalized-shell path uses Slicer's built-in Dynamic
   Modeler. Plane Cut supplies capped positive/negative regions for the simple
   horizontal trim; Curve Cut supplies inside/outside regions for the adjustable
-  uneven margin, followed by an explicit capping/triangulation/normal pass.
-  Empty or non-watertight finalized geometry is rejected.
-- Step 5C isolation is a temporary one-up 3D workspace aligned to the current
+  uneven margin, followed by capping/triangulation/normals. Its nodes remain
+  readable for saved-scene compatibility, but the controller is hidden and no
+  longer executed by the active workflow.
+- In the retained legacy path, Step 5C isolation is a temporary one-up 3D workspace aligned to the current
   Step 5B automatic ROI. At yaw zero the camera looks along ROI `+Y`, ROI `+X`
   is viewport right, and ROI `+Z` is viewport up; half the ROI Z size is the
   parallel scale, aligning its top/bottom with the viewport. An in-viewport XYZ
@@ -560,12 +622,12 @@ are excluded.
   them. It does not create a markup or enter placement mode. Plane/curve
   placement is deliberate and separate, and 2D views return for later manual
   verification instead of rendering/interacting alongside the 3D edit.
-- Step 5C persists source/edit/Dynamic-Modeler references, source revision,
+- The retained legacy Step 5C persists source/edit/Dynamic-Modeler references, source revision,
   method, kept region, edit geometry, state, and topology metrics. A source,
   method, region, or markup change makes the finalized shell Stale. Export
-  accepts only a Current, source-matched, watertight Step 5C shell and Current
-  Step 5B sleeve. STL export is an explicit local action and never implies
-  printability, manufacturing approval, or clinical/drilling authorization.
+  formerly accepted only a Current, source-matched, watertight Step 5C shell
+  and Current Step 5B sleeve. That two-file export is no longer exposed or
+  executed by the active workflow.
 - Deleting Step 5C removes its role-owned plane, curve, finalized shell,
   Dynamic Modeler node, and cut-output auxiliaries while retaining the Step 5B
   source. Confirmed Step 5B deletion first cascades through those Step 5C

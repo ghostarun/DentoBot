@@ -271,8 +271,10 @@ per-label review state remain separate validation or enhancement problems.
 
 ## Step 4: Procedure definition and minimal trajectory planning
 
-**Status:** Step 4A assistance backlog implemented and Slicer-native verified;
-clinical semantics and Step 4B remain unresolved
+**Status:** Step 4A assistance backlog and the first Step 4B assisted-root
+initializer are implemented and Slicer-native verified. Representative anatomy,
+clinician acceptance, viewport restoration, and the Step 4C robot docking
+contract remain active work.
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
@@ -327,8 +329,8 @@ removal so selectors cannot substitute unrelated nodes during destruction.
 
 ### Step 4A extension — trajectory-aligned longitudinal oblique MPR
 
-**Status:** implemented in source with static verification; live Slicer
-acceptance pending
+**Status:** implemented in source with Slicer-native math/UI verification;
+live clinician and physical-session performance acceptance pending
 
 The compact **Trajectory Verification** control reuses the selected
 Entry/Target Markups line and its segmentation-to-source-CBCT MRML reference.
@@ -354,6 +356,14 @@ deterministic zero frame. Focused source tests cover in-plane preservation,
 off-plane transport, the parallel fallback, handedness, and finite geometry;
 live correction usability remains pending.
 
+The viewer now chooses Red when available, keeps the rotation slider
+mouse-wheel accessible, coalesces rapid slider/wheel events to approximately
+one 60 Hz refresh, and offers native linear CBCT display interpolation. This
+changes only the scalar-volume display setting while verification is active and
+restores its previous value afterward. Reset refits the target after rebuilding
+the deterministic zero plane. Slicer's existing slice reslice pipeline remains
+the only image operation.
+
 Live acceptance must confirm vertical overlay, circumferential anatomy change,
 point immutability under rotation, stable under-pointer point dragging, exact
 plane preservation after in-view correction, source-CBCT selection, state
@@ -362,9 +372,82 @@ FPS. Perpendicular cross-sections, depth scrolling,
 optimization, collision/wall-thickness analysis, bur volume, and warnings are
 future scope.
 
-### Shelved Step 4B plan — dentist-focused 2D placement
+### Step 4B — assisted one/two-root trajectory initialization
 
-**Status:** shelved on 2026-08-03 for later development
+**Status:** implemented as a narrow research V1; synthetic Slicer-native MRML
+and save/reload verification passed, representative anatomy acceptance pending
+
+The user chooses one or two expected root targets and places only the matching
+crown Entry point(s). A temporary role-owned Markups fiducial list stores these
+inputs. The logic reads the selected target tooth's authoritative closed surface
+in world RAS, estimates an entry-directed crown-to-root axis, and samples the
+root-side surface. One-root mode derives a remote-cap target. Two-root mode
+evaluates multiple cap depths, deterministically clusters transverse branches,
+rejects insufficiently separated results, and pairs targets to entries by
+minimum transverse travel.
+
+Generation creates the same existing two-point trajectory line nodes used by
+manual planning and all Step 5 consumers. It never overwrites existing plans;
+each line remains unlocked, references its entry markup and target bounds, and
+records the analysis plus `RequiresManualVerification`. The routine does not
+claim canal/apex detection or safety. Every target must be reviewed and corrected
+with CBCT/MPR before locking.
+
+Entry placement temporarily isolates the target-tooth mask, makes the immutable
+target bounds visible, centers slices, and fits the 3D view. Exact previous
+display state is restored after generation, explicit exit, save, module exit,
+or scene close. Live acceptance must cover real one-/two-root teeth, asymmetric
+roots, fused/poorly separated roots, rotated scans, bounds visibility, placement,
+manual correction, stale downstream behavior, and MRB persistence.
+
+### Step 4C — target-frame registration landmarks and robot docking rails
+
+**Status:** provisional research geometry implemented and Slicer-native
+synthetically verified on 2026-08-12, but the central-hub/radial-spoke topology
+was rejected after visual review; redesign, final mechanical/kinematic
+contract, and live acceptance remain blocked
+
+After trajectory approval, derive an explicit target-tooth local frame from the
+accepted crown/occlusal plane and target centroid. Generate four hollow docking
+features around the target, with top faces coplanar to that plane, a shared
+depth input by default, and a UI unlock for four independent depths. Preserve
+separate semantics/provenance for registration landmarks and the intraoral
+robot's load-bearing docking interface. Support one or two source trajectories
+and pass the replaceable assembly to the existing cropped voxel clearance,
+reinforcement, union, and channel-restoration pipeline.
+
+The development implementation treats `15 mm` as a configurable centroid-to-
+dock radius and `1 mm` as a configurable bore, with a visible provisional
+3 mm outer diameter, 3.5 mm radial rail width, 2 mm central reinforcement
+depth, and 5 mm common dock depth. All four individual depths can be unlocked.
+The mean approved Entry→Target direction defines crown-to-root frame `+Z`, a
+crown-cap PCA direction defines `+X`, and `+Y` completes the right-handed
+world-RAS frame. Common seating faces lie on the stored plane and the solids
+extend toward robot-side `-Z`. The plane/assembly explicitly reference the
+authoritative segmentation and all one/two source trajectories.
+
+These values remain provisional. Resolve the final wall thickness,
+manufacturing clearance, four-hole/profile semantics, depth reference,
+rail/channel mating profile, and structural/material constraints. Define how
+a Z-only final actuation can serve two non-parallel trajectories: reindex the
+robot, add angular adjustment, constrain trajectories parallel, or use
+separate docking poses/assemblies.
+
+The current generator puts a central hub at the crown-cap centroid and connects
+it to all four docks with radial cylindrical spokes. That was a connectivity
+prototype, not the intended layout, and it can overimpose the annular drill
+guide near the trajectory Entry. The clarified requirement is that the
+appropriate guide-rail surface/tangent reference coincide with the target
+crown/occlusal plane; the plane is not a solid central base. Redesign the four
+surrounding rail/dock branches without a crown-centred hub, reserve an explicit
+exclusion envelope around every trajectory guide, and define how the branches
+attach to the shell. Keep the annular guide's local shell reinforcement
+separate from the four robot docks.
+
+### Step 4D — dentist-focused viewport navigation and remaining placement QoL
+
+**Status:** first viewport slice implemented on 2026-08-12; remaining
+dentist-guided placement/layout work is deferred
 
 Preserved implementation sequence:
 
@@ -387,15 +470,22 @@ Preserved implementation sequence:
 Live usability acceptance remains developer/dentist-run in Slicer. Static and
 ordinary-Python coverage should address plane validation, lock transitions,
 association/persistence, stale references, and UI callback integrity. This
-plan is preserved only; no Step 4B implementation is currently authorized.
+plan is preserved. The first increment now exposes explicit target-only and
+support-only focus with exact visibility restoration, bounds-based frame actions
+for all active 2D/3D views, native accurate crosshair navigation for 3D↔slice
+reference, and a fuller Step 5 visibility inventory. These are transient view
+operations and do not alter MRML identity or geometry. Dedicated planning
+layouts, click-selected node-to-Subject-Hierarchy routing, additional semantic
+role-color variants, and dentist acceptance remain future increments.
 
 ## Step 5: Target-region modeling and template research
 
-**Status:** major renovation checkpoint demonstrated through multi-trajectory
-fusion. Visible-support ROI, explicit insertion direction, undercut/blockout,
-patient-contact shell, provisional docking clearance/reinforcement, and one
-connected unified model are implemented and Slicer-native synthetically
-verified. Final PASS/WARNING/FAIL verification and one-STL export remain next.
+**Status:** renovated research vertical slice implemented through provisional
+Step 4C fusion, final verification, and one-STL export. Visible-support ROI,
+explicit insertion direction, undercut/blockout, patient-contact shell,
+trajectory guide holes, four docks/rails, one occupied unified model, and the
+PASS/WARNING/FAIL gate are Slicer-native synthetically verified. Live anatomy,
+dimensional, phantom, clinician, and mechanical acceptance remain active.
 
 ### Step 5A — draft template support anatomy
 
@@ -486,8 +576,9 @@ Current renovation behavior:
   shell, all trajectory, docking, clearance, reinforcement, and channel
   references. The focused two-tooth/two-trajectory regression produces one
   connected watertight component;
-- keep that unified model `NotVerified` and non-exportable until Step 5C's
-  dedicated verification gate is complete.
+- initialize that unified model as `NotVerified`; Step 5C now computes and
+  persists the dedicated PASS/WARNING/FAIL gate and only permits one atomic
+  STL on PASS/WARNING.
 
 The older model-independent raw research shell/sleeve behavior below is now a
 labelled provisional developer path, not the target clinical/research flow:
@@ -541,7 +632,28 @@ EndoPlanner preview informed the workflow comparison but could not be reused
 directly because its model weights and several called implementation helpers
 are absent.
 
-### Step 5C — dentist-directed fit, margin trim, and STL export
+### Step 5C — final verification and one-STL export
+
+**Active behavior (implemented 2026-08-12):**
+
+- select only the explicit `FinalPrintableTemplate` generated by the active
+  Step 5B patient-shell/trajectory-guide/four-dock fusion;
+- verify current MRML references and source revisions, selected visible-support
+  provenance, insertion-direction and undercut snapshots, one/two locked
+  trajectory geometry and guide-axis agreement, four coplanar docks, non-empty
+  watertight topology, exactly one occupied printable volume, non-empty
+  docking/reinforcement/channel masks, and requested wall/bore sampling;
+- classify every check as PASS, WARNING, or FAIL and persist the report on the
+  final model; retain an unavoidable research WARNING for clinical fit,
+  anatomy collision, material strength, and robot safety review;
+- disable normal export on FAIL or stale/unverified state, rerun verification
+  at export time, and write exactly one atomic binary
+  `DENTO_Final_Printable_Template.stl`;
+- retain old scene-node readers but hide and stop executing the superseded
+  automatic ROI/raw research shell/separate sleeve/trim/two-STL controller.
+
+The following older dentist-directed shell-trim implementation is retained as
+compatibility code, not the active post-5B workflow:
 
 Implemented behavior:
 

@@ -10,6 +10,13 @@
     <height>650</height>
    </rect>
   </property>
+  <property name="styleSheet">
+   <string notr="true">QPushButton { min-height: 24px; padding: 2px 6px; }
+QComboBox, QLineEdit { min-height: 24px; }
+QGroupBox#workflowNavigationGroupBox { font-weight: 600; }
+QLabel#researchStatusLabel { font-size: 11px; font-weight: 600; color: #b36b00; }
+QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
+  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
     <number>10</number>
@@ -25,17 +32,86 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="stepTitleLabel">
+   <widget class="QLabel" name="stepTitleLabel">
      <property name="styleSheet">
       <string notr="true">font-size: 14px; font-weight: 600; color: #4a7fa8;</string>
      </property>
      <property name="text">
-      <string>CASE IMAGING  /  SEGMENTATION REVIEW  /  DRAFT PLANNING</string>
+     <string>CASE IMAGING  /  SEGMENTATION REVIEW  /  DRAFT PLANNING</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="workflowNavigationGroupBox">
+     <property name="title">
+      <string>Workflow</string>
+     </property>
+     <layout class="QGridLayout" name="workflowNavigationLayout">
+      <property name="horizontalSpacing">
+       <number>6</number>
+      </property>
+      <property name="verticalSpacing">
+       <number>4</number>
+      </property>
+      <item row="0" column="0" colspan="2">
+       <widget class="QComboBox" name="workflowStageComboBox">
+        <property name="toolTip">
+         <string>Jump to one workflow stage. Only the active stage remains expanded.</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QPushButton" name="previousWorkflowStageButton">
+        <property name="text">
+         <string>Previous</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QPushButton" name="nextWorkflowStageButton">
+        <property name="text">
+         <string>Next</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0" colspan="2">
+       <widget class="QLabel" name="workflowStageStatusLabel">
+        <property name="text">
+         <string>Recommended next stage: Open a case</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QCheckBox" name="showGuidanceCheckBox">
+        <property name="text">
+         <string>Show guidance and detailed safety notes</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="researchStatusLabel">
+     <property name="text">
+      <string>RESEARCH PROTOTYPE — NOT CLINICALLY VALIDATED</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QLabel" name="introLabel">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
      <property name="text">
       <string>Load CBCT data, review the external dental segmentation, select a target tooth, and define a draft entry-to-target trajectory in Slicer's linked 2D and 3D views.</string>
      </property>
@@ -201,9 +277,12 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="metadataGroupBox">
-     <property name="title">
+    <widget class="ctkCollapsibleButton" name="metadataGroupBox">
+     <property name="text">
       <string>Selected Volume Metadata</string>
+     </property>
+     <property name="collapsed">
+      <bool>true</bool>
      </property>
      <layout class="QFormLayout" name="metadataFormLayout">
       <item row="0" column="0">
@@ -543,7 +622,7 @@
           </property>
          </widget>
         </item>
-        <item row="0" column="2">
+        <item row="1" column="1">
          <widget class="QPushButton" name="cancelBackendButton">
           <property name="enabled">
            <bool>false</bool>
@@ -553,7 +632,7 @@
           </property>
          </widget>
         </item>
-        <item row="1" column="0" colspan="3">
+        <item row="1" column="0">
          <widget class="QPushButton" name="segmentTeethButton">
           <property name="enabled">
            <bool>false</bool>
@@ -595,7 +674,20 @@
        </widget>
       </item>
       <item>
+       <widget class="QCheckBox" name="showBackendLogCheckBox">
+        <property name="text">
+         <string>Show backend output</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QPlainTextEdit" name="backendLogTextEdit">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
         <property name="maximumBlockCount">
          <number>2000</number>
         </property>
@@ -787,9 +879,12 @@
        </layout>
       </item>
       <item>
-       <widget class="QGroupBox" name="selectedSegmentDetailsGroupBox">
-        <property name="title">
+       <widget class="ctkCollapsibleButton" name="selectedSegmentDetailsGroupBox">
+        <property name="text">
          <string>Selected Label Details</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
         </property>
         <layout class="QFormLayout" name="selectedSegmentDetailsFormLayout">
          <item row="0" column="0">
@@ -1006,9 +1101,12 @@
        </layout>
       </item>
       <item>
-       <widget class="QGroupBox" name="segmentationProvenanceGroupBox">
-        <property name="title">
+       <widget class="ctkCollapsibleButton" name="segmentationProvenanceGroupBox">
+        <property name="text">
          <string>Result Provenance and Review State</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
         </property>
         <layout class="QFormLayout" name="segmentationProvenanceFormLayout">
          <item row="0" column="0">
@@ -1398,9 +1496,47 @@
        </layout>
       </item>
       <item>
-       <widget class="QGroupBox" name="planningSummaryGroupBox">
-        <property name="title">
+       <widget class="QGroupBox" name="planningViewControlsGroupBox">
+        <property name="title"><string>Planning view</string></property>
+        <property name="toolTip"><string>Viewport-only controls. They do not move the tooth, trajectory, segmentation, or target bounds.</string></property>
+        <layout class="QGridLayout" name="planningViewControlsLayout">
+         <item row="0" column="0">
+          <widget class="QPushButton" name="focusPlanningTargetButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Temporarily hide every non-target tooth, show the immutable target bounds, and keep the selected trajectory available for planning.</string></property>
+           <property name="text"><string>Show Target Only</string></property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QPushButton" name="framePlanningTargetButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Centre the target tooth in every active 2D slice and 3D viewport without changing slice orientation or any planning geometry.</string></property>
+           <property name="text"><string>Frame Target in All Views</string></property>
+          </widget>
+         </item>
+         <item row="1" column="0" colspan="2">
+          <widget class="QPushButton" name="restorePlanningViewButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Restore the exact tooth-mask and bounds visibility saved before target-only focus.</string></property>
+           <property name="text"><string>Restore Scene</string></property>
+          </widget>
+         </item>
+         <item row="2" column="0" colspan="2">
+          <widget class="QCheckBox" name="crossViewNavigationCheckBox">
+           <property name="toolTip"><string>Use Slicer's accurate native crosshair picking. Hold Shift while hovering over visible anatomy in 3D to move the crosshair and centre all linked slice views; slice-view crosshair movement remains linked in the other direction.</string></property>
+           <property name="text"><string>Link 3D and slice locations (Shift-hover in 3D)</string></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="ctkCollapsibleButton" name="planningSummaryGroupBox">
+        <property name="text">
          <string>Draft Planning Inputs</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
         </property>
         <layout class="QFormLayout" name="planningSummaryFormLayout">
          <item row="0" column="0">
@@ -1515,9 +1651,12 @@
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="trajectoryVerificationGroupBox">
-        <property name="title">
+       <widget class="ctkCollapsibleButton" name="trajectoryVerificationGroupBox">
+        <property name="text">
          <string>Trajectory Verification — Longitudinal Oblique MPR</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
         </property>
         <layout class="QVBoxLayout" name="trajectoryVerificationVerticalLayout">
          <item>
@@ -1548,8 +1687,9 @@
               <bool>false</bool>
              </property>
              <property name="toolTip">
-              <string>Rotate the longitudinal slice plane around the Entry-to-Target axis. You can correct either point in this view: the slice stays fixed during the drag, then preserves the selected circumferential plane around the corrected trajectory.</string>
+              <string>Rotate the longitudinal slice plane around the Entry-to-Target axis. Drag the thumb or hover/focus the slider and use the mouse wheel. You can correct either point in this view: the slice stays fixed during the drag, then preserves the selected circumferential plane around the corrected trajectory.</string>
              </property>
+             <property name="focusPolicy"><enum>Qt::StrongFocus</enum></property>
              <property name="minimum">
               <number>-180</number>
              </property>
@@ -1592,7 +1732,7 @@
           </layout>
          </item>
          <item>
-          <widget class="QPushButton" name="resetTrajectoryVerificationButton">
+         <widget class="QPushButton" name="resetTrajectoryVerificationButton">
            <property name="enabled">
             <bool>false</bool>
            </property>
@@ -1602,6 +1742,13 @@
            <property name="text">
             <string>Reset Orientation to 0°</string>
            </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="trajectoryVerificationSmoothInterpolationCheckBox">
+           <property name="checked"><bool>true</bool></property>
+           <property name="toolTip"><string>Use Slicer's native linear scalar-volume interpolation for a smoother CBCT display while verification is enabled. This is display-only: it does not resample, copy, or modify the source CBCT.</string></property>
+           <property name="text"><string>Smooth CBCT display (native linear interpolation)</string></property>
           </widget>
          </item>
          <item>
@@ -1646,6 +1793,195 @@
         </property>
        </widget>
       </item>
+     </layout>
+   </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="assistedTrajectoryCollapsibleButton">
+     <property name="text">
+      <string>Step 4B — Assisted Root Targets</string>
+     </property>
+     <property name="collapsed">
+      <bool>false</bool>
+     </property>
+     <layout class="QVBoxLayout" name="assistedTrajectoryVerticalLayout">
+      <item>
+       <widget class="QLabel" name="assistedTrajectoryDescriptionLabel">
+        <property name="text">
+         <string>Optional initializer for one- or two-root teeth. Place only the crown Entry point(s); DENTOBOT estimates rootward Target point(s) from the selected complete tooth surface and creates the normal Step 4A trajectory line nodes. The estimate is not a canal centreline and must be corrected in the trajectory MPR.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="assistedTrajectoryFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="assistedTrajectoryCountLabel">
+          <property name="text">
+           <string>Expected roots:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="assistedTrajectoryCountComboBox">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Choose the known procedure count. V1 supports exactly one or two trajectories and does not infer arbitrary root counts.</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="assistedTrajectoryButtonsLayout">
+        <item>
+         <widget class="QPushButton" name="placeAssistedTrajectoryEntriesButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Place one crown Entry per requested trajectory. Existing trajectory nodes are never overwritten.</string>
+          </property>
+          <property name="text">
+           <string>Place / Replace Crown Entries</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="generateAssistedTrajectoriesButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>Estimate rootward targets from the authoritative target-tooth closed surface and create unlocked Entry-to-Target Markups lines for manual MPR verification.</string>
+          </property>
+          <property name="text">
+           <string>Generate Assisted Trajectory Node(s)</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="restoreAssistedTrajectoryFocusButton">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Restore the exact segment and target-bounds visibility that existed before Step 4B entry placement.</string>
+        </property>
+        <property name="text">
+         <string>Exit Target-Only Focus</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="assistedTrajectoryStatusLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Select a reviewed target tooth in Step 4A.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="assistedTrajectorySafetyLabel">
+        <property name="styleSheet">
+         <string notr="true">color: #b36b00;</string>
+        </property>
+        <property name="text">
+         <string>Research initializer only. Surface shape cannot identify pulp/canal anatomy, perforation risk, or a clinically safe target.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+   </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="targetDockingCollapsibleButton">
+     <property name="text">
+      <string>Step 4C — Target-Frame Guide Rails and Robot Docks</string>
+     </property>
+     <property name="collapsed">
+      <bool>true</bool>
+     </property>
+     <layout class="QVBoxLayout" name="targetDockingVerticalLayout">
+      <item>
+       <widget class="QLabel" name="targetDockingDescriptionLabel">
+        <property name="text"><string>Generate four hollow docking/registration features around the target-tooth crown centroid. Their common seating faces lie on a trajectory-polarized crown/occlusal plane and the docks extend outward toward the robot; radial connectors feed the same assembly into Step 5B shell fusion. Dimensions are visible research parameters, not a finalized robot interface.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="targetDockingFormLayout">
+        <item row="0" column="0"><widget class="QLabel" name="targetDockingTrajectorySummaryTitleLabel"><property name="text"><string>Approved trajectories:</string></property></widget></item>
+        <item row="0" column="1"><widget class="QLabel" name="targetDockingTrajectorySummaryLabel"><property name="text"><string>--</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        <item row="1" column="0"><widget class="QLabel" name="targetDockingReferencePlaneLabel"><property name="text"><string>Target reference plane:</string></property></widget></item>
+        <item row="1" column="1">
+         <widget class="qMRMLNodeComboBox" name="targetDockingReferencePlaneSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>targetDockingReferencePlane</string></property>
+         </widget>
+        </item>
+        <item row="2" column="0"><widget class="QLabel" name="targetDockingAssemblyModelLabel"><property name="text"><string>Four-dock assembly:</string></property></widget></item>
+        <item row="2" column="1">
+         <widget class="qMRMLNodeComboBox" name="targetDockingAssemblyModelSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>targetDockingAssemblyModel</string></property>
+         </widget>
+        </item>
+        <item row="3" column="0"><widget class="QLabel" name="targetDockingPatternRadiusLabel"><property name="text"><string>Centroid-to-dock radius:</string></property></widget></item>
+        <item row="3" column="1"><widget class="QDoubleSpinBox" name="targetDockingPatternRadiusSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>2.000000000000000</double></property><property name="maximum"><double>40.000000000000000</double></property><property name="singleStep"><double>0.500000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>15.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingPatternRadiusMm</string></property></widget></item>
+        <item row="4" column="0"><widget class="QLabel" name="targetDockingOuterDiameterLabel"><property name="text"><string>Dock outer diameter:</string></property></widget></item>
+        <item row="4" column="1"><widget class="QDoubleSpinBox" name="targetDockingOuterDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.40</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>3.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingOuterDiameterMm</string></property></widget></item>
+        <item row="5" column="0"><widget class="QLabel" name="targetDockingBoreDiameterLabel"><property name="text"><string>Dock bore diameter:</string></property></widget></item>
+        <item row="5" column="1"><widget class="QDoubleSpinBox" name="targetDockingBoreDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.20</double></property><property name="maximum"><double>10.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>1.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingBoreDiameterMm</string></property></widget></item>
+        <item row="6" column="0"><widget class="QLabel" name="targetDockingConnectorDiameterLabel"><property name="text"><string>Radial rail width:</string></property></widget></item>
+        <item row="6" column="1"><widget class="QDoubleSpinBox" name="targetDockingConnectorDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.40</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>3.5</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingConnectorDiameterMm</string></property></widget></item>
+        <item row="7" column="0"><widget class="QLabel" name="targetDockingConnectorThicknessLabel"><property name="text"><string>Central reinforcement depth:</string></property></widget></item>
+        <item row="7" column="1"><widget class="QDoubleSpinBox" name="targetDockingConnectorThicknessSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.50</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>2.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingConnectorThicknessMm</string></property></widget></item>
+        <item row="8" column="0"><widget class="QLabel" name="targetDockingSharedDepthLabel"><property name="text"><string>Shared dock depth:</string></property></widget></item>
+        <item row="8" column="1"><widget class="QDoubleSpinBox" name="targetDockingSharedDepthSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.50</double></property><property name="maximum"><double>30.0</double></property><property name="singleStep"><double>0.50</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingSharedDepthMm</string></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="targetDockingIndividualDepthsCheckBox"><property name="text"><string>Unlock four individual dock depths</string></property><property name="SlicerParameterName" stdset="0"><string>targetDockingIndividualDepthsEnabled</string></property></widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="targetDockingIndividualDepthsWidget">
+        <layout class="QGridLayout" name="targetDockingIndividualDepthsLayout">
+         <item row="0" column="0"><widget class="QLabel" name="targetDockingDepth1Label"><property name="text"><string>+X:</string></property></widget></item>
+         <item row="0" column="1"><widget class="QDoubleSpinBox" name="targetDockingDepth1SpinBox"><property name="minimum"><double>0.5</double></property><property name="maximum"><double>30.0</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingDepth1Mm</string></property></widget></item>
+         <item row="0" column="2"><widget class="QLabel" name="targetDockingDepth2Label"><property name="text"><string>+Y:</string></property></widget></item>
+         <item row="0" column="3"><widget class="QDoubleSpinBox" name="targetDockingDepth2SpinBox"><property name="minimum"><double>0.5</double></property><property name="maximum"><double>30.0</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingDepth2Mm</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="targetDockingDepth3Label"><property name="text"><string>−X:</string></property></widget></item>
+         <item row="1" column="1"><widget class="QDoubleSpinBox" name="targetDockingDepth3SpinBox"><property name="minimum"><double>0.5</double></property><property name="maximum"><double>30.0</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingDepth3Mm</string></property></widget></item>
+         <item row="1" column="2"><widget class="QLabel" name="targetDockingDepth4Label"><property name="text"><string>−Y:</string></property></widget></item>
+         <item row="1" column="3"><widget class="QDoubleSpinBox" name="targetDockingDepth4SpinBox"><property name="minimum"><double>0.5</double></property><property name="maximum"><double>30.0</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingDepth4Mm</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="targetDockingButtonLayout">
+        <item row="0" column="0"><widget class="QPushButton" name="generateTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Four-Dock Assembly</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4C Assembly...</string></property></widget></item>
+       </layout>
+      </item>
+      <item><widget class="QLabel" name="targetDockingStatusLabel"><property name="text"><string>Complete and lock one or two target-tooth trajectories first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
+      <item><widget class="QLabel" name="targetDockingSafetyLabel"><property name="text"><string>Provisional research geometry only. The four-hole profile, fit tolerances, material strength, registration semantics, and robot load path require mechanical validation.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
      </layout>
     </widget>
    </item>
@@ -1954,6 +2290,35 @@
        </widget>
       </item>
       <item>
+       <widget class="QGroupBox" name="templateSupportViewControlsGroupBox">
+        <property name="title"><string>Support-surface view</string></property>
+        <property name="toolTip"><string>Viewport-only controls for reviewing the selected target and support teeth. Source segmentation masks and derived geometry are not changed.</string></property>
+        <layout class="QGridLayout" name="templateSupportViewControlsLayout">
+         <item row="0" column="0">
+          <widget class="QPushButton" name="focusTemplateSupportButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Temporarily show only the target and checked support teeth and hide duplicate derived previews while the support margin is reviewed.</string></property>
+           <property name="text"><string>Show Selected Teeth Only</string></property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QPushButton" name="frameTemplateSupportButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Centre the current draft support model in every active 2D slice and 3D viewport.</string></property>
+           <property name="text"><string>Frame Support in All Views</string></property>
+          </widget>
+         </item>
+         <item row="1" column="0" colspan="2">
+          <widget class="QPushButton" name="restoreTemplateSupportFocusButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="toolTip"><string>Restore the exact segmentation and model visibility saved before support-only focus.</string></property>
+           <property name="text"><string>Restore Scene</string></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <layout class="QHBoxLayout" name="templateSupportPlaneButtonLayout">
         <item>
          <widget class="QPushButton" name="createTemplateSupportPlaneButton">
@@ -2044,7 +2409,7 @@
       <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Generate a fit-clearance shell only from the clinician-selected visible support surface. The current annular sleeve/distance-band controls remain a provisional developer path until docking integration replaces them; neither path is the final printable template.</string>
+         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4C four-dock rail assembly into one connected final template.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2052,8 +2417,9 @@
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="patientContactShellGroupBox">
-        <property name="title"><string>Current workflow — visible-support patient-contact shell</string></property>
+       <widget class="ctkCollapsibleButton" name="patientContactShellGroupBox">
+        <property name="text"><string>Patient-contact shell</string></property>
+        <property name="collapsed"><bool>false</bool></property>
         <layout class="QVBoxLayout" name="patientContactShellVerticalLayout">
          <item>
           <layout class="QFormLayout" name="patientContactShellFormLayout">
@@ -2150,10 +2516,11 @@
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="templateDockingFusionGroupBox">
-        <property name="title"><string>Current workflow — multi-trajectory docking fusion</string></property>
+       <widget class="ctkCollapsibleButton" name="templateDockingFusionGroupBox">
+        <property name="text"><string>Trajectory guide + Step 4C dock fusion</string></property>
+        <property name="collapsed"><bool>true</bool></property>
         <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
-         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Select every approved trajectory that requires docking geometry. The annular dimensions remain explicitly provisional until the robot rail/channel interface is finalized. Fusion uses clearance → reinforcement → docking union → channel restoration in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Step 4C supplies the four target-frame rail docks and their source trajectories. Step 5B adds trajectory-aligned guide sleeves, reserves clearance, adds reinforcement, unions both assemblies with the patient-contact shell, and restores every guide/dock bore in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Only trajectories explicitly associated with the target or selected supporting teeth are listed. Lock each approved trajectory before fusion.</string></property></widget></item>
          <item>
           <layout class="QFormLayout" name="templateDockingFusionFormLayout">
@@ -2315,7 +2682,7 @@
         </item>
         <item row="6" column="0">
          <widget class="QLabel" name="templateSleeveOuterDiameterLabel">
-          <property name="text"><string>Sleeve outer diameter:</string></property>
+          <property name="text"><string>Trajectory guide outer diameter:</string></property>
          </widget>
         </item>
         <item row="6" column="1">
@@ -2330,7 +2697,7 @@
         </item>
         <item row="7" column="0">
          <widget class="QLabel" name="templateSleeveInnerDiameterLabel">
-          <property name="text"><string>Sleeve inner diameter:</string></property>
+          <property name="text"><string>Trajectory guide hole diameter:</string></property>
          </widget>
         </item>
         <item row="7" column="1">
@@ -2345,7 +2712,7 @@
         </item>
         <item row="8" column="0">
          <widget class="QLabel" name="templateSleeveHeightLabel">
-          <property name="text"><string>Sleeve height:</string></property>
+          <property name="text"><string>Trajectory guide height:</string></property>
          </widget>
         </item>
         <item row="8" column="1">
@@ -2389,9 +2756,12 @@
        </layout>
       </item>
       <item>
-       <widget class="QGroupBox" name="templateGuideVisibilityGroupBox">
-        <property name="title">
+       <widget class="ctkCollapsibleButton" name="templateGuideVisibilityGroupBox">
+        <property name="text">
          <string>Scene visibility</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
         </property>
         <property name="toolTip">
          <string>Show or hide DENTOBOT workflow objects without deleting them. These step tags also identify the same nodes in Slicer's Data view.</string>
@@ -2457,6 +2827,30 @@
            <property name="text"><string>[Step 5B] Patient-contact shell</string></property>
           </widget>
          </item>
+         <item row="5" column="0">
+          <widget class="QCheckBox" name="supportBoundaryVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5A] Support boundary</string></property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QCheckBox" name="supportPlaneVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5A] Automatic support plane</string></property>
+          </widget>
+         </item>
+         <item row="6" column="0">
+          <widget class="QCheckBox" name="visibleSupportVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5A] Visible support preview</string></property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QCheckBox" name="finalTemplateVisibilityCheckBox">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>[Step 5B] Final printable template</string></property>
+          </widget>
+         </item>
         </layout>
        </widget>
       </item>
@@ -2496,12 +2890,49 @@
    <item>
     <widget class="ctkCollapsibleButton" name="templateFinalizationCollapsibleButton">
      <property name="text">
-      <string>Step 5C — Fit, Trim, and STL Export</string>
+      <string>Step 5C — Final Verification and One-STL Export</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
      </property>
      <layout class="QVBoxLayout" name="templateFinalizationVerticalLayout">
+      <item>
+       <widget class="QLabel" name="finalVerificationDescriptionLabel">
+        <property name="text"><string>Verify the current unified Step 5B template, including patient-contact shell, trajectory guide hole(s), and the Step 4C four-dock rail assembly. Export writes one atomic binary STL only when verification is PASS or WARNING.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="finalVerificationFormLayout">
+        <item row="0" column="0"><widget class="QLabel" name="finalVerificationModelLabel"><property name="text"><string>Final unified template:</string></property></widget></item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="finalVerificationModelSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="finalVerificationButtonLayout">
+        <item row="0" column="0"><widget class="QPushButton" name="verifyFinalTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Run Final Geometry Verification</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="showFinalTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Show / Frame Final Template</string></property></widget></item>
+        <item row="1" column="0" colspan="2"><widget class="QPushButton" name="exportFinalTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Export One Verified Template STL...</string></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QTreeWidget" name="finalVerificationTreeWidget">
+        <property name="minimumSize"><size><width>0</width><height>180</height></size></property>
+        <property name="rootIsDecorated"><bool>false</bool></property>
+        <property name="alternatingRowColors"><bool>true</bool></property>
+        <property name="columnCount"><number>3</number></property>
+        <column><property name="text"><string>Result</string></property></column>
+        <column><property name="text"><string>Check</string></property></column>
+        <column><property name="text"><string>Details</string></property></column>
+       </widget>
+      </item>
+      <item><widget class="QLabel" name="finalVerificationStatusLabel"><property name="text"><string>Generate the integrated Step 5B unified template first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
+      <item><widget class="QLabel" name="finalVerificationSafetyLabel"><property name="text"><string>Verification checks computational geometry and provenance only. PASS does not establish clinical fit, sterilization suitability, mechanical strength, registration accuracy, or authorization to drill.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
       <item>
        <widget class="QLabel" name="templateFinalizationDescriptionLabel">
         <property name="text">
@@ -2615,11 +3046,11 @@
        </layout>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="templateFinalizationActionButtonLayout">
-        <item><widget class="QPushButton" name="applyTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Preview / Apply Trim</string></property></widget></item>
-        <item><widget class="QPushButton" name="openDynamicModelerButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Open Dynamic Modeler...</string></property><property name="toolTip"><string>Open Slicer's expert Dynamic Modeler interface with the DENTOBOT cut node available for further inspection.</string></property></widget></item>
-        <item><widget class="QPushButton" name="deleteTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 5C Edit...</string></property></widget></item>
-        <item><widget class="QPushButton" name="exportResearchTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Export Final Shell + Sleeve STL...</string></property></widget></item>
+       <layout class="QGridLayout" name="templateFinalizationActionButtonLayout">
+        <item row="0" column="0"><widget class="QPushButton" name="applyTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Preview / Apply Trim</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="openDynamicModelerButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Open Dynamic Modeler...</string></property><property name="toolTip"><string>Open Slicer's expert Dynamic Modeler interface with the DENTOBOT cut node available for further inspection.</string></property></widget></item>
+        <item row="1" column="0"><widget class="QPushButton" name="deleteTemplateFinalizationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 5C Edit...</string></property></widget></item>
+        <item row="1" column="1"><widget class="QPushButton" name="exportResearchTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Export Final Shell + Sleeve STL...</string></property></widget></item>
        </layout>
       </item>
       <item>

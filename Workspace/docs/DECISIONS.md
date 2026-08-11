@@ -1,5 +1,224 @@
 # Dentobot Technical Decisions
 
+## 2026-08-12 — Reject the central-hub interpretation of Step 4C rails
+
+Status: design correction required; the current generated profile remains a
+diagnostic checkpoint only
+
+The clinician/robotics intent is not a crown-centred mounting hub with four
+spokes. The target-tooth crown/occlusal plane constrains the intended guide-
+rail surface/tangent reference. It is not permission to place a solid dock
+base or hub over the target crown. Four surrounding dock holes and their rails
+must remain geometrically distinct from the trajectory-aligned drill guide and
+must not obstruct its channel or required working clearance.
+
+The current implementation contains three separate concepts that must not be
+conflated in the revised design:
+
+1. the annular trajectory guide and its local shell-attachment reinforcement;
+2. the four robot/registration dock holes and their rail bodies; and
+3. the structural connections that merge those parts into the tooth-supported
+   shell.
+
+`create_target_frame_docking_geometry()` currently creates a central hub at
+the crown-cap centroid and four radial cylindrical connectors. This was a
+provisional attempt to make all four docks one connected printable assembly.
+Because a drill trajectory Entry is commonly near the same target-crown
+region, the hub/spokes can overimpose the annular trajectory guide and produce
+the reported blocked or cluttered geometry. This topology is rejected as the
+intended mechanical design even though its synthetic Boolean/connectivity test
+passes.
+
+`create_multi_trajectory_docking_geometry()` is also misleadingly named: it
+creates the trajectory-aligned annular guide sleeve, its clearance, a local
+reinforcement collar, and the restored drill channel. That collar came from
+the SlicerFSP-inspired clearance → reinforcement → union → channel-restoration
+sequence. It is not one of the four robot docking rails. Retain only the
+minimum independently justified shell attachment around the drill guide; do
+not turn it into a second robot dock or let it merge blindly with the rail
+network.
+
+Before replacing the current checkpoint geometry, define the rail cross-
+section, which rail surface is coincident/tangent with the occlusal plane, the
+four dock axial datum, how each rail reaches the shell without a central hub,
+the exclusion/clearance envelope around every drill guide, and the required
+load path. The revised generator should route four independent surrounding
+rail/dock branches to verified shell attachment regions while reserving the
+trajectory-guide envelope, then subtract all drill/dock channels last and
+verify their continuous openings and dimensions.
+
+Reason: a watertight connected Boolean output can still embody the wrong
+mechanical topology. Passing synthetic connectivity cannot substitute for the
+intended spatial relationship among crown plane, drill guide, rails, and shell.
+
+## 2026-08-12 — Provisional Step 4C feeds one verified 5B/5C printable model
+
+Status: implemented and Slicer-native synthetically verified; mechanical,
+phantom, and clinician acceptance pending
+
+Implement the requested four-dock pattern as explicitly provisional research
+geometry without claiming that it is the final robot interface. Step 4C uses
+the complete set of one or two locked target-tooth trajectories. Their mean
+Entry→Target direction defines crown-to-root frame `+Z`; a target crown-cap
+principal axis defines transverse `+X`, and `+Y` completes a right-handed
+world-RAS frame. No world axis is anatomical. The reference plane and preview
+retain explicit segmentation and repeated trajectory references.
+
+Interpret the currently requested `15 mm` as the configurable radial distance
+from target crown centroid to each of four `+X/+Y/-X/-Y` dock centres, and
+interpret `1 mm` as the configurable bore. Keep outer diameter, rail width,
+central depth, common dock depth, and the optional four independent depths
+visible. These are development defaults, not approved tolerances or a frozen
+mechanical profile. All common seating faces lie in the stored crown/occlusal
+plane; dock depth extends toward the robot side, opposite crown-to-root `+Z`.
+
+Step 5B regenerates the Step 4C solids from stored frame/parameters, combines
+them with the existing per-trajectory annular guide holes, and uses a recorded
+closest-surface reinforcement link to give the rail assembly a true volumetric
+connection to the patient shell. A tight voxel Boolean subtracts clearances,
+unions reinforcement/docking, restores every channel, removes only isolated
+one-voxel contour artifacts, and rejects more than one substantive occupied
+volume. Slicer's closed-surface segmentation accessor is already world RAS;
+never apply the parent transform to its result a second time.
+
+Step 5C is now the active final geometry/provenance gate and one-STL export.
+It records PASS/WARNING/FAIL checks for current inputs, support ROI and
+insertion-direction provenance, undercut processing, trajectory snapshots and
+axis agreement, four-dock coplanarity, non-empty/watertight topology, one
+occupied printable volume, channel/reinforcement masks, and resolution versus
+requested wall/bore dimensions. A clinical collision/fit review remains a
+WARNING because software topology cannot validate fit or robot safety. FAIL
+blocks export; PASS/WARNING permits exactly one atomic binary STL after the
+checks are rerun. The old ROI/raw-shell/separate-sleeve/trim/two-file path is
+hidden and no longer executed; its node-reading logic remains for old-scene
+compatibility.
+
+This does not resolve the kinematics of two non-parallel trajectories under a
+single fixed robot Z axis, registration semantics, materials, structural
+loads, manufacturing tolerances, sterilization, clinical fit, or drilling
+authorization.
+
+## 2026-08-12 — One active workflow stage in the Slicer module panel
+
+Status: implemented and Slicer-native synthetically verified; live visual
+acceptance pending
+
+Keep the existing CTK collapsible sections and their MRML-bound controls, but
+place a compact stage navigator above them. Selecting a stage expands exactly
+one top-level section and collapses its peers; manually expanding a section
+updates the navigator. Previous/Next buttons provide linear movement without
+making stage completion a hidden prerequisite or changing workflow data.
+
+Long instructional and detailed safety paragraphs are hidden by default behind
+one explicit guidance toggle, while a permanent `RESEARCH PROTOTYPE — NOT
+CLINICALLY VALIDATED` banner and all operational status/error labels remain
+visible. Volume metadata and backend process output are independently
+collapsible/optional. Launcher-managed backend paths are hidden unless the
+operator deliberately enables manual overrides. Secondary panels such as
+selected-label details, provenance, planning summary, oblique MPR, docking
+fusion, and the scene-visibility inventory are nested collapsibles; the primary
+patient-contact shell panel remains open. The navigator recommends the next
+incomplete stage from explicit parameter-node state but never yanks the
+operator away from the stage they are inspecting after initialization.
+
+Reason: the prior single scrolling column exposed every expanding section,
+verbose paragraph, machine path, and output log simultaneously. The navigation
+layer reduces cognitive and vertical load without replacing widgets, node
+references, callback contracts, or Slicer's standard views.
+
+## 2026-08-12 — View navigation remains transient MRML presentation state
+
+Status: implemented and Slicer-native synthetically verified; physical-session
+usability and FPS acceptance pending
+
+Expose explicit workflow view actions rather than treating placement side
+effects as the only way to focus anatomy. Step 4 can temporarily isolate the
+authoritative target segment and immutable bounds; Step 5A can isolate the
+target plus selected support segments. Both operations snapshot and restore the
+exact previous segment/model visibility. Bounds-based frame actions centre all
+active slice views and cameras without moving anatomy, changing trajectory
+coordinates, or creating copied models.
+
+For bidirectional spatial reference, use Slicer's singleton
+`vtkMRMLCrosshairNode` and native accurate 3D picking. The optional control uses
+centred slice jumps and Shift-hover in 3D, then restores the exact previous
+crosshair mode, behavior, thickness, and fast-pick setting when disabled,
+saved, closed, or the module exits. Do not create a second scene browser or a
+custom picking coordinate system.
+
+Keep trajectory MPR on the native scalar-volume slice reslice pipeline. Prefer
+the Red slice deterministically, coalesce slider/wheel changes to approximately
+one 60 Hz refresh, and optionally enable native linear display interpolation.
+Interpolation is display-only and the previous volume-display setting is
+restored; no resampled CBCT is generated.
+
+Reason: view controls must improve focus and cross-reference without becoming
+new anatomical/planning state or polluting saved scenes. Native MRML camera,
+slice, crosshair, and display nodes already provide the required behavior and
+avoid duplicate rendering pipelines.
+
+## 2026-08-11 — Assisted surface-derived root targets retain the trajectory contract
+
+Status: implemented as a research initializer and Slicer-native synthetically
+verified; representative-tooth and clinician acceptance pending
+
+Use one temporary role-owned `vtkMRMLMarkupsFiducialNode` only to collect the
+clinician's one or two crown Entry clicks. It is not an alternative trajectory
+representation. Resolve crown/root polarity from those entries and the complete
+target-tooth closed surface, estimate a rootward tooth axis without assuming a
+world axis, and analyze several root-side surface caps. For the two-root V1,
+use deterministic transverse two-cluster separation and pair the resulting
+rootward targets to the entries by minimum transverse travel.
+
+Create ordinary two-point `vtkMRMLMarkupsLineNode` trajectories in world RAS,
+with the existing target-segmentation, target-segment, target-bounds, color,
+name, and downstream guide contracts. Persist the entry-markup reference and
+analysis metrics on every created trajectory, leave all generated trajectories
+unlocked, and label them `RequiresManualVerification`. Never overwrite an
+existing target-tooth trajectory set; regeneration requires deliberate deletion
+of the old set. Scene save/reload must preserve both the input markup and every
+source reference.
+
+During entry placement, temporarily isolate only the selected target-tooth
+mask, force its immutable target bounds visible, center the slice views, and
+fit the visible 3D target. Restore the exact prior segment and bounds visibility
+on explicit exit, generation, save, module exit, or scene close.
+
+Reason: full ToothFairy tooth surfaces can initialize rootward geometry but do
+not identify a pulp/canal centreline, dentin clearance, perforation risk, or a
+safe drill target. The estimator therefore reduces placement effort without
+creating a second planning truth or disguising the result as clinically
+approved.
+
+## 2026-08-11 — Four-dock robot rail geometry waits for an approved local-frame contract
+
+Status: superseded in implementation scope by the 2026-08-12 provisional
+research geometry; final mechanical approval remains blocked
+
+Place docking/registration geometry after approved one/two-trajectory planning
+and before template fusion. Define a persisted target-tooth local frame from a
+clinician-accepted crown/occlusal reference plane and target-tooth centroid;
+never substitute world X/Y/Z. The requested assembly contains four hollow dock
+features around the target, with top faces coplanar/tangent to that reference
+plane, a shared depth control by default, and an explicit unlock for four
+individual depths. Keep registration-landmark semantics separate from the
+intraoral robot's mechanical docking semantics even if both consume the same
+frame. Feed the resulting replaceable docking assembly into the existing
+clearance → reinforcement → shell union → channel-restoration pipeline.
+
+Do not freeze final geometry until the mechanical team resolves whether
+`15 mm` means radial centroid-to-dock offset, feature length, or both; whether
+`1 mm` is the bore or outer diameter; required wall thickness, tolerances,
+four-hole layout, depth sign/reference, material/process limits, and the actual
+rail/channel mating profile. Also resolve the kinematic fact that one fixed
+robot Z axis cannot align simultaneously with two non-parallel trajectories:
+the system needs a per-trajectory docking pose, an angular adjustment, a
+parallel-trajectory constraint, or separate assemblies.
+
+Reason: these unresolved values change fit, strength, robot homing, and the
+meaning of Z-only drilling. Encoding plausible-looking defaults now would turn
+an architectural placeholder into misleading manufacturing geometry.
+
 ## 2026-08-11 — CRD is a functional display path, not a GPU acceptance path
 
 Status: accepted and developer-verified for container GUI display

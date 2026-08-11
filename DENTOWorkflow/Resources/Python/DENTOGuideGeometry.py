@@ -56,6 +56,182 @@ def _append_surfaces(surfaces: Sequence[vtk.vtkPolyData]) -> vtk.vtkPolyData:
     return _triangulated_clean(append.GetOutput())
 
 
+def _unit(values, label: str) -> np.ndarray:
+    vector = _vector(values, label)
+    length = float(np.linalg.norm(vector))
+    if length <= 1e-8:
+        raise ValueError(f"{label} must have non-zero length.")
+    return vector / length
+
+
+def _stable_transverse_axis(axis: np.ndarray) -> np.ndarray:
+    references = np.eye(3, dtype=float)
+    reference = references[int(np.argmin(np.abs(references @ axis)))]
+    transverse = reference - float(np.dot(reference, axis)) * axis
+    length = float(np.linalg.norm(transverse))
+    if length <= 1e-8:
+        raise ValueError("Could not construct a stable transverse docking axis.")
+    return transverse / length
+
+
+def compute_target_docking_frame(
+    tooth_surface_world: vtk.vtkPolyData,
+    trajectories: Sequence[dict],
+    *,
+    crown_cap_fraction: float = 0.10,
+) -> dict:
+    """Derive a deterministic target-tooth occlusal frame in world RAS.
+
+    The frame origin is the crown-cap centroid.  +Z points from crown toward
+    roots using the mean of the approved trajectory axes.  +X follows the
+    dominant crown-cap direction projected into the occlusal plane, with a
+    deterministic RAS fallback for near-circular caps; +Y completes a
+    right-handed frame.  No world axis is interpreted as anatomical.
+    """
+
+    surface = _triangulated_clean(tooth_surface_world)
+    point_data = surface.GetPoints().GetData() if surface.GetPoints() else None
+    if not point_data:
+        raise ValueError("The target tooth has no usable world-RAS surface points.")
+    points = np.asarray(vtk_to_numpy(point_data), dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3 or points.shape[0] < 12:
+        raise ValueError("The target tooth surface is too small for a docking frame.")
+    fraction = float(crown_cap_fraction)
+    if not math.isfinite(fraction) or not 0.05 <= fraction <= 0.30:
+        raise ValueError("Docking crown-cap fraction must be 5–30%.")
+    if not trajectories or len(trajectories) > 2:
+        raise ValueError("The target docking frame requires one or two trajectories.")
+
+    axes = []
+    trajectory_geometry = []
+    for index, trajectory in enumerate(trajectories):
+        entry = _vector(trajectory.get("entryRas"), f"Trajectory {index + 1} Entry")
+        target = _vector(trajectory.get("targetRas"), f"Trajectory {index + 1} Target")
+        axis = _unit(target - entry, f"Trajectory {index + 1} axis")
+        if axes and float(np.dot(axis, axes[0])) < 0.0:
+            axis = -axis
+        axes.append(axis)
+        trajectory_geometry.append(
+            {
+                "entryRas": [float(value) for value in entry],
+                "targetRas": [float(value) for value in target],
+                "axisRas": [float(value) for value in axis],
+            }
+        )
+    z_axis = _unit(np.mean(np.asarray(axes), axis=0), "Mean trajectory axis")
+    deviations = [
+        math.degrees(math.acos(float(np.clip(np.dot(axis, z_axis), -1.0, 1.0))))
+        for axis in axes
+    ]
+
+    crown_scores = points @ (-z_axis)
+    threshold = float(np.quantile(crown_scores, 1.0 - fraction))
+    crown_points = points[crown_scores >= threshold]
+    if crown_points.shape[0] < 6:
+        crown_points = points[np.argsort(crown_scores)[-max(6, points.shape[0] // 20):]]
+    origin = np.mean(crown_points, axis=0)
+    centered = crown_points - origin
+    covariance = centered.T @ centered
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    candidate = np.asarray(eigenvectors[:, int(np.argmax(eigenvalues))], dtype=float)
+    candidate -= float(np.dot(candidate, z_axis)) * z_axis
+    if float(np.linalg.norm(candidate)) <= 1e-8:
+        candidate = _stable_transverse_axis(z_axis)
+        x_method = "StableRasProjectionFallback"
+    else:
+        candidate /= float(np.linalg.norm(candidate))
+        stable = _stable_transverse_axis(z_axis)
+        if float(np.dot(candidate, stable)) < 0.0:
+            candidate = -candidate
+        x_method = "CrownCapPrincipalAxis"
+    x_axis = candidate
+    y_axis = _unit(np.cross(z_axis, x_axis), "Docking frame Y axis")
+    x_axis = _unit(np.cross(y_axis, z_axis), "Docking frame X axis")
+    matrix = np.eye(4, dtype=float)
+    matrix[:3, 0] = x_axis
+    matrix[:3, 1] = y_axis
+    matrix[:3, 2] = z_axis
+    matrix[:3, 3] = origin
+    return {
+        "originRas": [float(value) for value in origin],
+        "xAxisRas": [float(value) for value in x_axis],
+        "yAxisRas": [float(value) for value in y_axis],
+        "zAxisRas": [float(value) for value in z_axis],
+        "matrixColumnMajorRas": [
+            float(matrix[row, column])
+            for column in range(4)
+            for row in range(4)
+        ],
+        "method": "TrajectoryPolarityCrownCapPcaTargetFrame",
+        "xAxisMethod": x_method,
+        "crownCapFraction": fraction,
+        "crownCapPointCount": int(crown_points.shape[0]),
+        "crownScoreThresholdMm": threshold,
+        "trajectoryCount": len(trajectory_geometry),
+        "trajectoryGeometry": trajectory_geometry,
+        "maxTrajectoryAxisDeviationDeg": float(max(deviations, default=0.0)),
+        "orthonormalError": float(
+            np.max(np.abs(matrix[:3, :3].T @ matrix[:3, :3] - np.eye(3)))
+        ),
+        "determinant": float(np.linalg.det(matrix[:3, :3])),
+    }
+
+
+def normalize_target_docking_parameters(
+    *,
+    pattern_radius_mm: float,
+    outer_diameter_mm: float,
+    bore_diameter_mm: float,
+    connector_diameter_mm: float,
+    connector_thickness_mm: float,
+    shared_depth_mm: float,
+    individual_depths_mm: Sequence[float],
+    individual_depths_enabled: bool,
+    clearance_mm: float,
+    reinforcement_radial_mm: float,
+    processing_resolution_mm: float,
+) -> dict:
+    depths = [float(value) for value in individual_depths_mm]
+    if len(depths) != 4:
+        raise ValueError("Exactly four target-frame docking depths are required.")
+    shared_depth = float(shared_depth_mm)
+    values = {
+        "patternRadiusMm": float(pattern_radius_mm),
+        "outerDiameterMm": float(outer_diameter_mm),
+        "boreDiameterMm": float(bore_diameter_mm),
+        "connectorDiameterMm": float(connector_diameter_mm),
+        "connectorThicknessMm": float(connector_thickness_mm),
+        "sharedDepthMm": shared_depth,
+        "clearanceMm": float(clearance_mm),
+        "reinforcementRadialMm": float(reinforcement_radial_mm),
+        "processingResolutionMm": float(processing_resolution_mm),
+    }
+    if any(not math.isfinite(value) for value in [*values.values(), *depths]):
+        raise ValueError("Target-frame docking dimensions must be finite.")
+    if not 2.0 <= values["patternRadiusMm"] <= 40.0:
+        raise ValueError("Centroid-to-dock radius must be 2–40 mm.")
+    if not 0.2 <= values["boreDiameterMm"] < values["outerDiameterMm"]:
+        raise ValueError("Dock dimensions require 0.2 mm ≤ bore < outer diameter.")
+    if values["outerDiameterMm"] > 12.0:
+        raise ValueError("Dock outer diameter must not exceed 12 mm.")
+    if values["connectorDiameterMm"] < values["outerDiameterMm"]:
+        raise ValueError("Connector width must be at least the dock outer diameter.")
+    if values["connectorThicknessMm"] <= 0.0:
+        raise ValueError("Connector thickness must be positive.")
+    if values["clearanceMm"] < 0.0 or values["reinforcementRadialMm"] <= 0.0:
+        raise ValueError("Dock clearance cannot be negative and reinforcement must be positive.")
+    if not 0.1 <= values["processingResolutionMm"] <= 2.0:
+        raise ValueError("Dock processing resolution must be 0.10–2.00 mm.")
+    active_depths = depths if bool(individual_depths_enabled) else [shared_depth] * 4
+    if any(depth <= 0.0 or depth > 30.0 for depth in active_depths):
+        raise ValueError("Every docking depth must be greater than 0 and at most 30 mm.")
+    values["individualDepthsEnabled"] = bool(individual_depths_enabled)
+    values["depthsMm"] = active_depths
+    values["configuredIndividualDepthsMm"] = depths
+    values["mechanicalSpecification"] = "ProvisionalResearchFourDockPattern"
+    return values
+
+
 def _closed_cylinder(
     center_ras,
     axis_ras,
@@ -103,6 +279,428 @@ def _closed_cylinder(
     transform_filter.SetTransform(transform)
     transform_filter.Update()
     return _triangulated_clean(transform_filter.GetOutput())
+
+
+def _voxel_boolean_components(
+    additive_surfaces: Sequence[vtk.vtkPolyData],
+    subtractive_surfaces: Sequence[vtk.vtkPolyData] = (),
+    *,
+    spacing_mm: float,
+    scalar_name: str,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Resolve overlapping closed primitives in one cropped binary domain."""
+
+    spacing = float(spacing_mm)
+    if not math.isfinite(spacing) or not 0.1 <= spacing <= 2.0:
+        raise ValueError("Voxel Boolean resolution must be 0.10–2.00 mm.")
+    additive = [_triangulated_clean(surface) for surface in additive_surfaces]
+    subtractive = [_triangulated_clean(surface) for surface in subtractive_surfaces]
+    if not additive:
+        raise ValueError("At least one additive docking primitive is required.")
+    all_surfaces = [*additive, *subtractive]
+    bounds = [math.inf, -math.inf, math.inf, -math.inf, math.inf, -math.inf]
+    for surface in all_surfaces:
+        surface_bounds = surface.GetBounds()
+        for axis in range(3):
+            bounds[2 * axis] = min(bounds[2 * axis], surface_bounds[2 * axis])
+            bounds[2 * axis + 1] = max(
+                bounds[2 * axis + 1], surface_bounds[2 * axis + 1]
+            )
+    padding = max(1.0, 3.0 * spacing)
+    sample_bounds = tuple(
+        value + (-padding if index % 2 == 0 else padding)
+        for index, value in enumerate(bounds)
+    )
+    dimensions = tuple(
+        max(
+            3,
+            int(
+                math.ceil(
+                    (sample_bounds[2 * axis + 1] - sample_bounds[2 * axis])
+                    / spacing
+                )
+            )
+            + 1,
+        )
+        for axis in range(3)
+    )
+    sample_count = int(np.prod(dimensions, dtype=np.int64))
+    if sample_count > MAX_SAMPLE_POINTS:
+        raise ValueError(
+            "The target-docking voxel domain requests "
+            f"{sample_count:,} samples; increase processing resolution."
+        )
+
+    template_image = None
+
+    def mask_for(surface: vtk.vtkPolyData) -> np.ndarray:
+        nonlocal template_image
+        implicit = vtk.vtkImplicitPolyDataDistance()
+        implicit.SetInput(surface)
+        sample = vtk.vtkSampleFunction()
+        sample.SetImplicitFunction(implicit)
+        sample.SetModelBounds(*sample_bounds)
+        sample.SetSampleDimensions(*dimensions)
+        sample.ComputeNormalsOff()
+        sample.Update()
+        if template_image is None:
+            template_image = vtk.vtkImageData()
+            template_image.DeepCopy(sample.GetOutput())
+        return vtk_to_numpy(
+            sample.GetOutput().GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0]) <= 0.0
+
+    result_mask = np.zeros(
+        (dimensions[2], dimensions[1], dimensions[0]),
+        dtype=bool,
+    )
+    for surface in additive:
+        result_mask |= mask_for(surface)
+    subtract_count = 0
+    for surface in subtractive:
+        subtract_mask = mask_for(surface)
+        subtract_count += int(np.count_nonzero(subtract_mask))
+        result_mask &= ~subtract_mask
+    result_mask[0, :, :] = False
+    result_mask[-1, :, :] = False
+    result_mask[:, 0, :] = False
+    result_mask[:, -1, :] = False
+    result_mask[:, :, 0] = False
+    result_mask[:, :, -1] = False
+    occupied = int(np.count_nonzero(result_mask))
+    if not occupied:
+        raise ValueError("Target-docking Boolean produced no occupied volume.")
+
+    binary_image = vtk.vtkImageData()
+    binary_image.DeepCopy(template_image)
+    scalars = numpy_to_vtk(
+        np.ascontiguousarray(result_mask.astype(np.uint8).ravel()),
+        deep=True,
+        array_type=vtk.VTK_UNSIGNED_CHAR,
+    )
+    scalars.SetName(str(scalar_name))
+    binary_image.GetPointData().SetScalars(scalars)
+    contour = vtk.vtkFlyingEdges3D()
+    contour.SetInputData(binary_image)
+    contour.SetValue(0, 0.5)
+    contour.ComputeNormalsOff()
+    contour.ComputeGradientsOff()
+    triangle = vtk.vtkTriangleFilter()
+    triangle.SetInputConnection(contour.GetOutputPort())
+    clean = vtk.vtkCleanPolyData()
+    clean.SetInputConnection(triangle.GetOutputPort())
+    normals = vtk.vtkPolyDataNormals()
+    normals.SetInputConnection(clean.GetOutputPort())
+    normals.ConsistencyOn()
+    normals.AutoOrientNormalsOn()
+    normals.SplittingOff()
+    normals.Update()
+    output = vtk.vtkPolyData()
+    output.DeepCopy(normals.GetOutput())
+    topology = surface_topology(output)
+    if topology["boundaryOrNonManifoldEdgeCount"]:
+        raise RuntimeError(
+            "Target-docking Boolean is not watertight/manifold "
+            f"({topology['boundaryOrNonManifoldEdgeCount']} invalid edges)."
+        )
+    return output, {
+        **topology,
+        "method": "TightVoxelPrimitiveBoolean",
+        "requestedSpacingMm": spacing,
+        "actualSpacingMm": tuple(float(value) for value in binary_image.GetSpacing()),
+        "sampleBoundsRas": sample_bounds,
+        "sampleDimensions": dimensions,
+        "samplePointCount": sample_count,
+        "occupiedSampleCount": occupied,
+        "subtractiveSampleCount": subtract_count,
+    }
+
+
+def create_target_frame_docking_geometry(
+    frame: dict,
+    parameters: dict,
+) -> tuple[dict[str, vtk.vtkPolyData], dict]:
+    """Create four hollow docks and radial connectors in a target-tooth frame."""
+
+    origin = _vector(frame.get("originRas"), "Docking frame origin")
+    x_axis = _unit(frame.get("xAxisRas"), "Docking frame X axis")
+    y_axis = _unit(frame.get("yAxisRas"), "Docking frame Y axis")
+    z_axis = _unit(frame.get("zAxisRas"), "Docking frame Z axis")
+    if (
+        abs(float(np.dot(x_axis, y_axis))) > 1e-5
+        or abs(float(np.dot(x_axis, z_axis))) > 1e-5
+        or abs(float(np.dot(y_axis, z_axis))) > 1e-5
+        or float(np.dot(np.cross(x_axis, y_axis), z_axis)) < 0.999
+    ):
+        raise ValueError("The target docking frame must be right-handed and orthonormal.")
+
+    radius = float(parameters["patternRadiusMm"])
+    outer_radius = float(parameters["outerDiameterMm"]) / 2.0
+    bore_radius = float(parameters["boreDiameterMm"]) / 2.0
+    connector_radius = float(parameters["connectorDiameterMm"]) / 2.0
+    connector_thickness = float(parameters["connectorThicknessMm"])
+    clearance = float(parameters["clearanceMm"])
+    reinforcement = float(parameters["reinforcementRadialMm"])
+    depths = [float(value) for value in parameters["depthsMm"]]
+    spacing = float(parameters["processingResolutionMm"])
+    directions = (x_axis, y_axis, -x_axis, -y_axis)
+    labels = ("+X", "+Y", "-X", "-Y")
+
+    docking_parts = []
+    clearance_parts = []
+    reinforcement_parts = []
+    channel_parts = []
+    dock_metrics = []
+    # Frame +Z is the approved crown-to-root trajectory direction.  The
+    # common reference plane is the seating face, so every robot-side rail and
+    # dock extends in -Z (outward from the crown), never into the tooth.
+    outward_axis = -z_axis
+    hub_thickness = max(connector_thickness, min(depths))
+    docking_parts.append(
+        _closed_cylinder(
+            origin + outward_axis * (hub_thickness / 2.0),
+            z_axis,
+            length_mm=hub_thickness,
+            radius_mm=max(connector_radius, outer_radius),
+        )
+    )
+    reinforcement_parts.append(
+        _closed_cylinder(
+            origin + outward_axis * ((hub_thickness + reinforcement) / 2.0),
+            z_axis,
+            length_mm=hub_thickness + reinforcement,
+            radius_mm=max(connector_radius, outer_radius) + reinforcement,
+        )
+    )
+    for index, (direction, label, depth) in enumerate(zip(directions, labels, depths)):
+        top_center = origin + radius * direction
+        docking_parts.append(
+            _closed_cylinder(
+                top_center + outward_axis * (depth / 2.0),
+                z_axis,
+                length_mm=depth,
+                radius_mm=outer_radius,
+            )
+        )
+        channel = _closed_cylinder(
+            top_center + outward_axis * (depth / 2.0),
+            z_axis,
+            length_mm=depth + 2.0 * spacing,
+            radius_mm=bore_radius,
+        )
+        channel_parts.append(channel)
+        clearance_parts.append(
+            _closed_cylinder(
+                top_center + outward_axis * (depth / 2.0),
+                z_axis,
+                length_mm=depth + 2.0 * clearance,
+                radius_mm=outer_radius + clearance,
+            )
+        )
+        reinforcement_parts.append(
+            _closed_cylinder(
+                top_center + outward_axis * ((depth + reinforcement) / 2.0),
+                z_axis,
+                length_mm=depth + reinforcement,
+                radius_mm=outer_radius + reinforcement,
+            )
+        )
+        connector_center = (
+            origin
+            + direction * (radius / 2.0)
+            + outward_axis * connector_radius
+        )
+        docking_parts.append(
+            _closed_cylinder(
+                connector_center,
+                direction,
+                length_mm=radius,
+                radius_mm=connector_radius,
+            )
+        )
+        reinforcement_parts.append(
+            _closed_cylinder(
+                connector_center,
+                direction,
+                length_mm=radius,
+                radius_mm=connector_radius + reinforcement,
+            )
+        )
+        dock_metrics.append(
+            {
+                "index": index,
+                "label": label,
+                "topCenterRas": [float(value) for value in top_center],
+                "axisRas": [float(value) for value in z_axis],
+                "extrusionDirectionRas": [
+                    float(value) for value in outward_axis
+                ],
+                "depthMm": depth,
+                "radialDistanceMm": radius,
+                "topPlaneResidualMm": float(np.dot(top_center - origin, z_axis)),
+            }
+        )
+
+    docking, docking_topology = _voxel_boolean_components(
+        docking_parts,
+        spacing_mm=spacing,
+        scalar_name="DENTOBOT.TargetDockingSolidMask",
+    )
+    clearance_surface, clearance_topology = _voxel_boolean_components(
+        clearance_parts,
+        spacing_mm=spacing,
+        scalar_name="DENTOBOT.TargetDockingClearanceMask",
+    )
+    reinforcement_surface, reinforcement_topology = _voxel_boolean_components(
+        reinforcement_parts,
+        spacing_mm=spacing,
+        scalar_name="DENTOBOT.TargetDockingReinforcementMask",
+    )
+    channels, channel_topology = _voxel_boolean_components(
+        channel_parts,
+        spacing_mm=spacing,
+        scalar_name="DENTOBOT.TargetDockingChannelsMask",
+    )
+    preview, preview_topology = _voxel_boolean_components(
+        docking_parts,
+        channel_parts,
+        spacing_mm=spacing,
+        scalar_name="DENTOBOT.TargetDockingPreviewMask",
+    )
+    surfaces = {
+        "preview": preview,
+        "docking": docking,
+        "clearance": clearance_surface,
+        "reinforcement": reinforcement_surface,
+        "channels": channels,
+    }
+    return surfaces, {
+        "method": "TargetFrameFourHollowDockRadialRailAssembly",
+        "mechanicalSpecification": parameters.get(
+            "mechanicalSpecification", "ProvisionalResearchFourDockPattern"
+        ),
+        "frame": dict(frame),
+        "parameters": dict(parameters),
+        "dockCount": 4,
+        "docks": dock_metrics,
+        "topPlaneMaxResidualMm": float(
+            max(abs(item["topPlaneResidualMm"]) for item in dock_metrics)
+        ),
+        "topology": {
+            "preview": preview_topology,
+            "docking": docking_topology,
+            "clearance": clearance_topology,
+            "reinforcement": reinforcement_topology,
+            "channels": channel_topology,
+        },
+    }
+
+
+def combine_guide_geometry_sets(
+    geometry_sets: Sequence[dict[str, vtk.vtkPolyData]],
+) -> dict[str, vtk.vtkPolyData]:
+    """Append guide families for one final cropped voxel fusion."""
+
+    if not geometry_sets:
+        raise ValueError("At least one guide geometry set is required.")
+    required = ("docking", "clearance", "reinforcement", "channels")
+    return {
+        key: _append_surfaces([geometry[key] for geometry in geometry_sets])
+        for key in required
+    }
+
+
+def create_shell_contact_reinforcement(
+    shell_world: vtk.vtkPolyData,
+    docking_world: vtk.vtkPolyData,
+    *,
+    bridge_diameter_mm: float,
+    maximum_gap_mm: float = 12.0,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Create a recorded load-spreading link from docking to the shell.
+
+    The closest sampled docking-surface point is connected to its closest
+    patient-shell point.  Both ends overlap by one bridge radius so the
+    subsequent cropped voxel union has a real volumetric connection rather
+    than relying on coincident/tangent polygons.
+    """
+
+    shell = _triangulated_clean(shell_world)
+    docking = _triangulated_clean(docking_world)
+    diameter = float(bridge_diameter_mm)
+    maximum_gap = float(maximum_gap_mm)
+    if not math.isfinite(diameter) or diameter <= 0.0:
+        raise ValueError("Shell-contact bridge diameter must be positive.")
+    if not math.isfinite(maximum_gap) or maximum_gap <= 0.0:
+        raise ValueError("Maximum shell-contact gap must be positive.")
+    shell_locator = vtk.vtkStaticCellLocator()
+    shell_locator.SetDataSet(shell)
+    shell_locator.BuildLocator()
+    point_count = int(docking.GetNumberOfPoints())
+    if point_count <= 0:
+        raise ValueError("Docking geometry contains no points for shell contact.")
+    sample_step = max(1, int(math.ceil(point_count / 6000.0)))
+    best_distance = math.inf
+    best_docking = None
+    best_shell = None
+    point = [0.0, 0.0, 0.0]
+    for point_index in range(0, point_count, sample_step):
+        docking.GetPoint(point_index, point)
+        closest = [0.0, 0.0, 0.0]
+        cell_id = vtk.reference(0)
+        sub_id = vtk.reference(0)
+        distance_squared = vtk.reference(0.0)
+        shell_locator.FindClosestPoint(
+            point,
+            closest,
+            cell_id,
+            sub_id,
+            distance_squared,
+        )
+        distance = math.sqrt(max(0.0, float(distance_squared)))
+        if distance < best_distance:
+            best_distance = distance
+            best_docking = np.asarray(point, dtype=float).copy()
+            best_shell = np.asarray(closest, dtype=float)
+    if best_docking is None or best_shell is None or not math.isfinite(best_distance):
+        raise RuntimeError("Could not locate a shell-contact point for the docking assembly.")
+    if best_distance > maximum_gap:
+        raise ValueError(
+            "The docking assembly is too far from the patient shell for a "
+            f"controlled reinforcement bridge ({best_distance:.2f} mm > "
+            f"{maximum_gap:.2f} mm)."
+        )
+    axis = best_shell - best_docking
+    if best_distance <= 1e-6:
+        shell_center = np.asarray(shell.GetCenter(), dtype=float)
+        axis = shell_center - best_docking
+        if float(np.linalg.norm(axis)) <= 1e-6:
+            axis = np.asarray((0.0, 0.0, 1.0), dtype=float)
+    axis = _unit(axis, "Shell-contact bridge axis")
+    radius = diameter / 2.0
+    overlap = radius
+    bridge_start = best_docking - axis * overlap
+    bridge_end = best_shell + axis * overlap
+    bridge_center = (bridge_start + bridge_end) / 2.0
+    bridge_length = float(np.linalg.norm(bridge_end - bridge_start))
+    bridge = _closed_cylinder(
+        bridge_center,
+        axis,
+        length_mm=bridge_length,
+        radius_mm=radius,
+    )
+    return bridge, {
+        "method": "ClosestSurfaceOverlappingCylindricalReinforcement",
+        "bridgeDiameterMm": diameter,
+        "surfaceGapMm": best_distance,
+        "maximumGapMm": maximum_gap,
+        "endpointOverlapMm": overlap,
+        "dockingPointRas": tuple(float(value) for value in best_docking),
+        "shellPointRas": tuple(float(value) for value in best_shell),
+        "axisRas": tuple(float(value) for value in axis),
+        "sampledDockingPointCount": int(math.ceil(point_count / sample_step)),
+        "topology": surface_topology(bridge),
+    }
 
 
 def normalize_docking_parameters(
@@ -342,6 +940,52 @@ def fuse_shell_and_docking_voxel(
     )
     binary_scalars.SetName("DENTOBOT.FinalPrintableTemplateMask")
     binary_image.GetPointData().SetScalars(binary_scalars)
+    occupied_connectivity = vtk.vtkImageConnectivityFilter()
+    occupied_connectivity.SetInputData(binary_image)
+    occupied_connectivity.SetExtractionModeToAllRegions()
+    occupied_connectivity.SetScalarRange(1.0, 1.0)
+    occupied_connectivity.SetLabelModeToSizeRank()
+    occupied_connectivity.Update()
+    occupied_volume_region_count = int(
+        occupied_connectivity.GetNumberOfExtractedRegions()
+    )
+    occupied_region_sizes_array = occupied_connectivity.GetExtractedRegionSizes()
+    occupied_region_sizes = [
+        int(occupied_region_sizes_array.GetValue(index))
+        for index in range(occupied_region_sizes_array.GetNumberOfValues())
+    ]
+    removed_single_voxel_region_count = 0
+    removed_single_voxel_sample_count = 0
+    substantive_region_sizes = [size for size in occupied_region_sizes if size > 1]
+    if (
+        occupied_volume_region_count > 1
+        and len(substantive_region_sizes) == 1
+        and len(substantive_region_sizes) < len(occupied_region_sizes)
+    ):
+        ranked_labels = vtk_to_numpy(
+            occupied_connectivity.GetOutput().GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        removed_single_voxel_region_count = sum(
+            1 for size in occupied_region_sizes if size == 1
+        )
+        removed_single_voxel_sample_count = removed_single_voxel_region_count
+        final_mask = ranked_labels == 1
+        occupied_count = int(np.count_nonzero(final_mask))
+        binary_scalars = numpy_to_vtk(
+            np.ascontiguousarray(final_mask.astype(np.uint8).ravel()),
+            deep=True,
+            array_type=vtk.VTK_UNSIGNED_CHAR,
+        )
+        binary_scalars.SetName("DENTOBOT.FinalPrintableTemplateMask")
+        binary_image.GetPointData().SetScalars(binary_scalars)
+        occupied_volume_region_count = 1
+        occupied_region_sizes = substantive_region_sizes
+    if occupied_volume_region_count != 1:
+        raise RuntimeError(
+            "Final shell/docking fusion contains "
+            f"{occupied_volume_region_count} disconnected occupied volumes "
+            f"with voxel sizes {occupied_region_sizes}."
+        )
     contour = vtk.vtkFlyingEdges3D()
     contour.SetInputData(binary_image)
     contour.SetValue(0, 0.5)
@@ -384,4 +1028,12 @@ def fuse_shell_and_docking_voxel(
         "channelSampleCount": int(np.count_nonzero(channel_mask)),
         "dockingSampleCount": int(np.count_nonzero(docking_mask)),
         "reinforcementSampleCount": int(np.count_nonzero(reinforcement_mask)),
+        "occupiedVolumeRegionCount": occupied_volume_region_count,
+        "occupiedVolumeRegionSizes": occupied_region_sizes,
+        "removedSingleVoxelOccupiedRegionCount": (
+            removed_single_voxel_region_count
+        ),
+        "removedSingleVoxelOccupiedSampleCount": (
+            removed_single_voxel_sample_count
+        ),
     }
