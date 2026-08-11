@@ -460,20 +460,34 @@ are excluded.
 - A role-owned closed Markups boundary and `VisibleTemplateSupportSurface`
   preview select only erupted/accessible support. The continuous curve bridges
   interdental gaps visually, while its world-RAS control points are resampled
-  and assigned to the nearest connected tooth. Dijkstra surface clipping then
-  runs independently per tooth, preserving separated anatomy and explicitly
-  orienting each selected patch away from its closed source. Boundary edits,
-  selection side, resolution, or source revisions mark all descendants stale.
+  and assigned first to authoritative tooth segment IDs. Extra connected mesh
+  islands remain diagnostics inside that source tooth rather than becoming
+  anonymous additional “teeth.” Dijkstra clipping evaluates both complementary
+  candidates independently per addressed tooth. Entry→Target on the selected
+  target trajectory supplies crown-to-root insertion direction; an
+  area-weighted directional score retains the candidate toward the opposite
+  crown/removal direction even when it is Smaller on one tooth and Larger on
+  another. One persisted off-by-default polarity reversal applies to all
+  target/support teeth. Boundary, trajectory, polarity, resolution, or source
+  revisions mark all descendants stale.
 - The current Step 5B vertical slice generates a `PatientContactShell` from
   that preview. Dynamic Modeler Margin supplies fit clearance; Dynamic Modeler
-  Hollow supplies wall thickness and closes the patch boundary. A cropped,
-  resolution-limited voxel Boolean unions overlapping pieces and removes any
-  residual material inside the clearance envelope before a watertight surface
-  is extracted. The shell explicitly references the full source model, visible
-  patch, boundary, authoritative segmentation, fitting surface, Hollow
-  candidate, and both Dynamic Modeler nodes.
-- An explicit two-point `TemplateInsertionDirection` line stores
-  Approach→Seat in world RAS; removal is its opposite. Retentive triangles are
+  Hollow supplies wall thickness and closes each patch boundary. Because the
+  authoritative selected teeth remain separate surfaces, a lifted closed
+  collar derived from the clinician's continuous boundary bridges their shell
+  rims on the removal side; it does not create a new patient-contact patch in
+  interdental gaps. A cropped, resolution-limited voxel Boolean unions the
+  pieces and collar and removes residual material inside the directional
+  blockout clearance before extracting a watertight surface. If Hollow leaves
+  invalid edges, that cropped domain reconstructs the shell from an
+  absolute-distance band around the validated fitting surface rather than
+  accepting the invalid mesh. The shell explicitly references the full source
+  model, visible patch, boundary, authoritative segmentation, fitting surface,
+  Hollow candidate, boundary bridge, and both Dynamic Modeler nodes.
+- A locked, non-selectable two-point `TemplateInsertionDirection` line is
+  derived from the selected target trajectory and stores Approach→Seat in world
+  RAS; removal is its opposite. The visible-support model references both the
+  source trajectory and derived line. Retentive triangles are
   classified from visible-surface normals against removal with an exposed
   angular tolerance. A cropped coordinate frame aligned to removal produces a
   watertight height-field blockout, avoiding SlicerFSP's world-axis assumption.

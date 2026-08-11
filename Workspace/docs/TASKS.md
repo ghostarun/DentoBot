@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Active
 
@@ -12,13 +12,32 @@ Last updated: 2026-08-10
   specification was found, so the current annular primitive remains explicitly
   provisional and replaceable.
 - Live-test the new visible-support workflow on anonymized representative
-  anatomy: draw/edit a margin across multiple separate teeth, switch smaller/
-  larger selection, confirm roots/subgingival surfaces are excluded, generate
-  the pre-undercut patient-contact shell, inspect seating/clearance/rims, save/
-  reload, invalidate/regenerate, and cleanly delete descendants. Also verify
+  anatomy: draw/edit a margin across multiple separate teeth; confirm automatic
+  Entry→Target crown/root polarity selects the crown-side candidate despite
+  different tooth sizes; exercise the exceptional Reverse polarity button;
+  confirm roots/subgingival surfaces are excluded; and verify extra mesh
+  islands are reported without inflating the selected-tooth count.
+  Generate the pre-undercut patient-contact shell, inspect seating/clearance/
+  rims, save/reload, invalidate/regenerate, and cleanly delete descendants. Also verify
   Approach→Seat insertion semantics, retentive-surface preview, blockout
   removability, multi-trajectory selection, docking/reinforcement placement,
   and the one-component unified model against real crown anatomy.
+- Live-test the Step 5A boundary-placement focus: only the target and checked
+  support-tooth masks should remain visible/opaque while drawing, the curve
+  must not snap to an adjacent unselected tooth, and preview generation, save,
+  module exit, and scene close must restore the exact previous display.
+- On the representative three-tooth case that previously reported 42 invalid
+  Hollow edges, regenerate Step 5B and verify the lifted boundary collar joins
+  all selected tooth-shell rims, no fitting/contact surface is introduced in
+  interdental gaps, the fallback warning identifies the repaired Hollow input,
+  and the output remains one connected watertight removable shell.
+- Later QoL: replace the primarily axial/single-height support-boundary drawing
+  experience with a focused 3D, surface-constrained gingival/cervical margin
+  editor. Allow individual control points to move at different insertion-axis
+  heights while remaining snapped to selected subject-tooth surfaces; retain
+  2D slices as optional verification instead of forcing one horizontal cut.
+  Investigate an assisted initial loop, but keep clinician-editable MRML points
+  authoritative.
 
 - Live-test Step 4A trajectory-aligned longitudinal oblique MPR: verify the
   selected source CBCT appears in one native slice with Entry→Target vertical,
@@ -165,6 +184,21 @@ dentist-focused 2D plan remains preserved in this task list and
   established.
 
 ## Completed
+
+- Replaced global Smaller/Larger support-side selection on 2026-08-11 with
+  trajectory-directed per-tooth candidate scoring and an optional single
+  polarity reversal. The preview now counts authoritative tooth segment IDs,
+  reports extra connected islands separately, references the source trajectory,
+  and creates a locked derived insertion line. Focused Slicer tests passed a
+  mixed-size Smaller/Larger crown case, three teeth containing six raw islands,
+  polarity reversal, downstream shell/fusion, and MRB reference persistence.
+
+- Corrected the Step 5A visible-support preview contract on 2026-08-11. A
+  single loop may now yield valid patches from the disconnected teeth it
+  actually addresses without one untouched/unmappable draft tooth aborting the
+  entire preview. The UI explains placement/finish behavior and reports
+  included versus source tooth surfaces. The focused Slicer-native three-tooth
+  regression passed preview, downstream shell/fusion, MRB reload, and cleanup.
 
 - Completed the 2026-08-10 meeting checkpoint for the renovated template
   vertical slice: per-tooth visible crown/support ROI, explicit world-RAS

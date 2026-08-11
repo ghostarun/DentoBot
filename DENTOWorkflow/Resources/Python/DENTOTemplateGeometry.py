@@ -327,6 +327,287 @@ def _extract_connected_support_patch(
     }
 
 
+def _surface_direction_score_mm(
+    surface: vtk.vtkPolyData,
+    origin_ras: np.ndarray,
+    direction_ras: np.ndarray,
+) -> tuple[float, float]:
+    """Return area-weighted axial centroid offset and triangle area."""
+
+    prepared = _triangulated_clean_surface(surface)
+    points = np.asarray(vtk_to_numpy(prepared.GetPoints().GetData()), dtype=float)
+    polygon_data = np.asarray(
+        vtk_to_numpy(prepared.GetPolys().GetData()),
+        dtype=np.int64,
+    )
+    if polygon_data.size % 4:
+        raise ValueError("The support candidate does not contain only triangles.")
+    triangles = polygon_data.reshape((-1, 4))
+    if triangles.size == 0 or not np.all(triangles[:, 0] == 3):
+        raise ValueError("The support candidate has no usable triangles.")
+    vertices = points[triangles[:, 1:4]]
+    cross_products = np.cross(
+        vertices[:, 1] - vertices[:, 0],
+        vertices[:, 2] - vertices[:, 0],
+    )
+    areas = 0.5 * np.linalg.norm(cross_products, axis=1)
+    valid = np.isfinite(areas) & (areas > 1e-12)
+    if not np.any(valid):
+        raise ValueError("The support candidate has zero usable surface area.")
+    centroids = np.mean(vertices[valid], axis=1)
+    offsets = np.dot(centroids - origin_ras, direction_ras)
+    total_area = float(np.sum(areas[valid]))
+    score = float(np.dot(offsets, areas[valid]) / total_area)
+    if not math.isfinite(score) or not math.isfinite(total_area):
+        raise ValueError("The support candidate direction score is invalid.")
+    return score, total_area
+
+
+def _extract_directional_connected_support_patch(
+    anatomy: vtk.vtkPolyData,
+    loop_points: np.ndarray,
+    crown_direction_ras: np.ndarray,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Evaluate both clip sides and retain the crown/removal-direction side."""
+
+    smaller_patch, smaller_metrics = _extract_connected_support_patch(
+        anatomy,
+        loop_points,
+        "Smallest",
+    )
+    larger_patch, larger_metrics = _extract_connected_support_patch(
+        anatomy,
+        loop_points,
+        "Largest",
+    )
+    boundary_center = np.mean(loop_points, axis=0)
+    smaller_score, smaller_area = _surface_direction_score_mm(
+        smaller_patch,
+        boundary_center,
+        crown_direction_ras,
+    )
+    larger_score, larger_area = _surface_direction_score_mm(
+        larger_patch,
+        boundary_center,
+        crown_direction_ras,
+    )
+    use_smaller = smaller_score >= larger_score
+    selected_patch = smaller_patch if use_smaller else larger_patch
+    selected_metrics = smaller_metrics if use_smaller else larger_metrics
+    score_separation = abs(smaller_score - larger_score)
+    return selected_patch, {
+        **selected_metrics,
+        "selectionBasis": "TrajectoryCrownDirection",
+        "selectedCandidate": "Smaller" if use_smaller else "Larger",
+        "selectedDirectionScoreMm": max(smaller_score, larger_score),
+        "otherDirectionScoreMm": min(smaller_score, larger_score),
+        "directionScoreSeparationMm": score_separation,
+        "directionSelectionAmbiguous": bool(score_separation < 0.25),
+        "smallerCandidateAreaMm2": smaller_area,
+        "largerCandidateAreaMm2": larger_area,
+        "smallerCandidateDirectionScoreMm": smaller_score,
+        "largerCandidateDirectionScoreMm": larger_score,
+    }
+
+
+def extract_directional_visible_support_surface(
+    tooth_surfaces_world,
+    loop_points_ras,
+    crown_direction_ras,
+    *,
+    sampling_spacing_mm: float = 0.5,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Extract one trajectory-directed visible patch per addressed tooth.
+
+    ``tooth_surfaces_world`` is a list of dictionaries containing stable
+    ``segmentId`` values and world-RAS ``polyData``.  Connected mesh islands
+    remain diagnostics inside their source tooth; they are never counted as
+    additional teeth.
+    """
+
+    if not isinstance(tooth_surfaces_world, (list, tuple)) or not tooth_surfaces_world:
+        raise ValueError("At least one source tooth surface is required.")
+    crown_direction = _finite_vector(
+        crown_direction_ras,
+        3,
+        "Crown/removal direction",
+    )
+    direction_length = float(np.linalg.norm(crown_direction))
+    if direction_length <= 1e-9:
+        raise ValueError("Crown/removal direction must be non-zero.")
+    crown_direction /= direction_length
+    loop_points = _resample_closed_loop_points(
+        loop_points_ras,
+        sampling_spacing_mm,
+    )
+
+    prepared_teeth = []
+    seen_segment_ids = set()
+    for tooth_index, item in enumerate(tooth_surfaces_world):
+        if not isinstance(item, dict):
+            raise ValueError("Every source tooth must include segment metadata.")
+        segment_id = str(item.get("segmentId") or "").strip()
+        if not segment_id or segment_id in seen_segment_ids:
+            raise ValueError("Source tooth segment IDs must be non-empty and unique.")
+        seen_segment_ids.add(segment_id)
+        surface = _triangulated_clean_surface(item.get("polyData"))
+        regions = _connected_surface_regions(surface)
+        if not regions:
+            raise ValueError(f"Source tooth {segment_id} has no connected surface.")
+        locator = vtk.vtkStaticPointLocator()
+        locator.SetDataSet(surface)
+        locator.BuildLocator()
+        prepared_teeth.append(
+            {
+                "toothIndex": tooth_index,
+                "segmentId": segment_id,
+                "displayName": str(item.get("displayName") or segment_id),
+                "surface": surface,
+                "regions": regions,
+                "locator": locator,
+            }
+        )
+
+    tooth_distances = np.empty(
+        (loop_points.shape[0], len(prepared_teeth)),
+        dtype=float,
+    )
+    for tooth_index, tooth in enumerate(prepared_teeth):
+        for point_index, point in enumerate(loop_points):
+            nearest_id = tooth["locator"].FindClosestPoint(point)
+            nearest = np.asarray(
+                tooth["surface"].GetPoint(nearest_id),
+                dtype=float,
+            )
+            tooth_distances[point_index, tooth_index] = float(
+                np.dot(point - nearest, point - nearest)
+            )
+    tooth_assignments = np.argmin(tooth_distances, axis=1)
+
+    append = vtk.vtkAppendPolyData()
+    tooth_metrics = []
+    omitted_tooth_metrics = []
+    raw_island_count = 0
+    ignored_island_count = 0
+    for tooth_index, tooth in enumerate(prepared_teeth):
+        regions = tooth["regions"]
+        raw_island_count += len(regions)
+        assigned_points = loop_points[tooth_assignments == tooth_index]
+        if assigned_points.shape[0] < 3:
+            omitted_tooth_metrics.append(
+                {
+                    "segmentId": tooth["segmentId"],
+                    "displayName": tooth["displayName"],
+                    "assignedLoopPointCount": int(assigned_points.shape[0]),
+                    "sourceIslandCount": len(regions),
+                    "reason": "The boundary did not address this tooth.",
+                }
+            )
+            continue
+
+        region_distances = np.empty(
+            (assigned_points.shape[0], len(regions)),
+            dtype=float,
+        )
+        for region_index, region in enumerate(regions):
+            locator = vtk.vtkStaticPointLocator()
+            locator.SetDataSet(region)
+            locator.BuildLocator()
+            for point_index, point in enumerate(assigned_points):
+                nearest_id = locator.FindClosestPoint(point)
+                nearest = np.asarray(region.GetPoint(nearest_id), dtype=float)
+                region_distances[point_index, region_index] = float(
+                    np.dot(point - nearest, point - nearest)
+                )
+        region_assignments = np.argmin(region_distances, axis=1)
+        region_counts = np.bincount(
+            region_assignments,
+            minlength=len(regions),
+        )
+        selected_region_index = int(np.argmax(region_counts))
+        selected_region_points = assigned_points[
+            region_assignments == selected_region_index
+        ]
+        ignored_island_count += max(0, len(regions) - 1)
+        if selected_region_points.shape[0] < 3:
+            omitted_tooth_metrics.append(
+                {
+                    "segmentId": tooth["segmentId"],
+                    "displayName": tooth["displayName"],
+                    "assignedLoopPointCount": int(assigned_points.shape[0]),
+                    "sourceIslandCount": len(regions),
+                    "reason": (
+                        "The boundary points were split across disconnected "
+                        "islands inside this tooth segment."
+                    ),
+                }
+            )
+            continue
+        local_loop = _resample_closed_loop_points(
+            selected_region_points,
+            sampling_spacing_mm,
+        )
+        try:
+            tooth_patch, metrics = _extract_directional_connected_support_patch(
+                regions[selected_region_index],
+                local_loop,
+                crown_direction,
+            )
+        except ValueError as exc:
+            omitted_tooth_metrics.append(
+                {
+                    "segmentId": tooth["segmentId"],
+                    "displayName": tooth["displayName"],
+                    "assignedLoopPointCount": int(assigned_points.shape[0]),
+                    "sourceIslandCount": len(regions),
+                    "reason": str(exc),
+                }
+            )
+            continue
+        append.AddInputData(tooth_patch)
+        tooth_metrics.append(
+            {
+                **metrics,
+                "segmentId": tooth["segmentId"],
+                "displayName": tooth["displayName"],
+                "sourceIslandCount": len(regions),
+                "selectedIslandIndex": selected_region_index,
+                "ignoredIslandCount": max(0, len(regions) - 1),
+            }
+        )
+
+    if not tooth_metrics:
+        details = "; ".join(
+            f"{item['displayName']}: {item['reason']}"
+            for item in omitted_tooth_metrics[:3]
+        )
+        raise ValueError(
+            "No visible-support tooth patch could be extracted. Place one "
+            "closed loop directly on the intended tooth surfaces near the "
+            "gingival/cervical margin and avoid self-crossings."
+            + (f" Details: {details}" if details else "")
+        )
+    append.Update()
+    patch = _triangulated_clean_surface(append.GetOutput())
+    topology = surface_topology(patch)
+    return patch, {
+        **topology,
+        "method": "PerToothTrajectoryDirectionalDijkstra",
+        "selectionBasis": "TrajectoryEntryToTargetCrownOpposite",
+        "samplingSpacingMm": float(sampling_spacing_mm),
+        "loopPointCount": int(loop_points.shape[0]),
+        "crownDirectionRas": [float(value) for value in crown_direction],
+        "sourceToothCount": len(prepared_teeth),
+        "selectedToothCount": len(tooth_metrics),
+        "omittedToothCount": len(omitted_tooth_metrics),
+        "sourceSurfaceRegionCount": raw_island_count,
+        "ignoredSourceIslandCount": ignored_island_count,
+        "toothMetrics": tooth_metrics,
+        "omittedToothMetrics": omitted_tooth_metrics,
+        "boundsRas": tuple(float(value) for value in patch.GetBounds()),
+    }
+
+
 def extract_visible_support_surface(
     anatomy_world: vtk.vtkPolyData,
     loop_points_ras,
@@ -360,7 +641,9 @@ def extract_visible_support_surface(
             loop_points,
             selection_mode,
         )
+        component_metrics["sourceRegionIndex"] = 0
         per_region_metrics = [component_metrics]
+        omitted_region_metrics = []
         mapping_method = "vtkSelectPolyDataDijkstra"
     else:
         # Unlike the connected optical-scan surface used by SlicerFSP, the
@@ -382,14 +665,21 @@ def extract_visible_support_surface(
         assignments = np.argmin(distances, axis=1)
         append = vtk.vtkAppendPolyData()
         per_region_metrics = []
+        omitted_region_metrics = []
         for region_index, region in enumerate(regions):
             assigned_points = loop_points[assignments == region_index]
             if assigned_points.shape[0] < 3:
-                raise ValueError(
-                    "The visible-support boundary does not pass close enough "
-                    f"to connected tooth surface {region_index + 1}. Add margin "
-                    "points near every selected support tooth."
+                omitted_region_metrics.append(
+                    {
+                        "sourceRegionIndex": int(region_index),
+                        "assignedLoopPointCount": int(assigned_points.shape[0]),
+                        "reason": (
+                            "The boundary did not provide three points for this "
+                            "disconnected tooth surface."
+                        ),
+                    }
                 )
+                continue
             local_loop = _resample_closed_loop_points(
                 assigned_points,
                 sampling_spacing_mm,
@@ -401,21 +691,41 @@ def extract_visible_support_surface(
                     selection_mode,
                 )
             except ValueError as exc:
-                raise ValueError(
-                    f"Visible-support selection failed on connected tooth "
-                    f"surface {region_index + 1}: {exc}"
-                ) from exc
+                omitted_region_metrics.append(
+                    {
+                        "sourceRegionIndex": int(region_index),
+                        "assignedLoopPointCount": int(assigned_points.shape[0]),
+                        "reason": str(exc),
+                    }
+                )
+                continue
+            region_metrics["sourceRegionIndex"] = int(region_index)
             append.AddInputData(region_patch)
             per_region_metrics.append(region_metrics)
+        if not per_region_metrics:
+            failure_details = "; ".join(
+                (
+                    f"tooth surface {item['sourceRegionIndex'] + 1}: "
+                    f"{item['reason']}"
+                )
+                for item in omitted_region_metrics[:3]
+            )
+            raise ValueError(
+                "No visible-support patch could be extracted. Place one closed "
+                "loop directly on the orange draft support surfaces near the "
+                "intended gingival/cervical margin, right-click to finish the "
+                "loop, and avoid self-crossings."
+                + (f" Details: {failure_details}" if failure_details else "")
+            )
         append.Update()
         patch = _triangulated_clean_surface(append.GetOutput())
         mapping_method = "PerConnectedSurfaceDijkstra"
 
     patch_topology = surface_topology(patch)
-    if patch_topology["surfaceRegionCount"] != len(regions):
+    if patch_topology["surfaceRegionCount"] != len(per_region_metrics):
         raise ValueError(
             "Visible-support extraction did not preserve one selected patch per "
-            "connected tooth surface."
+            "addressed connected tooth surface."
         )
     bounds = tuple(float(value) for value in patch.GetBounds())
     return patch, {
@@ -427,8 +737,213 @@ def extract_visible_support_surface(
         "sourcePointCount": int(anatomy.GetNumberOfPoints()),
         "sourceTriangleCount": int(anatomy.GetNumberOfCells()),
         "sourceSurfaceRegionCount": source_topology["surfaceRegionCount"],
+        "selectedSurfaceRegionCount": len(per_region_metrics),
+        "omittedSurfaceRegionCount": len(omitted_region_metrics),
         "componentMetrics": per_region_metrics,
+        "omittedRegionMetrics": omitted_region_metrics,
         "boundsRas": bounds,
+    }
+
+
+def create_support_boundary_bridge(
+    loop_points_ras,
+    removal_direction_ras,
+    *,
+    fit_clearance_mm: float,
+    shell_thickness_mm: float,
+    sampling_spacing_mm: float,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Create a lifted closed collar that bridges separated tooth-shell rims.
+
+    The clinician's continuous support boundary remains the authority.  This
+    collar follows that boundary on the removal side of the fitting surfaces;
+    it provides structural continuity across interdental gaps without adding
+    a new patient-contact patch in those gaps.  The later blockout subtraction
+    enforces the requested anatomy clearance on the complete union.
+    """
+
+    clearance = float(fit_clearance_mm)
+    thickness = float(shell_thickness_mm)
+    spacing = float(sampling_spacing_mm)
+    if not math.isfinite(clearance) or clearance < 0.0:
+        raise ValueError("Boundary-bridge clearance must be zero or greater.")
+    if not math.isfinite(thickness) or thickness <= 0.0:
+        raise ValueError("Boundary-bridge thickness must be positive.")
+    if not math.isfinite(spacing) or not 0.1 <= spacing <= 2.0:
+        raise ValueError(
+            "Boundary-bridge processing resolution must be between 0.10 and 2.00 mm."
+        )
+    removal = _finite_vector(
+        removal_direction_ras,
+        3,
+        "Boundary-bridge removal direction",
+    )
+    removal_length = float(np.linalg.norm(removal))
+    if removal_length <= 1e-9:
+        raise ValueError("Boundary-bridge removal direction must be non-zero.")
+    removal /= removal_length
+    loop_points = _resample_closed_loop_points(
+        loop_points_ras,
+        min(spacing, max(0.1, thickness * 0.35)),
+    )
+
+    tube_radius = max(0.65 * thickness, 1.25 * spacing)
+    center_offset = clearance + 0.5 * thickness
+    bridge_points = loop_points + center_offset * removal[np.newaxis, :]
+    padding = tube_radius + 2.0 * spacing
+    bounds = tuple(
+        value
+        for axis in range(3)
+        for value in (
+            float(np.min(bridge_points[:, axis]) - padding),
+            float(np.max(bridge_points[:, axis]) + padding),
+        )
+    )
+    dimensions = tuple(
+        max(
+            3,
+            int(math.ceil((bounds[2 * axis + 1] - bounds[2 * axis]) / spacing))
+            + 1,
+        )
+        for axis in range(3)
+    )
+    sample_point_count = int(np.prod(dimensions, dtype=np.int64))
+    if sample_point_count > MAX_SAMPLE_POINTS:
+        raise ValueError(
+            "The support-boundary bridge domain and resolution request "
+            f"{sample_point_count:,} samples; increase processing resolution."
+        )
+    actual_spacing = tuple(
+        (bounds[2 * axis + 1] - bounds[2 * axis]) / (dimensions[axis] - 1)
+        for axis in range(3)
+    )
+    coordinates = tuple(
+        bounds[2 * axis]
+        + np.arange(dimensions[axis], dtype=float) * actual_spacing[axis]
+        for axis in range(3)
+    )
+    bridge_mask = np.zeros(
+        (dimensions[2], dimensions[1], dimensions[0]),
+        dtype=bool,
+    )
+    closed_bridge_points = np.vstack((bridge_points, bridge_points[0]))
+    radius_squared = tube_radius * tube_radius
+    for segment_index in range(bridge_points.shape[0]):
+        point0 = closed_bridge_points[segment_index]
+        point1 = closed_bridge_points[segment_index + 1]
+        vector = point1 - point0
+        length_squared = float(np.dot(vector, vector))
+        if length_squared <= 1e-12:
+            continue
+        index_bounds = []
+        for axis in range(3):
+            lower = max(
+                0,
+                int(
+                    math.floor(
+                        (
+                            min(point0[axis], point1[axis])
+                            - tube_radius
+                            - bounds[2 * axis]
+                        )
+                        / actual_spacing[axis]
+                    )
+                ),
+            )
+            upper = min(
+                dimensions[axis] - 1,
+                int(
+                    math.ceil(
+                        (
+                            max(point0[axis], point1[axis])
+                            + tube_radius
+                            - bounds[2 * axis]
+                        )
+                        / actual_spacing[axis]
+                    )
+                ),
+            )
+            index_bounds.append((lower, upper))
+        x_values = coordinates[0][
+            index_bounds[0][0] : index_bounds[0][1] + 1
+        ]
+        y_values = coordinates[1][
+            index_bounds[1][0] : index_bounds[1][1] + 1
+        ]
+        z_values = coordinates[2][
+            index_bounds[2][0] : index_bounds[2][1] + 1
+        ]
+        dx = x_values[np.newaxis, np.newaxis, :] - point0[0]
+        dy = y_values[np.newaxis, :, np.newaxis] - point0[1]
+        dz = z_values[:, np.newaxis, np.newaxis] - point0[2]
+        projection = np.clip(
+            (dx * vector[0] + dy * vector[1] + dz * vector[2])
+            / length_squared,
+            0.0,
+            1.0,
+        )
+        distance_squared = (
+            (dx - projection * vector[0]) ** 2
+            + (dy - projection * vector[1]) ** 2
+            + (dz - projection * vector[2]) ** 2
+        )
+        bridge_mask[
+            index_bounds[2][0] : index_bounds[2][1] + 1,
+            index_bounds[1][0] : index_bounds[1][1] + 1,
+            index_bounds[0][0] : index_bounds[0][1] + 1,
+        ] |= distance_squared <= radius_squared
+    bridge_mask[0, :, :] = False
+    bridge_mask[-1, :, :] = False
+    bridge_mask[:, 0, :] = False
+    bridge_mask[:, -1, :] = False
+    bridge_mask[:, :, 0] = False
+    bridge_mask[:, :, -1] = False
+    occupied_sample_count = int(np.count_nonzero(bridge_mask))
+    if not occupied_sample_count:
+        raise ValueError("The selected support boundary produced no bridge volume.")
+
+    bridge_image = vtk.vtkImageData()
+    bridge_image.SetDimensions(*dimensions)
+    bridge_image.SetOrigin(bounds[0], bounds[2], bounds[4])
+    bridge_image.SetSpacing(*actual_spacing)
+    bridge_scalars = numpy_to_vtk(
+        np.ascontiguousarray(bridge_mask.astype(np.uint8).ravel()),
+        deep=True,
+        array_type=vtk.VTK_UNSIGNED_CHAR,
+    )
+    bridge_scalars.SetName("DENTOBOT.TemplateSupportBoundaryBridgeMask")
+    bridge_image.GetPointData().SetScalars(bridge_scalars)
+    contour = vtk.vtkFlyingEdges3D()
+    contour.SetInputData(bridge_image)
+    contour.SetValue(0, 0.5)
+    contour.ComputeNormalsOff()
+    contour.ComputeGradientsOff()
+    contour.Update()
+    bridge = _triangulated_clean_surface(contour.GetOutput())
+    topology = surface_topology(bridge)
+    if topology["boundaryOrNonManifoldEdgeCount"]:
+        raise ValueError(
+            "The selected support boundary produced an invalid structural "
+            f"bridge ({topology['boundaryOrNonManifoldEdgeCount']} invalid edges). "
+            "Redraw the loop without self-crossings."
+        )
+    if topology["surfaceRegionCount"] != 1:
+        raise ValueError("The selected support boundary did not produce one bridge.")
+    return bridge, {
+        **topology,
+        "method": "LiftedClosedBoundaryCollar",
+        "fitClearanceMm": clearance,
+        "shellThicknessMm": thickness,
+        "tubeRadiusMm": tube_radius,
+        "centerOffsetMm": center_offset,
+        "samplingSpacingMm": spacing,
+        "actualSpacingMm": actual_spacing,
+        "sampleDimensions": dimensions,
+        "samplePointCount": sample_point_count,
+        "occupiedSampleCount": occupied_sample_count,
+        "resampledBoundaryPointCount": int(bridge_points.shape[0]),
+        "removalDirectionRas": tuple(float(value) for value in removal),
+        "boundsRas": tuple(float(value) for value in bridge.GetBounds()),
     }
 
 
@@ -439,6 +954,9 @@ def regularize_patient_contact_shell(
     fit_clearance_mm: float,
     sampling_spacing_mm: float,
     voxel_closing_mm: float = 0.0,
+    fitting_surface_world: vtk.vtkPolyData | None = None,
+    shell_thickness_mm: float | None = None,
+    boundary_bridge_world: vtk.vtkPolyData | None = None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Voxel-union a Hollow candidate and enforce anatomy fit clearance.
 
@@ -465,14 +983,54 @@ def regularize_patient_contact_shell(
     candidate = _triangulated_clean_surface(hollow_candidate_world)
     anatomy = _triangulated_clean_surface(anatomy_world)
     candidate_topology = surface_topology(candidate)
-    if candidate_topology["boundaryOrNonManifoldEdgeCount"]:
-        raise ValueError(
-            "Dynamic Modeler Hollow produced an open or non-manifold candidate "
-            f"({candidate_topology['boundaryOrNonManifoldEdgeCount']} invalid edges)."
-        )
+    use_fitting_surface_fallback = bool(
+        candidate_topology["boundaryOrNonManifoldEdgeCount"]
+    )
+    fitting_surface = None
+    thickness = None
+    if use_fitting_surface_fallback:
+        if fitting_surface_world is None or shell_thickness_mm is None:
+            raise ValueError(
+                "Dynamic Modeler Hollow produced an open or non-manifold candidate "
+                f"({candidate_topology['boundaryOrNonManifoldEdgeCount']} invalid "
+                "edges), and no validated fitting surface was supplied for repair."
+            )
+        fitting_surface = _triangulated_clean_surface(fitting_surface_world)
+        thickness = float(shell_thickness_mm)
+        if not math.isfinite(thickness) or thickness <= 0.0:
+            raise ValueError(
+                "Shell thickness must be positive for fitting-surface repair."
+            )
 
-    bounds = candidate.GetBounds()
-    padding = max(2.0 * requested_spacing, clearance + requested_spacing)
+    boundary_bridge = None
+    bridge_topology = None
+    if boundary_bridge_world is not None:
+        boundary_bridge = _triangulated_clean_surface(boundary_bridge_world)
+        bridge_topology = surface_topology(boundary_bridge)
+        if bridge_topology["boundaryOrNonManifoldEdgeCount"]:
+            raise ValueError(
+                "The support-boundary bridge is open or non-manifold "
+                f"({bridge_topology['boundaryOrNonManifoldEdgeCount']} invalid edges)."
+            )
+
+    bounds_sources = [candidate.GetBounds()]
+    if fitting_surface is not None:
+        bounds_sources.append(fitting_surface.GetBounds())
+    if boundary_bridge is not None:
+        bounds_sources.append(boundary_bridge.GetBounds())
+    bounds = tuple(
+        value
+        for axis in range(3)
+        for value in (
+            min(source[2 * axis] for source in bounds_sources),
+            max(source[2 * axis + 1] for source in bounds_sources),
+        )
+    )
+    padding = max(
+        2.0 * requested_spacing,
+        clearance + requested_spacing,
+        (thickness + 2.0 * requested_spacing) if thickness is not None else 0.0,
+    )
     expanded_bounds = []
     for axis in range(3):
         expanded_bounds.extend(
@@ -523,9 +1081,31 @@ def regularize_patient_contact_shell(
     ).reshape(dimensions[2], dimensions[1], dimensions[0])
     actual_spacing = tuple(float(value) for value in candidate_image.GetSpacing())
     clearance_guard = max(0.0, clearance - max(actual_spacing) * 1.25)
-    shell_mask = (candidate_distances <= 0.0) & (
-        anatomy_distances >= clearance_guard
-    )
+    repair_band_limit = None
+    if use_fitting_surface_fallback:
+        fitting_image = sample_distances(fitting_surface)
+        fitting_distances = vtk_to_numpy(
+            fitting_image.GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        half_voxel_diagonal = 0.5 * math.sqrt(
+            sum(value * value for value in actual_spacing)
+        )
+        repair_band_limit = thickness + half_voxel_diagonal
+        # vtkImplicitPolyDataDistance remains a reliable closest-surface
+        # distance for an open patch even when its sign is not meaningful.
+        # The absolute-distance band creates a finite capped volume around the
+        # fitting patch; the blockout/anatomy distance then removes its inward
+        # half and preserves the requested seating clearance.
+        shell_mask = np.abs(fitting_distances) <= repair_band_limit
+    else:
+        shell_mask = candidate_distances <= 0.0
+    if boundary_bridge is not None:
+        bridge_image = sample_distances(boundary_bridge)
+        bridge_distances = vtk_to_numpy(
+            bridge_image.GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        shell_mask |= bridge_distances <= 0.0
+    shell_mask &= anatomy_distances >= clearance_guard
     closing_kernel_size = 1
     if closing > 0.0:
         closing_radius_voxels = max(
@@ -618,7 +1198,20 @@ def regularize_patient_contact_shell(
     )
     return shell, {
         **topology,
-        "method": "DynamicModelerHollowWithTightVoxelClearanceBoolean",
+        "method": (
+            "DynamicModelerHollowWithFittingSurfaceDistanceFieldFallback"
+            if use_fitting_surface_fallback
+            else "DynamicModelerHollowWithTightVoxelClearanceBoolean"
+        ),
+        "candidateRepairMode": (
+            "FittingSurfaceDistanceBand"
+            if use_fitting_surface_fallback
+            else "None"
+        ),
+        "repairBandLimitMm": repair_band_limit,
+        "shellThicknessMm": thickness,
+        "boundaryBridgeIntegrated": boundary_bridge is not None,
+        "boundaryBridgeTopology": bridge_topology,
         "fitClearanceMm": clearance,
         "clearanceGuardMm": clearance_guard,
         "requestedSpacingMm": requested_spacing,

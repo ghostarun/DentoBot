@@ -1787,15 +1787,27 @@
         </item>
         <item row="4" column="0">
          <widget class="QLabel" name="templateSupportSelectionModeLabel">
-          <property name="text"><string>Enclosed side:</string></property>
+          <property name="text"><string>Crown/root direction:</string></property>
          </widget>
         </item>
         <item row="4" column="1">
-         <widget class="QComboBox" name="templateSupportSelectionModeComboBox">
-          <property name="toolTip"><string>Select the smaller enclosed patch in the normal case. The larger side is available when curve orientation/topology makes the intended patch the larger region.</string></property>
-          <item><property name="text"><string>Smaller surface region</string></property></item>
-          <item><property name="text"><string>Larger surface region</string></property></item>
-         </widget>
+         <layout class="QHBoxLayout" name="templateSupportDirectionLayout">
+          <item>
+           <widget class="QLabel" name="templateSupportDirectionValueLabel">
+            <property name="toolTip"><string>Entry to Target on the selected target-tooth trajectory is used as crown-to-root insertion direction. The opposite vector selects the crown-side patch on every support tooth.</string></property>
+            <property name="text"><string>Select a complete target trajectory in Step 4A.</string></property>
+            <property name="wordWrap"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="flipTemplateSupportDirectionButton">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="checkable"><bool>true</bool></property>
+            <property name="toolTip"><string>Exceptional override: reverse the selected target trajectory polarity for all target/support teeth. Leave off for the normal Entry-to-Target crown-to-root convention.</string></property>
+            <property name="text"><string>Reverse polarity</string></property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item row="5" column="0">
          <widget class="QLabel" name="templateSupportCurveSamplingSpacingLabel">
@@ -1863,14 +1875,14 @@
         <item>
          <widget class="QPushButton" name="createTemplateSupportBoundaryButton">
           <property name="enabled"><bool>false</bool></property>
-          <property name="toolTip"><string>Create or redraw the closed visible-support boundary on the current full support model. Existing source anatomy is not modified.</string></property>
+          <property name="toolTip"><string>Place one closed loop directly on the orange draft teeth near the intended gingival/cervical margin, then right-click to finish. The loop may address only a subset of the disconnected selected teeth; source anatomy is not modified.</string></property>
           <property name="text"><string>Create / Redraw Support Boundary</string></property>
          </widget>
         </item>
         <item>
          <widget class="QPushButton" name="generateVisibleTemplateSupportModelButton">
           <property name="enabled"><bool>false</bool></property>
-          <property name="toolTip"><string>Extract and distinctly preview the surface patch enclosed by the current boundary.</string></property>
+          <property name="toolTip"><string>Evaluate both boundary sides per tooth and retain the crown-side patch using the selected target trajectory direction. Disconnected mesh islands are diagnostics inside their source tooth, not additional teeth.</string></property>
           <property name="text"><string>Generate / Update Visible Support Preview</string></property>
          </widget>
         </item>
@@ -1886,7 +1898,7 @@
       <item>
        <widget class="QLabel" name="templateSupportSurfaceStatusLabel">
         <property name="styleSheet"><string notr="true">color: #b36b00;</string></property>
-        <property name="text"><string>Create the full support model, then draw a closed boundary around the erupted support surfaces.</string></property>
+        <property name="text"><string>Create the full support model, then place one closed loop directly on the orange teeth near the intended gingival/cervical margin and right-click to finish.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
@@ -1965,13 +1977,14 @@
             </widget>
            </item>
            <item row="2" column="0">
-            <widget class="QLabel" name="templateInsertionDirectionLabel"><property name="text"><string>Insertion direction:</string></property></widget>
+            <widget class="QLabel" name="templateInsertionDirectionLabel"><property name="text"><string>Derived insertion direction:</string></property></widget>
            </item>
            <item row="2" column="1">
             <layout class="QHBoxLayout" name="templateInsertionDirectionLayout">
              <item>
               <widget class="qMRMLNodeComboBox" name="templateInsertionDirectionSelector">
-               <property name="toolTip"><string>Two world-RAS points: Approach first, then Seat. Removal is the exact opposite direction.</string></property>
+               <property name="enabled"><bool>false</bool></property>
+               <property name="toolTip"><string>Automatically derived from the selected target trajectory. Entry to Target is Approach to Seat; removal/crown direction is opposite. Use the Step 5A Reverse polarity override only for an exceptional case.</string></property>
                <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsLineNode</string></stringlist></property>
                <property name="showChildNodeTypes"><bool>false</bool></property>
                <property name="noneEnabled"><bool>true</bool></property>
@@ -1980,7 +1993,7 @@
                <property name="SlicerParameterName" stdset="0"><string>templateInsertionDirection</string></property>
               </widget>
              </item>
-             <item><widget class="QPushButton" name="createTemplateInsertionDirectionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Create / Reset</string></property></widget></item>
+             <item><widget class="QPushButton" name="createTemplateInsertionDirectionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Refresh from trajectory</string></property></widget></item>
              <item><widget class="QPushButton" name="deleteTemplateInsertionDirectionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete...</string></property></widget></item>
             </layout>
            </item>

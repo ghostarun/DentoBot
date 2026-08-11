@@ -43,7 +43,8 @@ from DENTOTemplateGeometry import (
     create_hollow_sleeve,
     create_directional_blockout,
     create_research_shell,
-    extract_visible_support_surface,
+    create_support_boundary_bridge,
+    extract_directional_visible_support_surface,
     model_polydata_in_world,
     regularize_patient_contact_shell,
     surface_topology,
@@ -77,6 +78,7 @@ class DENTOWorkflowParameterNode:
     templateSupportBoundaryCurve: vtkMRMLMarkupsClosedCurveNode
     templateSupportCurveSamplingSpacingMm: float = 0.5
     templateSupportSelectionMode: str = "Smallest"
+    templateSupportDirectionReversed: bool = False
     visibleTemplateSupportModel: vtkMRMLModelNode
     templateInsertionDirection: vtkMRMLMarkupsLineNode
     templateUndercutAngleToleranceDeg: float = 5.0
@@ -178,6 +180,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._templateStatusWarning = ""
         self._templateSupportBoundaryNode = None
         self._restoringTemplateSupportBoundary = False
+        self._templateSupportBoundaryFocusState: dict | None = None
+        self._resumeTemplateSupportBoundaryFocusAfterSave = False
         self._templateInsertionDirectionNode = None
         self._restoringTemplateInsertionDirection = False
         self._updatingTemplateGuideUI = False
@@ -429,6 +433,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onDeleteTemplateSupportSelection,
         )
+        self.ui.flipTemplateSupportDirectionButton.connect(
+            "toggled(bool)",
+            self.onTemplateSupportDirectionReversedToggled,
+        )
         self.ui.patientContactShellModelSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onPatientContactShellSelectionChanged,
@@ -493,10 +501,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "valueChanged(double)",
                 self.onTemplateGuideInputChanged,
             )
-        self.ui.templateSupportSelectionModeComboBox.connect(
-            "currentIndexChanged(int)",
-            self.onTemplateSupportSurfaceParameterChanged,
-        )
         self.ui.templateSupportCurveSamplingSpacingSpinBox.connect(
             "valueChanged(double)",
             self.onTemplateSupportSurfaceParameterChanged,
@@ -615,6 +619,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._cancelBackendProcess(updateStatus=False)
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreTemplateFinalizationViewState(updateUi=False)
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self.setParameterNode(None)
         self.removeObservers()
         self._sceneObserversActive = False
@@ -626,6 +631,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def exit(self) -> None:
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreTemplateFinalizationViewState(updateUi=False)
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self.setParameterNode(None)
         self._removeSceneObservers()
 
@@ -650,8 +656,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onSceneStartClose(self, caller=None, event=None) -> None:
         self._resumeTrajectoryVerificationAfterSave = False
         self._trajectoryVerificationResumeStateAfterSave = None
+        self._resumeTemplateSupportBoundaryFocusAfterSave = False
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreTemplateFinalizationViewState(updateUi=False)
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self._cancelBackendProcess(
             updateStatus=True,
             message=_("Backend process cancelled because the scene is closing."),
@@ -692,46 +700,60 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 else None
             )
             self._restoreTrajectoryVerificationViewState(updateUi=False)
+        self._resumeTemplateSupportBoundaryFocusAfterSave = bool(
+            self._templateSupportBoundaryFocusState
+        )
+        if self._resumeTemplateSupportBoundaryFocusAfterSave:
+            self._restoreTemplateSupportBoundaryFocus(updateUi=False)
 
     def onSceneEndSave(self, caller=None, event=None) -> None:
         del caller, event
-        if not self._resumeTrajectoryVerificationAfterSave:
-            return
-        self._resumeTrajectoryVerificationAfterSave = False
-        resumeState = self._trajectoryVerificationResumeStateAfterSave
-        self._trajectoryVerificationResumeStateAfterSave = None
-        try:
-            self._enableTrajectoryVerificationView()
-            trajectoryNode = (
-                self._parameterNode.trajectoryLine if self._parameterNode else None
-            )
-            sliceNode = (
-                slicer.mrmlScene.GetNodeByID(resumeState["sliceNodeId"])
-                if resumeState
-                else None
-            )
-            if (
-                resumeState
-                and trajectoryNode
-                and trajectoryNode.GetID() == resumeState["trajectoryNodeId"]
-                and sliceNode
-            ):
-                matrix = self._matrixFromElements(resumeState["sliceToRas"])
-                sliceNode.GetSliceToRAS().DeepCopy(matrix)
-                sliceNode.UpdateMatrices()
-                self._trajectoryVerificationAngleDeg = float(
-                    resumeState["angleDeg"]
+        if self._resumeTrajectoryVerificationAfterSave:
+            self._resumeTrajectoryVerificationAfterSave = False
+            resumeState = self._trajectoryVerificationResumeStateAfterSave
+            self._trajectoryVerificationResumeStateAfterSave = None
+            try:
+                self._enableTrajectoryVerificationView()
+                trajectoryNode = (
+                    self._parameterNode.trajectoryLine if self._parameterNode else None
                 )
-                self._trajectoryVerificationAppliedTrajectoryNodeId = (
-                    trajectoryNode.GetID()
+                sliceNode = (
+                    slicer.mrmlScene.GetNodeByID(resumeState["sliceNodeId"])
+                    if resumeState
+                    else None
                 )
-                self._trajectoryVerificationLastAppliedAngleDeg = (
-                    self._trajectoryVerificationAngleDeg
-                )
-                self._updateTrajectoryVerificationControls()
-        except (RuntimeError, ValueError) as exc:
-            self._setTrajectoryVerificationEnabledUi(False)
-            self._setTrajectoryVerificationStatus(str(exc), error=True)
+                if (
+                    resumeState
+                    and trajectoryNode
+                    and trajectoryNode.GetID() == resumeState["trajectoryNodeId"]
+                    and sliceNode
+                ):
+                    matrix = self._matrixFromElements(resumeState["sliceToRas"])
+                    sliceNode.GetSliceToRAS().DeepCopy(matrix)
+                    sliceNode.UpdateMatrices()
+                    self._trajectoryVerificationAngleDeg = float(
+                        resumeState["angleDeg"]
+                    )
+                    self._trajectoryVerificationAppliedTrajectoryNodeId = (
+                        trajectoryNode.GetID()
+                    )
+                    self._trajectoryVerificationLastAppliedAngleDeg = (
+                        self._trajectoryVerificationAngleDeg
+                    )
+                    self._updateTrajectoryVerificationControls()
+            except (RuntimeError, ValueError) as exc:
+                self._setTrajectoryVerificationEnabledUi(False)
+                self._setTrajectoryVerificationStatus(str(exc), error=True)
+
+        resumeTemplateFocus = self._resumeTemplateSupportBoundaryFocusAfterSave
+        self._resumeTemplateSupportBoundaryFocusAfterSave = False
+        if resumeTemplateFocus:
+            try:
+                self._startTemplateSupportBoundaryFocus()
+                self._updateTemplateModeling()
+            except (RuntimeError, ValueError) as exc:
+                self._templateStatusWarning = str(exc)
+                self._updateTemplateModeling()
 
     def initializeParameterNode(self) -> None:
         if not self.logic:
@@ -757,6 +779,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateFromParameterNode()
 
     def setParameterNode(self, parameterNode: DENTOWorkflowParameterNode | None) -> None:
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         if self._parameterNode:
             if self._parameterNodeGuiTag is not None:
                 self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
@@ -2245,6 +2268,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _applyTargetPriorityHighlight(self) -> None:
         """Keep the Step 4A target dominant over Step 3 review selection."""
 
+        if self._templateSupportBoundaryFocusState:
+            return
         if (
             not self._parameterNode
             or not self.logic
@@ -3135,7 +3160,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.draftTemplateSupportModelSelector.setCurrentNode(None)
             self.ui.templateSupportBoundaryCurveSelector.setCurrentNode(None)
             self.ui.visibleTemplateSupportModelSelector.setCurrentNode(None)
-            self.ui.templateSupportSelectionModeComboBox.currentIndex = 0
+            self.ui.templateSupportDirectionValueLabel.text = _(
+                "Select a complete target trajectory in Step 4A."
+            )
+            self.ui.flipTemplateSupportDirectionButton.checked = False
+            self.ui.flipTemplateSupportDirectionButton.enabled = False
             self.ui.createDraftTemplateSupportModelButton.enabled = False
             self.ui.createDraftTemplateSupportModelButton.text = _(
                 "Create Draft Support Model"
@@ -3320,6 +3349,41 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if segmentId and item.checkState() == qt.Qt.Checked:
                 selectedIds.append(str(segmentId))
         return selectedIds
+
+    def _startTemplateSupportBoundaryFocus(self) -> None:
+        """Temporarily show only the tooth masks used by the support boundary."""
+
+        if not self._parameterNode or not self.logic:
+            raise RuntimeError(_("DENTOWorkflow is not ready for boundary placement."))
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
+        contextModels = [
+            self._parameterNode.draftTemplateSupportModel,
+            self._parameterNode.visibleTemplateSupportModel,
+        ]
+        self._templateSupportBoundaryFocusState = (
+            self.logic.applyTemplateSupportBoundaryFocus(
+                self._parameterNode.teethSegmentation,
+                self._parameterNode.draftTemplateSupportModel,
+                contextModels=contextModels,
+            )
+        )
+        self._syncSegmentationDisplayControls()
+
+    def _restoreTemplateSupportBoundaryFocus(self, updateUi: bool = True) -> None:
+        """Restore the exact segmentation/model display state saved for Step 5A."""
+
+        state = self._templateSupportBoundaryFocusState
+        self._templateSupportBoundaryFocusState = None
+        if not state or not self.logic:
+            return
+        self.logic.restoreTemplateSupportBoundaryFocus(state)
+        if (
+            updateUi
+            and not self._isCleaningUp
+            and hasattr(self, "ui")
+            and self._reviewSegmentationNode
+        ):
+            self._syncSegmentationDisplayControls()
 
     def _updateTemplateModeling(self) -> None:
         if self._updatingTemplateUI:
@@ -3537,10 +3601,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         sourceModel = self._parameterNode.draftTemplateSupportModel
         curveNode = self._parameterNode.templateSupportBoundaryCurve
         previewModel = self._parameterNode.visibleTemplateSupportModel
-        selectionMode = self._parameterNode.templateSupportSelectionMode
-        if selectionMode not in {"Smallest", "Largest"}:
-            selectionMode = "Smallest"
-            self._parameterNode.templateSupportSelectionMode = selectionMode
+        directionTrajectory = self._parameterNode.trajectoryLine
+        reverseDirection = bool(
+            self._parameterNode.templateSupportDirectionReversed
+        )
         spacing = float(self._parameterNode.templateSupportCurveSamplingSpacingMm)
 
         self._updatingTemplateUI = True
@@ -3549,9 +3613,40 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self.ui.templateSupportBoundaryCurveSelector.setCurrentNode(curveNode)
             if self.ui.visibleTemplateSupportModelSelector.currentNode() is not previewModel:
                 self.ui.visibleTemplateSupportModelSelector.setCurrentNode(previewModel)
-            self.ui.templateSupportSelectionModeComboBox.currentIndex = (
-                0 if selectionMode == "Smallest" else 1
+            self.ui.flipTemplateSupportDirectionButton.checked = reverseDirection
+        finally:
+            self._updatingTemplateUI = False
+
+        directionSummary = None
+        directionError = ""
+        if sourceModel:
+            try:
+                directionSummary = self.logic.resolveTemplateSupportTrajectoryDirection(
+                    sourceModel,
+                    directionTrajectory,
+                    reverseDirection=reverseDirection,
+                )
+            except (RuntimeError, ValueError) as exc:
+                directionError = str(exc)
+        else:
+            directionError = _("Create the full support-anatomy model first.")
+        self._updatingTemplateUI = True
+        try:
+            self.ui.flipTemplateSupportDirectionButton.enabled = bool(
+                directionSummary
             )
+            if directionSummary and reverseDirection:
+                self.ui.templateSupportDirectionValueLabel.text = _(
+                    "Override active: Target → Entry points toward the roots; "
+                    "the opposite selects the crown side on every tooth."
+                )
+            elif directionSummary:
+                self.ui.templateSupportDirectionValueLabel.text = _(
+                    "Automatic: Entry → Target points toward the roots; the "
+                    "opposite selects the crown side on every tooth."
+                )
+            else:
+                self.ui.templateSupportDirectionValueLabel.text = directionError
         finally:
             self._updatingTemplateUI = False
 
@@ -3590,8 +3685,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 staleReason = _("The full support-anatomy geometry was updated.")
             elif curveGeometryJson and previewSummary["boundaryGeometryJson"] != curveGeometryJson:
                 staleReason = _("The visible support boundary geometry changed.")
-            elif previewSummary["selectionMode"] != selectionMode:
-                staleReason = _("The enclosed surface side changed.")
+            elif previewSummary["selectionMode"] != "TrajectoryDirection":
+                staleReason = _(
+                    "This legacy preview used area-based side selection."
+                )
+            elif not directionSummary:
+                staleReason = directionError
+            elif previewSummary["directionTrajectory"] is not directionTrajectory:
+                staleReason = _("The target trajectory used for direction changed.")
+            elif (
+                previewSummary["directionGeometryJson"]
+                != directionSummary["directionGeometryJson"]
+            ):
+                staleReason = _("The target trajectory points or polarity changed.")
+            elif previewSummary["directionReversed"] != reverseDirection:
+                staleReason = _("The crown/root direction polarity changed.")
             elif not math.isclose(
                 previewSummary["samplingSpacingMm"],
                 spacing,
@@ -3611,7 +3719,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         curveComplete = bool(curveNode and not curveError and curveGeometryJson)
         self.ui.createTemplateSupportBoundaryButton.enabled = sourceCurrent
         self.ui.generateVisibleTemplateSupportModelButton.enabled = bool(
-            sourceCurrent and curveComplete and not previewError
+            sourceCurrent
+            and curveComplete
+            and directionSummary
+            and not previewError
         )
         self.ui.deleteTemplateSupportSelectionButton.enabled = bool(
             self.logic.isTemplateSupportBoundaryNode(curveNode)
@@ -3624,37 +3735,100 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         elif curveError:
             message = curveError
             style = "color: #b36b00;"
+        elif directionError:
+            message = directionError
+            style = "color: #b36b00;"
+        elif self._templateSupportBoundaryFocusState:
+            message = _(
+                "Boundary focus is active: only the target and checked support-"
+                "tooth masks are shown. Place the closed loop, right-click to "
+                "finish, then generate the preview; the prior display will be "
+                "restored automatically."
+            )
+            style = "color: #1f5f99;"
         elif not curveNode:
             message = _(
-                "Draw a closed boundary around only the erupted tooth surfaces "
-                "that should support the template."
+                "Click Create / Redraw Support Boundary, place one closed loop "
+                "directly on the orange draft teeth near the intended gingival/"
+                "cervical margin, then right-click to finish."
             )
             style = "color: #1f5f99;"
         elif not curveComplete:
-            message = _("Place at least three boundary points on the support surfaces.")
+            message = _(
+                "Place at least three points directly on the orange support "
+                "surfaces, then right-click to finish the closed loop."
+            )
             style = "color: #1f5f99;"
         elif previewError:
             message = previewError
             style = "color: #b00020;"
         elif previewSummary and previewSummary["geometryState"] == "Current":
+            selectedToothCount = int(
+                previewSummary["metrics"].get(
+                    "selectedToothCount",
+                    previewSummary["metrics"].get("surfaceRegionCount", 0),
+                )
+            )
+            sourceToothCount = int(
+                previewSummary["metrics"].get(
+                    "sourceToothCount",
+                    previewSummary["metrics"].get("sourceSurfaceRegionCount", 0),
+                )
+            )
+            omittedToothCount = int(
+                previewSummary["metrics"].get(
+                    "omittedToothCount",
+                    max(0, sourceToothCount - selectedToothCount),
+                )
+            )
+            ignoredIslandCount = int(
+                previewSummary["metrics"].get("ignoredSourceIslandCount", 0)
+            )
+            ambiguousCount = sum(
+                1
+                for item in previewSummary["metrics"].get("toothMetrics", [])
+                if item.get("directionSelectionAmbiguous")
+            )
             message = (
                 _(
                     "Visible support preview is current (%1 points, %2 cells; "
-                    "%3 source surface regions)."
+                    "%3 of %4 selected teeth included by trajectory direction)."
                 )
                 .replace("%1", str(previewSummary["pointCount"]))
                 .replace("%2", str(previewSummary["cellCount"]))
-                .replace(
-                    "%3",
-                    str(
-                        previewSummary["metrics"].get(
-                            "sourceSurfaceRegionCount",
-                            "--",
-                        )
-                    ),
-                )
+                .replace("%3", str(selectedToothCount))
+                .replace("%4", str(sourceToothCount))
             )
-            style = "color: #207227;"
+            warnings = []
+            if omittedToothCount:
+                warnings.append(
+                    _("%1 intended tooth/teeth were not mapped.").replace(
+                        "%1",
+                        str(omittedToothCount),
+                    )
+                )
+            if ignoredIslandCount:
+                warnings.append(
+                    _(
+                        "%1 extra disconnected mesh island(s) were ignored "
+                        "inside their source tooth segments."
+                    ).replace("%1", str(ignoredIslandCount))
+                )
+            if ambiguousCount:
+                warnings.append(
+                    _("%1 tooth side choice(s) were directionally close.").replace(
+                        "%1",
+                        str(ambiguousCount),
+                    )
+                )
+            if warnings:
+                message += _(
+                    " %1 Inspect the orange preview and review the segmentation "
+                    "if ignored islands are unexpected."
+                ).replace("%1", " ".join(warnings))
+                style = "color: #b36b00;"
+            else:
+                style = "color: #207227;"
         elif previewSummary:
             message = _("Visible support preview is stale: %1").replace(
                 "%1",
@@ -3662,7 +3836,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
             style = "color: #b36b00;"
         else:
-            message = _("Boundary is ready. Generate the visible support preview.")
+            message = _(
+                "Boundary and target-trajectory direction are ready. Generate "
+                "the preview, then inspect the orange crown-side patches."
+            )
             style = "color: #1f5f99;"
         self.ui.templateSupportSurfaceStatusLabel.text = message
         self.ui.templateSupportSurfaceStatusLabel.styleSheet = style
@@ -3680,6 +3857,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             or not self.logic
         ):
             return
+        self._restoreTemplateSupportBoundaryFocus()
         selectedSupportIds = self._selectedTemplateSupportSegmentIds()
         serializedIds = self.logic.encodeTemplateSupportSegmentIds(
             selectedSupportIds
@@ -3713,6 +3891,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onCreateDraftTemplateSupportModel(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        self._restoreTemplateSupportBoundaryFocus()
         try:
             supportSegmentIds = self._selectedTemplateSupportSegmentIds()
             modelNode, details = (
@@ -3770,6 +3949,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             return
 
+        self._restoreTemplateSupportBoundaryFocus()
         try:
             if (
                 self._parameterNode.templateSupportBoundaryCurve
@@ -3813,6 +3993,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if (currentNode.GetID() if currentNode else None) != (
             curveNode.GetID() if curveNode else None
         ):
+            self._restoreTemplateSupportBoundaryFocus()
             self._parameterNode.templateSupportBoundaryCurve = curveNode
             self._bindTemplateSupportBoundaryNode(curveNode)
             self._invalidateTemplateSupportSurfaceDownstream(
@@ -3827,6 +4008,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if (currentNode.GetID() if currentNode else None) != (
             modelNode.GetID() if modelNode else None
         ):
+            self._restoreTemplateSupportBoundaryFocus()
             self._parameterNode.visibleTemplateSupportModel = modelNode
         self._updateTemplateModeling()
 
@@ -3834,26 +4016,33 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del args
         if self._updatingTemplateUI or not self._parameterNode:
             return
-        selectionMode = (
-            "Smallest"
-            if self.ui.templateSupportSelectionModeComboBox.currentIndex == 0
-            else "Largest"
-        )
         spacing = float(self.ui.templateSupportCurveSamplingSpacingSpinBox.value)
         changed = bool(
-            self._parameterNode.templateSupportSelectionMode != selectionMode
-            or not math.isclose(
+            not math.isclose(
                 self._parameterNode.templateSupportCurveSamplingSpacingMm,
                 spacing,
                 rel_tol=0.0,
                 abs_tol=1e-9,
             )
         )
-        self._parameterNode.templateSupportSelectionMode = selectionMode
         self._parameterNode.templateSupportCurveSamplingSpacingMm = spacing
         if changed:
             self._invalidateTemplateSupportSurfaceDownstream(
                 _("Visible support-surface processing parameters changed."),
+            )
+        self._updateTemplateModeling()
+
+    def onTemplateSupportDirectionReversedToggled(self, checked: bool) -> None:
+        if self._updatingTemplateUI or not self._parameterNode:
+            return
+        reversedValue = bool(checked)
+        if (
+            self._parameterNode.templateSupportDirectionReversed
+            != reversedValue
+        ):
+            self._parameterNode.templateSupportDirectionReversed = reversedValue
+            self._invalidateTemplateSupportSurfaceDownstream(
+                _("The target-trajectory crown/root polarity changed."),
             )
         self._updateTemplateModeling()
 
@@ -3881,25 +4070,39 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._invalidateTemplateSupportSurfaceDownstream(
                 _("The visible support boundary was redrawn."),
             )
+            self._startTemplateSupportBoundaryFocus()
             self.logic.startClosedCurvePlacement(curveNode)
             self._updateTemplateModeling()
         except (RuntimeError, ValueError) as exc:
+            self._restoreTemplateSupportBoundaryFocus()
             slicer.util.errorDisplay(str(exc))
 
     def onGenerateVisibleTemplateSupportModel(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        self._restoreTemplateSupportBoundaryFocus()
         try:
             modelNode, metrics = self.logic.createOrUpdateVisibleTemplateSupportModel(
                 self._parameterNode.draftTemplateSupportModel,
                 self._parameterNode.templateSupportBoundaryCurve,
-                selectionMode=self._parameterNode.templateSupportSelectionMode,
+                directionTrajectory=self._parameterNode.trajectoryLine,
+                reverseDirection=(
+                    self._parameterNode.templateSupportDirectionReversed
+                ),
                 samplingSpacingMm=(
                     self._parameterNode.templateSupportCurveSamplingSpacingMm
                 ),
                 outputModel=self._parameterNode.visibleTemplateSupportModel,
+                insertionDirectionNode=(
+                    self._parameterNode.templateInsertionDirection
+                ),
             )
             self._parameterNode.visibleTemplateSupportModel = modelNode
+            insertionDirection = modelNode.GetNodeReference(
+                self.logic.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE
+            )
+            self._parameterNode.templateInsertionDirection = insertionDirection
+            self._bindTemplateInsertionDirectionNode(insertionDirection)
             self.logic.markTemplateUndercutOutputsStale(
                 self._parameterNode.templateUndercutSurfaceModel,
                 self._parameterNode.templateUndercutBlockoutModel,
@@ -3944,6 +4147,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             windowTitle=_("Delete visible support selection"),
         ):
             return
+        self._restoreTemplateSupportBoundaryFocus()
         try:
             self._invalidateTemplateSupportSurfaceDownstream(
                 _("The visible support selection was deleted."),
@@ -4324,6 +4528,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         supportModel = self._parameterNode.draftTemplateSupportModel
         visibleSupportModel = self._parameterNode.visibleTemplateSupportModel
         insertionDirection = self._parameterNode.templateInsertionDirection
+        if visibleSupportModel:
+            try:
+                referencedInsertion = (
+                    self.logic.getVisibleTemplateSupportModelSummary(
+                        visibleSupportModel
+                    )["insertionDirection"]
+                )
+            except (RuntimeError, ValueError, json.JSONDecodeError):
+                referencedInsertion = None
+            if (
+                self.logic.isTemplateInsertionDirectionNode(referencedInsertion)
+                and insertionDirection is not referencedInsertion
+            ):
+                self._updatingTemplateGuideUI = True
+                try:
+                    self._parameterNode.templateInsertionDirection = referencedInsertion
+                    insertionDirection = referencedInsertion
+                    self._bindTemplateInsertionDirectionNode(referencedInsertion)
+                finally:
+                    self._updatingTemplateGuideUI = False
         undercutModel = self._parameterNode.templateUndercutSurfaceModel
         blockoutModel = self._parameterNode.templateUndercutBlockoutModel
         patientContactShell = self._parameterNode.patientContactShellModel
@@ -4456,6 +4680,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if directionSummary["sourceSurface"] is not visibleSupportModel:
                 raise ValueError(
                     _("The insertion direction belongs to another support surface.")
+                )
+            visibleSummaryForDirection = (
+                self.logic.getVisibleTemplateSupportModelSummary(
+                    visibleSupportModel
+                )
+            )
+            if (
+                directionSummary["sourceTrajectory"]
+                and directionSummary["sourceTrajectory"]
+                is not visibleSummaryForDirection["directionTrajectory"]
+            ):
+                raise ValueError(
+                    _("The insertion direction belongs to another trajectory.")
                 )
         except (RuntimeError, ValueError) as exc:
             directionError = str(exc)
@@ -4666,7 +4903,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     str(patientSummary["metrics"].get("surfaceRegionCount", "--")),
                 )
             )
-            patientStyle = "color: #207227;"
+            if patientSummary["warnings"]:
+                patientMessage += " " + " ".join(patientSummary["warnings"])
+                patientStyle = "color: #b36b00;"
+            else:
+                patientStyle = "color: #207227;"
         elif patientSummary:
             patientMessage = _("Patient-contact shell is stale: %1").replace(
                 "%1",
@@ -4882,25 +5123,45 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onCreateTemplateInsertionDirection(self) -> None:
         if not self._parameterNode or not self.logic:
             return
-        lineNode = self._parameterNode.templateInsertionDirection
-        if lineNode and lineNode.GetNumberOfDefinedControlPoints() > 0:
-            if not slicer.util.confirmYesNoDisplay(
-                _(
-                    "Reset the insertion direction? Existing Approach/Seat points "
-                    "will be cleared and all undercut-dependent geometry will become stale."
-                ),
-                windowTitle=_("Reset template insertion direction"),
-            ):
-                return
         try:
-            lineNode = self.logic.createOrResetTemplateInsertionDirection(
-                self._parameterNode.visibleTemplateSupportModel,
-                lineNode,
+            visibleSupport = self._parameterNode.visibleTemplateSupportModel
+            visibleSummary = self.logic.getVisibleTemplateSupportModelSummary(
+                visibleSupport
+            )
+            trajectoryNode = visibleSummary["directionTrajectory"]
+            lineNode = self.logic.createOrUpdateTemplateInsertionDirectionFromTrajectory(
+                visibleSupport,
+                trajectoryNode,
+                reverseDirection=visibleSummary["directionReversed"],
+                lineNode=self._parameterNode.templateInsertionDirection,
+            )
+            visibleSupport.SetNodeReferenceID(
+                self.logic.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE,
+                lineNode.GetID(),
             )
             self._parameterNode.templateInsertionDirection = lineNode
             self._bindTemplateInsertionDirectionNode(lineNode)
             self._invalidateTemplateUndercutDownstream(
-                _("The template insertion direction was reset."),
+                _("The trajectory-derived template insertion direction was refreshed."),
+            )
+            self._updateTemplateGuide()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onCreateManualTemplateInsertionDirection(self) -> None:
+        """Legacy developer fallback retained outside the routine UI path."""
+
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            lineNode = self.logic.createOrResetTemplateInsertionDirection(
+                self._parameterNode.visibleTemplateSupportModel,
+                self._parameterNode.templateInsertionDirection,
+            )
+            self._parameterNode.templateInsertionDirection = lineNode
+            self._bindTemplateInsertionDirectionNode(lineNode)
+            self._invalidateTemplateUndercutDownstream(
+                _("The manual template insertion direction was reset."),
             )
             self.logic.startLinePlacement(lineNode)
             self._updateTemplateGuide()
@@ -5134,9 +5395,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         if not slicer.util.confirmYesNoDisplay(
             _(
-                "Delete the patient-contact shell and its owned Margin/Hollow "
-                "processing nodes? The visible support boundary, preview, full "
-                "support anatomy, and authoritative segmentation will be preserved."
+                "Delete the patient-contact shell and its owned boundary-bridge/"
+                "Margin/Hollow processing nodes? The visible support boundary, "
+                "preview, full support anatomy, and authoritative segmentation "
+                "will be preserved."
             ),
             windowTitle=_("Delete patient-contact shell"),
         ):
@@ -7135,7 +7397,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         "DENTOBOT.TemplateSourceSegmentation"
     )
     TEMPLATE_MODEL_SCHEMA_VERSION = "1.0"
-    TEMPLATE_SUPPORT_SURFACE_SCHEMA_VERSION = "1.0"
+    TEMPLATE_SUPPORT_SURFACE_SCHEMA_VERSION = "2.0"
     TEMPLATE_SUPPORT_BOUNDARY_SOURCE_MODEL_REFERENCE_ROLE = (
         "DENTOBOT.TemplateSupportBoundarySourceModel"
     )
@@ -7145,9 +7407,18 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     TEMPLATE_VISIBLE_SUPPORT_BOUNDARY_REFERENCE_ROLE = (
         "DENTOBOT.VisibleSupportBoundary"
     )
+    TEMPLATE_VISIBLE_SUPPORT_DIRECTION_TRAJECTORY_REFERENCE_ROLE = (
+        "DENTOBOT.VisibleSupportDirectionTrajectory"
+    )
+    TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE = (
+        "DENTOBOT.VisibleSupportInsertionDirection"
+    )
     TEMPLATE_PATIENT_SHELL_SCHEMA_VERSION = "1.0"
     TEMPLATE_INSERTION_DIRECTION_SOURCE_SURFACE_REFERENCE_ROLE = (
         "DENTOBOT.InsertionDirectionSourceSurface"
+    )
+    TEMPLATE_INSERTION_DIRECTION_SOURCE_TRAJECTORY_REFERENCE_ROLE = (
+        "DENTOBOT.InsertionDirectionSourceTrajectory"
     )
     TEMPLATE_UNDERCUT_SOURCE_SURFACE_REFERENCE_ROLE = (
         "DENTOBOT.UndercutSourceSurface"
@@ -7175,6 +7446,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     )
     TEMPLATE_PATIENT_SHELL_HOLLOW_CANDIDATE_REFERENCE_ROLE = (
         "DENTOBOT.PatientShellHollowCandidate"
+    )
+    TEMPLATE_PATIENT_SHELL_BOUNDARY_BRIDGE_REFERENCE_ROLE = (
+        "DENTOBOT.PatientShellBoundaryBridge"
     )
     TEMPLATE_PATIENT_SHELL_MARGIN_MODELER_REFERENCE_ROLE = (
         "DENTOBOT.PatientShellMarginDynamicModeler"
@@ -9194,31 +9468,134 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         self.templateSupportBoundaryGeometryJson(curveNode)
         return curveNode
 
+    def resolveTemplateSupportTrajectoryDirection(
+        self,
+        sourceModel: vtkMRMLModelNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        *,
+        reverseDirection: bool = False,
+    ) -> dict:
+        """Resolve Entry→Target as insertion and its opposite as crown side."""
+
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        if sourceSummary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale full support-anatomy model first."))
+        if not self.isDentobotTrajectoryNode(trajectoryNode):
+            raise ValueError(
+                _(
+                    "Select a complete Step 4A trajectory for the target tooth. "
+                    "It supplies the template crown-to-root direction."
+                )
+            )
+        association = self.getTrajectoryTargetAssociation(trajectoryNode)
+        if not association:
+            raise ValueError(_("The selected trajectory has no target-tooth association."))
+        if association["segmentationNode"] is not sourceSummary["sourceSegmentation"]:
+            raise ValueError(_("The selected trajectory belongs to another segmentation."))
+        if (
+            association["targetRecord"]["segmentId"]
+            != sourceSummary["targetSegmentId"]
+        ):
+            raise ValueError(
+                _("Select a Step 4A trajectory associated with the Step 5A target tooth.")
+            )
+        trajectorySummary = self.getTrajectorySummary(trajectoryNode)
+        if not trajectorySummary["isValid"]:
+            raise ValueError(
+                _("Complete distinct Entry and Target points before generating the preview.")
+            )
+        entry = np.asarray(trajectorySummary["entryRas"], dtype=float)
+        target = np.asarray(trajectorySummary["targetRas"], dtype=float)
+        insertion = target - entry
+        insertion /= float(np.linalg.norm(insertion))
+        reversedValue = bool(reverseDirection)
+        if reversedValue:
+            insertion = -insertion
+        crownDirection = -insertion
+        trajectoryGeometry = {
+            "entryRas": [float(value) for value in entry],
+            "targetRas": [float(value) for value in target],
+        }
+        directionGeometry = {
+            **trajectoryGeometry,
+            "reverseDirection": reversedValue,
+        }
+        return {
+            "trajectory": trajectoryNode,
+            "trajectoryName": trajectoryNode.GetName() or _("Unnamed trajectory"),
+            "targetSegmentId": sourceSummary["targetSegmentId"],
+            "targetFdiNumber": (
+                trajectoryNode.GetAttribute("DENTOBOT.TargetFdiNumber") or ""
+            ),
+            "entryRas": trajectoryGeometry["entryRas"],
+            "targetRas": trajectoryGeometry["targetRas"],
+            "reverseDirection": reversedValue,
+            "insertionDirectionRas": tuple(
+                float(value) for value in insertion
+            ),
+            "crownDirectionRas": tuple(
+                float(value) for value in crownDirection
+            ),
+            "trajectoryGeometryJson": json.dumps(
+                trajectoryGeometry,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "directionGeometryJson": json.dumps(
+                directionGeometry,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        }
+
     def createOrUpdateVisibleTemplateSupportModel(
         self,
         sourceModel: vtkMRMLModelNode,
         curveNode: vtkMRMLMarkupsClosedCurveNode,
         *,
-        selectionMode: str = "Smallest",
+        directionTrajectory: vtkMRMLMarkupsLineNode,
+        reverseDirection: bool = False,
         samplingSpacingMm: float = 0.5,
         outputModel: vtkMRMLModelNode | None = None,
+        insertionDirectionNode: vtkMRMLMarkupsLineNode | None = None,
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Extract and persist only the clinician-selected visible support patch."""
 
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         self.validateTemplateSupportBoundary(sourceModel, curveNode)
-        if selectionMode not in {"Smallest", "Largest"}:
-            raise ValueError(_("Select the smaller or larger enclosed surface region."))
+        directionSummary = self.resolveTemplateSupportTrajectoryDirection(
+            sourceModel,
+            directionTrajectory,
+            reverseDirection=reverseDirection,
+        )
         spacing = float(samplingSpacingMm)
         if not math.isfinite(spacing) or spacing < 0.1 or spacing > 2.0:
             raise ValueError(_("Boundary sampling must be between 0.10 and 2.00 mm."))
 
-        anatomyWorld = model_polydata_in_world(sourceModel)
-        patch, metrics = extract_visible_support_surface(
-            anatomyWorld,
+        sourceSegmentation = sourceSummary["sourceSegmentation"]
+        segmentIds = [
+            sourceSummary["targetSegmentId"],
+            *sourceSummary["supportSegmentIds"],
+        ]
+        sourceNames = json.loads(
+            sourceModel.GetAttribute("DENTOBOT.SourceSegmentNamesJson") or "{}"
+        )
+        toothSurfaces = [
+            {
+                "segmentId": segmentId,
+                "displayName": sourceNames.get(segmentId) or segmentId,
+                "polyData": self._getClosedSurfaceCopy(
+                    sourceSegmentation,
+                    segmentId,
+                ),
+            }
+            for segmentId in segmentIds
+        ]
+        patch, metrics = extract_directional_visible_support_surface(
+            toothSurfaces,
             self.templateSupportBoundaryControlPointsWorld(curveNode),
+            directionSummary["crownDirectionRas"],
             sampling_spacing_mm=spacing,
-            selection_mode=selectionMode,
         )
         reusedOutputModel = bool(outputModel)
         if outputModel:
@@ -9255,7 +9632,25 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             outputModel.SetAttribute("DENTOBOT.GeometryState", "Current")
             outputModel.SetAttribute("DENTOBOT.StaleReason", None)
             outputModel.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
-            outputModel.SetAttribute("DENTOBOT.SelectionMode", selectionMode)
+            outputModel.SetAttribute(
+                "DENTOBOT.SelectionMode",
+                "TrajectoryDirection",
+            )
+            outputModel.SetAttribute(
+                "DENTOBOT.DirectionReversed",
+                "true" if directionSummary["reverseDirection"] else "false",
+            )
+            outputModel.SetAttribute(
+                "DENTOBOT.DirectionGeometryJson",
+                directionSummary["directionGeometryJson"],
+            )
+            outputModel.SetAttribute(
+                "DENTOBOT.CrownDirectionRasJson",
+                json.dumps(
+                    directionSummary["crownDirectionRas"],
+                    separators=(",", ":"),
+                ),
+            )
             outputModel.SetAttribute("DENTOBOT.SamplingSpacingMm", f"{spacing:.9g}")
             outputModel.SetAttribute(
                 "DENTOBOT.SupportBoundaryGeometryJson",
@@ -9278,7 +9673,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 self.TEMPLATE_VISIBLE_SUPPORT_BOUNDARY_REFERENCE_ROLE,
                 curveNode.GetID(),
             )
-            sourceSegmentation = sourceSummary["sourceSegmentation"]
+            outputModel.SetNodeReferenceID(
+                self.TEMPLATE_VISIBLE_SUPPORT_DIRECTION_TRAJECTORY_REFERENCE_ROLE,
+                directionTrajectory.GetID(),
+            )
             outputModel.SetNodeReferenceID(
                 self.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE,
                 sourceSegmentation.GetID(),
@@ -9300,6 +9698,21 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         sourceDisplay = sourceModel.GetDisplayNode()
         if sourceDisplay:
             sourceDisplay.SetOpacity(0.18)
+        insertionDirection = self.createOrUpdateTemplateInsertionDirectionFromTrajectory(
+            outputModel,
+            directionTrajectory,
+            reverseDirection=directionSummary["reverseDirection"],
+            lineNode=(
+                outputModel.GetNodeReference(
+                    self.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE
+                )
+                or insertionDirectionNode
+            ),
+        )
+        outputModel.SetNodeReferenceID(
+            self.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE,
+            insertionDirection.GetID(),
+        )
         return outputModel, metrics
 
     def getVisibleTemplateSupportModelSummary(
@@ -9320,6 +9733,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         sourceSegmentation = modelNode.GetNodeReference(
             self.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE
         )
+        directionTrajectory = modelNode.GetNodeReference(
+            self.TEMPLATE_VISIBLE_SUPPORT_DIRECTION_TRAJECTORY_REFERENCE_ROLE
+        )
+        insertionDirection = modelNode.GetNodeReference(
+            self.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE
+        )
         if not self.isDraftTemplateSupportModelNode(sourceModel):
             raise ValueError(_("The visible-support preview has no valid source model."))
         if not self.isTemplateSupportBoundaryNode(boundary):
@@ -9335,7 +9754,15 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "sourceModel": sourceModel,
             "boundary": boundary,
             "sourceSegmentation": sourceSegmentation,
+            "directionTrajectory": directionTrajectory,
+            "insertionDirection": insertionDirection,
             "selectionMode": modelNode.GetAttribute("DENTOBOT.SelectionMode") or "",
+            "directionReversed": (
+                modelNode.GetAttribute("DENTOBOT.DirectionReversed") == "true"
+            ),
+            "directionGeometryJson": modelNode.GetAttribute(
+                "DENTOBOT.DirectionGeometryJson"
+            ) or "",
             "samplingSpacingMm": float(
                 modelNode.GetAttribute("DENTOBOT.SamplingSpacingMm") or "nan"
             ),
@@ -9411,6 +9838,100 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             and node.GetAttribute("DENTOBOT.ModelRole")
             == "TemplateUndercutBlockout"
         )
+
+    def createOrUpdateTemplateInsertionDirectionFromTrajectory(
+        self,
+        visibleSupportModel: vtkMRMLModelNode,
+        trajectoryNode: vtkMRMLMarkupsLineNode,
+        *,
+        reverseDirection: bool = False,
+        lineNode: vtkMRMLMarkupsLineNode | None = None,
+    ) -> vtkMRMLMarkupsLineNode:
+        """Create a locked Approach→Seat line derived from Entry→Target."""
+
+        visibleSummary = self.getVisibleTemplateSupportModelSummary(
+            visibleSupportModel
+        )
+        sourceModel = visibleSummary["sourceModel"]
+        directionSummary = self.resolveTemplateSupportTrajectoryDirection(
+            sourceModel,
+            trajectoryNode,
+            reverseDirection=reverseDirection,
+        )
+        if lineNode and not self.isTemplateInsertionDirectionNode(lineNode):
+            raise ValueError(_("The derived insertion-direction node has the wrong role."))
+        if not lineNode:
+            lineNode = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsLineNode",
+                "[Step 5B] DENTO Insertion Direction from Trajectory",
+            )
+        if not lineNode:
+            raise RuntimeError(_("Slicer could not create the insertion direction."))
+
+        approach = (
+            directionSummary["targetRas"]
+            if directionSummary["reverseDirection"]
+            else directionSummary["entryRas"]
+        )
+        seat = (
+            directionSummary["entryRas"]
+            if directionSummary["reverseDirection"]
+            else directionSummary["targetRas"]
+        )
+        targetLabel = directionSummary["targetFdiNumber"] or _("target")
+        wasModifying = lineNode.StartModify()
+        try:
+            lineNode.SetName(
+                _("[Step 5B] DENTO Insertion from FDI %1 Trajectory").replace(
+                    "%1",
+                    targetLabel,
+                )
+            )
+            lineNode.RemoveAllControlPoints()
+            lineNode.SetAttribute(
+                "DENTOBOT.MarkupsRole",
+                "TemplateInsertionDirection",
+            )
+            lineNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
+            lineNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+            lineNode.SetAttribute(
+                "DENTOBOT.DirectionSemantics",
+                "ApproachToSeat;RemovalIsOpposite;DerivedFromTrajectory",
+            )
+            lineNode.SetAttribute(
+                "DENTOBOT.DirectionReversed",
+                "true" if directionSummary["reverseDirection"] else "false",
+            )
+            lineNode.SetAttribute(
+                "DENTOBOT.SourceTrajectoryGeometryJson",
+                directionSummary["trajectoryGeometryJson"],
+            )
+            lineNode.SetNodeReferenceID(
+                self.TEMPLATE_INSERTION_DIRECTION_SOURCE_SURFACE_REFERENCE_ROLE,
+                visibleSupportModel.GetID(),
+            )
+            lineNode.SetNodeReferenceID(
+                self.TEMPLATE_INSERTION_DIRECTION_SOURCE_TRAJECTORY_REFERENCE_ROLE,
+                trajectoryNode.GetID(),
+            )
+            lineNode.AddControlPointWorld(vtk.vtkVector3d(*approach))
+            lineNode.AddControlPointWorld(vtk.vtkVector3d(*seat))
+            lineNode.SetNthControlPointLabel(0, "Approach")
+            lineNode.SetNthControlPointLabel(1, "Seat")
+            lineNode.SetLocked(True)
+            lineNode.SetSelectable(False)
+        finally:
+            lineNode.EndModify(wasModifying)
+        lineNode.CreateDefaultDisplayNodes()
+        displayNode = lineNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(False)
+            displayNode.SetVisibility2D(False)
+            displayNode.SetVisibility3D(False)
+            displayNode.SetPointLabelsVisibility(False)
+            displayNode.SetColor(0.20, 0.85, 0.38)
+            displayNode.SetSelectedColor(0.35, 1.0, 0.50)
+        return lineNode
 
     def createOrResetTemplateInsertionDirection(
         self,
@@ -9520,6 +10041,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             ),
             "sourceSurface": lineNode.GetNodeReference(
                 self.TEMPLATE_INSERTION_DIRECTION_SOURCE_SURFACE_REFERENCE_ROLE
+            ),
+            "sourceTrajectory": lineNode.GetNodeReference(
+                self.TEMPLATE_INSERTION_DIRECTION_SOURCE_TRAJECTORY_REFERENCE_ROLE
+            ),
+            "directionReversed": (
+                lineNode.GetAttribute("DENTOBOT.DirectionReversed") == "true"
             ),
         }
 
@@ -9902,6 +10429,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         auxiliaryRoles = (
             self.TEMPLATE_PATIENT_SHELL_FITTING_SURFACE_REFERENCE_ROLE,
             self.TEMPLATE_PATIENT_SHELL_HOLLOW_CANDIDATE_REFERENCE_ROLE,
+            self.TEMPLATE_PATIENT_SHELL_BOUNDARY_BRIDGE_REFERENCE_ROLE,
         )
         dynamicNodes = [
             shellModel.GetNodeReference(role)
@@ -9940,7 +10468,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 and auxiliaryNode.GetAttribute("DENTOBOT.AuxiliaryOwnerNodeID")
                 == shellModel.GetID()
                 and auxiliaryNode.GetAttribute("DENTOBOT.ModelRole")
-                in {"TemplateFittingSurface", "TemplateHollowCandidate"}
+                in {
+                    "TemplateFittingSurface",
+                    "TemplateHollowCandidate",
+                    "TemplateSupportBoundaryBridge",
+                }
             ):
                 removals.append(
                     self._removeSceneNodeAndOwnedAuxiliaries(auxiliaryNode)
@@ -10001,6 +10533,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
         fittingSurface = None
         hollowCandidate = None
+        boundaryBridge = None
         marginNode = None
         hollowNode = None
         try:
@@ -10012,11 +10545,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 "vtkMRMLModelNode",
                 "[Step 5B] DENTO Hollow Shell Candidate (auxiliary)",
             )
-            if not fittingSurface or not hollowCandidate:
+            boundaryBridge = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode",
+                "[Step 5B] DENTO Support Boundary Bridge (auxiliary)",
+            )
+            if not fittingSurface or not hollowCandidate or not boundaryBridge:
                 raise RuntimeError(_("Slicer could not create shell processing models."))
             for auxiliaryNode, role in (
                 (fittingSurface, "TemplateFittingSurface"),
                 (hollowCandidate, "TemplateHollowCandidate"),
+                (boundaryBridge, "TemplateSupportBoundaryBridge"),
             ):
                 auxiliaryNode.SetAttribute("DENTOBOT.ModelRole", role)
                 auxiliaryNode.SetAttribute(
@@ -10055,6 +10593,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             shellModel.SetNodeReferenceID(
                 self.TEMPLATE_PATIENT_SHELL_HOLLOW_CANDIDATE_REFERENCE_ROLE,
                 hollowCandidate.GetID(),
+            )
+            shellModel.SetNodeReferenceID(
+                self.TEMPLATE_PATIENT_SHELL_BOUNDARY_BRIDGE_REFERENCE_ROLE,
+                boundaryBridge.GetID(),
             )
             shellModel.SetNodeReferenceID(
                 self.TEMPLATE_PATIENT_SHELL_MARGIN_MODELER_REFERENCE_ROLE,
@@ -10107,6 +10649,20 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             if not candidatePolyData or not candidatePolyData.GetNumberOfCells():
                 raise RuntimeError(_("Dynamic Modeler Hollow produced no shell candidate."))
 
+            bridgePolyData, bridgeMetrics = create_support_boundary_bridge(
+                self.templateSupportBoundaryControlPointsWorld(
+                    inputs["visibleSummary"]["boundary"]
+                ),
+                inputs["directionSummary"]["removalDirectionRas"],
+                fit_clearance_mm=(
+                    parameters["fitClearanceMm"]
+                    + parameters["blockoutSafetyMm"]
+                ),
+                shell_thickness_mm=parameters["shellThicknessMm"],
+                sampling_spacing_mm=parameters["processingResolutionMm"],
+            )
+            boundaryBridge.SetAndObservePolyData(bridgePolyData)
+
             shellPolyData, metrics = regularize_patient_contact_shell(
                 candidatePolyData,
                 model_polydata_in_world(blockoutModel),
@@ -10116,13 +10672,33 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 ),
                 sampling_spacing_mm=parameters["processingResolutionMm"],
                 voxel_closing_mm=parameters["voxelClosingMm"],
+                fitting_surface_world=model_polydata_in_world(fittingSurface),
+                shell_thickness_mm=parameters["shellThicknessMm"],
+                boundary_bridge_world=bridgePolyData,
             )
+            metrics["boundaryBridge"] = bridgeMetrics
             warnings = []
-            if metrics["surfaceRegionCount"] != 1:
+            if metrics["candidateRepairMode"] != "None":
                 warnings.append(
                     _(
-                        "The patient-contact shell contains %1 connected components; "
-                        "guide reinforcement/fusion must produce one final solid."
+                        "Dynamic Modeler Hollow had %1 invalid edges; the shell "
+                        "was reconstructed from its validated fitting surface "
+                        "in the cropped voxel domain."
+                    ).replace(
+                        "%1",
+                        str(
+                            metrics["candidateTopology"][
+                                "boundaryOrNonManifoldEdgeCount"
+                            ]
+                        ),
+                    )
+                )
+            if metrics["surfaceRegionCount"] != 1:
+                raise ValueError(
+                    _(
+                        "The support-boundary bridge did not connect all selected "
+                        "tooth-shell components (%1 components remain). Redraw one "
+                        "continuous loop around every intended support tooth."
                     ).replace("%1", str(metrics["surfaceRegionCount"]))
                 )
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -10207,6 +10783,10 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     hollowCandidate.GetID(),
                 )
                 shellModel.SetNodeReferenceID(
+                    self.TEMPLATE_PATIENT_SHELL_BOUNDARY_BRIDGE_REFERENCE_ROLE,
+                    boundaryBridge.GetID(),
+                )
+                shellModel.SetNodeReferenceID(
                     self.TEMPLATE_PATIENT_SHELL_MARGIN_MODELER_REFERENCE_ROLE,
                     marginNode.GetID(),
                 )
@@ -10284,6 +10864,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         hollowCandidate = shellModel.GetNodeReference(
             self.TEMPLATE_PATIENT_SHELL_HOLLOW_CANDIDATE_REFERENCE_ROLE
         )
+        boundaryBridge = shellModel.GetNodeReference(
+            self.TEMPLATE_PATIENT_SHELL_BOUNDARY_BRIDGE_REFERENCE_ROLE
+        )
         marginModeler = shellModel.GetNodeReference(
             self.TEMPLATE_PATIENT_SHELL_MARGIN_MODELER_REFERENCE_ROLE
         )
@@ -10311,13 +10894,19 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             or not hollowCandidate
             or hollowCandidate.GetAttribute("DENTOBOT.ModelRole")
             != "TemplateHollowCandidate"
+            or not boundaryBridge
+            or boundaryBridge.GetAttribute("DENTOBOT.ModelRole")
+            != "TemplateSupportBoundaryBridge"
             or not marginModeler
             or not marginModeler.IsA("vtkMRMLDynamicModelerNode")
             or not hollowModeler
             or not hollowModeler.IsA("vtkMRMLDynamicModelerNode")
         ):
             raise ValueError(
-                _("The patient-contact shell lost its owned Margin/Hollow provenance nodes.")
+                _(
+                    "The patient-contact shell lost its owned boundary-bridge "
+                    "or Margin/Hollow provenance nodes."
+                )
             )
         return {
             "geometryState": shellModel.GetAttribute("DENTOBOT.GeometryState") or "Unknown",
@@ -10330,6 +10919,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "blockoutModel": blockoutModel,
             "fittingSurface": fittingSurface,
             "hollowCandidate": hollowCandidate,
+            "boundaryBridge": boundaryBridge,
             "marginModeler": marginModeler,
             "hollowModeler": hollowModeler,
             "parametersJson": shellModel.GetAttribute("DENTOBOT.ParametersJson") or "",
@@ -13359,6 +13949,184 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         finally:
             displayNode.EndModify(wasModifying)
 
+    def applyTemplateSupportBoundaryFocus(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        sourceModel: vtkMRMLModelNode,
+        contextModels: list[vtkMRMLModelNode | None] | None = None,
+    ) -> dict:
+        """Show only selected support-tooth masks and return exact display state.
+
+        This is a transient placement aid.  It changes display nodes only and
+        intentionally does not alter segmentation data, source geometry, or
+        persisted workflow references.
+        """
+
+        sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
+        if sourceSummary["geometryState"] != "Current":
+            raise ValueError(_("Update the stale draft support model first."))
+        if sourceSummary["sourceSegmentation"] is not segmentationNode:
+            raise ValueError(
+                _("The draft support model does not belong to this segmentation.")
+            )
+        segmentation, displayNode = self._segmentationAndDisplayNode(
+            segmentationNode
+        )
+        subjectSegmentIds = [
+            sourceSummary["targetSegmentId"],
+            *sourceSummary["supportSegmentIds"],
+        ]
+        if not subjectSegmentIds or any(
+            not segmentation.GetSegment(segmentId)
+            for segmentId in subjectSegmentIds
+        ):
+            raise ValueError(
+                _("The draft support model references a missing tooth segment.")
+            )
+
+        segmentIds = vtk.vtkStringArray()
+        segmentation.GetSegmentIDs(segmentIds)
+        state = {
+            "segmentationNodeId": segmentationNode.GetID(),
+            "subjectSegmentIds": list(subjectSegmentIds),
+            "display": {
+                "visibility": bool(displayNode.GetVisibility()),
+                "visibility2D": bool(displayNode.GetVisibility2D()),
+                "visibility3D": bool(displayNode.GetVisibility3D()),
+                "opacity3D": float(displayNode.GetOpacity3D()),
+                "opacity2DFill": float(displayNode.GetOpacity2DFill()),
+                "opacity2DOutline": float(displayNode.GetOpacity2DOutline()),
+            },
+            "segments": {},
+            "contextModels": {},
+        }
+        for index in range(segmentIds.GetNumberOfValues()):
+            segmentId = segmentIds.GetValue(index)
+            state["segments"][segmentId] = {
+                "visibility": bool(displayNode.GetSegmentVisibility(segmentId)),
+                "opacity3D": float(displayNode.GetSegmentOpacity3D(segmentId)),
+                "opacity2DFill": float(
+                    displayNode.GetSegmentOpacity2DFill(segmentId)
+                ),
+                "opacity2DOutline": float(
+                    displayNode.GetSegmentOpacity2DOutline(segmentId)
+                ),
+            }
+
+        seenModelIds = set()
+        for modelNode in contextModels or []:
+            if (
+                not modelNode
+                or not modelNode.IsA("vtkMRMLModelNode")
+                or not modelNode.GetID()
+                or modelNode.GetID() in seenModelIds
+            ):
+                continue
+            seenModelIds.add(modelNode.GetID())
+            modelNode.CreateDefaultDisplayNodes()
+            modelDisplay = modelNode.GetDisplayNode()
+            if modelDisplay:
+                state["contextModels"][modelNode.GetID()] = {
+                    "visibility": bool(modelDisplay.GetVisibility()),
+                }
+
+        try:
+            selectedIds = set(subjectSegmentIds)
+            wasModifying = displayNode.StartModify()
+            try:
+                displayNode.SetVisibility(True)
+                displayNode.SetVisibility2D(True)
+                displayNode.SetVisibility3D(True)
+                displayNode.SetOpacity3D(1.0)
+                displayNode.SetOpacity2DFill(1.0)
+                displayNode.SetOpacity2DOutline(1.0)
+                for segmentId in state["segments"]:
+                    selected = segmentId in selectedIds
+                    displayNode.SetSegmentVisibility(segmentId, selected)
+                    if selected:
+                        displayNode.SetSegmentOpacity3D(segmentId, 1.0)
+                        displayNode.SetSegmentOpacity2DFill(segmentId, 1.0)
+                        displayNode.SetSegmentOpacity2DOutline(segmentId, 1.0)
+            finally:
+                displayNode.EndModify(wasModifying)
+            for modelId in state["contextModels"]:
+                modelNode = slicer.mrmlScene.GetNodeByID(modelId)
+                modelDisplay = modelNode.GetDisplayNode() if modelNode else None
+                if modelDisplay:
+                    modelDisplay.SetVisibility(False)
+        except Exception:
+            self.restoreTemplateSupportBoundaryFocus(state)
+            raise
+
+        state["hiddenSegmentCount"] = sum(
+            segmentId not in set(subjectSegmentIds)
+            for segmentId in state["segments"]
+        )
+        return state
+
+    @staticmethod
+    def restoreTemplateSupportBoundaryFocus(state: dict | None) -> None:
+        """Restore a state returned by ``applyTemplateSupportBoundaryFocus``."""
+
+        if not state:
+            return
+        segmentationNodeId = state.get("segmentationNodeId")
+        segmentationNode = (
+            slicer.mrmlScene.GetNodeByID(segmentationNodeId)
+            if segmentationNodeId
+            else None
+        )
+        displayNode = (
+            segmentationNode.GetDisplayNode() if segmentationNode else None
+        )
+        displayState = state.get("display", {})
+        segmentStates = state.get("segments", {})
+        if displayNode and segmentationNode.GetSegmentation():
+            segmentation = segmentationNode.GetSegmentation()
+            wasModifying = displayNode.StartModify()
+            try:
+                displayNode.SetVisibility(bool(displayState.get("visibility", True)))
+                displayNode.SetVisibility2D(
+                    bool(displayState.get("visibility2D", True))
+                )
+                displayNode.SetVisibility3D(
+                    bool(displayState.get("visibility3D", True))
+                )
+                displayNode.SetOpacity3D(float(displayState.get("opacity3D", 1.0)))
+                displayNode.SetOpacity2DFill(
+                    float(displayState.get("opacity2DFill", 1.0))
+                )
+                displayNode.SetOpacity2DOutline(
+                    float(displayState.get("opacity2DOutline", 1.0))
+                )
+                for segmentId, segmentState in segmentStates.items():
+                    if not segmentation.GetSegment(segmentId):
+                        continue
+                    displayNode.SetSegmentVisibility(
+                        segmentId,
+                        bool(segmentState.get("visibility", True)),
+                    )
+                    displayNode.SetSegmentOpacity3D(
+                        segmentId,
+                        float(segmentState.get("opacity3D", 1.0)),
+                    )
+                    displayNode.SetSegmentOpacity2DFill(
+                        segmentId,
+                        float(segmentState.get("opacity2DFill", 1.0)),
+                    )
+                    displayNode.SetSegmentOpacity2DOutline(
+                        segmentId,
+                        float(segmentState.get("opacity2DOutline", 1.0)),
+                    )
+            finally:
+                displayNode.EndModify(wasModifying)
+
+        for modelId, modelState in state.get("contextModels", {}).items():
+            modelNode = slicer.mrmlScene.GetNodeByID(modelId)
+            modelDisplay = modelNode.GetDisplayNode() if modelNode else None
+            if modelDisplay:
+                modelDisplay.SetVisibility(bool(modelState.get("visibility", True)))
+
     def setSegmentationVisibility2D(
         self,
         segmentationNode: vtkMRMLSegmentationNode,
@@ -13982,6 +14750,9 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.test_DENTOWorkflowTrajectoryObliqueMprMath()
             self.test_DENTOWorkflowTargetToothAndTrajectoryLogic()
             self.test_DENTOWorkflowDraftTemplateSupportModelLogic()
+            self.test_DENTOWorkflowTemplateSupportBoundaryFocusDisplay()
+            self.test_DENTOWorkflowDirectionalSupportSideSelection()
+            self.test_DENTOWorkflowPatientContactShellVoxelFallback()
             self.test_DENTOWorkflowVisibleTemplateSupportSurface()
             self.test_DENTOWorkflowTemplateFinalizationCameraMath()
             self.test_DENTOWorkflowTemplateFinalizationPlaneConstraint()
@@ -14022,6 +14793,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertTrue(parameterNode.templateFinalizationViewLocked)
         self.assertFalse(parameterNode.templateFinalizationYawLocked)
         self.assertEqual(parameterNode.templateSupportSelectionMode, "Smallest")
+        self.assertFalse(parameterNode.templateSupportDirectionReversed)
         self.assertAlmostEqual(
             parameterNode.templateSupportCurveSamplingSpacingMm,
             0.5,
@@ -15973,6 +16745,276 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "DENTOWorkflow Step 5A multi-support model logic tests passed"
         )
 
+    def test_DENTOWorkflowDirectionalSupportSideSelection(self) -> None:
+        """Choose crown-side patches per tooth despite size and mesh islands."""
+
+        toothSurfaces = []
+        specifications = (
+            ("tooth-large-left", -7.0, 4.5, 1.5),
+            ("tooth-small-middle", 2.0, 3.2, -1.2),
+            ("tooth-large-right", 10.0, 4.8, 0.7),
+        )
+        for segmentId, centerX, radius, _boundaryZ in specifications:
+            primary = vtk.vtkSphereSource()
+            primary.SetCenter(centerX, 0.0, 0.0)
+            primary.SetRadius(radius)
+            primary.SetThetaResolution(64)
+            primary.SetPhiResolution(48)
+            primary.Update()
+            artifact = vtk.vtkSphereSource()
+            artifact.SetCenter(centerX, 20.0, -20.0)
+            artifact.SetRadius(0.4)
+            artifact.SetThetaResolution(16)
+            artifact.SetPhiResolution(12)
+            artifact.Update()
+            append = vtk.vtkAppendPolyData()
+            append.AddInputData(primary.GetOutput())
+            append.AddInputData(artifact.GetOutput())
+            append.Update()
+            surface = vtk.vtkPolyData()
+            surface.DeepCopy(append.GetOutput())
+            toothSurfaces.append(
+                {
+                    "segmentId": segmentId,
+                    "displayName": segmentId,
+                    "polyData": surface,
+                }
+            )
+
+        def boundaryPoint(centerX, radius, boundaryZ, angleDeg):
+            crossRadius = math.sqrt(max(0.0, radius * radius - boundaryZ * boundaryZ))
+            angle = math.radians(angleDeg)
+            return (
+                centerX + crossRadius * math.cos(angle),
+                crossRadius * math.sin(angle),
+                boundaryZ,
+            )
+
+        left = specifications[0]
+        middle = specifications[1]
+        right = specifications[2]
+        loopPoints = (
+            boundaryPoint(right[1], right[2], right[3], 0.0),
+            boundaryPoint(right[1], right[2], right[3], 90.0),
+            boundaryPoint(middle[1], middle[2], middle[3], 90.0),
+            boundaryPoint(left[1], left[2], left[3], 90.0),
+            boundaryPoint(left[1], left[2], left[3], 180.0),
+            boundaryPoint(left[1], left[2], left[3], 270.0),
+            boundaryPoint(middle[1], middle[2], middle[3], 270.0),
+            boundaryPoint(right[1], right[2], right[3], 270.0),
+        )
+        crownPatch, crownMetrics = extract_directional_visible_support_surface(
+            toothSurfaces,
+            loopPoints,
+            (0.0, 0.0, 1.0),
+            sampling_spacing_mm=0.35,
+        )
+        rootPatch, rootMetrics = extract_directional_visible_support_surface(
+            toothSurfaces,
+            loopPoints,
+            (0.0, 0.0, -1.0),
+            sampling_spacing_mm=0.35,
+        )
+        self.assertEqual(crownMetrics["sourceToothCount"], 3)
+        self.assertEqual(crownMetrics["selectedToothCount"], 3)
+        self.assertEqual(crownMetrics["omittedToothCount"], 0)
+        self.assertEqual(crownMetrics["sourceSurfaceRegionCount"], 6)
+        self.assertEqual(crownMetrics["ignoredSourceIslandCount"], 3)
+        self.assertEqual(rootMetrics["selectedToothCount"], 3)
+        self.assertGreater(crownPatch.GetBounds()[5], 4.0)
+        self.assertLess(rootPatch.GetBounds()[4], -4.0)
+        self.assertEqual(
+            {item["selectedCandidate"] for item in crownMetrics["toothMetrics"]},
+            {"Smaller", "Larger"},
+        )
+        for toothMetrics in crownMetrics["toothMetrics"]:
+            self.assertGreater(
+                toothMetrics["selectedDirectionScoreMm"],
+                toothMetrics["otherDirectionScoreMm"],
+            )
+
+    def test_DENTOWorkflowTemplateSupportBoundaryFocusDisplay(self) -> None:
+        """Isolate subject tooth masks temporarily and restore exact display state."""
+
+        slicer.mrmlScene.Clear(0)
+        logic = DENTOWorkflowLogic()
+        segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "BoundaryFocusSegmentation",
+        )
+        segmentationNode.CreateDefaultDisplayNodes()
+        for segmentId, segmentName, centerX in (
+            ("tooth-16", "upper_right_first_molar_fdi16", -5.0),
+            ("tooth-15", "upper_right_second_premolar_fdi15", 0.0),
+            ("tooth-14", "upper_right_first_premolar_fdi14", 5.0),
+            ("jaw", "upper_jawbone", 12.0),
+        ):
+            sphere = vtk.vtkSphereSource()
+            sphere.SetCenter(centerX, 0.0, 0.0)
+            sphere.SetRadius(2.0)
+            sphere.SetThetaResolution(24)
+            sphere.SetPhiResolution(18)
+            sphere.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter
+                .GetSegmentationClosedSurfaceRepresentationName(),
+                sphere.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+        logic.setSegmentationReviewState(
+            segmentationNode,
+            "Reviewed",
+            updatedUtc="2026-08-11T12:00:00+00:00",
+        )
+        sourceModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
+            segmentationNode,
+            "tooth-16",
+            ["tooth-15"],
+        )
+
+        displayNode = segmentationNode.GetDisplayNode()
+        displayNode.SetVisibility(False)
+        displayNode.SetVisibility2D(False)
+        displayNode.SetVisibility3D(True)
+        displayNode.SetOpacity3D(0.47)
+        displayNode.SetOpacity2DFill(0.38)
+        displayNode.SetOpacity2DOutline(0.59)
+        originalSegmentStates = {
+            "tooth-16": (False, 0.21, 0.31, 0.41),
+            "tooth-15": (True, 0.52, 0.62, 0.72),
+            "tooth-14": (True, 0.83, 0.73, 0.63),
+            "jaw": (True, 0.94, 0.84, 0.74),
+        }
+        for segmentId, values in originalSegmentStates.items():
+            displayNode.SetSegmentVisibility(segmentId, values[0])
+            displayNode.SetSegmentOpacity3D(segmentId, values[1])
+            displayNode.SetSegmentOpacity2DFill(segmentId, values[2])
+            displayNode.SetSegmentOpacity2DOutline(segmentId, values[3])
+        sourceModel.GetDisplayNode().SetVisibility(True)
+        sourcePointCount = sourceModel.GetPolyData().GetNumberOfPoints()
+
+        state = logic.applyTemplateSupportBoundaryFocus(
+            segmentationNode,
+            sourceModel,
+            contextModels=[sourceModel],
+        )
+        self.assertEqual(
+            state["subjectSegmentIds"],
+            ["tooth-16", "tooth-15"],
+        )
+        self.assertEqual(state["hiddenSegmentCount"], 2)
+        self.assertTrue(displayNode.GetVisibility())
+        self.assertTrue(displayNode.GetVisibility2D())
+        self.assertTrue(displayNode.GetVisibility3D())
+        for segmentId in ("tooth-16", "tooth-15"):
+            self.assertTrue(displayNode.GetSegmentVisibility(segmentId))
+            self.assertAlmostEqual(displayNode.GetSegmentOpacity3D(segmentId), 1.0)
+            self.assertAlmostEqual(
+                displayNode.GetSegmentOpacity2DFill(segmentId),
+                1.0,
+            )
+        self.assertFalse(displayNode.GetSegmentVisibility("tooth-14"))
+        self.assertFalse(displayNode.GetSegmentVisibility("jaw"))
+        self.assertFalse(sourceModel.GetDisplayNode().GetVisibility())
+        self.assertEqual(
+            sourceModel.GetPolyData().GetNumberOfPoints(),
+            sourcePointCount,
+        )
+
+        logic.restoreTemplateSupportBoundaryFocus(state)
+        self.assertFalse(displayNode.GetVisibility())
+        self.assertFalse(displayNode.GetVisibility2D())
+        self.assertTrue(displayNode.GetVisibility3D())
+        self.assertAlmostEqual(displayNode.GetOpacity3D(), 0.47)
+        self.assertAlmostEqual(displayNode.GetOpacity2DFill(), 0.38)
+        self.assertAlmostEqual(displayNode.GetOpacity2DOutline(), 0.59)
+        for segmentId, values in originalSegmentStates.items():
+            self.assertEqual(
+                bool(displayNode.GetSegmentVisibility(segmentId)),
+                values[0],
+            )
+            self.assertAlmostEqual(displayNode.GetSegmentOpacity3D(segmentId), values[1])
+            self.assertAlmostEqual(
+                displayNode.GetSegmentOpacity2DFill(segmentId),
+                values[2],
+            )
+            self.assertAlmostEqual(
+                displayNode.GetSegmentOpacity2DOutline(segmentId),
+                values[3],
+            )
+        self.assertTrue(sourceModel.GetDisplayNode().GetVisibility())
+        self.delayDisplay(
+            "DENTOWorkflow support-boundary subject-mask focus tests passed"
+        )
+
+    def test_DENTOWorkflowPatientContactShellVoxelFallback(self) -> None:
+        """Repair an invalid Hollow extrusion and union its boundary bridge."""
+
+        anatomySource = vtk.vtkCubeSource()
+        anatomySource.SetBounds(-5.0, 5.0, -5.0, 5.0, -5.0, 0.0)
+        anatomySource.Update()
+        anatomy = vtk.vtkPolyData()
+        anatomy.DeepCopy(anatomySource.GetOutput())
+
+        fittingSource = vtk.vtkPlaneSource()
+        fittingSource.SetOrigin(-3.0, -3.0, 0.3)
+        fittingSource.SetPoint1(3.0, -3.0, 0.3)
+        fittingSource.SetPoint2(-3.0, 3.0, 0.3)
+        fittingSource.SetXResolution(24)
+        fittingSource.SetYResolution(24)
+        fittingSource.Update()
+        fittingSurface = vtk.vtkPolyData()
+        fittingSurface.DeepCopy(fittingSource.GetOutput())
+        invalidHollowCandidate = vtk.vtkPolyData()
+        invalidHollowCandidate.DeepCopy(fittingSurface)
+
+        boundaryPoints = (
+            (-3.0, -3.0, 0.0),
+            (3.0, -3.0, 0.0),
+            (3.0, 3.0, 0.0),
+            (-3.0, 3.0, 0.0),
+        )
+        bridge, bridgeMetrics = create_support_boundary_bridge(
+            boundaryPoints,
+            (0.0, 0.0, 1.0),
+            fit_clearance_mm=0.3,
+            shell_thickness_mm=1.0,
+            sampling_spacing_mm=0.2,
+        )
+        self.assertEqual(bridgeMetrics["method"], "LiftedClosedBoundaryCollar")
+        self.assertEqual(bridgeMetrics["boundaryOrNonManifoldEdgeCount"], 0)
+
+        shell, metrics = regularize_patient_contact_shell(
+            invalidHollowCandidate,
+            anatomy,
+            fit_clearance_mm=0.3,
+            sampling_spacing_mm=0.2,
+            fitting_surface_world=fittingSurface,
+            shell_thickness_mm=1.0,
+            boundary_bridge_world=bridge,
+        )
+        self.assertGreater(
+            metrics["candidateTopology"]["boundaryOrNonManifoldEdgeCount"],
+            0,
+        )
+        self.assertEqual(
+            metrics["method"],
+            "DynamicModelerHollowWithFittingSurfaceDistanceFieldFallback",
+        )
+        self.assertEqual(
+            metrics["candidateRepairMode"],
+            "FittingSurfaceDistanceBand",
+        )
+        self.assertTrue(metrics["boundaryBridgeIntegrated"])
+        self.assertEqual(metrics["boundaryOrNonManifoldEdgeCount"], 0)
+        self.assertEqual(metrics["surfaceRegionCount"], 1)
+        self.assertGreater(shell.GetNumberOfCells(), 0)
+        self.delayDisplay(
+            "DENTOWorkflow invalid-Hollow fallback and boundary-bridge tests passed"
+        )
+
     def test_DENTOWorkflowVisibleTemplateSupportSurface(self) -> None:
         """Select crown-like patches from separate full-tooth surfaces in RAS."""
 
@@ -15986,6 +17028,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         for segmentId, segmentName, centerX in (
             ("tooth-16", "upper_right_first_molar_fdi16", -4.25),
             ("tooth-15", "upper_right_second_premolar_fdi15", 4.25),
+            ("tooth-14", "upper_right_first_premolar_fdi14", 20.0),
         ):
             sphere = vtk.vtkSphereSource()
             sphere.SetCenter(centerX, 0.0, 0.0)
@@ -16022,7 +17065,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         sourceModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
             segmentationNode,
             "tooth-16",
-            ["tooth-15"],
+            ["tooth-15", "tooth-14"],
         )
         boundary = logic.createOrResetTemplateSupportBoundary(sourceModel)
         self.assertEqual(
@@ -16053,20 +17096,49 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
                 )
             )
 
+        directionTrajectory = logic.createTrajectoryNode(
+            "Synthetic target insertion trajectory"
+        )
+        logic.configureTrajectoryTarget(
+            directionTrajectory,
+            segmentationNode,
+            "tooth-16",
+        )
+        directionTrajectory.AddControlPointWorld(
+            vtk.vtkVector3d(
+                -4.25 + translation[0],
+                translation[1],
+                translation[2] + 4.0,
+            )
+        )
+        directionTrajectory.AddControlPointWorld(
+            vtk.vtkVector3d(
+                -4.25 + translation[0],
+                translation[1],
+                translation[2],
+            )
+        )
         preview, metrics = logic.createOrUpdateVisibleTemplateSupportModel(
             sourceModel,
             boundary,
-            selectionMode="Smallest",
+            directionTrajectory=directionTrajectory,
             samplingSpacingMm=0.5,
         )
         summary = logic.getVisibleTemplateSupportModelSummary(preview)
-        self.assertEqual(metrics["method"], "PerConnectedSurfaceDijkstra")
-        self.assertEqual(metrics["sourceSurfaceRegionCount"], 2)
+        self.assertEqual(
+            metrics["method"],
+            "PerToothTrajectoryDirectionalDijkstra",
+        )
+        self.assertEqual(metrics["sourceToothCount"], 3)
+        self.assertEqual(metrics["selectedToothCount"], 2)
+        self.assertEqual(metrics["omittedToothCount"], 1)
         self.assertEqual(metrics["surfaceRegionCount"], 2)
         self.assertEqual(summary["geometryState"], "Current")
         self.assertIs(summary["sourceModel"], sourceModel)
         self.assertIs(summary["boundary"], boundary)
         self.assertIs(summary["sourceSegmentation"], segmentationNode)
+        self.assertIs(summary["directionTrajectory"], directionTrajectory)
+        self.assertFalse(summary["directionReversed"])
         self.assertIsNone(preview.GetParentTransformNode())
         previewBounds = preview.GetPolyData().GetBounds()
         self.assertGreater(previewBounds[4], translation[2] - 0.2)
@@ -16076,20 +17148,18 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             sourceModel.GetPolyData().GetNumberOfCells(),
         )
 
-        insertionDirection = logic.createOrResetTemplateInsertionDirection(
-            preview
+        insertionDirection = preview.GetNodeReference(
+            logic.TEMPLATE_VISIBLE_SUPPORT_INSERTION_DIRECTION_REFERENCE_ROLE
         )
-        insertionDirection.AddControlPointWorld(
-            vtk.vtkVector3d(translation[0], translation[1], translation[2] + 12.0)
-        )
-        insertionDirection.AddControlPointWorld(
-            vtk.vtkVector3d(translation[0], translation[1], translation[2] + 6.0)
-        )
+        self.assertTrue(logic.isTemplateInsertionDirectionNode(insertionDirection))
+        self.assertTrue(insertionDirection.GetLocked())
+        self.assertFalse(insertionDirection.GetSelectable())
         directionSummary = logic.getTemplateInsertionDirectionSummary(
             insertionDirection
         )
         self.assertEqual(directionSummary["insertionDirectionRas"], (0.0, 0.0, -1.0))
         self.assertEqual(directionSummary["removalDirectionRas"], (-0.0, -0.0, 1.0))
+        self.assertIs(directionSummary["sourceTrajectory"], directionTrajectory)
         undercutModel, blockoutModel, undercutDetails = (
             logic.createOrUpdateTemplateUndercutAnalysis(
                 sourceModel,
@@ -16146,6 +17216,12 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             shellDetails["metrics"]["method"],
             "DynamicModelerHollowWithTightVoxelClearanceBoolean",
         )
+        self.assertTrue(shellDetails["metrics"]["boundaryBridgeIntegrated"])
+        self.assertEqual(
+            shellDetails["metrics"]["boundaryBridge"]["method"],
+            "LiftedClosedBoundaryCollar",
+        )
+        self.assertIsNotNone(shellSummary["boundaryBridge"].GetPolyData())
         self.assertGreater(
             shellDetails["metrics"]["minimumAnatomyDistanceMm"],
             -0.2,
@@ -16269,12 +17345,26 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             reloadedPreview
         )
         self.assertEqual(reloadedSummary["metrics"]["surfaceRegionCount"], 2)
+        self.assertEqual(reloadedSummary["metrics"]["omittedToothCount"], 1)
+        self.assertTrue(
+            reloadedLogic.isDentobotTrajectoryNode(
+                reloadedSummary["directionTrajectory"]
+            )
+        )
+        self.assertIs(
+            reloadedSummary["insertionDirection"],
+            reloadedInsertion,
+        )
         reloadedDirectionSummary = (
             reloadedLogic.getTemplateInsertionDirectionSummary(reloadedInsertion)
         )
         self.assertEqual(
             reloadedDirectionSummary["insertionDirectionRas"],
             (0.0, 0.0, -1.0),
+        )
+        self.assertIs(
+            reloadedDirectionSummary["sourceTrajectory"],
+            reloadedSummary["directionTrajectory"],
         )
         reloadedBlockoutSummary = reloadedLogic.getTemplateUndercutOutputSummary(
             reloadedBlockout,
@@ -16301,7 +17391,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         shellRemovals = reloadedLogic.deletePatientContactShell(
             reloadedPatientShell
         )
-        self.assertEqual(len(shellRemovals), 5)
+        self.assertEqual(len(shellRemovals), 6)
         self.assertIsNone(reloadedParameterNode.patientContactShellModel)
         undercutRemovals = reloadedLogic.deleteTemplateUndercutWorkflow(
             reloadedInsertion,

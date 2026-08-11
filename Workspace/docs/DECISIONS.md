@@ -1,5 +1,39 @@
 # Dentobot Technical Decisions
 
+## 2026-08-11 — Trajectory-directed per-tooth support-side selection
+
+Status: implemented and Slicer-native synthetically verified; representative
+anatomy acceptance pending
+
+Do not classify the desired visible support patch by one global Smaller/Larger
+surface-area choice. Entry→Target on the currently selected complete trajectory
+for the Step 5A target tooth is the default crown-to-root and Approach→Seat
+direction. Its opposite is the crown/removal direction. Evaluate both Dijkstra
+clip candidates independently for every addressed tooth and retain the
+candidate with the greater area-weighted displacement in the crown/removal
+direction. Apply the same vector to all selected supporting teeth without
+assuming world X/Y/Z.
+
+Expose only a compact, off-by-default **Reverse polarity** override. It swaps
+Entry/Target direction for all target/support teeth and is persisted as an
+explicit parameter and geometry snapshot. The visible-support model references
+the source trajectory; a locked, non-selectable `TemplateInsertionDirection`
+line is derived automatically for downstream undercut/blockout processing.
+Trajectory edits, trajectory selection changes, or polarity changes make the
+preview and descendants stale until regeneration.
+
+Count selected teeth from stable authoritative segment IDs, not connected mesh
+components. A tooth segment may contain extra disconnected islands. Assign the
+boundary to its source tooth first, select the island most strongly addressed
+by that tooth's boundary samples, and report other islands separately as
+diagnostics. They must not inflate a three-tooth selection into six “teeth.”
+
+Reason: crown-patch area changes with tooth size and boundary height, so the
+clinically intended side can be the smaller candidate on one tooth and the
+larger candidate on another. Trajectory direction supplies a consistent,
+already-planned anatomical polarity, while the explicit reversal covers an
+exception without adding another routine manual direction-placement task.
+
 ## 2026-08-10 — Visible-support ROI and Dynamic Modeler patient-contact shell
 
 Status: Priorities 1–4 implemented as a demonstrable vertical slice and
@@ -19,9 +53,12 @@ contracts. DENTOBOT's input differs because each segmented tooth is a separate
 closed surface, so keep a continuous linear clinician boundary across
 interdental gaps, resample its world-RAS control points, assign samples to the
 nearest connected tooth, and apply `vtkSelectPolyData` Dijkstra clipping per
-tooth. Reject a boundary that does not adequately address every selected
-surface. Preserve one selected patch per tooth and explicitly orient its
-normals away from the source closed anatomy.
+tooth. The boundary is allowed to address only a subset of the disconnected
+surfaces in the draft model: preserve one selected patch per successfully
+addressed tooth, explicitly orient its normals away from the source closed
+anatomy, and report untouched or unmappable surfaces as visible omissions.
+Reject the operation only when no valid patch can be extracted. This keeps the
+preview exploratory without silently presenting omitted teeth as selected.
 
 Generate the patient-contact shell by running Dynamic Modeler
 Margin for fit clearance and Dynamic Modeler Hollow for thickness/side walls.
@@ -64,6 +101,16 @@ also silently selects only one component when used on separate tooth segments.
 The adapted per-surface selection plus native Margin/Hollow and a cropped voxel
 clearance Boolean gives traceable margins, controlled fit, clean topology, and
 a replaceable vertical slice for later undercut and docking integration.
+
+Individual selected teeth do not provide the connected gingival/base mesh that
+SlicerFSP assumes. Step 5B therefore derives a separate lifted closed collar
+from the clinician's continuous support loop and unions it with the per-tooth
+shells. The collar is structural, lies on the removal side, and is
+re-subtracted against the directional blockout so interdental spans do not
+become unintended fitting/contact surfaces. An open or non-manifold Dynamic
+Modeler Hollow result remains diagnostic provenance, not an accepted solid;
+the cropped voxel path reconstructs it from the validated fitting-surface
+distance band and still requires one connected watertight output.
 
 ## 2026-08-10 — Step 5C zoom and ROI-Z-only plane control
 

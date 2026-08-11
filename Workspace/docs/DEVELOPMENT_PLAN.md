@@ -423,9 +423,14 @@ Implemented behavior:
   segmentation, and manual support selection for safe recreation.
 - create an editable role-owned closed boundary around only the erupted,
   accessible support surfaces and preview the selected patch distinctly;
-- adapt SlicerFSP's Dijkstra curve clip per connected tooth surface so a single
-  boundary works with DENTOBOT's separate complete-tooth segments rather than
-  silently selecting one tooth;
+- map the single boundary to authoritative tooth segment IDs, treating extra
+  connected mesh islands as per-tooth diagnostics rather than additional
+  teeth;
+- evaluate both SlicerFSP-style Dijkstra clip candidates per addressed tooth
+  and select the crown-side candidate from the selected target trajectory's
+  Entry→Target direction, independent of candidate surface area;
+- expose one optional polarity-reversal button for exceptional cases and apply
+  its result consistently to every target/support tooth;
 - persist explicit source/boundary/segmentation references, world-RAS control
   points, selection side, processing resolution, revisions, metrics, and stale
   state; delete the owned boundary/preview safely while preserving authority.
@@ -449,13 +454,19 @@ Current renovation behavior:
 - expose fit clearance, wall thickness, and tight-domain processing resolution;
 - run native Dynamic Modeler Margin followed by Hollow, retaining both tools
   and their fitting/candidate outputs as hidden role-owned referenced nodes;
-- voxel-union the candidate only inside a cropped support domain and subtract
-  residual material within the requested anatomy clearance;
+- generate a lifted, closed structural collar from the clinician boundary so
+  separate selected tooth shells bridge interdental gaps without inventing
+  fitting/contact surfaces there;
+- voxel-union the candidate and boundary collar inside a cropped support
+  domain, subtract residual material within the directional-blockout
+  clearance, and reconstruct invalid Hollow candidates from the validated
+  fitting-surface distance band;
 - reject empty/open/non-manifold results and record topology, sample-domain,
   minimum-clearance, source-revision, warning, and parameter metadata;
-- persist/reload and cleanly delete the shell plus four owned processing nodes;
-- define insertion with an editable/persisted Approach→Seat Markups line in
-  world RAS, using the opposite vector for removal;
+- persist/reload and cleanly delete the shell plus five owned processing nodes;
+- derive and persist a locked Approach→Seat Markups line from the selected
+  target trajectory in world RAS, using the opposite vector for removal and
+  allowing only the Step 5A polarity-reversal override in the routine UI;
 - classify retentive surface triangles by normal/removal angle tolerance and
   construct a cropped insertion-frame directional height-field blockout rather
   than assuming anatomical direction from world axes;
