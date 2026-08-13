@@ -141,6 +141,33 @@ Top-level pins improve repeatability but do not guarantee byte-identical
 transitive dependencies. Do not describe the current manifests as a complete
 lock file.
 
+### 2.1 System-development evidence labels
+
+Inference reproducibility is only one contributor to the DENTOBOT PoC. Use the
+following label on every material cross-subsystem works claim:
+
+| Evidence label | Minimum meaning |
+|---|---|
+| Static | Source, document, or stored-state inspection only |
+| Synthetic | Automated/generated-data test with recorded command and result |
+| Developer-live | Observed in the live application by the developer |
+| Representative anatomy | Run on governed relevant CBCT/scene with recorded outcome |
+| Printed phantom | Fabricated, seated, or physically measured output |
+| Clinician/expert | Reviewed against a stated acceptance question |
+
+Labels do not imply the levels above or below them were completed unless those
+checks are recorded separately. For example, clinician preference about a
+viewport does not establish dimensional print accuracy, and a synthetic
+topology PASS does not establish clinical seating. Record platform, source
+revision, input class, parameters, verification method, result, and unresolved
+limitations beside the claim.
+
+Once Template V0 is frozen, retain one weekly end-to-end acceptance record
+covering reviewed anatomy, trajectory approval, current/stale references,
+unified-template verification, MRB save/reopen, one STL, and the exact evidence
+level reached. Printed, registration, or robot results must remain separate
+until their own measurements exist.
+
 ## 3. Validated Windows/WSL compatibility baseline
 
 | Component | Validated value |

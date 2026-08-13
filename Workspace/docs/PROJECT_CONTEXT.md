@@ -88,17 +88,23 @@ It is achieved using supported Slicer custom-build mechanisms.
 3. Inspect image geometry and data quality.
 4. Run dental segmentation in the external inference backend.
 5. Review and correct teeth, pulp/canal, jaw, sinus, and related labels.
-6. Define and approve a dental drilling trajectory.
-7. Assemble target/support anatomy and generate a traceable raw template shell
-   and trajectory sleeve.
-8. Finalize the shell with a dentist-directed plane or closed-curve margin,
-   verify the retained region, and export only the current finalized shell and
-   sleeve.
-9. Register image space to patient/tooth space.
-10. Calibrate tool and robot frames.
-11. Rehearse navigation and motion in simulation.
-12. Connect to a robot adapter for supervised research experiments.
-13. Record inputs, transforms, plans, events, and verification results.
+6. Define, verify, and approve one or two Entry-to-Target trajectories using
+   either manual placement or the optional assisted initializer.
+7. Derive the target-tooth/occlusal frame and generate the provisional
+   trajectory guide plus four independent robot/registration docking features.
+8. Select only the erupted, accessible support surfaces; establish insertion
+   direction; process undercuts; and generate the patient-contact shell.
+9. Fuse shell, trajectory guide, reinforcement, and docking geometry into one
+   referenced `FinalPrintableTemplate` model.
+10. Run the Step 5C PASS/WARNING/FAIL gate and export one atomic STL only from
+    the current verified unified model.
+11. Register image/planning space to the physical tooth/template and robot
+    frames.
+12. Calibrate tool, robot, and docking transforms.
+13. Rehearse navigation and motion in simulation.
+14. Connect to a robot adapter for supervised research experiments.
+15. Record inputs, transforms, plans, events, measurements, and verification
+    results.
 
 The precise dental procedure and the anatomical meaning of entry, target,
 depth, and safety margins must be agreed with the clinical/research team
@@ -107,6 +113,35 @@ gingival/cervical margin, removability, printability, and manufacturing
 acceptance likewise require dentist-approved definitions and representative
 validation data; a successful STL export is not clinical or fabrication
 approval.
+
+## Current PoC closure contract
+
+The immediate objective is a bounded, defensible TRL-4 research PoC, not a
+feature-complete planning product. Progress is judged by evidence that the
+narrow workflow has explicit inputs, preserved world-RAS geometry, traceable
+Current/Stale state, bounded failure behavior, repeatable physical output, and
+measured error sufficient to connect planning to registration and robot
+execution.
+
+The near-term order is:
+
+1. freeze the exact clinical task boundary and Template V0 assumptions;
+2. run the implemented planning/template workflow on representative reviewed
+   anatomy and close live usability defects that prevent that bounded test;
+3. print one Template V0 and measure seating, removal, rocking, repeatability,
+   critical dimensions, and docking rigidity;
+4. define the complete coordinate-frame graph and the first target
+   registration error experiment;
+5. advance head-mounted robot, tooth-mounted robot, tool, sensing, and
+   metrology lanes in parallel without allowing them to disappear behind UI
+   work; and
+6. build a system error budget in which measured values progressively replace
+   assumptions.
+
+Every material claim must state its evidence level: static inspection,
+synthetic automated test, developer-live test, representative anatomy,
+printed phantom, or clinician/clinical expert acceptance. A stronger-sounding
+claim must not be inferred from a weaker evidence level.
 
 ## Major design decisions
 

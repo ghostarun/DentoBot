@@ -6,6 +6,10 @@ For every substantial task:
 
 1. Read `docs/PROJECT_CONTEXT.md`, `docs/SETUP.md`, `docs/DECISIONS.md`,
    `docs/DEVELOPMENT_PLAN.md`, and `docs/TASKS.md` before making changes.
+   When the user asks to resume, plan, reconcile notes, or update the daily
+   mental model, also read `docs/DENTOBOT_Daily_Compass.docx`. Treat its
+   unreconciled entries as editable working memory, not accepted requirements
+   or verification claims.
 2. Consult `docs/ARCHITECTURE.md` and
    `docs/REPRODUCIBILITY_AND_TRACEABILITY.md` when the task touches their
    scope.
@@ -27,3 +31,7 @@ For every substantial task:
 11. Do not run robot motion, drilling, patient-facing, or safety-critical
     operations without explicit authorization and an appropriate verified
     safety procedure.
+12. At an approved documentation checkpoint, reconcile confirmed Daily Compass
+    entries into the applicable controlled Markdown documents and dated
+    logbook. Do not sync Git or Google Drive merely because the workbook was
+    edited; retain the existing batched approval rule.

@@ -1,11 +1,12 @@
-"""Trajectory guide assembly and robust printable-template fusion.
+"""Trajectory guides, robot-interface docks, and printable-template fusion.
 
 The labelmap-style Boolean sequence adapts the geometric strategy demonstrated
 by SlicerFSP SurgicalGuide ``RingsAndBooleans``: reserve docking clearance in
-the shell, add a load-spreading reinforcement collar, unite the docking solid,
-and finally restore every trajectory channel.  DENTOBOT keeps its own annular
-world-RAS guide primitive and explicit MRML provenance; this module does not
-import SlicerFSP or depend on display names/global editor state.
+the shell, add load-spreading attachment geometry, unite the guide solids, and
+finally restore every channel.  The trajectory-aligned drill-guide sleeves and
+the four occlusal-plane robot docks are intentionally separate geometry
+families.  DENTOBOT keeps explicit world-RAS/MRML provenance; this module does
+not import SlicerFSP or depend on display names/global editor state.
 """
 
 from __future__ import annotations
@@ -82,11 +83,12 @@ def compute_target_docking_frame(
 ) -> dict:
     """Derive a deterministic target-tooth occlusal frame in world RAS.
 
-    The frame origin is the crown-cap centroid.  +Z points from crown toward
-    roots using the mean of the approved trajectory axes.  +X follows the
-    dominant crown-cap direction projected into the occlusal plane, with a
-    deterministic RAS fallback for near-circular caps; +Y completes a
-    right-handed frame.  No world axis is interpreted as anatomical.
+    The frame origin is the crown-cap centroid.  Approved trajectory axes
+    establish crown/root polarity, while +Z is the fitted target-crown
+    occlusal-plane normal oriented crown-to-root.  +X follows the dominant
+    crown-cap direction projected into that plane, with a deterministic RAS
+    fallback for near-circular caps; +Y completes a right-handed frame.  No
+    world axis is interpreted as anatomical.
     """
 
     surface = _triangulated_clean(tooth_surface_world)
@@ -118,13 +120,20 @@ def compute_target_docking_frame(
                 "axisRas": [float(value) for value in axis],
             }
         )
-    z_axis = _unit(np.mean(np.asarray(axes), axis=0), "Mean trajectory axis")
+    mean_trajectory_axis = _unit(
+        np.mean(np.asarray(axes), axis=0),
+        "Mean trajectory axis",
+    )
     deviations = [
-        math.degrees(math.acos(float(np.clip(np.dot(axis, z_axis), -1.0, 1.0))))
+        math.degrees(
+            math.acos(
+                float(np.clip(np.dot(axis, mean_trajectory_axis), -1.0, 1.0))
+            )
+        )
         for axis in axes
     ]
 
-    crown_scores = points @ (-z_axis)
+    crown_scores = points @ (-mean_trajectory_axis)
     threshold = float(np.quantile(crown_scores, 1.0 - fraction))
     crown_points = points[crown_scores >= threshold]
     if crown_points.shape[0] < 6:
@@ -133,6 +142,29 @@ def compute_target_docking_frame(
     centered = crown_points - origin
     covariance = centered.T @ centered
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+
+    normal_candidate = np.asarray(eigenvectors[:, int(np.argmin(eigenvalues))], dtype=float)
+    normal_length = float(np.linalg.norm(normal_candidate))
+    occlusal_method = "TargetCrownCapPca"
+    occlusal_fallback_reason = ""
+    if normal_length <= 1e-8:
+        z_axis = mean_trajectory_axis.copy()
+        occlusal_method = "MeanTrajectoryPerpendicularFallback"
+        occlusal_fallback_reason = "Crown-cap covariance was degenerate."
+    else:
+        normal_candidate /= normal_length
+        if float(np.dot(normal_candidate, mean_trajectory_axis)) < 0.0:
+            normal_candidate = -normal_candidate
+        normal_alignment = float(np.dot(normal_candidate, mean_trajectory_axis))
+        if normal_alignment < 0.50:
+            z_axis = mean_trajectory_axis.copy()
+            occlusal_method = "MeanTrajectoryPerpendicularFallback"
+            occlusal_fallback_reason = (
+                "Target crown-cap fit exceeded the 60-degree safety tilt limit."
+            )
+        else:
+            z_axis = normal_candidate
+
     candidate = np.asarray(eigenvectors[:, int(np.argmax(eigenvalues))], dtype=float)
     candidate -= float(np.dot(candidate, z_axis)) * z_axis
     if float(np.linalg.norm(candidate)) <= 1e-8:
@@ -157,13 +189,35 @@ def compute_target_docking_frame(
         "xAxisRas": [float(value) for value in x_axis],
         "yAxisRas": [float(value) for value in y_axis],
         "zAxisRas": [float(value) for value in z_axis],
+        "meanTrajectoryAxisRas": [
+            float(value) for value in mean_trajectory_axis
+        ],
+        "occlusalNormalRas": [float(value) for value in z_axis],
         "matrixColumnMajorRas": [
             float(matrix[row, column])
             for column in range(4)
             for row in range(4)
         ],
-        "method": "TrajectoryPolarityCrownCapPcaTargetFrame",
+        "method": "TrajectoryPolarityTargetCrownOcclusalFrameV2",
         "xAxisMethod": x_method,
+        "occlusalPlaneMethod": occlusal_method,
+        "occlusalPlaneFallbackReason": occlusal_fallback_reason,
+        "occlusalTiltFromMeanTrajectoryDeg": float(
+            math.degrees(
+                math.acos(
+                    float(
+                        np.clip(
+                            np.dot(z_axis, mean_trajectory_axis),
+                            -1.0,
+                            1.0,
+                        )
+                    )
+                )
+            )
+        ),
+        "crownCapCovarianceEigenvalues": [
+            float(value) for value in eigenvalues
+        ],
         "crownCapFraction": fraction,
         "crownCapPointCount": int(crown_points.shape[0]),
         "crownScoreThresholdMm": threshold,
@@ -190,6 +244,8 @@ def normalize_target_docking_parameters(
     clearance_mm: float,
     reinforcement_radial_mm: float,
     processing_resolution_mm: float,
+    yaw_deg: float = 0.0,
+    collision_clearance_mm: float = 0.5,
 ) -> dict:
     depths = [float(value) for value in individual_depths_mm]
     if len(depths) != 4:
@@ -205,6 +261,8 @@ def normalize_target_docking_parameters(
         "clearanceMm": float(clearance_mm),
         "reinforcementRadialMm": float(reinforcement_radial_mm),
         "processingResolutionMm": float(processing_resolution_mm),
+        "yawDeg": float(yaw_deg),
+        "collisionClearanceMm": float(collision_clearance_mm),
     }
     if any(not math.isfinite(value) for value in [*values.values(), *depths]):
         raise ValueError("Target-frame docking dimensions must be finite.")
@@ -222,14 +280,220 @@ def normalize_target_docking_parameters(
         raise ValueError("Dock clearance cannot be negative and reinforcement must be positive.")
     if not 0.1 <= values["processingResolutionMm"] <= 2.0:
         raise ValueError("Dock processing resolution must be 0.10–2.00 mm.")
+    if not -180.0 <= values["yawDeg"] <= 180.0:
+        raise ValueError("Dock yaw must be between -180 and 180 degrees.")
+    if not 0.0 <= values["collisionClearanceMm"] <= 10.0:
+        raise ValueError("Dock collision clearance must be 0–10 mm.")
     active_depths = depths if bool(individual_depths_enabled) else [shared_depth] * 4
     if any(depth <= 0.0 or depth > 30.0 for depth in active_depths):
         raise ValueError("Every docking depth must be greater than 0 and at most 30 mm.")
     values["individualDepthsEnabled"] = bool(individual_depths_enabled)
     values["depthsMm"] = active_depths
     values["configuredIndividualDepthsMm"] = depths
-    values["mechanicalSpecification"] = "ProvisionalResearchFourDockPattern"
+    values["mechanicalSpecification"] = (
+        "ProvisionalResearchFourIndependentOcclusalDocksV2"
+    )
+    values["layoutSpecification"] = "FourIndependentOcclusalTangentDockBranches"
+    values["topFaceDatum"] = "TargetCrownOcclusalPlane"
+    values["depthDirection"] = "OcclusalNormalCrownToRoot"
+    values["centralHubEnabled"] = False
     return values
+
+
+def _target_docking_directions(frame: dict, yaw_deg: float) -> tuple[np.ndarray, ...]:
+    x_axis = _unit(frame.get("xAxisRas"), "Docking frame X axis")
+    y_axis = _unit(frame.get("yAxisRas"), "Docking frame Y axis")
+    angle = math.radians(float(yaw_deg))
+    x_rotated = math.cos(angle) * x_axis + math.sin(angle) * y_axis
+    y_rotated = -math.sin(angle) * x_axis + math.cos(angle) * y_axis
+    return (
+        _unit(x_rotated, "Yaw-rotated docking X axis"),
+        _unit(y_rotated, "Yaw-rotated docking Y axis"),
+        _unit(-x_rotated, "Yaw-rotated docking -X axis"),
+        _unit(-y_rotated, "Yaw-rotated docking -Y axis"),
+    )
+
+
+def _sample_target_docking_obstacles(
+    obstacle_surfaces_world: Sequence[vtk.vtkPolyData],
+) -> tuple[np.ndarray, int]:
+    """Return one deterministic point cache for a complete yaw sweep."""
+
+    point_sets = []
+    source_point_count = 0
+    for surface in obstacle_surfaces_world:
+        surface = _triangulated_clean(surface)
+        points_data = surface.GetPoints().GetData() if surface.GetPoints() else None
+        if not points_data:
+            continue
+        points = np.asarray(vtk_to_numpy(points_data), dtype=float)
+        source_point_count += int(points.shape[0])
+        if points.shape[0] > 20000:
+            indices = np.linspace(0, points.shape[0] - 1, 20000, dtype=int)
+            points = points[indices]
+        point_sets.append(points)
+    obstacle_points = (
+        np.vstack(point_sets)
+        if point_sets
+        else np.empty((0, 3), dtype=float)
+    )
+    return obstacle_points, source_point_count
+
+
+def _evaluate_target_docking_obstacle_points(
+    frame: dict,
+    parameters: dict,
+    obstacle_points: np.ndarray,
+    *,
+    obstacle_surface_count: int,
+    source_point_count: int,
+) -> dict:
+    origin = _vector(frame.get("originRas"), "Docking frame origin")
+    depth_axis = _unit(frame.get("zAxisRas"), "Docking depth axis")
+    directions = _target_docking_directions(frame, parameters.get("yawDeg", 0.0))
+    radius = float(parameters["patternRadiusMm"])
+    dock_radius = float(parameters["outerDiameterMm"]) / 2.0
+    requested_clearance = float(parameters.get("collisionClearanceMm", 0.0))
+    effective_radius = dock_radius + requested_clearance
+    depths = [float(value) for value in parameters["depthsMm"]]
+
+    per_dock = []
+    for index, (direction, depth) in enumerate(zip(directions, depths)):
+        top_center = origin + radius * direction
+        if obstacle_points.size:
+            relative = obstacle_points - top_center
+            axial = relative @ depth_axis
+            transverse = relative - axial[:, None] * depth_axis
+            radial = np.linalg.norm(transverse, axis=1)
+            radial_gap = radial - effective_radius
+            axial_gap = np.maximum(np.maximum(-axial, axial - depth), 0.0)
+            outside = np.sqrt(np.maximum(radial_gap, 0.0) ** 2 + axial_gap ** 2)
+            inside = np.minimum(
+                np.maximum(
+                    radial_gap,
+                    np.maximum(-axial, axial - depth),
+                ),
+                0.0,
+            )
+            signed_distance = outside + inside
+            minimum = float(np.min(signed_distance))
+            colliding_count = int(np.count_nonzero(signed_distance <= 0.0))
+        else:
+            minimum = None
+            colliding_count = 0
+        per_dock.append(
+            {
+                "index": index,
+                "topFaceCenterRas": [float(value) for value in top_center],
+                "minimumSampledClearanceMm": minimum,
+                "collidingSamplePointCount": colliding_count,
+                "collisionDetected": bool(colliding_count),
+            }
+        )
+    finite_clearances = [
+        item["minimumSampledClearanceMm"]
+        for item in per_dock
+        if item["minimumSampledClearanceMm"] is not None
+        and math.isfinite(item["minimumSampledClearanceMm"])
+    ]
+    return {
+        "method": "SameArchSurfacePointFiniteCylinderScreenV1",
+        "yawDeg": float(parameters.get("yawDeg", 0.0)),
+        "requestedClearanceMm": requested_clearance,
+        "obstacleSurfaceCount": int(obstacle_surface_count),
+        "sourceObstaclePointCount": source_point_count,
+        "sampledObstaclePointCount": int(obstacle_points.shape[0]),
+        "collidingDockCount": sum(
+            int(item["collisionDetected"]) for item in per_dock
+        ),
+        "collidingSamplePointCount": sum(
+            item["collidingSamplePointCount"] for item in per_dock
+        ),
+        "minimumSampledClearanceMm": (
+            float(min(finite_clearances)) if finite_clearances else None
+        ),
+        "docks": per_dock,
+    }
+
+
+def evaluate_target_docking_obstacle_clearance(
+    frame: dict,
+    parameters: dict,
+    obstacle_surfaces_world: Sequence[vtk.vtkPolyData],
+) -> dict:
+    """Evaluate finite dock-cylinder clearance against same-arch tooth surfaces.
+
+    This is a deterministic draft-placement screen, not clinical collision
+    validation. It samples the supplied closed-surface vertices against the
+    analytical finite cylinders and reports every assumption and result.
+    """
+
+    obstacle_points, source_point_count = _sample_target_docking_obstacles(
+        obstacle_surfaces_world
+    )
+    return _evaluate_target_docking_obstacle_points(
+        frame,
+        parameters,
+        obstacle_points,
+        obstacle_surface_count=len(obstacle_surfaces_world),
+        source_point_count=source_point_count,
+    )
+
+
+def find_collision_aware_target_docking_yaw(
+    frame: dict,
+    parameters: dict,
+    obstacle_surfaces_world: Sequence[vtk.vtkPolyData],
+    *,
+    step_deg: float = 5.0,
+) -> dict:
+    """Choose the least-colliding deterministic draft yaw around the frame Z axis."""
+
+    step = float(step_deg)
+    if not math.isfinite(step) or not 1.0 <= step <= 30.0:
+        raise ValueError("Automatic docking-yaw step must be 1–30 degrees.")
+    candidate_count = max(1, int(math.ceil(360.0 / step)))
+    obstacle_points, source_point_count = _sample_target_docking_obstacles(
+        obstacle_surfaces_world
+    )
+    candidates = []
+    for index in range(candidate_count):
+        yaw = -180.0 + index * (360.0 / candidate_count)
+        candidate_parameters = dict(parameters)
+        candidate_parameters["yawDeg"] = yaw
+        report = _evaluate_target_docking_obstacle_points(
+            frame,
+            candidate_parameters,
+            obstacle_points,
+            obstacle_surface_count=len(obstacle_surfaces_world),
+            source_point_count=source_point_count,
+        )
+        clearance = report["minimumSampledClearanceMm"]
+        candidates.append(
+            {
+                "yawDeg": yaw,
+                "report": report,
+                "rank": (
+                    int(report["collidingDockCount"]),
+                    int(report["collidingSamplePointCount"]),
+                    -float(clearance) if clearance is not None else -math.inf,
+                    abs(float(yaw)),
+                    float(yaw),
+                ),
+            }
+        )
+    winner = min(candidates, key=lambda item: item["rank"])
+    return {
+        "method": "DeterministicSameArchYawSweepV1",
+        "stepDeg": 360.0 / candidate_count,
+        "candidateCount": candidate_count,
+        "selectedYawDeg": float(winner["yawDeg"]),
+        "selectedClearanceReport": winner["report"],
+        "collisionFreeCandidateCount": sum(
+            int(item["report"]["collidingDockCount"] == 0)
+            for item in candidates
+        ),
+    }
 
 
 def _closed_cylinder(
@@ -356,10 +620,13 @@ def _voxel_boolean_components(
     )
     for surface in additive:
         result_mask |= mask_for(surface)
+    additive_count = int(np.count_nonzero(result_mask))
     subtract_count = 0
+    excluded_occupied_count = 0
     for surface in subtractive:
         subtract_mask = mask_for(surface)
         subtract_count += int(np.count_nonzero(subtract_mask))
+        excluded_occupied_count += int(np.count_nonzero(result_mask & subtract_mask))
         result_mask &= ~subtract_mask
     result_mask[0, :, :] = False
     result_mask[-1, :, :] = False
@@ -412,7 +679,9 @@ def _voxel_boolean_components(
         "sampleDimensions": dimensions,
         "samplePointCount": sample_count,
         "occupiedSampleCount": occupied,
+        "additiveSampleCount": additive_count,
         "subtractiveSampleCount": subtract_count,
+        "excludedOccupiedSampleCount": excluded_occupied_count,
     }
 
 
@@ -420,7 +689,14 @@ def create_target_frame_docking_geometry(
     frame: dict,
     parameters: dict,
 ) -> tuple[dict[str, vtk.vtkPolyData], dict]:
-    """Create four hollow docks and radial connectors in a target-tooth frame."""
+    """Create four independent hollow docks in the target-crown frame.
+
+    Each robot-facing top/opening centre lies exactly on the fitted target
+    crown/occlusal plane.  Adjustable depth proceeds along the crown-to-root
+    occlusal normal.  No solid is placed at the crown centroid and no radial
+    spoke is routed across the trajectory-guide envelope; attachment to the
+    patient shell is generated independently for each dock during Step 5B.
+    """
 
     origin = _vector(frame.get("originRas"), "Docking frame origin")
     x_axis = _unit(frame.get("xAxisRas"), "Docking frame X axis")
@@ -437,13 +713,12 @@ def create_target_frame_docking_geometry(
     radius = float(parameters["patternRadiusMm"])
     outer_radius = float(parameters["outerDiameterMm"]) / 2.0
     bore_radius = float(parameters["boreDiameterMm"]) / 2.0
-    connector_radius = float(parameters["connectorDiameterMm"]) / 2.0
-    connector_thickness = float(parameters["connectorThicknessMm"])
     clearance = float(parameters["clearanceMm"])
     reinforcement = float(parameters["reinforcementRadialMm"])
     depths = [float(value) for value in parameters["depthsMm"]]
     spacing = float(parameters["processingResolutionMm"])
-    directions = (x_axis, y_axis, -x_axis, -y_axis)
+    yaw_deg = float(parameters.get("yawDeg", 0.0))
+    directions = _target_docking_directions(frame, yaw_deg)
     labels = ("+X", "+Y", "-X", "-Y")
 
     docking_parts = []
@@ -451,93 +726,66 @@ def create_target_frame_docking_geometry(
     reinforcement_parts = []
     channel_parts = []
     dock_metrics = []
-    # Frame +Z is the approved crown-to-root trajectory direction.  The
-    # common reference plane is the seating face, so every robot-side rail and
-    # dock extends in -Z (outward from the crown), never into the tooth.
-    outward_axis = -z_axis
-    hub_thickness = max(connector_thickness, min(depths))
-    docking_parts.append(
-        _closed_cylinder(
-            origin + outward_axis * (hub_thickness / 2.0),
-            z_axis,
-            length_mm=hub_thickness,
-            radius_mm=max(connector_radius, outer_radius),
-        )
-    )
-    reinforcement_parts.append(
-        _closed_cylinder(
-            origin + outward_axis * ((hub_thickness + reinforcement) / 2.0),
-            z_axis,
-            length_mm=hub_thickness + reinforcement,
-            radius_mm=max(connector_radius, outer_radius) + reinforcement,
-        )
-    )
+    # Frame +Z is the fitted crown-to-root occlusal normal.  The designated
+    # robot-facing top surface is the end cap on the reference plane; dock
+    # depth proceeds from that face toward the shell/root side along +Z.
+    depth_axis = z_axis
     for index, (direction, label, depth) in enumerate(zip(directions, labels, depths)):
         top_center = origin + radius * direction
-        docking_parts.append(
-            _closed_cylinder(
-                top_center + outward_axis * (depth / 2.0),
-                z_axis,
-                length_mm=depth,
-                radius_mm=outer_radius,
-            )
+        dock_component = _closed_cylinder(
+            top_center + depth_axis * (depth / 2.0),
+            depth_axis,
+            length_mm=depth,
+            radius_mm=outer_radius,
         )
+        docking_parts.append(dock_component)
         channel = _closed_cylinder(
-            top_center + outward_axis * (depth / 2.0),
-            z_axis,
+            top_center + depth_axis * (depth / 2.0),
+            depth_axis,
             length_mm=depth + 2.0 * spacing,
             radius_mm=bore_radius,
         )
         channel_parts.append(channel)
         clearance_parts.append(
             _closed_cylinder(
-                top_center + outward_axis * (depth / 2.0),
-                z_axis,
+                top_center + depth_axis * (depth / 2.0),
+                depth_axis,
                 length_mm=depth + 2.0 * clearance,
                 radius_mm=outer_radius + clearance,
             )
         )
-        reinforcement_parts.append(
-            _closed_cylinder(
-                top_center + outward_axis * ((depth + reinforcement) / 2.0),
-                z_axis,
-                length_mm=depth + reinforcement,
-                radius_mm=outer_radius + reinforcement,
-            )
+        reinforcement_component = _closed_cylinder(
+            top_center + depth_axis * ((depth + reinforcement) / 2.0),
+            depth_axis,
+            length_mm=depth + reinforcement,
+            radius_mm=outer_radius + reinforcement,
         )
-        connector_center = (
-            origin
-            + direction * (radius / 2.0)
-            + outward_axis * connector_radius
-        )
-        docking_parts.append(
-            _closed_cylinder(
-                connector_center,
-                direction,
-                length_mm=radius,
-                radius_mm=connector_radius,
-            )
-        )
-        reinforcement_parts.append(
-            _closed_cylinder(
-                connector_center,
-                direction,
-                length_mm=radius,
-                radius_mm=connector_radius + reinforcement,
-            )
-        )
+        reinforcement_parts.append(reinforcement_component)
+        terminal_center = top_center + depth_axis * depth
         dock_metrics.append(
             {
                 "index": index,
                 "label": label,
+                "topFaceCenterRas": [float(value) for value in top_center],
+                # Retain the old key for scene/report readers while making its
+                # top-face meaning explicit in the schema-v2 fields.
                 "topCenterRas": [float(value) for value in top_center],
-                "axisRas": [float(value) for value in z_axis],
+                "terminalCenterRas": [
+                    float(value) for value in terminal_center
+                ],
+                "axisRas": [float(value) for value in depth_axis],
                 "extrusionDirectionRas": [
-                    float(value) for value in outward_axis
+                    float(value) for value in depth_axis
                 ],
                 "depthMm": depth,
                 "radialDistanceMm": radius,
+                "topFacePlaneResidualMm": float(
+                    np.dot(top_center - origin, z_axis)
+                ),
                 "topPlaneResidualMm": float(np.dot(top_center - origin, z_axis)),
+                "terminalPlaneOffsetMm": float(
+                    np.dot(terminal_center - origin, z_axis)
+                ),
             }
         )
 
@@ -573,15 +821,25 @@ def create_target_frame_docking_geometry(
         "clearance": clearance_surface,
         "reinforcement": reinforcement_surface,
         "channels": channels,
+        "dockComponents": list(docking_parts),
+        "reinforcementComponents": list(reinforcement_parts),
     }
     return surfaces, {
-        "method": "TargetFrameFourHollowDockRadialRailAssembly",
+        "method": "TargetFrameFourIndependentOcclusalTangentDocksV2",
         "mechanicalSpecification": parameters.get(
-            "mechanicalSpecification", "ProvisionalResearchFourDockPattern"
+            "mechanicalSpecification",
+            "ProvisionalResearchFourIndependentOcclusalDocksV2",
         ),
+        "layoutSpecification": "FourIndependentOcclusalTangentDockBranches",
+        "topFaceDatum": "TargetCrownOcclusalPlane",
+        "depthDirection": "OcclusalNormalCrownToRoot",
         "frame": dict(frame),
         "parameters": dict(parameters),
+        "yawDeg": yaw_deg,
         "dockCount": 4,
+        "independentDockComponentCount": 4,
+        "centralHubPresent": False,
+        "radialSpokeCount": 0,
         "docks": dock_metrics,
         "topPlaneMaxResidualMm": float(
             max(abs(item["topPlaneResidualMm"]) for item in dock_metrics)
@@ -615,6 +873,7 @@ def create_shell_contact_reinforcement(
     docking_world: vtk.vtkPolyData,
     *,
     bridge_diameter_mm: float,
+    endpoint_overlap_mm: float | None = None,
     maximum_gap_mm: float = 12.0,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Create a recorded load-spreading link from docking to the shell.
@@ -628,9 +887,16 @@ def create_shell_contact_reinforcement(
     shell = _triangulated_clean(shell_world)
     docking = _triangulated_clean(docking_world)
     diameter = float(bridge_diameter_mm)
+    endpoint_overlap = (
+        diameter / 2.0
+        if endpoint_overlap_mm is None
+        else float(endpoint_overlap_mm)
+    )
     maximum_gap = float(maximum_gap_mm)
     if not math.isfinite(diameter) or diameter <= 0.0:
         raise ValueError("Shell-contact bridge diameter must be positive.")
+    if not math.isfinite(endpoint_overlap) or endpoint_overlap <= 0.0:
+        raise ValueError("Shell-contact endpoint overlap must be positive.")
     if not math.isfinite(maximum_gap) or maximum_gap <= 0.0:
         raise ValueError("Maximum shell-contact gap must be positive.")
     shell_locator = vtk.vtkStaticCellLocator()
@@ -678,7 +944,7 @@ def create_shell_contact_reinforcement(
             axis = np.asarray((0.0, 0.0, 1.0), dtype=float)
     axis = _unit(axis, "Shell-contact bridge axis")
     radius = diameter / 2.0
-    overlap = radius
+    overlap = endpoint_overlap
     bridge_start = best_docking - axis * overlap
     bridge_end = best_shell + axis * overlap
     bridge_center = (bridge_start + bridge_end) / 2.0
@@ -700,6 +966,77 @@ def create_shell_contact_reinforcement(
         "axisRas": tuple(float(value) for value in axis),
         "sampledDockingPointCount": int(math.ceil(point_count / sample_step)),
         "topology": surface_topology(bridge),
+    }
+
+
+def create_independent_shell_contact_reinforcements(
+    shell_world: vtk.vtkPolyData,
+    dock_components_world: Sequence[vtk.vtkPolyData],
+    *,
+    bridge_diameter_mm: float,
+    endpoint_overlap_mm: float,
+    maximum_gap_mm: float = 12.0,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Attach every independent robot dock to the patient shell.
+
+    A separate closest-surface branch is built for each dock component.  This
+    avoids a crown-centred hub and makes a missing/unreachable branch a hard
+    generation error instead of silently leaving a floating dock.
+    """
+
+    components = [
+        _triangulated_clean(component)
+        for component in dock_components_world
+        if component and component.GetNumberOfCells()
+    ]
+    if len(components) != 4:
+        raise ValueError(
+            "Exactly four independent robot-dock components are required for shell attachment."
+        )
+    branches = []
+    branch_metrics = []
+    for index, component in enumerate(components):
+        branch, metrics = create_shell_contact_reinforcement(
+            shell_world,
+            component,
+            bridge_diameter_mm=bridge_diameter_mm,
+            endpoint_overlap_mm=endpoint_overlap_mm,
+            maximum_gap_mm=maximum_gap_mm,
+        )
+        branches.append(branch)
+        branch_metrics.append({"dockIndex": index, **metrics})
+    combined = _append_surfaces(branches)
+    return combined, {
+        "method": "FourIndependentClosestSurfaceDockAttachments",
+        "branchCount": len(branches),
+        "bridgeDiameterMm": float(bridge_diameter_mm),
+        "endpointOverlapMm": float(endpoint_overlap_mm),
+        "maximumGapMm": float(maximum_gap_mm),
+        "branches": branch_metrics,
+        "topology": surface_topology(combined),
+    }
+
+
+def subtract_guide_exclusion(
+    source_world: vtk.vtkPolyData,
+    exclusion_world: vtk.vtkPolyData,
+    *,
+    spacing_mm: float,
+    scalar_name: str,
+) -> tuple[vtk.vtkPolyData, dict]:
+    """Clip a derived robot-interface surface against a protected guide envelope."""
+
+    output, metrics = _voxel_boolean_components(
+        [source_world],
+        [exclusion_world],
+        spacing_mm=spacing_mm,
+        scalar_name=scalar_name,
+    )
+    return output, {
+        **metrics,
+        "method": "ProtectedTrajectoryGuideEnvelopeSubtraction",
+        "sourceTopology": surface_topology(source_world),
+        "exclusionTopology": surface_topology(exclusion_world),
     }
 
 
@@ -743,7 +1080,11 @@ def create_multi_trajectory_docking_geometry(
     trajectories: Sequence[dict],
     parameters: dict[str, float],
 ) -> tuple[dict[str, vtk.vtkPolyData], dict]:
-    """Build provisional annular docking, clearance, reinforcement, and channels."""
+    """Build trajectory-aligned drill-guide sleeves and local shell collars.
+
+    Despite the retained function name, these annular solids are drill-guide
+    geometry.  They are not any of the four Step 4B robot/registration docks.
+    """
 
     if not trajectories:
         raise ValueError("Select at least one complete trajectory for docking generation.")
@@ -828,8 +1169,8 @@ def create_multi_trajectory_docking_geometry(
         "channels": _append_surfaces(channel_parts),
     }
     return surfaces, {
-        "method": "WorldRASParameterizedAnnularDockingAssembly",
-        "mechanicalSpecification": "ProvisionalDevelopmentGeometry",
+        "method": "WorldRASTrajectoryGuideSleeveAssembly",
+        "mechanicalSpecification": "ProvisionalTrajectoryGuideSleeve",
         "trajectoryCount": len(trajectory_metrics),
         "trajectories": trajectory_metrics,
         "parameters": dict(parameters),

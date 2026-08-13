@@ -85,21 +85,21 @@ Status terms used here:
 
 - One or two locked target trajectories and the target-tooth crown cap define
   a right-handed local frame without assuming a world anatomical axis.
-- A locked reference plane and four hollow docks with radial connectors are
-  generated with explicit MRML references to the segmentation and every source
-  trajectory.
+- Schema v2 uses trajectory direction for crown/root polarity and fits the
+  target-crown occlusal normal. A locked reference plane and four independent
+  hollow docks are generated with explicit MRML references to the segmentation
+  and every source trajectory.
+- Each robot-facing dock top/opening lies on the fitted plane; depth proceeds
+  crown-to-root. There is no crown-centred hub or radial spoke.
 - The UI exposes shared depth and optional four-independent depths.
 - Current development defaults are visible and recorded: 15 mm dock radius,
-  1 mm bore, 3 mm outer diameter, 3.5 mm connector diameter, 2 mm connector
-  thickness, and 5 mm dock depth.
-- These values and the present radial-rail form are provisional research
+  1 mm bore, 3 mm outer diameter, 3.5 mm attachment-branch diameter, 2 mm
+  endpoint overlap, and 5 mm dock depth.
+- Step 5B creates four separate shell attachments, keeps the trajectory drill
+  guide/local collar distinct, clips attachments against the guide envelope,
+  and rejects any core dock collision with that envelope.
+- These values and the present automatic attachment form are provisional research
   geometry, not a finalized robot mating interface.
-- **Known rejected interpretation:** the current mesh adds a central hub at
-  the crown-cap centroid and four radial cylindrical spokes. This was an
-  attempt to force a connected printable component, but it can overimpose the
-  drill guide at a nearby trajectory Entry and is not the intended rail
-  topology. The clarified requirement uses the target crown/occlusal plane as
-  the guide-rail surface/tangent reference, not as a solid central dock base.
 
 ### Step 5A — visible support selection
 
@@ -211,9 +211,10 @@ Status terms used here:
 
 ## What needs to be improved before a reliable research demonstration
 
-- Replace the rejected Step 4C central hub/spokes with four surrounding
-  rail/dock branches that reach the shell outside a protected trajectory-guide
-  envelope. Verify continuous drill and dock bores after final fusion.
+- Live-verify the corrected Step 4C independent-dock/attachment topology and
+  continuous drill/dock bores on representative anatomy; replace the generic
+  closest-surface attachment branches when the robot load-path profile is
+  defined.
 - Run the full Step 4B→4C→5A→5B→5C workflow interactively on multiple
   representative de-identified cases, not only synthetic geometry.
 - Verify the ten-stage UI, focus/restoration controls, MPR correction, scene

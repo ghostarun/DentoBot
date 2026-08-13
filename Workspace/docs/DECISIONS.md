@@ -1,9 +1,243 @@
 # Dentobot Technical Decisions
 
+## 2026-08-13 — Step 4B yaw is collision-screened, editable, and explicitly confirmed
+
+Status: schema v3 implemented and synthetically verified; representative
+anatomy, clinician, mechanical, and phantom acceptance pending
+
+Define dock yaw as rotation of all four dock centres about the stored
+target-crown frame `+Z` normal. Automatic placement performs a deterministic
+5-degree sweep and ranks candidates against sampled closed surfaces from every
+other whole-tooth segment on the target FDI arch. The opposing jaw is excluded;
+the target supplies the frame rather than acting as an obstacle. Because Step
+4B precedes Step 5A support selection, the screen does not silently depend on a
+later support list.
+
+The winning yaw is a **Draft**, not an approval. Persist the selected angle,
+collision-clearance request, obstacle segment IDs, sampled-clearance metrics,
+and any omitted obstacle surfaces. Let the user adjust yaw with the slider,
+rebuild the draft, inspect referenced read-only centroid/radius/diameter/depth
+Markups lines in 2D/3D, and explicitly confirm the current orientation. Any
+dimension, yaw, trajectory, or relevant upstream change returns the assembly
+to Draft/Stale. Step 5B fusion requires a Current, Confirmed schema-v3 assembly.
+
+Treat vertex-to-finite-cylinder screening as conservative draft assistance,
+not continuous-surface collision proof or clinical validation. A detected dock
+collision is a final-verification FAIL; an omitted same-jaw obstacle surface is
+a visible WARNING. The final rail profile, tolerances, load path, segmentation
+uncertainty, and physical collision/fit still require representative and
+printed-phantom evidence.
+
+## 2026-08-13 — Close a bounded PoC by evidence, not feature count
+
+Status: accepted as the immediate development-order decision; clinical
+thresholds and physical evidence remain pending
+
+Treat the current software/template vertical slice as a candidate Template V0
+that must now be bounded and tested, not as permission to continue broad
+feature accumulation. Freeze the exact automated clinical task, exclusions,
+clinician approval point, failure-safe state, and the Template V0 contact,
+clearance, wall, margin, insertion, undercut, guide, docking, and manufacturing
+assumptions before making a stronger PoC claim.
+
+Advance the next work packages in this order: representative-anatomy live
+acceptance; one printed Template V0 with seating/removal/repeatability and
+critical-dimension measurements; an explicit planning-to-robot coordinate-frame
+graph and first target registration error experiment; parallel robot/tool/
+sensing requirements; and a system error budget. Convenience or visualization
+work may interrupt this order only when it fixes an observed failure that
+prevents one of those bounded tests.
+
+Label each works claim by its strongest actual evidence: static inspection,
+synthetic automated test, developer-live test, representative anatomy, printed
+phantom, or clinician/expert acceptance. Software topology PASS does not imply
+physical seating, mechanical rigidity, registration accuracy, or clinical
+acceptance.
+
+Reason: the implementation now contains many synthetically verified
+capabilities, while the highest-risk assumptions remain clinical fit,
+manufacturing, registration, load path, robot kinematics, and total-system
+accuracy. More feature count would hide rather than close those gaps.
+
+## 2026-08-13 — Daily Compass is editable working memory, not engineering authority
+
+Status: accepted
+
+Maintain `DENTOBOT_Daily_Compass.docx` as the researcher's single editable
+day-to-day mental-model workbook. It is the first place for free-form capture,
+today's outcomes, uncertainties, meeting notes, and lane-level status. The
+researcher may edit it directly; at an explicit documentation checkpoint,
+Codex reads those edits, reconciles them against repository state, and updates
+the controlled Markdown documents and dated logbook as appropriate.
+
+The Daily Compass is not the source of truth for clinical thresholds,
+architecture, verification claims, or task completion. Those remain in
+`PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, `DEVELOPMENT_PLAN.md`, `DECISIONS.md`,
+`TASKS.md`, `REPRODUCIBILITY_AND_TRACEABILITY.md`, and the dated logbooks.
+Conflicts are resolved explicitly; unreviewed notes are never silently promoted
+to accepted decisions. Git and Google Drive synchronization remain batched and
+approval-driven rather than occurring after every edit.
+
+Reason: one editable operating picture restores a practical OneNote-like habit
+without weakening traceability or turning transient thoughts into undocumented
+engineering commitments.
+
+## 2026-08-13 — One Step 4A owns manual and assisted trajectory creation
+
+Status: implemented and focused Slicer-native verified; live UX acceptance
+pending
+
+Treat manual Entry→Target placement and assisted root-target initialization as
+optional creation modes inside one **Step 4A — Trajectory Planning** stage.
+Both modes create and edit the same role-owned two-point
+`vtkMRMLMarkupsLineNode` in world RAS, use the same target/bounds references,
+and feed identical verification, backtracking, docking, and template logic.
+Assisted entry markups are tagged Step 4A and remain explicitly provisional;
+they are not a sequential completion gate and do not establish a second
+trajectory abstraction.
+
+The stage navigator therefore has nine entries. Step 4A expands the primary
+manual planning controls plus a nested-looking optional assisted section;
+guide rails and docks move from the former Step 4C label to **Step 4B**.
+Persistent identity remains role/reference based, so old scene display names
+do not become migration contracts. Role-owned assisted and docking nodes are
+retagged for the current Step 4A/4B Data-view vocabulary when refreshed.
+
+Reason: assisted planning is an alternate initializer that must still be
+manually reviewed and corrected. Showing it as a later workflow step implied
+that both manual and assisted planning were sequentially required.
+
+## 2026-08-13 — Stage-aware viewport filters are transient presentation state
+
+Status: implemented and focused Slicer-native verified; live clinician UX and
+physical-rendering acceptance pending
+
+Provide one **Viewport — Elements in View** panel from Step 4A through Step
+5C. Build its inventory from the active segmentation's stable segment IDs and
+role/reference-owned MRML nodes, not display names. Expose step-relevant quick
+views and independent checkboxes for target/support/other masks, target bounds,
+the exact trajectory set, assisted entries, occlusal plane/docks, support
+boundary/plane/preview, insertion/undercut/blockout, patient shell, fusion
+auxiliaries, and final printable template. The Step 4A recommended view shows
+only the selected trajectory unless assisted entries are being reviewed; the
+explicit planning preset can show all same-target trajectories.
+
+Visibility filtering changes only MRML display nodes. Capture the exact prior
+segmentation global/per-segment visibility and opacity plus owned-node 2D/3D
+visibility before the first filter, allow combined world-RAS framing, and
+offer one exact restore action. Treat presets as transient application
+presentation: restore the underlying scene display at save start, serialize
+that original state, then reapply the active preset after save. Scene close,
+module exit, cleanup, parameter-node replacement, or navigation before Step
+4A also restores the snapshot. Hide the older duplicate Step 5B visibility
+panel from the active UI while keeping its compatibility code.
+
+Reason: users need rapid isolation without manipulating Slicer's Data tree,
+but a convenient shell-only or target-only view must never alter masks,
+geometry, references, or silently become the saved scene's unexplained
+visibility state.
+
+## 2026-08-13 — Trajectory edits use confirmed reference-driven backtracking
+
+Status: implemented and focused Slicer-native save/reload verified; live
+legacy-scene acceptance pending
+
+Treat Entry→Target trajectories as upstream geometry, not isolated lines.
+Before a selected trajectory is unlocked, interactively moved, cleared, has a
+point removed, or is deleted, traverse explicit MRML references from that
+trajectory through the active Step 4C/5 branch. If derived geometry exists,
+show one confirmation listing the affected workflow stages and delete the
+reached derived subtree before allowing the change. Deleting the trajectory
+also enforces this cascade in logic so future callers cannot bypass it.
+
+Retain the authoritative segmentation, target tooth/segment ID, target-bounds
+ROI, support-tooth choices, unrelated trajectories, and the Step 5A draft
+support model when it is not trajectory-derived. Switching to another target
+tooth is a complete active-branch backtrack: confirm and remove Step 4C and all
+Step 5 derived objects, then clear branch-local guide selections. A
+role-specific deletion failure in an old or partially migrated MRB may fall
+back only to the exact active parameter-node objects already identified as
+impacted; it must never delete by display name.
+
+Filter the Step 4A selector to DENTOBOT Entry→Target lines. On selection,
+synchronize the persisted parameter reference, target controls, and views;
+make the exact chosen line fully opaque with labels while dimming same-tooth
+siblings. Managed labels retain FDI, per-tooth ordinal, and Complete/Empty
+state so duplicate same-tooth lines remain distinguishable after reload.
+
+Reason: saved scenes could contain two visually identical trajectories while
+only one had usable points, and deleting or changing an upstream line left
+stale docking, support, shell, or final-template children selected deep in
+Step 5. Reference-driven backtracking restores a deterministic closed-loop
+workflow without conflating names with identity.
+
+## 2026-08-13 — Keep native imaging authoritative; make display mappings optional
+
+Status: implemented and Slicer-native verified; clinician acceptance pending
+
+Keep `vtkMRMLSegmentationNode` with `Binary labelmap` as the authoritative
+segmentation representation and the default 2D display. For an explicitly
+optional, non-authoritative preview, allow the segmentation display node to
+intersect its existing derived `Closed surface` representation with the slice
+plane. Persist the choice as a DENTOBOT MRML attribute. Opening Segment Editor
+changes the display to native-mask mode so voxel corrections are made against
+the exact editable representation. Older scenes must not be automatically
+switched to the derived preview.
+
+Expose only Slicer's native scalar-volume display mapping for the referenced
+source CBCT: automatic/manual window and level, Grey/InvertedGrey lookup-table
+selection, and optional viewport interpolation. Capture the display state when
+the volume is first bound so it can be restored. Do not filter, sharpen,
+denoise, resample, or modify CBCT voxels; do not modify the mask, replace the
+authoritative representation, or describe any display mapping as recovered
+anatomy. The acquired voxel spacing,
+reconstruction quality, partial-volume effects, metal artifacts, segmentation
+uncertainty, and registration uncertainty remain accuracy limits.
+
+Reason: the reported jagged overlay was the 0.5 mm binary labelmap grid, while
+3D already used a smooth derived surface. The two representations serve
+different purposes, but medical-image honesty requires the native grid to be
+the default. Window/level and grayscale direction can improve the visibility
+of existing intensity differences without creating new image information.
+
+## 2026-08-12 — Step 4C schema v2 uses four independent occlusal-plane docks
+
+Status: implemented and Slicer-native synthetically verified; representative
+anatomy, dimensional, mechanical, phantom, and clinician acceptance pending
+
+Replace the rejected crown-centred hub/radial-spoke topology with four
+independent hollow robot/registration docks. Approved Entry→Target axes now
+establish only crown/root polarity. A target-crown-cap PCA fit supplies the
+occlusal-plane normal, with a deterministic trajectory-perpendicular fallback
+for a degenerate or greater-than-60-degree fit. The crown-cap centroid is the
+pattern origin; no solid is placed there.
+
+Each dock's designated robot-facing top/opening lies on the stored occlusal
+plane. Configurable depth proceeds from that face along the crown-to-root
+occlusal normal. The 15 mm radial offset, 1 mm bore, outer diameter, attachment
+width/overlap, and shared or individual depths remain visible provisional
+research parameters.
+
+Step 5B creates four separate closest-surface dock-to-shell attachments. It
+keeps the trajectory-aligned annular drill-guide sleeves and their local shell
+collars as a different mechanical role. Robot-dock solids and attachments are
+processed against the drill-guide clearance envelope; any core-dock/envelope
+intersection is a hard generation error rather than trimming a load-bearing
+dock, while attachment/reinforcement material is clipped before final fusion.
+All drill-guide and dock channels are subtracted last.
+
+Schema `2.0` makes older Step 4C nodes stale and requires regeneration. Final
+verification requires four independent dock components, zero central hubs,
+zero radial spokes, four shell attachments, top-face coplanarity, the
+guide-exclusion record, one occupied printable component, and preserved
+channels. This resolves the reported topology/overimposition defect; it does
+not finalize the rail cross-section, load path, tolerances, materials,
+registration semantics, or two-trajectory robot kinematics.
+
 ## 2026-08-12 — Reject the central-hub interpretation of Step 4C rails
 
-Status: design correction required; the current generated profile remains a
-diagnostic checkpoint only
+Status: superseded by the schema-v2 independent-dock implementation above;
+retained as the decision history for rejected checkpoint `7800cb6`
 
 The clinician/robotics intent is not a crown-centred mounting hub with four
 spokes. The target-tooth crown/occlusal plane constrains the intended guide-
@@ -12,17 +246,17 @@ base or hub over the target crown. Four surrounding dock holes and their rails
 must remain geometrically distinct from the trajectory-aligned drill guide and
 must not obstruct its channel or required working clearance.
 
-The current implementation contains three separate concepts that must not be
-conflated in the revised design:
+The rejected checkpoint implementation exposed three separate concepts that
+must not be conflated:
 
 1. the annular trajectory guide and its local shell-attachment reinforcement;
 2. the four robot/registration dock holes and their rail bodies; and
 3. the structural connections that merge those parts into the tooth-supported
    shell.
 
-`create_target_frame_docking_geometry()` currently creates a central hub at
-the crown-cap centroid and four radial cylindrical connectors. This was a
-provisional attempt to make all four docks one connected printable assembly.
+At checkpoint `7800cb6`, `create_target_frame_docking_geometry()` created a
+central hub at the crown-cap centroid and four radial cylindrical connectors.
+This was a provisional attempt to make all four docks one connected printable assembly.
 Because a drill trajectory Entry is commonly near the same target-crown
 region, the hub/spokes can overimpose the annular trajectory guide and produce
 the reported blocked or cluttered geometry. This topology is rejected as the
@@ -59,23 +293,24 @@ phantom, and clinician acceptance pending
 Implement the requested four-dock pattern as explicitly provisional research
 geometry without claiming that it is the final robot interface. Step 4C uses
 the complete set of one or two locked target-tooth trajectories. Their mean
-Entry→Target direction defines crown-to-root frame `+Z`; a target crown-cap
-principal axis defines transverse `+X`, and `+Y` completes a right-handed
-world-RAS frame. No world axis is anatomical. The reference plane and preview
-retain explicit segmentation and repeated trajectory references.
+Entry→Target direction defines crown/root polarity; a target crown-cap fit
+defines occlusal normal `+Z`, a crown-cap principal axis defines transverse
+`+X`, and `+Y` completes a right-handed world-RAS frame. No world axis is
+anatomical. The reference plane and preview retain explicit segmentation and
+repeated trajectory references.
 
 Interpret the currently requested `15 mm` as the configurable radial distance
 from target crown centroid to each of four `+X/+Y/-X/-Y` dock centres, and
-interpret `1 mm` as the configurable bore. Keep outer diameter, rail width,
-central depth, common dock depth, and the optional four independent depths
-visible. These are development defaults, not approved tolerances or a frozen
-mechanical profile. All common seating faces lie in the stored crown/occlusal
-plane; dock depth extends toward the robot side, opposite crown-to-root `+Z`.
+interpret `1 mm` as the configurable bore. Keep outer diameter, attachment
+branch width/overlap, common dock depth, and the optional four independent
+depths visible. These are development defaults, not approved tolerances or a
+frozen mechanical profile. All robot-facing top/opening surfaces lie in the
+stored crown/occlusal plane; dock depth proceeds crown-to-root along `+Z`.
 
 Step 5B regenerates the Step 4C solids from stored frame/parameters, combines
-them with the existing per-trajectory annular guide holes, and uses a recorded
-closest-surface reinforcement link to give the rail assembly a true volumetric
-connection to the patient shell. A tight voxel Boolean subtracts clearances,
+them with the existing per-trajectory annular guide holes, and uses four
+recorded closest-surface attachments to give every dock a volumetric connection
+to the patient shell outside the protected guide envelope. A tight voxel Boolean subtracts clearances,
 unions reinforcement/docking, restores every channel, removes only isolated
 one-voxel contour artifacts, and rejects more than one substantive occupied
 volume. Slicer's closed-surface segmentation accessor is already world RAS;

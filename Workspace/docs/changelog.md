@@ -21,6 +21,70 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-13 19:35:24 IST (UTC+05:30) — Step 4B collision-aware yaw and explicit dock confirmation
+
+- Advanced the four-independent-dock assembly to schema v3. Added a persisted
+  yaw parameter and deterministic 5-degree sweep against cached sampled closed
+  surfaces of every other whole tooth on the target FDI arch. Opposing-jaw
+  anatomy is excluded and omitted obstacle surfaces remain visible metadata.
+- Added manual yaw correction/rebuild, Draft versus Confirmed state, automatic
+  confirmation invalidation, and a Step 5B fusion gate requiring the current
+  orientation to be explicitly confirmed.
+- Added 13 referenced, read-only 2D/3D Markups annotations for the assumed
+  crown centroid/normal and each dock's radius, outer/bore diameter, and depth.
+  The annotations participate in viewport filtering, MRB persistence, and
+  reference-driven Step 4B deletion.
+- Added final verification checks: unconfirmed orientation or detected sampled
+  tooth/dock collision is FAIL; an omitted same-jaw obstacle surface is WARNING.
+  The vertex-sampling screen is documented as draft assistance, not clinical
+  or continuous-surface collision proof.
+
+### Verification
+
+- Python compilation, UI XML parsing, and scoped whitespace checks passed.
+- Slicer 5.10 passed the focused yaw math test, complete module-load check,
+  schema-v3 support/shell/fusion/export integration with MRB save/reload and
+  deletion, plus navigation/display/viewport/support-arch UI regressions.
+- No Git commit/push or Google Drive synchronization occurred.
+
+## 2026-08-13 18:45:03 IST (UTC+05:30) — PoC evidence pivot, Daily Compass, and Case-stage initialization
+
+- Reconciled the August 2026 Research-to-Clinical Gap and Engineering Rigidity
+  checklist against the current implementation. Updated Project Context,
+  Architecture, Development Plan, Decisions, Tasks, Reproducibility, and the
+  dated logbook to make the immediate work order explicit: freeze the narrow
+  clinical/Template V0 contract, run representative acceptance, print and
+  measure one template, formalize registration/TRE, keep robot/tool/sensing
+  lanes active, and maintain a total-system error budget.
+- Added a shared evidence vocabulary—Static, Synthetic, Developer-live,
+  Representative anatomy, Printed phantom, and Clinician/expert—and explicitly
+  separated software/topology results from clinical fit, manufacturing,
+  mechanics, registration, and robot claims.
+- Created `Workspace/docs/DENTOBOT_Daily_Compass.docx`, a locally editable
+  OneNote-like workbook for daily focus, mental-model capture, unanswered
+  clinical questions, lane status, Template V0 testing, registration/error
+  budgeting, meeting notes, and later Codex reconciliation. The source
+  checklist remains unchanged. The generated DOCX uses Letter pages, fixed
+  editable tables, and shaded entry cells; its 11-page PDF render was inspected
+  page by page.
+- Corrected fresh DENTOWorkflow initialization so an empty scene opens the
+  workflow navigator on **Case**, not **1 · CBCT Imaging**. Once the operator
+  enters a de-identified case label, Imaging becomes the next recommendation
+  without an automatic stage jump. Added the condition and focused widget
+  regression to `DENTOWorkflow.py`.
+
+### Verification
+
+- `PYTHONPYCACHEPREFIX=/tmp/dentobot-pycache python3 -m py_compile`, UI XML
+  parsing, and `git diff --check` passed.
+- The focused Slicer 5.10
+  `test_DENTOWorkflowWorkflowNavigationWidget` exited 0 in the existing
+  container and now asserts fresh Case-stage initialization.
+- The Daily Compass DOCX ZIP structure passed `unzip -t`; LibreOffice rendered
+  it to an 11-page Letter PDF and all pages were visually inspected for
+  clipping, overflow, tables, color, hierarchy, and editable space.
+- No Git commit/push or Google Drive synchronization occurred in this batch.
+
 ## 2026-08-10 15:59:55 IST (UTC+05:30) — Step 5C zoom and ROI-height cut constraint
 
 - Stopped the ROI-aligned camera lock from restoring its initial parallel

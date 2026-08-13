@@ -22,6 +22,9 @@
 - Change history: `docs/changelog.md`.
 - Platform history: `docs/logbook/logbook-windows-history.md`.
 - Active chronological evidence: dated files under `docs/logbook/`.
+- Personal operating workbook: `docs/DENTOBOT_Daily_Compass.docx`. It is the
+  researcher's editable daily capture and mental-model document, not a
+  controlled source for acceptance claims until reconciled.
 
 Imported design documents remain applicable at the product/design level.
 Windows/WSL paths, commands, runtime boundaries, and validation claims are
@@ -30,6 +33,24 @@ platform-qualified history until verified in the Ubuntu environment.
 The Drive mirror is not automatically authoritative merely because it has a
 newer timestamp. A chat must first retrieve it, compare it with the local
 record, and resolve conflicts explicitly.
+
+## Daily Compass reconciliation
+
+The researcher may edit `DENTOBOT_Daily_Compass.docx` directly between Codex
+sessions. When asked to reconcile it:
+
+1. read the complete workbook and compare its entries with repository state;
+2. identify contradictions, unsafe assumptions, and clinical thresholds that
+   are still ambiguous rather than guessing a resolution;
+3. promote confirmed context, decisions, tasks, evidence, and failures into
+   the applicable controlled Markdown file and today's dated logbook;
+4. leave exploratory or incomplete notes in the workbook until the researcher
+   accepts them; and
+5. update the workbook's reconciliation date and current operating picture.
+
+Reconciliation is a local documentation action. It does not by itself
+authorize Git publication or Google Drive synchronization. Those remain
+explicit batched operations under the existing approval rule.
 
 ## End-of-session sync
 

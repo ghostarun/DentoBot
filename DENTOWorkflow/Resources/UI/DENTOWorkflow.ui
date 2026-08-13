@@ -95,10 +95,131 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </widget>
       </item>
      </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="researchStatusLabel">
+   </widget>
+  </item>
+  <item>
+   <widget class="ctkCollapsibleButton" name="workflowViewGroupBox">
+    <property name="visible">
+     <bool>false</bool>
+    </property>
+    <property name="text">
+     <string>Viewport — Elements in View</string>
+    </property>
+    <property name="collapsed">
+     <bool>false</bool>
+    </property>
+    <property name="toolTip">
+     <string>Stage-aware, display-only visibility controls. These presets never modify segmentation masks or generated geometry, and Restore Previous View returns to the exact display state captured before the first change.</string>
+    </property>
+    <layout class="QVBoxLayout" name="workflowViewVerticalLayout">
+     <property name="spacing">
+      <number>5</number>
+     </property>
+     <item>
+      <layout class="QFormLayout" name="workflowViewPresetFormLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="workflowViewPresetLabel">
+         <property name="text">
+          <string>Quick view:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="workflowViewPresetComboBox">
+         <property name="toolTip">
+          <string>Choose a stage-specific visibility preset. Selection applies immediately and remains reversible.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="autoWorkflowViewCheckBox">
+       <property name="text">
+        <string>Use recommended view when changing steps</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+       <property name="toolTip">
+        <string>Automatically apply the first stage preset when navigating from Step 4A through Step 5C. Leaving these steps restores the previous display.</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="workflowViewElementsLabel">
+       <property name="text">
+        <string>Visible elements (click to show / hide):</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QListWidget" name="workflowViewElementsListWidget">
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>105</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>185</height>
+        </size>
+       </property>
+       <property name="alternatingRowColors">
+        <bool>true</bool>
+       </property>
+       <property name="selectionMode">
+        <enum>QAbstractItemView::NoSelection</enum>
+       </property>
+       <property name="toolTip">
+        <string>Live display selectors for masks, bounds, trajectories, support geometry, shell, docking parts, and the final template relevant to the active step.</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="workflowViewButtonLayout">
+       <item>
+        <widget class="QPushButton" name="frameWorkflowViewButton">
+         <property name="text">
+          <string>Frame Visible</string>
+         </property>
+         <property name="toolTip">
+          <string>Fit the active 2D and 3D views around the currently visible workflow elements.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="restoreWorkflowViewButton">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Restore Previous View</string>
+         </property>
+         <property name="toolTip">
+          <string>Restore the exact segmentation and workflow-object display state captured before viewport filtering began.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="workflowViewStatusLabel">
+       <property name="text">
+        <string>Available from Step 4A.</string>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </item>
+  <item>
+   <widget class="QLabel" name="researchStatusLabel">
      <property name="text">
       <string>RESEARCH PROTOTYPE — NOT CLINICALLY VALIDATED</string>
      </property>
@@ -1098,7 +1219,182 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </property>
          </widget>
         </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="segmentation2DRenderingModeLabel">
+          <property name="text">
+           <string>2D rendering:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1" colspan="2">
+         <widget class="QComboBox" name="segmentation2DRenderingModeComboBox">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>The optional derived preview intersects existing closed surfaces with each slice and is non-authoritative. Native mask editing shows the exact binary labelmap voxels and is the default. Changing this setting does not modify segmentation data.</string>
+          </property>
+          <item>
+           <property name="text">
+            <string>Derived smooth preview (optional)</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Native mask pixels (authoritative)</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="3">
+         <widget class="QLabel" name="segmentationDisplayQualityStatusLabel">
+          <property name="text">
+           <string>Select a segmentation to configure review rendering.</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
        </layout>
+      </item>
+      <item>
+       <widget class="ctkCollapsibleButton" name="cbctGrayscaleDisplayGroupBox">
+        <property name="text">
+         <string>Optional CBCT Grayscale Display</string>
+        </property>
+        <property name="collapsed">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Display-only black/gray/white mapping for the referenced source CBCT. These controls do not filter, resample, sharpen, denoise, or modify volume voxels.</string>
+        </property>
+        <layout class="QFormLayout" name="cbctGrayscaleDisplayFormLayout">
+         <item row="0" column="0" colspan="2">
+          <widget class="QCheckBox" name="cbctAutoWindowLevelCheckBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Native automatic window / level</string>
+           </property>
+           <property name="toolTip">
+            <string>Use Slicer's scalar-volume automatic window/level calculation. This changes only intensity-to-grayscale display mapping.</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="cbctWindowLabel">
+           <property name="text">
+            <string>Window:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QDoubleSpinBox" name="cbctWindowSpinBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="toolTip">
+            <string>Displayed intensity width. Manual changes disable automatic window/level and do not modify voxels.</string>
+           </property>
+           <property name="decimals">
+            <number>2</number>
+           </property>
+           <property name="minimum">
+            <double>0.01</double>
+           </property>
+           <property name="maximum">
+            <double>1000000.0</double>
+           </property>
+           <property name="singleStep">
+            <double>10.0</double>
+           </property>
+           <property name="value">
+            <double>1.0</double>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="cbctLevelLabel">
+           <property name="text">
+            <string>Level:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="cbctLevelSpinBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="toolTip">
+            <string>Displayed intensity centre. Manual changes disable automatic window/level and do not modify voxels.</string>
+           </property>
+           <property name="decimals">
+            <number>2</number>
+           </property>
+           <property name="minimum">
+            <double>-1000000.0</double>
+           </property>
+           <property name="maximum">
+            <double>1000000.0</double>
+           </property>
+           <property name="singleStep">
+            <double>10.0</double>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QCheckBox" name="cbctInvertGrayscaleCheckBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Invert black and white</string>
+           </property>
+           <property name="toolTip">
+            <string>Use Slicer's built-in inverted grayscale lookup table. Intensities and voxels remain unchanged.</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0" colspan="2">
+          <widget class="QCheckBox" name="cbctInterpolationCheckBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Linear viewport interpolation</string>
+           </property>
+           <property name="toolTip">
+            <string>Linearly interpolate the source CBCT while viewing oblique or zoomed slices. This changes display only and cannot recover detail absent from the acquired voxels.</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0" colspan="2">
+          <widget class="QPushButton" name="cbctRestoreLoadedDisplayButton">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Restore Loaded Grayscale Display</string>
+           </property>
+           <property name="toolTip">
+            <string>Restore the source volume display settings captured when this scene/volume was first bound to DENTOWorkflow.</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0" colspan="2">
+          <widget class="QLabel" name="cbctGrayscaleDisplayStatusLabel">
+           <property name="text">
+            <string>Select a referenced source CBCT.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </item>
       <item>
        <widget class="ctkCollapsibleButton" name="segmentationProvenanceGroupBox">
@@ -1339,7 +1635,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
    <item>
     <widget class="ctkCollapsibleButton" name="planningCollapsibleButton">
      <property name="text">
-      <string>Step 4A — Target Tooth and Trajectory</string>
+      <string>Step 4A — Trajectory Planning</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
@@ -1348,7 +1644,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="planningDescriptionLabel">
         <property name="text">
-         <string>Select one whole-tooth segment, then place Entry followed by Target in a 2D slice view. Both points must remain inside its target-tooth bounds; coordinates are world RAS millimetres. After the first trajectory is created, the tooth lineage receives one persistent color shared by its Step 4A, 5A, and 5B descendants.</string>
+         <string>Select one whole-tooth segment, then choose either manual Entry → Target placement below or the optional assisted initializer at the end of this same step. Both paths create the same world-RAS Markups trajectory nodes and remain manually correctable. After the first trajectory is created, the tooth lineage receives one persistent color shared by its Step 4A, 5A, and 5B descendants.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1405,6 +1701,20 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </property>
           <property name="SlicerParameterName" stdset="0">
            <string>trajectoryLine</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="trajectoryPlacementModeLabel">
+          <property name="text">
+           <string>Placement:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QComboBox" name="trajectoryPlacementModeComboBox">
+          <property name="toolTip">
+           <string>Choose the controls used to initialize a trajectory. Both modes create the same world-RAS DENTOBOT trajectory nodes and preserve the same downstream workflow.</string>
           </property>
          </widget>
         </item>
@@ -1481,6 +1791,16 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          </widget>
         </item>
         <item row="3" column="0" colspan="2">
+         <widget class="QLabel" name="trajectoryLockStatusLabel">
+          <property name="text">
+           <string>NO TRAJECTORY SELECTED</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="0" colspan="2">
          <widget class="QPushButton" name="deleteTrajectoryButton">
           <property name="enabled">
            <bool>false</bool>
@@ -1503,8 +1823,8 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item row="0" column="0">
           <widget class="QPushButton" name="focusPlanningTargetButton">
            <property name="enabled"><bool>false</bool></property>
-           <property name="toolTip"><string>Temporarily hide every non-target tooth, show the immutable target bounds, and keep the selected trajectory available for planning.</string></property>
-           <property name="text"><string>Show Target Only</string></property>
+           <property name="toolTip"><string>Show the selected target tooth, its matching pulp/root-canal mask when available, and only the selected Entry-to-Target trajectory. Other anatomy and workflow objects are hidden display-only.</string></property>
+           <property name="text"><string>Show Trajectory Only</string></property>
           </widget>
          </item>
          <item row="0" column="1">
@@ -1522,9 +1842,17 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </widget>
          </item>
          <item row="2" column="0" colspan="2">
-          <widget class="QCheckBox" name="crossViewNavigationCheckBox">
+         <widget class="QCheckBox" name="crossViewNavigationCheckBox">
            <property name="toolTip"><string>Use Slicer's accurate native crosshair picking. Hold Shift while hovering over visible anatomy in 3D to move the crosshair and centre all linked slice views; slice-view crosshair movement remains linked in the other direction.</string></property>
            <property name="text"><string>Link 3D and slice locations (Shift-hover in 3D)</string></property>
+           <property name="visible"><bool>false</bool></property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QLabel" name="crossViewNavigationStatusLabel">
+           <property name="text"><string>Linked navigation is enabled automatically in Step 4A. Shift-hover in 3D or select Entry/Target to synchronize the slice views.</string></property>
+           <property name="wordWrap"><bool>true</bool></property>
+           <property name="styleSheet"><string notr="true">color: #1f5f99;</string></property>
           </widget>
          </item>
         </layout>
@@ -1799,7 +2127,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
    <item>
     <widget class="ctkCollapsibleButton" name="assistedTrajectoryCollapsibleButton">
      <property name="text">
-      <string>Step 4B — Assisted Root Targets</string>
+      <string>Optional assisted trajectory initialization</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
@@ -1808,7 +2136,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="assistedTrajectoryDescriptionLabel">
         <property name="text">
-         <string>Optional initializer for one- or two-root teeth. Place only the crown Entry point(s); DENTOBOT estimates rootward Target point(s) from the selected complete tooth surface and creates the normal Step 4A trajectory line nodes. The estimate is not a canal centreline and must be corrected in the trajectory MPR.</string>
+         <string>Alternative creation mode within Step 4A for one- or two-root teeth. Place only the crown Entry point(s); DENTOBOT estimates rootward Target point(s) from the selected complete tooth surface and creates the same normal Step 4A trajectory line nodes used by manual planning. The estimate is not a canal centreline and must be corrected in the trajectory MPR.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -1872,7 +2200,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <bool>false</bool>
         </property>
         <property name="toolTip">
-         <string>Restore the exact segment and target-bounds visibility that existed before Step 4B entry placement.</string>
+         <string>Restore the exact segment and target-bounds visibility that existed before assisted Step 4A entry placement.</string>
         </property>
         <property name="text">
          <string>Exit Target-Only Focus</string>
@@ -1911,7 +2239,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
    <item>
     <widget class="ctkCollapsibleButton" name="targetDockingCollapsibleButton">
      <property name="text">
-      <string>Step 4C — Target-Frame Guide Rails and Robot Docks</string>
+      <string>Step 4B — Target-Frame Guide Rails and Robot Docks</string>
      </property>
      <property name="collapsed">
       <bool>true</bool>
@@ -1919,7 +2247,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <layout class="QVBoxLayout" name="targetDockingVerticalLayout">
       <item>
        <widget class="QLabel" name="targetDockingDescriptionLabel">
-        <property name="text"><string>Generate four hollow docking/registration features around the target-tooth crown centroid. Their common seating faces lie on a trajectory-polarized crown/occlusal plane and the docks extend outward toward the robot; radial connectors feed the same assembly into Step 5B shell fusion. Dimensions are visible research parameters, not a finalized robot interface.</string></property>
+        <property name="text"><string>Generate four independent hollow docking/registration features around the target-tooth crown centroid. Each robot-facing top/opening lies exactly on the fitted target-crown occlusal plane; its adjustable depth proceeds crown-to-root. There is no central crown hub or radial spoke. Step 5B attaches each dock independently to the shell while protecting the trajectory-guide envelope. Dimensions are visible research parameters, not a finalized robot interface.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
@@ -1949,12 +2277,14 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <item row="4" column="1"><widget class="QDoubleSpinBox" name="targetDockingOuterDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.40</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>3.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingOuterDiameterMm</string></property></widget></item>
         <item row="5" column="0"><widget class="QLabel" name="targetDockingBoreDiameterLabel"><property name="text"><string>Dock bore diameter:</string></property></widget></item>
         <item row="5" column="1"><widget class="QDoubleSpinBox" name="targetDockingBoreDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.20</double></property><property name="maximum"><double>10.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>1.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingBoreDiameterMm</string></property></widget></item>
-        <item row="6" column="0"><widget class="QLabel" name="targetDockingConnectorDiameterLabel"><property name="text"><string>Radial rail width:</string></property></widget></item>
+        <item row="6" column="0"><widget class="QLabel" name="targetDockingConnectorDiameterLabel"><property name="text"><string>Shell-attachment branch width:</string></property></widget></item>
         <item row="6" column="1"><widget class="QDoubleSpinBox" name="targetDockingConnectorDiameterSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.40</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>3.5</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingConnectorDiameterMm</string></property></widget></item>
-        <item row="7" column="0"><widget class="QLabel" name="targetDockingConnectorThicknessLabel"><property name="text"><string>Central reinforcement depth:</string></property></widget></item>
+        <item row="7" column="0"><widget class="QLabel" name="targetDockingConnectorThicknessLabel"><property name="text"><string>Branch endpoint overlap:</string></property></widget></item>
         <item row="7" column="1"><widget class="QDoubleSpinBox" name="targetDockingConnectorThicknessSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.50</double></property><property name="maximum"><double>12.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>2.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingConnectorThicknessMm</string></property></widget></item>
-        <item row="8" column="0"><widget class="QLabel" name="targetDockingSharedDepthLabel"><property name="text"><string>Shared dock depth:</string></property></widget></item>
+        <item row="8" column="0"><widget class="QLabel" name="targetDockingSharedDepthLabel"><property name="text"><string>Shared depth from top face:</string></property></widget></item>
         <item row="8" column="1"><widget class="QDoubleSpinBox" name="targetDockingSharedDepthSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.50</double></property><property name="maximum"><double>30.0</double></property><property name="singleStep"><double>0.50</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingSharedDepthMm</string></property></widget></item>
+        <item row="9" column="0"><widget class="QLabel" name="targetDockingCollisionClearanceLabel"><property name="text"><string>Obstacle clearance:</string></property></widget></item>
+        <item row="9" column="1"><widget class="QDoubleSpinBox" name="targetDockingCollisionClearanceSpinBox"><property name="toolTip"><string>Draft yaw search expands each dock by this clearance while screening all other same-jaw whole-tooth surfaces. This surface-sampling screen is not clinical collision validation.</string></property><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>10.0</double></property><property name="singleStep"><double>0.10</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.5</double></property><property name="SlicerParameterName" stdset="0"><string>targetDockingCollisionClearanceMm</string></property></widget></item>
        </layout>
       </item>
       <item>
@@ -1975,9 +2305,27 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </widget>
       </item>
       <item>
+       <widget class="QGroupBox" name="targetDockingOrientationGroupBox">
+        <property name="title"><string>Collision-aware draft orientation</string></property>
+        <layout class="QVBoxLayout" name="targetDockingOrientationVerticalLayout">
+         <item><widget class="QLabel" name="targetDockingAutoYawStatusLabel"><property name="text"><string>Generate a draft to calculate yaw against same-jaw tooth surfaces.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #1f5f99;</string></property></widget></item>
+         <item>
+          <layout class="QHBoxLayout" name="targetDockingYawSliderLayout">
+           <item><widget class="QLabel" name="targetDockingYawTitleLabel"><property name="text"><string>Yaw:</string></property></widget></item>
+           <item><widget class="QSlider" name="targetDockingYawSlider"><property name="toolTip"><string>Rotate all four dock positions around the fitted occlusal-plane normal. Moving the slider makes the draft stale; Apply rebuilds it, and Confirm is required afterward.</string></property><property name="minimum"><number>-180</number></property><property name="maximum"><number>180</number></property><property name="singleStep"><number>1</number></property><property name="pageStep"><number>5</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="tracking"><bool>true</bool></property></widget></item>
+           <item><widget class="QLabel" name="targetDockingYawValueLabel"><property name="minimumSize"><size><width>48</width><height>0</height></size></property><property name="text"><string>0°</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+          </layout>
+         </item>
+         <item><layout class="QHBoxLayout" name="targetDockingOrientationButtonLayout"><item><widget class="QPushButton" name="applyTargetDockingYawButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Apply Yaw to Draft</string></property></widget></item><item><widget class="QPushButton" name="confirmTargetDockingYawButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Confirm Dock Orientation</string></property></widget></item></layout></item>
+         <item><widget class="QCheckBox" name="targetDockingMeasurementsVisibleCheckBox"><property name="text"><string>Show centroid, distance, diameter, and depth annotations</string></property><property name="checked"><bool>true</bool></property><property name="SlicerParameterName" stdset="0"><string>targetDockingMeasurementsVisible</string></property></widget></item>
+         <item><widget class="QLabel" name="targetDockingOrientationStateLabel"><property name="text"><string>DRAFT — orientation not confirmed</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00; font-weight: 700;</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <layout class="QGridLayout" name="targetDockingButtonLayout">
-        <item row="0" column="0"><widget class="QPushButton" name="generateTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Four-Dock Assembly</string></property></widget></item>
-        <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4C Assembly...</string></property></widget></item>
+        <item row="0" column="0"><widget class="QPushButton" name="generateTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Auto-Place Collision-Checked Draft</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4B Assembly...</string></property></widget></item>
        </layout>
       </item>
       <item><widget class="QLabel" name="targetDockingStatusLabel"><property name="text"><string>Complete and lock one or two target-tooth trajectories first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
@@ -1997,7 +2345,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="templateModelingDescriptionLabel">
         <property name="text">
-         <string>Select the target/support teeth from the authoritative segmentation, then draw an editable closed boundary around only the clinically visible erupted support surfaces. Full crown-and-root anatomy remains available for planning but is not the template fitting surface.</string>
+         <string>The Step 4A target is fixed. Select supporting teeth from its same-jaw visual arch, then define the editable boundary around only the clinically visible erupted support surfaces. Full crown-and-root anatomy remains available for planning but is not the template fitting surface.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2058,7 +2406,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <item row="1" column="1">
          <widget class="QListWidget" name="templateSupportTeethListWidget">
           <property name="toolTip">
-           <string>Manually check any number of whole-tooth segments to include with the target. No adjacency, arch, or maximum-count rule is imposed.</string>
+           <string>Internal scene-backed support selection. The visible arch control limits selection to the target jaw; the target itself is always included and cannot be selected again.</string>
           </property>
           <property name="minimumSize">
            <size>
@@ -2409,7 +2757,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4C four-dock rail assembly into one connected final template.</string>
+         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4B four-dock rail assembly into one connected final template.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2517,18 +2865,18 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       </item>
       <item>
        <widget class="ctkCollapsibleButton" name="templateDockingFusionGroupBox">
-        <property name="text"><string>Trajectory guide + Step 4C dock fusion</string></property>
+        <property name="text"><string>Trajectory drill guides + Step 4B robot-dock fusion</string></property>
         <property name="collapsed"><bool>true</bool></property>
         <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
-         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Step 4C supplies the four target-frame rail docks and their source trajectories. Step 5B adds trajectory-aligned guide sleeves, reserves clearance, adds reinforcement, unions both assemblies with the patient-contact shell, and restores every guide/dock bore in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Step 4B supplies four independent occlusal-plane robot/registration docks. Step 5B separately generates trajectory-aligned drill-guide sleeves and their local shell collars, attaches each robot dock to the patient shell, clips dock geometry against every protected drill-guide envelope, then restores all drill-guide and dock bores in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Only trajectories explicitly associated with the target or selected supporting teeth are listed. Lock each approved trajectory before fusion.</string></property></widget></item>
          <item>
           <layout class="QFormLayout" name="templateDockingFusionFormLayout">
-           <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Docking clearance:</string></property></widget></item>
+           <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Drill-guide exclusion clearance:</string></property></widget></item>
            <item row="0" column="1"><widget class="QDoubleSpinBox" name="templateDockingClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>3.000000000000000</double></property><property name="singleStep"><double>0.050000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>0.300000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateDockingClearanceMm</string></property></widget></item>
-           <item row="1" column="0"><widget class="QLabel" name="templateReinforcementRadialLabel"><property name="text"><string>Reinforcement radial width:</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="templateReinforcementRadialLabel"><property name="text"><string>Drill-guide collar radial width:</string></property></widget></item>
            <item row="1" column="1"><widget class="QDoubleSpinBox" name="templateReinforcementRadialSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>8.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>1.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateReinforcementRadialMm</string></property></widget></item>
-           <item row="2" column="0"><widget class="QLabel" name="templateReinforcementDepthLabel"><property name="text"><string>Reinforcement seating depth:</string></property></widget></item>
+           <item row="2" column="0"><widget class="QLabel" name="templateReinforcementDepthLabel"><property name="text"><string>Drill-guide collar shell depth:</string></property></widget></item>
            <item row="2" column="1"><widget class="QDoubleSpinBox" name="templateReinforcementDepthSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>2.000000000000000</double></property><property name="SlicerParameterName" stdset="0"><string>templateReinforcementDepthMm</string></property></widget></item>
            <item row="3" column="0"><widget class="QLabel" name="finalPrintableTemplateModelLabel"><property name="text"><string>Unified template:</string></property></widget></item>
            <item row="3" column="1"><widget class="qMRMLNodeComboBox" name="finalPrintableTemplateModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>finalPrintableTemplateModel</string></property></widget></item>
@@ -2898,7 +3246,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <layout class="QVBoxLayout" name="templateFinalizationVerticalLayout">
       <item>
        <widget class="QLabel" name="finalVerificationDescriptionLabel">
-        <property name="text"><string>Verify the current unified Step 5B template, including patient-contact shell, trajectory guide hole(s), and the Step 4C four-dock rail assembly. Export writes one atomic binary STL only when verification is PASS or WARNING.</string></property>
+        <property name="text"><string>Verify the current unified Step 5B template, including patient-contact shell, trajectory guide hole(s), and the Step 4B four-dock rail assembly. Export writes one atomic binary STL only when verification is PASS or WARNING.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>

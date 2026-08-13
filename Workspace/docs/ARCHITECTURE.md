@@ -40,6 +40,75 @@ the external Linux interpreter owns dependency-heavy compute; the robot
 runtime owns hardware safety and real-time behavior. DENTOWorkflow never
 imports the external environment into Slicer's embedded Python.
 
+## PoC closure and evidence architecture
+
+The software pipeline and the research-validation pipeline are related but
+must not be conflated:
+
+```text
+software/MRML correctness
+  -> representative anatomy acceptance
+  -> printed template seating and dimensional evidence
+  -> registration/TRE evidence
+  -> robot/tool metrology and safe dry run
+  -> bounded end-to-end PoC claim
+```
+
+Evidence never propagates upward automatically. A synthetic watertight mesh
+test may justify a software-geometry claim, but it cannot justify tooth fit,
+print accuracy, docking rigidity, registration accuracy, robot positioning, or
+clinical safety. Every milestone records its strongest actual evidence level:
+static, synthetic, developer-live, representative anatomy, printed phantom, or
+clinician/expert acceptance.
+
+The current fast-track work remains distributed across nine explicit research
+lanes: imaging/planning, physical template, registration, head-mounted robot,
+tooth-mounted robot, tool/aerotor, sensing and stop logic, verification/
+metrology, and research/IP output. The UI workflow is not a substitute for
+those lanes. In particular, registration and metrology begin while Template V0
+is being closed rather than waiting for every planning convenience feature.
+
+The minimum coordinate-frame model for the next robotics bridge is:
+
+```text
+CBCT/Slicer RAS
+  -> tooth/template planning frame
+  -> physical template/docking frame
+  -> robot base frame
+  -> end-effector frame
+  -> bur/tool frame
+```
+
+Every edge must be directionally named, tied to a measurement/calibration or
+known geometry, timestamped where relevant, and assigned invalidation events.
+Registration quality is evaluated at/near the drilling target with target
+registration error; fiducial residual alone is insufficient. Template
+reseating and robot redocking are distinct repeatability contributors, and
+registration error remains separate from robot/TCP positioning error.
+
+## Medical-image display and accuracy boundary
+
+The corrected `vtkMRMLSegmentationNode` remains authoritative and retains
+`Binary labelmap` as its editable/source representation. DENTOWorkflow offers
+two explicitly different 2D presentation paths through the same MRML node:
+
+- **Native mask pixels (authoritative)** displays the exact binary-labelmap
+  samples and is the default, including for older scenes. The visible voxel
+  stair-steps are intentional, and this mode is selected before handing a
+  segment to Segment Editor.
+- **Derived smooth preview (optional)** asks the segmentation display node to
+  use the existing derived `Closed surface` representation in slice views. It
+  is explicitly non-authoritative and never enabled automatically.
+
+The source CBCT display node exposes only native window/level,
+Grey/InvertedGrey lookup-table direction, and interpolation properties. A
+per-loaded-volume in-memory snapshot provides a restore action. No alternate
+volume or mask is generated, and display changes persist through MRML rather
+than through node names. None of these mappings improves acquired resolution
+or anatomical truth. Clinical accuracy continues to depend on acquisition
+voxel spacing, reconstruction, artifacts, segmentation validation, and
+geometric registration.
+
 ## Platform launch and configuration boundary
 
 Both launchers provide the same non-persistent environment contract:
@@ -121,6 +190,32 @@ state only. A recommendation is derived from explicit parameter-node inputs but
 does not automatically move the operator after initial scene entry. Detailed
 guidance, volume metadata, backend overrides, and backend logs remain available
 on demand rather than occupying the routine workflow panel continuously.
+
+The active selector contains nine stages: Case, imaging, segmentation, review,
+Step 4A trajectory planning, Step 4B guide rails/docks, and Steps 5A–5C.
+Manual and assisted trajectory creation are two UI paths within Step 4A, not
+two sequential workflow stages. They both produce the same referenced
+two-point Markups-line representation. The optional assisted controls remain a
+collapsible subsection visible only while Step 4A is active.
+
+From Step 4A onward, one stage-aware viewport panel inventories only the
+authoritative segmentation's stable segment IDs and role/reference-owned
+workflow display nodes. Presets and per-element toggles alter display-node
+visibility only; they never edit mask voxels, polydata, MRML references, or
+workflow validity. Before the first filter the controller snapshots global
+segmentation 2D/3D visibility and opacity, every segment's visibility/opacity,
+and owned-node 2D/3D visibility. **Restore Previous View** replays that exact
+snapshot. **Frame Visible** combines finite world-RAS bounds of the currently
+visible segments and nodes and fits existing views without generating geometry.
+
+Viewport presets are deliberately transient presentation state. At MRB save
+start, DENTOWorkflow restores the snapshot so the scene stores the operator's
+underlying display state; after save it reapplies the active preset. Parameter
+replacement, module exit, scene close, cleanup, or navigation before Step 4A
+restores the snapshot. This avoids making a convenient target-only or
+shell-only inspection state an unexplained persistent scene contract. The old
+Step 5B-specific visibility group remains readable in compatibility code but
+is hidden from the active workflow UI.
 
 The generated `DentalNavPlanning` threshold example is not the product UI and
 is excluded from the extension build. Its useful experiments may be migrated
@@ -446,7 +541,7 @@ are excluded.
 - Dental annotations and AI outputs live in segmentation/markup nodes.
 - A trajectory is an explicit two-point line with documented entry/target
   semantics and world-RAS length.
-- Step 4B assistance uses one temporary role-owned Markups fiducial list for
+- Optional Step 4A assistance uses one temporary role-owned Markups fiducial list for
   exactly one or two clinician crown Entry clicks. It is an input annotation,
   not an alternative trajectory. Geometry math runs separately from the UI:
   entry-directed tooth-axis estimation, multi-depth root-side surface caps,
@@ -458,7 +553,7 @@ are excluded.
   unlocked; and carry `RequiresManualVerification`. Existing plans are never
   overwritten. Complete-tooth surface analysis is explicitly not canal/apex
   detection, clearance analysis, or plan approval.
-- Step 4B entry placement temporarily isolates the target segment and forces
+- Assisted Step 4A entry placement temporarily isolates the target segment and forces
   its bounds visible. That presentation state is restored on generation,
   explicit exit, save, module exit, and scene close; display state never becomes
   the anatomy or trajectory identity contract.
@@ -498,8 +593,11 @@ are excluded.
 - A target-tooth selection never retargets a trajectory already associated
   with another tooth. It deselects that line and resolves one reusable target
   bounds ROI for the exact segmentation/segment pair. All trajectory groups
-  remain available and visible; the selected tooth changes opacity, glyph,
-  line, and label emphasis without changing visibility.
+  remain available and visible. The exact selected line is fully emphasized
+  and centred in the slice views; same-tooth siblings are dimmed and other
+  tooth groups remain visible. The Step 4A selector accepts only role-owned
+  Entry→Target lines, and managed FDI/ordinal/completion labels distinguish
+  complete and empty same-tooth trajectories after MRB reload.
 - Once a tooth has a trajectory, its deterministic persisted RGB lineage color
   is propagated through reference-linked Step 4A bounds, Step 5A support
   anatomy, Step 5B ROI/shell/sleeve nodes, and Step 5C trim/final-shell nodes.
@@ -508,16 +606,23 @@ are excluded.
   Steps 5A/5B/5C render the same lineage as an FDI/color badge and selector
   swatches, with Step 5B visibility-control stripes so hidden geometry still
   has a clear parent/child cue.
-- Destructive planning actions are role-gated and confirmed. Deleting a
-  DENTOBOT trajectory or draft support-anatomy model removes the primary MRML
-  node and only its unreferenced display/storage auxiliaries, then clears the
-  relevant workflow reference. The reference is cleared before scene removal
-  to prevent a live selector from substituting an unrelated node. Shared nodes
-  and source inputs are preserved.
-- Trajectory deletion retains target tooth, segmentation, and bounds; draft-
-  model deletion retains target/support selection. MRML save/reload must not
-  restore deleted nodes or dangling workflow references, and retained inputs
-  must remain sufficient to recreate the output.
+- Destructive planning actions are role-gated and confirmed. Unlocking,
+  interactively editing, clearing, removing a point from, or deleting a
+  trajectory first traverses explicit MRML references through the active Step
+  4C/5 branch. One stage-level confirmation deletes the reached descendants
+  before the upstream geometry changes. The logic-level trajectory deletion
+  repeats this contract so controller and future callers cannot diverge.
+- Target-tooth switching performs a confirmed complete backtrack of the active
+  derived Step 4B/5 branch. Per-trajectory backtracking preserves unrelated
+  trajectories and guide selections, the authoritative segmentation, target
+  segment, bounds, support-tooth choices, and non-trajectory-derived draft
+  support. Full target switching also clears the active draft and branch-local
+  guide selections. No node is discovered or deleted by display name.
+- Owned primary nodes are removed with only their unreferenced display/storage
+  auxiliaries, and parameter references are cleared before scene removal so a
+  live selector cannot substitute an unrelated node. MRML save/reload must not
+  restore deleted descendants or dangling references, and retained inputs must
+  remain sufficient to recreate the branch.
 - Step 5A full support anatomy is planning input only. Slicer's segmentation
   extraction already returns world-RAS surfaces, so the derived combined model
   has no parent transform and explicitly records `WorldRASmm`; applying the
@@ -561,32 +666,33 @@ are excluded.
   `UndercutState=Processed`.
 - `DENTOGuideGeometry.py` owns replaceable trajectory-guide and target-frame
   docking primitives plus cropped voxel fusion. The current annular guide and
-  four-dock radial-rail profile remain provisional because no final robot
-  mating/load contract exists. Step 4C consumes the complete set of one or two
+  four-dock/attachment profile remain provisional because no final robot
+  mating/load contract exists. Step 4B consumes the complete set of one or two
   locked trajectories for the target tooth and persists them as repeated MRML
   references; Step 5B reuses exactly that set.
-- Step 4C derives a right-handed target frame in world RAS. Mean
-  Entry→Target is crown-to-root `+Z`; a target crown-cap PCA direction provides
-  transverse `+X`, and `+Y` is their cross product. A locked, non-selectable
-  Markups plane stores the common seating plane. Four hollow docks sit at
-  configurable `+X/+Y/-X/-Y` radial offsets and extend toward robot-side `-Z`.
-  The current defaults interpret 15 mm as radial offset and 1 mm as bore, but
-  every mechanical dimension is visible and labelled provisional.
-- The current Step 4C mesh connects those docks through a crown-centred hub and
-  radial cylindrical spokes. This topology passed a synthetic connectivity
-  check but was rejected as the intended rail design after visual review. The
-  occlusal plane is a surface/tangent reference for the future rails, not a
-  solid central dock base. The replacement must route surrounding branches to
-  shell attachment regions without a central hub and must reserve the complete
-  trajectory-guide envelope. The annular trajectory guide's local attachment
-  collar and the four robot docks are separate mechanical roles.
+- Step 4B schema v2 derives a right-handed target frame in world RAS. Mean
+  Entry→Target establishes crown/root polarity. The fitted target-crown-cap
+  occlusal normal is `+Z`, a crown principal direction projected into that
+  plane is `+X`, and `+Y` completes the frame. A locked, non-selectable Markups
+  plane stores the top-face datum. Four hollow docks sit at configurable
+  `+X/+Y/-X/-Y` radial offsets; each robot-facing top/opening lies on that
+  plane and adjustable depth proceeds crown-to-root along `+Z`. The defaults
+  interpret 15 mm as radial offset and 1 mm as bore, but every mechanical
+  dimension is visible and labelled provisional.
+- No Step 4B solid exists at the crown centroid and there are no radial spokes.
+  Step 5B generates one closest-surface attachment per dock, retains the
+  annular trajectory drill-guide sleeve/local collar as a different mechanical
+  role, and clips attachment material against the complete trajectory-guide
+  envelope. Any core dock/envelope collision aborts generation instead of
+  trimming a load-bearing dock. Schema-v1 central-hub assemblies are stale and
+  must be regenerated.
 - Docking integration uses a cropped binary domain: remove outer docking
   clearance from the patient shell, union trajectory and four-dock
-  reinforcement, add a recorded closest-surface overlapping bridge between the
-  Step 4C rail assembly and shell, union all docking solids, then subtract all
-  trajectory/dock channels. The
+  reinforcement, add four recorded closest-surface overlapping branches from
+  the Step 4B docks to the shell, apply the trajectory-guide exclusion, union
+  all guide/dock solids, then subtract all trajectory/dock channels. The
   `FinalPrintableTemplate` explicitly references the patient shell, every
-  source trajectory, Step 4C assembly, docking assembly, clearance,
+  source trajectory, Step 4B assembly, docking assembly, clearance,
   reinforcement, and channels. Occupied-voxel connectivity—not polygonal
   surface-region count—defines whether the printable material is one solid,
   because a valid hollow object may have nested boundary surfaces. Only
@@ -650,12 +756,11 @@ are excluded.
 - Both workflow-owned ROI roles are visible-only geometry: their MRML nodes
   are locked and non-selectable from views, and their translation, rotation,
   and scale handles are disabled on creation, reset, scene load, and refresh.
-- Step 5B exposes display-only visibility controls for the selected Step 4A
-  target box and trajectory, Step 5A support model, and Step 5B trim ROI,
-  shell, and sleeve. These controls write MRML display-node visibility, which
-  persists with the scene; geometry refresh/regeneration preserves an
-  existing hidden state.
-- Workflow-owned nodes carry visible `[Step 4A]`, `[Step 5A]`, `[Step 5B]`, or
+- The stage-aware viewport panel supersedes the visible Step 5B-only control
+  group. It exposes only elements relevant to the active Step 4A–5C stage,
+  supports target/shell/final isolation and exact restoration, and intentionally
+  keeps its presets out of saved MRB presentation state.
+- Workflow-owned nodes carry visible `[Step 4A]`, `[Step 4B]`, `[Step 5A]`, `[Step 5B]`, or
   `[Step 5C]` name prefixes for selectors and Slicer's Data view. The prefixes
   are UI categorization only; role attributes, stable segment IDs, and MRML
   node references remain authoritative.

@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 The consolidated implementation/evidence boundary, improvement backlog,
 clinical-accuracy questions, mechanical ambiguities, prohibited
@@ -11,44 +11,151 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ## Active
 
+### PoC closure work order — highest priority
+
+1. **Freeze the procedure boundary.** With the clinical team, write one
+   sentence defining the exact autonomous/bounded drilling task and explicitly
+   list out-of-scope work, the clinician approval point, re-plan/re-register/
+   abandon triggers, permitted phantom/patient motion, and the failure-safe
+   state. Do not let “root-canal automation” stand in for a testable use case.
+2. **Close Template V0 clinical parameters.** Decide or explicitly defer the
+   support/retention surfaces, excluded surfaces, insertion direction,
+   acceptable undercut engagement, fit clearance, wall thickness, crown
+   coverage, support-tooth count, gingival/cervical margin, bur/channel and
+   sleeve/docking role, acceptable rocking/gap, repeated seating count, and
+   print/material/process assumptions. Mark every current UI dimension as a
+   research default until evidence supports it.
+3. **Run one representative end-to-end case.** Use reviewed anatomy and go
+   through trajectory review, Step 4B docks, visible support selection,
+   undercut-aware shell, unified fusion, Step 5C verification, MRB save/reopen,
+   stale/backtracking behavior, and one STL. Label evidence as representative
+   anatomy only after this run is observed and recorded.
+4. **Print and seat one Template V0.** Record manufacturing settings; test
+   terminal seating, removal, rocking, repeat pose over repeated cycles,
+   visible flex under expected loads, sleeve/dock rigidity, and physical versus
+   planned dimensions. A successful STL or watertight mesh does not close this
+   task.
+5. **Formalize registration.** Draw the complete RAS → tooth/template →
+   physical dock → robot base → end-effector → bur frame graph, define every
+   transform source and invalidation event, choose the first PoC registration
+   method, build a rigid target-point phantom, and measure target registration
+   error over repeated registration, reseating, and redocking.
+6. **Create the total-system error budget.** Track image geometry,
+   segmentation, planning, manufacturing, seating, docking, registration,
+   robot kinematics, and TCP/tool calibration separately in millimetres and/or
+   degrees at the target. Replace assumptions with mean/standard deviation/
+   worst-case measurements and identify the dominant contributor.
+7. **Keep parallel hardware lanes explicit.** Define head-mounted and
+   tooth-mounted robot DOF, load path, actuation, workspace, packaging,
+   emergency removal, tool-axis/TCP calibration, independent depth limiting,
+   safe-stop behavior, and a bounded pressure/acoustic sensing experiment.
+   No powered robot motion or drilling is authorized by this task list.
+8. **Build one weekly demonstration script after the boundary is frozen.** It
+   must state the case, evidence level, exact expected result, failure response,
+   and artifacts retained. Stop accepting “it worked once” as sufficient for
+   critical geometry, persistence, registration, or robot claims.
+
+### Required deep dives on implemented software
+
+- **Segmentation/display:** clinician comparison of native masks versus the
+  optional smooth closed-surface preview; source-CBCT quality, artifact, and
+  segmentation uncertainty protocol; corrected-mask metric policy.
+- **Trajectory planning:** clinical Entry/Target/no-go definitions, bur/depth
+  assumptions, oblique-MPR approval needs, assisted-versus-corrected acceptance,
+  and repeated placement error on representative teeth.
+- **Template geometry:** CBCT-only contact-surface validity, boundary and
+  gingival-margin semantics, removable undercut engagement, clearance/wall
+  selection, terminal support/latch behavior, channel preservation, and
+  physical fit after manufacturing.
+- **Docking/rails:** registration-landmark versus load-bearing roles, final
+  mating profile, depth/diameter/tolerances, material/load path/deflection,
+  removal/redocking repeatability, and the unresolved two-non-parallel-
+  trajectory versus one robot-Z-axis problem.
+- **Persistence/invalidation:** reopen representative legacy/current scenes,
+  switch same-tooth trajectories, edit/delete upstream inputs, and prove that
+  only reference-linked descendants are purged or marked Stale.
+- **Final verification:** distinguish computational topology from anatomical
+  collision, clinical fit, manufacturing accuracy, material strength,
+  registration, and robot safety; convert warnings into measured gates only
+  when evidence exists.
+
+### Clinical visualization acceptance
+
+- Live-test Step 3's authoritative-default native mask and optional derived
+  smooth preview on representative CBCT in the physical Intel-`iris` session.
+  Compare the same tooth boundaries at high zoom and in axial, coronal,
+  sagittal, and trajectory-oblique slices. Confirm Segment Editor remains in
+  the native binary-mask view and no mask geometry, segment count, or source
+  representation changes.
+- Exercise optional CBCT automatic/manual window-level, standard/inverted
+  grayscale, viewport interpolation, native slice-view mouse adjustment, and
+  restore-to-loaded-state. Confirm DENTOWorkflow stays synchronized and voxel
+  checksums are unchanged. Do not introduce or request sharpening, denoising,
+  super-resolution, histogram equalization, or AI enhancement in this path.
+- Have the clinician assess contour readability and whether outline/fill,
+  opacity, window/level, and anatomy-specific presets need another pass.
+  Separately measure interaction FPS. Do not interpret smoother display as
+  improved acquisition resolution, segmentation accuracy, registration, or
+  drill-planning accuracy.
+- Establish a quantitative imaging-quality protocol: document acquisition
+  voxel size/reconstruction kernel, artifacts and partial volume, segmentation
+  ground truth/uncertainty, and trajectory/registration error budgets. Display
+  interpolation alone cannot close these clinical-accuracy gaps.
+
 ### Immediate Step 4/5 workload — ordered
 
-1. Live-test the compact DENTOWorkflow stage navigator in the physical Slicer
+1. Live-test the compact nine-stage DENTOWorkflow navigator in physical Slicer
    session at the normal narrow module-panel width. Confirm one-section
    accordion behavior, Previous/Next and direct stage jumps, recommended-stage
    text after new/opened scenes, optional guidance and backend-log toggles,
    launcher-managed path hiding, volume-details expansion, dark/light theme
    readability, and that no existing MRML-bound control or callback regressed.
-2. Live-test the new Step 4B assisted trajectory initializer on representative
-   one-root and two-root teeth. Confirm crown Entry placement, target-only mask
+   Confirm Step 4A presents manual placement and the optional assisted
+   initializer together, and Step 4B is the next docking/guide stage rather
+   than treating assistance as a sequential requirement.
+2. Live-test the optional assisted Step 4A trajectory initializer on
+   representative one-root and two-root teeth. Confirm crown Entry placement, target-only mask
    isolation, forced target-bounds visibility, exact display restoration,
    root-branch rejection on ambiguous/fused anatomy, correct Entry↔Target
    pairing, manual MPR correction, locking, MRB reload, and downstream repeated
    trajectory selection. Treat every target as a geometric estimate, not a
    canal/apex detection or safe plan.
-3. Live-test the new reference-based viewport controls. Step 4 now exposes
-   target-only focus, target framing in every active view, and exact restore;
-   Step 5A exposes the equivalent target/support focus, framing, and restore.
-   Step 5B now lists the support boundary, support plane, visible-support
-   preview, patient shell, and final template alongside its existing visibility
-   controls. Confirm colors/opacity remain readable in physical-session Intel
-   rendering and after MRB reopen; record any remaining role-color collision.
+   Also reopen a representative MRB with two same-tooth trajectories, select
+   each selector entry, and confirm the exact line/points, target controls, and
+   views change. Verify Complete/Empty labels remain distinct. Exercise Cancel
+   and Continue for unlock/edit/clear/delete backtracking, and confirm Continue
+   purges only reference-linked Step 4B/5 descendants while retaining the
+   other trajectory and authoritative anatomy.
+3. Live-test the new global **Viewport — Elements in View** panel across every
+   Step 4A–5C stage. Exercise recommended, target-only, all-trajectories,
+   target/support-mask, docks-only, undercut, shell-only, shell-and-guides,
+   final-only, all, and manual checkbox selection where available. Confirm
+   target bounds and each same-tooth trajectory are independently selectable;
+   **Frame Visible** fits the intended combined bounds; and **Restore Previous
+   View** exactly restores segmentation/global/per-segment opacity and owned
+   object visibility. Save an MRB while shell-only is active, verify the
+   underlying pre-filter display—not the transient isolation—is serialized,
+   and confirm the shell-only preset resumes after saving. Confirm colors and
+   opacity remain readable in physical-session Intel rendering and after MRB
+   reopen; record any remaining role-color collision.
 4. Live-test bidirectional 3D/slice spatial reference through Slicer's native
    accurate crosshair path. Enabling the workflow control uses centred slice
    jumps and Shift-hover picking in 3D; disabling/save/exit restores the exact
    previous crosshair state. Confirm 3D→2D and 2D→3D usability, target/support
    frame snapping, and no conflict with Markups placement or oblique MPR.
-5. Redesign Step 4C before treating its mesh as the intended four-rail layout.
-   Remove the rejected crown-centred hub/radial-spoke assumption; use the
-   target crown/occlusal plane as the specified rail surface/tangent reference,
-   not as a solid dock-base plane; preserve a deliberate exclusion envelope
-   around every annular trajectory guide; and define four surrounding rail/dock
-   paths to the shell. Keep drill-guide attachment reinforcement distinct from
-   robot docking. Then live-test transformed/untransformed targets, common and
-   independent depths, repeated references, coplanarity, channel continuity,
-   staleness, and regeneration. Finalize the mechanical profile, tolerances,
-   materials, registration versus load-bearing roles, and structural limits
-   before fabrication claims.
+5. Live-test the corrected Step 4B schema-v3 geometry on representative
+   transformed/untransformed anatomy. Confirm each robot-facing dock top lies
+   on the fitted target-crown occlusal plane, depth proceeds crown-to-root,
+   the crown centroid has no hub/spokes, and automatic yaw screens every other
+   same-jaw whole-tooth surface without using the opposing jaw. Exercise
+   slider correction, Draft/Confirmed state, all 13 viewport annotations,
+   obstacle-clearance warnings, common/individual depths, MRB reload,
+   schema-v2 staleness/regeneration, and deliberate tooth/dock and dock/guide
+   collision rejection. Confirm all four independent shell attachments avoid
+   the protected trajectory-guide envelope and all drill/dock channels remain
+   continuous after fusion. Finalize the mechanical rail/attachment profile,
+   tolerances, materials, registration versus load-bearing roles, and
+   structural limits before fabrication claims.
 6. Resolve two-trajectory robot kinematics before claiming Z-only drilling. A
    fixed dock Z axis cannot represent two non-parallel drill axes at once;
    choose per-trajectory reindexing, angular adjustment, parallel-axis
@@ -185,11 +292,14 @@ work; an implemented or synthetic PASS is not a clinical claim.
   bounded Slicer-native suite now passes selective auxiliary cleanup, retained
   inputs, MRB save/reload, shell-ROI reset, Step 5B-to-5C cascade cleanup, and
   recreation/deletion behavior.
-- Confirm the closed-loop backtracking contract before implementation: a
-  meaningful Step 4A edit would confirm and cascade-delete its Step 5A/5B
-  descendants, while a Step 5A edit would confirm and delete Step 5B
-  descendants. Define the confirmation boundary before interactive point
-  editing so dialogs never fire on every mouse move.
+- ~~Implement the closed-loop Step 4A backtracking boundary~~ — completed and
+  focused Slicer-native save/reload verified on 2026-08-13. Unlock, interaction
+  start, point undo, clear, and delete now issue one stage-level confirmation
+  and purge reference-linked Step 4B/5 descendants; target switching purges the
+  complete active derived branch. Live legacy-scene acceptance remains above.
+- Extend the same explicit impact/confirmation contract to every meaningful
+  Step 5A source/ROI edit before considering closed-loop backtracking complete
+  across the whole template workflow.
 - Complete developer-run Slicer acceptance of Step 5A: select one target and
   any manually chosen number of distinct whole-tooth supports, create/update
   the draft support-anatomy model, save/reopen the scene, and confirm
@@ -205,12 +315,12 @@ work; an implemented or synthetic PASS is not a clinical claim.
   standard ROS image bridge carries pixels but is not the medical-image
   exchange contract.
 
-## Shelved — remaining Step 4D viewport/2D placement
+## Shelved — remaining Step 4C viewport/2D placement
 
-The accepted Step 4A assistance backlog is complete. Step 4B now denotes the
-assisted-root initializer and Step 4C the docking contract. The older
-dentist-focused 2D plan is retained as Step 4D and is sequenced through the
-ordered viewport tasks above.
+The accepted Step 4A assistance backlog is complete. Manual placement and the
+assisted-root initializer now coexist as optional creation modes in Step 4A;
+Step 4B is the docking contract. The older dentist-focused 2D plan is retained
+as Step 4C and is sequenced through the ordered viewport tasks above.
 
 - Accepted deferred Step 4A completion backlog:
   - ~~selecting a trajectory after scene reopen restores its target tooth,
@@ -284,13 +394,51 @@ ordered viewport tasks above.
 
 ## Completed
 
-- Implemented and Slicer-native verified the provisional Step 4C → 5B → 5C
-  vertical slice on 2026-08-12. Step 4C creates a world-RAS target crown frame,
-  locked reference plane, four hollow robot-side docks at a configurable
-  radial offset, radial rails, shared/independent depths, and explicit repeated
-  trajectory provenance. Step 5B combines these with one/two trajectory guide
-  holes, clearance, reinforcement, and an explicit shell-contact link into one
-  occupied watertight printable volume. Step 5C reports persisted
+- Fixed the saved-scene Step 5A/5B handoff on 2026-08-13. Persistent-header
+  reparenting no longer leaves qMRML node selectors detached from the active
+  scene, and non-geometric Markups/load-time parameter events no longer mark
+  unchanged support or docking geometry stale. The representative
+  `SampleStudy1/test1_5a.mrb` now restores a Current visible-support source,
+  Current Draft docking assembly, its derived insertion-direction node, and an
+  enabled undercut-analysis action. True trajectory geometry edits still mark
+  docking descendants stale; focused widget and full template-pipeline tests
+  passed.
+- Corrected fresh-module workflow navigation on 2026-08-13. A brand-new empty
+  scene now initializes on **Case** rather than skipping directly to **1 · CBCT
+  Imaging**. Entering a de-identified case label makes Imaging the next
+  recommendation without moving the operator automatically. Python/UI/static
+  gates and the focused Slicer-native navigation widget test passed.
+- Created `DENTOBOT_Daily_Compass.docx` on 2026-08-13 as the editable personal
+  operating workbook for daily outcomes, capture, clinical decisions,
+  evidence levels, PoC priorities, parallel lanes, Template V0 physical tests,
+  registration/error budget, weekly clarity, and Codex handoff. The final
+  Letter-format DOCX rendered to 11 pages and every page was visually checked.
+  It remains working memory; controlled Markdown files remain authoritative.
+- Unified manual and assisted trajectory creation under one Step 4A navigation
+  stage on 2026-08-13. The navigator now has nine stages, assisted entry nodes
+  use Step 4A tags, and the independent four-dock assembly is Step 4B. Both
+  creation paths retain the same Markups-line/MRML reference contract.
+- Implemented and focused Slicer-native verified the global Step 4A–5C
+  viewport element selector on 2026-08-13. Stage-aware presets and live
+  checkboxes cover masks, bounds, trajectories, assisted entries, support
+  geometry, undercut/blockout, shell, docks/fusion auxiliaries, and final
+  template. Combined world-RAS framing and exact prior-display restore pass;
+  MRB save callbacks serialize the underlying display and resume the transient
+  preset afterward. The duplicate legacy Step 5B visibility panel is hidden.
+  Physical-session and representative-scene acceptance remain active above.
+
+- Implemented and Slicer-native verified the corrected Step 4B → 5B → 5C
+  schema-v3 vertical slice through 2026-08-13. Step 4B creates a world-RAS fitted
+  target-crown occlusal frame, locked reference plane, and four independent
+  hollow docks with their robot-facing openings on that plane, configurable
+  radial offset, crown-to-root shared/individual depths, no crown hub/spokes,
+  and explicit repeated trajectory provenance. A cached deterministic yaw
+  sweep screens all other same-jaw whole-tooth surfaces; manual yaw correction,
+  13 referenced dimension annotations, Draft/Confirmed state, MRB persistence,
+  and the Step 5B confirmation gate have focused synthetic coverage. Step 5B keeps trajectory drill
+  guides separate, creates four dock-to-shell attachments, protects the guide
+  envelope, and combines the parts into one occupied watertight printable
+  volume. Step 5C reports persisted
   PASS/WARNING/FAIL checks, blocks FAIL, re-verifies on export, and writes one
   atomic binary `DENTO_Final_Printable_Template.stl`. The transformed synthetic
   test passed generation, one-voxel artifact cleanup, verification, export,
