@@ -81,10 +81,33 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
-- Inspect every link, frame, and mesh in RViz from a verified graphical
-  session. Confirm handedness, assembly alignment, scale against at least one
-  measured dimension, and the neutral configuration; retain screenshots only
-  if they contain no sensitive data.
+- Manual articulation is synthetically verified for all six joints: the
+  package-owned GUI publishes one joint vector, every independent runtime
+  perturbation preserved upstream frames and moved the correct child/tool
+  chain, and neutral plus articulated meshes loaded in RViz without resource
+  errors. Repeat this in the physical Intel graphical session, moving one
+  joint at a time, and confirm handedness, direction, assembly alignment,
+  scale against at least one measured dimension, limits, and the neutral
+  configuration; retain screenshots only if they contain no sensitive data.
+- Restart the currently open manual launch so it reloads the new draft zero,
+  then confirm the photographed configuration appears with all six controls at
+  zero, link-1's mounting face is parallel to the RViz grid, the robot remains
+  on the intended side of that plane, and positive J4 travel moves in the
+  intended opposite/negative-base-X direction.
+- Use the new 5 mm non-adjacent link-AABB warnings and displayed CAD burr
+  origin only for draft manual workspace exploration. Record joint vectors and
+  burr coordinates at useful mouth-workspace poses and obvious flexibility
+  limits. The neutral AABB result currently warns on `link-3`/`link-5` and
+  `link-3`/spindle; determine later with reviewed geometry whether these are
+  real contacts or conservative box overlap.
+- Define the forehead/head-mount frame and bring a governed head/mouth model
+  into the Step 6 MRML experiment only after this free-articulation pass.
+  Live-test loading all seven links, native base/plane handles, plane-normal
+  flipping, snap-to-plane, every local-axis button, opt-in keyboard gating,
+  scene save/reopen, and joint motion beside the model. Record useful
+  mount/base matrices and joint vectors, but do not treat them as registration
+  or calibrated TCP data. AABB clearance does not establish patient, cable,
+  mount, or swept-path clearance.
 - Obtain engineering authority for joint zero definitions, positive axes,
   mechanical ranges, velocity/effort units and limits, masses, centers of
   mass, inertias, and the intended robot base/end-effector/spindle/bur-tip/TCP
@@ -125,8 +148,11 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Immediate Step 4/5 workload — ordered
 
-1. Live-test the compact nine-stage DENTOWorkflow navigator in physical Slicer
-   session at the normal narrow module-panel width. Confirm exactly one active
+1. Live-test the compact ten-entry DENTOWorkflow navigator in physical Slicer
+   session at the normal narrow module-panel width. The final **6 · Robot
+   Placement** entry is a simulation experiment and does not establish
+   registration.
+   Confirm exactly one active
    stage is visible and expanded, Previous/Next/direct selection stay
    synchronized, the task scroll starts at the selected stage, the compact
    recommendation dot remains understandable by tooltip, and CBCT metadata is
@@ -444,16 +470,42 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
 
 ## Completed
 
+- Added the simulation-only Slicer Step 6 robot-placement slice on 2026-08-14.
+  DENTOWorkflow now parses the tracked URDF, loads all seven STLs explicitly as
+  raw RAS/CAD geometry, and parents seven link-pose transforms beneath one
+  editable robot-base transform. It provides six manual joint controls, an
+  editable mount plane, orthonormal snap-to-plane, transform handles, local
+  X/Y/Z and Rx/Ry/Rz nudge buttons, and opt-in keyboard shortcuts gated to the
+  active Step 6 stage. Two pure geometry tests, focused Slicer logic,
+  widget, navigator, and synthetic MRB save/reopen tests passed. This is
+  synthetic scene-only evidence,
+  not head-mount registration, TCP calibration, collision validation, a ROS
+  bridge, IK, controller, or hardware motion.
+
 - Added the first simulation-only ROS 2 integration on 2026-08-14. The tracked
   `dentobot_description` package contains the normalized URDF, all seven
-  checksum-locked binary STL meshes, a neutral six-joint publisher, optional
-  RViz configuration, and static integrity tests. The workspace bootstrap now
-  exposes the nested package to colcon with a safe relative symlink. Jazzy
-  package build/test passed; a headless launch published one neutral joint
-  state, one robot-description/TF graph, resolved `base_link` to `burr`, and
-  shut down cleanly with no remaining node/process. This is synthetic
-  description evidence only, not calibrated kinematics, collision, control,
-  hardware, or motion evidence.
+  checksum-locked binary STL meshes, neutral/manual/external joint-state
+  modes, an RViz configuration, and static integrity tests. The package-owned
+  PyQt window controls all six joints in human-readable degrees/millimetres
+  while publishing ROS SI units. Jazzy build/test passed; a runtime probe
+  independently verified every joint's child/downstream TF behavior and
+  upstream invariance, and RViz rendered neutral and articulated models
+  without mesh/resource errors before clean shutdown. This is synthetic
+  description/forward-kinematics evidence only, not physical calibration,
+  collision, IK, Slicer, controller, hardware, or motion evidence.
+- Added a draft manual workspace aid on 2026-08-14: seven collision-mesh-derived
+  AABBs, a 5 mm advisory for 15 non-adjacent link pairs, green/red RViz
+  markers, and base-frame CAD burr-origin coordinates. Static/Jazzy tests and
+  an Xvfb RViz subscription/visual check passed. Neutral reports two
+  conservative overlaps. This is not exact mesh, swept-volume, head/patient,
+  head-mount, or safety collision evidence.
+- Rebased the integrated description on 2026-08-14 to the developer's
+  photographed design pose: old J1/J3/J5/J6 values
+  `25.38/62.46/1.08/-35.28 deg` now read zero, the link-1 mounting face is
+  parallel to RViz XY, and positive J4 moves primarily in negative base X.
+  Seven direct tests, eight Jazzy-reported tests, an isolated six-joint TF
+  probe, zero-state publication, and RViz inspection passed. These are draft
+  visualization coordinates, not physical homing/calibration evidence.
 
 - Replaced the oversized fixed workflow chrome on 2026-08-14 with an 81-pixel
   two-row stage/action bar, a true one-visible-stage wizard, CBCT-local volume

@@ -19,6 +19,12 @@ install(
   RENAME neutral_joint_state_publisher
 )
 
+install(
+  PROGRAMS scripts/manual_joint_state_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME manual_joint_state_publisher
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(

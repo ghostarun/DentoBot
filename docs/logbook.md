@@ -25,6 +25,65 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-14 19:18:17 IST (UTC+05:30) — Selected zero/base alignment/J4 reversal
+
+- Absorbed the photographed `25.38/0/62.46/0/1.08/-35.28` degree/mm state into
+  the integrated URDF as q=0, shifted finite rotary ranges without changing
+  span, aligned link-1's mounting face to RViz XY, and negated J4 while keeping
+  its positive 0–75 mm range.
+- Seven direct and eight Jazzy-reported tests passed. On isolated ROS domain
+  174, all six TF perturbations passed including negative-base-X J4. The manual
+  run published six zeros and rendered the expected upright pose, horizontal
+  base, burr coordinates, and AABBs before clean shutdown.
+- Container `check_urdf`, Python compilation, whitespace, and the repository
+  close-day gate passed; the first unsourced host `check_urdf` was unavailable.
+- Initial shared-domain TF failures came from the developer's still-open manual
+  publisher competing with the test. Only exact test/diagnostic processes were
+  stopped; the developer session remains active and must be restarted normally
+  to load the new URDF.
+- This is draft visualization-coordinate evidence, not physical homing,
+  calibration, head-mount, Slicer, IK, controller, or hardware evidence. No Git
+  publication or Drive sync occurred.
+
+## 2026-08-14 18:46:30 IST (UTC+05:30) — Draft AABB clearance/workspace aid
+
+- The developer bounded the current robot experiment to free manual movement
+  for early reach/flexibility exploration before later Slicer head/mouth and
+  TBD forehead-mount work. Exact collision, IK, and control are not requested.
+- Added seven transformed collision-mesh AABBs, a default 5 mm advisory across
+  15 non-adjacent pairs, green/red RViz markers, and base-frame CAD burr-origin
+  coordinates. Warnings never block a joint state.
+- Six direct tests passed and Jazzy reported seven tests with no failure. RViz
+  had one marker publisher and subscriber, displayed the boxes/status, and shut
+  down cleanly. Neutral reports two conservative overlaps: link-3/link-5 and
+  link-3/spindle.
+- The first runtime launch exposed an overly strict resolved-prefix check for
+  valid colcon symlink-installed meshes. URI-component validation corrected it;
+  the full rerun passed. No Slicer, robot motion, Git publication, or Drive sync
+  occurred.
+- A 10 mm parameter override was observed exactly and shut down cleanly. The
+  repository close-day gate also passed.
+
+## 2026-08-14 18:19:23 IST (UTC+05:30) — Manual joint articulation before Slicer/IK
+
+- Added a URDF-derived PyQt manual joint-state window, dedicated launch,
+  neutral/manual/external joint-source selection, RViz host wrapper, static
+  coverage, and an independent runtime TF probe.
+- Five direct tests and the Jazzy package build/test passed. Each of the six
+  joints preserved upstream frames, moved its child according to its declared
+  type, and propagated through the downstream tool chain. RViz loaded neutral
+  and articulated configurations without mesh/resource errors; isolated runs
+  stopped with no residual description process.
+- The repository close-day gate passed 32 Python AST parses, two Qt UI files,
+  eight controlled Markdown fence checks, backend dependency consistency, 13
+  inference tests, and five platform-contract tests.
+- Corrected early strict-shell source order, screenshot quoting, overlapping
+  stale launches, and interim installed executable names. Cleanup targeted
+  only exact process/artifact instances.
+- This proves synthetic forward articulation, not physical direction, scale,
+  zeros/limits, calibrated TCP, collision, IK, Slicer integration, controller,
+  hardware, or safety. No robot motion, Git publication, or Drive sync ran.
+
 ## 2026-08-14 17:07:00 IST (UTC+05:30) — Approved documentation and publication checkpoint
 
 - The developer authorized updating controlled documentation, committing and

@@ -1,14 +1,22 @@
 """Static integrity tests for the simulation-only DENTOBOT description."""
 
 from hashlib import sha256
+import importlib.util
 from math import isclose, isfinite, sqrt
 from pathlib import Path
 import struct
+import sys
 from xml.etree import ElementTree
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 URDF_PATH = PACKAGE_ROOT / "urdf" / "dentobot.urdf"
+PACKAGE_XML_PATH = PACKAGE_ROOT / "package.xml"
+DESCRIPTION_LAUNCH_PATH = PACKAGE_ROOT / "launch" / "description.launch.py"
+MANUAL_LAUNCH_PATH = PACKAGE_ROOT / "launch" / "manual.launch.py"
+MANUAL_PUBLISHER_PATH = (
+    PACKAGE_ROOT / "scripts" / "manual_joint_state_publisher.py"
+)
 EXPECTED_MESH_SHA256 = {
     "burr.stl": "7ed794505b0440aed9092ac6a5522a9235e078410f6e5d43ba161b3c2768a51b",
     "link-1.stl": "a71a9bc70fd0562da915e06b84c8cec7fe827191da34e4d93156e7fed1484353",
@@ -22,6 +30,16 @@ EXPECTED_MESH_SHA256 = {
 
 def _root() -> ElementTree.Element:
     return ElementTree.parse(URDF_PATH).getroot()
+
+
+def _manual_publisher_module():
+    module_name = "dentobot_manual_joint_state_publisher_test_module"
+    spec = importlib.util.spec_from_file_location(module_name, MANUAL_PUBLISHER_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _numbers(text: str) -> list[float]:
@@ -182,3 +200,138 @@ def test_binary_stl_structure_bounds_and_source_checksums() -> None:
         extents_m = [(high - low) * 0.001 for low, high in zip(minimum, maximum)]
         assert max(extents_m) < 0.5
         assert max(extents_m) > 0.001
+
+
+def test_manual_joint_controls_match_urdf_order_limits_and_units() -> None:
+    module = _manual_publisher_module()
+    controls = module.controls_from_urdf(URDF_PATH.read_text(encoding="utf-8"))
+    observed = [
+        (
+            control.name,
+            control.joint_type,
+            control.lower_display,
+            control.upper_display,
+            control.display_unit,
+        )
+        for control in controls
+    ]
+    expected = [
+        ("link-1_Revolute-1", "revolute", -25.38, 334.62, "deg"),
+        ("link-2_Slider-2", "prismatic", 0.0, 80.0, "mm"),
+        ("link-3_Revolute-3", "revolute", -62.46, 297.54, "deg"),
+        ("link-4_Slider-4", "prismatic", 0.0, 75.0, "mm"),
+        ("link-5_Revolute-5", "revolute", -1.08, 358.92, "deg"),
+        (
+            "pneumatic_spindle-Copy_Revolute-6",
+            "continuous",
+            -180.0,
+            180.0,
+            "deg",
+        ),
+    ]
+    assert len(observed) == len(expected)
+    for actual, wanted in zip(observed, expected):
+        assert actual[:2] == wanted[:2]
+        assert isclose(actual[2], wanted[2], abs_tol=1e-3)
+        assert isclose(actual[3], wanted[3], abs_tol=1e-3)
+        assert actual[4] == wanted[4]
+
+    assert isclose(controls[0].display_to_si(180.0), 3.141592653589793)
+    assert isclose(controls[1].display_to_si(40.0), 0.04)
+    assert isclose(controls[1].si_to_display(0.08), 80.0)
+
+
+def test_manual_launch_and_runtime_dependencies_are_installed() -> None:
+    package_root = ElementTree.parse(PACKAGE_XML_PATH).getroot()
+    dependencies = {
+        element.text.strip()
+        for element in package_root.findall("exec_depend")
+        if element.text
+    }
+    assert "python3-pyqt5" in dependencies
+    assert "geometry_msgs" in dependencies
+    assert "robot_state_publisher" in dependencies
+    assert "rviz2" in dependencies
+    assert "visualization_msgs" in dependencies
+
+    description_launch = DESCRIPTION_LAUNCH_PATH.read_text(encoding="utf-8")
+    manual_launch = MANUAL_LAUNCH_PATH.read_text(encoding="utf-8")
+    cmake = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert '"joint_state_mode"' in description_launch
+    for mode in ("neutral", "manual", "external"):
+        assert f'"{mode}"' in description_launch
+    assert '"joint_state_mode": "manual"' in manual_launch
+    assert 'default_value="5.0"' in manual_launch
+    assert '"coarse_clearance_mm"' in description_launch
+    assert "manual_joint_state_publisher.py" in cmake
+    assert "neutral_joint_state_publisher.py" in cmake
+
+
+def test_coarse_aabb_model_uses_mesh_bounds_fk_and_five_mm_clearance() -> None:
+    module = _manual_publisher_module()
+    model = module.CoarseKinematicModel(
+        URDF_PATH.read_text(encoding="utf-8"),
+        PACKAGE_ROOT,
+    )
+    controls = module.controls_from_urdf(URDF_PATH.read_text(encoding="utf-8"))
+    neutral = model.evaluate({control.name: 0.0 for control in controls}, 0.005)
+
+    assert len(neutral.boxes) == 7
+    assert neutral.checked_pair_count == 15
+    assert all(
+        frozenset((violation.first_link, violation.second_link))
+        not in model.adjacent_pairs
+        for violation in neutral.violations
+    )
+    # The selected screenshot pose is now q=0, with the former XY mounting
+    # plate rotated onto the RViz ground plane and the robot above it.
+    expected_burr_origin = (-0.049564540494, 0.001369804798, 0.197675185601)
+    for observed, expected in zip(neutral.burr_origin_m, expected_burr_origin):
+        assert isclose(observed, expected, abs_tol=1e-6)
+
+    first = module.AxisAlignedBox("first", (0.0, 0.0, 0.0), (0.01, 0.01, 0.01))
+    below_margin = module.AxisAlignedBox(
+        "below", (0.014, 0.0, 0.0), (0.02, 0.01, 0.01)
+    )
+    at_margin = module.AxisAlignedBox(
+        "at", (0.015, 0.0, 0.0), (0.02, 0.01, 0.01)
+    )
+    assert isclose(module.aabb_separation(first, below_margin), 0.004)
+    assert isclose(module.aabb_separation(first, at_margin), 0.005)
+
+
+def test_selected_zero_pose_base_plane_and_reversed_joint_four_direction() -> None:
+    module = _manual_publisher_module()
+    root = _root()
+    joints = {joint.get("name"): joint for joint in root.findall("joint")}
+
+    root_rpy = _numbers(joints["base_link_to_link-1"].find("origin").get("rpy"))
+    assert isclose(root_rpy[0], -1.5707963267948966, abs_tol=1e-12)
+    assert isclose(root_rpy[1], 0.0, abs_tol=1e-12)
+    assert isclose(root_rpy[2], 0.0, abs_tol=1e-12)
+
+    joint_four_axis = _numbers(joints["link-4_Slider-4"].find("axis").get("xyz"))
+    assert joint_four_axis[0] < -0.89
+    assert joint_four_axis[2] > 0.44
+
+    model = module.CoarseKinematicModel(
+        URDF_PATH.read_text(encoding="utf-8"),
+        PACKAGE_ROOT,
+    )
+    zero_transforms = model.link_transforms({})
+    moved_transforms = model.link_transforms({"link-4_Slider-4": 0.01})
+    zero_child = module._transform_point(zero_transforms["link-5"], (0.0, 0.0, 0.0))
+    moved_child = module._transform_point(
+        moved_transforms["link-5"], (0.0, 0.0, 0.0)
+    )
+    displacement = tuple(
+        moved - zero for zero, moved in zip(zero_child, moved_child)
+    )
+    assert displacement[0] < -0.0099
+    assert abs(displacement[1]) < 0.0003
+    assert abs(displacement[2]) < 1e-9
+
+    neutral = model.evaluate({}, 0.005)
+    link_one_box = next(box for box in neutral.boxes if box.link == "link-1")
+    assert isclose(link_one_box.maximum[2], 0.0, abs_tol=1e-9)
+    assert isclose(link_one_box.minimum[2], -0.022, abs_tol=1e-9)

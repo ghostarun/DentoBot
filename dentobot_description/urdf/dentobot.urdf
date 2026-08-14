@@ -1,6 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="dentobot">
     <!-- Integration-only massless root: KDL cannot retain inertia on a root link. -->
+    <!-- Developer-selected draft zero pose recorded 2026-08-14. Joint-origin
+         rotations below absorb the photographed J1/J3/J5/J6 offsets. -->
     <link name="base_link" />
     <link name="link-1">
         <inertial>
@@ -136,16 +138,18 @@
         </collision>
     </link>
     <joint name="base_link_to_link-1" type="fixed">
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+        <!-- Put link-1's thin Y-normal mounting plane parallel to RViz XY and
+             orient the articulated chain above the grid. -->
+        <origin xyz="0.0 0.0 0.0" rpy="-1.5707963267948966 0.0 0.0" />
         <parent link="base_link" />
         <child link="link-1" />
     </joint>
     <joint name="link-1_Revolute-1" type="revolute">
-        <origin xyz="0.0 0.0 0.0" rpy="1.5707963267948966 -0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0" rpy="1.570796326794897 -0.4429645641561608 2.90490637318374e-17" />
         <parent link="link-1" />
         <child link="link-2" />
         <axis xyz="0.0 0.0 1.0" />
-        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+        <limit lower="-0.44296456415616081" upper="5.8402204358438388" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-2_Slider-2" type="prismatic">
         <origin xyz="0.0 0.0 0.08" rpy="-1.5707963267948966 -0.0 1.5707963267948966" />
@@ -155,28 +159,28 @@
         <limit lower="0.0" upper="0.08" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-3_Revolute-3" type="revolute">
-        <origin xyz="-0.047122859999999996 -0.11 -0.09383196" rpy="-3.141592653589793 1.5707963267948966 0" />
+        <origin xyz="-0.047122859999999996 -0.11 -0.09383196" rpy="2.067357736975897 1.101119703255167 -2.067357736975897" />
         <parent link="link-3" />
         <child link="link-4" />
         <axis xyz="0.8936380000000003 -5.639648652959157e-30 0.44878900000000016" />
-        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+        <limit lower="-1.0901326507956584" upper="5.1930523492043417" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-4_Slider-4" type="prismatic">
         <origin xyz="-0.06702282999999999 0.0 -0.03365918999999999" rpy="-3.141592653589793 2.7755575615628914e-17 5.551115123125784e-17" />
         <parent link="link-4" />
         <child link="link-5" />
-        <axis xyz="0.893638 2.4694080114073816e-17 -0.44878900000000005" />
+        <axis xyz="-0.893638 -2.4694080114073816e-17 0.44878900000000005" />
         <limit lower="0.0" upper="0.075" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-5_Revolute-5" type="revolute">
-        <origin xyz="-0.021752659999999997 -0.006762529999999991 0.007295090000000003" rpy="5.551115123125784e-17 -1.5707963267948966 0" />
+        <origin xyz="-0.021752659999999997 -0.006762529999999991 0.007295090000000003" rpy="-2.933237124130466 -1.553411074346388 2.925952888262058" />
         <parent link="link-5" />
         <child link="pneumatic_spindle-Copy" />
         <axis xyz="-0.38643099999999997 -0.9016699999999997 0.194068" />
-        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+        <limit lower="-0.018849555921538759" upper="6.2643354440784611" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="pneumatic_spindle-Copy_Revolute-6" type="continuous">
-        <origin xyz="0.035401760000000004 0.0029788100000000027 0.04568638" rpy="-3.141592653589793 1.5707963267948966 0" />
+        <origin xyz="0.035401760000000004 0.0029788100000000027 0.04568638" rpy="0.9502765943544816 1.0092142015761 -1.935369066862216" />
         <parent link="pneumatic_spindle-Copy" />
         <child link="burr" />
         <axis xyz="0.40465999999999996 0.432425 -0.805766" />

@@ -98,6 +98,13 @@ no controller, command topic, hardware plugin, or motion path. See
 `dentobot_description/README.md` for provenance and unresolved calibration,
 collision, frame, and physical-verification work.
 
+DENTOWorkflow also exposes **6 · Robot Placement** for scene-only
+placement. It loads the same tracked URDF/STLs into an MRML transform hierarchy,
+allows manual joint changes, and provides an editable mount plane with explicit
+snap plus local button/keyboard nudges. This is not a live ROS/SlicerROS2 bridge:
+it reads no robot state, sends no command, and does not establish head-mount
+registration, a calibrated TCP, collision safety, or hardware readiness.
+
 ## Ubuntu interactive rendering
 
 A visible Slicer window does not prove hardware acceleration. On Ubuntu,

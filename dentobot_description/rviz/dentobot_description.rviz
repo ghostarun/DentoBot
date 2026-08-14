@@ -36,6 +36,15 @@ Visualization Manager:
       Show Arrows: true
       Show Axes: true
       Show Names: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Draft 5 mm link AABBs
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /dentobot/coarse_self_collision_boxes
   Enabled: true
   Global Options:
     Background Color: 28; 28; 28

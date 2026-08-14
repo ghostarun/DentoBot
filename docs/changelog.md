@@ -21,6 +21,43 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-14 19:18:17 IST (UTC+05:30) — Draft zero/base alignment/J4 direction
+
+- Made the photographed manual state q=0, aligned link-1's mounting face with
+  RViz XY using the integration root, and negated J4's prismatic axis while
+  keeping its 0–75 mm positive range.
+- Seven direct and eight Jazzy-reported tests passed. The isolated six-joint TF
+  probe, zero-state publication, expected burr coordinates, RViz/AABB visual
+  check, and exact cleanup passed.
+- The developer's open prior session was not interrupted and needs restart to
+  reload the URDF. This is draft coordinate evidence only; no physical home,
+  Slicer, IK, hardware, Git publication, or Drive sync occurred.
+
+## 2026-08-14 18:46:30 IST (UTC+05:30) — Draft 5 mm AABB workspace feedback
+
+- Added collision-mesh-derived link AABBs, a 5 mm non-adjacent-pair warning,
+  green/red RViz markers, and live CAD burr-origin coordinates to the manual
+  articulation tool. Warnings remain advisory.
+- Six direct tests passed; Jazzy reported seven tests with no failure. RViz
+  consumed the marker topic, the neutral warning panel/boxes were visually
+  inspected, and clean shutdown left no process. Neutral has two conservative
+  box overlaps.
+- Corrected one symlink-install path-validation error before the passing run.
+  This is not exact/swept/head/patient collision or safety evidence. No Slicer,
+  IK, hardware motion, Git publication, or Drive sync occurred.
+
+## 2026-08-14 18:19:23 IST (UTC+05:30) — Manual robot-joint articulation
+
+- Added package-owned PyQt controls and neutral/manual/external joint-state
+  modes, plus a host launcher for the six controls and RViz. Display units are
+  degrees/millimetres; ROS messages remain radians/metres.
+- Extended static tests and added an independent six-joint runtime TF probe.
+  Jazzy build/test, every joint probe, neutral/articulated RViz loading, and
+  clean shutdown passed.
+- This is synthetic forward-kinematics evidence only. Physical calibration,
+  collision, IK, Slicer, controllers, hardware, motion, Git publication, and
+  Drive sync remain out of scope.
+
 ## 2026-08-14 17:07:00 IST (UTC+05:30) — Documentation and publication checkpoint
 
 - Reconciled the Daily Compass with the controlled Ubuntu documentation. No

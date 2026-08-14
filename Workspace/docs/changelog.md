@@ -21,6 +21,102 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-14 20:38:57 IST (UTC+05:30) — Robot placement promoted to DENTOWorkflow Step 6
+
+- Renamed the tenth workflow entry from the provisional Robot Lab label to
+  **6 · Robot Placement** at the developer's request. Updated the section
+  title, keyboard-safety wording, deletion messages, and all role-owned model/
+  transform/plane display names from `[Robot Lab]` to `[Step 6]`.
+- Preserved MRML role attributes, parameter names, URDF/STL geometry, joint
+  behavior, placement controls, and simulation-only safety boundary. Existing
+  scenes remain discoverable by stable role attributes and are renamed when
+  Load/Refresh or plane reset runs.
+- Reconciled the controlled context, architecture, setup, decisions, plan,
+  tasks, traceability, and dated logbook so registration/calibration remains an
+  explicit prerequisite but is no longer mislabeled as the visible workflow
+  Step 6. No ROS bridge, controller, hardware command, Git publication, or
+  Drive sync occurred.
+- Seven host tests and the combined focused Slicer Step 6 logic, widget,
+  ten-entry navigator, and MRB persistence checks passed with exit 0.
+
+## 2026-08-14 20:24:43 IST (UTC+05:30) — Simulation-only Slicer Robot Lab placement
+
+- Added a tenth, non-clinical **Robot Lab · Base and Joints** entry to
+  DENTOWorkflow. It parses the tracked URDF, loads the seven existing STL assets
+  explicitly as raw RAS/CAD geometry, and builds seven link-pose transforms
+  beneath one persistent editable robot-base transform. Extension CMake derives
+  an installed RobotDescription resource tree from the one tracked source copy;
+  a packaged-path Slicer smoke test loaded all seven meshes.
+- Added all-six-joint manual controls, a draggable Markups mount plane,
+  scale/shear-free snap-to-plane, native base/plane transform handles, local
+  X/Y/Z and Rx/Ry/Rz button nudges, configurable step sizes, framing/reset/
+  delete actions, and opt-in keyboard nudges gated to Robot Lab and suppressed
+  while text/numeric editors have focus.
+- Added pure URDF/FK/plane/nudge helpers and two host tests. Focused Slicer 5.10
+  logic and widget tests loaded all seven meshes, verified raw STL bounds and
+  transform parenting, J4 direction, plane snap, local nudge, shortcut gating,
+  synthetic MRB save/reopen, and complete owned-node deletion. The ten-entry
+  navigator test also passed. An initial Slicer run exposed and corrected the
+  API's required output matrix argument for `GetObjectToWorldMatrix`.
+- Updated controlled context, setup, architecture, development plan, decisions,
+  tasks, traceability, changelog, and dated logbook. This remains synthetic
+  MRML-only evidence: no ROS bridge, IK, controller, hardware command, head/
+  mouth collision, calibrated mount/TCP, Git publication, or Drive sync was
+  introduced.
+
+## 2026-08-14 19:18:17 IST (UTC+05:30) — Selected draft zero, planar base, and reversed J4
+
+- Rebased the integrated URDF so the photographed
+  `[25.38 deg, 0 mm, 62.46 deg, 0 mm, 1.08 deg, -35.28 deg]` state is q=0.
+  Shifted finite rotary limits without changing their spans; the source URDF
+  and every mesh remain unchanged.
+- Rotated the integration root -90 degrees about X so link-1's mounting face is
+  parallel to RViz XY with the robot above the grid. Negated J4's axis while
+  retaining its positive 0–75 mm range; positive J4 now moves primarily in
+  negative base X.
+- Seven direct tests and eight Jazzy-reported tests passed. An isolated-domain
+  six-joint TF probe passed, six zero states and the expected burr coordinates
+  were observed, and the RViz pose/AABBs were visually inspected before clean
+  shutdown.
+- The developer's existing manual/RViz process was left running and must be
+  restarted to load the new URDF. These remain draft coordinates, not physical
+  home/calibration, head-mount, IK, Slicer, controller, or hardware evidence.
+  No Git publication or Drive sync occurred.
+
+## 2026-08-14 18:46:30 IST (UTC+05:30) — Draft 5 mm AABB workspace feedback
+
+- Extended manual articulation with collision-STL-derived base-frame AABBs,
+  a default 5 mm warning for non-adjacent link boxes, green/red RViz
+  `MarkerArray` outlines, and live CAD burr-origin coordinates. Joint updates
+  remain unrestricted and simulation-only.
+- Added pure forward-kinematics/AABB coverage, geometry/visualization message
+  dependencies, RViz display wiring, configurable launch plumbing, and the
+  explicit conservative evidence boundary.
+- Six direct tests passed; Jazzy reported seven tests with no failure. RViz
+  subscribed to the single marker publisher, the warning UI and boxes were
+  visually inspected, and shutdown left no residual process. Neutral reports
+  two coarse overlaps.
+- A first runtime launch incorrectly rejected valid colcon symlink-installed
+  meshes; URI-component validation replaced the resolved-prefix check. No
+  exact/swept/head/patient collision, Slicer, IK, controller, hardware, motion,
+  Git publication, or Drive sync occurred.
+
+## 2026-08-14 18:19:23 IST (UTC+05:30) — Manual robot-joint articulation gate
+
+- Added a package-owned PyQt manual joint-state publisher, a dedicated launch,
+  and neutral/manual/external source selection. Added the Ubuntu host launcher
+  for RViz plus the six-joint control window; displayed values use degrees or
+  millimetres while ROS messages retain radians/metres.
+- Extended package tests for manual-control order, types, limits, units,
+  launch/dependency wiring, and added a runtime TF probe for independent joint
+  motion. Updated controlled robot-integration documentation and logs.
+- Jazzy build/test passed with six reported tests. All six runtime joint probes
+  passed; neutral and articulated RViz runs loaded every mesh without resource
+  errors and shut down without residual processes.
+- Evidence remains synthetic. Physical direction/scale/zero/limit acceptance,
+  collision, IK/end-effector control, Slicer bridging, controllers, hardware,
+  and motion remain pending. No Git publication or Drive sync occurred.
+
 ## 2026-08-14 17:07:00 IST (UTC+05:30) — Approved documentation and publication checkpoint
 
 - Reconciled the complete Daily Compass against the current controlled

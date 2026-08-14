@@ -22,6 +22,7 @@ from slicer import (
     vtkMRMLMarkupsLineNode,
     vtkMRMLMarkupsPlaneNode,
     vtkMRMLMarkupsROINode,
+    vtkMRMLLinearTransformNode,
     vtkMRMLModelNode,
     vtkMRMLScalarVolumeNode,
     vtkMRMLSegmentationNode,
@@ -72,6 +73,13 @@ from DENTOGuideGeometry import (
     subtract_guide_exclusion,
 )
 from DENTOTrajectoryGeometry import infer_root_targets
+from DENTORobotPlacement import (
+    joint_positions_si_from_display,
+    local_nudge_matrix,
+    orthonormal_plane_pose,
+    robot_link_mesh_poses_mm,
+    vtk_matrix_elements,
+)
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
     BACKEND_PYTHON_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_PYTHON_ENVIRONMENT_VARIABLE,
@@ -167,6 +175,17 @@ class DENTOWorkflowParameterNode:
     templateTrimPlane: vtkMRMLMarkupsPlaneNode
     templateTrimCurve: vtkMRMLMarkupsClosedCurveNode
     finalizedTemplateShellModel: vtkMRMLModelNode
+    robotBaseTransform: vtkMRMLLinearTransformNode
+    robotMountPlane: vtkMRMLMarkupsPlaneNode
+    robotJoint1Deg: float = 0.0
+    robotJoint2Mm: float = 0.0
+    robotJoint3Deg: float = 0.0
+    robotJoint4Mm: float = 0.0
+    robotJoint5Deg: float = 0.0
+    robotJoint6Deg: float = 0.0
+    robotTranslationStepMm: float = 1.0
+    robotRotationStepDeg: float = 1.0
+    robotKeyboardNudgeEnabled: bool = False
     sceneDisplayPresetJson: str = ""
 
 
@@ -177,7 +196,7 @@ class DENTOWorkflow(ScriptedLoadableModule):
         super().__init__(parent)
         self.parent.title = _("DENTO Workflow")
         self.parent.categories = [translate("qSlicerAbstractCoreModule", "DENTOBOT")]
-        self.parent.dependencies = ["DICOM", "DynamicModeler", "Markups"]
+        self.parent.dependencies = ["DICOM", "DynamicModeler", "Markups", "Models"]
         self.parent.contributors = ["Taruneswar (IITM)"]
         self.parent.helpText = _(
             "DENTOBOT provides a focused workflow for opening a case, loading "
@@ -312,6 +331,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._templateTrimCurveNode = None
         self._restoringTemplateFinalizationCamera = False
         self._restoringTemplateTrimPlane = False
+        self._robotKeyboardShortcuts: list[qt.QShortcut] = []
+        self._robotBaseTransformNode = None
+        self._robotMountPlaneNode = None
+        self._updatingRobotPlacementUI = False
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -385,6 +408,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "vtkMRMLModelNode",
             "DENTOBOT.ModelRole",
             "FinalizedTemplateShell",
+        )
+        self.ui.robotBaseTransformSelector.addAttribute(
+            "vtkMRMLLinearTransformNode",
+            "DENTOBOT.TransformRole",
+            "RobotBase",
+        )
+        self.ui.robotMountPlaneSelector.addAttribute(
+            "vtkMRMLMarkupsPlaneNode",
+            "DENTOBOT.MarkupsRole",
+            "RobotMountPlane",
         )
         self.ui.targetDockingReferencePlaneSelector.addAttribute(
             "vtkMRMLMarkupsPlaneNode",
@@ -957,6 +990,76 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onExportFinalTemplate,
         )
+        self.ui.loadRobotModelButton.connect(
+            "clicked(bool)",
+            self.onLoadRobotModel,
+        )
+        self.ui.createRobotMountPlaneButton.connect(
+            "clicked(bool)",
+            self.onCreateRobotMountPlane,
+        )
+        self.ui.snapRobotBaseToPlaneButton.connect(
+            "clicked(bool)",
+            self.onSnapRobotBaseToPlane,
+        )
+        self.ui.flipRobotMountPlaneButton.connect(
+            "clicked(bool)",
+            self.onFlipRobotMountPlane,
+        )
+        self.ui.frameRobotButton.connect("clicked(bool)", self.onFrameRobot)
+        self.ui.resetRobotJointsButton.connect(
+            "clicked(bool)",
+            self.onResetRobotJoints,
+        )
+        self.ui.resetRobotBaseButton.connect(
+            "clicked(bool)",
+            self.onResetRobotBase,
+        )
+        self.ui.deleteRobotSetupButton.connect(
+            "clicked(bool)",
+            self.onDeleteRobotSetup,
+        )
+        for buttonName, translationAxis, rotationAxis, direction in (
+            ("robotXMinusButton", 0, None, -1.0),
+            ("robotXPlusButton", 0, None, 1.0),
+            ("robotYMinusButton", 1, None, -1.0),
+            ("robotYPlusButton", 1, None, 1.0),
+            ("robotZMinusButton", 2, None, -1.0),
+            ("robotZPlusButton", 2, None, 1.0),
+            ("robotRxMinusButton", None, 0, -1.0),
+            ("robotRxPlusButton", None, 0, 1.0),
+            ("robotRyMinusButton", None, 1, -1.0),
+            ("robotRyPlusButton", None, 1, 1.0),
+            ("robotRzMinusButton", None, 2, -1.0),
+            ("robotRzPlusButton", None, 2, 1.0),
+        ):
+            getattr(self.ui, buttonName).connect(
+                "clicked(bool)",
+                lambda checked=False, ta=translationAxis, ra=rotationAxis, d=direction:
+                    self._nudgeRobotBase(ta, ra, d),
+            )
+        for jointSpinBox in (
+            self.ui.robotJoint1SpinBox,
+            self.ui.robotJoint2SpinBox,
+            self.ui.robotJoint3SpinBox,
+            self.ui.robotJoint4SpinBox,
+            self.ui.robotJoint5SpinBox,
+            self.ui.robotJoint6SpinBox,
+        ):
+            jointSpinBox.connect("valueChanged(double)", self.onRobotJointValueChanged)
+        self.ui.robotBaseTransformSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onRobotBaseTransformSelectionChanged,
+        )
+        self.ui.robotMountPlaneSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onRobotMountPlaneSelectionChanged,
+        )
+        self.ui.robotKeyboardNudgeCheckBox.connect(
+            "toggled(bool)",
+            self.onRobotKeyboardNudgeToggled,
+        )
+        self._setupRobotKeyboardShortcuts()
 
         self._hideLegacyPost5BControls()
 
@@ -1255,6 +1358,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.templateModelingCollapsibleButton,
             self.ui.templateGuideCollapsibleButton,
             self.ui.templateFinalizationCollapsibleButton,
+            self.ui.robotPlacementCollapsibleButton,
         )
         for widget in contentWidgets:
             rootLayout.removeWidget(widget)
@@ -1652,6 +1756,436 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 item.setCheckState(qt.Qt.Checked if checked else qt.Qt.Unchecked)
                 return
 
+    def _robotJointPositionsSi(self) -> dict[str, float]:
+        if not self._parameterNode:
+            return joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+        return joint_positions_si_from_display(
+            self._parameterNode.robotJoint1Deg,
+            self._parameterNode.robotJoint2Mm,
+            self._parameterNode.robotJoint3Deg,
+            self._parameterNode.robotJoint4Mm,
+            self._parameterNode.robotJoint5Deg,
+            self._parameterNode.robotJoint6Deg,
+        )
+
+    def _setupRobotKeyboardShortcuts(self) -> None:
+        """Create disabled shortcuts; Step 6 and the explicit toggle gate them."""
+
+        if self._robotKeyboardShortcuts:
+            return
+        bindings = (
+            ("Left", 0, None, -1.0),
+            ("Right", 0, None, 1.0),
+            ("Down", 1, None, -1.0),
+            ("Up", 1, None, 1.0),
+            ("PgDown", 2, None, -1.0),
+            ("PgUp", 2, None, 1.0),
+            ("Shift+Down", None, 0, -1.0),
+            ("Shift+Up", None, 0, 1.0),
+            ("Shift+Left", None, 2, -1.0),
+            ("Shift+Right", None, 2, 1.0),
+        )
+        parent = slicer.util.mainWindow() or self.parent
+        for keySequence, translationAxis, rotationAxis, direction in bindings:
+            shortcut = qt.QShortcut(qt.QKeySequence(keySequence), parent)
+            shortcut.objectName = f"robotNudgeShortcut{keySequence.replace('+', '')}"
+            shortcut.context = qt.Qt.ApplicationShortcut
+            shortcut.enabled = False
+            shortcut.connect(
+                "activated()",
+                lambda ta=translationAxis, ra=rotationAxis, d=direction:
+                    self._onRobotKeyboardNudge(ta, ra, d),
+            )
+            self._robotKeyboardShortcuts.append(shortcut)
+
+    def _disableRobotKeyboardShortcuts(self) -> None:
+        for shortcut in self._robotKeyboardShortcuts:
+            shortcut.enabled = False
+
+    def _updateRobotKeyboardShortcutState(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        stageEntries = self._workflowStageEntries()
+        robotStageActive = bool(
+            stageEntries
+            and int(self.ui.workflowStageComboBox.currentIndex)
+            == len(stageEntries) - 1
+        )
+        enabled = bool(
+            robotStageActive
+            and self._parameterNode
+            and self._parameterNode.robotKeyboardNudgeEnabled
+            and self.logic
+            and self.logic.isRobotBaseTransformNode(
+                self._parameterNode.robotBaseTransform
+            )
+        )
+        for shortcut in self._robotKeyboardShortcuts:
+            shortcut.enabled = enabled
+        self._setRobotTransformInteractionVisible(robotStageActive)
+
+    def _onRobotKeyboardNudge(
+        self,
+        translationAxis: int | None,
+        rotationAxis: int | None,
+        direction: float,
+    ) -> None:
+        focusWidget = qt.QApplication.focusWidget()
+        if focusWidget and (
+            focusWidget.inherits("QAbstractSpinBox")
+            or focusWidget.inherits("QLineEdit")
+            or focusWidget.inherits("QTextEdit")
+        ):
+            return
+        self._nudgeRobotBase(translationAxis, rotationAxis, direction)
+
+    def _setRobotTransformInteractionVisible(self, visible: bool) -> None:
+        if not self.logic:
+            return
+        baseTransform = (
+            self._parameterNode.robotBaseTransform if self._parameterNode else None
+        )
+        planeNode = self._parameterNode.robotMountPlane if self._parameterNode else None
+        if self.logic.isRobotBaseTransformNode(baseTransform):
+            baseTransform.CreateDefaultDisplayNodes()
+            displayNode = baseTransform.GetDisplayNode()
+            if displayNode:
+                for methodName, value in (
+                    ("SetEditorVisibility", bool(visible)),
+                    ("SetHandlesInteractive", bool(visible)),
+                    ("SetTranslationHandleVisibility", bool(visible)),
+                    ("SetRotationHandleVisibility", bool(visible)),
+                    ("SetScaleHandleVisibility", False),
+                ):
+                    method = getattr(displayNode, methodName, None)
+                    if method:
+                        method(value)
+        if self.logic.isRobotMountPlaneNode(planeNode):
+            planeNode.CreateDefaultDisplayNodes()
+            displayNode = planeNode.GetDisplayNode()
+            if displayNode:
+                displayNode.SetHandlesInteractive(bool(visible))
+                displayNode.SetTranslationHandleVisibility(bool(visible))
+                displayNode.SetRotationHandleVisibility(bool(visible))
+                displayNode.SetScaleHandleVisibility(False)
+
+    def _bindRobotPlacementNodes(self, baseTransform, planeNode) -> None:
+        if self._robotBaseTransformNode is not baseTransform:
+            if self._robotBaseTransformNode:
+                self.removeObserver(
+                    self._robotBaseTransformNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onRobotPlacementNodeModified,
+                )
+            self._robotBaseTransformNode = baseTransform
+            if baseTransform:
+                self.addObserver(
+                    baseTransform,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onRobotPlacementNodeModified,
+                )
+        if self._robotMountPlaneNode is not planeNode:
+            if self._robotMountPlaneNode:
+                self.removeObserver(
+                    self._robotMountPlaneNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onRobotPlacementNodeModified,
+                )
+            self._robotMountPlaneNode = planeNode
+            if planeNode:
+                self.addObserver(
+                    planeNode,
+                    vtk.vtkCommand.ModifiedEvent,
+                    self._onRobotPlacementNodeModified,
+                )
+
+    def _onRobotPlacementNodeModified(self, caller=None, event=None) -> None:
+        del caller, event
+        if self._updatingRobotPlacementUI:
+            return
+        self._updateRobotPlacementStatus()
+
+    def _updateRobotPlacementStatus(self, message: str = "") -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        baseTransform = self._parameterNode.robotBaseTransform
+        modelCount = len(self.logic.robotModelNodes())
+        if message:
+            status = message
+            style = "color: #207227;"
+        elif not self.logic.isRobotBaseTransformNode(baseTransform) or modelCount != 7:
+            status = _("Load the seven articulated robot meshes to begin placement.")
+            style = "color: #b36b00;"
+        else:
+            matrix = vtk.vtkMatrix4x4()
+            baseTransform.GetMatrixTransformToWorld(matrix)
+            origin = tuple(matrix.GetElement(axis, 3) for axis in range(3))
+            status = _(
+                "Robot loaded (%1/7 links). Base RAS: X %2, Y %3, Z %4 mm."
+            ).replace("%1", str(modelCount)).replace(
+                "%2", f"{origin[0]:.2f}"
+            ).replace("%3", f"{origin[1]:.2f}").replace(
+                "%4", f"{origin[2]:.2f}"
+            )
+            style = "color: #207227;"
+        self.ui.robotPlacementStatusLabel.text = status
+        self.ui.robotPlacementStatusLabel.styleSheet = style
+
+    def _updateRobotPlacement(self) -> None:
+        if not self._parameterNode or not self.logic or not hasattr(self, "ui"):
+            return
+        baseTransform = self._parameterNode.robotBaseTransform
+        planeNode = self._parameterNode.robotMountPlane
+        self._bindRobotPlacementNodes(baseTransform, planeNode)
+        baseValid = self.logic.isRobotBaseTransformNode(baseTransform)
+        planeValid = self.logic.isRobotMountPlaneNode(planeNode)
+        modelCount = len(self.logic.robotModelNodes())
+        if baseValid and modelCount:
+            self.logic.updateRobotJointPoses(self._robotJointPositionsSi())
+        self._updatingRobotPlacementUI = True
+        try:
+            for button in (
+                self.ui.snapRobotBaseToPlaneButton,
+                self.ui.frameRobotButton,
+                self.ui.resetRobotJointsButton,
+                self.ui.resetRobotBaseButton,
+                self.ui.deleteRobotSetupButton,
+                self.ui.robotXMinusButton,
+                self.ui.robotXPlusButton,
+                self.ui.robotYMinusButton,
+                self.ui.robotYPlusButton,
+                self.ui.robotZMinusButton,
+                self.ui.robotZPlusButton,
+                self.ui.robotRxMinusButton,
+                self.ui.robotRxPlusButton,
+                self.ui.robotRyMinusButton,
+                self.ui.robotRyPlusButton,
+                self.ui.robotRzMinusButton,
+                self.ui.robotRzPlusButton,
+            ):
+                button.enabled = baseValid
+            self.ui.snapRobotBaseToPlaneButton.enabled = baseValid and planeValid
+            self.ui.flipRobotMountPlaneButton.enabled = planeValid
+            self.ui.robotKeyboardNudgeCheckBox.enabled = baseValid
+        finally:
+            self._updatingRobotPlacementUI = False
+        self._updateRobotPlacementStatus()
+        self._updateRobotKeyboardShortcutState()
+
+    def _clearRobotPlacement(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        self._bindRobotPlacementNodes(None, None)
+        self._disableRobotKeyboardShortcuts()
+        self._updatingRobotPlacementUI = True
+        try:
+            self.ui.robotBaseTransformSelector.setCurrentNode(None)
+            self.ui.robotMountPlaneSelector.setCurrentNode(None)
+            self.ui.robotPlacementStatusLabel.text = _(
+                "Load the seven articulated robot meshes to begin placement."
+            )
+            self.ui.robotPlacementStatusLabel.styleSheet = "color: #b36b00;"
+        finally:
+            self._updatingRobotPlacementUI = False
+
+    def onLoadRobotModel(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            baseTransform, models = self.logic.createOrUpdateRobotPlacement(
+                self._parameterNode.robotBaseTransform,
+                self._robotJointPositionsSi(),
+            )
+            self._parameterNode.robotBaseTransform = baseTransform
+            self._updateRobotPlacement()
+            self.onFrameRobot()
+            self._updateRobotPlacementStatus(
+                _("Loaded/reused %1 robot links. Drag the base handles or mount plane.")
+                .replace("%1", str(len(models)))
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onCreateRobotMountPlane(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            planeNode = self.logic.createOrResetRobotMountPlane(
+                self._parameterNode.robotMountPlane,
+                self._parameterNode.robotBaseTransform,
+            )
+            self._parameterNode.robotMountPlane = planeNode
+            try:
+                slicer.modules.markups.logic().SetActiveListID(planeNode)
+            except Exception:
+                logging.debug("Could not make the robot mount plane active.")
+            self._updateRobotPlacement()
+            self._updateRobotPlacementStatus(
+                _("Mount plane ready. Drag its handles, then click Snap Base to Plane.")
+            )
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onSnapRobotBaseToPlane(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            self.logic.snapRobotBaseToPlane(
+                self._parameterNode.robotBaseTransform,
+                self._parameterNode.robotMountPlane,
+            )
+            self._updateRobotPlacementStatus(
+                _("Robot base snapped to the mount-plane origin and orientation.")
+            )
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onFlipRobotMountPlane(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        planeNode = self._parameterNode.robotMountPlane
+        if not self.logic.isRobotMountPlaneNode(planeNode):
+            return
+        normal = np.asarray(planeNode.GetNormalWorld(), dtype=float)
+        planeNode.SetNormalWorld(tuple(float(value) for value in -normal))
+        self._updateRobotPlacementStatus(_("Mount-plane normal flipped."))
+
+    def _nudgeRobotBase(
+        self,
+        translationAxis: int | None,
+        rotationAxis: int | None,
+        direction: float,
+    ) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        translation = [0.0, 0.0, 0.0]
+        rotation = [0.0, 0.0, 0.0]
+        if translationAxis is not None:
+            translation[translationAxis] = (
+                float(direction) * self._parameterNode.robotTranslationStepMm
+            )
+        if rotationAxis is not None:
+            rotation[rotationAxis] = (
+                float(direction) * self._parameterNode.robotRotationStepDeg
+            )
+        try:
+            self.logic.nudgeRobotBase(
+                self._parameterNode.robotBaseTransform,
+                translationLocalMm=tuple(translation),
+                rotationLocalDeg=tuple(rotation),
+            )
+            self._updateRobotPlacementStatus()
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def onRobotJointValueChanged(self, value: float) -> None:
+        del value
+        if self._updatingRobotPlacementUI or not self._parameterNode or not self.logic:
+            return
+        if self.logic.robotLinkTransformNodes():
+            self.logic.updateRobotJointPoses(self._robotJointPositionsSi())
+        self._updateRobotPlacementStatus()
+
+    def onRobotBaseTransformSelectionChanged(self, transformNode) -> None:
+        if self._updatingRobotPlacementUI or not self._parameterNode:
+            return
+        self._parameterNode.robotBaseTransform = transformNode
+        self._updateRobotPlacement()
+
+    def onRobotMountPlaneSelectionChanged(self, planeNode) -> None:
+        if self._updatingRobotPlacementUI or not self._parameterNode:
+            return
+        self._parameterNode.robotMountPlane = planeNode
+        self._updateRobotPlacement()
+
+    def onRobotKeyboardNudgeToggled(self, checked: bool) -> None:
+        if self._updatingRobotPlacementUI or not self._parameterNode:
+            return
+        self._parameterNode.robotKeyboardNudgeEnabled = bool(checked)
+        self._updateRobotKeyboardShortcutState()
+
+    def onResetRobotJoints(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode:
+            return
+        wasModifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.robotJoint1Deg = 0.0
+            self._parameterNode.robotJoint2Mm = 0.0
+            self._parameterNode.robotJoint3Deg = 0.0
+            self._parameterNode.robotJoint4Mm = 0.0
+            self._parameterNode.robotJoint5Deg = 0.0
+            self._parameterNode.robotJoint6Deg = 0.0
+        finally:
+            self._parameterNode.EndModify(wasModifying)
+        self._updateRobotPlacement()
+        self._updateRobotPlacementStatus(_("All robot joints reset to selected zero."))
+
+    def onResetRobotBase(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        baseTransform = self._parameterNode.robotBaseTransform
+        if not self.logic.isRobotBaseTransformNode(baseTransform):
+            return
+        matrix = vtk.vtkMatrix4x4()
+        matrix.Identity()
+        baseTransform.SetAndObserveTransformNodeID(None)
+        baseTransform.SetMatrixTransformToParent(matrix)
+        self._updateRobotPlacementStatus(_("Robot base reset to Slicer world RAS."))
+
+    def onFrameRobot(self, checked: bool = False) -> None:
+        del checked
+        if not self.logic:
+            return
+        boundsList = []
+        for modelNode in self.logic.robotModelNodes():
+            bounds = [0.0] * 6
+            modelNode.GetRASBounds(bounds)
+            if np.all(np.isfinite(bounds)):
+                boundsList.append(bounds)
+        if not boundsList:
+            return
+        combined = (
+            min(bounds[0] for bounds in boundsList),
+            max(bounds[1] for bounds in boundsList),
+            min(bounds[2] for bounds in boundsList),
+            max(bounds[3] for bounds in boundsList),
+            min(bounds[4] for bounds in boundsList),
+            max(bounds[5] for bounds in boundsList),
+        )
+        self._frameRasBoundsInViews(combined)
+
+    def onDeleteRobotSetup(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Delete the simulation-only robot meshes, link transforms, base "
+                "transform, and mount plane from this scene?"
+            ),
+            windowTitle=_("Delete Step 6 robot setup"),
+        ):
+            return
+        removed = self.logic.deleteRobotPlacement(
+            self._parameterNode.robotBaseTransform,
+            self._parameterNode.robotMountPlane,
+        )
+        wasModifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.robotBaseTransform = None
+            self._parameterNode.robotMountPlane = None
+            self._parameterNode.robotKeyboardNudgeEnabled = False
+        finally:
+            self._parameterNode.EndModify(wasModifying)
+        self._clearRobotPlacement()
+        logging.info("Deleted %d Step 6 robot placement nodes", len(removed))
+
     def _workflowStageEntries(self) -> list[tuple[str, object]]:
         """Return the ordered clinical/research workflow sections.
 
@@ -1669,6 +2203,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             (_("5A · Support Surface"), self.ui.templateModelingCollapsibleButton),
             (_("5B · Shell and Guide Fusion"), self.ui.templateGuideCollapsibleButton),
             (_("5C · Verify and Export"), self.ui.templateFinalizationCollapsibleButton),
+            (_("6 · Robot Placement"), self.ui.robotPlacementCollapsibleButton),
         ]
 
     def _setupWorkflowNavigation(self) -> None:
@@ -2829,6 +3364,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateWorkflowNavigationButtons()
         self._activateWorkflowViewStage(index, stageChanged=stageChanged)
         self._updateWorkflowNavigationRecommendation()
+        self._updateRobotKeyboardShortcutState()
         if ensureVisible:
             qt.QTimer.singleShot(
                 0,
@@ -2921,6 +3457,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def cleanup(self) -> None:
         self._isCleaningUp = True
+        self._setRobotTransformInteractionVisible(False)
+        self._disableRobotKeyboardShortcuts()
         self._hideViewControlsPalette(preservePreference=True)
         self._cancelBackendProcess(updateStatus=False)
         self._restoreTrajectoryVerificationViewState(updateUi=False)
@@ -2939,9 +3477,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def enter(self) -> None:
         self._addSceneObservers()
         self.initializeParameterNode()
+        self._updateRobotKeyboardShortcutState()
         qt.QTimer.singleShot(0, self._restoreViewControlsPaletteOnEnter)
 
     def exit(self) -> None:
+        self._setRobotTransformInteractionVisible(False)
+        self._disableRobotKeyboardShortcuts()
         self._hideViewControlsPalette(preservePreference=True)
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreCrossViewNavigation(updateUi=False)
@@ -3236,6 +3777,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._clearTemplateModeling()
             self._clearTemplateGuide()
             self._clearTemplateFinalization()
+            self._clearRobotPlacement()
 
     def _newlyLoadedDicomVolume(self) -> vtkMRMLScalarVolumeNode | None:
         if self._volumeNodeIdsBeforeDICOM is None or not self.logic:
@@ -3287,6 +3829,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateTemplateModeling()
         self._updateTemplateGuide()
         self._updateTemplateFinalization()
+        self._updateRobotPlacement()
         self._updateWorkflowNavigationRecommendation()
         self._refreshWorkflowViewAfterStateChange()
 
@@ -12973,6 +13516,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE
     )
     REVIEW_METADATA_VERSION = "1.0"
+    ROBOT_PLACEMENT_SCHEMA_VERSION = "0.1"
+    ROBOT_BASE_ROLE = "RobotBase"
+    ROBOT_LINK_POSE_ROLE = "RobotLinkPose"
+    ROBOT_LINK_MODEL_ROLE = "RobotLink"
+    ROBOT_MOUNT_PLANE_ROLE = "RobotMountPlane"
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
     SOURCE_VOLUME_REFERENCE_ROLE = "DENTOBOT.SourceVolume"
     SEGMENTATION_2D_RENDERING_MODE_ATTRIBUTE = (
@@ -13145,6 +13693,315 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
 
     def getParameterNode(self) -> DENTOWorkflowParameterNode:
         return DENTOWorkflowParameterNode(super().getParameterNode())
+
+    @staticmethod
+    def _numpyFromVtkMatrix(matrix: vtk.vtkMatrix4x4) -> np.ndarray:
+        return np.asarray(
+            [
+                [matrix.GetElement(row, column) for column in range(4)]
+                for row in range(4)
+            ],
+            dtype=float,
+        )
+
+    @staticmethod
+    def _vtkFromNumpyMatrix(matrix: np.ndarray) -> vtk.vtkMatrix4x4:
+        result = vtk.vtkMatrix4x4()
+        for row, values in enumerate(vtk_matrix_elements(matrix)):
+            for column, value in enumerate(values):
+                result.SetElement(row, column, value)
+        return result
+
+    @staticmethod
+    def robotDescriptionPaths() -> tuple[Path, Path]:
+        moduleDirectory = Path(__file__).resolve().parent
+        candidates = (
+            moduleDirectory.parent / "dentobot_description",
+            moduleDirectory / "Resources" / "RobotDescription",
+        )
+        for packageRoot in candidates:
+            urdfPath = packageRoot / "urdf" / "dentobot.urdf"
+            if urdfPath.is_file() and (packageRoot / "meshes").is_dir():
+                return urdfPath, packageRoot
+        raise RuntimeError(
+            _(
+                "The tracked DENTOBOT URDF/STL resources are unavailable. "
+                "Rebuild/reinstall the extension or restore dentobot_description."
+            )
+        )
+
+    @classmethod
+    def isRobotBaseTransformNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLLinearTransformNode")
+            and node.GetAttribute("DENTOBOT.TransformRole") == cls.ROBOT_BASE_ROLE
+        )
+
+    @classmethod
+    def isRobotMountPlaneNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsPlaneNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole") == cls.ROBOT_MOUNT_PLANE_ROLE
+        )
+
+    @classmethod
+    def robotModelNodes(cls) -> list[vtkMRMLModelNode]:
+        return [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if node.GetAttribute("DENTOBOT.ModelRole") == cls.ROBOT_LINK_MODEL_ROLE
+        ]
+
+    @classmethod
+    def robotLinkTransformNodes(cls) -> list[vtkMRMLLinearTransformNode]:
+        return [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode")
+            if node.GetAttribute("DENTOBOT.TransformRole") == cls.ROBOT_LINK_POSE_ROLE
+        ]
+
+    @staticmethod
+    def _nodeByRobotLink(nodes: list, linkName: str):
+        return next(
+            (
+                node
+                for node in nodes
+                if node.GetAttribute("DENTOBOT.RobotLinkName") == linkName
+            ),
+            None,
+        )
+
+    def createOrUpdateRobotPlacement(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode | None,
+        jointPositionsSi: dict[str, float],
+    ) -> tuple[vtkMRMLLinearTransformNode, list[vtkMRMLModelNode]]:
+        """Load/reuse STL links and parent their URDF FK under one Slicer base."""
+
+        if baseTransform and not self.isRobotBaseTransformNode(baseTransform):
+            raise ValueError(_("Select the DENTOBOT Step 6 robot-base transform."))
+        if not baseTransform:
+            baseTransform = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLLinearTransformNode",
+                "[Step 6] DENTO Robot Base Placement",
+            )
+            identity = vtk.vtkMatrix4x4()
+            identity.Identity()
+            baseTransform.SetMatrixTransformToParent(identity)
+        baseTransform.SetName("[Step 6] DENTO Robot Base Placement")
+        baseTransform.SetAndObserveTransformNodeID(None)
+        baseTransform.SetAttribute("DENTOBOT.TransformRole", self.ROBOT_BASE_ROLE)
+        baseTransform.SetAttribute(
+            "DENTOBOT.RobotPlacementSchemaVersion",
+            self.ROBOT_PLACEMENT_SCHEMA_VERSION,
+        )
+        baseTransform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+        baseTransform.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        baseTransform.CreateDefaultDisplayNodes()
+        baseDisplay = baseTransform.GetDisplayNode()
+        if baseDisplay:
+            baseDisplay.SetVisibility(True)
+            for methodName, value in (
+                ("SetEditorVisibility", True),
+                ("SetHandlesInteractive", True),
+                ("SetTranslationHandleVisibility", True),
+                ("SetRotationHandleVisibility", True),
+                ("SetScaleHandleVisibility", False),
+            ):
+                method = getattr(baseDisplay, methodName, None)
+                if method:
+                    method(value)
+
+        urdfPath, packageRoot = self.robotDescriptionPaths()
+        poses = robot_link_mesh_poses_mm(
+            urdfPath,
+            packageRoot,
+            jointPositionsSi,
+        )
+        models = self.robotModelNodes()
+        linkTransforms = self.robotLinkTransformNodes()
+        displayColors = (
+            (0.72, 0.75, 0.80),
+            (0.22, 0.55, 0.86),
+            (0.85, 0.48, 0.18),
+            (0.30, 0.70, 0.45),
+            (0.65, 0.42, 0.78),
+            (0.85, 0.75, 0.22),
+            (0.88, 0.28, 0.28),
+        )
+        resolvedModels = []
+        for index, pose in enumerate(poses):
+            model = self._nodeByRobotLink(models, pose.link_name)
+            if not model:
+                model = slicer.modules.models.logic().AddModel(
+                    str(pose.mesh_path),
+                    slicer.vtkMRMLStorageNode.CoordinateSystemRAS,
+                )
+                if not model:
+                    raise RuntimeError(
+                        _("Slicer could not load robot mesh %1.").replace(
+                            "%1", str(pose.mesh_path)
+                        )
+                    )
+                models.append(model)
+            linkTransform = self._nodeByRobotLink(linkTransforms, pose.link_name)
+            if not linkTransform:
+                linkTransform = slicer.mrmlScene.AddNewNodeByClass(
+                    "vtkMRMLLinearTransformNode",
+                    f"[Step 6] DENTO {pose.link_name} URDF Pose",
+                )
+                linkTransforms.append(linkTransform)
+            linkTransform.SetName(f"[Step 6] DENTO {pose.link_name} URDF Pose")
+            linkTransform.SetAttribute(
+                "DENTOBOT.TransformRole",
+                self.ROBOT_LINK_POSE_ROLE,
+            )
+            linkTransform.SetAttribute("DENTOBOT.RobotLinkName", pose.link_name)
+            linkTransform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+            linkTransform.SetMatrixTransformToParent(
+                self._vtkFromNumpyMatrix(pose.matrix_base_from_mesh_mm)
+            )
+            linkTransform.SetAndObserveTransformNodeID(baseTransform.GetID())
+
+            model.SetName(f"[Step 6] DENTO Robot {pose.link_name}")
+            model.SetAttribute("DENTOBOT.ModelRole", self.ROBOT_LINK_MODEL_ROLE)
+            model.SetAttribute("DENTOBOT.RobotLinkName", pose.link_name)
+            model.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+            model.SetAttribute("DENTOBOT.SourceMeshPath", str(pose.mesh_path))
+            model.SetAndObserveTransformNodeID(linkTransform.GetID())
+            model.CreateDefaultDisplayNodes()
+            modelDisplay = model.GetDisplayNode()
+            if modelDisplay:
+                modelDisplay.SetVisibility(True)
+                modelDisplay.SetOpacity(1.0)
+                modelDisplay.SetColor(*displayColors[index % len(displayColors)])
+            resolvedModels.append(model)
+        return baseTransform, resolvedModels
+
+    def updateRobotJointPoses(self, jointPositionsSi: dict[str, float]) -> int:
+        """Update link-local transforms while preserving the world base pose."""
+
+        urdfPath, packageRoot = self.robotDescriptionPaths()
+        poses = robot_link_mesh_poses_mm(urdfPath, packageRoot, jointPositionsSi)
+        linkTransforms = self.robotLinkTransformNodes()
+        updated = 0
+        for pose in poses:
+            transformNode = self._nodeByRobotLink(linkTransforms, pose.link_name)
+            if not transformNode:
+                continue
+            transformNode.SetMatrixTransformToParent(
+                self._vtkFromNumpyMatrix(pose.matrix_base_from_mesh_mm)
+            )
+            updated += 1
+        return updated
+
+    def createOrResetRobotMountPlane(
+        self,
+        planeNode: vtkMRMLMarkupsPlaneNode | None,
+        baseTransform: vtkMRMLLinearTransformNode | None,
+    ) -> vtkMRMLMarkupsPlaneNode:
+        if planeNode and not self.isRobotMountPlaneNode(planeNode):
+            raise ValueError(_("Select the DENTOBOT Step 6 robot mount plane."))
+        planeNode = planeNode or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsPlaneNode",
+            "[Step 6] DENTO Robot Mount Plane",
+        )
+        if not planeNode:
+            raise RuntimeError(_("Slicer could not create the robot mount plane."))
+        baseMatrix = vtk.vtkMatrix4x4()
+        baseMatrix.Identity()
+        if baseTransform:
+            baseTransform.GetMatrixTransformToWorld(baseMatrix)
+        planeNode.SetName("[Step 6] DENTO Robot Mount Plane")
+        planeNode.SetPlaneType(planeNode.PlaneTypePointNormal)
+        if hasattr(planeNode, "SetNormalPointRequired"):
+            planeNode.SetNormalPointRequired(False)
+        planeNode.SetOriginWorld(
+            tuple(baseMatrix.GetElement(axis, 3) for axis in range(3))
+        )
+        planeNode.SetNormalWorld(
+            tuple(baseMatrix.GetElement(axis, 2) for axis in range(3))
+        )
+        planeNode.SetSize(120.0, 120.0)
+        planeNode.SetLocked(False)
+        planeNode.SetSelectable(True)
+        planeNode.SetAttribute("DENTOBOT.MarkupsRole", self.ROBOT_MOUNT_PLANE_ROLE)
+        planeNode.SetAttribute(
+            "DENTOBOT.RobotPlacementSchemaVersion",
+            self.ROBOT_PLACEMENT_SCHEMA_VERSION,
+        )
+        planeNode.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+        planeNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        planeNode.CreateDefaultDisplayNodes()
+        displayNode = planeNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetVisibility2D(True)
+            displayNode.SetVisibility3D(True)
+            displayNode.SetOpacity(0.28)
+            displayNode.SetColor(0.15, 0.80, 0.95)
+            displayNode.SetHandlesInteractive(True)
+            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetRotationHandleVisibility(True)
+            displayNode.SetScaleHandleVisibility(False)
+            displayNode.SetPointLabelsVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(False)
+        return planeNode
+
+    def snapRobotBaseToPlane(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode,
+        planeNode: vtkMRMLMarkupsPlaneNode,
+    ) -> np.ndarray:
+        if not self.isRobotBaseTransformNode(baseTransform):
+            raise ValueError(_("Load or select the DENTOBOT robot base first."))
+        if not self.isRobotMountPlaneNode(planeNode):
+            raise ValueError(_("Create or select the DENTOBOT mount plane first."))
+        planeMatrix = vtk.vtkMatrix4x4()
+        planeNode.GetObjectToWorldMatrix(planeMatrix)
+        snapped = orthonormal_plane_pose(self._numpyFromVtkMatrix(planeMatrix))
+        baseTransform.SetAndObserveTransformNodeID(None)
+        baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(snapped))
+        return snapped
+
+    def nudgeRobotBase(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode,
+        *,
+        translationLocalMm: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        rotationLocalDeg: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> np.ndarray:
+        if not self.isRobotBaseTransformNode(baseTransform):
+            raise ValueError(_("Load or select the DENTOBOT robot base first."))
+        currentVtk = vtk.vtkMatrix4x4()
+        baseTransform.GetMatrixTransformToWorld(currentVtk)
+        nudged = local_nudge_matrix(
+            self._numpyFromVtkMatrix(currentVtk),
+            translation_local_mm=translationLocalMm,
+            rotation_local_deg=rotationLocalDeg,
+        )
+        baseTransform.SetAndObserveTransformNodeID(None)
+        baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(nudged))
+        return nudged
+
+    def deleteRobotPlacement(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode | None,
+        planeNode: vtkMRMLMarkupsPlaneNode | None,
+    ) -> list[str]:
+        nodes = [*self.robotModelNodes(), *self.robotLinkTransformNodes()]
+        if self.isRobotBaseTransformNode(baseTransform):
+            nodes.append(baseTransform)
+        if self.isRobotMountPlaneNode(planeNode):
+            nodes.append(planeNode)
+        removed = []
+        for node in dict.fromkeys(nodes):
+            if slicer.mrmlScene.IsNodePresent(node):
+                removed.append(node.GetName())
+                slicer.mrmlScene.RemoveNode(node)
+        return removed
 
     @classmethod
     def launcherBackendConfiguration(
@@ -23425,6 +24282,8 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowTrajectoryBacktrackingAfterSceneReload",
             "test_DENTOWorkflowWorkflowDisplaySelection",
             "test_DENTOWorkflowWorkflowNavigationWidget",
+            "test_DENTOWorkflowRobotPlacementLogic",
+            "test_DENTOWorkflowRobotPlacementWidget",
             "test_DENTOWorkflowViewControlsPaletteWidget",
             "test_DENTOWorkflowCompleteTemplateBuildCaching",
             "test_DENTOWorkflowSceneDisplayPresetWidget",
@@ -25133,7 +25992,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
         widget.initializeParameterNode()
 
-        self.assertEqual(widget.ui.workflowStageComboBox.count, 9)
+        self.assertEqual(widget.ui.workflowStageComboBox.count, 10)
         self.assertEqual(widget._recommendedWorkflowStageIndex(), 0)
         self.assertEqual(widget.ui.workflowStageComboBox.currentIndex, 0)
         self.assertFalse(widget.ui.caseCollapsibleButton.collapsed)
@@ -26373,6 +27232,182 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.delayDisplay(
             "DENTOWorkflow widget trajectory restoration and visibility test passed"
         )
+
+    def test_DENTOWorkflowRobotPlacementLogic(self) -> None:
+        """Load articulated STLs and exercise plane snap plus local base nudges."""
+
+        logic = DENTOWorkflowLogic()
+        parameterNode = logic.getParameterNode()
+        self.assertIsNone(parameterNode.robotBaseTransform)
+        self.assertIsNone(parameterNode.robotMountPlane)
+        self.assertAlmostEqual(parameterNode.robotTranslationStepMm, 1.0)
+        self.assertAlmostEqual(parameterNode.robotRotationStepDeg, 1.0)
+        self.assertFalse(parameterNode.robotKeyboardNudgeEnabled)
+
+        zeroPositions = joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+        baseTransform, models = logic.createOrUpdateRobotPlacement(
+            None,
+            zeroPositions,
+        )
+        parameterNode.robotBaseTransform = baseTransform
+        self.assertTrue(logic.isRobotBaseTransformNode(baseTransform))
+        self.assertTrue(baseTransform.GetName().startswith("[Step 6]"))
+        self.assertEqual(len(models), 7)
+        self.assertEqual(len(logic.robotLinkTransformNodes()), 7)
+        for modelNode in models:
+            self.assertIsNotNone(modelNode.GetPolyData())
+            self.assertGreater(modelNode.GetPolyData().GetNumberOfPoints(), 0)
+            linkTransform = modelNode.GetParentTransformNode()
+            self.assertIsNotNone(linkTransform)
+            self.assertIs(linkTransform.GetParentTransformNode(), baseTransform)
+        linkOneModel = logic._nodeByRobotLink(models, "link-1")
+        rawReader = vtk.vtkSTLReader()
+        rawReader.SetFileName(linkOneModel.GetAttribute("DENTOBOT.SourceMeshPath"))
+        rawReader.Update()
+        self.assertTrue(
+            np.allclose(
+                linkOneModel.GetPolyData().GetBounds(),
+                rawReader.GetOutput().GetBounds(),
+                atol=1e-6,
+            )
+        )
+
+        linkFiveTransform = logic._nodeByRobotLink(
+            logic.robotLinkTransformNodes(),
+            "link-5",
+        )
+        before = vtk.vtkMatrix4x4()
+        linkFiveTransform.GetMatrixTransformToParent(before)
+        movedPositions = dict(zeroPositions)
+        movedPositions["link-4_Slider-4"] = 0.01
+        self.assertEqual(logic.updateRobotJointPoses(movedPositions), 7)
+        after = vtk.vtkMatrix4x4()
+        linkFiveTransform.GetMatrixTransformToParent(after)
+        self.assertLess(
+            after.GetElement(0, 3) - before.GetElement(0, 3),
+            -9.99,
+        )
+
+        planeNode = logic.createOrResetRobotMountPlane(None, baseTransform)
+        parameterNode.robotMountPlane = planeNode
+        self.assertTrue(logic.isRobotMountPlaneNode(planeNode))
+        self.assertTrue(planeNode.GetName().startswith("[Step 6]"))
+        self.assertFalse(planeNode.GetLocked())
+        self.assertTrue(planeNode.GetSelectable())
+        planeNode.SetOriginWorld((10.0, 20.0, 30.0))
+        planeNode.SetNormalWorld((0.0, 1.0, 0.0))
+        snapped = logic.snapRobotBaseToPlane(baseTransform, planeNode)
+        self.assertTrue(np.allclose(snapped[:3, 3], (10.0, 20.0, 30.0)))
+        self.assertTrue(np.allclose(snapped[:3, 2], (0.0, 1.0, 0.0)))
+        nudged = logic.nudgeRobotBase(
+            baseTransform,
+            translationLocalMm=(0.0, 0.0, 2.0),
+        )
+        self.assertTrue(np.allclose(nudged[:3, 3], (10.0, 22.0, 30.0)))
+
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-robot-lab-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+        finally:
+            scenePath.unlink(missing_ok=True)
+        reloadedLogic = DENTOWorkflowLogic()
+        reloadedParameterNode = reloadedLogic.getParameterNode()
+        self.assertTrue(reloadedLogic.isRobotBaseTransformNode(
+            reloadedParameterNode.robotBaseTransform
+        ))
+        self.assertTrue(reloadedLogic.isRobotMountPlaneNode(
+            reloadedParameterNode.robotMountPlane
+        ))
+        self.assertEqual(len(reloadedLogic.robotModelNodes()), 7)
+        self.assertEqual(len(reloadedLogic.robotLinkTransformNodes()), 7)
+        reloadedMatrix = vtk.vtkMatrix4x4()
+        reloadedParameterNode.robotBaseTransform.GetMatrixTransformToWorld(
+            reloadedMatrix
+        )
+        self.assertTrue(np.allclose(
+            tuple(reloadedMatrix.GetElement(axis, 3) for axis in range(3)),
+            (10.0, 22.0, 30.0),
+        ))
+
+        removed = reloadedLogic.deleteRobotPlacement(
+            reloadedParameterNode.robotBaseTransform,
+            reloadedParameterNode.robotMountPlane,
+        )
+        self.assertEqual(len(removed), 16)
+        self.assertEqual(reloadedLogic.robotModelNodes(), [])
+        self.assertEqual(reloadedLogic.robotLinkTransformNodes(), [])
+        self.delayDisplay("DENTOWorkflow robot placement logic test passed")
+
+    def test_DENTOWorkflowRobotPlacementWidget(self) -> None:
+        """Exercise the Step 6 controls and shortcut safety gate."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        widget._setWorkflowStage(9, ensureVisible=False)
+        self.assertEqual(
+            widget.ui.workflowStageComboBox.itemText(9),
+            "6 · Robot Placement",
+        )
+        self.assertTrue(
+            widget.ui.robotPlacementCollapsibleButton.text.startswith("Step 6")
+        )
+        self.assertFalse(widget.ui.robotPlacementCollapsibleButton.isHidden())
+        self.assertTrue(widget.ui.caseCollapsibleButton.isHidden())
+        self.assertEqual(len(widget._robotKeyboardShortcuts), 10)
+        self.assertTrue(
+            all(not shortcut.enabled for shortcut in widget._robotKeyboardShortcuts)
+        )
+
+        widget.onLoadRobotModel()
+        parameterNode = widget._parameterNode
+        self.assertTrue(widget.logic.isRobotBaseTransformNode(
+            parameterNode.robotBaseTransform
+        ))
+        self.assertEqual(len(widget.logic.robotModelNodes()), 7)
+        widget.ui.robotKeyboardNudgeCheckBox.checked = True
+        slicer.app.processEvents()
+        self.assertTrue(parameterNode.robotKeyboardNudgeEnabled)
+        self.assertTrue(
+            all(shortcut.enabled for shortcut in widget._robotKeyboardShortcuts)
+        )
+
+        before = vtk.vtkMatrix4x4()
+        parameterNode.robotBaseTransform.GetMatrixTransformToWorld(before)
+        widget._nudgeRobotBase(0, None, 1.0)
+        after = vtk.vtkMatrix4x4()
+        parameterNode.robotBaseTransform.GetMatrixTransformToWorld(after)
+        self.assertAlmostEqual(
+            after.GetElement(0, 3) - before.GetElement(0, 3),
+            parameterNode.robotTranslationStepMm,
+            places=6,
+        )
+
+        widget.onCreateRobotMountPlane()
+        self.assertTrue(widget.logic.isRobotMountPlaneNode(
+            parameterNode.robotMountPlane
+        ))
+        widget._setWorkflowStage(8, ensureVisible=False)
+        self.assertTrue(
+            all(not shortcut.enabled for shortcut in widget._robotKeyboardShortcuts)
+        )
+        removed = widget.logic.deleteRobotPlacement(
+            parameterNode.robotBaseTransform,
+            parameterNode.robotMountPlane,
+        )
+        self.assertEqual(len(removed), 16)
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.robotBaseTransform = None
+            parameterNode.robotMountPlane = None
+            parameterNode.robotKeyboardNudgeEnabled = False
+        finally:
+            parameterNode.EndModify(wasModifying)
+        widget._clearRobotPlacement()
+        self.delayDisplay("DENTOWorkflow robot placement widget test passed")
 
     def test_DENTOWorkflowDraftTemplateSupportModelLogic(self) -> None:
         logic = DENTOWorkflowLogic()

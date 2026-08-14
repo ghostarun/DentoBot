@@ -1,5 +1,113 @@
 # Dentobot Technical Decisions
 
+## 2026-08-14 — Make robot placement DENTOWorkflow Step 6
+
+Status: implemented and Slicer-native synthetically verified; physical-session
+placement UX, head/mouth geometry, registration, TCP, and safety acceptance
+pending
+
+Add **6 · Robot Placement** after the planning/template stages in the visible
+DENTOWorkflow sequence. Load the tracked seven STL visual models directly as
+raw RAS/CAD millimetre geometry and reproduce the tracked URDF forward chain
+with one transform per link under one persistent editable robot-base transform.
+Joint controls remain in the selected-zero display units: degrees for rotary
+joints and millimetres for prismatic joints.
+
+Represent a provisional head/forehead mounting surface with an unlocked
+`vtkMRMLMarkupsPlaneNode`. Let the researcher drag its native translation and
+rotation handles, then explicitly snap the robot base origin and orientation to
+that plane after removing scale/shear. Fine placement post-multiplies local-base
+translations/rotations. Provide buttons for every local axis and opt-in keyboard
+nudges, but enable shortcuts only while Step 6 is active and ignore them
+while a text or numeric editor has focus.
+
+This is an in-scene MRML experiment only. It neither subscribes to nor
+publishes ROS, defines a SlicerROS2 bridge, computes IK, commands a controller,
+or authorizes hardware motion. The plane is not a registered head mount; the
+`burr` link is not a calibrated TCP; and no head, mouth, cable, swept-volume,
+force, or clinical collision guarantee is implied.
+
+Reason: the current design iteration needs fast manual placement and
+articulation beside later head/mouth models, while the physical frame graph and
+control architecture remain deliberately unresolved. A native Slicer transform
+hierarchy makes that bounded visualization test possible without prematurely
+coupling it to ROS or robot commands.
+
+## 2026-08-14 — Adopt the photographed configuration as a draft robot zero
+
+Status: implemented and synthetically/RViz verified; engineering and physical
+zero-frame acceptance pending
+
+Treat the developer-selected manual state J1 `25.38 deg`, J2 `0 mm`, J3
+`62.46 deg`, J4 `0 mm`, J5 `1.08 deg`, and J6 `-35.28 deg` as the draft design
+zero. Absorb the four nonzero rotary values into their URDF joint origins so
+every published joint position is zero at that pose. Shift each finite rotary
+limit by the same offset, preserving its original span. This is a coordinate
+redefinition, not evidence of encoder or mechanical homing.
+
+Rotate the integration-only fixed `base_link -> link-1` transform by -90
+degrees about X. Link-1's thin local-Y mounting face then lies on the RViz XY
+plane, while the articulated chain and CAD burr origin extend above the grid.
+Negate the J4 prismatic axis but retain its positive 0–75 mm range; positive J4
+travel must therefore move primarily in negative `base_link` X.
+
+Reason: the selected pose is a more useful starting configuration for manual
+mouth-workspace exploration, a planar mounting reference makes RViz inspection
+easier, and the observed J4 direction was opposite the intended design motion.
+The received source URDF remains unchanged for traceability.
+
+## 2026-08-14 — Use 5 mm link AABBs only as draft workspace feedback
+
+Status: implemented and synthetically verified; representative head/mouth,
+physical geometry, and collision-engine acceptance pending
+
+During manual joint articulation, derive one base-frame axis-aligned bounding
+box from each transformed URDF collision mesh. Ignore direct parent-child
+pairs and warn when any other pair's Euclidean box separation is below 5 mm.
+Display the pair/distance in the manual window, publish green/red RViz box
+outlines, and report the CAD `burr` link origin in base coordinates to support
+early reach/flexibility exploration. Warnings are advisory and never block a
+joint-state update.
+
+Do not call this exact self-collision detection. Rotated AABBs are
+configuration-dependent conservative envelopes, and the URDF currently reuses
+detailed visual STLs as collision meshes. A box overlap can be a false positive
+and box clearance can miss triangle-level, swept-volume, cable, head, patient,
+or mounting interference. The burr origin is not a calibrated TCP. Human-head
+and mouth geometry will enter only through a later Slicer/MRML experiment after
+the movable robot and mounting-frame assumptions are ready.
+
+Reason: this design iteration needs rapid manual reach and flexibility
+feedback before the head mount, exact collision geometry, end-effector
+kinematics, and Slicer transform bridge are defined. The 5 mm advisory is cheap,
+visible, and appropriately bounded for that pre-initial experiment.
+
+## 2026-08-14 — Validate manual joint articulation before Slicer or IK
+
+Status: implemented and synthetically verified in Jazzy/RViz; physical CAD
+direction, scale, zero, and limit acceptance pending
+
+Make independently controlled joint-state publication and forward-TF
+inspection the next bounded robot-integration gate. The description package
+owns a simulation-only PyQt control window that presents revolute joints in
+degrees and prismatic joints in millimetres while publishing ROS-standard
+radians/metres. Its launch selects exactly one of neutral, manual, or external
+joint-state modes. It does not expose a command topic, controller,
+`ros2_control` hardware interface, Slicer bridge, inverse-kinematics solver, or
+end-effector command.
+
+Require each joint to pass an independent runtime perturbation: upstream
+frames remain fixed, the joint child exhibits the correct rotational or
+translational motion, and the downstream tool chain responds. Use RViz for
+graphical inspection of the neutral and articulated meshes, then obtain
+engineering/physical acceptance for handedness, zeros, directions, ranges,
+scale, and alignment before defining end-effector control.
+
+Reason: a valid URDF tree and a visible neutral mesh do not establish usable
+kinematics. Isolating forward articulation first makes bad axes, joint order,
+units, or CAD transforms observable without coupling them to Slicer, IK, a
+controller, or hardware motion.
+
 ## 2026-08-14 — Begin ROS integration with a description-only simulation boundary
 
 Status: implemented and synthetically verified in Jazzy; visual, physical,

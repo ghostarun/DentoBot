@@ -179,10 +179,27 @@ executable and testable across the `wsl` and `local` adapters.
 ### Use ROS 2 narrowly for description/simulation; retain the robot transport gate
 
 The verified Ubuntu/Jazzy environment now owns a simulation-only
-`dentobot_description` package for the supplied URDF, meshes, neutral joint
-states, and TF publication. This establishes a reproducible robot-description
-and visualization foundation; it does not connect Slicer to a robot, expose a
-command interface, or select the hardware-control transport.
+`dentobot_description` package for the supplied URDF, meshes, neutral/manual
+joint states, and TF publication. The bounded manual mode moves one URDF joint
+at a time in RViz so joint order, motion type, and downstream forward-TF
+behavior can be checked before end-effector control is defined. A draft 5 mm
+AABB warning compares non-adjacent link boxes and reports the CAD burr-link
+origin for early reach/flexibility exploration. The developer-selected
+photographed pose is the current draft joint zero; the link-1 mounting face is
+parallel to the RViz XY plane and positive J4 motion is reversed into negative
+base X. These are design coordinates, not calibrated mechanical/encoder zeros.
+This establishes a
+reproducible robot-description and articulation foundation; it does not
+perform exact or swept collision checking, include the head/mouth/head-mount
+geometry, create a live Slicer/ROS transform bridge, solve inverse kinematics,
+expose a command interface, or select the hardware-control transport.
+
+DENTOWorkflow Step 6 is now simulation-only Robot Placement. It loads the
+tracked URDF/STLs into an MRML transform hierarchy, permits manual joint
+changes, and places the whole robot with an editable/snappable mount plane plus
+fine local-axis controls. This is a scene-local design experiment, not
+registration, a calibrated head mount/TCP, or a connection to robot state or
+hardware.
 
 The baseline control design still uses a small transport-neutral robot adapter
 and simulation-first development. At the robotics architecture gate, broader

@@ -93,6 +93,92 @@ reported `/sbin/docker-init -- sleep infinity`, zero zombies, and no remaining
 Slicer or Xvfb process. This verifies the bounded synthetic path, not an
 overnight soak or representative segmentation peak task/memory needs.
 
+### Ubuntu robot-description/manual-articulation evidence — 2026-08-14
+
+The Jazzy container built and tested `dentobot_description` after adding
+neutral, manual, and external joint-state modes. Five direct static tests and
+the ament wrapper passed (six reported tests total). An isolated runtime probe
+published one bounded nonzero value to each movable joint in turn and checked
+TF from `base_link`: every upstream frame remained unchanged; revolute joints
+changed child orientation without child translation; prismatic joints changed
+child translation without child orientation; and the downstream `burr` frame
+responded as expected. The probe emitted
+`DENTOBOT_RUNTIME_KINEMATICS_PASS`.
+
+An Xvfb graphical run loaded the package-owned manual PyQt window and RViz.
+The ROS graph contained exactly the manual publisher and
+`robot_state_publisher`, all six zero joint states were present, and RViz
+reported no mesh/resource load errors. A separate external-state run rendered
+the nonzero vector `[0.45 rad, 0.03 m, 0.35 rad, 0.02 m, 0.4 rad, 0.5 rad]`.
+Both runs shut down without a residual robot-description process. Evidence is
+Synthetic: it verifies software forward kinematics and mesh loading, not
+physical direction, scale, calibration, collision, IK, end-effector control,
+Slicer integration, controller behavior, hardware motion, or safety.
+
+The later draft-clearance addition derives seven link AABBs from the exact
+collision STL bounds, evaluates 15 non-adjacent pairs at a 5 mm threshold, and
+publishes the outlines as a `MarkerArray`. At neutral it deterministically
+reports two zero-distance box overlaps: `link-3`/`link-5` and
+`link-3`/`pneumatic_spindle-Copy`; the CAD burr-link origin remains
+`[-40.630, -193.784, 29.233]` mm in `base_link`. Six direct static tests passed.
+In Jazzy/RViz, the marker topic had exactly one manual-node publisher and one
+RViz subscriber; the warning panel and seven green/red outlines were visually
+observed, OpenGL initialized, and shutdown left no residual process. A first
+runtime attempt rejected colcon's valid symlink-installed meshes because their
+resolved paths left the install prefix; URI-component validation replaced that
+incorrect resolved-prefix check before the passing run.
+
+This remains Synthetic AABB evidence. It is neither triangle-level nor swept-
+volume collision proof and includes no head, mouth, patient, head-mount, cable,
+or environment geometry.
+
+The subsequent developer-selected-zero update absorbed the photographed
+`[25.38 deg, 0 mm, 62.46 deg, 0 mm, 1.08 deg, -35.28 deg]` state into URDF
+origins. At q=0, pure FK and live RViz report the CAD burr-link origin as
+`[-49.565, 1.370, 197.675]` mm in the newly aligned `base_link`; all six
+published positions are zero. Link-1's collision AABB spans `Z=-22..0 mm`,
+confirming its thin mounting face is parallel to XY at the grid plane. A
+positive 10 mm J4 perturbation displaces its child approximately
+`[-9.997, 0.224, 0.000]` mm in base coordinates.
+
+Seven direct tests and eight Jazzy-reported tests passed. An isolated ROS
+domain six-joint TF probe emitted `DENTOBOT_RUNTIME_KINEMATICS_PASS`, including
+the negative-base-X J4 assertion. The isolated manual/RViz run published six
+zeros, rendered the selected upright pose and AABB markers without resource
+errors, and shut down cleanly. The developer's already-open original-domain
+manual session was not stopped and must be restarted to load the revised URDF.
+
+### Slicer Step 6 robot-placement evidence — 2026-08-14
+
+Two host-side pure geometry tests passed. They reparse the tracked URDF,
+confirm seven visual meshes, verify the selected-zero CAD burr origin, assert
+that +10 mm J4 moves link-5 primarily in negative base X, remove scale/shear
+from a mount-plane frame, and verify local-base translation/rotation nudges.
+
+Focused Slicer 5.10/SlicerROS2 Xvfb tests then loaded all seven STL files as
+explicit raw RAS geometry, created seven link-pose transform children beneath
+one base transform, verified non-empty mesh data and the parent hierarchy,
+compared loaded link-1 bounds with a direct STL read, moved J4, created and
+snapped an editable mount plane, applied a local nudge, saved/reopened an MRB
+with the base pose and all role references intact, and deleted all 16 owned
+nodes. A separate widget test exercised the Step 6 stage, seven-link
+load action, opt-in keyboard shortcut gate, local nudge, mount-plane creation,
+automatic shortcut disablement on stage exit, and cleanup. The existing
+workflow-navigation test passed with ten entries.
+
+A fresh extension CMake configure/default build copied and compiled the module
+and derived the installed RobotDescription resource tree from the one tracked
+source package. A Slicer run using only that build-tree module path resolved the
+packaged URDF/STLs, loaded seven meshes, emitted
+`DENTOBOT_PACKAGED_ROBOT_LAB_PASS`, and exited 0.
+
+Evidence is Synthetic. It verifies scene geometry, synthetic MRB persistence,
+and bounded UI behavior in headless Slicer. It does not verify physical-session
+dragging ergonomics, save/reopen of a representative head scene,
+head/mouth/mount geometry, registration, a calibrated TCP, exact or
+swept collision, ROS/SlicerROS2 streaming, IK, a controller, hardware motion,
+forces, or clinical safety.
+
 ### Ubuntu CPU segmentation baseline — 2026-08-11
 
 The same external Conda environment now contains the Ubuntu CPU inference

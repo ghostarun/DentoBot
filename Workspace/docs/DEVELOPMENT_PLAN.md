@@ -845,7 +845,7 @@ states, physical sleeve/bit fit, print orientation, material/process
 constraints, and a saved planning report. Parameter values and manual margins
 remain research inputs until the team supplies validation data.
 
-## Step 6: Registration and calibration
+## Registration and calibration prerequisite
 
 **Status:** next active design/experiment package; no implementation or
 measured TRE evidence yet
@@ -868,10 +868,12 @@ separates template reseating, redocking, registration, robot pose, and tool/TCP
 errors. FRE may be reported where applicable, but TRE at/near the drilling
 target is the primary registration metric.
 
-## Step 7: Simulated navigation
+## Step 6: Robot placement and simulated navigation
 
-**Status:** robot-description/neutral-TF foundation implemented and
-synthetically verified; navigation metrics and Slicer integration planned
+**Status:** robot description, independent manual joint articulation, and a
+simulation-only Slicer Step 6 placement slice implemented and synthetically
+verified; physical calibration, navigation metrics, end-effector control, and
+live transform bridging planned
 
 Goal: validate navigation metrics without physical hardware.
 
@@ -884,16 +886,37 @@ Potential scope:
 - sequence recording and deterministic playback
 - fault and stale-transform simulation
 
-The first bounded slice is `dentobot_description`: a package-resolvable URDF,
-the supplied visual/collision meshes, a KDL-compatible massless root, neutral
-joint-state publication, robot-state publication, TF, and optional RViz. The
-Jazzy container builds the package, its static integrity tests pass, and a
-headless launch resolved `base_link` to `burr` before clean shutdown. This is
-description plumbing only. Joint/frame calibration, mesh inspection,
-collision fidelity, virtual-bur/TCP semantics, metrics, sequences, faults, and
-Slicer/MRML transform bridging remain unimplemented.
+The current bounded slice is `dentobot_description`: a package-resolvable
+URDF, the supplied visual/collision meshes, a KDL-compatible massless root,
+neutral/manual/external joint-state modes, robot-state publication, TF, and
+RViz. The package-owned manual window exposes the six URDF joints individually
+without a command or hardware path. A Jazzy runtime probe independently moved
+each joint and verified upstream-frame invariance, correct child motion type,
+and downstream tool response; neutral and nonzero configurations rendered in
+RViz without mesh/resource errors. Manual mode now adds advisory 5 mm
+non-adjacent link AABBs and the current CAD burr-origin coordinates for early
+workspace/flexibility exploration. The neutral pose visibly reports two coarse
+box overlaps. The photographed manual pose is now draft q=0, the link-1
+mounting face is parallel to RViz XY with the robot above the grid, and J4
+positive travel is reversed into negative base X. This is synthetic forward-
+kinematics and conservative bounding-
+box visualization evidence only.
 
-## Step 8: Robot adapter and motion simulation
+The bounded Slicer slice is **6 · Robot Placement**. It reuses the
+tracked URDF/STLs without duplicating assets, builds seven link-pose transforms
+under one editable MRML base transform, exposes all six joint values, and adds
+an editable Markups mount plane. Explicit snapping aligns the base to the
+orthonormalized plane frame; transform handles plus local-axis buttons and
+opt-in gated keyboard shortcuts provide fine placement. This is scene-local
+manual visualization, not registration and not a ROS/SlicerROS2 bridge.
+
+Physical joint/frame calibration and graphical direction/scale acceptance,
+exact/swept/environment collision, governed head/mouth/head-mount geometry,
+virtual-bur/TCP semantics, registration, end-effector IK, live transform
+streams, metrics, sequences, faults, and controller/hardware integration remain
+unimplemented.
+
+## Step 7: Robot adapter and motion simulation
 
 **Status:** description foundation only; adapter, motion simulation, and
 transport remain planned/undecided

@@ -556,12 +556,53 @@ docker exec -it dentobot-slicerros2 bash -lc \
    ros2 launch dentobot_description description.launch.py use_rviz:=false'
 ```
 
-Omit `use_rviz:=false` only from a verified graphical session when interactive
-mesh inspection is intended. The launch starts `robot_state_publisher` and a
-DENTOBOT neutral-state publisher. The latter publishes six zero-position
-`sensor_msgs/JointState` values solely to materialize the TF tree; it exposes
-no command topic, controller, transmission, `ros2_control` hardware plugin, or
-motion path.
+For manual per-joint articulation in the Ubuntu graphical session, run from a
+host terminal:
+
+```bash
+cd /home/light-tarun/dentobot
+./scripts/launch-dentobot-manual-rviz.bash
+```
+
+The launcher checks the reusable container, builds only
+`dentobot_description`, refuses a duplicate description launch, and opens
+RViz beside the package-owned PyQt manual control window. PyQt5 is an explicit
+runtime dependency. Revolute controls display degrees, prismatic controls
+display millimetres, and published `JointState` values use ROS radians/metres.
+Move one joint at a time and verify that upstream links remain fixed, the
+joint's child has the declared rotation/translation, and downstream links
+follow. Use **Reset all to zero** between comparisons.
+
+The current draft zero is the developer-selected pose formerly displayed as
+J1 `25.38 deg`, J2 `0 mm`, J3 `62.46 deg`, J4 `0 mm`, J5 `1.08 deg`, and J6
+`-35.28 deg`. After this update all controls display zero at that pose. The
+link-1 mounting face lies parallel to RViz XY with the robot above the grid;
+positive J4 motion should move primarily in negative base X. An already-open
+launch retains the URDF it loaded at startup: close its terminal/windows and
+rerun the launcher to see the new coordinates.
+
+Manual mode also draws one base-frame AABB around each transformed collision
+mesh. Green outlines are clear; red outlines belong to a non-adjacent pair
+whose boxes are less than the default 5 mm apart. The control window lists the
+warning pairs and reports the current CAD `burr` link origin in `base_link`
+millimetres. Direct parent-child pairs are intentionally ignored. To test a
+larger advisory margin from a direct ROS launch, use for example:
+
+```bash
+ros2 launch dentobot_description manual.launch.py coarse_clearance_mm:=10.0
+```
+
+The current detailed collision meshes duplicate the visual STLs, so the AABB
+result is intentionally coarse: overlap may be a false positive and clearance
+does not prove triangle, swept-path, cable, forehead/head-mount, head/mouth, or
+patient clearance. The displayed burr origin is not a calibrated TCP.
+
+`description.launch.py` accepts `joint_state_mode:=neutral` (default),
+`manual`, or `external`; the last starts no joint-state source and is reserved
+for bounded tests/future simulation. Never run competing publishers for this
+model. Neither package-owned publisher exposes a command topic, controller,
+transmission, `ros2_control` hardware plugin, or motion path. The manual GUI
+does not command a robot.
 
 The integrated URDF preserves the supplied CAD link/joint geometry and STL
 triangles, changes mesh references to `package://` URIs, and adds only a
@@ -727,6 +768,42 @@ conceptual design, focused on the 3D Slicer medical-imaging workflow. The
 simulated transform used frame names `image_ras_test` and
 `simulated_tool_test`; it was plumbing test data, not a measured or registered
 pose.
+
+### Simulation-only Slicer Step 6 robot placement
+
+Launch the normal Ubuntu DENTOWorkflow application:
+
+```bash
+/home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash
+```
+
+In the stage selector choose **6 · Robot Placement**:
+
+1. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
+   link-pose transforms, and the editable robot-base transform.
+2. Use the six joint spin boxes for manual articulation at the current draft
+   zero. J1/J3/J5/J6 use degrees; J2/J4 use millimetres. Positive J4 follows
+   the reversed URDF direction established on 2026-08-14.
+3. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
+   translation/rotation handles to the provisional head-mount location, and
+   use **Flip Plane Normal** if base +Z should face the other way.
+4. Select **Snap Base to Mount Plane**. The base origin and orientation copy
+   from the plane, with any plane scale/shear removed.
+5. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
+   Change the translation/rotation step sizes as required. Keyboard control is
+   opt-in: arrows move local X/Y, Page Up/Down moves local Z,
+   Shift+Left/Right rotates local Z, and Shift+Up/Down rotates local X.
+
+The keyboard shortcuts are disabled outside Step 6 and while editing a text
+or numeric field. The loader intentionally requests RAS for STL files with no
+embedded coordinate-system metadata; accepting Slicer's default LPS assumption
+would mirror the raw CAD X/Y coordinates before URDF transforms are applied.
+
+This stage is MRML simulation only. It does not source ROS, launch a robot
+publisher, connect SlicerROS2, command hardware, solve IK, or perform collision
+validation. The mount plane is not a measured forehead/head-mount transform,
+and the scene contains no calibrated bur tip unless that is added through a
+later controlled calibration workflow.
 
 ## Verification commands
 

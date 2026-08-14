@@ -784,7 +784,7 @@ are excluded.
 
 `dentobot_description` is a tracked ROS 2 `ament_cmake` package containing the
 received seven-link CAD tree, seven binary STL meshes, a package-resolvable
-URDF, a neutral-state publisher, and an optional RViz configuration. A
+URDF, neutral and manual joint-state publishers, and an RViz configuration. A
 massless `base_link` and identity fixed joint sit above the supplied inertial
 root `link-1`; this is an integration frame required because KDL does not
 retain inertia on a URDF root. All six supplied movable joints remain
@@ -796,12 +796,74 @@ so the workspace bootstrap creates
 colcon discover the nested ROS package without moving it outside the tracked
 repository or reclassifying the Slicer project.
 
-The description launch publishes the URDF, six neutral zero joint positions,
-dynamic TF, and the fixed base transform. Its neutral publisher has no command
-subscriber, controller, hardware plugin, or actuation path. The current
-frame chain is therefore a synthetic kinematic/visualization model, not the
-accepted planning-to-physical registration graph. In particular, `burr` is a
-CAD link name and not yet a calibrated bur-tip/TCP frame.
+The description launch always publishes the URDF, dynamic TF, and the fixed
+base transform. Its `joint_state_mode` chooses exactly one neutral publisher,
+the package-owned PyQt manual publisher, or an external test/simulator source.
+The manual UI displays revolute/continuous joints in degrees and prismatic
+joints in millimetres, but publishes standard ROS radians/metres. Neither
+package-owned source has a command subscriber, controller, hardware plugin,
+or actuation path.
+
+A Jazzy runtime probe perturbed all six joints independently and verified that
+upstream frames stayed fixed, each child exhibited the declared revolute or
+prismatic motion, and the downstream `burr` transform responded. RViz loaded
+the neutral and articulated models without mesh/resource errors under a
+synthetic Xvfb graphical run. This is forward-kinematics and visualization
+evidence only. The current frame chain is not the accepted planning-to-
+physical registration graph; `burr` is a CAD link name, not a calibrated
+bur-tip/TCP frame, and the observed mesh directions, zeros, limits, scale, and
+alignment still require engineering/physical acceptance.
+
+Manual mode also owns a deliberately coarse workspace-feedback layer. It
+transforms each collision mesh's local STL bounds into `base_link`, encloses
+the result in a world-axis-aligned box, skips direct parent-child pairs, and
+warns below a default 5 mm box-to-box separation. The same evaluation publishes
+green/red `visualization_msgs/MarkerArray` outlines on
+`/dentobot/coarse_self_collision_boxes` and displays the current CAD `burr`
+link origin. It never rejects a state. This is not an exact mesh collision,
+swept-volume, environment, head/patient, or safety check; rotated AABBs and
+visual-mesh collision reuse make both false positives and missed real-world
+interference possible.
+
+The active draft coordinate convention absorbs the developer-selected pose
+`[25.38 deg, 0 mm, 62.46 deg, 0 mm, 1.08 deg, -35.28 deg]` into the URDF so
+the published vector is `[0, 0, 0, 0, 0, 0]` there. Finite revolute limits are
+shifted without changing span. The integration-only root applies -90 degrees
+about X: link-1's local-Y-normal mounting face is parallel to the RViz XY
+plane at `Z=0`, and the chain extends above it. J4 retains positive 0–75 mm
+coordinates but its axis is negated, making positive travel primarily negative
+base X. None of these draft choices establishes physical home, joint
+calibration, head-mount registration, or a robot command convention.
+
+### Slicer Step 6 robot-placement slice
+
+`DENTOWorkflow` now contains **6 · Robot Placement** for manual MRML workspace
+exploration. It parses the tracked URDF with a pure helper, loads the seven STL
+visual models explicitly as raw RAS/CAD millimetre geometry, and assigns each
+model a link-pose linear transform. Those seven transforms are children of one editable
+`RobotBase` linear transform, so joint changes update only the URDF-local link
+poses while base placement moves the complete assembly.
+
+The source checkout reads the adjacent `dentobot_description` package. During
+an extension build, CMake copies those same tracked files into a derived
+`Resources/RobotDescription` install tree; this supports installed modules
+without maintaining a second URDF or mesh source copy.
+
+The provisional mounting surface is an unlocked `RobotMountPlane` Markups
+plane. Native 3D translation/rotation handles let a researcher drag it beside a
+future head model; an explicit action then orthonormalizes the plane frame and
+copies its origin and orientation to the robot base. Base-transform handles,
+six local translation buttons, six local rotation buttons, configurable step
+sizes, and opt-in keyboard shortcuts provide fine placement. Keyboard shortcuts
+exist only while Step 6 is active, the opt-in toggle is set, and no text or
+numeric editor has focus.
+
+The Step 6 nodes and joint values persist in the MRML parameter node, but the
+stage is not a ROS/SlicerROS2 transform stream or `RobotAdapter`. It creates no
+publisher, subscriber, controller, IK, or hardware command. The mount plane is
+unregistered draft geometry, `base_link -> burr` remains a CAD chain rather
+than a calibrated TCP, and head/mouth/mount/cable/environment collision is
+absent.
 
 ## Robot architecture and ROS decision gate
 
