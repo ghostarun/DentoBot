@@ -77,6 +77,22 @@ Python 3.12 backend on 2026-08-06. `python -m pip check` and all 13 inference
 tests passed there. This expands test tooling only; it does not add a Slicer
 dependency, segmentation stack, model cache, or clinical evidence.
 
+### Ubuntu process-lifecycle containment — 2026-08-14
+
+The reusable Compose service runs below Docker's minimal init, has a 512-task
+ceiling, lower relative CPU scheduling weight, OOM score adjustment 500, and a
+30-second graceful stop. Synthetic Bridge B no longer relies on opaque
+`xvfb-run` lifecycle behavior: the tracked harness owns the exact Xvfb PID,
+uses a 180-second internal process-group timeout per Slicer phase, retains a
+45-second Docker-client guard, and reaps the display on every exit path.
+
+After service recreation, launcher/backend health passed. A complete synthetic
+MRML/NIfTI export, backend round trip, matching re-import, and controlled
+geometry-rejection test exited 0 under the new harness. The container then
+reported `/sbin/docker-init -- sleep infinity`, zero zombies, and no remaining
+Slicer or Xvfb process. This verifies the bounded synthetic path, not an
+overnight soak or representative segmentation peak task/memory needs.
+
 ### Ubuntu CPU segmentation baseline — 2026-08-11
 
 The same external Conda environment now contains the Ubuntu CPU inference

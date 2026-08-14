@@ -25,6 +25,84 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-14 17:07:00 IST (UTC+05:30) — Approved documentation and publication checkpoint
+
+- The developer authorized updating controlled documentation, committing and
+  non-force pushing the intended working tree, and synchronizing both existing
+  Google Drive documentation mirrors.
+- Complete Daily Compass review found only the original placeholders and no
+  researcher-entered clinical thresholds, decisions, evidence, or patient
+  data. Only the reconciliation date and the current bounded Template V0 plus
+  description-only/no-motion phase were updated.
+- The updated workbook rendered as ten pages; all ten page images were
+  visually inspected without clipping, overlap, broken tables, or missing
+  glyphs.
+- The repository-wide gate passed Python AST (29 files), Qt UI XML (two
+  files), Markdown fence checks (eight files), dependency consistency, 13
+  inference tests, and five platform-contract tests. Diff whitespace, modified
+  shell syntax, three direct description tests, DOCX ZIP integrity, and
+  Compose rendering with the documented explicit environment also passed.
+- The first direct Compose render omitted launcher-required variables and
+  failed before mutation as designed; the corrected explicit-environment
+  render passed without starting a container. Three ignored pytest bytecode
+  cache files were removed from the untracked package before staging.
+- Publication is documentation/source synchronization only. Robot motion,
+  drilling, patient-facing operations, force-pushes, and runtime/research data
+  uploads remain outside scope.
+- At 17:12 IST, the ten established top-level active Ubuntu Drive files and all
+  eight established repository-mirror files were replaced in place. The
+  previously absent Daily Compass and active dated logbooks for 2026-08-10
+  through 2026-08-14 were uploaded exactly once. Folder readback matched every
+  expected title, preserved/new ID, MIME type, and local byte size, with no
+  duplicate target title. The new Compass ID is
+  `1srRKJrQD_ObXx1slR7UqgcE4slSK3LsB`; the five new dated-log IDs are recorded
+  in the Ubuntu 2026-08-14 logbook.
+
+## 2026-08-14 16:50:57 IST (UTC+05:30) — Simulation-only robot description integration
+
+- Located the supplied model at workspace-local `data/ROS/assembly`, verified
+  the source URDF tree and binary STL structure/checksums, and preserved the
+  originals.
+- Implemented `dentobot_description`, a neutral no-command joint-state node,
+  TF launch, RViz preset, integrity tests, provenance boundary, and safe colcon
+  source link. Added a massless `base_link` only to satisfy KDL root-inertia
+  behavior; supplied movable geometry remains unchanged.
+- Resolved intermediate axis-tolerance, colcon discovery/ownership, KDL root,
+  Docker-client lifecycle, duplicate-node, and repeated-SIGINT issues. Final
+  Jazzy build/test and headless joint-state/TF/cleanup verification passed.
+- This is synthetic description evidence only. Physical dimensions, joint
+  calibration, collision geometry, TCP/docking/RAS frames, adapter/control,
+  hardware, and motion remain unresolved. No Slicer, robot, drilling, Git
+  publication, or Drive sync occurred.
+
+## 2026-08-14 15:18:25 IST (UTC+05:30) — Remote-workstation stability controls
+
+### Evidence and decision
+
+- Investigated an overnight CRD offline/whole-host lag event. Previous-boot
+  evidence showed memory pressure and service timeouts, while the development
+  container had about 620 tasks with lingering Slicer/Xvfb work and zombies.
+  No OOM kill, GPU reset, thermal event, disk error, or logged Wi-Fi loss was
+  found. The accepted containment preserves the reusable container but reaps
+  descendants, caps tasks, and favors the desktop during CPU/OOM contention.
+- A hard RAM cap was rejected pending a representative CPU-segmentation peak;
+  prematurely limiting memory could invalidate real inference.
+
+### Implementation, verification, and unresolved state
+
+- Updated Compose, the Ubuntu launcher, the synthetic Bridge B harness, and
+  controlled documentation; added a read-only workstation health command.
+- Compose/static checks and non-GUI launcher/backend health passed. The full
+  synthetic MRML/NIfTI round trip exited 0. Post-test state was docker-init PID
+  1, zero zombies, and no remaining Slicer/Xvfb process.
+- A deliberate one-second timeout exited 124 and left no runtime descendants.
+  The verified-idle container was stopped afterward and remains launcher-
+  managed on demand.
+- ShellCheck was unavailable. The GDM Wayland greeter remained near 80% of one
+  CPU core; a non-interactive sudo restart attempt failed before changing
+  state, so local authenticated restart/recheck and overnight observation are
+  pending. No Git/Drive publication or robot/hardware action occurred.
+
 ## 2026-08-11 20:09:17 IST (UTC+05:30) — Windows/Linux platform contract
 
 ### Investigation and decision

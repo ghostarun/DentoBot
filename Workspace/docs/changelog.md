@@ -21,6 +21,62 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-14 17:07:00 IST (UTC+05:30) — Approved documentation and publication checkpoint
+
+- Reconciled the complete Daily Compass against the current controlled
+  Markdown. Its editable fields still contained placeholders only, so no
+  clinical threshold, engineering decision, or acceptance claim was promoted.
+- Updated only the workbook's reconciliation date and current phase: bounded
+  Template V0 proof remains the primary work order, while the simulation-only
+  robot description may be inspected and calibrated without motion.
+- Rendered the updated workbook to ten pages and visually inspected every
+  page. No clipping, overlap, broken table, missing glyph, or unreadable field
+  was observed.
+- The developer explicitly authorized this batched Git commit/push and Google
+  Drive synchronization. Publication preserves the established two-mirror
+  Drive structure and does not authorize robot motion, drilling, patient-facing
+  activity, or upload of runtime/research data.
+
+## 2026-08-14 16:50:57 IST (UTC+05:30) — Simulation-only ROS 2 robot description integration
+
+- Added the tracked `dentobot_description` `ament_cmake` package with the
+  supplied seven-link/six-movable-joint CAD tree, seven checksum-locked binary
+  STL meshes, package-resolvable URDF, optional RViz preset, and a neutral
+  joint-state publisher with no command or hardware interface.
+- Preserved the supplied movable geometry, limits, inertials, scales, and mesh
+  bytes. Renamed the generic robot, converted mesh paths to `package://`, and
+  added only a massless `base_link` identity parent above `link-1` to remove
+  KDL's unsupported-root-inertia warning.
+- Added static integrity tests for tree connectivity, joint contracts, finite
+  unit axes, positive-definite inertias, mesh references/scales, binary STL
+  structure/bounds, and source checksums. Added a provenance/evidence boundary
+  README and the workspace bootstrap source-space link needed because colcon
+  identifies the repository root as the generic CMake Slicer extension.
+- Updated Project Context, Setup, Architecture, Development Plan, Decisions,
+  Tasks, root README, bootstrap behavior, repository logs, and the dated Ubuntu
+  logbook. Existing DENTOWorkflow changes were not modified.
+
+### Verification
+
+- Source `check_urdf`, package XML, Python compilation, bootstrap syntax and
+  idempotence, whitespace checks, and three direct pytest cases passed.
+- ROS 2 Jazzy container `colcon build` and `colcon test` passed; the result
+  summary reported no errors, failures, or skipped tests.
+- The final headless launch exposed exactly one neutral-state node and one
+  robot-state node, published all six zero joint positions, and resolved the
+  `base_link -> burr` transform. SIGINT stopped both child publishers cleanly;
+  final process and ROS-node checks were empty.
+- The first runtime iteration revealed KDL root inertia, non-forwarded client
+  shutdown, duplicate nodes, and a repeated-SIGINT teardown exception. The
+  integration root, exact-process cleanup, and idempotent teardown corrected
+  those issues. A direct `/tf_static` echo did not return before its timeout,
+  but the single transient-local publisher was present and `tf2_echo` resolved
+  the complete base-to-bur chain.
+- RViz was not launched. Physical joint/frame calibration, mesh alignment and
+  scale acceptance, collision simplification, TCP/docking frames, controllers,
+  motion, hardware, drilling, clinical use, Git publication, and Drive sync
+  remain outside this evidence.
+
 ## 2026-08-13 19:35:24 IST (UTC+05:30) — Step 4B collision-aware yaw and explicit dock confirmation
 
 - Advanced the four-independent-dock assembly to schema v3. Added a persisted

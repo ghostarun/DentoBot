@@ -4,6 +4,14 @@ services:
     container_name: dentobot-slicerros2
     network_mode: host
     ipc: host
+    # Reap orphaned Slicer/Xvfb descendants instead of leaving them below the
+    # long-running development command. Bound runaway test process creation and
+    # let the host desktop retain scheduling/OOM priority under contention.
+    init: true
+    pids_limit: 512
+    cpu_shares: 512
+    oom_score_adj: 500
+    stop_grace_period: 30s
 
     environment:
       DISPLAY: ${DISPLAY}

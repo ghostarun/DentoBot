@@ -161,11 +161,46 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
   if [[ ${container_status} == "paused" ]]; then
     printf 'Unpausing %s...\n' "${container_name}"
     docker unpause "${container_name}" >/dev/null
+    container_status="running"
+  fi
+  if [[ ${container_status} == "running" ]]; then
+    active_slicer_processes="$(
+      docker exec "${container_name}" ps -eo pid=,stat=,comm=,args= 2>/dev/null \
+        | awk '
+            $2 !~ /^Z/ &&
+            ($3 == "SlicerApp-real" ||
+             $3 == "Slicer" ||
+             ($3 == "ros2" &&
+              $0 ~ /launch slicer_ros2_module slicer\.launch\.py/)) {
+              print
+            }
+          ' || true
+    )"
+    if [[ -n ${active_slicer_processes} ]]; then
+      printf '%s\n' \
+        'A live Slicer session or Slicer test already exists in the container.' \
+        'Close it normally before starting or reconfiguring DENTO Workflow:' >&2
+      printf '%s\n' "${active_slicer_processes}" >&2
+      exit 2
+    fi
   fi
 fi
 
 printf 'Starting the DENTOBOT development container...\n'
 "${compose_command[@]}" up -d
+
+container_runtime_safeguards="$(
+  docker inspect --format \
+    '{{.HostConfig.Init}} {{.HostConfig.PidsLimit}} {{.HostConfig.CpuShares}} {{.HostConfig.OomScoreAdj}}' \
+    "${container_name}"
+)"
+if [[ ${container_runtime_safeguards} != "true 512 512 500" ]]; then
+  printf '%s\n' \
+    'The container is missing the verified workstation stability safeguards.' \
+    "Observed init/PID-limit/CPU-shares/OOM-score: ${container_runtime_safeguards}" \
+    'Expected: true 512 512 500.' >&2
+  exit 2
+fi
 
 docker exec \
   -e PYTHONPATH="${backend_source}" \
@@ -209,7 +244,8 @@ printf '%s\n' \
   "DENTO Workflow: ${module_path}" \
   "Slicer module paths: ${slicer_module_paths}" \
   "GPU render node: ${render_device}" \
-  "Slicer background priority: ${container_slicer_priority}"
+  "Slicer background priority: ${container_slicer_priority}" \
+  "Runtime safeguards (init/PIDs/CPU-shares/OOM-score): ${container_runtime_safeguards}"
 
 if [[ ${check_only} == true ]]; then
   printf 'DENTOBOT launcher check passed. GUI launch was skipped.\n'

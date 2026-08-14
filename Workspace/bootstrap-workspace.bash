@@ -39,6 +39,8 @@ install_link "${workspace_root}/docs" \
   "ros2_ws/src/DentoBot/Workspace/docs"
 install_link "${workspace_root}/scripts" \
   "ros2_ws/src/DentoBot/Workspace/scripts"
+install_link "${workspace_root}/ros2_ws/src/dentobot_description" \
+  "DentoBot/dentobot_description"
 
 if [[ ! -e ${workspace_root}/.dentobot.env ]]; then
   cp "${script_directory}/.dentobot.env.example" \

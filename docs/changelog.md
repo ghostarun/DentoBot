@@ -21,6 +21,60 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-14 17:07:00 IST (UTC+05:30) — Documentation and publication checkpoint
+
+- Reconciled the Daily Compass with the controlled Ubuntu documentation. No
+  filled working-memory entries were present, so no unverified requirement or
+  clinical claim was promoted.
+- Updated the workbook reconciliation date and current phase, then rendered
+  and visually inspected all ten pages without finding a layout defect.
+- The developer authorized a non-force Git publication and in-place Google
+  Drive documentation sync. The two established Drive mirrors remain separate;
+  no patient, runtime, model, or robot-operation data is in scope.
+
+## 2026-08-14 16:50:57 IST (UTC+05:30) — ROS description integration checkpoint
+
+- Added the simulation-only `dentobot_description` ROS 2 package, received
+  mesh copies with enforced checksums, package-resolvable URDF, neutral
+  joint-state publisher, optional RViz configuration, package tests, and
+  provenance/limitations documentation.
+- Added a KDL-compatible massless `base_link` above the unchanged supplied
+  inertial/movable tree and a bootstrap-managed source-space link so colcon can
+  discover the nested package beside the generic CMake Slicer extension.
+- Jazzy build/test passed. The final headless launch published all six neutral
+  joints, resolved `base_link -> burr`, and shut down cleanly with no remaining
+  node/process. RViz, calibration, collision, controller, hardware, and motion
+  evidence remain pending. No Git/Drive publication occurred.
+
+## 2026-08-14 15:18:25 IST (UTC+05:30) — Ubuntu remote-workstation containment
+
+### Added and changed
+
+- Added Docker init reaping, a 512-task ceiling, reduced relative CPU weight,
+  OOM preference for the host desktop, and a 30-second stop grace period to
+  the reusable SlicerROS2 service.
+- Made the launcher refuse a duplicate live Slicer session and verify the
+  applied runtime controls.
+- Bounded synthetic Slicer phases with exact Xvfb ownership and cleanup, an
+  internal process-group timeout, and an outer Docker-client guard.
+- Added a read-only workstation health report and updated controlled runtime,
+  architecture, decision, reproducibility, task, and dated-logbook records.
+
+### Verification and limits
+
+- Bash syntax, Compose rendering, whitespace checks, launcher/backend health,
+  and the complete synthetic Bridge B round trip passed. The recreated
+  container used docker-init as PID 1 and had zero zombies or remaining
+  Slicer/Xvfb processes after the test.
+- A deliberate one-second timeout exited 124 and also left no Slicer/Xvfb
+  descendant. The verified-idle container was then stopped; the launcher will
+  start it on demand.
+- ShellCheck was unavailable. Overnight observation remains pending. The GDM
+  Wayland greeter's sustained one-core use remains a host follow-up requiring
+  local sudo authentication; it was not reconfigured. No patient data,
+  inference segmentation, GUI performance acceptance, robot action, Git
+  publication, or Drive sync occurred.
+
 ## 2026-08-11 20:09:17 IST (UTC+05:30) — Shared Windows/Linux runtime contract
 
 ### Added and changed

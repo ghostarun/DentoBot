@@ -176,13 +176,20 @@ Linux Python cannot import each other's runtime objects. Slicer exports and
 imports MRML-compatible data while the backend package remains independently
 executable and testable across the `wsl` and `local` adapters.
 
-### Defer ROS
+### Use ROS 2 narrowly for description/simulation; retain the robot transport gate
 
-ROS/ROS2 is neither required nor prohibited. The baseline design uses a small
-transport-neutral robot adapter and simulation-first development. At the
-robotics architecture gate, ROS will be adopted only if concrete benefits
-such as existing drivers, MoveIt integration, multi-process coordination,
-transform tooling, or ecosystem reuse outweigh its deployment complexity.
+The verified Ubuntu/Jazzy environment now owns a simulation-only
+`dentobot_description` package for the supplied URDF, meshes, neutral joint
+states, and TF publication. This establishes a reproducible robot-description
+and visualization foundation; it does not connect Slicer to a robot, expose a
+command interface, or select the hardware-control transport.
+
+The baseline control design still uses a small transport-neutral robot adapter
+and simulation-first development. At the robotics architecture gate, broader
+ROS/MoveIt adoption will occur only if concrete benefits such as vendor
+drivers, motion-planning integration, multi-process coordination, transform
+tooling, or ecosystem reuse outweigh deployment complexity. Steps 0–5 remain
+independent of ROS.
 
 ## Core Slicer data model
 

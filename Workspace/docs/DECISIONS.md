@@ -1,5 +1,121 @@
 # Dentobot Technical Decisions
 
+## 2026-08-14 — Begin ROS integration with a description-only simulation boundary
+
+Status: implemented and synthetically verified in Jazzy; visual, physical,
+kinematic, collision, calibration, and hardware acceptance pending
+
+Track the received URDF and seven STL meshes in a standalone
+`dentobot_description` ROS 2 package. Preserve every supplied movable link,
+joint, transform, limit, inertial value, mesh scale, and triangle; change only
+the generic robot name and relative mesh paths, then add a massless
+`base_link` with an identity fixed joint above the supplied inertial root for
+KDL compatibility. Record source checksums and fail tests on unexpected mesh
+changes.
+
+Publish a deterministic six-joint neutral pose and the resulting TF tree for
+visualization. The neutral publisher has no command subscriber, controller,
+transmission, `ros2_control` plugin, hardware adapter, or motion capability.
+Keep RViz optional and do not treat a rendered mesh or resolved transform as
+evidence that joint zeros, directions, ranges, dynamics, collision geometry,
+TCP/docking frames, or physical calibration are correct.
+
+Expose the tracked nested package to colcon with a bootstrap-managed relative
+source-space symlink because the DentoBot root is already detected as the
+generic CMake Slicer extension. Build this package in the existing Jazzy
+container; do not mix its build/install/log trees with host Lyrical.
+
+Reason: the received description enables a useful simulation-first vertical
+slice now, while keeping powered motion, robot commands, safety, and the final
+ROS/MoveIt/vendor transport decision outside the Slicer and description
+processes.
+
+## 2026-08-14 — Use a compact stage wizard and an application-level view palette
+
+Status: implemented and Slicer-native verified; physical-session UX acceptance
+pending
+
+Keep only the selected top-level workflow stage visible and expanded. The
+module panel owns a fixed two-row control bar containing stage navigation,
+quick-view selection, frame/restore, a compact guidance action, and the entry
+point to a nonmodal **DENTOBOT View Controls** tool palette. Put selected-volume
+metadata inside CBCT Imaging rather than in fixed module chrome.
+
+Move the existing Elements and Display widgets into the palette instead of
+creating parallel controls. Elements is disabled before Step 4A; Display stays
+available. Store only the palette's visibility and window geometry in Qt
+application `QSettings`, so the choice follows the workstation/application and
+does not enter an MRB case. Hide the palette when the module exits and restore
+the remembered preference when it is entered again.
+
+Reason: persistent accordions and display groups consumed most of a roughly
+405-pixel-wide module panel and left too little height for the actual clinical
+task. Reparenting the authoritative widgets preserves their signals, MRML
+bindings, display-preset schema, and display-only behavior while returning the
+panel to a true task-focused wizard. This remains an extension UI improvement,
+not the later reduced custom-Slicer application.
+
+## 2026-08-14 — Bound and reap the reusable Slicer development container
+
+Status: implemented and synthetic Bridge B verified; overnight observation
+pending
+
+Keep the reusable SlicerROS2 container, but run its `sleep infinity` command
+below Docker's minimal init so exited descendants are reaped. Cap the
+container at 512 tasks, give it half the default relative CPU scheduling
+weight, set OOM score adjustment 500, and allow a 30-second graceful stop.
+Do not impose a RAM limit until representative CPU segmentation establishes a
+safe peak; an incorrect hard cap would turn valid inference into a failure.
+
+Refuse a second launcher session while a live Slicer/ROS launch exists.
+Headless Bridge B phases own and reap their exact Xvfb process and apply an
+internal process-group timeout, with an outer Docker-client guard. Provide a
+read-only health command for CRD, RAM/swap, container PIDs/zombies, active
+runtime processes, and high host CPU consumers.
+
+Reason: the failed overnight session showed memory-pressure journal flushes,
+service timeouts, CRD signaling loss, and a container with about 620 tasks,
+including lingering Slicer/Xvfb work and zombies. There was no recorded OOM
+kill, GPU reset, thermal event, disk error, or Wi-Fi disconnect. On the
+rotational system disk, swap-backed process buildup can stall the desktop long
+before an OOM kill. Reaping, bounded task creation, and contention priority
+protect the remote control plane without changing the inference environment.
+
+## 2026-08-13 — Complete-template build is cached and scene restoration follows explicit references
+
+Status: implemented and focused Slicer-native verified; representative live
+fusion/inspection acceptance pending
+
+Make the routine Step 5B action a dependency-aware complete build. It first
+preflights the current Step 5A support inputs, insertion direction, confirmed
+Step 4B four-dock assembly, and exact locked source trajectories. It then
+generates only a missing/stale directional blockout, patient-contact shell, or
+unified trajectory-guide/dock fusion. A Current patient shell is an expensive
+cached derived input and must not be regenerated for display inspection or a
+guide/dock-only rebuild. Separate fit, shell-plus-guides, and unified-only
+inspection actions alter MRML display visibility and framing only.
+
+On MRB import, the persisted singleton parameter node and its explicit MRML
+references remain authoritative. If its selected segmentation references a
+different source CBCT than the saved global slice background/input volume,
+restore the segmentation's referenced source CBCT. Never select the newest
+segmentation merely because another corrected/exported segmentation also
+exists. A deliberate authoritative-segmentation change remains destructive to
+target-specific downstream state and switches to that segmentation's own
+source volume.
+
+Store display presets as node-independent parameter sets in the MRML parameter
+node. They may include segmentation overlay/opacity/representation and CBCT
+window-level/grayscale/interpolation values, but do not bind the preset to a
+specific DICOM or segmentation node ID. Workflow element presets remain
+transient display filters and must be restored around scene save rather than
+becoming geometry or ownership state.
+
+Reason: shell voxel generation is the expensive stage; verification needs many
+display passes but no geometry rebuild. Saved-scene continuation must also be
+deterministic when one scene legitimately contains multiple volumes and
+segmentations with different coordinate frames.
+
 ## 2026-08-13 — Step 4B yaw is collision-screened, editable, and explicitly confirmed
 
 Status: schema v3 implemented and synthetically verified; representative

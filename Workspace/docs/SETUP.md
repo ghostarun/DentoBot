@@ -1,6 +1,6 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-11
+Last verified: 2026-08-14
 
 ## Scope
 
@@ -240,6 +240,11 @@ MoveIt.
   `/workspace/data/model-cache/totalsegmentator`
 - Workspace, data, and Slicer configuration bind mounts
 - Long-running `sleep infinity` command for interactive development
+- Docker's minimal init process for descendant reaping
+- a 512-task PID ceiling, half-default CPU scheduling weight, and OOM score
+  adjustment 500 so runaway development work is bounded and the host desktop
+  is favored under contention
+- a 30-second graceful container stop interval
 
 The canonical Compose file is tracked at `Workspace/compose.yaml`; the
 top-level `compose.yaml` is its compatibility symlink. Host mount sources are
@@ -436,6 +441,43 @@ OpenGL, or GPU-performance acceptance. For hardware-rendering validation, use
 the physical graphical session through GNOME Desktop Sharing/RDP and confirm
 the Intel renderer with `ReportCapabilities()` or `glxinfo -B`.
 
+### Workstation stability and live status
+
+The reusable SlicerROS2 service runs its idle command below Docker's minimal
+init, caps the container at 512 tasks, lowers its relative CPU scheduling
+weight, and raises its OOM sacrifice score. The PID cap counts threads as well
+as processes. It is intentionally generous for Slicer and CPU inference but
+prevents an abandoned test tree from consuming the whole host. No container
+RAM limit is imposed because the verified CPU segmentation workload has not
+established a safe peak-memory cap.
+
+Headless Bridge B phases own an exact host Xvfb PID and always terminate it.
+Each phase has an internal 180-second process-group timeout plus a 45-second
+outer Docker-client guard. Override the phase timeout only deliberately:
+
+```bash
+DENTOBOT_SLICER_TEST_TIMEOUT_SECONDS=300 \
+  scripts/test-mrml-nifti-roundtrip.bash
+```
+
+Before leaving the workstation, or when remote interaction feels slow, run:
+
+```bash
+scripts/check-workstation-health.bash
+systemctl is-active chrome-remote-desktop@"${USER}".service
+```
+
+The report shows RAM/swap, CRD, container CPU/memory/PIDs, zombies, active
+Slicer/Xvfb/backend processes, and top host CPU users. Save the MRB and close
+Slicer normally before intentionally recreating or stopping the container.
+
+On 2026-08-14 the post-reboot CRD host and heartbeat were active, memory had
+11 GiB available with zero swap use, and the recreated idle container used
+two tasks with zero zombies. The separate GDM Wayland greeter remained at
+about 80 percent of one CPU core. Restarting `gdm.service` requires a local
+sudo-authenticated terminal and remains an operational follow-up; do not
+disable GDM because local recovery access must remain available.
+
 ### Verified DENTOBOT Intel integrated-graphics case
 
 This workstation uses Intel Arrow Lake-S integrated graphics, the `i915`
@@ -480,6 +522,53 @@ Hardware-backed direct rendering and normal Slicer process priority are
 verified. Comparative FPS remains workload- and scene-dependent; use the same
 scene, view layout, surface visibility, and volume-rendering settings when
 measuring a performance change.
+
+## Robot-description simulation setup
+
+The first tracked ROS 2 package is
+`ros2_ws/src/DentoBot/dentobot_description`. Because the DentoBot repository
+root is also detected by colcon as the generic CMake `DENTOBOT` Slicer
+extension, the workspace exposes the nested ROS package through this relative
+source-space link:
+
+```text
+ros2_ws/src/dentobot_description -> DentoBot/dentobot_description
+```
+
+`Workspace/bootstrap-workspace.bash` creates and validates that link without
+overwriting an existing different path. Build only in the Jazzy container so
+the host Lyrical environment does not reuse the container-generated build,
+install, or log trees:
+
+```bash
+docker exec dentobot-slicerros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash &&
+   cd /workspace/ros2_ws &&
+   colcon build --symlink-install --packages-select dentobot_description'
+```
+
+Run the description without a GUI for joint-state/TF inspection:
+
+```bash
+docker exec -it dentobot-slicerros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash &&
+   source /workspace/ros2_ws/install/setup.bash &&
+   ros2 launch dentobot_description description.launch.py use_rviz:=false'
+```
+
+Omit `use_rviz:=false` only from a verified graphical session when interactive
+mesh inspection is intended. The launch starts `robot_state_publisher` and a
+DENTOBOT neutral-state publisher. The latter publishes six zero-position
+`sensor_msgs/JointState` values solely to materialize the TF tree; it exposes
+no command topic, controller, transmission, `ros2_control` hardware plugin, or
+motion path.
+
+The integrated URDF preserves the supplied CAD link/joint geometry and STL
+triangles, changes mesh references to `package://` URIs, and adds only a
+massless `base_link` plus identity fixed joint above the inertial CAD root for
+KDL compatibility. Treat joint zeros/directions/limits, masses/inertias, mesh
+scale/alignment, collision fidelity, tool/TCP/docking frames, self-collision,
+and physical calibration as unverified inputs.
 
 ## Verified container baseline
 
@@ -674,6 +763,9 @@ run_slicerros2_imaging_bridge_test.py'
 
 ## Not yet verified
 
+- Interactive RViz inspection of every DENTOBOT visual mesh and frame
+- Physical joint zero/direction/range, dynamic, collision, TCP, docking, and
+  calibration semantics for the supplied robot description
 - A custom DENTOBOT SlicerROS2 interface between Lyrical and Jazzy
 - Real DICOM/CBCT or segmentation exchange through SlicerROS2, including
   spacing, origin, direction, affine, and provenance preservation

@@ -2766,7 +2766,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       </item>
       <item>
        <widget class="ctkCollapsibleButton" name="patientContactShellGroupBox">
-        <property name="text"><string>Patient-contact shell</string></property>
+        <property name="text"><string>Fit analysis + cached patient-contact shell</string></property>
         <property name="collapsed"><bool>false</bool></property>
         <layout class="QVBoxLayout" name="patientContactShellVerticalLayout">
          <item>
@@ -2853,7 +2853,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item>
           <layout class="QHBoxLayout" name="patientContactShellButtonLayout">
            <item><widget class="QPushButton" name="analyzeTemplateUndercutsButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Analyze / Update Blockout</string></property></widget></item>
-           <item><widget class="QPushButton" name="generatePatientContactShellButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Patient-Contact Shell</string></property><property name="toolTip"><string>Use the current visible surface, insertion-direction blockout, fit clearance, shell thickness, sampling resolution, and voxel closing values.</string></property></widget></item>
+           <item><widget class="QPushButton" name="generatePatientContactShellButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Refresh Cached Patient Shell</string></property><property name="toolTip"><string>Advanced staged action: update only the patient-contact shell from the current visible surface, insertion-direction blockout, fit clearance, shell thickness, sampling resolution, and voxel closing values. The complete-template action below reuses this shell while it remains current.</string></property></widget></item>
            <item><widget class="QPushButton" name="deletePatientContactShellButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Patient-Contact Shell...</string></property></widget></item>
           </layout>
          </item>
@@ -2865,11 +2865,11 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       </item>
       <item>
        <widget class="ctkCollapsibleButton" name="templateDockingFusionGroupBox">
-        <property name="text"><string>Trajectory drill guides + Step 4B robot-dock fusion</string></property>
-        <property name="collapsed"><bool>true</bool></property>
+        <property name="text"><string>Build unified template — trajectories + four docks</string></property>
+        <property name="collapsed"><bool>false</bool></property>
         <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
-         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>Step 4B supplies four independent occlusal-plane robot/registration docks. Step 5B separately generates trajectory-aligned drill-guide sleeves and their local shell collars, attaches each robot dock to the patient shell, clips dock geometry against every protected drill-guide envelope, then restores all drill-guide and dock bores in one cropped voxel domain.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Only trajectories explicitly associated with the target or selected supporting teeth are listed. Lock each approved trajectory before fusion.</string></property></widget></item>
+         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>The primary action generates only missing or stale stages: directional blockout, cached patient shell, then trajectory-aligned drill guides and the confirmed Step 4B four-dock assembly. A current patient shell is reused unchanged when only guide/dock parameters need rebuilding. Inspection buttons change visibility only and never recompute geometry.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Read-only source list. The exact locked trajectory set used by the confirmed Step 4B dock assembly is included automatically so shell fusion cannot silently use a different drill plan.</string></property></widget></item>
          <item>
           <layout class="QFormLayout" name="templateDockingFusionFormLayout">
            <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Drill-guide exclusion clearance:</string></property></widget></item>
@@ -2882,7 +2882,14 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
            <item row="3" column="1"><widget class="qMRMLNodeComboBox" name="finalPrintableTemplateModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>finalPrintableTemplateModel</string></property></widget></item>
           </layout>
          </item>
-         <item><layout class="QHBoxLayout" name="templateDockingFusionButtonLayout"><item><widget class="QPushButton" name="generateFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Update Unified Template</string></property></widget></item><item><widget class="QPushButton" name="deleteFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Unified Template...</string></property></widget></item></layout></item>
+         <item><layout class="QHBoxLayout" name="templateDockingFusionButtonLayout"><item><widget class="QPushButton" name="generateFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Build Complete Template (Missing/Stale Stages Only)</string></property><property name="toolTip"><string>Preflight the confirmed Step 4B assembly and locked trajectories, generate only a missing/stale blockout or patient shell, then rebuild fusion only when required. Current cached geometry is never regenerated merely for inspection.</string></property></widget></item><item><widget class="QPushButton" name="deleteFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Unified Template...</string></property></widget></item></layout></item>
+         <item>
+          <layout class="QHBoxLayout" name="templateInspectionButtonLayout">
+           <item><widget class="QPushButton" name="inspectTemplateFitButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Inspect Fit / Undercuts</string></property><property name="toolTip"><string>Display the visible support, insertion direction, undercut preview, and blockout without generating geometry.</string></property></widget></item>
+           <item><widget class="QPushButton" name="inspectShellAndGuidesButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Inspect Shell + Guides</string></property><property name="toolTip"><string>Display the cached shell, trajectories, guide/dock geometry, and auxiliaries without generating geometry.</string></property></widget></item>
+           <item><widget class="QPushButton" name="inspectUnifiedTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Inspect Unified Only</string></property><property name="toolTip"><string>Isolate and frame the current unified printable template without regenerating it.</string></property></widget></item>
+          </layout>
+         </item>
          <item><widget class="QLabel" name="templateDockingFusionStatusLabel"><property name="text"><string>Generate an undercut-aware patient-contact shell first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
         </layout>
        </widget>

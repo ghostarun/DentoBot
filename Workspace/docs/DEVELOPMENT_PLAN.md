@@ -870,7 +870,8 @@ target is the primary registration metric.
 
 ## Step 7: Simulated navigation
 
-**Status:** planned
+**Status:** robot-description/neutral-TF foundation implemented and
+synthetically verified; navigation metrics and Slicer integration planned
 
 Goal: validate navigation metrics without physical hardware.
 
@@ -883,9 +884,19 @@ Potential scope:
 - sequence recording and deterministic playback
 - fault and stale-transform simulation
 
+The first bounded slice is `dentobot_description`: a package-resolvable URDF,
+the supplied visual/collision meshes, a KDL-compatible massless root, neutral
+joint-state publication, robot-state publication, TF, and optional RViz. The
+Jazzy container builds the package, its static integrity tests pass, and a
+headless launch resolved `base_link` to `burr` before clean shutdown. This is
+description plumbing only. Joint/frame calibration, mesh inspection,
+collision fidelity, virtual-bur/TCP semantics, metrics, sequences, faults, and
+Slicer/MRML transform bridging remain unimplemented.
+
 ## Step 8: Robot adapter and motion simulation
 
-**Status:** planned; transport undecided
+**Status:** description foundation only; adapter, motion simulation, and
+transport remain planned/undecided
 
 Goal: define high-level robot interaction independently of vendor transport.
 

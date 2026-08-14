@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 The consolidated implementation/evidence boundary, improvement backlog,
 clinical-accuracy questions, mechanical ambiguities, prohibited
@@ -79,6 +79,27 @@ work; an implemented or synthetic PASS is not a clinical claim.
   registration, and robot safety; convert warnings into measured gates only
   when evidence exists.
 
+### Robot description integration — active follow-up
+
+- Inspect every link, frame, and mesh in RViz from a verified graphical
+  session. Confirm handedness, assembly alignment, scale against at least one
+  measured dimension, and the neutral configuration; retain screenshots only
+  if they contain no sensitive data.
+- Obtain engineering authority for joint zero definitions, positive axes,
+  mechanical ranges, velocity/effort units and limits, masses, centers of
+  mass, inertias, and the intended robot base/end-effector/spindle/bur-tip/TCP
+  frames. The current CAD-export values remain unverified inputs.
+- Replace visual-mesh collision reuse with reviewed simplified conservative
+  collision geometry; define self-collision pairs and test representative
+  configurations before MoveIt or motion-simulation claims.
+- Add explicit docking, physical-template, robot-base, end-effector, and
+  calibrated bur-tip frames only after the frame graph and measurement source
+  for every edge are agreed. Do not infer physical registration from the
+  current `base_link -> burr` CAD transform.
+- Define the transport-neutral `RobotAdapter`, simulator state/fault contract,
+  controller/safety ownership, and ROS/MoveIt/vendor decision before adding
+  command topics or `ros2_control`. Powered motion remains unauthorized.
+
 ### Clinical visualization acceptance
 
 - Live-test Step 3's authoritative-default native mask and optional derived
@@ -105,14 +126,17 @@ work; an implemented or synthetic PASS is not a clinical claim.
 ### Immediate Step 4/5 workload — ordered
 
 1. Live-test the compact nine-stage DENTOWorkflow navigator in physical Slicer
-   session at the normal narrow module-panel width. Confirm one-section
-   accordion behavior, Previous/Next and direct stage jumps, recommended-stage
-   text after new/opened scenes, optional guidance and backend-log toggles,
-   launcher-managed path hiding, volume-details expansion, dark/light theme
-   readability, and that no existing MRML-bound control or callback regressed.
-   Confirm Step 4A presents manual placement and the optional assisted
-   initializer together, and Step 4B is the next docking/guide stage rather
-   than treating assistance as a sequential requirement.
+   session at the normal narrow module-panel width. Confirm exactly one active
+   stage is visible and expanded, Previous/Next/direct selection stay
+   synchronized, the task scroll starts at the selected stage, the compact
+   recommendation dot remains understandable by tooltip, and CBCT metadata is
+   present only inside CBCT Imaging. Exercise the nonmodal View Controls
+   palette: close/reopen it, move/resize it, leave and re-enter the module, and
+   restart Slicer to confirm its `QSettings` visibility/geometry restore without
+   becoming MRB state. Confirm Elements is disabled before Step 4A while
+   Display remains available, and check dark/light theme readability. Also
+   confirm Step 4A presents manual placement and the optional assisted
+   initializer together, and Step 4B is the next docking/guide stage.
 2. Live-test the optional assisted Step 4A trajectory initializer on
    representative one-root and two-root teeth. Confirm crown Entry placement, target-only mask
    isolation, forced target-bounds visibility, exact display restoration,
@@ -126,8 +150,8 @@ work; an implemented or synthetic PASS is not a clinical claim.
    and Continue for unlock/edit/clear/delete backtracking, and confirm Continue
    purges only reference-linked Step 4B/5 descendants while retaining the
    other trajectory and authoritative anatomy.
-3. Live-test the new global **Viewport — Elements in View** panel across every
-   Step 4A–5C stage. Exercise recommended, target-only, all-trajectories,
+3. Live-test the **View Controls → Elements** palette across every Step 4A–5C
+   stage. Exercise recommended, target-only, all-trajectories,
    target/support-mask, docks-only, undercut, shell-only, shell-and-guides,
    final-only, all, and manual checkbox selection where available. Confirm
    target bounds and each same-tooth trajectory are independently selectable;
@@ -171,6 +195,17 @@ work; an implemented or synthetic PASS is not a clinical claim.
    generated per angle.
 8. Live-test the implemented Step 5B unified fusion and Step 5C
    PASS/WARNING/FAIL gate on representative anatomy. Confirm the recorded
+   complete-build action reuses a Current cached patient shell, rebuilds only
+   missing/stale downstream guide/dock fusion, and exposes fit/undercut,
+   shell-plus-guides, and unified-only inspection without changing geometry.
+   Reopen `SampleStudy1/test1_5a.mrb` with both segmentations present and
+   confirm the persisted authoritative segmentation, target, trajectory,
+   support nodes, and its explicitly referenced `PreDentalSurgery` source CBCT
+   resume without re-selection; deliberately switching the authoritative
+   segmentation must instead clear target-specific descendants and use the new
+   segmentation's referenced source CBCT. Confirm a node-independent display
+   preset survives MRB reload and can be applied without changing masks or
+   workflow references. Then confirm the recorded
    shell-contact reinforcement creates one occupied printable volume, every
    trajectory guide hole and four dock bores remain open, stale trajectories
    or source nodes produce FAIL, and only one atomic STL is exported. Complete
@@ -377,6 +412,20 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
 
 ## Blocked or unresolved
 
+- Observe the safeguarded CRD/container workstation overnight. The 2026-08-14
+  synthetic lifecycle check passed, but an overnight stability claim remains
+  pending. The idle GDM Wayland greeter also continued to consume about 80%
+  of one CPU core after reboot; restart `gdm.service` from a local
+  sudo-authenticated terminal and remeasure before considering a persistent
+  display-manager change.
+
+- Resolve the Slicer 5.10 aggregate test-runner exit-code discrepancy. After
+  isolating every `DENTOWorkflowTest.runTest()` member with a fresh MRML scene,
+  all assertions reached the explicit PASS marker with no traceback and no
+  leftover process, but the aggregate Slicer wrapper returned 1. The same
+  affected Step 5A test and all UI/MRB/Step 5 focused runs return cleanly when
+  invoked separately; a trivial Slicer `exit(0)` also returns 0.
+
 - Custom DENTOBOT SlicerROS2 interfaces, real medical-image geometry exchange,
   and transform-semantic interoperability between host Lyrical and container
   Jazzy are unverified.
@@ -388,12 +437,55 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
   Ubuntu.
 - No Ubuntu workflow has yet been verified against robot hardware.
 - No robot hardware currently exists in the development environment; robot
-  integration remains future conceptual scope.
+  description/TF simulation has begun, but calibrated control and hardware
+  integration remain future scope.
 - The provenance of existing generated files under `ros2_ws/build` has not been
   established.
 
 ## Completed
 
+- Added the first simulation-only ROS 2 integration on 2026-08-14. The tracked
+  `dentobot_description` package contains the normalized URDF, all seven
+  checksum-locked binary STL meshes, a neutral six-joint publisher, optional
+  RViz configuration, and static integrity tests. The workspace bootstrap now
+  exposes the nested package to colcon with a safe relative symlink. Jazzy
+  package build/test passed; a headless launch published one neutral joint
+  state, one robot-description/TF graph, resolved `base_link` to `burr`, and
+  shut down cleanly with no remaining node/process. This is synthetic
+  description evidence only, not calibrated kinematics, collision, control,
+  hardware, or motion evidence.
+
+- Replaced the oversized fixed workflow chrome on 2026-08-14 with an 81-pixel
+  two-row stage/action bar, a true one-visible-stage wizard, CBCT-local volume
+  metadata, and one nonmodal Elements/Display palette that reparents the
+  existing authoritative widgets. Palette visibility and geometry use
+  application `QSettings`, not MRB state. A real Slicer main-window capture at
+  a 405-pixel module-panel width showed every fixed action reachable and only
+  the Case stage visible. Focused UI, display, MRB, trajectory, and Step 5 tests
+  exited cleanly; the isolated aggregate suite reached its explicit assertion
+  PASS marker without a traceback. Its wrapper status discrepancy is recorded
+  above. Physical-session palette placement/theme/interaction acceptance
+  remains active.
+
+- Added and verified Ubuntu workstation containment on 2026-08-14: Docker init
+  descendant reaping, a 512-task container ceiling, reduced relative CPU
+  weight, OOM preference for preserving the host desktop, a 30-second stop
+  grace period, duplicate-live-Slicer launch refusal, exact Xvfb ownership,
+  bounded headless phases, and a read-only CRD/RAM/swap/container health
+  report. Launcher/backend health and the complete synthetic Bridge B round
+  trip passed; post-test state was docker-init PID 1, zero zombies, and no
+  remaining Slicer/Xvfb process.
+
+- Fixed the representative Step 5B patient-shell four-edge failure on
+  2026-08-13. The defect was one uncapped square where the fitting-surface
+  distance band plus voxel closing reached the cropped image maximum; it was
+  not a patient-surface or blockout non-manifold junction. Cropped-domain
+  padding now includes wall thickness, the estimated half-voxel diagonal,
+  morphological reach, and two exterior background samples, with an explicit
+  zero-occupied-border invariant before contouring. `SampleStudy1/test1_5a.mrb`
+  produced one 61,552-triangle shell with zero invalid edges/border samples,
+  and the focused fallback plus full template-pipeline tests passed. Live GUI
+  inspection and physical fit/clearance acceptance remain required.
 - Fixed the saved-scene Step 5A/5B handoff on 2026-08-13. Persistent-header
   reparenting no longer leaves qMRML node selectors detached from the active
   scene, and non-geometric Markups/load-time parameter events no longer mark

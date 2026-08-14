@@ -1,0 +1,184 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="dentobot">
+    <!-- Integration-only massless root: KDL cannot retain inertia on a root link. -->
+    <link name="base_link" />
+    <link name="link-1">
+        <inertial>
+            <origin xyz="-0.013041482178924977 0.006901703795223388 0.0" rpy="0.0 0.0 0.0" />
+            <mass value="0.2395161677577307" />
+            <inertia ixx="4.457600053054018e-05" iyy="0.00014649969208489633" izz="0.00012060777865666259" ixy="-1.374936371970862e-05" iyz="-5.5777604757167865e-21" ixz="-4.462208380573429e-20" />
+        </inertial>
+        <visual name="link-1_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-1.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="link-1_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-1.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="link-2">
+        <inertial>
+            <origin xyz="1.2434497875801754e-16 -6.217248937900877e-17 0.03821428571428576" rpy="0.0 -0.0 0.0" />
+            <mass value="0.2589457744721385" />
+            <inertia ixx="0.0001684138398001815" iyy="0.00016841383980018075" izz="4.0691478845617015e-05" ixy="-7.105427357601022e-19" iyz="-4.375876964894689e-19" ixz="1.2304467608589879e-18" />
+        </inertial>
+        <visual name="link-2_visual">
+            <origin xyz="-0.1340456550807455 0.06731836565138669 8.207929121712259e-18" rpy="-2.0362061855242715 -1.5707963267948966 0" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-2.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="link-2_collision">
+            <origin xyz="-0.1340456550807455 0.06731836565138669 8.207929121712259e-18" rpy="-2.0362061855242715 -1.5707963267948966 0" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-2.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="link-3">
+        <inertial>
+            <origin xyz="-0.018435581607396664 -0.06961656589240392 -0.036709293065027536" rpy="6.842277657836021e-49 -6.842277657836022e-49 0.0" />
+            <mass value="0.4649018982845158" />
+            <inertia ixx="0.0013031223678909433" iyy="0.0010854158925765953" izz="0.0006898751232736183" ixy="-0.00023132672003454822" iyz="-0.0004606223194011877" ixz="-0.00041184761260775057" />
+        </inertial>
+        <visual name="link-3_visual">
+            <origin xyz="-0.1252668984012284 -0.07999999999999531 -0.026612105608805493" rpy="1.0156323105934312e-14 0.4654098587293747 -6.211818413415448e-17" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-3.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="link-3_collision">
+            <origin xyz="-0.1252668984012284 -0.07999999999999531 -0.026612105608805493" rpy="1.0156323105934312e-14 0.4654098587293747 -6.211818413415448e-17" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-3.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="link-4">
+        <inertial>
+            <origin xyz="-0.031927753465877604 -6.8567374000849666e-15 -0.01603427299348781" rpy="0.0 -0.0 0.0" />
+            <mass value="0.24353233551546366" />
+            <inertia ixx="5.906278844472482e-05" iyy="0.0001418351806709785" izz="0.00012095918724142242" ixy="6.93889390390723e-18" iyz="-6.505213034913028e-18" ixz="-4.1568689133350515e-05" />
+        </inertial>
+        <visual name="link-4_visual">
+            <origin xyz="-1.4434824713305261e-09 -6.501466032204917e-15 -4.044033978800599e-09" rpy="-1.062616265014733 0.3967589114181319 -1.3587991963146502" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-4.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="link-4_collision">
+            <origin xyz="-1.4434824713305261e-09 -6.501466032204917e-15 -4.044033978800599e-09" rpy="-1.062616265014733 0.3967589114181319 -1.3587991963146502" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-4.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="link-5">
+        <inertial>
+            <origin xyz="0.018953104625831423 5.790923296444817e-15 -0.009518341925041305" rpy="0.0 -3.0814879110195774e-33 8.552847072295026e-50" />
+            <mass value="0.12052441013845744" />
+            <inertia ixx="1.9513610631916208e-05" iyy="7.935288426350067e-05" izz="6.461844891668053e-05" ixy="-1.336711247352482e-07" iyz="-2.66168575341466e-07" ixz="3.029173001209464e-05" />
+        </inertial>
+        <visual name="link-5_visual">
+            <origin xyz="0.010280070990326236 0.09016700244579441 0.04322656606990571" rpy="2.07897638857506 -0.39675891141813246 1.35879919631465" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-5.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="link-5_collision">
+            <origin xyz="0.010280070990326236 0.09016700244579441 0.04322656606990571" rpy="2.07897638857506 -0.39675891141813246 1.35879919631465" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/link-5.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="pneumatic_spindle-Copy">
+        <inertial>
+            <origin xyz="0.021712572259351567 0.006446017878089912 0.03453740536453646" rpy="0.0 -0.0 0.0" />
+            <mass value="0.023393660425798164" />
+            <inertia ixx="6.707072193479277e-06" iyy="8.601798815400689e-06" izz="2.1772921384412757e-06" ixy="7.185689963891221e-08" iyz="9.736779008431328e-08" ixz="-3.458550056469578e-06" />
+        </inertial>
+        <visual name="pneumatic_spindle-Copy_visual">
+            <origin xyz="0.05494618457295404 -0.008269433599944023 0.032342388899358164" rpy="0.44718022829377824 1.1053864680655217 3.141592653589792" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/pneumatic_spindle-Copy.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="pneumatic_spindle-Copy_collision">
+            <origin xyz="0.05494618457295404 -0.008269433599944023 0.032342388899358164" rpy="0.44718022829377824 1.1053864680655217 3.141592653589792" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/pneumatic_spindle-Copy.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="burr">
+        <inertial>
+            <origin xyz="0.0014163069015514563 0.001513483224059975 -0.002820185245171638" rpy="0.0 -0.0 0.0" />
+            <mass value="0.0001726305163147505" />
+            <inertia ixx="6.397043161606286e-10" iyy="6.243240996582206e-10" izz="3.1841797258781436e-10" ixy="-1.1579628751064346e-10" iyz="2.305758475427195e-10" ixz="2.157710690507842e-10" />
+        </inertial>
+        <visual name="burr_visual">
+            <origin xyz="0.0670228255526996 -3.4113875102548262e-09 0.033659179726168546" rpy="-2.6944124252960098 -0.46540985872937485 -2.4763081801936323e-17" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/burr.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="burr_collision">
+            <origin xyz="0.0670228255526996 -3.4113875102548262e-09 0.033659179726168546" rpy="-2.6944124252960098 -0.46540985872937485 -2.4763081801936323e-17" />
+            <geometry>
+                <mesh filename="package://dentobot_description/meshes/burr.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <joint name="base_link_to_link-1" type="fixed">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+        <parent link="base_link" />
+        <child link="link-1" />
+    </joint>
+    <joint name="link-1_Revolute-1" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="1.5707963267948966 -0.0 0.0" />
+        <parent link="link-1" />
+        <child link="link-2" />
+        <axis xyz="0.0 0.0 1.0" />
+        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+    </joint>
+    <joint name="link-2_Slider-2" type="prismatic">
+        <origin xyz="0.0 0.0 0.08" rpy="-1.5707963267948966 -0.0 1.5707963267948966" />
+        <parent link="link-2" />
+        <child link="link-3" />
+        <axis xyz="0.0 0.9999999999999999 0.0" />
+        <limit lower="0.0" upper="0.08" effort="1000000" velocity="1000000" />
+    </joint>
+    <joint name="link-3_Revolute-3" type="revolute">
+        <origin xyz="-0.047122859999999996 -0.11 -0.09383196" rpy="-3.141592653589793 1.5707963267948966 0" />
+        <parent link="link-3" />
+        <child link="link-4" />
+        <axis xyz="0.8936380000000003 -5.639648652959157e-30 0.44878900000000016" />
+        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+    </joint>
+    <joint name="link-4_Slider-4" type="prismatic">
+        <origin xyz="-0.06702282999999999 0.0 -0.03365918999999999" rpy="-3.141592653589793 2.7755575615628914e-17 5.551115123125784e-17" />
+        <parent link="link-4" />
+        <child link="link-5" />
+        <axis xyz="0.893638 2.4694080114073816e-17 -0.44878900000000005" />
+        <limit lower="0.0" upper="0.075" effort="1000000" velocity="1000000" />
+    </joint>
+    <joint name="link-5_Revolute-5" type="revolute">
+        <origin xyz="-0.021752659999999997 -0.006762529999999991 0.007295090000000003" rpy="5.551115123125784e-17 -1.5707963267948966 0" />
+        <parent link="link-5" />
+        <child link="pneumatic_spindle-Copy" />
+        <axis xyz="-0.38643099999999997 -0.9016699999999997 0.194068" />
+        <limit lower="0.0" upper="6.283185" effort="1000000" velocity="1000000" />
+    </joint>
+    <joint name="pneumatic_spindle-Copy_Revolute-6" type="continuous">
+        <origin xyz="0.035401760000000004 0.0029788100000000027 0.04568638" rpy="-3.141592653589793 1.5707963267948966 0" />
+        <parent link="pneumatic_spindle-Copy" />
+        <child link="burr" />
+        <axis xyz="0.40465999999999996 0.432425 -0.805766" />
+    </joint>
+</robot>

@@ -74,6 +74,30 @@ nested checkout path:
 scripts/git-dentobot.bash status --short --branch
 ```
 
+## ROS 2 robot description
+
+The tracked `dentobot_description` package is exposed to colcon through the
+workspace bootstrap's `ros2_ws/src/dentobot_description` relative symlink.
+Build and run the simulation-only neutral description inside the Jazzy
+container:
+
+```bash
+docker exec dentobot-slicerros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash &&
+   cd /workspace/ros2_ws &&
+   colcon build --symlink-install --packages-select dentobot_description'
+
+docker exec -it dentobot-slicerros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash &&
+   source /workspace/ros2_ws/install/setup.bash &&
+   ros2 launch dentobot_description description.launch.py use_rviz:=false'
+```
+
+The launch publishes neutral joint states and TF for inspection only. It has
+no controller, command topic, hardware plugin, or motion path. See
+`dentobot_description/README.md` for provenance and unresolved calibration,
+collision, frame, and physical-verification work.
+
 ## Ubuntu interactive rendering
 
 A visible Slicer window does not prove hardware acceleration. On Ubuntu,

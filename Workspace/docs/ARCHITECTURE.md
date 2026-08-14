@@ -131,6 +131,15 @@ backend adapter prepends `wsl.exe`. Docker is not part of core planning. On
 Ubuntu, `launch-dentoworkflow.bash` starts the pinned Linux SlicerROS2 image
 and the adapter calls the mounted external Linux interpreter directly.
 
+The reusable Ubuntu container has an explicit host-stability boundary. Docker
+init reaps descendants below the idle command; a 512-task ceiling prevents an
+abandoned Slicer/Xvfb tree from exhausting host PIDs; reduced relative CPU
+weight and a positive OOM score preserve preference for the remote desktop
+under contention. Headless tests own their X display and use bounded process-
+group execution. These are development-runtime containment controls, not
+clinical or inference-performance acceptance criteria, and they do not replace
+per-run backend cancellation/cleanup.
+
 ### Active Ubuntu workspace
 
 The Ubuntu development layout preserves the DentoBot Git checkout inside the
@@ -771,6 +780,29 @@ are excluded.
 - Metrics such as FRE, target error, lateral error, angular error, and depth
   error are computed in reusable logic and displayed by the workflow UI.
 
+## Robot-description foundation
+
+`dentobot_description` is a tracked ROS 2 `ament_cmake` package containing the
+received seven-link CAD tree, seven binary STL meshes, a package-resolvable
+URDF, a neutral-state publisher, and an optional RViz configuration. A
+massless `base_link` and identity fixed joint sit above the supplied inertial
+root `link-1`; this is an integration frame required because KDL does not
+retain inertia on a URDF root. All six supplied movable joints remain
+unchanged.
+
+The repository root is also a generic CMake package for the Slicer extension,
+so the workspace bootstrap creates
+`ros2_ws/src/dentobot_description -> DentoBot/dentobot_description`. This lets
+colcon discover the nested ROS package without moving it outside the tracked
+repository or reclassifying the Slicer project.
+
+The description launch publishes the URDF, six neutral zero joint positions,
+dynamic TF, and the fixed base transform. Its neutral publisher has no command
+subscriber, controller, hardware plugin, or actuation path. The current
+frame chain is therefore a synthetic kinematic/visualization model, not the
+accepted planning-to-physical registration graph. In particular, `burr` is a
+CAD link name and not yet a calibrated bur-tip/TCP frame.
+
 ## Robot architecture and ROS decision gate
 
 Slicer communicates only with a high-level `RobotAdapter` interface:
@@ -790,14 +822,17 @@ The initial implementation is a simulator. The hardware adapter and transport
 (vendor SDK, local IPC, TCP, serial, or another protocol) are selected only
 after robot requirements are known.
 
-ROS 2/SlicerROS2 is an optional robot-integration capability, not a dependency
-of Steps 0–5. The verified ROS profile is the Ubuntu 24.04/Jazzy/Linux
-SlicerROS2 container. Current upstream SlicerROS2 1.2 does not list Windows as
-a supported build target, so native Windows Slicer remains a planning client
-without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux GUI image is an
-unverified future profile and must not be presented as native Windows module
-support. Regardless of host or transport, low-level motion and safety never
-run in the Slicer Python process.
+ROS 2 now provides the narrow robot-description/TF simulation foundation on
+Ubuntu; SlicerROS2 remains an optional integration capability and Steps 0–5
+do not depend on either. The verified ROS profile is the Ubuntu
+24.04/Jazzy/Linux SlicerROS2 container. Current upstream SlicerROS2 1.2 does
+not list Windows as a supported build target, so native Windows Slicer remains
+a planning client without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux
+GUI image is an unverified future profile and must not be presented as native
+Windows module support. The description package does not decide whether the
+future adapter uses ROS, MoveIt, a vendor SDK, or another transport. Regardless
+of host or transport, low-level motion and safety never run in the Slicer
+Python process.
 
 ## Packaging and deployment
 

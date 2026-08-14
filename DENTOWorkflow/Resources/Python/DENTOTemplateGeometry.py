@@ -1596,10 +1596,38 @@ def regularize_patient_contact_shell(
             max(source[2 * axis + 1] for source in bounds_sources),
         )
     )
+    # Keep every occupied sample away from the cropped image boundary.  The
+    # fitting-surface fallback extends by shell thickness plus a half-voxel
+    # diagonal, and morphological closing can grow it by one or more complete
+    # kernel radii before erosion.  The previous thickness + 2 voxels padding
+    # did not include both effects; on representative anatomy the last occupied
+    # sample reached the image maximum and Flying Edges therefore emitted one
+    # uncapped four-edge square.  This padding is still local to the selected
+    # support ROI, but includes the complete processing reach plus two exterior
+    # background samples required for a closed contour.
+    estimated_half_voxel_diagonal = (
+        0.5 * math.sqrt(3.0) * requested_spacing
+    )
+    closing_radius_voxels_estimate = (
+        int(math.ceil(closing / requested_spacing))
+        if closing > 0.0
+        else 0
+    )
+    closing_reach_estimate = (
+        closing_radius_voxels_estimate * requested_spacing
+    )
+    exterior_background_margin = 2.0 * requested_spacing
     padding = max(
-        2.0 * requested_spacing,
-        clearance + requested_spacing,
-        (thickness + 2.0 * requested_spacing) if thickness is not None else 0.0,
+        exterior_background_margin + closing_reach_estimate,
+        clearance + exterior_background_margin + closing_reach_estimate,
+        (
+            thickness
+            + estimated_half_voxel_diagonal
+            + closing_reach_estimate
+            + exterior_background_margin
+        )
+        if thickness is not None
+        else 0.0,
     )
     expanded_bounds = []
     for axis in range(3):
@@ -1754,6 +1782,24 @@ def regularize_patient_contact_shell(
             "Fit-clearance subtraction removed the complete Hollow candidate."
         )
 
+    image_boundary_mask = np.zeros_like(shell_mask, dtype=bool)
+    image_boundary_mask[0, :, :] = True
+    image_boundary_mask[-1, :, :] = True
+    image_boundary_mask[:, 0, :] = True
+    image_boundary_mask[:, -1, :] = True
+    image_boundary_mask[:, :, 0] = True
+    image_boundary_mask[:, :, -1] = True
+    image_boundary_occupied_sample_count = int(
+        np.count_nonzero(shell_mask & image_boundary_mask)
+    )
+    if image_boundary_occupied_sample_count:
+        raise RuntimeError(
+            "The cropped patient-shell voxel domain is too tight "
+            f"({image_boundary_occupied_sample_count} occupied boundary "
+            "samples). Increase the processing resolution value or report "
+            "this case for bounded-domain repair."
+        )
+
     binary_image = vtk.vtkImageData()
     binary_image.DeepCopy(candidate_image)
     scalars = numpy_to_vtk(
@@ -1816,6 +1862,12 @@ def regularize_patient_contact_shell(
             else "None"
         ),
         "repairBandLimitMm": repair_band_limit,
+        "croppedDomainPaddingMm": padding,
+        "estimatedHalfVoxelDiagonalMm": estimated_half_voxel_diagonal,
+        "closingReachEstimateMm": closing_reach_estimate,
+        "imageBoundaryOccupiedSampleCount": (
+            image_boundary_occupied_sample_count
+        ),
         "shellThicknessMm": thickness,
         "boundaryBridgeIntegrated": boundary_bridge is not None,
         "boundaryBridgeTopology": bridge_topology,
