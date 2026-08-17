@@ -21,6 +21,17 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-17 16:06:00 IST (UTC+05:30) — Robot-workspace publication checkpoint
+
+- Created local commits `28d940f` and `901ee17` for the manual Step 6 placement
+  and disposable open-mouth trial. The environment rejected the non-force push
+  to `https://github.com/ghostarun/DentoBot.git` pending explicit approval for
+  that named private-source destination; the branch remains ahead locally.
+- Replaced 11 established Markdown files in their existing Drive IDs using
+  committed-`HEAD` snapshots and uploaded exactly one new August 17 dated log,
+  ID `1t9OpsCvyiTBCELkSZ-0X9XulF7iieB8i`. Untracked phantom meshes, QA images,
+  unrelated dirty workstation edits, secrets, and patient data were excluded.
+
 ## 2026-08-17 15:52:00 IST (UTC+05:30) — Draft open-mouth robot workspace
 
 - Extended DENTOWorkflow Step 6 with a disposable BodyParts3D

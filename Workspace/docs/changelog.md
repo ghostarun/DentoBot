@@ -21,6 +21,28 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-17 16:06:00 IST (UTC+05:30) — Draft open-mouth Step 6 workspace
+
+- Added the disposable BodyParts3D skull/maxilla/mandible loader, ordered
+  four-point TMJ/incisor contract, Rodrigues pure-hinge transform, deterministic
+  -60° to +60°/0.05° gap search, achieved-gap line, reset/delete controls, and
+  active-Step-6 visibility restoration. The 40 mm value is the final incisor
+  gap, not a literal mandible translation.
+- Reused the URDF-driven seven-link hierarchy, photographed q=0, reversed J4,
+  orthonormal plane snap, local base nudges, gated keyboard controls, and manual
+  six-joint UI for provisional forehead placement and intraoral reach review.
+- Four host tests, focused Slicer logic/widget tests, MRB save/reopen, inspected
+  Xvfb viewport/control captures, and the close-day static gate passed. The
+  graphical marker reported `40.001 mm`, seven robot models, and three phantom
+  models. No ROS state, controller, hardware, patient data, clinical jaw model,
+  exact collision, registration, IK, or calibrated TCP was involved.
+- Local commits `28d940f` and `901ee17` were created. Google Drive replaced 11
+  established active/controlled files in place and created exactly one new
+  `2026-08-17.md` dated log (`1t9OpsCvyiTBCELkSZ-0X9XulF7iieB8i`). The first
+  Git push was blocked by the environment's egress reviewer pending explicit
+  approval for `https://github.com/ghostarun/DentoBot.git`; no workaround was
+  attempted.
+
 ## 2026-08-14 20:38:57 IST (UTC+05:30) — Robot placement promoted to DENTOWorkflow Step 6
 
 - Renamed the tenth workflow entry from the provisional Robot Lab label to
