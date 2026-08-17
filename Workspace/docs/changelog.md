@@ -48,6 +48,11 @@ Use newest-first ordering. Each entry should state:
   returned no Slicer, Xvfb, or open-mouth QA process. No interactive/user
   Slicer process was targeted.
 
+Publication update at 16:18 IST: after the developer explicitly approved the
+named private-source destination, the non-force push advanced
+`codex/ubuntu-migration` from `f49f4d9` to `f25bf6f`. `git ls-remote` returned
+the exact local SHA `f25bf6f69ad7138d2233343bf0fc40db8cab6380`.
+
 ## 2026-08-14 20:38:57 IST (UTC+05:30) — Robot placement promoted to DENTOWorkflow Step 6
 
 - Renamed the tenth workflow entry from the provisional Robot Lab label to

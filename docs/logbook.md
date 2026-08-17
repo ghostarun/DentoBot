@@ -42,6 +42,10 @@ Suggested entry fields are:
   only `SlicerApp-real` PIDs `467`, `580`, `1407`, and `1507`; the follow-up
   query returned no Slicer, Xvfb, or open-mouth QA process. No interactive
   process was targeted.
+- At 16:18 IST the developer explicitly approved egress to the named GitHub
+  repository. The non-force push advanced `codex/ubuntu-migration` from
+  `f49f4d9` to `f25bf6f`; `git ls-remote` returned the matching full SHA
+  `f25bf6f69ad7138d2233343bf0fc40db8cab6380`.
 
 ## 2026-08-17 15:52:00 IST (UTC+05:30) — Open-mouth Step 6 workspace trial
 

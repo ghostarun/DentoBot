@@ -34,6 +34,9 @@ Use newest-first ordering. Each entry should state:
 - The closing process audit found four retained headless Slicer test trees.
   SIGTERM was sent only to their exact `SlicerApp-real` PIDs; the follow-up
   query returned no Slicer/Xvfb/open-mouth QA process.
+- At 16:18 IST the developer explicitly approved the named GitHub destination.
+  The non-force push advanced `codex/ubuntu-migration` to `f25bf6f`; remote
+  verification returned the matching full SHA.
 
 ## 2026-08-17 15:52:00 IST (UTC+05:30) — Draft open-mouth robot workspace
 
