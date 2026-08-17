@@ -201,6 +201,15 @@ fine local-axis controls. This is a scene-local design experiment, not
 registration, a calibrated head mount/TCP, or a connection to robot state or
 hardware.
 
+For the current disposable workspace trial, Step 6 can also load aligned
+BodyParts3D neurocranium, maxilla, and mandible meshes. Four manually placed
+landmarks define an approximate left/right TMJ hinge and upper/lower central
+incisor pair. The mandible is rigidly rotated about that hinge until the
+straight-line incisor gap is approximately 40 mm; 40 mm is the requested final
+gap, not a literal mandible translation. This is a generic visual design aid,
+not clinically accurate jaw mechanics, anatomy, registration, or collision
+evidence.
+
 The baseline control design still uses a small transport-neutral robot adapter
 and simulation-first development. At the robotics architecture gate, broader
 ROS/MoveIt adoption will occur only if concrete benefits such as vendor

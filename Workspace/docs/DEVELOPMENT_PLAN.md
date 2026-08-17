@@ -872,8 +872,9 @@ target is the primary registration metric.
 
 **Status:** robot description, independent manual joint articulation, and a
 simulation-only Slicer Step 6 placement slice implemented and synthetically
-verified; physical calibration, navigation metrics, end-effector control, and
-live transform bridging planned
+verified; a disposable open-mouth phantom trial is also synthetic-graphical
+verified; physical calibration, representative workspace acceptance,
+navigation metrics, end-effector control, and live transform bridging planned
 
 Goal: validate navigation metrics without physical hardware.
 
@@ -909,6 +910,15 @@ an editable Markups mount plane. Explicit snapping aligns the base to the
 orthonormalized plane frame; transform handles plus local-axis buttons and
 opt-in gated keyboard shortcuts provide fine placement. This is scene-local
 manual visualization, not registration and not a ROS/SlicerROS2 bridge.
+
+The current disposable head/mouth trial loads aligned BodyParts3D
+neurocranium, maxilla, and mandible meshes. Four approximate researcher-placed
+points define a TMJ hinge and an incisor pair; only the mandible rotates until
+the final straight-line incisor gap is approximately 40 mm. The researcher can
+then snap/fine-place the base on a provisional forehead plane and articulate
+all six joints beside the open mouth. This is an intentionally temporary
+design-iteration aid, not a 40 mm mandibular translation, clinical jaw model,
+head-mount registration, or reach/collision acceptance result.
 
 Physical joint/frame calibration and graphical direction/scale acceptance,
 exact/swept/environment collision, governed head/mouth/head-mount geometry,

@@ -777,19 +777,61 @@ Launch the normal Ubuntu DENTOWorkflow application:
 /home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash
 ```
 
+The disposable open-mouth design check uses three aligned BodyParts3D 4.3
+meshes stored outside Git at
+`/home/light-tarun/dentobot/data/phantoms/bodyparts3d`. The workspace data bind
+exposes that directory inside the container as
+`/workspace/data/phantoms/bodyparts3d`. Restore the public assets as follows if
+they are missing:
+
+```bash
+mkdir -p /home/light-tarun/dentobot/data/phantoms/bodyparts3d
+curl -L 'https://commons.wikimedia.org/wiki/Special:Redirect/file/BodyParts3D_Neurocranium.stl' \
+  -o /home/light-tarun/dentobot/data/phantoms/bodyparts3d/neurocranium.stl
+curl -L 'https://commons.wikimedia.org/wiki/Special:Redirect/file/BodyParts3D_FJ6380_FJ6468_Maxilla.stl' \
+  -o /home/light-tarun/dentobot/data/phantoms/bodyparts3d/maxilla.stl
+curl -L 'https://commons.wikimedia.org/wiki/Special:Redirect/file/BodyParts3D_FJ6399_Mandible.stl' \
+  -o /home/light-tarun/dentobot/data/phantoms/bodyparts3d/mandible.stl
+sha256sum /home/light-tarun/dentobot/data/phantoms/bodyparts3d/*.stl
+```
+
+Expected SHA-256 values:
+
+```text
+598af81539edc8c055bd1bdca7050257cdb932cb4f189a9f2118ea8d8e373f9f  neurocranium.stl
+66b6f1bc89960023e9ecc13d5baf2bb41075bdc48ec5ddac642e3937d06120fb  maxilla.stl
+307b6e9b1b0cf90b0c132ee437e16c1b33edecfb7c42fbecfc936925cd4725d3  mandible.stl
+```
+
+The files are from BodyParts3D, © The Database Center for Life Science,
+licensed under CC BY-SA 2.1 Japan. Source pages are
+`BodyParts3D_Neurocranium.stl`,
+`BodyParts3D_FJ6380_FJ6468_Maxilla.stl`, and
+`BodyParts3D_FJ6399_Mandible.stl` on Wikimedia Commons. A different local
+directory may be selected with `DENTOBOT_PHANTOM_ROOT`, which must point
+directly to the directory containing the three normalized filenames above.
+
 In the stage selector choose **6 · Robot Placement**:
 
-1. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
+1. Select **Load Draft Skull + Jaw** to load the fixed neurocranium/maxilla and
+   movable mandible. Select **Place / Reset 4 Landmarks**, then place left TMJ,
+   right TMJ, upper central incisor, and lower central incisor in that order.
+   Press Esc after the fourth point.
+2. Leave the target at 40 mm and select **Set Approx. 40 mm Opening**. This
+   performs only a rigid rotation about the approximate TMJ hinge; 40 mm is the
+   final measured incisor gap, not a mandible translation. Reset or delete the
+   disposable phantom at any time.
+3. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
    link-pose transforms, and the editable robot-base transform.
-2. Use the six joint spin boxes for manual articulation at the current draft
+4. Use the six joint spin boxes for manual articulation at the current draft
    zero. J1/J3/J5/J6 use degrees; J2/J4 use millimetres. Positive J4 follows
    the reversed URDF direction established on 2026-08-14.
-3. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
+5. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
    translation/rotation handles to the provisional head-mount location, and
    use **Flip Plane Normal** if base +Z should face the other way.
-4. Select **Snap Base to Mount Plane**. The base origin and orientation copy
+6. Select **Snap Base to Mount Plane**. The base origin and orientation copy
    from the plane, with any plane scale/shear removed.
-5. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
+7. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
    Change the translation/rotation step sizes as required. Keyboard control is
    opt-in: arrows move local X/Y, Page Up/Down moves local Z,
    Shift+Left/Right rotates local Z, and Shift+Up/Down rotates local X.
@@ -801,9 +843,10 @@ would mirror the raw CAD X/Y coordinates before URDF transforms are applied.
 
 This stage is MRML simulation only. It does not source ROS, launch a robot
 publisher, connect SlicerROS2, command hardware, solve IK, or perform collision
-validation. The mount plane is not a measured forehead/head-mount transform,
-and the scene contains no calibrated bur tip unless that is added through a
-later controlled calibration workflow.
+validation. The generic phantom and four manually selected landmarks are not
+clinically accurate anatomy or jaw kinematics. The mount plane is not a
+measured forehead/head-mount transform, and the scene contains no calibrated
+bur tip unless that is added through a later controlled calibration workflow.
 
 ## Verification commands
 

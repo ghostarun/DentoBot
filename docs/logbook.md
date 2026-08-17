@@ -25,6 +25,54 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-17 15:52:00 IST (UTC+05:30) — Open-mouth Step 6 workspace trial
+
+- Clarified that 40 mm is the desired approximate final upper-to-lower central
+  incisor gap, not a literal mandible translation. Chose an intentionally
+  disposable pure TMJ-axis rotation with four manual landmarks rather than a
+  clinical jaw model.
+- Loaded checksum-verified BodyParts3D neurocranium, maxilla, and mandible
+  assets beside the seven-link robot. Added Step 6 load/open/reset/delete UI,
+  the visible gap line, base placement controls, and manual joint-workspace
+  coverage. The source assets and three QA screenshots remain untracked local
+  data; their provenance/checksums are documented.
+- Logic chain: role-tagged RAS/STL nodes are resolved from the external data
+  root and reused; four ordered world-RAS points define the TMJ axis/incisor
+  pair; Rodrigues axis-angle rotation about the TMJ midpoint is sampled from
+  -60° to +60° at 0.05°; Euclidean upper-to-transformed-lower incisor error
+  selects the best 40 mm candidate with smaller absolute angle as tie-break;
+  only the mandible is parented to that rigid transform and a locked Markups
+  line reports the achieved gap.
+- Robot logic converts display units to URDF SI units, topologically
+  accumulates `parent * origin * joint-motion`, converts translations back to
+  Slicer millimetres, and parents seven link poses below one base transform.
+  Plane snap Gram-Schmidt-orthonormalizes the normal/in-plane axes while
+  preserving origin; fine motions post-multiply local rigid deltas. This keeps
+  positive J4 following the tracked negative-base-X direction and makes
+  buttons/keys follow the placed base axes. Role attributes, not node names,
+  drive persistence and scoped cleanup.
+- The already implemented self-clearance aid remains a non-blocking 5 mm
+  advisory: transform collision-mesh bounds into base-frame AABBs, skip direct
+  parent/child pairs, compute Euclidean box separation from per-axis gaps, and
+  warn/color non-adjacent pairs below the threshold. It is not used as a
+  skull/mouth collision solver and does not evaluate meshes, swept motion,
+  cables, the mount, or patient clearance.
+- Host geometry tests and focused Slicer logic/widget/MRB tests passed. A real
+  Slicer graphical Xvfb run showed the phantom and robot together and reported
+  `DENTOBOT_OPEN_MOUTH_VIEWPORT_PASS 40.001 7 3`. The first capture revealed
+  that stage visibility logic hid all new/robot displays; restoring display
+  visibility while Step 6 is active fixed the defect and the rerun passed.
+- The final gate parsed 34 Python and two UI files, checked eight Markdown
+  files, and passed. Two interim widget commands used invalid headless harness
+  setup (unregistered module, then a main-window-only selector); the corrected
+  registered-module `widgetRepresentation()` command exited 0. Inference tests
+  were out of scope and explicitly skipped because no backend interpreter was
+  supplied to the close-day gate.
+- No controller, ROS motion path, hardware, patient data, clinical anatomy,
+  exact collision, registration, IK, or calibrated TCP was involved. A
+  physical Intel-session trial with deliberate landmark/base placements is the
+  next acceptance step.
+
 ## 2026-08-14 19:18:17 IST (UTC+05:30) — Selected zero/base alignment/J4 reversal
 
 - Absorbed the photographed `25.38/0/62.46/0/1.08/-35.28` degree/mm state into

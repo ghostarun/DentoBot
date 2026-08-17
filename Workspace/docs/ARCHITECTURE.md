@@ -865,6 +865,17 @@ unregistered draft geometry, `base_link -> burr` remains a CAD chain rather
 than a calibrated TCP, and head/mouth/mount/cable/environment collision is
 absent.
 
+Step 6 additionally owns a disposable, optional open-mouth scene aid. Three
+aligned BodyParts3D STL nodes represent the fixed neurocranium/maxilla and the
+movable mandible. A four-point Markups node stores approximate left TMJ, right
+TMJ, upper-incisor, and lower-incisor inputs. Pure rigid rotation about the
+left-to-right TMJ axis is solved by deterministic angular search until the
+transformed lower-incisor point is approximately 40 mm from the fixed upper
+point. A linear-transform node moves only the mandible, while a Markups line
+shows the achieved gap. The model, landmarks, transform, and measurement are
+deletable trial nodes and carry no patient, clinical-jaw, collision, or
+registration semantics.
+
 ## Robot architecture and ROS decision gate
 
 Slicer communicates only with a high-level `RobotAdapter` interface:

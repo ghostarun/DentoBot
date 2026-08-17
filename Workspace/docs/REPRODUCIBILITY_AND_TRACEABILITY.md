@@ -179,6 +179,35 @@ head/mouth/mount geometry, registration, a calibrated TCP, exact or
 swept collision, ROS/SlicerROS2 streaming, IK, a controller, hardware motion,
 forces, or clinical safety.
 
+### Draft open-mouth robot-workspace evidence — 2026-08-17
+
+BodyParts3D neurocranium, maxilla, and mandible meshes were checksum-verified
+and loaded together in Slicer 5.10/SlicerROS2. Two pure-Python tests verify that
+the hinge transform is rigid, fixes both TMJ-axis points, reaches an
+approximately 40 mm upper-to-lower incisor distance, and rejects a degenerate
+axis. A focused Slicer logic test loaded three non-empty phantom models and all
+seven robot models, created a pure TMJ-axis jaw transform, snapped the robot to
+a provisional forehead plane, saved/reopened the MRB, and removed all owned
+nodes. A focused widget test exercised the same load/open workflow through the
+Step 6 UI and verified manual J4 articulation in its reversed direction.
+
+A graphical Xvfb Slicer run then showed the open-mouth phantom and articulated
+robot together, with visible Step 6 base placement controls and the separate
+six-joint control window. The run emitted
+`DENTOBOT_OPEN_MOUTH_VIEWPORT_PASS 40.001 7 3`; the three inspected PNGs are
+local QA evidence under `/home/light-tarun/dentobot/data/` and are deliberately
+not repository or Drive documentation artifacts. An initial capture exposed
+that the workflow display layer had hidden all Step 6 model display nodes; the
+stage update now restores robot and phantom visibility while Step 6 is active,
+and the widget test covers the phantom visibility regression.
+
+Evidence is synthetic graphical/developer-inspected, not physical-session,
+representative anatomy, or clinical evidence. The 40 mm value is the resulting
+incisor gap, not a 40 mm translatory mandibular displacement. Landmark choices,
+forehead plane, head mount, joint vectors, collision clearance, TCP, and mouth
+workspace are provisional design inputs. No ROS state, controller, hardware,
+patient data, or robot motion was used.
+
 ### Ubuntu CPU segmentation baseline — 2026-08-11
 
 The same external Conda environment now contains the Ubuntu CPU inference

@@ -100,14 +100,13 @@ work; an implemented or synthetic PASS is not a clinical claim.
   limits. The neutral AABB result currently warns on `link-3`/`link-5` and
   `link-3`/spindle; determine later with reviewed geometry whether these are
   real contacts or conservative box overlap.
-- Define the forehead/head-mount frame and bring a governed head/mouth model
-  into the Step 6 MRML experiment only after this free-articulation pass.
-  Live-test loading all seven links, native base/plane handles, plane-normal
-  flipping, snap-to-plane, every local-axis button, opt-in keyboard gating,
-  scene save/reopen, and joint motion beside the model. Record useful
-  mount/base matrices and joint vectors, but do not treat them as registration
-  or calibrated TCP data. AABB clearance does not establish patient, cable,
-  mount, or swept-path clearance.
+- Repeat the open-mouth/robot trial in the physical Intel graphical session.
+  Replace the synthetic four jaw landmarks and provisional forehead plane with
+  deliberate researcher placements, exercise native base/plane handles,
+  plane-normal flipping, every local-axis button, opt-in keyboard gating, and
+  all six joint controls, then save useful base matrices and joint vectors.
+  Treat these as disposable design observations, not registration, calibrated
+  TCP, representative anatomy, or patient/cable/mount/swept-path clearance.
 - Obtain engineering authority for joint zero definitions, positive axes,
   mechanical ranges, velocity/effort units and limits, masses, centers of
   mass, inertias, and the intended robot base/end-effector/spindle/bur-tip/TCP
@@ -481,6 +480,17 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
   synthetic scene-only evidence,
   not head-mount registration, TCP calibration, collision validation, a ROS
   bridge, IK, controller, or hardware motion.
+
+- Added the disposable Step 6 open-mouth workspace trial on 2026-08-17. It
+  loads aligned BodyParts3D neurocranium/maxilla/mandible assets, rotates only
+  the mandible about four approximate TMJ/incisor landmarks to an approximately
+  40 mm final incisor gap, and displays it beside the manually placeable and
+  articulated seven-link robot. Four host tests, focused Slicer logic/widget
+  tests, MRB save/reopen, and an inspected Xvfb viewport passed; the graphical
+  run reported `40.001 mm`, seven robot models, and three phantom models. This
+  is disposable synthetic design evidence, not literal jaw translation,
+  clinical jaw mechanics, physical-session ergonomics, reach/collision,
+  registration, TCP, controller, hardware, or motion acceptance.
 
 - Added the first simulation-only ROS 2 integration on 2026-08-14. The tracked
   `dentobot_description` package contains the normalized URDF, all seven

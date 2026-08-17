@@ -105,6 +105,16 @@ snap plus local button/keyboard nudges. This is not a live ROS/SlicerROS2 bridge
 it reads no robot state, sends no command, and does not establish head-mount
 registration, a calibrated TCP, collision safety, or hardware readiness.
 
+For the current disposable workspace check, Step 6 can load local aligned
+BodyParts3D skull/maxilla/mandible meshes, collect approximate left/right TMJ
+and upper/lower central-incisor landmarks, and rotate the mandible about the
+TMJ axis to an approximately 40 mm final incisor gap. The robot base can then
+be dragged/snapped to a provisional forehead plane, fine-tuned by buttons or
+opt-in keyboard controls, and articulated with the six manual joint controls.
+See `Workspace/docs/SETUP.md` for asset checksums and the exact trial sequence.
+This is generic design visualization only, not clinical jaw simulation,
+registration, collision validation, or robot control.
+
 ## Ubuntu interactive rendering
 
 A visible Slicer window does not prove hardware acceleration. On Ubuntu,

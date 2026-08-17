@@ -21,6 +21,29 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-17 15:52:00 IST (UTC+05:30) — Draft open-mouth robot workspace
+
+- Extended DENTOWorkflow Step 6 with a disposable BodyParts3D
+  neurocranium/maxilla/mandible loader, four approximate TMJ/incisor landmarks,
+  deterministic pure-hinge jaw opening to an approximately 40 mm final incisor
+  gap, reset/delete actions, visible gap measurement, and active-stage display
+  restoration.
+- Preserved the existing robot mount-plane drag/snap, local button/keyboard
+  base tuning, and six manual joint controls. No ROS state, controller, hardware
+  command, or patient data entered the workflow.
+- Four host geometry tests, Python/UI/static checks, focused Slicer logic and
+  widget tests, MRB save/reopen, and a visually inspected graphical Xvfb run
+  passed. The graphical marker reported a 40.001 mm gap, seven robot models,
+  and three phantom models. The QA exposed and fixed hidden Step 6 display
+  nodes before the passing rerun. The repository close-day gate passed 34
+  Python AST files, two UI files, and eight Markdown fence checks; backend
+  tests were explicitly skipped because inference code was unchanged and no
+  backend interpreter was supplied.
+- This is synthetic disposable design evidence only. The 40 mm value is not a
+  literal mandibular translation, and clinical jaw mechanics, physical-session
+  controls, forehead registration, TCP, reach/collision, and hardware motion
+  remain unverified.
+
 ## 2026-08-14 19:18:17 IST (UTC+05:30) — Draft zero/base alignment/J4 direction
 
 - Made the photographed manual state q=0, aligned link-1's mounting face with

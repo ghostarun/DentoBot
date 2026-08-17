@@ -278,6 +278,102 @@ def local_nudge_matrix(
     return base @ delta
 
 
+def hinge_rotation_matrix(
+    hinge_left_mm: np.ndarray,
+    hinge_right_mm: np.ndarray,
+    angle_deg: float,
+) -> np.ndarray:
+    """Return a world-space rotation about the left-to-right TMJ hinge axis."""
+
+    left = np.asarray(hinge_left_mm, dtype=float)
+    right = np.asarray(hinge_right_mm, dtype=float)
+    if left.shape != (3,) or right.shape != (3,):
+        raise ValueError("TMJ hinge points must each contain three values.")
+    if not np.all(np.isfinite(left)) or not np.all(np.isfinite(right)):
+        raise ValueError("TMJ hinge points must be finite.")
+    axis = right - left
+    axis_norm = float(np.linalg.norm(axis))
+    if axis_norm <= 1e-6:
+        raise ValueError("Left and right TMJ points must be distinct.")
+    axis /= axis_norm
+    angle = radians(float(angle_deg))
+    if not isfinite(angle):
+        raise ValueError("Jaw opening angle must be finite.")
+    x, y, z = axis
+    cosine, sine = cos(angle), sin(angle)
+    one_minus_cosine = 1.0 - cosine
+    rotation = np.asarray(
+        (
+            (
+                cosine + x * x * one_minus_cosine,
+                x * y * one_minus_cosine - z * sine,
+                x * z * one_minus_cosine + y * sine,
+            ),
+            (
+                y * x * one_minus_cosine + z * sine,
+                cosine + y * y * one_minus_cosine,
+                y * z * one_minus_cosine - x * sine,
+            ),
+            (
+                z * x * one_minus_cosine - y * sine,
+                z * y * one_minus_cosine + x * sine,
+                cosine + z * z * one_minus_cosine,
+            ),
+        ),
+        dtype=float,
+    )
+    pivot = (left + right) * 0.5
+    matrix = np.eye(4, dtype=float)
+    matrix[:3, :3] = rotation
+    matrix[:3, 3] = pivot - rotation @ pivot
+    return matrix
+
+
+def solve_hinge_rotation_for_gap(
+    hinge_left_mm: np.ndarray,
+    hinge_right_mm: np.ndarray,
+    upper_incisor_mm: np.ndarray,
+    lower_incisor_closed_mm: np.ndarray,
+    target_gap_mm: float = 40.0,
+    maximum_angle_deg: float = 60.0,
+) -> tuple[float, np.ndarray, np.ndarray, float]:
+    """Find the smallest-error pure hinge rotation for a draft incisor gap.
+
+    Both opening directions are sampled because the landmark order and the
+    model coordinate convention are deliberately user-defined in this draft
+    experiment.  The result is geometric only and is not a TMJ motion model.
+    """
+
+    upper = np.asarray(upper_incisor_mm, dtype=float)
+    lower = np.asarray(lower_incisor_closed_mm, dtype=float)
+    if upper.shape != (3,) or lower.shape != (3,):
+        raise ValueError("Incisor landmarks must each contain three values.")
+    if not np.all(np.isfinite(upper)) or not np.all(np.isfinite(lower)):
+        raise ValueError("Incisor landmarks must be finite.")
+    target = float(target_gap_mm)
+    maximum = float(maximum_angle_deg)
+    if not isfinite(target) or target <= 0.0:
+        raise ValueError("Target incisor gap must be positive and finite.")
+    if not isfinite(maximum) or maximum <= 0.0 or maximum > 90.0:
+        raise ValueError("Maximum draft jaw angle must be within 0–90 degrees.")
+
+    # A 0.05-degree grid is intentionally simple, deterministic, and more
+    # precise than this disposable workspace experiment requires.
+    angles = np.linspace(-maximum, maximum, int(maximum * 40.0) + 1)
+    best = None
+    lower_h = np.append(lower, 1.0)
+    for angle in angles:
+        matrix = hinge_rotation_matrix(hinge_left_mm, hinge_right_mm, angle)
+        opened = (matrix @ lower_h)[:3]
+        gap = float(np.linalg.norm(opened - upper))
+        candidate = (abs(gap - target), abs(float(angle)), float(angle), matrix, opened, gap)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    assert best is not None
+    _error, _absolute_angle, angle, matrix, opened, gap = best
+    return angle, matrix, opened, gap
+
+
 def vtk_matrix_elements(matrix: np.ndarray) -> tuple[tuple[float, ...], ...]:
     """Return validated plain elements suitable for vtkMatrix4x4."""
     values = np.asarray(matrix, dtype=float)

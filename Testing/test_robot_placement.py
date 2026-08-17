@@ -12,10 +12,12 @@ if str(HELPER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(HELPER_DIRECTORY))
 
 from DENTORobotPlacement import (
+    hinge_rotation_matrix,
     joint_positions_si_from_display,
     local_nudge_matrix,
     orthonormal_plane_pose,
     robot_link_mesh_poses_mm,
+    solve_hinge_rotation_for_gap,
 )
 
 
@@ -75,3 +77,42 @@ def test_plane_snap_removes_scale_and_local_nudges_follow_snapped_axes() -> None
     rotated = local_nudge_matrix(snapped, rotation_local_deg=(0.0, 0.0, 90.0))
     assert np.allclose(rotated[:3, 3], snapped[:3, 3])
     assert np.allclose(rotated[:3, 2], snapped[:3, 2], atol=1e-12)
+
+
+def test_draft_jaw_opening_is_pure_tmj_hinge_rotation_to_40_mm_gap() -> None:
+    left_tmj = np.asarray((-50.0, 0.0, 0.0))
+    right_tmj = np.asarray((50.0, 0.0, 0.0))
+    upper_incisor = np.asarray((0.0, -90.0, -10.0))
+    lower_closed = np.asarray((0.0, -90.0, -12.0))
+
+    angle, matrix, opened_lower, gap = solve_hinge_rotation_for_gap(
+        left_tmj,
+        right_tmj,
+        upper_incisor,
+        lower_closed,
+        40.0,
+    )
+
+    assert abs(angle) > 1.0
+    assert abs(gap - 40.0) < 0.1
+    assert np.allclose(matrix[:3, :3].T @ matrix[:3, :3], np.eye(3), atol=1e-12)
+    assert np.isclose(np.linalg.det(matrix[:3, :3]), 1.0, atol=1e-12)
+    for hinge_point in (left_tmj, right_tmj):
+        transformed = (matrix @ np.append(hinge_point, 1.0))[:3]
+        assert np.allclose(transformed, hinge_point, atol=1e-9)
+    assert np.allclose(
+        opened_lower,
+        (hinge_rotation_matrix(left_tmj, right_tmj, angle)
+         @ np.append(lower_closed, 1.0))[:3],
+    )
+
+
+def test_draft_jaw_opening_rejects_degenerate_hinge() -> None:
+    point = np.asarray((1.0, 2.0, 3.0))
+    with np.testing.assert_raises_regex(ValueError, "distinct"):
+        solve_hinge_rotation_for_gap(
+            point,
+            point,
+            np.asarray((0.0, 0.0, 0.0)),
+            np.asarray((0.0, 0.0, -2.0)),
+        )

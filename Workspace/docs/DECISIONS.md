@@ -1,5 +1,31 @@
 # Dentobot Technical Decisions
 
+## 2026-08-17 — Use a disposable pure-hinge open-mouth phantom in Step 6
+
+Status: implemented and synthetic graphical Slicer-verified; physical-session,
+head-mount, workspace, collision, and clinical acceptance pending
+
+Load the public aligned BodyParts3D neurocranium, maxilla, and mandible as
+local non-patient design assets. Keep the skull/maxilla fixed and place four
+approximate landmarks in the scene: left TMJ, right TMJ, upper central incisor,
+and lower central incisor. Rotate the mandible rigidly about the resulting TMJ
+axis until the transformed lower-incisor point is approximately 40 mm from the
+fixed upper-incisor point. The 40 mm requirement is the final inter-incisor
+gap, not a literal 40 mm mandibular translation.
+
+Keep this path visibly disposable and intentionally simple. Do not add
+anatomical joint translation, soft tissue, contact, clinical landmarking,
+patient registration, or a jaw biomechanics solver. Let the researcher place
+the robot on an approximate forehead plane with the existing Step 6 snap/fine
+controls, then explore the intraoral space with the existing manual six-joint
+controls. No automated end-effector control, ROS command, collision guarantee,
+or hardware motion is authorized.
+
+Reason: the current design iteration needs a rapid visual reach/flexibility
+trial and will be superseded once it has informed the mechanical design. A
+deterministic rigid hinge and explicit measured gap are sufficient for that
+bounded purpose and avoid implying clinical accuracy.
+
 ## 2026-08-14 — Make robot placement DENTOWorkflow Step 6
 
 Status: implemented and Slicer-native synthetically verified; physical-session
