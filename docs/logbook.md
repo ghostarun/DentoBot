@@ -37,6 +37,11 @@ Suggested entry fields are:
   (`1t9OpsCvyiTBCELkSZ-0X9XulF7iieB8i`) in the established dated-log folder.
   A relist confirmed no duplicate. Phantom STLs, screenshots, runtime data,
   patient data, and credentials were excluded.
+- A final container process audit found four retained test-only Slicer trees
+  from the two visual captures and two invalid harness commands. Terminated
+  only `SlicerApp-real` PIDs `467`, `580`, `1407`, and `1507`; the follow-up
+  query returned no Slicer, Xvfb, or open-mouth QA process. No interactive
+  process was targeted.
 
 ## 2026-08-17 15:52:00 IST (UTC+05:30) — Open-mouth Step 6 workspace trial
 

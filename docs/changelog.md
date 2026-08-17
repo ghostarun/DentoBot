@@ -31,6 +31,9 @@ Use newest-first ordering. Each entry should state:
   committed-`HEAD` snapshots and uploaded exactly one new August 17 dated log,
   ID `1t9OpsCvyiTBCELkSZ-0X9XulF7iieB8i`. Untracked phantom meshes, QA images,
   unrelated dirty workstation edits, secrets, and patient data were excluded.
+- The closing process audit found four retained headless Slicer test trees.
+  SIGTERM was sent only to their exact `SlicerApp-real` PIDs; the follow-up
+  query returned no Slicer/Xvfb/open-mouth QA process.
 
 ## 2026-08-17 15:52:00 IST (UTC+05:30) — Draft open-mouth robot workspace
 

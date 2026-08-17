@@ -42,6 +42,11 @@ Use newest-first ordering. Each entry should state:
   Git push was blocked by the environment's egress reviewer pending explicit
   approval for `https://github.com/ghostarun/DentoBot.git`; no workaround was
   attempted.
+- A final container audit found four exact headless Slicer test process trees
+  retained by the two viewport captures and two invalid harness invocations.
+  Their four `SlicerApp-real` PIDs received SIGTERM; the follow-up process query
+  returned no Slicer, Xvfb, or open-mouth QA process. No interactive/user
+  Slicer process was targeted.
 
 ## 2026-08-14 20:38:57 IST (UTC+05:30) — Robot placement promoted to DENTOWorkflow Step 6
 
