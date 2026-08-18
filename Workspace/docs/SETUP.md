@@ -1,6 +1,6 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-14
+Last verified: 2026-08-17
 
 ## Scope
 
@@ -471,12 +471,36 @@ The report shows RAM/swap, CRD, container CPU/memory/PIDs, zombies, active
 Slicer/Xvfb/backend processes, and top host CPU users. Save the MRB and close
 Slicer normally before intentionally recreating or stopping the container.
 
-On 2026-08-14 the post-reboot CRD host and heartbeat were active, memory had
-11 GiB available with zero swap use, and the recreated idle container used
-two tasks with zero zombies. The separate GDM Wayland greeter remained at
-about 80 percent of one CPU core. Restarting `gdm.service` requires a local
-sudo-authenticated terminal and remains an operational follow-up; do not
-disable GDM because local recovery access must remain available.
+The developer deliberately retains CRD's private virtual Xfce desktop. A
+physical GNOME login may therefore report the same account as already active;
+force-stopping that virtual session before local login is accepted operational
+behavior. Do not replace CRD with physical-session mirroring merely to remove
+that prompt.
+
+On 2026-08-17 journal accounting confirmed that the GDM Wayland greeter had
+consumed 2 days 23 hours of CPU over 3 days of wall time while CRD/Xfce was
+active. The workstation now keeps CRD/Xfce unchanged but configures only the
+physical GDM path for Xorg in `/etc/gdm3/custom.conf`. The previous file is
+retained as `/etc/gdm3/custom.conf.pre-dentobot-20260817`. This takes effect
+after the next reboot or GDM restart; do not restart GDM with unsaved local
+desktop work.
+
+The rotational system disk also uses this persistent policy in
+`/etc/sysctl.d/99-dentobot-workstation-stability.conf`:
+
+```text
+vm.swappiness = 10
+vm.dirty_background_bytes = 134217728
+vm.dirty_bytes = 536870912
+```
+
+The values were applied live on 2026-08-17. They retain swap but discourage
+early swap and bound dirty-page writeback to avoid multi-gigabyte flush bursts
+on the HDD. `systemd-oomd` remains enabled, active, and responsible for its
+existing user-session memory-pressure policy. The workstation health script
+verifies all three kernel values, the configured GDM path, and OOM service.
+Overnight CRD observation after reboot remains required before calling the
+host-stutter issue closed.
 
 ### Verified DENTOBOT Intel integrated-graphics case
 
@@ -598,11 +622,82 @@ does not prove triangle, swept-path, cable, forehead/head-mount, head/mouth, or
 patient clearance. The displayed burr origin is not a calibrated TCP.
 
 `description.launch.py` accepts `joint_state_mode:=neutral` (default),
-`manual`, or `external`; the last starts no joint-state source and is reserved
-for bounded tests/future simulation. Never run competing publishers for this
-model. Neither package-owned publisher exposes a command topic, controller,
-transmission, `ros2_control` hardware plugin, or motion path. The manual GUI
-does not command a robot.
+`manual`, `slicer`, or `external`. Slicer mode republishes Motion Control
+slider commands as `/joint_states`. External mode starts no joint-state source
+and is reserved for bounded tests/future simulation. Never run competing
+publishers for this model. Neither package-owned publisher exposes a controller,
+transmission, `ros2_control` hardware plugin, or hardware motion path. The
+manual GUI and Slicer slider stream do not command a robot.
+
+### SlicerROS2 Motion Control from DENTO Workflow Step 6
+
+Step 6 bridges the tracked `dentobot_description` stack into SlicerROS2
+Motion Control without MoveIt. MRML-only Step 6 robot meshes and the ROS 2
+robot are separate representations; the bridge parents the SlicerROS2 TF root
+under the Step 6 robot-base transform so phantom framing and base nudging stay
+aligned. Motion Control sliders stream simulated joint positions on
+`dentobot/slicer_joint_positions`; `dentobot_slicer_joint_state_publisher`
+republishes them as `/joint_states`. Stop any neutral or manual joint-state
+launch before connecting.
+
+**Prerequisites**
+
+- Container `dentobot-slicerros2` running with host networking (ROS domain 73
+  by default).
+- Slicer opened via `scripts/launch-dentoworkflow.bash` (includes
+  `slicer_ros2_module`).
+
+**Terminal A — ROS description stack (no RViz):**
+
+```bash
+cd /home/light-tarun/dentobot
+./scripts/launch-dentobot-description-for-slicer.bash
+```
+
+This builds `dentobot_description`, starts `robot_state_publisher` plus the
+Slicer joint-state publisher, and does **not** open RViz. Do not run a second
+competing description launch.
+
+**Terminal B — Slicer:**
+
+```bash
+./scripts/launch-dentoworkflow.bash
+```
+
+In **6 · Robot Placement**:
+
+1. Optionally load the draft phantom and place landmarks.
+2. Optionally use **Load / Refresh Robot** for MRML STL articulation, or skip
+   directly to ROS 2.
+3. Press **Start Stack & Connect Motion Control**. Inside the container this
+   can also spawn the slicer-mode description launch if it is not already
+   running. If a neutral or manual publisher is already up, stop it first.
+4. Slicer opens **ROS2 Motion Control** with MoveIt disabled. Live pose follows
+   `/joint_states`. Moving the Motion Control sliders updates that topic
+   through the Slicer joint-state publisher (visualization only).
+5. Use **Disconnect ROS 2 Robot** to remove the SlicerROS2 robot and restore
+   MRML link visibility.
+
+**Load Robot defaults if using the ROS2 module manually:**
+
+| Field | Value |
+|-------|--------|
+| Parameter node | `/dentobot_robot_state_publisher` |
+| Parameter | `robot_description` |
+| Fixed frame | `base_link` |
+
+**Verification (container)**
+
+```bash
+docker exec dentobot-slicerros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash &&
+   ros2 node list | grep dentobot_slicer_joint_state_publisher &&
+   ros2 topic echo /joint_states --once'
+```
+
+For the separate PyQt slider window outside Slicer, use
+`./scripts/launch-dentobot-manual-rviz.bash`. Do not run that together with the
+Slicer Motion Control stack.
 
 The integrated URDF preserves the supplied CAD link/joint geometry and STL
 triangles, changes mesh references to `package://` URIs, and adds only a
@@ -610,6 +705,80 @@ massless `base_link` plus identity fixed joint above the inertial CAD root for
 KDL compatibility. Treat joint zeros/directions/limits, masses/inertias, mesh
 scale/alignment, collision fidelity, tool/TCP/docking frames, self-collision,
 and physical calibration as unverified inputs.
+
+## Host Arduino pressure monitor
+
+The live pneumatic-pressure GUI is a host-only sensing bench:
+
+- script: `ros2_ws/src/Arduino/pressure_monitor.py`
+- firmware: `ros2_ws/src/Arduino/pressure_monitor/pressure_monitor.ino`
+- interpreter: `/home/light-tarun/pressure-env/bin/python` (Python 3.14.6)
+- verified packages: `numpy 2.5.2`, `pyserial 3.5`, `PyQt6 6.11.0`,
+  `pyqtgraph 0.14.0`
+- serial: Arduino UNO WiFi R4 on `/dev/ttyACM0` at 460800 baud; the account
+  `light-tarun` is in `dialout`
+- CSV output: `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/`
+
+Do not install these packages into Slicer, the `dentobot` Conda environment, or
+the SlicerROS2 container. Cursor workspace settings select `pressure-env` and
+provide a **Pressure Monitor** launch configuration. After installing the
+Python and debugpy extensions, reload the Cursor window if the Run button is
+missing, then open the script and use **Run Python File** or F5 with
+**Pressure Monitor**.
+
+From a host terminal in the physical graphical session:
+
+```bash
+/home/light-tarun/pressure-env/bin/python \
+  /home/light-tarun/dentobot/ros2_ws/src/Arduino/pressure_monitor.py
+```
+
+On 2026-08-17 this connected, completed a 2-second baseline calibration, and
+wrote samples under the script-local `pressure_runs/` directory. Closing the window flushes CSV files
+and releases the serial port. The GUI is sensing-only: it does not command a
+robot or authorize drilling.
+
+## Host Record3D / iPhone LiDAR scan viewer
+
+The optical-scan inspector is a host-only PyQt6/vispy tool for Record3D OBJ
+point-cloud exports (coloured `v x y z r g b` vertices in iPhone camera
+metres, usually with no faces):
+
+- script: `scripts/view_record3d_scan.py`
+- interpreter: `/home/light-tarun/pressure-env/bin/python`
+- extra packages in that venv: `vispy 0.16.2`, `PyOpenGL 3.1.10`,
+  `freetype-py 2.5.1`
+- inputs: a `.zip` of numbered OBJ frames, a folder of OBJ files, or one OBJ
+- local example: `/home/light-tarun/dentobot/data/3dscan_iphone.zip`
+  (kept outside Git)
+
+Do not install vispy or PyOpenGL into Slicer, the `dentobot` Conda
+environment, or the SlicerROS2 container. Cursor provides a **Record3D Scan
+Viewer** launch configuration. From a host terminal in the graphical session:
+
+```bash
+/home/light-tarun/pressure-env/bin/python \
+  /home/light-tarun/dentobot/scripts/view_record3d_scan.py \
+  --source /home/light-tarun/dentobot/data/3dscan_iphone.zip
+```
+
+Headless catalog and first-frame stats:
+
+```bash
+/home/light-tarun/pressure-env/bin/python \
+  /home/light-tarun/dentobot/scripts/view_record3d_scan.py \
+  --source /home/light-tarun/dentobot/data/3dscan_iphone.zip \
+  --report-only
+```
+
+Add `--scan-all` to parse every OBJ. The viewer reads the zip in place and
+does not unpack it into `data/`. Coordinates remain Record3D camera metres;
+this is a scan-quality check, not a Slicer RAS import, registration, or
+clinical validation.
+
+On 2026-08-18 the example zip listed 195 OBJ frames (indices 0–201, missing
+163 and 174–179), parsed all frames with point counts 2,940–358,865, and
+opened the vispy window on `DISPLAY=:0`.
 
 ## Verified container baseline
 
@@ -814,39 +983,76 @@ directly to the directory containing the three normalized filenames above.
 In the stage selector choose **6 · Robot Placement**:
 
 1. Select **Load Draft Skull + Jaw** to load the fixed neurocranium/maxilla and
-   movable mandible. Select **Place / Reset 4 Landmarks**, then place left TMJ,
-   right TMJ, upper central incisor, and lower central incisor in that order.
-   Press Esc after the fourth point.
-2. Leave the target at 40 mm and select **Set Approx. 40 mm Opening**. This
-   performs only a rigid rotation about the approximate TMJ hinge; 40 mm is the
-   final measured incisor gap, not a mandible translation. Reset or delete the
-   disposable phantom at any time.
-3. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
-   link-pose transforms, and the editable robot-base transform.
-4. Use the six joint spin boxes for manual articulation at the current draft
+   movable mandible. The phantom relocates near the Step 6 research workspace
+   origin on first load so it appears beside the robot. Only one phantom set is
+   allowed; delete before reloading.
+2. Press the progressive **Place … landmark** button for each of the four points
+   (left TMJ, right TMJ, upper incisor, lower incisor). Each click places one
+   point and returns to view navigation so you can pan before the next landmark.
+   Use **Clear Landmarks** to remove all points and any jaw opening. Jaw opening
+   runs automatically after the fourth landmark is recognized.
+3. Adjust the target gap if needed and select **Set Approx. 40 mm Opening** to
+   re-apply. This performs only a rigid rotation about the approximate TMJ
+   hinge; 40 mm is the final measured incisor gap, not a mandible translation.
+   Use **Reset Jaw Closed** before re-applying if the mandible is already open.
+   Reset or delete the disposable phantom at any time.
+4. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
+   link-pose transforms, and the editable robot-base transform. Only one robot
+   placement set is allowed. If the phantom is already loaded and the base is
+   still at the world origin, the loader suggests a pose in front of the phantom.
+5. Use **Frame Phantom + Robot** to centre the 3D views on the combined bounds.
+6. Use the six joint spin boxes for manual articulation at the current draft
    zero. J1/J3/J5/J6 use degrees; J2/J4 use millimetres. Positive J4 follows
    the reversed URDF direction established on 2026-08-14.
-5. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
+7. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
    translation/rotation handles to the provisional head-mount location, and
    use **Flip Plane Normal** if base +Z should face the other way.
-6. Select **Snap Base to Mount Plane**. The base origin and orientation copy
+8. Select **Snap Base to Mount Plane**. The base origin and orientation copy
    from the plane, with any plane scale/shear removed.
-7. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
+9. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
    Change the translation/rotation step sizes as required. Keyboard control is
    opt-in: arrows move local X/Y, Page Up/Down moves local Z,
    Shift+Left/Right rotates local Z, and Shift+Up/Down rotates local X.
+10. **6.0 — Import Planning Package for Step 6** after completing upstream
+   workflow stages on the current case. This validates that the CBCT volume,
+   teeth segmentation, trajectory, docking assembly, and printable template are
+   linked in the parameter node; it does not import a separate file bundle.
+11. **6.1 — Move and lock robot base mount.** Use steps 7–9 to place the base,
+   then press **Lock Base Mount** before motion planning. **Unlock Base Mount**
+   restores editable handles.
+12. **6.2 — Task joint limits.** Set per-joint min/max envelopes (degrees or
+   millimetres as appropriate), then **Apply Task Limits to Controls**. Values
+   are clamped to URDF mechanical bounds. **Reset to URDF Limits** restores the
+   mechanical envelope.
+13. **6.3 — Trajectory motion planning (simulation).** With the package imported
+   and the base locked, press **Plan Motion Along Trajectory**. Each trajectory
+   sample is screened with coarse non-adjacent link AABB self-collision and
+   subsampled environment clearance against segmentation anatomy, template
+   shell, and docking geometry. **Preview Simulated Motion** steps joint values
+   in MRML only; **Stop Preview** cancels. Tune **Trajectory samples**,
+   **Self-clearance (mm)**, and **Environment clearance (mm)** as research
+   gates. Default 5 mm self-clearance may reject the draft neutral pose.
+14. Optional ROS 2 path: start
+   `./scripts/launch-dentobot-description-for-slicer.bash` in another terminal
+   (or rely on the in-Slicer spawn), then press **Start Stack & Connect Motion
+   Control**. SlicerROS2 loads the URDF, aligns to the Step 6 base transform,
+   and opens Motion Control. Sliders stream simulated `/joint_states` (no
+   MoveIt, no hardware). Use **Disconnect ROS 2 Robot** before deleting the
+   Step 6 setup. Stop any existing neutral/manual description launch first.
 
 The keyboard shortcuts are disabled outside Step 6 and while editing a text
 or numeric field. The loader intentionally requests RAS for STL files with no
 embedded coordinate-system metadata; accepting Slicer's default LPS assumption
 would mirror the raw CAD X/Y coordinates before URDF transforms are applied.
 
-This stage is MRML simulation only. It does not source ROS, launch a robot
-publisher, connect SlicerROS2, command hardware, solve IK, or perform collision
-validation. The generic phantom and four manually selected landmarks are not
-clinically accurate anatomy or jaw kinematics. The mount plane is not a
-measured forehead/head-mount transform, and the scene contains no calibrated
-bur tip unless that is added through a later controlled calibration workflow.
+Step 6 MRML robot placement remains simulation-only. The optional ROS 2 bridge
+sources `dentobot_description` and SlicerROS2 Motion Control for joint
+streaming visualization; it does not command hardware, solve MoveIt IK, or
+perform collision validation. The generic phantom and four manually selected
+landmarks are not clinically accurate anatomy or jaw kinematics. The mount
+plane is not a measured forehead/head-mount transform, and the scene contains
+no calibrated bur tip unless that is added through a later controlled
+calibration workflow.
 
 ## Verification commands
 
@@ -897,4 +1103,5 @@ run_slicerros2_imaging_bridge_test.py'
 - A UI-driven asynchronous Bridge B run from DENTOWorkflow and visual
   confirmation of the launcher on the Ubuntu desktop
 - Hardware, robot, tracking, and drilling interfaces; no robot hardware is
-  currently present
+  currently present. The host Arduino pressure-monitor GUI is a sensing bench
+  only.

@@ -17,6 +17,9 @@ MANUAL_LAUNCH_PATH = PACKAGE_ROOT / "launch" / "manual.launch.py"
 MANUAL_PUBLISHER_PATH = (
     PACKAGE_ROOT / "scripts" / "manual_joint_state_publisher.py"
 )
+SLICER_PUBLISHER_PATH = (
+    PACKAGE_ROOT / "scripts" / "slicer_joint_state_publisher.py"
+)
 EXPECTED_MESH_SHA256 = {
     "burr.stl": "7ed794505b0440aed9092ac6a5522a9235e078410f6e5d43ba161b3c2768a51b",
     "link-1.stl": "a71a9bc70fd0562da915e06b84c8cec7fe827191da34e4d93156e7fed1484353",
@@ -241,6 +244,40 @@ def test_manual_joint_controls_match_urdf_order_limits_and_units() -> None:
     assert isclose(controls[1].si_to_display(0.08), 80.0)
 
 
+def _slicer_publisher_module():
+    module_name = "dentobot_slicer_joint_state_publisher_test_module"
+    spec = importlib.util.spec_from_file_location(module_name, SLICER_PUBLISHER_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_slicer_joint_publisher_clamps_urdf_commands() -> None:
+    module = _slicer_publisher_module()
+    urdf = URDF_PATH.read_text(encoding="utf-8")
+    joints = module.movable_joints_from_urdf(urdf)
+    assert [name for name, _lower, _upper in joints] == [
+        "link-1_Revolute-1",
+        "link-2_Slider-2",
+        "link-3_Revolute-3",
+        "link-4_Slider-4",
+        "link-5_Revolute-5",
+        "pneumatic_spindle-Copy_Revolute-6",
+    ]
+    zeros = module.clamp_joint_positions(joints, [0.0] * 6)
+    assert zeros == [0.0] * 6
+    over_j2 = module.clamp_joint_positions(joints, [0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    assert over_j2[1] == 0.08
+    try:
+        module.clamp_joint_positions(joints, [0.0] * 5)
+    except ValueError as exc:
+        assert "expected 6 joint positions" in str(exc)
+    else:
+        raise AssertionError("mismatched command length must raise")
+
+
 def test_manual_launch_and_runtime_dependencies_are_installed() -> None:
     package_root = ElementTree.parse(PACKAGE_XML_PATH).getroot()
     dependencies = {
@@ -253,18 +290,22 @@ def test_manual_launch_and_runtime_dependencies_are_installed() -> None:
     assert "robot_state_publisher" in dependencies
     assert "rviz2" in dependencies
     assert "visualization_msgs" in dependencies
+    assert "std_msgs" in dependencies
+    assert "sensor_msgs" in dependencies
 
     description_launch = DESCRIPTION_LAUNCH_PATH.read_text(encoding="utf-8")
     manual_launch = MANUAL_LAUNCH_PATH.read_text(encoding="utf-8")
     cmake = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
     assert '"joint_state_mode"' in description_launch
-    for mode in ("neutral", "manual", "external"):
+    for mode in ("neutral", "manual", "slicer", "external"):
         assert f'"{mode}"' in description_launch
     assert '"joint_state_mode": "manual"' in manual_launch
     assert 'default_value="5.0"' in manual_launch
     assert '"coarse_clearance_mm"' in description_launch
     assert "manual_joint_state_publisher.py" in cmake
     assert "neutral_joint_state_publisher.py" in cmake
+    assert "slicer_joint_state_publisher.py" in cmake
+    assert "dentobot/slicer_joint_positions" in description_launch
 
 
 def test_coarse_aabb_model_uses_mesh_bounds_fk_and_five_mm_clearance() -> None:

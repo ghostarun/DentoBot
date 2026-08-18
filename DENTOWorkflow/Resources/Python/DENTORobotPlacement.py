@@ -106,14 +106,14 @@ def joint_positions_si_from_display(
     }
 
 
-def robot_link_mesh_poses_mm(
+def link_transforms_base_m(
     urdf_path: str | Path,
     package_root: str | Path,
     joint_positions_si: dict[str, float] | None = None,
-) -> tuple[RobotLinkMeshPose, ...]:
-    """Return every collision/visual mesh pose relative to URDF base_link."""
+) -> dict[str, np.ndarray]:
+    """Return URDF link transforms in base_link metres."""
+    del package_root  # reserved for API symmetry with mesh loaders
     urdf_path = Path(urdf_path).resolve()
-    package_root = Path(package_root).resolve()
     root = ElementTree.parse(urdf_path).getroot()
     if root.tag != "robot":
         raise ValueError("The description does not contain a URDF robot root.")
@@ -176,6 +176,33 @@ def robot_link_mesh_poses_mm(
             progressed = True
         if not progressed:
             raise ValueError("The URDF joint graph is disconnected or cyclic.")
+    return transforms_m
+
+
+def burr_origin_base_m(
+    joint_positions_si: dict[str, float],
+    urdf_path: str | Path,
+    package_root: str | Path,
+) -> np.ndarray:
+    """Return the CAD burr-link origin in base_link metres (not a calibrated TCP)."""
+    transforms_m = link_transforms_base_m(urdf_path, package_root, joint_positions_si)
+    if "burr" not in transforms_m:
+        raise ValueError("The tracked URDF does not contain a burr link.")
+    return transforms_m["burr"][:3, 3].copy()
+
+
+def robot_link_mesh_poses_mm(
+    urdf_path: str | Path,
+    package_root: str | Path,
+    joint_positions_si: dict[str, float] | None = None,
+) -> tuple[RobotLinkMeshPose, ...]:
+    """Return every collision/visual mesh pose relative to URDF base_link."""
+    urdf_path = Path(urdf_path).resolve()
+    package_root = Path(package_root).resolve()
+    root = ElementTree.parse(urdf_path).getroot()
+    if root.tag != "robot":
+        raise ValueError("The description does not contain a URDF robot root.")
+    transforms_m = link_transforms_base_m(urdf_path, package_root, joint_positions_si)
 
     poses: list[RobotLinkMeshPose] = []
     uri_prefix = "package://dentobot_description/"
@@ -327,6 +354,23 @@ def hinge_rotation_matrix(
     matrix[:3, :3] = rotation
     matrix[:3, 3] = pivot - rotation @ pivot
     return matrix
+
+
+def world_transform_to_parent_local(
+    world_matrix: np.ndarray,
+    parent_to_world: np.ndarray | None = None,
+) -> np.ndarray:
+    """Express a world-RAS transform in a parent node's local coordinates."""
+
+    world = np.asarray(world_matrix, dtype=float)
+    if parent_to_world is None:
+        return world
+    parent = np.asarray(parent_to_world, dtype=float)
+    if world.shape != (4, 4) or parent.shape != (4, 4):
+        raise ValueError("Transforms must be finite 4 x 4 matrices.")
+    if not np.all(np.isfinite(world)) or not np.all(np.isfinite(parent)):
+        raise ValueError("Transforms must be finite 4 x 4 matrices.")
+    return np.linalg.inv(parent) @ world @ parent
 
 
 def solve_hinge_rotation_for_gap(

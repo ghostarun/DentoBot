@@ -27,6 +27,31 @@ if (( swap_used_kib > 1048576 )); then
   warn "swap use exceeds 1 GiB; this workstation uses a rotational system disk"
 fi
 
+printf '\nHost stability policy\n'
+swappiness="$(< /proc/sys/vm/swappiness)"
+dirty_background_bytes="$(< /proc/sys/vm/dirty_background_bytes)"
+dirty_bytes="$(< /proc/sys/vm/dirty_bytes)"
+printf 'swappiness/dirty-background/dirty-limit: %s %s %s\n' \
+  "${swappiness}" "${dirty_background_bytes}" "${dirty_bytes}"
+if [[ ${swappiness} != "10" ||
+      ${dirty_background_bytes} != "134217728" ||
+      ${dirty_bytes} != "536870912" ]]; then
+  warn "host swap/writeback stability settings differ from the verified policy"
+fi
+if grep -Eq '^[[:space:]]*WaylandEnable=false[[:space:]]*$' \
+  /etc/gdm3/custom.conf 2>/dev/null; then
+  printf 'GDM greeter policy: Xorg (takes effect after GDM restart/reboot)\n'
+else
+  warn "GDM is not configured for the Xorg greeter stability path"
+fi
+if command -v systemctl >/dev/null 2>&1; then
+  oomd_status="$(systemctl is-active systemd-oomd.service 2>/dev/null || true)"
+  printf 'systemd-oomd: %s\n' "${oomd_status:-unavailable}"
+  if [[ -n ${oomd_status} && ${oomd_status} != "active" ]]; then
+    warn "systemd-oomd is ${oomd_status}"
+  fi
+fi
+
 printf '\nChrome Remote Desktop\n'
 if command -v systemctl >/dev/null 2>&1; then
   crd_status="$(
@@ -34,11 +59,21 @@ if command -v systemctl >/dev/null 2>&1; then
   )"
   printf 'host service: %s\n' "${crd_status:-unavailable}"
   if [[ -n ${crd_status} && ${crd_status} != "active" ]]; then
-    warn "Chrome Remote Desktop user service is ${crd_status}"
+    if loginctl list-sessions --no-legend 2>/dev/null \
+      | awk -v user="${USER}" '$3 == user && $4 == "seat0" {found=1} END {exit !found}'; then
+      printf 'note: CRD is stopped while the same user owns the physical seat\n'
+    else
+      warn "Chrome Remote Desktop user service is ${crd_status}"
+    fi
   fi
 fi
-pgrep -af 'chrome-remote-desktop-host|chrome-remote-desktop' || \
-  warn "no Chrome Remote Desktop host process is visible"
+if ! pgrep -af 'chrome-remote-desktop-host|chrome-remote-desktop'; then
+  if [[ ${crd_status:-} == "active" ]]; then
+    warn "CRD service is active but no host process is visible"
+  else
+    printf 'host process: none\n'
+  fi
+fi
 
 printf '\nDENTOBOT container\n'
 if ! command -v docker >/dev/null 2>&1; then

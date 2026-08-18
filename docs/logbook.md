@@ -95,6 +95,23 @@ Suggested entry fields are:
   physical Intel-session trial with deliberate landmark/base placements is the
   next acceptance step.
 
+## 2026-08-17 15:48:35 IST (UTC+05:30) — Keep virtual CRD, correct host stalls
+
+- The developer retained CRD/Xfce for a private virtual desktop and accepted
+  force-stopping it before local same-user login. The responsiveness defect
+  was isolated from that expected session handoff.
+- Journal accounting proved the GDM Wayland greeter consumed 2d 23h CPU over
+  3d wall time. The host also used default swappiness 60 and percentage dirty
+  limits on a rotational disk; systemd-oomd was already active and correctly
+  monitoring the user service.
+- Backed up and configured GDM for Xorg, installed/applied swappiness 10 and
+  128 MiB/512 MiB dirty-page limits, and extended the health report. Exact
+  policy checks, Bash syntax, and whitespace passed. No concurrent Slicer QA
+  process was killed.
+- The current graphical session was not restarted. Reboot activation and an
+  overnight CRD soak remain necessary before claiming the freeze resolved. No
+  secrets, patient data, robot action, Git publication, or Drive sync occurred.
+
 ## 2026-08-14 19:18:17 IST (UTC+05:30) — Selected zero/base alignment/J4 reversal
 
 - Absorbed the photographed `25.38/0/62.46/0/1.08/-35.28` degree/mm state into

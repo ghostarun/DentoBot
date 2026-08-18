@@ -208,6 +208,25 @@ forehead plane, head mount, joint vectors, collision clearance, TCP, and mouth
 workspace are provisional design inputs. No ROS state, controller, hardware,
 patient data, or robot motion was used.
 
+### Step 6 evening refinement — 2026-08-17
+
+After workspace co-location was added, applying the world-RAS hinge matrix
+directly to the jaw transform (parented under the phantom workspace transform)
+separated the mandible from the skull. The fix converts the solver output with
+`world_transform_to_parent_local()` before `SetMatrixTransformToParent`.
+
+Additional evening changes: progressive one-at-a-time landmark placement with a
+separate clear control; strict singleton enforcement for phantom and robot
+placement sets; workspace transform relocation to `(0, -150, 250)` mm RAS;
+combined **Frame Phantom + Robot** framing; and suggested robot-base placement
+when the phantom is already loaded.
+
+Five host pure-geometry tests passed, including
+`test_draft_jaw_opening_hinge_survives_workspace_parent_translation`. Slicer
+logic tests were updated for workspace-aligned landmark coordinates, seven-node
+phantom cleanup, and a 150 mm mandible/maxilla center bound after opening.
+Interactive Slicer extension reload was not re-run in the physical session.
+
 ### Ubuntu CPU segmentation baseline — 2026-08-11
 
 The same external Conda environment now contains the Ubuntu CPU inference

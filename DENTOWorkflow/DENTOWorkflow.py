@@ -79,7 +79,14 @@ from DENTORobotPlacement import (
     orthonormal_plane_pose,
     robot_link_mesh_poses_mm,
     solve_hinge_rotation_for_gap,
+    world_transform_to_parent_local,
     vtk_matrix_elements,
+)
+from DENTOROS2Bridge import (
+    ROS2_MOTION_ACTIVE_ATTRIBUTE,
+    description_stack_running,
+    disconnect_dentobot_motion_control,
+    connect_dentobot_motion_control,
 )
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
@@ -93,6 +100,18 @@ from DENTOPlatform import (
     default_execution_mode,
     launcher_backend_configuration,
     windows_path_to_wsl_path,
+)
+from DENTOStep6Planning import (
+    MotionPlanResult,
+    PlanningContextReport,
+    TaskJointLimits,
+    apply_task_joint_limits_to_display_ranges,
+    build_task_joint_limits_from_parameter_values,
+    default_task_joint_limits_from_urdf,
+    evaluate_motion_configuration,
+    plan_trajectory_motion,
+    sample_trajectory_world_mm,
+    validate_planning_context,
 )
 
 
@@ -193,6 +212,23 @@ class DENTOWorkflowParameterNode:
     robotTranslationStepMm: float = 1.0
     robotRotationStepDeg: float = 1.0
     robotKeyboardNudgeEnabled: bool = False
+    robotBaseMountLocked: bool = False
+    step6PlanningContextImported: bool = False
+    robotMotionPlanSampleCount: int = 12
+    robotCoarseSelfClearanceMm: float = 5.0
+    robotEnvironmentClearanceMm: float = 2.0
+    robotJoint1TaskMinDeg: float = -25.38
+    robotJoint1TaskMaxDeg: float = 334.62
+    robotJoint2TaskMinMm: float = 0.0
+    robotJoint2TaskMaxMm: float = 80.0
+    robotJoint3TaskMinDeg: float = -62.46
+    robotJoint3TaskMaxDeg: float = 297.54
+    robotJoint4TaskMinMm: float = 0.0
+    robotJoint4TaskMaxMm: float = 75.0
+    robotJoint5TaskMinDeg: float = -1.08
+    robotJoint5TaskMaxDeg: float = 358.92
+    robotJoint6TaskMinDeg: float = -360.0
+    robotJoint6TaskMaxDeg: float = 360.0
     sceneDisplayPresetJson: str = ""
 
 
@@ -275,6 +311,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._processingSegmentationContentChange = False
         self._planningTrajectoryNode = None
         self._planningTrajectoryDisplayNode = None
+        self._draftJawLandmarksNode = None
         self._assistedTrajectoryEntryNode = None
         self._assistedTrajectoryFocusState: dict | None = None
         self._resumeAssistedTrajectoryFocusAfterSave = False
@@ -340,6 +377,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._restoringTemplateTrimPlane = False
         self._robotKeyboardShortcuts: list[qt.QShortcut] = []
         self._robotBaseTransformNode = None
+        self._step6MotionPlan: MotionPlanResult | None = None
+        self._step6MotionPreviewTimer = None
+        self._step6MotionPreviewIndex = 0
         self._robotMountPlaneNode = None
         self._updatingRobotPlacementUI = False
         self._isCleaningUp = False
@@ -1024,6 +1064,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onCreateDraftJawLandmarks,
         )
+        self.ui.clearDraftJawLandmarksButton.connect(
+            "clicked(bool)",
+            self.onClearDraftJawLandmarks,
+        )
         self.ui.applyDraftJawOpeningButton.connect(
             "clicked(bool)",
             self.onApplyDraftJawOpening,
@@ -1048,7 +1092,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onFlipRobotMountPlane,
         )
-        self.ui.frameRobotButton.connect("clicked(bool)", self.onFrameRobot)
+        self.ui.frameRobotButton.connect("clicked(bool)", self.onFrameStep6ResearchWorkspace)
+        self.ui.connectRos2MotionButton.connect(
+            "clicked(bool)",
+            self.onConnectRos2MotionControl,
+        )
+        self.ui.disconnectRos2MotionButton.connect(
+            "clicked(bool)",
+            self.onDisconnectRos2MotionControl,
+        )
         self.ui.resetRobotJointsButton.connect(
             "clicked(bool)",
             self.onResetRobotJoints,
@@ -1060,6 +1112,38 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.deleteRobotSetupButton.connect(
             "clicked(bool)",
             self.onDeleteRobotSetup,
+        )
+        self.ui.importStep6PlanningContextButton.connect(
+            "clicked(bool)",
+            self.onImportStep6PlanningContext,
+        )
+        self.ui.lockRobotBaseMountButton.connect(
+            "clicked(bool)",
+            self.onLockRobotBaseMount,
+        )
+        self.ui.unlockRobotBaseMountButton.connect(
+            "clicked(bool)",
+            self.onUnlockRobotBaseMount,
+        )
+        self.ui.applyTaskJointLimitsButton.connect(
+            "clicked(bool)",
+            self.onApplyTaskJointLimits,
+        )
+        self.ui.resetTaskJointLimitsButton.connect(
+            "clicked(bool)",
+            self.onResetTaskJointLimits,
+        )
+        self.ui.planTrajectoryMotionButton.connect(
+            "clicked(bool)",
+            self.onPlanTrajectoryMotion,
+        )
+        self.ui.previewTrajectoryMotionButton.connect(
+            "clicked(bool)",
+            self.onPreviewTrajectoryMotion,
+        )
+        self.ui.stopTrajectoryMotionButton.connect(
+            "clicked(bool)",
+            self.onStopTrajectoryMotion,
         )
         for buttonName, translationAxis, rotationAxis, direction in (
             ("robotXMinusButton", 0, None, -1.0),
@@ -2001,9 +2085,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             == len(stageEntries) - 1
         )
         if robotStageActive:
-            for modelNode in (
-                self.logic.robotModelNodes() + self.logic.draftPhantomModelNodes()
-            ):
+            ros2_active = self.logic.isRos2MotionControlActive(baseTransform)
+            for modelNode in self.logic.robotModelNodes():
+                modelNode.CreateDefaultDisplayNodes()
+                displayNode = modelNode.GetDisplayNode()
+                if displayNode:
+                    displayNode.SetVisibility(not ros2_active)
+            for modelNode in self.logic.draftPhantomModelNodes():
                 modelNode.CreateDefaultDisplayNodes()
                 displayNode = modelNode.GetDisplayNode()
                 if displayNode:
@@ -2049,14 +2137,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 self._parameterNode.draftPhantomSkullModel
                 and self._parameterNode.draftPhantomMandibleModel
             )
-            self.ui.createDraftJawLandmarksButton.enabled = phantomLoaded
+            self.ui.frameRobotButton.enabled = bool(
+                modelCount or self.logic.draftPhantomModelNodes()
+            )
             self.ui.deleteDraftPhantomButton.enabled = bool(
                 self.logic.draftPhantomModelNodes()
             )
-            landmarkReady = self.logic.isDraftJawLandmarksNode(
-                self._parameterNode.draftJawLandmarks
-            )
-            self.ui.applyDraftJawOpeningButton.enabled = phantomLoaded and landmarkReady
+            self._updateDraftJawLandmarkControls(phantomLoaded=phantomLoaded)
             self.ui.resetDraftJawButton.enabled = self.logic.isDraftJawTransformNode(
                 self._parameterNode.draftJawTransform
             )
@@ -2064,7 +2151,111 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._updatingRobotPlacementUI = False
         self._updateRobotPlacementStatus()
         self._updateDraftPhantomStatus()
+        self._updateRos2MotionControlStatus()
         self._updateRobotKeyboardShortcutState()
+        if self._parameterNode and self.logic:
+            if self._parameterNode.robotBaseMountLocked:
+                self.logic.setRobotBaseMountLocked(self._parameterNode, True)
+            try:
+                self._applyTaskJointLimitsToJointSpinboxes()
+            except ValueError:
+                pass
+        self._updateStep6PlanningUi()
+
+    def _updateRos2MotionControlStatus(self, message: str = "") -> None:
+        if not hasattr(self, "ui"):
+            return
+        base_transform = (
+            self._parameterNode.robotBaseTransform if self._parameterNode else None
+        )
+        stack_running, stack_hint = description_stack_running()
+        ros2_active = (
+            self.logic.isRos2MotionControlActive(base_transform)
+            if self.logic and base_transform
+            else False
+        )
+        self.ui.disconnectRos2MotionButton.enabled = ros2_active
+        self.ui.connectRos2MotionButton.enabled = not ros2_active
+        if message:
+            status = message
+            style = "color: #c62828;" if "failed" in message.lower() else "color: #207227;"
+        elif ros2_active:
+            status = _(
+                "ROS 2 motion control is active. MRML link meshes are hidden while "
+                "the SlicerROS2 robot follows /joint_states."
+            )
+            style = "color: #207227;"
+        elif stack_running:
+            status = _(
+                "dentobot_description is running. Connect to load the robot in "
+                "SlicerROS2 Motion Control."
+            )
+            style = "color: #b36b00;"
+        else:
+            status = _(
+                "ROS 2 description stack is not running. Use the connect button or "
+                "scripts/launch-dentobot-description-for-slicer.bash."
+            )
+            if stack_hint:
+                status = f"{status} ({stack_hint})"
+            style = "color: #b36b00;"
+        self.ui.ros2MotionControlStatusLabel.text = status
+        self.ui.ros2MotionControlStatusLabel.styleSheet = style
+
+    def onConnectRos2MotionControl(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            base_transform = self.logic.ensureRobotBaseTransform(
+                self._parameterNode.robotBaseTransform,
+            )
+            self._parameterNode.robotBaseTransform = base_transform
+            phantom_models = self.logic.draftPhantomModelNodes()
+            if phantom_models:
+                self.logic.positionRobotBaseNearResearchPhantom(
+                    base_transform,
+                    phantom_models,
+                )
+            mrml_models = self.logic.robotModelNodes()
+            robot_node, error = connect_dentobot_motion_control(
+                base_transform,
+                hide_mrml_robot=bool(mrml_models),
+                mrml_robot_models=mrml_models,
+                open_motion_module=True,
+                start_stack_if_needed=True,
+            )
+            if error or robot_node is None:
+                raise RuntimeError(error or _("ROS 2 robot node was not created."))
+            self._updateRobotPlacement()
+            self._updateRos2MotionControlStatus(
+                _("Connected SlicerROS2 robot and opened Motion Control.")
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            self._updateRos2MotionControlStatus(
+                _("ROS 2 connect failed: %1").replace("%1", str(exc))
+            )
+            slicer.util.errorDisplay(str(exc))
+
+    def onDisconnectRos2MotionControl(self, checked: bool = False) -> None:
+        del checked
+        if not self.logic:
+            return
+        try:
+            ok, message = disconnect_dentobot_motion_control(
+                self.logic.robotModelNodes(),
+            )
+            if not ok:
+                raise RuntimeError(message)
+            self._updateRobotPlacement()
+            self._updateRos2MotionControlStatus(
+                _("Disconnected ROS 2 robot; MRML link meshes restored.")
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            self._updateRos2MotionControlStatus(
+                _("ROS 2 disconnect failed: %1").replace("%1", str(exc))
+            )
+            slicer.util.errorDisplay(str(exc))
 
     def _clearRobotPlacement(self) -> None:
         if not hasattr(self, "ui"):
@@ -2128,7 +2319,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
             self._parameterNode.robotBaseTransform = baseTransform
             self._updateRobotPlacement()
-            self.onFrameRobot()
+            if self.logic.draftPhantomModelNodes():
+                self.logic.positionRobotBaseNearResearchPhantom(
+                    baseTransform,
+                    self.logic.draftPhantomModelNodes(),
+                )
+            self.onFrameStep6ResearchWorkspace()
             self._updateRobotPlacementStatus(
                 _("Loaded/reused %1 robot links. Drag the base handles or mount plane.")
                 .replace("%1", str(len(models)))
@@ -2144,28 +2340,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             skull, mandible, models = self.logic.createOrUpdateDraftPhantom()
             self._parameterNode.draftPhantomSkullModel = skull
             self._parameterNode.draftPhantomMandibleModel = mandible
-            boundsList = []
-            for model in models:
-                bounds = [0.0] * 6
-                model.GetRASBounds(bounds)
-                if np.all(np.isfinite(bounds)):
-                    boundsList.append(bounds)
-            if boundsList:
-                self._frameRasBoundsInViews(
-                    (
-                        min(bounds[0] for bounds in boundsList),
-                        max(bounds[1] for bounds in boundsList),
-                        min(bounds[2] for bounds in boundsList),
-                        max(bounds[3] for bounds in boundsList),
-                        min(bounds[4] for bounds in boundsList),
-                        max(bounds[5] for bounds in boundsList),
-                    )
+            self.onFrameStep6ResearchWorkspace()
+            if self.logic.isRobotBaseTransformNode(
+                self._parameterNode.robotBaseTransform
+            ):
+                self.logic.positionRobotBaseNearResearchPhantom(
+                    self._parameterNode.robotBaseTransform,
+                    models,
                 )
             self._updateRobotPlacement()
             self._updateDraftPhantomStatus(
                 _(
                     "Loaded generic BodyParts3D neurocranium, maxilla, and mandible. "
-                    "Place four approximate jaw landmarks next."
+                    "Place the first jaw landmark next."
                 )
             )
         except (RuntimeError, ValueError, OSError) as exc:
@@ -2177,28 +2364,148 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._parameterNode or not self.logic:
             return
         try:
+            node = self.logic.ensureDraftJawLandmarksNode(
+                self._parameterNode.draftJawLandmarks
+            )
+            self._parameterNode.draftJawLandmarks = node
+            self._bindDraftJawLandmarksNode(node)
+            summary = self.logic.getDraftJawLandmarkSummary(node)
+            if summary["isComplete"]:
+                return
+            self.logic.startDraftJawLandmarkPlacement(node)
+            self._updateRobotPlacement()
+            landmarkIndex = summary["definedPointCount"]
+            placementHints = self.logic.draftJawLandmarkPlacementHints()
+            self._updateDraftPhantomStatus(
+                _(
+                    "Click one point in a 3D view for %1, then pan to the next "
+                    "landmark and press the button again."
+                ).replace("%1", placementHints[landmarkIndex])
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._updateDraftPhantomStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onClearDraftJawLandmarks(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        node = self._parameterNode.draftJawLandmarks
+        if not self.logic.isDraftJawLandmarksNode(node):
+            return
+        if node.GetNumberOfDefinedControlPoints() == 0:
+            return
+        try:
+            self.logic.stopTrajectoryPlacement()
             self.logic.resetDraftJawOpening(
                 self._parameterNode.draftPhantomMandibleModel,
                 self._parameterNode.draftJawTransform,
                 self._parameterNode.draftJawGapLine,
             )
             self._parameterNode.draftJawGapLine = None
-            node = self.logic.createOrResetDraftJawLandmarks(
-                self._parameterNode.draftJawLandmarks
-            )
-            self._parameterNode.draftJawLandmarks = node
-            slicer.modules.markups.logic().SetActiveListID(node)
-            slicer.modules.markups.logic().StartPlaceMode(False)
+            self.logic.clearDraftJawLandmarks(node)
             self._updateRobotPlacement()
             self._updateDraftPhantomStatus(
-                _(
-                    "Place four points in order: left TMJ, right TMJ, upper central "
-                    "incisor, lower central incisor. Press Esc after the fourth point."
-                )
+                _("Draft jaw landmarks cleared. Place the first landmark next.")
             )
         except (RuntimeError, ValueError) as exc:
             self._updateDraftPhantomStatus(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
+
+    def _bindDraftJawLandmarksNode(
+        self,
+        landmarksNode: vtkMRMLMarkupsFiducialNode | None,
+    ) -> None:
+        if landmarksNode is self._draftJawLandmarksNode:
+            return
+        if self._draftJawLandmarksNode:
+            for landmarkEvent in (
+                vtk.vtkCommand.ModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.removeObserver(
+                    self._draftJawLandmarksNode,
+                    landmarkEvent,
+                    self._onDraftJawLandmarksModified,
+                )
+        self._draftJawLandmarksNode = landmarksNode
+        if landmarksNode:
+            for landmarkEvent in (
+                vtk.vtkCommand.ModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.addObserver(
+                    landmarksNode,
+                    landmarkEvent,
+                    self._onDraftJawLandmarksModified,
+                )
+
+    def _onDraftJawLandmarksModified(self, caller=None, event=None) -> None:
+        del caller, event
+        if not self._parameterNode or not self.logic:
+            return
+        node = self._draftJawLandmarksNode
+        if not node or not self.logic.isDraftJawLandmarksNode(node):
+            return
+        try:
+            summary = self.logic.getDraftJawLandmarkSummary(node)
+        except ValueError:
+            return
+        pointCount = summary["definedPointCount"]
+        if pointCount >= 4:
+            self.logic.stopTrajectoryPlacement()
+            if not self.logic.isDraftJawTransformNode(
+                self._parameterNode.draftJawTransform
+            ):
+                try:
+                    self.onApplyDraftJawOpening()
+                except (RuntimeError, ValueError) as exc:
+                    self._updateDraftPhantomStatus(str(exc), error=True)
+                    slicer.util.errorDisplay(str(exc))
+        self._updateDraftJawLandmarkControls()
+        if pointCount < 4:
+            self._updateDraftPhantomStatus()
+
+    def _updateDraftJawLandmarkControls(self, phantomLoaded: bool | None = None) -> None:
+        if not hasattr(self, "ui") or not self._parameterNode or not self.logic:
+            return
+        if phantomLoaded is None:
+            phantomLoaded = bool(
+                self._parameterNode.draftPhantomSkullModel
+                and self._parameterNode.draftPhantomMandibleModel
+            )
+        node = self._parameterNode.draftJawLandmarks
+        summary = None
+        if node and self.logic.isDraftJawLandmarksNode(node):
+            try:
+                summary = self.logic.getDraftJawLandmarkSummary(node)
+            except ValueError:
+                summary = None
+        pointCount = summary["definedPointCount"] if summary else 0
+        isComplete = bool(summary and summary["isComplete"])
+        buttonLabels = self.logic.draftJawLandmarkButtonLabels()
+        self._updatingRobotPlacementUI = True
+        try:
+            self.ui.createDraftJawLandmarksButton.enabled = bool(
+                phantomLoaded and not isComplete
+            )
+            self.ui.createDraftJawLandmarksButton.text = (
+                buttonLabels[pointCount]
+                if pointCount < len(buttonLabels)
+                else _("All landmarks placed")
+            )
+            self.ui.clearDraftJawLandmarksButton.enabled = bool(
+                phantomLoaded and pointCount > 0
+            )
+            self.ui.applyDraftJawOpeningButton.enabled = bool(
+                phantomLoaded and isComplete
+            )
+        finally:
+            self._updatingRobotPlacementUI = False
 
     def onApplyDraftJawOpening(self, checked: bool = False) -> None:
         del checked
@@ -2258,6 +2565,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._parameterNode.draftJawGapLine = None
         finally:
             self._parameterNode.EndModify(wasModifying)
+        self._bindDraftJawLandmarksNode(None)
         self._updateRobotPlacement()
         logging.info("Deleted %d disposable draft phantom nodes", len(removed))
 
@@ -2372,6 +2680,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self._updatingRobotPlacementUI or not self._parameterNode:
             return
         self._parameterNode.draftJawLandmarks = node
+        self._bindDraftJawLandmarksNode(node)
         self._updateRobotPlacement()
 
     def onRobotKeyboardNudgeToggled(self, checked: bool) -> None:
@@ -2410,27 +2719,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         baseTransform.SetMatrixTransformToParent(matrix)
         self._updateRobotPlacementStatus(_("Robot base reset to Slicer world RAS."))
 
-    def onFrameRobot(self, checked: bool = False) -> None:
+    def onFrameStep6ResearchWorkspace(self, checked: bool = False) -> None:
         del checked
         if not self.logic:
             return
-        boundsList = []
-        for modelNode in self.logic.robotModelNodes():
-            bounds = [0.0] * 6
-            modelNode.GetRASBounds(bounds)
-            if np.all(np.isfinite(bounds)):
-                boundsList.append(bounds)
-        if not boundsList:
-            return
-        combined = (
-            min(bounds[0] for bounds in boundsList),
-            max(bounds[1] for bounds in boundsList),
-            min(bounds[2] for bounds in boundsList),
-            max(bounds[3] for bounds in boundsList),
-            min(bounds[4] for bounds in boundsList),
-            max(bounds[5] for bounds in boundsList),
+        bounds = self.logic.step6ResearchWorkspaceRasBounds(
+            self.logic.robotModelNodes(),
+            self.logic.draftPhantomModelNodes(),
         )
-        self._frameRasBoundsInViews(combined)
+        if bounds is None:
+            return
+        self._frameRasBoundsInViews(bounds)
+
+    def onFrameRobot(self, checked: bool = False) -> None:
+        del checked
+        self.onFrameStep6ResearchWorkspace()
 
     def onDeleteRobotSetup(self, checked: bool = False) -> None:
         del checked
@@ -2444,6 +2747,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             windowTitle=_("Delete Step 6 robot setup"),
         ):
             return
+        if self.logic.isRos2MotionControlActive(
+            self._parameterNode.robotBaseTransform
+        ):
+            disconnect_dentobot_motion_control(self.logic.robotModelNodes())
         removed = self.logic.deleteRobotPlacement(
             self._parameterNode.robotBaseTransform,
             self._parameterNode.robotMountPlane,
@@ -2457,6 +2764,237 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._parameterNode.EndModify(wasModifying)
         self._clearRobotPlacement()
         logging.info("Deleted %d Step 6 robot placement nodes", len(removed))
+
+    def _updateStep6PlanningUi(self, message: str = "", error: bool = False) -> None:
+        if not hasattr(self, "ui") or not self._parameterNode:
+            return
+        imported = bool(self._parameterNode.step6PlanningContextImported)
+        locked = bool(self._parameterNode.robotBaseMountLocked)
+        has_plan = self._step6MotionPlan is not None and self._step6MotionPlan.success
+
+        if message:
+            context_status = message
+        elif imported:
+            context_status = _("Planning package imported for Step 6.")
+        else:
+            context_status = _("Planning package not imported.")
+
+        if locked:
+            mount_status = _("Base mount locked for motion planning.")
+        else:
+            mount_status = _("Base mount is unlocked.")
+
+        if message and "motion plan" in message.lower():
+            plan_status = message
+        elif has_plan:
+            plan_status = self._step6MotionPlan.message
+        else:
+            plan_status = _("No motion plan yet.")
+
+        style_ok = "color: #207227;"
+        style_warn = "color: #b36b00;"
+        style_err = "color: #b00020;"
+        style = style_err if error else (style_ok if imported or has_plan else style_warn)
+
+        self.ui.step6PlanningContextStatusLabel.text = context_status
+        self.ui.step6PlanningContextStatusLabel.styleSheet = style if not imported else style_ok
+        self.ui.step6MountLockStatusLabel.text = mount_status
+        self.ui.step6MountLockStatusLabel.styleSheet = style_ok if locked else style_warn
+        self.ui.step6TrajectoryPlanningStatusLabel.text = plan_status
+        self.ui.step6TrajectoryPlanningStatusLabel.styleSheet = (
+            style_err if error else (style_ok if has_plan else style_warn)
+        )
+
+        self.ui.lockRobotBaseMountButton.enabled = not locked
+        self.ui.unlockRobotBaseMountButton.enabled = locked
+        self.ui.planTrajectoryMotionButton.enabled = imported and locked
+        self.ui.previewTrajectoryMotionButton.enabled = has_plan
+        self.ui.stopTrajectoryMotionButton.enabled = self._step6MotionPreviewTimer is not None
+
+        mount_controls_enabled = not locked
+        for widget_name in (
+            "createRobotMountPlaneButton",
+            "flipRobotMountPlaneButton",
+            "snapRobotBaseToPlaneButton",
+            "resetRobotBaseButton",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(mount_controls_enabled)
+        for widget_name in (
+            "robotXMinusButton",
+            "robotXPlusButton",
+            "robotYMinusButton",
+            "robotYPlusButton",
+            "robotZMinusButton",
+            "robotZPlusButton",
+            "robotRxMinusButton",
+            "robotRxPlusButton",
+            "robotRyMinusButton",
+            "robotRyPlusButton",
+            "robotRzMinusButton",
+            "robotRzPlusButton",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(mount_controls_enabled)
+
+    def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        limits = self.logic.getTaskJointLimits(self._parameterNode)
+        pairs = (
+            (self.ui.robotJoint1SpinBox, limits.joint_1),
+            (self.ui.robotJoint2SpinBox, limits.joint_2),
+            (self.ui.robotJoint3SpinBox, limits.joint_3),
+            (self.ui.robotJoint4SpinBox, limits.joint_4),
+            (self.ui.robotJoint5SpinBox, limits.joint_5),
+            (self.ui.robotJoint6SpinBox, limits.joint_6),
+        )
+        for spinbox, joint_limit in pairs:
+            spinbox.setMinimum(joint_limit.minimum)
+            spinbox.setMaximum(joint_limit.maximum)
+            spinbox.setValue(
+                min(max(spinbox.value, joint_limit.minimum), joint_limit.maximum),
+            )
+
+    def _setRobotJointsFromSi(self, joint_positions_si: dict[str, float]) -> None:
+        if not self._parameterNode:
+            return
+        was_modifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.robotJoint1Deg = degrees(
+                joint_positions_si["link-1_Revolute-1"],
+            )
+            self._parameterNode.robotJoint2Mm = (
+                joint_positions_si["link-2_Slider-2"] * 1000.0
+            )
+            self._parameterNode.robotJoint3Deg = degrees(
+                joint_positions_si["link-3_Revolute-3"],
+            )
+            self._parameterNode.robotJoint4Mm = (
+                joint_positions_si["link-4_Slider-4"] * 1000.0
+            )
+            self._parameterNode.robotJoint5Deg = degrees(
+                joint_positions_si["link-5_Revolute-5"],
+            )
+            self._parameterNode.robotJoint6Deg = degrees(
+                joint_positions_si["pneumatic_spindle-Copy_Revolute-6"],
+            )
+        finally:
+            self._parameterNode.EndModify(was_modifying)
+        self._updateRobotPlacement()
+
+    def onImportStep6PlanningContext(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            report = self.logic.importStep6PlanningContext(self._parameterNode)
+            self.onFrameStep6ResearchWorkspace()
+            try:
+                self._applyTaskJointLimitsToJointSpinboxes()
+            except ValueError:
+                pass
+            self._updateStep6PlanningUi(report.message)
+        except (RuntimeError, ValueError) as exc:
+            self._updateStep6PlanningUi(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onLockRobotBaseMount(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        if not self._parameterNode.step6PlanningContextImported:
+            slicer.util.errorDisplay(
+                _("Import the Step 6 planning package before locking the base mount."),
+            )
+            return
+        if not self.logic.isRobotBaseTransformNode(
+            self._parameterNode.robotBaseTransform,
+        ):
+            slicer.util.errorDisplay(_("Load or create the robot base before locking."))
+            return
+        self.logic.setRobotBaseMountLocked(self._parameterNode, True)
+        self._updateStep6PlanningUi(_("Base mount locked."))
+
+    def onUnlockRobotBaseMount(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        self.logic.setRobotBaseMountLocked(self._parameterNode, False)
+        self._updateStep6PlanningUi(_("Base mount unlocked."))
+
+    def onApplyTaskJointLimits(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            self._applyTaskJointLimitsToJointSpinboxes()
+            self._updateStep6PlanningUi(_("Task joint limits applied to Step 6 controls."))
+        except ValueError as exc:
+            self._updateStep6PlanningUi(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onResetTaskJointLimits(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        self.logic.resetTaskJointLimitsToUrdf(self._parameterNode)
+        self._applyTaskJointLimitsToJointSpinboxes()
+        self._updateStep6PlanningUi(_("Task joint limits reset to URDF mechanical bounds."))
+
+    def onPlanTrajectoryMotion(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            self.onStopTrajectoryMotion()
+            result = self.logic.planStep6TrajectoryMotion(self._parameterNode)
+            self._step6MotionPlan = result
+            if not result.success:
+                raise RuntimeError(result.message)
+            self._updateStep6PlanningUi(result.message)
+        except (RuntimeError, ValueError) as exc:
+            self._step6MotionPlan = None
+            self._updateStep6PlanningUi(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onPreviewTrajectoryMotion(self, checked: bool = False) -> None:
+        del checked
+        if not self._step6MotionPlan or not self._step6MotionPlan.success:
+            return
+        import qt
+
+        self.onStopTrajectoryMotion()
+        self._step6MotionPreviewIndex = 0
+        timer = qt.QTimer()
+        timer.setInterval(250)
+        timer.timeout.connect(self._advanceStep6MotionPreview)
+        timer.start()
+        self._step6MotionPreviewTimer = timer
+        self._updateStep6PlanningUi(_("Previewing simulated motion plan."))
+
+    def _advanceStep6MotionPreview(self) -> None:
+        if not self._step6MotionPlan or not self._step6MotionPlan.waypoint_joint_vectors_si:
+            self.onStopTrajectoryMotion()
+            return
+        waypoints = self._step6MotionPlan.waypoint_joint_vectors_si
+        if self._step6MotionPreviewIndex >= len(waypoints):
+            self.onStopTrajectoryMotion()
+            self._updateStep6PlanningUi(_("Simulated motion preview complete."))
+            return
+        self._setRobotJointsFromSi(waypoints[self._step6MotionPreviewIndex])
+        self._step6MotionPreviewIndex += 1
+        slicer.app.processEvents()
+
+    def onStopTrajectoryMotion(self, checked: bool = False) -> None:
+        del checked
+        if self._step6MotionPreviewTimer is not None:
+            self._step6MotionPreviewTimer.stop()
+            self._step6MotionPreviewTimer = None
+        self._step6MotionPreviewIndex = 0
+        self._updateStep6PlanningUi()
 
     def _workflowStageEntries(self) -> list[tuple[str, object]]:
         """Return the ordered clinical/research workflow sections.
@@ -4101,6 +4639,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateTemplateModeling()
         self._updateTemplateGuide()
         self._updateTemplateFinalization()
+        self._bindDraftJawLandmarksNode(self._parameterNode.draftJawLandmarks)
         self._updateRobotPlacement()
         self._updateWorkflowNavigationRecommendation()
         self._refreshWorkflowViewAfterStateChange()
@@ -13788,8 +14327,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE
     )
     REVIEW_METADATA_VERSION = "1.0"
-    ROBOT_PLACEMENT_SCHEMA_VERSION = "0.2"
+    ROBOT_PLACEMENT_SCHEMA_VERSION = "0.3"
     ROBOT_BASE_ROLE = "RobotBase"
+    STEP6_PLANNING_CONTEXT_ATTRIBUTE = "DENTOBOT.Step6PlanningContextImported"
     ROBOT_LINK_POSE_ROLE = "RobotLinkPose"
     ROBOT_LINK_MODEL_ROLE = "RobotLink"
     ROBOT_MOUNT_PLANE_ROLE = "RobotMountPlane"
@@ -13798,6 +14338,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     DRAFT_PHANTOM_MAXILLA_PART = "Maxilla"
     DRAFT_PHANTOM_MANDIBLE_PART = "Mandible"
     DRAFT_JAW_LANDMARKS_ROLE = "DraftJawLandmarks"
+    DRAFT_JAW_LANDMARK_LABELS = (
+        "Left TMJ",
+        "Right TMJ",
+        "Upper incisor",
+        "Lower incisor",
+    )
+    DRAFT_PHANTOM_WORKSPACE_ROLE = "DraftPhantomWorkspace"
+    STEP_6_RESEARCH_PHANTOM_CENTER_RAS = (0.0, -150.0, 250.0)
     DRAFT_JAW_TRANSFORM_ROLE = "DraftJawTransform"
     DRAFT_JAW_GAP_LINE_ROLE = "DraftJawGapLine"
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
@@ -14069,6 +14617,287 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             == cls.DRAFT_JAW_TRANSFORM_ROLE
         )
 
+    @classmethod
+    def isDraftPhantomWorkspaceTransformNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLLinearTransformNode")
+            and node.GetAttribute("DENTOBOT.TransformRole")
+            == cls.DRAFT_PHANTOM_WORKSPACE_ROLE
+        )
+
+    @classmethod
+    def draftPhantomWorkspaceTransformNodes(cls) -> list[vtkMRMLLinearTransformNode]:
+        return [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode")
+            if node.GetAttribute("DENTOBOT.TransformRole")
+            == cls.DRAFT_PHANTOM_WORKSPACE_ROLE
+        ]
+
+    @staticmethod
+    def _modelRasBounds(model: vtkMRMLModelNode) -> list[float]:
+        bounds = [0.0] * 6
+        model.GetRASBounds(bounds)
+        return bounds
+
+    @staticmethod
+    def combinedRasBounds(boundsList: list[list[float]]) -> tuple[float, ...] | None:
+        finite = [
+            bounds
+            for bounds in boundsList
+            if len(bounds) == 6 and np.all(np.isfinite(bounds))
+        ]
+        if not finite:
+            return None
+        return (
+            min(bounds[0] for bounds in finite),
+            max(bounds[1] for bounds in finite),
+            min(bounds[2] for bounds in finite),
+            max(bounds[3] for bounds in finite),
+            min(bounds[4] for bounds in finite),
+            max(bounds[5] for bounds in finite),
+        )
+
+    def step6ResearchWorkspaceRasBounds(
+        self,
+        robotModels: list[vtkMRMLModelNode],
+        phantomModels: list[vtkMRMLModelNode],
+    ) -> tuple[float, ...] | None:
+        boundsList = [
+            self._modelRasBounds(model)
+            for model in [*robotModels, *phantomModels]
+        ]
+        return self.combinedRasBounds(boundsList)
+
+    def _validateSingleStep6PhantomPlacement(
+        self,
+        resolvedModels: dict[str, vtkMRMLModelNode],
+        workspaceTransform: vtkMRMLLinearTransformNode | None,
+    ) -> None:
+        reuseModelIds = {model.GetID() for model in resolvedModels.values()}
+        extraModels = [
+            node
+            for node in self.draftPhantomModelNodes()
+            if node.GetID() not in reuseModelIds
+        ]
+        if extraModels:
+            raise ValueError(
+                _(
+                    "Only one draft phantom set is allowed in Step 6. Delete the "
+                    "existing phantom before loading another."
+                )
+            )
+        for part in (
+            self.DRAFT_PHANTOM_SKULL_PART,
+            self.DRAFT_PHANTOM_MAXILLA_PART,
+            self.DRAFT_PHANTOM_MANDIBLE_PART,
+        ):
+            partNodes = [
+                node
+                for node in self.draftPhantomModelNodes()
+                if node.GetAttribute("DENTOBOT.PhantomPart") == part
+            ]
+            if len(partNodes) > 1:
+                raise ValueError(
+                    _(
+                        "Multiple draft phantom %1 meshes are present. Delete the "
+                        "duplicate phantom before continuing."
+                    ).replace("%1", part)
+                )
+        reuseWorkspaceId = workspaceTransform.GetID() if workspaceTransform else ""
+        extraWorkspace = [
+            node
+            for node in self.draftPhantomWorkspaceTransformNodes()
+            if node.GetID() != reuseWorkspaceId
+        ]
+        if extraWorkspace:
+            raise ValueError(
+                _(
+                    "Multiple draft phantom workspace transforms are present. "
+                    "Delete the existing phantom before loading another."
+                )
+            )
+
+    def _validateSingleStep6RobotPlacement(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode | None,
+        linkModels: list[vtkMRMLModelNode],
+        linkTransforms: list[vtkMRMLLinearTransformNode],
+    ) -> None:
+        reuseModelIds = {model.GetID() for model in linkModels}
+        extraModels = [
+            node for node in self.robotModelNodes() if node.GetID() not in reuseModelIds
+        ]
+        if extraModels:
+            raise ValueError(
+                _(
+                    "Only one robot placement set is allowed in Step 6. Delete the "
+                    "existing robot setup before loading another."
+                )
+            )
+        linkNames = {
+            node.GetAttribute("DENTOBOT.RobotLinkName")
+            for node in self.robotModelNodes()
+        }
+        for linkName in linkNames:
+            if not linkName:
+                continue
+            matching = [
+                node
+                for node in self.robotModelNodes()
+                if node.GetAttribute("DENTOBOT.RobotLinkName") == linkName
+            ]
+            if len(matching) > 1:
+                raise ValueError(
+                    _(
+                        "Multiple robot link meshes are present for %1. Delete the "
+                        "duplicate robot setup before continuing."
+                    ).replace("%1", linkName)
+                )
+        reuseTransformIds = {node.GetID() for node in linkTransforms}
+        extraTransforms = [
+            node
+            for node in self.robotLinkTransformNodes()
+            if node.GetID() not in reuseTransformIds
+        ]
+        if extraTransforms:
+            raise ValueError(
+                _(
+                    "Only one robot placement set is allowed in Step 6. Delete the "
+                    "existing robot setup before loading another."
+                )
+            )
+        baseNodes = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode")
+            if node.GetAttribute("DENTOBOT.TransformRole") == self.ROBOT_BASE_ROLE
+        ]
+        reuseBaseId = baseTransform.GetID() if baseTransform else ""
+        extraBases = [node for node in baseNodes if node.GetID() != reuseBaseId]
+        if extraBases:
+            raise ValueError(
+                _(
+                    "Only one robot base transform is allowed in Step 6. Delete "
+                    "the existing robot setup before loading another."
+                )
+            )
+
+    def ensureDraftPhantomWorkspaceTransform(
+        self,
+        transform: vtkMRMLLinearTransformNode | None,
+    ) -> vtkMRMLLinearTransformNode:
+        if transform and not self.isDraftPhantomWorkspaceTransformNode(transform):
+            raise ValueError(_("Select the Step 6 draft phantom workspace transform."))
+        transform = transform or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLinearTransformNode",
+            "[Step 6] Draft Phantom Workspace",
+        )
+        transform.SetName("[Step 6] Draft Phantom Workspace")
+        transform.SetAttribute(
+            "DENTOBOT.TransformRole",
+            self.DRAFT_PHANTOM_WORKSPACE_ROLE,
+        )
+        transform.SetAttribute("DENTOBOT.Status", "DisposableDesignCheck")
+        transform.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        transform.CreateDefaultDisplayNodes()
+        display = transform.GetDisplayNode()
+        if display:
+            display.SetVisibility(False)
+            display.SetEditorVisibility(False)
+        return transform
+
+    def _parentDraftPhantomModelsToWorkspace(
+        self,
+        workspaceTransform: vtkMRMLLinearTransformNode,
+        models: list[vtkMRMLModelNode],
+    ) -> None:
+        workspaceId = workspaceTransform.GetID()
+        for model in models:
+            part = model.GetAttribute("DENTOBOT.PhantomPart")
+            if part == self.DRAFT_PHANTOM_MANDIBLE_PART:
+                jawTransform = model.GetParentTransformNode()
+                if jawTransform and self.isDraftJawTransformNode(jawTransform):
+                    jawTransform.SetAndObserveTransformNodeID(workspaceId)
+                else:
+                    model.SetAndObserveTransformNodeID(workspaceId)
+            elif part in (
+                self.DRAFT_PHANTOM_SKULL_PART,
+                self.DRAFT_PHANTOM_MAXILLA_PART,
+            ):
+                model.SetAndObserveTransformNodeID(workspaceId)
+
+    def _alignDraftPhantomWorkspaceTransform(
+        self,
+        workspaceTransform: vtkMRMLLinearTransformNode,
+        nativeCenterRas: np.ndarray,
+    ) -> None:
+        targetCenter = np.asarray(self.STEP_6_RESEARCH_PHANTOM_CENTER_RAS, dtype=float)
+        translation = targetCenter - nativeCenterRas
+        matrix = np.eye(4, dtype=float)
+        matrix[:3, 3] = translation
+        workspaceTransform.SetAndObserveTransformNodeID(None)
+        workspaceTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
+        workspaceTransform.SetAttribute("DENTOBOT.WorkspaceAligned", "1")
+
+    def draftPhantomWorkspaceTransformForModel(
+        self,
+        model: vtkMRMLModelNode | None,
+    ) -> vtkMRMLLinearTransformNode | None:
+        if not model:
+            return None
+        parent = model.GetParentTransformNode()
+        if parent and self.isDraftPhantomWorkspaceTransformNode(parent):
+            return parent
+        if parent and self.isDraftJawTransformNode(parent):
+            workspace = parent.GetParentTransformNode()
+            if workspace and self.isDraftPhantomWorkspaceTransformNode(workspace):
+                return workspace
+        workspaceNodes = self.draftPhantomWorkspaceTransformNodes()
+        return workspaceNodes[0] if len(workspaceNodes) == 1 else None
+
+    def positionRobotBaseNearResearchPhantom(
+        self,
+        baseTransform: vtkMRMLLinearTransformNode,
+        phantomModels: list[vtkMRMLModelNode],
+    ) -> bool:
+        if not self.isRobotBaseTransformNode(baseTransform) or not phantomModels:
+            return False
+        worldMatrix = vtk.vtkMatrix4x4()
+        baseTransform.GetMatrixTransformToWorld(worldMatrix)
+        currentOrigin = np.array(
+            [worldMatrix.GetElement(axis, 3) for axis in range(3)],
+            dtype=float,
+        )
+        if np.linalg.norm(currentOrigin) > 5.0:
+            return False
+        phantomBounds = self.combinedRasBounds(
+            [self._modelRasBounds(model) for model in phantomModels]
+        )
+        if phantomBounds is None:
+            return False
+        center = np.array(
+            (
+                (phantomBounds[0] + phantomBounds[1]) * 0.5,
+                (phantomBounds[2] + phantomBounds[3]) * 0.5,
+                (phantomBounds[4] + phantomBounds[5]) * 0.5,
+            ),
+            dtype=float,
+        )
+        suggestedOrigin = np.array(
+            (
+                center[0],
+                center[1] + 180.0,
+                max(80.0, center[2] - 80.0),
+            ),
+            dtype=float,
+        )
+        matrix = np.eye(4, dtype=float)
+        matrix[:3, 3] = suggestedOrigin
+        baseTransform.SetAndObserveTransformNodeID(None)
+        baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
+        return True
+
     def createOrUpdateDraftPhantom(
         self,
     ) -> tuple[vtkMRMLModelNode, vtkMRMLModelNode, list[vtkMRMLModelNode]]:
@@ -14076,6 +14905,8 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
 
         paths = self.draftPhantomPaths()
         nodes = self.draftPhantomModelNodes()
+        workspaceNodes = self.draftPhantomWorkspaceTransformNodes()
+        workspaceTransform = workspaceNodes[0] if workspaceNodes else None
         colors = {
             self.DRAFT_PHANTOM_SKULL_PART: (0.84, 0.80, 0.68),
             self.DRAFT_PHANTOM_MAXILLA_PART: (0.95, 0.88, 0.72),
@@ -14113,16 +14944,150 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 display.SetVisibility(True)
                 display.SetOpacity(0.82 if part != self.DRAFT_PHANTOM_MANDIBLE_PART else 0.92)
                 display.SetColor(*colors[part])
-            if part != self.DRAFT_PHANTOM_MANDIBLE_PART:
-                model.SetAndObserveTransformNodeID(None)
             resolved[part] = model
+
+        self._validateSingleStep6PhantomPlacement(resolved, workspaceTransform)
+        workspaceTransform = self.ensureDraftPhantomWorkspaceTransform(
+            workspaceTransform
+        )
+        if workspaceTransform.GetAttribute("DENTOBOT.WorkspaceAligned") != "1":
+            for model in resolved.values():
+                parent = model.GetParentTransformNode()
+                if parent and self.isDraftJawTransformNode(parent):
+                    if parent.GetParentTransformNode():
+                        parent.SetAndObserveTransformNodeID(None)
+                    model.SetAndObserveTransformNodeID(None)
+                elif parent:
+                    model.SetAndObserveTransformNodeID(None)
+            nativeBounds = self.combinedRasBounds(
+                [self._modelRasBounds(model) for model in resolved.values()]
+            )
+            if nativeBounds is None:
+                raise RuntimeError(_("The draft phantom meshes have no finite bounds."))
+            nativeCenter = np.array(
+                (
+                    (nativeBounds[0] + nativeBounds[1]) * 0.5,
+                    (nativeBounds[2] + nativeBounds[3]) * 0.5,
+                    (nativeBounds[4] + nativeBounds[5]) * 0.5,
+                ),
+                dtype=float,
+            )
+            self._parentDraftPhantomModelsToWorkspace(
+                workspaceTransform,
+                list(resolved.values()),
+            )
+            self._alignDraftPhantomWorkspaceTransform(
+                workspaceTransform,
+                nativeCenter,
+            )
+        else:
+            self._parentDraftPhantomModelsToWorkspace(
+                workspaceTransform,
+                list(resolved.values()),
+            )
         return (
             resolved[self.DRAFT_PHANTOM_SKULL_PART],
             resolved[self.DRAFT_PHANTOM_MANDIBLE_PART],
             list(resolved.values()),
         )
 
-    def createOrResetDraftJawLandmarks(
+    @classmethod
+    def draftPhantomExampleLandmarksNativeRas(cls) -> tuple[np.ndarray, ...]:
+        """Anatomically approximate BodyParts3D-native landmark examples for tests."""
+
+        return (
+            np.array([-45.0, -105.0, 1500.0], dtype=float),
+            np.array([45.0, -105.0, 1500.0], dtype=float),
+            np.array([0.0, -178.0, 1472.0], dtype=float),
+            np.array([0.0, -175.0, 1468.0], dtype=float),
+        )
+
+    @classmethod
+    def draftPhantomExampleForeheadPlaneNativeRas(cls) -> np.ndarray:
+        return np.array([0.0, -165.0, 1590.0], dtype=float)
+
+    def draftPhantomNativePointToWorldRas(
+        self,
+        nativePointRas: np.ndarray,
+        workspaceTransform: vtkMRMLLinearTransformNode | None = None,
+    ) -> np.ndarray:
+        nativePointRas = np.asarray(nativePointRas, dtype=float)
+        if workspaceTransform is None:
+            workspaceNodes = self.draftPhantomWorkspaceTransformNodes()
+            workspaceTransform = (
+                workspaceNodes[0] if len(workspaceNodes) == 1 else None
+            )
+        if (
+            not workspaceTransform
+            or workspaceTransform.GetAttribute("DENTOBOT.WorkspaceAligned") != "1"
+        ):
+            return nativePointRas
+        worldMatrix = vtk.vtkMatrix4x4()
+        workspaceTransform.GetMatrixTransformToWorld(worldMatrix)
+        transformed = [0.0, 0.0, 0.0, 0.0]
+        worldMatrix.MultiplyPoint(
+            (
+                float(nativePointRas[0]),
+                float(nativePointRas[1]),
+                float(nativePointRas[2]),
+                1.0,
+            ),
+            transformed,
+        )
+        return np.asarray(transformed[:3], dtype=float)
+
+    def draftPhantomExampleLandmarksWorldRas(
+        self,
+    ) -> tuple[np.ndarray, ...]:
+        return tuple(
+            self.draftPhantomNativePointToWorldRas(point)
+            for point in self.draftPhantomExampleLandmarksNativeRas()
+        )
+
+    @classmethod
+    def draftJawLandmarkPlacementHints(cls) -> tuple[str, ...]:
+        return cls.DRAFT_JAW_LANDMARK_LABELS
+
+    @classmethod
+    def draftJawLandmarkButtonLabels(cls) -> tuple[str, ...]:
+        return (
+            _("Place first landmark (Left TMJ)"),
+            _("Place second landmark (Right TMJ — first landmark is Left TMJ)"),
+            _("Place third landmark (Upper incisor)"),
+            _("Place fourth landmark (Lower incisor)"),
+        )
+
+    def getDraftJawLandmarkSummary(
+        self,
+        node: vtkMRMLMarkupsFiducialNode,
+    ) -> dict:
+        if not self.isDraftJawLandmarksNode(node):
+            raise ValueError(_("Create the Step 6 draft jaw landmarks first."))
+        expectedCount = len(self.DRAFT_JAW_LANDMARK_LABELS)
+        pointCount = node.GetNumberOfDefinedControlPoints()
+        if pointCount < 0 or pointCount > expectedCount:
+            raise ValueError(_("The draft jaw landmark markup has an invalid point count."))
+        self.labelDraftJawLandmarks(node, pointCount)
+        return {
+            "definedPointCount": pointCount,
+            "isComplete": pointCount == expectedCount,
+        }
+
+    def labelDraftJawLandmarks(
+        self,
+        node: vtkMRMLMarkupsFiducialNode,
+        pointCount: int | None = None,
+    ) -> None:
+        if not self.isDraftJawLandmarksNode(node):
+            raise ValueError(_("Create the Step 6 draft jaw landmarks first."))
+        if pointCount is None:
+            pointCount = node.GetNumberOfDefinedControlPoints()
+        for index in range(min(pointCount, len(self.DRAFT_JAW_LANDMARK_LABELS))):
+            desiredLabel = self.DRAFT_JAW_LANDMARK_LABELS[index]
+            if node.GetNthControlPointLabel(index) != desiredLabel:
+                node.SetNthControlPointLabel(index, desiredLabel)
+
+    def ensureDraftJawLandmarksNode(
         self,
         node: vtkMRMLMarkupsFiducialNode | None,
     ) -> vtkMRMLMarkupsFiducialNode:
@@ -14133,9 +15098,8 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "[Step 6] Draft Jaw Landmarks",
         )
         node.SetName("[Step 6] Draft Jaw Landmarks")
-        node.RemoveAllControlPoints()
         if hasattr(node, "SetMaximumNumberOfControlPoints"):
-            node.SetMaximumNumberOfControlPoints(4)
+            node.SetMaximumNumberOfControlPoints(len(self.DRAFT_JAW_LANDMARK_LABELS))
         node.SetLocked(False)
         node.SetSelectable(True)
         node.SetAttribute("DENTOBOT.MarkupsRole", self.DRAFT_JAW_LANDMARKS_ROLE)
@@ -14156,6 +15120,51 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             display.SetGlyphScale(1.4)
         return node
 
+    def clearDraftJawLandmarks(
+        self,
+        node: vtkMRMLMarkupsFiducialNode,
+    ) -> None:
+        if not self.isDraftJawLandmarksNode(node):
+            raise ValueError(_("Create the Step 6 draft jaw landmarks first."))
+        node.RemoveAllControlPoints()
+
+    def createOrResetDraftJawLandmarks(
+        self,
+        node: vtkMRMLMarkupsFiducialNode | None,
+    ) -> vtkMRMLMarkupsFiducialNode:
+        node = self.ensureDraftJawLandmarksNode(node)
+        self.clearDraftJawLandmarks(node)
+        return node
+
+    @staticmethod
+    def startDraftJawLandmarkPlacement(
+        landmarksNode: vtkMRMLMarkupsFiducialNode,
+    ) -> None:
+        if not DENTOWorkflowLogic.isDraftJawLandmarksNode(landmarksNode):
+            raise ValueError(_("Create the Step 6 draft jaw landmarks first."))
+        if landmarksNode.GetNumberOfDefinedControlPoints() >= 4:
+            raise ValueError(_("All four draft jaw landmarks are already placed."))
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if not selectionNode:
+            raise RuntimeError(_("Slicer's selection node is unavailable."))
+        selectionNode.SetReferenceActivePlaceNodeClassName(
+            "vtkMRMLMarkupsFiducialNode"
+        )
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        slicer.modules.markups.logic().StartPlaceMode(0)
+        selectionNode.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        if (
+            selectionNode.GetActivePlaceNodeID() != landmarksNode.GetID()
+            or selectionNode.GetActivePlaceNodeClassName()
+            != "vtkMRMLMarkupsFiducialNode"
+            or not selectionNode.GetActivePlaceNodePlacementValid()
+        ):
+            DENTOWorkflowLogic.stopTrajectoryPlacement()
+            raise RuntimeError(
+                _("Slicer could not activate draft jaw landmark placement.")
+            )
+
     def draftJawLandmarkPositions(
         self,
         node: vtkMRMLMarkupsFiducialNode,
@@ -14169,12 +15178,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     "upper central incisor, lower central incisor."
                 )
             )
-        labels = ("Left TMJ", "Right TMJ", "Upper incisor", "Lower incisor")
+        self.labelDraftJawLandmarks(node)
         positions = []
-        for index, label in enumerate(labels):
+        for index in range(4):
             point = [0.0, 0.0, 0.0]
             node.GetNthControlPointPositionWorld(index, point)
-            node.SetNthControlPointLabel(index, label)
             positions.append(np.asarray(point, dtype=float))
         return tuple(positions)
 
@@ -14196,7 +15204,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         if transform and not self.isDraftJawTransformNode(transform):
             raise ValueError(_("Select the Step 6 draft jaw transform."))
         parent = mandible.GetParentTransformNode()
-        if parent and parent is not transform:
+        workspaceTransform = self.draftPhantomWorkspaceTransformForModel(mandible)
+        allowedParents = {transform, workspaceTransform}
+        if parent and parent not in allowedParents:
             raise ValueError(
                 _("The draft mandible is already under an unrelated transform.")
             )
@@ -14207,6 +15217,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             lower,
             float(targetGapMm),
         )
+        parentToWorld = None
+        if workspaceTransform:
+            parentVtk = vtk.vtkMatrix4x4()
+            workspaceTransform.GetMatrixTransformToWorld(parentVtk)
+            parentToWorld = self._numpyFromVtkMatrix(parentVtk)
+        jawMatrixLocal = world_transform_to_parent_local(matrix, parentToWorld)
         transform = transform or slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLLinearTransformNode",
             "[Step 6] Draft TMJ Jaw Opening",
@@ -14218,8 +15234,11 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         transform.SetAttribute("DENTOBOT.TargetIncisorGapMm", f"{float(targetGapMm):.3f}")
         transform.SetAttribute("DENTOBOT.AchievedIncisorGapMm", f"{gap:.3f}")
         transform.SetAttribute("DENTOBOT.HingeAngleDeg", f"{angle:.3f}")
-        transform.SetAndObserveTransformNodeID(None)
-        transform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
+        workspaceParentId = (
+            workspaceTransform.GetID() if workspaceTransform else None
+        )
+        transform.SetAndObserveTransformNodeID(workspaceParentId)
+        transform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(jawMatrixLocal))
         mandible.SetAndObserveTransformNodeID(transform.GetID())
 
         if gapLine and (
@@ -14278,7 +15297,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         transform=None,
         gapLine=None,
     ) -> list[str]:
-        nodes = [*self.draftPhantomModelNodes(), landmarks, transform, gapLine]
+        nodes = [
+            *self.draftPhantomModelNodes(),
+            *self.draftPhantomWorkspaceTransformNodes(),
+            landmarks,
+            transform,
+            gapLine,
+        ]
         removed = []
         for node in dict.fromkeys(node for node in nodes if node):
             if slicer.mrmlScene.IsNodePresent(node):
@@ -14293,6 +15318,53 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             and node.IsA("vtkMRMLLinearTransformNode")
             and node.GetAttribute("DENTOBOT.TransformRole") == cls.ROBOT_BASE_ROLE
         )
+
+    @classmethod
+    def isRos2MotionControlActive(cls, base_transform) -> bool:
+        return bool(
+            base_transform
+            and cls.isRobotBaseTransformNode(base_transform)
+            and base_transform.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) == "true"
+        )
+
+    def ensureRobotBaseTransform(
+        self,
+        base_transform: vtkMRMLLinearTransformNode | None,
+    ) -> vtkMRMLLinearTransformNode:
+        """Create or reuse the Step 6 robot-base transform without loading STLs."""
+        if base_transform and self.isRobotBaseTransformNode(base_transform):
+            return base_transform
+        base_transform = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLinearTransformNode",
+            "[Step 6] DENTO Robot Base Placement",
+        )
+        identity = vtk.vtkMatrix4x4()
+        identity.Identity()
+        base_transform.SetMatrixTransformToParent(identity)
+        base_transform.SetName("[Step 6] DENTO Robot Base Placement")
+        base_transform.SetAndObserveTransformNodeID(None)
+        base_transform.SetAttribute("DENTOBOT.TransformRole", self.ROBOT_BASE_ROLE)
+        base_transform.SetAttribute(
+            "DENTOBOT.RobotPlacementSchemaVersion",
+            self.ROBOT_PLACEMENT_SCHEMA_VERSION,
+        )
+        base_transform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+        base_transform.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        base_transform.CreateDefaultDisplayNodes()
+        base_display = base_transform.GetDisplayNode()
+        if base_display:
+            base_display.SetVisibility(True)
+            for method_name, value in (
+                ("SetEditorVisibility", True),
+                ("SetHandlesInteractive", True),
+                ("SetTranslationHandleVisibility", True),
+                ("SetRotationHandleVisibility", True),
+                ("SetScaleHandleVisibility", False),
+            ):
+                method = getattr(base_display, method_name, None)
+                if method:
+                    method(value)
+        return base_transform
 
     @classmethod
     def isRobotMountPlaneNode(cls, node) -> bool:
@@ -14338,6 +15410,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
 
         if baseTransform and not self.isRobotBaseTransformNode(baseTransform):
             raise ValueError(_("Select the DENTOBOT Step 6 robot-base transform."))
+        models = self.robotModelNodes()
+        linkTransforms = self.robotLinkTransformNodes()
+        self._validateSingleStep6RobotPlacement(
+            baseTransform,
+            models,
+            linkTransforms,
+        )
         if not baseTransform:
             baseTransform = slicer.mrmlScene.AddNewNodeByClass(
                 "vtkMRMLLinearTransformNode",
@@ -14376,8 +15455,6 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             packageRoot,
             jointPositionsSi,
         )
-        models = self.robotModelNodes()
-        linkTransforms = self.robotLinkTransformNodes()
         displayColors = (
             (0.72, 0.75, 0.80),
             (0.22, 0.55, 0.86),
@@ -14541,6 +15618,247 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         baseTransform.SetAndObserveTransformNodeID(None)
         baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(nudged))
         return nudged
+
+    def buildPlanningContextNodeMap(self, parameterNode) -> dict[str, str]:
+        def node_id(node) -> str:
+            return node.GetID() if node else ""
+
+        return {
+            "inputVolume": node_id(parameterNode.inputVolume),
+            "teethSegmentation": node_id(parameterNode.teethSegmentation),
+            "trajectoryLine": node_id(parameterNode.trajectoryLine),
+            "targetDockingAssemblyModel": node_id(
+                parameterNode.targetDockingAssemblyModel
+            ),
+            "finalPrintableTemplateModel": node_id(
+                parameterNode.finalPrintableTemplateModel
+            ),
+            "draftTemplateSupportModel": node_id(
+                parameterNode.draftTemplateSupportModel
+            ),
+            "visibleTemplateSupportModel": node_id(
+                parameterNode.visibleTemplateSupportModel
+            ),
+            "targetToothBoundsRoi": node_id(parameterNode.targetToothBoundsRoi),
+        }
+
+    @staticmethod
+    def _subsample_polydata_points(
+        polydata: vtk.vtkPolyData,
+        *,
+        stride: int = 50,
+    ) -> list[tuple[float, float, float]]:
+        if polydata is None or polydata.GetNumberOfPoints() <= 0:
+            return []
+        step = max(int(stride), 1)
+        points = polydata.GetPoints()
+        sampled: list[tuple[float, float, float]] = []
+        for index in range(0, polydata.GetNumberOfPoints(), step):
+            sampled.append(tuple(points.GetPoint(index)))
+        return sampled
+
+    def step6SegmentationAnatomyPointsMm(
+        self,
+        segmentationNode,
+        *,
+        stride: int = 80,
+    ) -> list[tuple[float, float, float]]:
+        """Return subsampled closed-surface points for all tooth segments."""
+        if not segmentationNode:
+            return []
+        samples: list[tuple[float, float, float]] = []
+        for record in self.getTargetToothRecords(segmentationNode):
+            segment_id = record.get("segmentId")
+            if not segment_id:
+                continue
+            try:
+                surface = self._getClosedSurfaceCopy(segmentationNode, segment_id)
+            except (RuntimeError, ValueError):
+                continue
+            if surface is None or surface.GetNumberOfPoints() <= 0:
+                continue
+            samples.extend(
+                self._subsample_polydata_points(surface, stride=stride),
+            )
+        return samples
+
+    def step6EnvironmentObstaclePointsMm(self, parameterNode) -> np.ndarray:
+        """Return a coarse obstacle point cloud for Step 6 environment screening."""
+        samples: list[tuple[float, float, float]] = []
+        if parameterNode.teethSegmentation:
+            samples.extend(
+                self.step6SegmentationAnatomyPointsMm(
+                    parameterNode.teethSegmentation,
+                    stride=80,
+                ),
+            )
+        if parameterNode.draftTemplateSupportModel:
+            try:
+                collision_world, _ = self.templateCollisionAnatomyWorld(
+                    parameterNode.draftTemplateSupportModel,
+                )
+                samples.extend(
+                    self._subsample_polydata_points(collision_world, stride=40),
+                )
+            except ValueError:
+                pass
+        if parameterNode.finalPrintableTemplateModel:
+            template_poly = model_polydata_in_world(
+                parameterNode.finalPrintableTemplateModel,
+            )
+            samples.extend(
+                self._subsample_polydata_points(template_poly, stride=60),
+            )
+        if parameterNode.targetDockingAssemblyModel:
+            dock_poly = model_polydata_in_world(
+                parameterNode.targetDockingAssemblyModel,
+            )
+            samples.extend(
+                self._subsample_polydata_points(dock_poly, stride=40),
+            )
+        if not samples:
+            return np.zeros((0, 3), dtype=float)
+        return np.asarray(samples, dtype=float)
+
+    def importStep6PlanningContext(self, parameterNode) -> PlanningContextReport:
+        report = validate_planning_context(
+            self.buildPlanningContextNodeMap(parameterNode),
+        )
+        if not report.ready:
+            raise ValueError(report.message)
+        base_transform = self.ensureRobotBaseTransform(
+            parameterNode.robotBaseTransform,
+        )
+        parameterNode.robotBaseTransform = base_transform
+        parameterNode.step6PlanningContextImported = True
+        base_transform.SetAttribute(self.STEP6_PLANNING_CONTEXT_ATTRIBUTE, "true")
+        return report
+
+    def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
+        parameterNode.robotBaseMountLocked = bool(locked)
+        base_transform = parameterNode.robotBaseTransform
+        plane_node = parameterNode.robotMountPlane
+        if base_transform and self.isRobotBaseTransformNode(base_transform):
+            base_transform.SetAttribute(
+                "DENTOBOT.RobotBaseMountLocked",
+                "true" if locked else "false",
+            )
+            display = base_transform.GetDisplayNode()
+            if display:
+                display.SetHandlesInteractive(not locked)
+                for method_name in (
+                    "SetTranslationHandleVisibility",
+                    "SetRotationHandleVisibility",
+                ):
+                    method = getattr(display, method_name, None)
+                    if method:
+                        method(not locked)
+        if plane_node and self.isRobotMountPlaneNode(plane_node):
+            plane_node.SetLocked(locked)
+            plane_node.SetSelectable(not locked)
+            display = plane_node.GetDisplayNode()
+            if display:
+                display.SetHandlesInteractive(not locked)
+                display.SetTranslationHandleVisibility(not locked)
+                display.SetRotationHandleVisibility(not locked)
+
+    def getTaskJointLimits(self, parameterNode) -> TaskJointLimits:
+        urdf_path, _package_root = self.robotDescriptionPaths()
+        urdf_limits = default_task_joint_limits_from_urdf(urdf_path)
+        task_limits = build_task_joint_limits_from_parameter_values(
+            j1_min=parameterNode.robotJoint1TaskMinDeg,
+            j1_max=parameterNode.robotJoint1TaskMaxDeg,
+            j2_min=parameterNode.robotJoint2TaskMinMm,
+            j2_max=parameterNode.robotJoint2TaskMaxMm,
+            j3_min=parameterNode.robotJoint3TaskMinDeg,
+            j3_max=parameterNode.robotJoint3TaskMaxDeg,
+            j4_min=parameterNode.robotJoint4TaskMinMm,
+            j4_max=parameterNode.robotJoint4TaskMaxMm,
+            j5_min=parameterNode.robotJoint5TaskMinDeg,
+            j5_max=parameterNode.robotJoint5TaskMaxDeg,
+            j6_min=parameterNode.robotJoint6TaskMinDeg,
+            j6_max=parameterNode.robotJoint6TaskMaxDeg,
+        )
+        return apply_task_joint_limits_to_display_ranges(task_limits, urdf_limits)
+
+    def applyTaskJointLimitsToJointControls(self, parameterNode) -> TaskJointLimits:
+        limits = self.getTaskJointLimits(parameterNode)
+        display_ranges = apply_task_joint_limits_to_display_ranges(
+            limits,
+            default_task_joint_limits_from_urdf(self.robotDescriptionPaths()[0]),
+        )
+        return display_ranges
+
+    def resetTaskJointLimitsToUrdf(self, parameterNode) -> TaskJointLimits:
+        urdf_path, _package_root = self.robotDescriptionPaths()
+        limits = default_task_joint_limits_from_urdf(urdf_path)
+        parameterNode.robotJoint1TaskMinDeg = limits.joint_1.minimum
+        parameterNode.robotJoint1TaskMaxDeg = limits.joint_1.maximum
+        parameterNode.robotJoint2TaskMinMm = limits.joint_2.minimum
+        parameterNode.robotJoint2TaskMaxMm = limits.joint_2.maximum
+        parameterNode.robotJoint3TaskMinDeg = limits.joint_3.minimum
+        parameterNode.robotJoint3TaskMaxDeg = limits.joint_3.maximum
+        parameterNode.robotJoint4TaskMinMm = limits.joint_4.minimum
+        parameterNode.robotJoint4TaskMaxMm = limits.joint_4.maximum
+        parameterNode.robotJoint5TaskMinDeg = limits.joint_5.minimum
+        parameterNode.robotJoint5TaskMaxDeg = limits.joint_5.maximum
+        parameterNode.robotJoint6TaskMinDeg = limits.joint_6.minimum
+        parameterNode.robotJoint6TaskMaxDeg = limits.joint_6.maximum
+        return limits
+
+    def planStep6TrajectoryMotion(self, parameterNode) -> MotionPlanResult:
+        if not parameterNode.step6PlanningContextImported:
+            raise ValueError(
+                _("Import the Step 6 planning package before motion planning.")
+            )
+        if not parameterNode.robotBaseMountLocked:
+            raise ValueError(
+                _("Lock the robot base mount before motion planning.")
+            )
+        if not parameterNode.robotBaseTransform:
+            raise ValueError(_("Load or create the Step 6 robot base first."))
+        if not self.robotModelNodes():
+            raise ValueError(_("Load the robot meshes before motion planning."))
+        trajectory = parameterNode.trajectoryLine
+        summary = self.getTrajectorySummary(trajectory)
+        if not summary.get("isValid"):
+            raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
+
+        urdf_path, package_root = self.robotDescriptionPaths()
+        base_world = self._numpyFromVtkMatrix(
+            self._worldMatrixFromTransform(parameterNode.robotBaseTransform),
+        )
+        start_display = (
+            parameterNode.robotJoint1Deg,
+            parameterNode.robotJoint2Mm,
+            parameterNode.robotJoint3Deg,
+            parameterNode.robotJoint4Mm,
+            parameterNode.robotJoint5Deg,
+            parameterNode.robotJoint6Deg,
+        )
+        limits = self.getTaskJointLimits(parameterNode)
+        environment_points = self.step6EnvironmentObstaclePointsMm(parameterNode)
+        return plan_trajectory_motion(
+            entry_ras_mm=summary["entryRas"],
+            target_ras_mm=summary["targetRas"],
+            start_display_joints=start_display,
+            limits=limits,
+            urdf_path=urdf_path,
+            package_root=package_root,
+            base_world_matrix=base_world,
+            sample_count=int(parameterNode.robotMotionPlanSampleCount),
+            coarse_self_clearance_mm=float(parameterNode.robotCoarseSelfClearanceMm),
+            environment_points_mm=environment_points,
+            environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
+        )
+
+    def _worldMatrixFromTransform(
+        self,
+        transform_node: vtkMRMLLinearTransformNode,
+    ) -> vtk.vtkMatrix4x4:
+        matrix = vtk.vtkMatrix4x4()
+        transform_node.GetMatrixTransformToWorld(matrix)
+        return matrix
 
     def deleteRobotPlacement(
         self,
@@ -27911,12 +29229,8 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         parameterNode.draftPhantomMandibleModel = mandible
 
         landmarks = logic.createOrResetDraftJawLandmarks(None)
-        for point in (
-            (-45.0, -105.0, 1500.0),
-            (45.0, -105.0, 1500.0),
-            (0.0, -178.0, 1472.0),
-            (0.0, -175.0, 1468.0),
-        ):
+        landmarkWorldPoints = logic.draftPhantomExampleLandmarksWorldRas()
+        for point in landmarkWorldPoints:
             landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))
         parameterNode.draftJawLandmarks = landmarks
         jawTransform, gapLine, jawSummary = logic.createOrUpdateDraftJawOpening(
@@ -27931,25 +29245,60 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertAlmostEqual(jawSummary["gapMm"], 40.0, delta=0.1)
         self.assertIs(mandible.GetParentTransformNode(), jawTransform)
         self.assertEqual(gapLine.GetNumberOfDefinedControlPoints(), 2)
+        self.assertEqual(len(logic.draftPhantomWorkspaceTransformNodes()), 1)
 
-        hingeMatrix = vtk.vtkMatrix4x4()
-        jawTransform.GetMatrixTransformToWorld(hingeMatrix)
-        for hingePoint in ((-45.0, -105.0, 1500.0), (45.0, -105.0, 1500.0)):
-            transformed = [0.0, 0.0, 0.0, 0.0]
-            hingeMatrix.MultiplyPoint((*hingePoint, 1.0), transformed)
-            self.assertTrue(np.allclose(transformed[:3], hingePoint, atol=1e-6))
+        maxilla = next(
+            model
+            for model in phantomModels
+            if model.GetAttribute("DENTOBOT.PhantomPart")
+            == logic.DRAFT_PHANTOM_MAXILLA_PART
+        )
+        skullBounds = [0.0] * 6
+        maxillaBounds = [0.0] * 6
+        mandibleBounds = [0.0] * 6
+        skull.GetRASBounds(skullBounds)
+        maxilla.GetRASBounds(maxillaBounds)
+        mandible.GetRASBounds(mandibleBounds)
+        maxillaCenter = np.asarray(
+            (
+                (maxillaBounds[0] + maxillaBounds[1]) * 0.5,
+                (maxillaBounds[2] + maxillaBounds[3]) * 0.5,
+                (maxillaBounds[4] + maxillaBounds[5]) * 0.5,
+            ),
+            dtype=float,
+        )
+        mandibleCenter = np.asarray(
+            (
+                (mandibleBounds[0] + mandibleBounds[1]) * 0.5,
+                (mandibleBounds[2] + mandibleBounds[3]) * 0.5,
+                (mandibleBounds[4] + mandibleBounds[5]) * 0.5,
+            ),
+            dtype=float,
+        )
+        self.assertLess(np.linalg.norm(mandibleCenter - maxillaCenter), 150.0)
+        self.assertLess(abs(mandibleCenter[0] - maxillaCenter[0]), 80.0)
+
+        for index in range(2):
+            tmjWorld = [0.0, 0.0, 0.0]
+            landmarks.GetNthControlPointPositionWorld(index, tmjWorld)
+            self.assertTrue(
+                np.allclose(tmjWorld, landmarkWorldPoints[index], atol=1e-3)
+            )
 
         baseTransform, robotModels = logic.createOrUpdateRobotPlacement(
             None,
             joint_positions_si_from_display(0, 0, 0, 0, 0, 0),
         )
         parameterNode.robotBaseTransform = baseTransform
+        foreheadWorld = logic.draftPhantomNativePointToWorldRas(
+            logic.draftPhantomExampleForeheadPlaneNativeRas()
+        )
         mountPlane = logic.createOrResetRobotMountPlane(None, baseTransform)
-        mountPlane.SetOriginWorld((0.0, -165.0, 1590.0))
+        mountPlane.SetOriginWorld(tuple(foreheadWorld))
         mountPlane.SetNormalWorld((0.0, -1.0, 0.0))
         parameterNode.robotMountPlane = mountPlane
         snapped = logic.snapRobotBaseToPlane(baseTransform, mountPlane)
-        self.assertTrue(np.allclose(snapped[:3, 3], (0.0, -165.0, 1590.0)))
+        self.assertTrue(np.allclose(snapped[:3, 3], foreheadWorld, atol=1e-3))
         self.assertEqual(len(robotModels), 7)
 
         scenePath = Path(slicer.app.temporaryPath) / (
@@ -27981,7 +29330,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             reloadedParameterNode.robotBaseTransform,
             reloadedParameterNode.robotMountPlane,
         )
-        self.assertEqual(len(removedPhantom), 6)
+        self.assertEqual(len(removedPhantom), 7)
         self.assertEqual(len(removedRobot), 16)
         self.delayDisplay("DENTOWorkflow draft open-mouth robot workspace test passed")
 
@@ -28021,12 +29370,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         ))
         self.assertIsNotNone(parameterNode.draftPhantomMandibleModel)
         landmarks = widget.logic.createOrResetDraftJawLandmarks(None)
-        for point in (
-            (-45.0, -105.0, 1500.0),
-            (45.0, -105.0, 1500.0),
-            (0.0, -178.0, 1472.0),
-            (0.0, -175.0, 1468.0),
-        ):
+        for point in widget.logic.draftPhantomExampleLandmarksWorldRas():
             landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))
         parameterNode.draftJawLandmarks = landmarks
         widget.onApplyDraftJawOpening()
@@ -28084,7 +29428,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             parameterNode.draftJawTransform,
             parameterNode.draftJawGapLine,
         )
-        self.assertEqual(len(removedPhantom), 6)
+        self.assertEqual(len(removedPhantom), 7)
         wasModifying = parameterNode.StartModify()
         try:
             parameterNode.robotBaseTransform = None

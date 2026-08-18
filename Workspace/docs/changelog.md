@@ -21,6 +21,122 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-18 19:30:00 IST (UTC+05:30) — Step 6 planning sub-workflow (6.0–6.3)
+
+- **Why:** Step 6 needed a structured path from upstream planning artifacts to
+  simulated motion along the approved trajectory, with mount lock, user task
+  joint limits, and draft collision screening.
+- **Change:** `DENTOStep6Planning.py`; Step 6 UI sections 6.0–6.3 in
+  `DENTOWorkflow.ui`; import/lock/limits/plan/preview handlers in
+  `DENTOWorkflow.py`. Environment obstacles include subsampled teeth
+  segmentation closed surfaces plus template, dock, and support geometry.
+- **Verification:** host pytest: 22 passed (`test_step6_planning`,
+  `test_robot_placement`, `test_ros2_bridge`, `test_description`).
+- **Not claimed:** interactive Slicer GUI verification; MoveIt; hardware
+  motion; swept-volume or clinical collision validation.
+
+## 2026-08-18 18:10:00 IST (UTC+05:30) — Motion Control sliders drive simulated /joint_states
+
+- **Why:** The Step 6 SlicerROS2 connect path loaded the URDF, but Motion Control
+  sliders only updated a goal overlay while a competing neutral publisher held
+  `/joint_states` at zero.
+- **Change:** `joint_state_mode:=slicer` starts
+  `dentobot_slicer_joint_state_publisher`; DENTOROS2Bridge streams slider
+  values on `dentobot/slicer_joint_positions`. Connect refuses a live
+  neutral/manual publisher. SETUP duplicate Motion Control sections merged.
+- **Verification:** host `dentobot` conda pytest: 15 passed
+  (`test_ros2_bridge`, `test_robot_placement`, `test_description`). Container
+  `colcon build --packages-select dentobot_description` succeeded. Isolated
+  `joint_state_mode:=slicer` launch showed both nodes; `/joint_states` started
+  at zeros; publishing `[0.0, 0.04, 0, 0, 0, 0]` on
+  `dentobot/slicer_joint_positions` set J2 to 0.04 m. Launcher `--check-only`
+  passed. Interactive Slicer connect not re-run.
+- **Not claimed:** interactive Slicer GUI connect; MoveIt; hardware command.
+
+## 2026-08-18 17:45:00 IST (UTC+05:30) — Step 6 SlicerROS2 motion-control bridge
+
+- **Why:** DENTOBOT needed an A–Z path from `dentobot_description` to
+  SlicerROS2 Motion Control inside Step 6 without relying on manual ROS2 module
+  field entry.
+- **Change:** `DENTOROS2Bridge.py`; Step 6 UI (**Start Stack & Connect Motion
+  Control**, **Disconnect ROS 2 Robot**); `launch-dentobot-description-for-slicer.bash`;
+  SETUP subsection for the workflow. ROS robot parents under Step 6 base
+  transform; MRML link meshes hide while ROS 2 is active; MoveIt remains off.
+- **Verification:** `pytest` 7 passed (`test_ros2_bridge`, `test_robot_placement`);
+  launcher `--check-only` passed; container `ros2 node list` showed
+  `/dentobot_robot_state_publisher` after launch.
+- **Not claimed:** interactive Slicer connect in this session; MoveIt IK/plan/execute.
+
+## 2026-08-18 15:55:00 IST (UTC+05:30) — Host Record3D OBJ point-cloud viewer
+
+- **Why:** `data/3dscan_iphone.zip` is a Record3D iPhone LiDAR sequence of
+  coloured OBJ vertices in camera metres; it needed a host viewer and quality
+  check before any Slicer/RAS use.
+- **Change:** added `scripts/view_record3d_scan.py` (zip/folder/OBJ, vispy
+  arcball, frame play/scrub, RGB or height colour, catalog warnings). Installed
+  `vispy 0.16.2`, `PyOpenGL 3.1.10`, and `freetype-py 2.5.1` into
+  `/home/light-tarun/pressure-env`. Cursor launch config **Record3D Scan
+  Viewer** points at the example zip. Scan data stay local and unpacked-in-place.
+- **Verification:** `--self-test` passed; `--report-only --scan-all` on the
+  example zip reported 195 OBJ frames, missing indices 163 and 174–179, point
+  counts 2,940–358,865, no empty frames, in 20.4 s. A vispy/Qt window loaded
+  frame 0 (73,018 points) on `DISPLAY=:0` and exited cleanly.
+- **Not claimed:** Slicer RAS conversion, registration, anatomical validity,
+  or interactive FPS acceptance.
+
+## 2026-08-17 21:02:00 IST (UTC+05:30) — Pressure-monitor CSV root next to the script
+
+- **Why:** Keep acquisition CSVs with the Arduino tool instead of under the
+  home directory.
+- **Change:** `pressure_monitor.py` now writes
+  `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/` via `Path(__file__)`.
+  The empty `pressure_runs/` directory was created. Earlier home-directory
+  runs in `~/pressure_runs/` were not moved.
+- **Verification:** resolved path equals
+  `/home/light-tarun/dentobot/ros2_ws/src/Arduino/pressure_runs` and the
+  directory exists. The GUI was not relaunched for this path change.
+
+## 2026-08-17 20:58:00 IST (UTC+05:30) — Cursor Python runner and host pressure-monitor launch
+
+- **Why:** The Arduino pressure GUI needed a Cursor Run/F5 path that uses the
+  existing host venv instead of Slicer or inference Python.
+- **IDE:** Installed `ms-python.python` 2025.6.1 and `ms-python.debugpy`
+  2026.6.0. Workspace `.vscode` settings select
+  `/home/light-tarun/pressure-env/bin/python` and add a **Pressure Monitor**
+  launch configuration. User settings enable terminal venv activation.
+- **Runtime:**
+  `/home/light-tarun/pressure-env/bin/python ros2_ws/src/Arduino/pressure_monitor.py`
+  opened Arduino UNO WiFi R4 on `/dev/ttyACM0`, calibrated, and wrote
+  `~/pressure_runs/`. Sensing-only; no robot motion.
+- **Docs:** `SETUP.md`, `DECISIONS.md`, `TASKS.md`, `ARCHITECTURE.md`, and
+  today's logbook.
+
+## 2026-08-17 19:10:00 IST (UTC+05:30) — Step 6 landmark UX, workspace layout, and hinge-parent fix
+
+- **Landmark placement UX:** Split create/reset into progressive **Place …
+  landmark** clicks and a separate **Clear Landmarks** button. Each click uses
+  one-at-a-time Markups placement (`StartPlaceMode(0)`) so the operator can pan
+  between landmarks. After the fourth landmark is placed, jaw opening runs
+  automatically. Files: `DENTOWorkflow.py`, `DENTOWorkflow.ui`.
+- **Singleton and co-location:** Step 6 now rejects duplicate draft phantom or
+  robot placement sets. A `[Step 6] Draft Phantom Workspace` linear transform
+  relocates BodyParts3D meshes from their native ~Z 1500 mm coordinates to the
+  research workspace center `(0, -150, 250)` mm RAS on first load. **Frame
+  Phantom + Robot** frames combined bounds; the robot base auto-positions near
+  the phantom when still at the world origin.
+- **Hinge under workspace parent:** The Rodrigues hinge solver still returns a
+  world-RAS matrix, but the jaw transform now stores
+  `world_transform_to_parent_local()` relative to the workspace parent. This
+  prevents the mandible separating from the skull after workspace relocation.
+- **Verification:** `pytest -q Testing/test_robot_placement.py` passed five
+  tests in the `dentobot` conda environment. Slicer logic/widget tests were
+  updated for workspace-aligned landmark coordinates, seven-node phantom
+  cleanup (includes workspace transform), and a 150 mm mandible/maxilla center
+  bound after opening. Interactive Slicer extension reload was not re-run in this
+  session.
+- **Not changed:** ROS bridge, controller, hardware motion, clinical jaw
+  mechanics, registration, calibrated TCP, or collision guarantees.
+
 ## 2026-08-17 16:06:00 IST (UTC+05:30) — Draft open-mouth Step 6 workspace
 
 - Added the disposable BodyParts3D skull/maxilla/mandible loader, ordered

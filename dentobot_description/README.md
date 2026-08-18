@@ -2,8 +2,8 @@
 
 This package is the first simulation-only integration of the supplied CAD
 export. It publishes the URDF through `robot_state_publisher` and supplies
-neutral and manual joint-state modes so the complete tree can be inspected and
-articulated without a controller or robot connection.
+neutral, manual, and Slicer joint-state modes so the complete tree can be
+inspected and articulated without a controller or robot connection.
 
 ## Source and normalization
 
@@ -114,13 +114,17 @@ ros2 launch dentobot_description manual.launch.py coarse_clearance_mm:=10.0
 ```
 
 `description.launch.py` also accepts `joint_state_mode:=neutral` (the default),
-`joint_state_mode:=manual`, or `joint_state_mode:=external`. External mode
-starts no joint-state source and exists for bounded TF tests or a future
-simulator. Do not run more than one joint-state publisher for the model.
+`joint_state_mode:=manual`, `joint_state_mode:=slicer`, or
+`joint_state_mode:=external`. Slicer mode starts
+`dentobot_slicer_joint_state_publisher`, which republishes Motion Control
+slider commands from `dentobot/slicer_joint_positions` as `/joint_states`.
+External mode starts no joint-state source and exists for bounded TF tests or a
+future simulator. Do not run more than one joint-state publisher for the model.
 
-Both package-owned publishers write only `sensor_msgs/msg/JointState`
-messages. Neither exposes command topics, controllers, transmissions,
-`ros2_control`, a hardware plugin, or any robot motion path.
+Package-owned publishers write `sensor_msgs/msg/JointState` for visualization.
+The Slicer path also listens to `std_msgs/msg/Float64MultiArray` commands. None
+of these interfaces expose controllers, transmissions, `ros2_control`, a
+hardware plugin, or any robot motion path.
 
 ## Evidence boundary and open engineering work
 

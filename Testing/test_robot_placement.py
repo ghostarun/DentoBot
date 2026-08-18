@@ -18,6 +18,7 @@ from DENTORobotPlacement import (
     orthonormal_plane_pose,
     robot_link_mesh_poses_mm,
     solve_hinge_rotation_for_gap,
+    world_transform_to_parent_local,
 )
 
 
@@ -116,3 +117,47 @@ def test_draft_jaw_opening_rejects_degenerate_hinge() -> None:
             np.asarray((0.0, 0.0, 0.0)),
             np.asarray((0.0, 0.0, -2.0)),
         )
+
+
+def test_draft_jaw_opening_hinge_survives_workspace_parent_translation() -> None:
+    """World hinge rotation must be expressed in workspace-local parent space."""
+
+    parent_to_world = np.eye(4, dtype=float)
+    parent_to_world[:3, 3] = (0.0, -50.0, -1305.0)
+
+    def to_world(native: np.ndarray) -> np.ndarray:
+        return (parent_to_world @ np.append(native, 1.0))[:3]
+
+    left_native = np.asarray((-45.0, -105.0, 1500.0))
+    right_native = np.asarray((45.0, -105.0, 1500.0))
+    upper_native = np.asarray((0.0, -178.0, 1472.0))
+    lower_native = np.asarray((0.0, -175.0, 1468.0))
+    left_world = to_world(left_native)
+    right_world = to_world(right_native)
+    upper_world = to_world(upper_native)
+    lower_world = to_world(lower_native)
+
+    angle, world_matrix, opened_lower, gap = solve_hinge_rotation_for_gap(
+        left_world,
+        right_world,
+        upper_world,
+        lower_world,
+        40.0,
+    )
+    jaw_local = world_transform_to_parent_local(world_matrix, parent_to_world)
+
+    closed_world = to_world(lower_native)
+    opened_via_chain = (
+        parent_to_world @ jaw_local @ np.append(lower_native, 1.0)
+    )[:3]
+    assert abs(gap - 40.0) < 0.1
+    assert np.allclose(opened_via_chain, opened_lower, atol=1e-3)
+    assert np.allclose(
+        opened_via_chain,
+        (world_matrix @ np.append(closed_world, 1.0))[:3],
+        atol=1e-3,
+    )
+    for hinge_world in (left_world, right_world):
+        hinge_local = np.linalg.inv(parent_to_world) @ np.append(hinge_world, 1.0)
+        hinge_after = (parent_to_world @ jaw_local @ hinge_local)[:3]
+        assert np.allclose(hinge_after, hinge_world, atol=1e-3)

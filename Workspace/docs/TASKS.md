@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-14
+Last updated: 2026-08-18
 
 The consolidated implementation/evidence boundary, improvement backlog,
 clinical-accuracy questions, mechanical ambiguities, prohibited
@@ -50,6 +50,9 @@ work; an implemented or synthetic PASS is not a clinical claim.
    emergency removal, tool-axis/TCP calibration, independent depth limiting,
    safe-stop behavior, and a bounded pressure/acoustic sensing experiment.
    No powered robot motion or drilling is authorized by this task list.
+   The host Arduino pressure-monitor GUI now launches from Cursor with
+   `/home/light-tarun/pressure-env` and has a live `/dev/ttyACM0` serial path;
+   keep using it as sensing-bench evidence only.
 8. **Build one weekly demonstration script after the boundary is frozen.** It
    must state the case, evidence level, exact expected result, failure response,
    and artifacts retained. Stop accepting “it worked once” as sufficient for
@@ -81,6 +84,20 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6 planning sub-workflow implemented (2026-08-18):** sections **6.0–6.3**
+  in DENTOWorkflow — one-click planning-package import, base-mount lock,
+  user-defined task joint limits, and simulated trajectory motion planning with
+  coarse AABB self-collision and subsampled environment clearance (segmentation
+  anatomy, template, docks). Reload the DENTOBOT extension and verify the full
+  sequence in the physical Intel graphical session after completing Steps 0–5
+  on a representative case. Preview is MRML-only; MoveIt and hardware motion
+  remain unauthorized.
+- **Step 6 SlicerROS2 bridge implemented (2026-08-18):** `DENTOROS2Bridge.py`,
+  Step 6 connect/disconnect UI, `launch-dentobot-description-for-slicer.bash`,
+  and `joint_state_mode:=slicer` so Motion Control sliders stream simulated
+  `/joint_states`. Reload the DENTOBOT extension and verify **Start Stack &
+  Connect Motion Control** in the physical Intel graphical session. Stop any
+  existing neutral/manual description launch first.
 - Manual articulation is synthetically verified for all six joints: the
   package-owned GUI publishes one joint vector, every independent runtime
   perturbation preserved upstream frames and moved the correct child/tool
@@ -89,6 +106,11 @@ work; an implemented or synthetic PASS is not a clinical claim.
   joint at a time, and confirm handedness, direction, assembly alignment,
   scale against at least one measured dimension, limits, and the neutral
   configuration; retain screenshots only if they contain no sensitive data.
+- **2026-08-18:** Step 6 **Start Stack & Connect Motion Control** bridges
+  `dentobot_description` into SlicerROS2 Motion Control (joint streaming, no
+  MoveIt). Sliders publish simulated `/joint_states` through
+  `dentobot_slicer_joint_state_publisher`. Verify interactively in the
+  SlicerROS2 container after reloading the DENTOBOT extension.
 - Restart the currently open manual launch so it reloads the new draft zero,
   then confirm the photographed configuration appears with all six controls at
   zero, link-1's mounting face is parallel to the RViz grid, the robot remains
@@ -438,11 +460,11 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
 ## Blocked or unresolved
 
 - Observe the safeguarded CRD/container workstation overnight. The 2026-08-14
-  synthetic lifecycle check passed, but an overnight stability claim remains
-  pending. The idle GDM Wayland greeter also continued to consume about 80%
-  of one CPU core after reboot; restart `gdm.service` from a local
-  sudo-authenticated terminal and remeasure before considering a persistent
-  display-manager change.
+  synthetic lifecycle check passed. On 2026-08-17 the physical GDM path was
+  configured for Xorg and low-swap/bounded-HDD-writeback settings were applied.
+  Reboot when local work is saved, leave CRD/Xfce active overnight, and record
+  GDM CPU, memory/swap, I/O pressure, CRD availability, and container PIDs the
+  next day before closing the stability issue.
 
 - Resolve the Slicer 5.10 aggregate test-runner exit-code discrepancy. After
   isolating every `DENTOWorkflowTest.runTest()` member with a fresh MRML scene,
@@ -469,6 +491,25 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
 
 ## Completed
 
+- Added a host Record3D / iPhone LiDAR OBJ viewer on 2026-08-18.
+  `scripts/view_record3d_scan.py` opens a zip, folder, or single coloured OBJ
+  point cloud in a vispy arcball view, with frame scrubbing, RGB/height colour,
+  and catalog checks (missing indices, small frames, point count, millimetre
+  extent). It reuses `/home/light-tarun/pressure-env` plus vispy 0.16.2. The
+  example `data/3dscan_iphone.zip` listed 195 frames, parsed all of them
+  (2,940–358,865 points, no empties), and opened a GUI window on `DISPLAY=:0`.
+  Coordinates stay Record3D camera metres. This is scan-quality inspection
+  only, not Slicer import, registration, or clinical validation.
+
+- Preserved the private CRD/Xfce virtual-desktop workflow while installing the
+  2026-08-17 host responsiveness policy. Journal accounting confirmed the GDM
+  Wayland greeter had consumed 2d 23h CPU over 3d wall time. The physical GDM
+  path is now configured for Xorg; live and persistent kernel settings use
+  swappiness 10 with 128 MiB background/512 MiB hard dirty-page thresholds;
+  systemd-oomd remains active. The health report verifies these values and
+  treats CRD being stopped during an active physical-seat login as expected.
+  Reboot activation and overnight acceptance remain active above.
+
 - Added the simulation-only Slicer Step 6 robot-placement slice on 2026-08-14.
   DENTOWorkflow now parses the tracked URDF, loads all seven STLs explicitly as
   raw RAS/CAD geometry, and parents seven link-pose transforms beneath one
@@ -491,6 +532,15 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
   is disposable synthetic design evidence, not literal jaw translation,
   clinical jaw mechanics, physical-session ergonomics, reach/collision,
   registration, TCP, controller, hardware, or motion acceptance.
+
+- Refined the disposable Step 6 open-mouth trial on 2026-08-17 evening. Landmark
+  placement is progressive one-at-a-time with a separate clear control; only one
+  phantom and one robot set are allowed; a workspace transform co-locates phantom
+  and robot in the viewport; and the jaw hinge matrix is converted to workspace-
+  parent local coordinates before application. Five host pure-geometry tests
+  passed; Slicer logic/widget tests were updated for workspace-aligned
+  landmarks and post-opening co-location bounds. Interactive extension reload was
+  not re-verified in the physical session.
 
 - Added the first simulation-only ROS 2 integration on 2026-08-14. The tracked
   `dentobot_description` package contains the normalized URDF, all seven

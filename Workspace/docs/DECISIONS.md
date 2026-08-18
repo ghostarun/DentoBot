@@ -1,17 +1,148 @@
 # Dentobot Technical Decisions
 
+## 2026-08-18 — Inspect Record3D iPhone OBJ scans with a host vispy viewer
+
+Status: parser and GUI smoke verified on `data/3dscan_iphone.zip`; interactive
+orbit/playback acceptance is operator-run; this is not registration
+
+Keep iPhone Record3D point-cloud inspection on the host as a standalone
+PyQt6/vispy script (`scripts/view_record3d_scan.py`). Reuse
+`/home/light-tarun/pressure-env` for Qt/NumPy and add only `vispy`, `PyOpenGL`,
+and `freetype-py` there. Do not import these packages into Slicer, the
+`dentobot` Conda inference environment, or the SlicerROS2 container.
+
+Open a zip, a folder, or a single OBJ in place. Record3D's OBJ export is a
+coloured vertex list in camera metres, typically without faces; retain that
+frame and unit. Do not silently convert the cloud into Slicer RAS, unpack the
+328 MiB example zip into `data/`, or treat a plausible render as anatomical
+validation. The sidebar reports frame count, missing indices, point count,
+bounding-box extent in millimetres, colour presence, and unusually small
+frames so later optical-surface registration work has a checked input.
+
+Reason: the example export is a 195-frame LiDAR sequence, not a Slicer MRML
+asset. A host GPU point viewer can scrub that sequence without contaminating
+the medical-image scene or the inference Python.
+
+## 2026-08-17 — Host Arduino pressure monitor uses a dedicated venv and Cursor launch config
+
+Status: live serial/GUI launch verified on the physical Ubuntu session; this is
+sensing-bench evidence only
+
+Keep the Arduino UNO WiFi R4 pressure-monitor script on the host as a
+standalone PyQt6/pyqtgraph tool. Run it with the existing
+`/home/light-tarun/pressure-env` interpreter, not Slicer's embedded Python, not
+the `dentobot` Conda inference environment, and not a container Python. Point
+the Cursor workspace Python interpreter and the **Pressure Monitor** launch
+configuration at that venv so the Run button and F5 use the packages already
+installed there (`numpy`, `pyserial`, `PyQt6`, `pyqtgraph`).
+
+Serial remains `/dev/ttyACM0` at 460800 baud. CSV runs stay under
+`ros2_ws/src/Arduino/pressure_runs/` next to the script, not under the home
+directory. This bench does not command a robot, authorize
+drilling, or implement the future sensing/stop-logic runtime.
+
+Reason: the script needs GUI and serial packages that must not enter the
+Slicer or inference Pythons. The workstation already had a working venv; Cursor
+had no Python runner until the Microsoft Python and debugpy extensions were
+installed.
+
+## 2026-08-17 — Preserve private CRD/Xfce and stabilize the physical host path
+
+Status: installed and live kernel settings verified; reboot activation and
+overnight CRD soak pending
+
+Retain Chrome Remote Desktop's separate Xfce virtual desktop because work in
+that session must not appear on the physical monitor. Accept force-stopping
+the same-user virtual session before a physical GNOME login; that session
+handoff is not the responsiveness defect being solved.
+
+Move only the physical GDM/GNOME login path from Wayland to Xorg. Keep swap
+enabled but reduce swappiness from 60 to 10 and replace percentage-based dirty
+page limits with 128 MiB background and 512 MiB hard writeback thresholds on
+the rotational system disk. Preserve the active systemd-oomd policy and the
+existing container process safeguards.
+
+Reason: journal accounting showed the idle GDM Wayland greeter consumed almost
+one full CPU continuously for three days while CRD/Xfce was active. Earlier
+whole-host stalls also followed memory pressure on an HDD configured to permit
+early swap and multi-gigabyte dirty-page accumulation. The new boundary keeps
+the required private virtual session while removing the observed greeter KMS
+path and reducing swap/writeback latency. It does not claim closure until a
+post-reboot overnight observation passes.
+
+## 2026-08-18 — Step 6 planning sub-workflow: import, mount lock, task limits, simulated motion plan
+
+Status: implemented; host pytest recorded; interactive Slicer verification pending
+
+Split Step 6 into four operator stages tied to upstream workflow artifacts:
+
+- **6.0 Import planning package** — one click validates and links the existing
+  MRML case graph: CBCT volume, teeth segmentation, trajectory, docking assembly,
+  and printable template. No separate file bundle is created.
+- **6.1 Move and lock robot base mount** — placement controls remain available
+  until **Lock Base Mount** freezes the base transform and mount plane handles.
+- **6.2 Task joint limits** — per-joint min/max translation or revolution
+  (degrees for revolute joints, millimetres for prismatic joints) are stored on
+  the parameter node, clamped to URDF mechanical bounds, and applied to Step 6
+  joint spin boxes and motion planning.
+- **6.3 Trajectory motion planning (simulation)** — samples the approved
+  Entry-to-Target line, solves position-only IK per waypoint with SciPy
+  L-BFGS-B, and rejects configurations with coarse non-adjacent link AABB
+  self-collision plus subsampled environment clearance against segmentation
+  closed surfaces, template shell, docking assembly, and optional support
+  anatomy. **Preview Simulated Motion** streams joint waypoints in MRML only.
+
+This remains simulation-only: no MoveIt, no `move_group`, no hardware command,
+no swept-volume collision, and no calibrated TCP. The default 5 mm AABB
+self-clearance can reject the draft neutral pose because conservative boxes on
+`link-3`/`link-5` overlap; treat clearance as a tunable research gate, not a
+clinical safety claim.
+
+Implementation: `DENTOStep6Planning.py`, Step 6 UI group boxes in
+`DENTOWorkflow.ui`, logic/widget handlers in `DENTOWorkflow.py`.
+
+## 2026-08-18 — Step 6 SlicerROS2 Motion Control bridge (no MoveIt)
+
+Status: implemented; container ROS verification recorded; interactive Slicer
+session pending reload
+
+Add an optional second robot path in Step 6 that loads `dentobot_description`
+through SlicerROS2 instead of MRML STL meshes alone. The workflow starts or
+detects `description.launch.py` with `joint_state_mode:=slicer`, loads
+`robot_description` from `/dentobot_robot_state_publisher`, parents the ROS
+robot root TF lookup under `[Step 6] DENTO Robot Base Placement`, configures
+ROS2 Motion Control with `move_group` disabled, and hides MRML link meshes
+while ROS motion control is active. Motion Control sliders stream simulated
+joint commands on `dentobot/slicer_joint_positions`;
+`dentobot_slicer_joint_state_publisher` republishes them as `/joint_states`.
+This remains visualization only: no hardware command, MoveIt planning, or
+calibrated TCP. Refuse to start if a competing neutral or manual publisher is
+already running. Keep the MRML placement path for offline workspace work.
+Launcher: `scripts/launch-dentobot-description-for-slicer.bash`.
+
 ## 2026-08-17 — Use a disposable pure-hinge open-mouth phantom in Step 6
 
-Status: implemented and synthetic graphical Slicer-verified; physical-session,
-head-mount, workspace, collision, and clinical acceptance pending
+Status: implemented and synthetic graphical Slicer-verified; evening UX,
+workspace-layout, and hinge-parent fixes synthetically re-verified on 2026-08-17;
+physical-session, head-mount, workspace, collision, and clinical acceptance pending
 
 Load the public aligned BodyParts3D neurocranium, maxilla, and mandible as
 local non-patient design assets. Keep the skull/maxilla fixed and place four
-approximate landmarks in the scene: left TMJ, right TMJ, upper central incisor,
-and lower central incisor. Rotate the mandible rigidly about the resulting TMJ
-axis until the transformed lower-incisor point is approximately 40 mm from the
-fixed upper-incisor point. The 40 mm requirement is the final inter-incisor
-gap, not a literal 40 mm mandibular translation.
+approximate landmarks one at a time in the scene: left TMJ, right TMJ, upper
+central incisor, and lower central incisor. Use progressive Place-landmark
+clicks so the operator can pan between points; clear landmarks with a separate
+control. Rotate the mandible rigidly about the resulting TMJ axis until the
+transformed lower-incisor point is approximately 40 mm from the fixed upper-
+incisor point. The 40 mm requirement is the final inter-incisor gap, not a
+literal 40 mm mandibular translation.
+
+Only one draft phantom set and one robot placement set may exist in Step 6 at a
+time. On first load, parent the phantom meshes under a disposable workspace
+transform that relocates them from BodyParts3D native coordinates to the
+research workspace center `(0, -150, 250)` mm RAS so the phantom and robot
+share the same viewport. The hinge solver still operates in world RAS, but the
+jaw opening transform must store the equivalent matrix in workspace-parent local
+coordinates when the jaw node parents under that workspace transform.
 
 Keep this path visibly disposable and intentionally simple. Do not add
 anatomical joint translation, soft tissue, contact, clinical landmarking,

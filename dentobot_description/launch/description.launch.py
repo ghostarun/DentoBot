@@ -46,10 +46,26 @@ def _joint_state_source(context, *, robot_description: str) -> list[Node]:
                 ],
             )
         ]
+    if mode == "slicer":
+        return [
+            Node(
+                package="dentobot_description",
+                executable="slicer_joint_state_publisher",
+                name="dentobot_slicer_joint_state_publisher",
+                output="screen",
+                parameters=[
+                    {
+                        "robot_description": robot_description,
+                        "publish_rate_hz": 10.0,
+                        "command_topic": "dentobot/slicer_joint_positions",
+                    }
+                ],
+            )
+        ]
     if mode == "external":
         return []
     raise RuntimeError(
-        "joint_state_mode must be one of: neutral, manual, external; "
+        "joint_state_mode must be one of: neutral, manual, slicer, or external; "
         f"received {mode!r}"
     )
 
@@ -73,8 +89,9 @@ def generate_launch_description() -> LaunchDescription:
                 "joint_state_mode",
                 default_value="neutral",
                 description=(
-                    "Joint-state source: neutral, manual, or external. "
-                    "Manual starts the simulation-only slider window."
+                    "Joint-state source: neutral, manual, slicer, or external. "
+                    "Manual starts the simulation-only slider window. "
+                    "Slicer republishes Motion Control slider commands."
                 ),
             ),
             DeclareLaunchArgument(

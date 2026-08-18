@@ -912,11 +912,16 @@ opt-in gated keyboard shortcuts provide fine placement. This is scene-local
 manual visualization, not registration and not a ROS/SlicerROS2 bridge.
 
 The current disposable head/mouth trial loads aligned BodyParts3D
-neurocranium, maxilla, and mandible meshes. Four approximate researcher-placed
-points define a TMJ hinge and an incisor pair; only the mandible rotates until
-the final straight-line incisor gap is approximately 40 mm. The researcher can
-then snap/fine-place the base on a provisional forehead plane and articulate
-all six joints beside the open mouth. This is an intentionally temporary
+neurocranium, maxilla, and mandible meshes under a disposable workspace
+transform that relocates them beside the robot on first load. Four approximate
+researcher-placed points define a TMJ hinge and an incisor pair; landmarks are
+placed one at a time so the operator can pan between them. Only the mandible
+rotates until the final straight-line incisor gap is approximately 40 mm. The
+hinge solver returns a world-RAS matrix that must be expressed in workspace-
+parent local coordinates when the jaw transform parents under the workspace node.
+The researcher can then snap/fine-place the base on a provisional forehead plane
+and articulate all six joints beside the open mouth. Only one phantom set and one
+robot placement set may exist in the scene. This is an intentionally temporary
 design-iteration aid, not a 40 mm mandibular translation, clinical jaw model,
 head-mount registration, or reach/collision acceptance result.
 

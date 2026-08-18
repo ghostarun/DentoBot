@@ -61,6 +61,21 @@ Use newest-first ordering. Each entry should state:
   controls, forehead registration, TCP, reach/collision, and hardware motion
   remain unverified.
 
+## 2026-08-17 15:48:35 IST (UTC+05:30) — Private CRD host-stability policy
+
+- Preserved the required private CRD/Xfce virtual desktop and accepted its
+  same-user force-stop handoff before physical login.
+- Configured the physical GDM/GNOME path for Xorg after journal accounting
+  showed its Wayland greeter consumed nearly one full CPU for three days.
+- Installed and applied swappiness 10 plus 128 MiB background/512 MiB hard
+  dirty-page thresholds for the rotational system disk. Kept the verified
+  systemd-oomd and Docker safeguards unchanged.
+- Extended the health report and controlled workstation documentation. Bash
+  syntax, whitespace, exact sysctl values, GDM configuration, OOM status, and
+  the live health report passed. Reboot activation and an overnight CRD soak
+  remain pending; no active Slicer process was interrupted and no Git/Drive
+  publication occurred.
+
 ## 2026-08-14 19:18:17 IST (UTC+05:30) — Draft zero/base alignment/J4 direction
 
 - Made the photographed manual state q=0, aligned link-1's mounting face with

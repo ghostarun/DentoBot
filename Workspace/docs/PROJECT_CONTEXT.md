@@ -202,13 +202,16 @@ registration, a calibrated head mount/TCP, or a connection to robot state or
 hardware.
 
 For the current disposable workspace trial, Step 6 can also load aligned
-BodyParts3D neurocranium, maxilla, and mandible meshes. Four manually placed
+BodyParts3D neurocranium, maxilla, and mandible meshes under a disposable
+workspace transform that co-locates them with the robot. Four manually placed
 landmarks define an approximate left/right TMJ hinge and upper/lower central
-incisor pair. The mandible is rigidly rotated about that hinge until the
-straight-line incisor gap is approximately 40 mm; 40 mm is the requested final
-gap, not a literal mandible translation. This is a generic visual design aid,
-not clinically accurate jaw mechanics, anatomy, registration, or collision
-evidence.
+incisor pair; each landmark is placed one at a time. The mandible is rigidly
+rotated about that hinge until the straight-line incisor gap is approximately
+40 mm; 40 mm is the requested final gap, not a literal mandible translation.
+The hinge matrix is solved in world RAS and stored in workspace-parent local
+coordinates. Only one phantom set and one robot placement set are allowed. This
+is a generic visual design aid, not clinically accurate jaw mechanics, anatomy,
+registration, or collision evidence.
 
 The baseline control design still uses a small transport-neutral robot adapter
 and simulation-first development. At the robotics architecture gate, broader

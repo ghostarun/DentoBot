@@ -64,7 +64,11 @@ clinician/expert acceptance.
 The current fast-track work remains distributed across nine explicit research
 lanes: imaging/planning, physical template, registration, head-mounted robot,
 tooth-mounted robot, tool/aerotor, sensing and stop logic, verification/
-metrology, and research/IP output. The UI workflow is not a substitute for
+metrology, and research/IP output. The host Arduino pressure-monitor GUI is a
+standalone sensing bench in that last hardware-adjacent lane; it is not the
+robot-control runtime or a stop-logic implementation. The host Record3D OBJ
+viewer is a separate optical-scan inspection bench for iPhone LiDAR exports;
+it is not a Slicer RAS import path or a registration method. The UI workflow is not a substitute for
 those lanes. In particular, registration and metrology begin while Template V0
 is being closed rather than waiting for every planning convenience feature.
 
@@ -867,12 +871,16 @@ absent.
 
 Step 6 additionally owns a disposable, optional open-mouth scene aid. Three
 aligned BodyParts3D STL nodes represent the fixed neurocranium/maxilla and the
-movable mandible. A four-point Markups node stores approximate left TMJ, right
-TMJ, upper-incisor, and lower-incisor inputs. Pure rigid rotation about the
-left-to-right TMJ axis is solved by deterministic angular search until the
-transformed lower-incisor point is approximately 40 mm from the fixed upper
-point. A linear-transform node moves only the mandible, while a Markups line
-shows the achieved gap. The model, landmarks, transform, and measurement are
+movable mandible. They parent under a disposable workspace linear transform that
+relocates native BodyParts3D coordinates to the research workspace center on first
+load. A four-point Markups node stores approximate left TMJ, right TMJ, upper-
+incisor, and lower-incisor inputs; placement is one landmark per button click.
+Pure rigid rotation about the left-to-right TMJ axis is solved by deterministic
+angular search in world RAS until the transformed lower-incisor point is
+approximately 40 mm from the fixed upper point; the result is stored as a jaw
+opening transform in workspace-parent local coordinates. A Markups line shows
+the achieved gap. Only one phantom set and one robot placement set are permitted.
+The model, landmarks, workspace transform, jaw transform, and measurement are
 deletable trial nodes and carry no patient, clinical-jaw, collision, or
 registration semantics.
 
