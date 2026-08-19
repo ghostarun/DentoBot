@@ -29,9 +29,10 @@ Use newest-first ordering. Each entry should state:
 - **Change:** `run_ros2_cli` sources Jazzy/workspace after unsetting
   `PYTHONHOME`/`PYTHONPATH`/`PYTHONEXECUTABLE`. Description launch uses the
   same sanitized `bash -c`.
-- **Verification:** host `test_ros2_bridge.py`; container
-  `test_ros2_cli_slicer_env.py` with Slicer `PYTHONHOME`. Interactive Connect
-  after extension reload still required in the GUI.
+- **Verification:** host `test_ros2_bridge.py` 8 passed / 3 skipped; container
+  `test_ros2_cli_slicer_env.py` + bridge tests 11 passed; live Slicer
+  `PYTHONHOME` probe listed `/slicer`. Interactive Connect after extension
+  reload is still required in the GUI.
 - **Not claimed:** hardware motion or MoveIt.
 
 ## 2026-08-19 19:20:00 IST (UTC+05:30) — Start Stack & Connect discovers SlicerROS2
