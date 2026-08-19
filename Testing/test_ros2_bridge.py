@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+import time
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 HELPER_DIRECTORY = REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "Python"
@@ -31,6 +32,7 @@ from DENTOROS2Bridge import (
     ros2_node_list,
     ros2_unavailable_message,
     run_ros2_cli,
+    slicer_motion_stack_ready,
     slicer_ros2_module_search_paths,
     slicer_ros2_runtime_status,
 )
@@ -105,6 +107,52 @@ def test_ros2_child_env_strips_slicer_python_isolation(monkeypatch):
     assert env["ROS_DOMAIN_ID"] == "73"
     assert env["PATH"] == CONTAINER_SAFE_PATH
     assert "python-install" not in env["PATH"]
+
+
+def test_stale_node_list_cache_hides_slicer_publisher_until_forced(monkeypatch) -> None:
+    import DENTOROS2Bridge as bridge
+
+    bridge._NODE_LIST_CACHE = (
+        time.monotonic(),
+        True,
+        ["/dentobot_robot_state_publisher", "/slicer"],
+        "",
+    )
+    ready, message = slicer_motion_stack_ready()
+    assert not ready
+    assert "without" in message
+    assert "dentobot_slicer_joint_state_publisher" in message
+
+    def fake_node_list(*, force: bool = False):
+        del force
+        return True, [
+            "/dentobot_robot_state_publisher",
+            "/dentobot_slicer_joint_state_publisher",
+            "/slicer",
+        ], ""
+
+    monkeypatch.setattr(bridge, "ros2_node_list", fake_node_list)
+    ready, message = slicer_motion_stack_ready(force=True)
+    assert ready
+    assert message == ""
+    bridge._NODE_LIST_CACHE = None
+
+
+def test_connect_motion_control_forces_fresh_node_list() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "DENTOROS2Bridge.py"
+    ).read_text(encoding="utf-8")
+    connect = source.split("def connect_dentobot_motion_control", 1)[1]
+    connect = connect.split("\ndef ", 1)[0]
+    assert "slicer_motion_stack_ready(force=True)" in connect
+    assert "slicer_motion_stack_ready()" not in connect.replace(
+        "slicer_motion_stack_ready(force=True)",
+        "",
+    )
 
 
 def test_run_ros2_cli_uses_sourced_shell_without_slicer_python(monkeypatch):

@@ -173,6 +173,7 @@ def stop_incomplete_slicer_description_launch() -> str:
         return ""
     for pid in pids:
         _terminate_process_group(pid)
+    _invalidate_node_list_cache()
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         if not description_stack_running(force=True)[0]:
@@ -238,6 +239,11 @@ def ros2_node_list(*, force: bool = False) -> Tuple[bool, list[str], str]:
     return result
 
 
+def _invalidate_node_list_cache() -> None:
+    global _NODE_LIST_CACHE
+    _NODE_LIST_CACHE = None
+
+
 def _normalized_node_names(*, force: bool = False) -> Tuple[bool, set[str], str]:
     ok, nodes, message = ros2_node_list(force=force)
     if not ok:
@@ -274,8 +280,9 @@ def slicer_motion_stack_ready(*, force: bool = False) -> Tuple[bool, str]:
     if expected_rsp in names:
         return False, (
             "/dentobot_robot_state_publisher is running without "
-            "/dentobot_slicer_joint_state_publisher. Stop that launch and "
-            "start joint_state_mode:=slicer."
+            "/dentobot_slicer_joint_state_publisher. Reload the DENTOBOT "
+            "extension, then press Connect again so the leftover launch is "
+            "stopped and restarted with joint_state_mode:=slicer."
         )
     return False, (
         "ROS 2 node /dentobot_robot_state_publisher was not found. "
@@ -303,6 +310,7 @@ def start_description_stack_background() -> Tuple[bool, str]:
     if competing:
         return False, competing
     leftover = stop_incomplete_slicer_description_launch()
+    _invalidate_node_list_cache()
     if slicer_motion_stack_ready(force=True)[0]:
         suffix = f" {leftover}" if leftover else ""
         return True, "Description stack is already running." + suffix
@@ -339,6 +347,7 @@ def start_description_stack_background() -> Tuple[bool, str]:
         running, _ = slicer_motion_stack_ready(force=True)
         if running:
             log_handle.close()
+            _invalidate_node_list_cache()
             prefix = f"{leftover} " if leftover else ""
             return True, f"{prefix}Description stack started.".strip()
         time.sleep(0.5)
@@ -726,12 +735,12 @@ def connect_dentobot_motion_control(
             "The ROS2MotionControl module is not available."
         )
 
-    if start_stack_if_needed and not slicer_motion_stack_ready()[0]:
+    if start_stack_if_needed and not slicer_motion_stack_ready(force=True)[0]:
         started, start_message = start_description_stack_background()
         if not started:
             return None, start_message
 
-    ready, ready_message = slicer_motion_stack_ready()
+    ready, ready_message = slicer_motion_stack_ready(force=True)
     if not ready:
         return None, ready_message
 

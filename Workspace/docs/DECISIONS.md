@@ -15,8 +15,10 @@ imported Slicer Python, failed ``import yaml``, and exited. C++
 ROS children now export a Jazzy-plus-system PATH before sourcing overlays,
 in addition to unsetting ``PYTHONHOME``/``PYTHONPATH``. A slicer-mode launch
 that has RSP without ``dentobot_slicer_joint_state_publisher`` is stopped
-before retry. Launch stdout is kept in a tempfile. This does not command
-hardware.
+before retry. Launch stdout is kept in a tempfile. Connect also forces a
+fresh ``ros2 node list`` so a 1.5 s cache from the failed half-stack cannot
+report “RSP without slicer publisher” after both nodes are up. This does not
+command hardware.
 
 ## 2026-08-19 — Step 6.2 merged min / value / max joint rows
 

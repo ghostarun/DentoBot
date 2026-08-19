@@ -21,6 +21,19 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 19:55:00 IST (UTC+05:30) — Connect forces a fresh ros2 node list
+
+- **Why:** Retry after the 8 s timeout showed “RSP is running without the
+  Slicer joint publisher” while both nodes were already up. Connect used a
+  1.5 s node-list cache from the failed half-stack, and the live Slicer
+  process still had the pre-PATH-fix module in memory.
+- **Change:** Connect and stack start/stop invalidate that cache and pass
+  `force=True`. Incomplete-stack copy tells the operator to reload.
+- **Verification:** host `test_ros2_bridge.py` + CLI env tests 12 passed /
+  4 skipped; container 16 passed; live nodes still RSP + slicer publisher +
+  `/slicer`.
+- **Not claimed:** interactive CreateAndAddRobotNode after reload.
+
 ## 2026-08-19 19:50:00 IST (UTC+05:30) — Connect description launch resets PATH
 
 - **Why:** Connect reported the Slicer joint-state stack did not appear in

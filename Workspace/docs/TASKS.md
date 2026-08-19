@@ -86,10 +86,11 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 - **Step 6 Connect joint-state stack timeout (2026-08-19):** Connect started
   the description launch, then failed after 8 s because
-  `/dentobot_slicer_joint_state_publisher` never appeared. Slicer PATH made
-  that node run SuperBuild Python (`No module named 'yaml'`). Reload the
-  DENTOBOT extension and press Connect again. A healthy slicer-mode stack was
-  started in the container so the current window can also retry immediately.
+  `/dentobot_slicer_joint_state_publisher` never appeared. Retry then showed
+  “RSP is running without the Slicer publisher” from a stale 1.5 s node-list
+  cache and from the in-memory module not yet reloaded. Reload the DENTOBOT
+  extension, dismiss the dialog, and press Connect again. Both description
+  nodes plus `/slicer` are already running.
 - **Step 6.0 import frames the case (2026-08-19):** Import Planning Package
   now sets the CBCT as slice background and frames case RAS bounds. Reload
   the DENTOBOT extension and import a completed Steps 0–5 scene. Host and
