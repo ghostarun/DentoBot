@@ -644,8 +644,14 @@ launch before connecting.
 
 - Container `dentobot-slicerros2` running with host networking (ROS domain 73
   by default).
-- Slicer opened via `scripts/launch-dentoworkflow.bash` (includes
-  `slicer_ros2_module`).
+- Slicer opened via `scripts/launch-dentoworkflow.bash`. That launcher sources
+  the workspace, merges DENTO Workflow into `SLICER_ROS2_MODULE_PATHS`, and
+  runs `ros2 launch slicer_ros2_module slicer.launch.py`. Do not start a host
+  or Windows Slicer for this button; those processes have no ROS2 module.
+- If Connect reports that the ROS2 Slicer module is missing, close Slicer and
+  relaunch with the script above. Reloading the DENTOBOT extension is not
+  enough when this window was started without SlicerROS2. Connect then offers
+  the MRML robot fallback so place/lock can continue.
 
 **Terminal A — ROS description stack (no RViz):**
 
@@ -672,6 +678,9 @@ In **6 · Robot Placement**:
 3. Press **Start Stack & Connect Motion Control**. Inside the container this
    can also spawn the slicer-mode description launch if it is not already
    running. If a neutral or manual publisher is already up, stop it first.
+   This window must come from `./scripts/launch-dentoworkflow.bash`. If the
+   ROS2 module is missing, close Slicer and relaunch; Connect also offers the
+   MRML robot fallback so 6.1 is not blocked.
 4. Slicer opens **ROS2 Motion Control** with MoveIt disabled. Live pose follows
    `/joint_states`. Moving the Motion Control sliders updates that topic
    through the Slicer joint-state publisher (visualization only).
@@ -1000,7 +1009,9 @@ viewport does not load the full 4A–5C stack plus two robots.
 
 3. Press **Start Stack & Connect Motion Control** to load the robot from ROS
    into the viewport (SlicerROS2, parented to the Step 6 base). Stop any
-   competing neutral/manual description launch first.
+   competing neutral/manual description launch first. This Slicer window must
+   have been started with `./scripts/launch-dentoworkflow.bash`. If the ROS2
+   module is still missing, the dialog offers the MRML robot fallback.
 4. If ROS is unavailable, use **Fallback if ROS is unavailable → Load /
    Refresh Robot** for the MRML STL chain.
 5. Create / snap the mount plane, fine-nudge, then **Lock Base Mount**.

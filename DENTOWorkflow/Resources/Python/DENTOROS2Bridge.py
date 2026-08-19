@@ -6,9 +6,10 @@ SlicerROS2 container).  This module does not command hardware.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 # DENTOBOT ``description.launch.py`` node and parameter names.
 ROS2_ROBOT_NAME = "dentobot"
@@ -45,6 +46,25 @@ DESCRIPTION_LAUNCH_CMD = (
 PROCESS_EVENT_POLL_SEC = 0.2
 URDF_WAIT_TIMEOUT_SEC = 30.0
 STACK_START_WAIT_SEC = 8.0
+
+ROS2_MODULE_NAME = "ROS2"
+ROS2_MOTION_MODULE_NAME = "ROS2MotionControl"
+SLICER_ROS2_PACKAGE = "slicer_ros2_module"
+_DEFAULT_SLICER_ROS2_PREFIXES = (
+    "/workspace/ros2_ws/install/slicer_ros2_module",
+)
+_SLICER_ROS2_RELATIVE_MODULE_DIRS = (
+    "lib/Slicer-5.10/qt-loadable-modules",
+    "lib/Slicer-5.10/qt-scripted-modules",
+    "share/Slicer-5.10/qt-loadable-modules",
+    "share/Slicer-5.10/qt-scripted-modules",
+)
+ROS2_UNAVAILABLE_MESSAGE = (
+    "The ROS2 Slicer module is not available in this Slicer process. "
+    "Close Slicer and start it with ./scripts/launch-dentoworkflow.bash "
+    "(dentobot-slicerros2 + ros2 launch slicer_ros2_module slicer.launch.py). "
+    "Host or Windows Slicer cannot load SlicerROS2."
+)
 
 _slicer_joint_command_timer = None
 _slicer_joint_command_publisher = None
@@ -174,18 +194,152 @@ def start_description_stack_background() -> Tuple[bool, str]:
     )
 
 
-def get_ros2_logic():
+def ros2_unavailable_message() -> str:
+    return ROS2_UNAVAILABLE_MESSAGE
+
+
+def is_ros2_module_missing_message(message: str) -> bool:
+    lowered = (message or "").lower()
+    return "ros2 slicer module is not available" in lowered
+
+
+def _unique_existing_directories(candidates: Sequence[str]) -> list[str]:
+    paths: list[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        normalized = os.path.abspath(candidate)
+        if os.path.isdir(normalized) and normalized not in paths:
+            paths.append(normalized)
+    return paths
+
+
+def _ros2_pkg_prefix(package: str = SLICER_ROS2_PACKAGE) -> str:
+    if not ros2_cli_available():
+        return ""
     try:
-        return slicer.util.getModuleLogic("ROS2")
+        completed = subprocess.run(
+            ["ros2", "pkg", "prefix", package],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if completed.returncode != 0:
+        return ""
+    return (completed.stdout or "").strip()
+
+
+def slicer_ros2_module_search_paths() -> list[str]:
+    """Return installed SlicerROS2 loadable/scripted module directories."""
+    candidates: list[str] = []
+    env_paths = os.environ.get("SLICER_ROS2_MODULE_PATHS", "")
+    if env_paths:
+        candidates.extend(env_paths.split(":"))
+
+    prefixes = [_ros2_pkg_prefix()]
+    prefixes.extend(_DEFAULT_SLICER_ROS2_PREFIXES)
+    for prefix in prefixes:
+        if not prefix:
+            continue
+        for relative in _SLICER_ROS2_RELATIVE_MODULE_DIRS:
+            candidates.append(os.path.join(prefix, relative))
+    return _unique_existing_directories(candidates)
+
+
+def _module_logic(module_name: str):
+    try:
+        import slicer
+
+        return slicer.util.getModuleLogic(module_name)
     except Exception:
         return None
+
+
+def _prepend_ld_library_paths(paths: Sequence[str]) -> None:
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    ordered: list[str] = []
+    for path in [*paths, *existing.split(":")]:
+        if path and path not in ordered:
+            ordered.append(path)
+    if ordered:
+        os.environ["LD_LIBRARY_PATH"] = ":".join(ordered)
+
+
+def _load_slicer_modules(module_names: Sequence[str], extra_paths: Sequence[str]) -> None:
+    import slicer
+
+    factory = slicer.app.moduleManager().factoryManager()
+    _prepend_ld_library_paths(extra_paths)
+    for path in extra_paths:
+        try:
+            current = list(factory.searchPaths())
+        except Exception:
+            current = []
+        if path not in current:
+            factory.addSearchPath(path)
+    factory.registerModules()
+    factory.instantiateModules()
+    missing = [name for name in module_names if not factory.isLoaded(name)]
+    if missing:
+        factory.loadModules(list(missing))
+
+
+def ensure_ros2_slicer_modules() -> Tuple[Optional[object], Optional[object], str]:
+    """Load ROS2 / ROS2MotionControl if this Slicer process can see them."""
+    ros_logic = _module_logic(ROS2_MODULE_NAME)
+    motion_logic = _module_logic(ROS2_MOTION_MODULE_NAME)
+    if ros_logic is not None and motion_logic is not None:
+        return ros_logic, motion_logic, ""
+
+    try:
+        import slicer  # noqa: F401
+    except ImportError:
+        return None, None, ros2_unavailable_message()
+
+    try:
+        _load_slicer_modules(
+            (ROS2_MODULE_NAME, ROS2_MOTION_MODULE_NAME),
+            slicer_ros2_module_search_paths(),
+        )
+        if _module_logic(ROS2_MOTION_MODULE_NAME) is None:
+            try:
+                import slicer
+
+                slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
+            except Exception:
+                pass
+    except Exception as exc:
+        return None, None, f"{ros2_unavailable_message()} ({exc})"
+
+    ros_logic = _module_logic(ROS2_MODULE_NAME)
+    motion_logic = _module_logic(ROS2_MOTION_MODULE_NAME)
+    if ros_logic is None:
+        return None, None, ros2_unavailable_message()
+    if motion_logic is None:
+        return ros_logic, None, (
+            "The ROS2MotionControl module is not available. "
+            "Start Slicer with ./scripts/launch-dentoworkflow.bash."
+        )
+    return ros_logic, motion_logic, ""
+
+
+def get_ros2_logic():
+    logic = _module_logic(ROS2_MODULE_NAME)
+    if logic is not None:
+        return logic
+    logic, _, _ = ensure_ros2_slicer_modules()
+    return logic
 
 
 def get_motion_control_logic():
-    try:
-        return slicer.util.getModuleLogic("ROS2MotionControl")
-    except Exception:
-        return None
+    logic = _module_logic(ROS2_MOTION_MODULE_NAME)
+    if logic is not None:
+        return logic
+    _, logic, _ = ensure_ros2_slicer_modules()
+    return logic
 
 
 def find_ros2_robot_by_name(robot_name: str):
@@ -272,7 +426,7 @@ def start_slicer_joint_command_stream() -> Tuple[bool, str]:
 
     ros_logic = get_ros2_logic()
     if ros_logic is None:
-        return False, "The ROS2 Slicer module is not available."
+        return False, ros2_unavailable_message()
     ros_node = ros_logic.GetDefaultROS2Node()
     if ros_node is None:
         return False, "ROS2 default node is not initialized."
@@ -325,15 +479,13 @@ def connect_dentobot_motion_control(
     """Load DENTOBOT in SlicerROS2 and configure Motion Control (no MoveIt)."""
     import slicer
 
-    ros_logic = get_ros2_logic()
+    ros_logic, motion_logic, module_error = ensure_ros2_slicer_modules()
     if ros_logic is None:
-        return None, (
-            "The ROS2 Slicer module is not available. "
-            "Use the dentobot SlicerROS2 container."
-        )
-    motion_logic = get_motion_control_logic()
+        return None, module_error
     if motion_logic is None:
-        return None, "The ROS2MotionControl module is not available."
+        return None, module_error or (
+            "The ROS2MotionControl module is not available."
+        )
 
     if start_stack_if_needed and not slicer_motion_stack_ready()[0]:
         started, start_message = start_description_stack_background()
@@ -414,7 +566,7 @@ def disconnect_dentobot_motion_control(
 
     ros_logic = get_ros2_logic()
     if ros_logic is None:
-        return False, "The ROS2 Slicer module is not available."
+        return False, ros2_unavailable_message()
 
     stop_slicer_joint_command_stream()
     ros_logic.RemoveRobot(ROS2_ROBOT_NAME)

@@ -88,6 +88,7 @@ from DENTOROS2Bridge import (
     disconnect_dentobot_motion_control,
     connect_dentobot_motion_control,
     find_ros2_robot_by_name,
+    is_ros2_module_missing_message,
 )
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
@@ -2215,6 +2216,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 start_stack_if_needed=True,
             )
             if error or robot_node is None:
+                if is_ros2_module_missing_message(error or ""):
+                    if slicer.util.confirmYesNoDisplay(
+                        (error or "")
+                        + "\n\n"
+                        + _(
+                            "Load the local URDF robot in MRML instead so you "
+                            "can place and lock it?"
+                        )
+                    ):
+                        self.onLoadRobotModel()
+                        self._updateRos2MotionControlStatus(
+                            _(
+                                "ROS2 module missing; loaded the MRML robot "
+                                "fallback."
+                            )
+                        )
+                        return
                 raise RuntimeError(error or _("ROS 2 robot node was not created."))
             self._updateRobotPlacement()
             self._applyStep6RecommendedView()

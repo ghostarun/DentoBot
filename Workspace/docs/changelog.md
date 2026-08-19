@@ -21,6 +21,21 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 19:20:00 IST (UTC+05:30) — Start Stack & Connect discovers SlicerROS2
+
+- **Why:** Step 6 Connect showed “The ROS2 Slicer module is not available.
+  Use the dentobot SlicerROS2 container.” DENTO Workflow was loaded, so this
+  Slicer process did not have the SlicerROS2 `ROS2` module.
+- **Change:** `launch-dentoworkflow.bash` merges DENTO Workflow into
+  `SLICER_ROS2_MODULE_PATHS` and no longer passes a second
+  `--additional-module-paths`. `DENTOROS2Bridge.ensure_ros2_slicer_modules`
+  registers installed SlicerROS2 paths at runtime. If ROS2 is still missing,
+  Connect explains the launcher and offers the MRML robot fallback.
+- **Verification:** host pytest for the bridge/launcher helpers. Interactive
+  Connect in a relaunched SlicerROS2 session is still required.
+- **Not claimed:** hardware motion, MoveIt, or Connect success in host/Windows
+  Slicer.
+
 ## 2026-08-19 18:45:00 IST (UTC+05:30) — Step 6 panel order, gating, and Elements
 
 - **Why:** Step 6 was a single dump: lock sat above placement, phantom and ROS

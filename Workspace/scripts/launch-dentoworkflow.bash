@@ -282,6 +282,16 @@ docker exec -it \
     source /opt/ros/jazzy/setup.bash
     source /workspace/ros2_ws/install/setup.bash
     export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
+    # Merge DENTO Workflow into the SlicerROS2 launch path list. A second
+    # --additional-module-paths in slicer_args can leave ROS2 undiscovered
+    # while DENTOWorkflow still loads.
+    extra_module_paths=""
+    for p in ${DENTOBOT_SLICER_MODULE_PATHS}; do
+      extra_module_paths="${extra_module_paths:+${extra_module_paths}:}${p}"
+    done
+    if [[ -n ${extra_module_paths} ]]; then
+      export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
+    fi
     exec ros2 launch slicer_ros2_module slicer.launch.py \
-      "slicer_args:=--no-splash --additional-module-paths ${DENTOBOT_SLICER_MODULE_PATHS} --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
+      "slicer_args:=--no-splash --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
   '

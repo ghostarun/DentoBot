@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 The consolidated implementation/evidence boundary, improvement backlog,
 clinical-accuracy questions, mechanical ambiguities, prohibited
@@ -84,6 +84,15 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6 Connect requires SlicerROS2 (2026-08-19):** **Start Stack & Connect
+  Motion Control** failed with “The ROS2 Slicer module is not available.”
+  The Ubuntu launcher now merges DENTO Workflow into `SLICER_ROS2_MODULE_PATHS`
+  instead of a second `--additional-module-paths`. Connect also tries to load
+  ROS2/ROS2MotionControl from the installed SlicerROS2 prefix at runtime, then
+  offers the MRML robot fallback. **Close this Slicer window** and start it
+  with `./scripts/launch-dentoworkflow.bash`; reloading the extension is not
+  enough if the process never had SlicerROS2. Interactive Connect verification
+  pending after that relaunch.
 - **Step 6 gated sequence + Elements (2026-08-19):** panel order is 6.0 scene
   (case XOR phantom) → 6.1 ROS load/place/lock → 6.2 limits → 6.3 plan.
   Elements has a Step 6 recommended view. Reload the DENTOBOT extension.
