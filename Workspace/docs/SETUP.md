@@ -648,10 +648,12 @@ launch before connecting.
   the workspace, merges DENTO Workflow into `SLICER_ROS2_MODULE_PATHS`, and
   runs `ros2 launch slicer_ros2_module slicer.launch.py`. Do not start a host
   or Windows Slicer for this button; those processes have no ROS2 module.
-- If Connect reports that the ROS2 Slicer module is missing, close Slicer and
-  relaunch with the script above. Reloading the DENTOBOT extension is not
-  enough when this window was started without SlicerROS2. Connect then offers
-  the MRML robot fallback so place/lock can continue.
+- If Connect reports that the ROS2 Slicer module is missing, reload the
+  DENTOBOT extension first (the current container Slicer already has
+  SlicerROS2 paths). If this window is host or Windows Slicer, close it and
+  relaunch with the script above. Reloading cannot install SlicerROS2 into a
+  host Slicer. Connect then offers the MRML robot fallback so place/lock can
+  continue.
 
 **Terminal A — ROS description stack (no RViz):**
 
@@ -679,8 +681,9 @@ In **6 · Robot Placement**:
    can also spawn the slicer-mode description launch if it is not already
    running. If a neutral or manual publisher is already up, stop it first.
    This window must come from `./scripts/launch-dentoworkflow.bash`. If the
-   ROS2 module is missing, close Slicer and relaunch; Connect also offers the
-   MRML robot fallback so 6.1 is not blocked.
+   ROS2 module is missing, reload the DENTOBOT extension first; Connect also
+   offers the MRML robot fallback so 6.1 is not blocked. Host Slicer cannot
+   load SlicerROS2 — close it and relaunch with the script.
 4. Slicer opens **ROS2 Motion Control** with MoveIt disabled. Live pose follows
    `/joint_states`. Moving the Motion Control sliders updates that topic
    through the Slicer joint-state publisher (visualization only).

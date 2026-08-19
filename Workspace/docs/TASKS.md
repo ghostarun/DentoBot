@@ -86,13 +86,15 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 - **Step 6 Connect requires SlicerROS2 (2026-08-19):** **Start Stack & Connect
   Motion Control** failed with “The ROS2 Slicer module is not available.”
-  The Ubuntu launcher now merges DENTO Workflow into `SLICER_ROS2_MODULE_PATHS`
-  instead of a second `--additional-module-paths`. Connect also tries to load
-  ROS2/ROS2MotionControl from the installed SlicerROS2 prefix at runtime, then
-  offers the MRML robot fallback. **Close this Slicer window** and start it
-  with `./scripts/launch-dentoworkflow.bash`; reloading the extension is not
-  enough if the process never had SlicerROS2. Interactive Connect verification
-  pending after that relaunch.
+  The bridge looked up a global `slicer` without importing it and treated the
+  `NameError` as a missing ROS2 module. It now imports `slicer` at the call
+  site, can register installed SlicerROS2 paths, and offers the MRML robot
+  fallback. The Ubuntu launcher merges DENTO Workflow into
+  `SLICER_ROS2_MODULE_PATHS`. **Reload the DENTOBOT extension** in the current
+  SlicerROS2 window (the live process already has SlicerROS2 module paths).
+  If this window is host Slicer, close it and run
+  `./scripts/launch-dentoworkflow.bash`. Interactive Connect verification
+  pending after reload.
 - **Step 6 gated sequence + Elements (2026-08-19):** panel order is 6.0 scene
   (case XOR phantom) → 6.1 ROS load/place/lock → 6.2 limits → 6.3 plan.
   Elements has a Step 6 recommended view. Reload the DENTOBOT extension.

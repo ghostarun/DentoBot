@@ -250,6 +250,13 @@ def slicer_ros2_module_search_paths() -> list[str]:
 
 
 def _module_logic(module_name: str):
+    """Return Slicer module logic, or None.
+
+    Import ``slicer`` here. This helper is a plain Python module, so a
+    function-level ``import slicer`` elsewhere does not create a global name.
+    The previous ``get_ros2_logic`` looked up a global ``slicer``, caught the
+    ``NameError``, and reported ROS2 as missing even when it was loaded.
+    """
     try:
         import slicer
 

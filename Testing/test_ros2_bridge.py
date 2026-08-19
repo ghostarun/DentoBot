@@ -79,7 +79,12 @@ def test_slicer_ros2_module_search_paths_honors_env(tmp_path, monkeypatch):
     assert loadable.resolve().as_posix() in paths
 
 
-def test_ensure_ros2_slicer_modules_without_slicer_reports_launcher():
+def test_get_ros2_logic_does_not_require_a_module_global_slicer():
+    import DENTOROS2Bridge as bridge
+
+    assert "slicer" not in vars(bridge)
+    assert bridge.get_ros2_logic() is None
+    assert "slicer" not in vars(bridge)
     ros_logic, motion_logic, error = ensure_ros2_slicer_modules()
     assert ros_logic is None
     assert motion_logic is None

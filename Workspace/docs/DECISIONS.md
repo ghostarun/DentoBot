@@ -1,27 +1,27 @@
 # Dentobot Technical Decisions
 
-## 2026-08-19 — Load SlicerROS2 with DENTO Workflow, do not replace its module paths
+## 2026-08-19 — Load SlicerROS2 with DENTO Workflow; import slicer in the bridge
 
 Status: implemented; host pytest recorded; interactive Connect verification pending
 
-**Start Stack & Connect Motion Control** needs the Slicer `ROS2` and
-`ROS2MotionControl` modules. Those come from `ros2 launch slicer_ros2_module
-slicer.launch.py` inside `dentobot-slicerros2`. Passing DENTO Workflow as a
-second `--additional-module-paths` in `slicer_args` can leave DENTO Workflow
-loaded while ROS2 is undiscovered. The Ubuntu launcher now appends DENTO
-Workflow directories to `SLICER_ROS2_MODULE_PATHS` after sourcing the workspace,
-and `slicer_args` only selects the module.
+**Start Stack & Connect Motion Control** reported “The ROS2 Slicer module is
+not available” while DENTO Workflow was loaded. The live `dentobot-slicerros2`
+Slicer command line already included SlicerROS2 `qt-loadable-modules` and
+`qt-scripted-modules` plus DENTO Workflow. The bridge helper
+`get_ros2_logic()` used a global `slicer` name without importing it; that
+`NameError` was swallowed and surfaced as a missing-module dialog.
 
-If this Slicer process still has no ROS2 module, Connect tries to register the
-installed SlicerROS2 loadable/scripted paths at runtime. That can recover a
-container Slicer that was started without the launch file. It cannot recover
-host or Windows Slicer. In that case Connect explains the launcher requirement
-and offers the MRML URDF robot so 6.1 place/lock is not blocked.
+`DENTOROS2Bridge` now imports `slicer` at the call site, then instantiates
+`ROS2` / `ROS2MotionControl` from installed SlicerROS2 paths if they are not
+loaded yet. The Ubuntu launcher also merges DENTO Workflow into
+`SLICER_ROS2_MODULE_PATHS` after sourcing the workspace so `slicer_args` only
+selects the module. If ROS2 is still absent (host or Windows Slicer), Connect
+explains the launcher requirement and offers the MRML URDF robot so 6.1
+place/lock is not blocked.
 
-Reload the DENTOBOT extension after this change. If the current Slicer window
-was not started with `./scripts/launch-dentoworkflow.bash`, close it and
-relaunch; reloading the extension does not install SlicerROS2 into a host
-Slicer. Hardware and MoveIt remain out of scope.
+Reload the DENTOBOT extension in a Slicer window that was started with
+`./scripts/launch-dentoworkflow.bash`. If this window is host Slicer, close it
+and relaunch through that script. Hardware and MoveIt remain out of scope.
 
 ## 2026-08-19 — Step 6 gated robotic sequence and Elements recommended view
 
