@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import os
 import shlex
+import signal
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence, Tuple
 
 # DENTOBOT ``description.launch.py`` node and parameter names.
@@ -45,11 +48,20 @@ ROS2_JOINT_SI_ORDER = (
 _NODE_LIST_CACHE: Optional[tuple[float, bool, list[str], str]] = None
 _NODE_LIST_CACHE_SEC = 1.5
 
-# Slicer sets PYTHONHOME to its SuperBuild interpreter. The ros2 CLI shebang
-# is /usr/bin/python3; inheriting PYTHONHOME makes that process load Slicer
-# stdlib and fail (librcl_action.so / rclpy). Unset those variables, then
-# source the container overlay before every ros2 CLI call.
-SLICER_PYTHON_UNSET = "unset PYTHONHOME PYTHONPATH PYTHONEXECUTABLE"
+# Slicer sets PYTHONHOME to its SuperBuild interpreter and puts
+# python-install/bin first on PATH. The ros2 CLI shebang is /usr/bin/python3;
+# inheriting PYTHONHOME makes that process load Slicer stdlib and fail
+# (librcl_action.so / rclpy). Launch children use ``/usr/bin/env python3``,
+# so a Slicer-first PATH starts the Python joint publisher with Slicer
+# Python (no PyYAML) while C++ robot_state_publisher still comes up.
+# Reset PATH, unset those variables, then source the overlay.
+CONTAINER_SAFE_PATH = (
+    "/opt/ros/jazzy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
+SLICER_PYTHON_UNSET = (
+    "unset PYTHONHOME PYTHONPATH PYTHONEXECUTABLE PYTHONNOUSERSITE && "
+    f'export PATH="{CONTAINER_SAFE_PATH}"'
+)
 CONTAINER_ROS_SETUP = (
     f"{SLICER_PYTHON_UNSET} && "
     "source /opt/ros/jazzy/setup.bash && "
@@ -99,7 +111,78 @@ def _ros2_child_env() -> dict[str, str]:
     env = os.environ.copy()
     for key in _SLICER_PYTHON_ENV_KEYS:
         env.pop(key, None)
+    env["PATH"] = CONTAINER_SAFE_PATH
     return env
+
+
+def _terminate_process_group(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            return
+
+
+def _log_tail(path: str, limit: int = 24) -> str:
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-limit:]).strip()
+
+
+def slicer_mode_description_launch_pids() -> list[int]:
+    """Return PIDs of ``ros2 launch dentobot_description`` slicer-mode stacks."""
+    try:
+        completed = subprocess.run(
+            ["ps", "-eo", "pid=,args="],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids: list[int] = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if "ros2 launch dentobot_description" not in stripped:
+            continue
+        if "joint_state_mode:=slicer" not in stripped:
+            continue
+        pid_text = stripped.split(None, 1)[0]
+        try:
+            pids.append(int(pid_text))
+        except ValueError:
+            continue
+    return pids
+
+
+def stop_incomplete_slicer_description_launch() -> str:
+    """Stop a slicer-mode launch that brought up RSP without the Python publisher."""
+    if competing_joint_source_message(force=True):
+        return ""
+    if slicer_motion_stack_ready(force=True)[0]:
+        return ""
+    if not description_stack_running(force=True)[0]:
+        return ""
+    pids = slicer_mode_description_launch_pids()
+    if not pids:
+        return ""
+    for pid in pids:
+        _terminate_process_group(pid)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if not description_stack_running(force=True)[0]:
+            return (
+                "Stopped an incomplete Slicer-mode description launch "
+                "(robot_state_publisher was up without "
+                "dentobot_slicer_joint_state_publisher)."
+            )
+        time.sleep(0.2)
+    return ""
 
 
 def run_ros2_cli(
@@ -219,30 +302,54 @@ def start_description_stack_background() -> Tuple[bool, str]:
     competing = competing_joint_source_message()
     if competing:
         return False, competing
-    if slicer_motion_stack_ready()[0]:
-        return True, "Description stack is already running."
-    if description_stack_running()[0]:
-        return False, slicer_motion_stack_ready()[1]
+    leftover = stop_incomplete_slicer_description_launch()
+    if slicer_motion_stack_ready(force=True)[0]:
+        suffix = f" {leftover}" if leftover else ""
+        return True, "Description stack is already running." + suffix
+    if description_stack_running(force=True)[0]:
+        return False, slicer_motion_stack_ready(force=True)[1]
+    log_handle = tempfile.NamedTemporaryFile(
+        prefix="dentobot-description-launch-",
+        suffix=".log",
+        delete=False,
+    )
+    log_path = log_handle.name
     try:
-        subprocess.Popen(
+        process = subprocess.Popen(
             ["bash", "-c", DESCRIPTION_LAUNCH_CMD],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             start_new_session=True,
             env=_ros2_child_env(),
         )
     except OSError as exc:
+        log_handle.close()
         return False, f"Failed to start description launch: {exc}"
     deadline = time.monotonic() + STACK_START_WAIT_SEC
     while time.monotonic() < deadline:
+        if process.poll() not in (None, 0):
+            log_handle.close()
+            tail = _log_tail(log_path)
+            detail = f" Launch log ({log_path}): {tail}" if tail else f" See {log_path}."
+            prefix = f"{leftover} " if leftover else ""
+            return False, (
+                f"{prefix}Description launch exited before the Slicer "
+                f"joint-state stack appeared.{detail}"
+            )
         running, _ = slicer_motion_stack_ready(force=True)
         if running:
-            return True, "Description stack started."
+            log_handle.close()
+            prefix = f"{leftover} " if leftover else ""
+            return True, f"{prefix}Description stack started.".strip()
         time.sleep(0.5)
+    _terminate_process_group(process.pid)
+    log_handle.close()
+    tail = _log_tail(log_path)
+    detail = f" Launch log ({log_path}): {tail}" if tail else f" See {log_path}."
+    prefix = f"{leftover} " if leftover else ""
     return False, (
-        "Description launch was started but the Slicer joint-state stack "
-        "did not appear within "
-        f"{STACK_START_WAIT_SEC:.0f} s. Check container logs."
+        f"{prefix}Description launch was started but the Slicer joint-state "
+        f"stack did not appear within {STACK_START_WAIT_SEC:.0f} s.{detail}"
     )
 
 

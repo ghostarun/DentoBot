@@ -21,6 +21,18 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 19:50:00 IST (UTC+05:30) — Connect description launch resets PATH
+
+- **Why:** Connect reported the Slicer joint-state stack did not appear in
+  8 s. Live leftover: RSP up, `slicer_joint_state_publisher` missing.
+- **Change:** ROS children export a Jazzy/system PATH (not SuperBuild
+  `python-install/bin`). Incomplete slicer-mode launches are stopped; launch
+  logs are kept.
+- **Verification:** container 14 passed including yaml/rclpy under Slicer
+  PATH; after stopping pid 2066, a clean launch showed both description
+  nodes plus `/slicer` in 1 s.
+- **Not claimed:** hardware motion or interactive CreateAndAddRobotNode.
+
 ## 2026-08-19 19:45:00 IST (UTC+05:30) — Step 6.0 case view and 6.2 merged limits
 
 - **Why:** After Connect, import still framed the phantom origin, and 6.2

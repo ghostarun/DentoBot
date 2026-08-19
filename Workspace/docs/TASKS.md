@@ -84,6 +84,12 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6 Connect joint-state stack timeout (2026-08-19):** Connect started
+  the description launch, then failed after 8 s because
+  `/dentobot_slicer_joint_state_publisher` never appeared. Slicer PATH made
+  that node run SuperBuild Python (`No module named 'yaml'`). Reload the
+  DENTOBOT extension and press Connect again. A healthy slicer-mode stack was
+  started in the container so the current window can also retry immediately.
 - **Step 6.0 import frames the case (2026-08-19):** Import Planning Package
   now sets the CBCT as slice background and frames case RAS bounds. Reload
   the DENTOBOT extension and import a completed Steps 0–5 scene. Host and
@@ -522,6 +528,15 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
   established.
 
 ## Completed
+
+- Step 6 Connect PATH sanitization on 2026-08-19. Slicer-first PATH made
+  `slicer_joint_state_publisher` crash on `import yaml` while C++ RSP stayed
+  up (8 s timeout). Bridge now resets PATH; leftover incomplete launch was
+  stopped. Host pytest 23 passed / 5 skipped; container
+  `test_ros2_bridge.py` + `test_ros2_cli_slicer_env.py` 14 passed. Healthy
+  stack verified: both `/dentobot_robot_state_publisher` and
+  `/dentobot_slicer_joint_state_publisher` with `/slicer`. Reload the
+  extension; hardware motion was not run.
 
 - Step 6.0 case-into-view and 6.2 merged joint-limit UI on 2026-08-19.
   Import frames the case package (not the phantom origin). 6.2 is one

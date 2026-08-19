@@ -10,6 +10,7 @@ if str(HELPER_DIRECTORY) not in sys.path:
 
 from DENTOROS2Bridge import (
     CONTAINER_ROS_SETUP,
+    CONTAINER_SAFE_PATH,
     DESCRIPTION_LAUNCH_CMD,
     ROS2_FIXED_FRAME,
     ROS2_JOINT_STATES_TOPIC,
@@ -48,6 +49,9 @@ def test_ros2_bridge_constants_match_dentobot_launch():
     assert "use_rviz:=false" in DESCRIPTION_LAUNCH_CMD
     assert "unset PYTHONHOME" in CONTAINER_ROS_SETUP
     assert SLICER_PYTHON_UNSET in DESCRIPTION_LAUNCH_CMD
+    assert 'export PATH=' in CONTAINER_ROS_SETUP
+    assert CONTAINER_SAFE_PATH in CONTAINER_ROS_SETUP
+    assert "python-install" not in CONTAINER_SAFE_PATH
     assert "source /opt/ros/jazzy/setup.bash" in CONTAINER_ROS_SETUP
 
 
@@ -88,6 +92,10 @@ def test_ros2_child_env_strips_slicer_python_isolation(monkeypatch):
     monkeypatch.setenv("PYTHONPATH", "/opt/slicer/fake")
     monkeypatch.setenv("PYTHONEXECUTABLE", "/opt/slicer/bin/python")
     monkeypatch.setenv("PYTHONNOUSERSITE", "1")
+    monkeypatch.setenv(
+        "PATH",
+        "/opt/slicer/Slicer-SuperBuild/python-install/bin:/usr/bin",
+    )
     monkeypatch.setenv("ROS_DOMAIN_ID", "73")
     env = _ros2_child_env()
     assert "PYTHONHOME" not in env
@@ -95,6 +103,8 @@ def test_ros2_child_env_strips_slicer_python_isolation(monkeypatch):
     assert "PYTHONEXECUTABLE" not in env
     assert "PYTHONNOUSERSITE" not in env
     assert env["ROS_DOMAIN_ID"] == "73"
+    assert env["PATH"] == CONTAINER_SAFE_PATH
+    assert "python-install" not in env["PATH"]
 
 
 def test_run_ros2_cli_uses_sourced_shell_without_slicer_python(monkeypatch):

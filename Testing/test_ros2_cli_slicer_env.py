@@ -16,7 +16,12 @@ HELPER_DIRECTORY = REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "Python"
 if str(HELPER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(HELPER_DIRECTORY))
 
-from DENTOROS2Bridge import ros2_cli_available, ros2_node_list, run_ros2_cli
+from DENTOROS2Bridge import (
+    CONTAINER_ROS_SETUP,
+    ros2_cli_available,
+    ros2_node_list,
+    run_ros2_cli,
+)
 
 JAZZY_SETUP = "/opt/ros/jazzy/setup.bash"
 WORKSPACE_SETUP = "/workspace/ros2_ws/install/setup.bash"
@@ -86,3 +91,28 @@ def test_ros2_node_list_succeeds_with_slicer_pythonhome(monkeypatch) -> None:
     names = {name.lstrip("/") for name in nodes}
     if slicer_running:
         assert "slicer" in names
+
+
+def test_container_setup_uses_system_python_under_slicer_path() -> None:
+    """Slicer-first PATH must not be used for description-launch Python nodes."""
+    env = os.environ.copy()
+    env["PYTHONHOME"] = SLICER_PYTHONHOME
+    env["PYTHONPATH"] = "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python"
+    env["PATH"] = f"{SLICER_PYTHONHOME}/bin:" + env.get("PATH", "/usr/bin")
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"{CONTAINER_ROS_SETUP} && command -v python3 && python3 -c "
+            "'import yaml, rclpy; print(yaml.__name__, rclpy.__name__)'",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=12,
+        check=False,
+        env=env,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    python_path = (completed.stdout or "").splitlines()[0]
+    assert "Slicer-SuperBuild/python-install" not in python_path
+    assert "yaml rclpy" in (completed.stdout or "")

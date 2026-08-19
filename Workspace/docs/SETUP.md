@@ -657,6 +657,14 @@ launch before connecting.
 - If Connect reports that the ros2 CLI is not available, reload the DENTOBOT
   extension. The bridge now unsets Slicer’s `PYTHONHOME` before calling
   `ros2`. Do not expect a raw `ros2` subprocess from Slicer’s Python to work.
+- If Connect reports that the Slicer joint-state stack did not appear within
+  8 s, reload the DENTOBOT extension. Slicer’s PATH puts SuperBuild
+  `python-install/bin` first, so `slicer_joint_state_publisher` was starting
+  Slicer Python and crashing (`No module named 'yaml'`) while C++
+  `robot_state_publisher` stayed up. The bridge now resets PATH to Jazzy plus
+  system directories before launch, stops that incomplete leftover, and keeps
+  the launch log. A healthy slicer-mode stack is `/dentobot_robot_state_publisher`
+  **and** `/dentobot_slicer_joint_state_publisher`.
 
 **Terminal A — ROS description stack (no RViz):**
 

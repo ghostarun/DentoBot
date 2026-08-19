@@ -1,5 +1,23 @@
 # Dentobot Technical Decisions
 
+## 2026-08-19 — Description launch from Slicer must not use Slicer Python on PATH
+
+Status: implemented; host and container pytest recorded; leftover incomplete
+launch stopped and a healthy slicer-mode stack started for retry
+
+**Start Stack & Connect Motion Control** started `description.launch.py` but
+timed out after 8 s. Live nodes were `/dentobot_robot_state_publisher` and
+`/slicer` only. The launch child used ``/usr/bin/env python3``; Slicer’s PATH
+puts SuperBuild ``python-install/bin`` first, so the Python joint publisher
+imported Slicer Python, failed ``import yaml``, and exited. C++
+``robot_state_publisher`` stayed up, so Connect waited on a half-stack.
+
+ROS children now export a Jazzy-plus-system PATH before sourcing overlays,
+in addition to unsetting ``PYTHONHOME``/``PYTHONPATH``. A slicer-mode launch
+that has RSP without ``dentobot_slicer_joint_state_publisher`` is stopped
+before retry. Launch stdout is kept in a tempfile. This does not command
+hardware.
+
 ## 2026-08-19 — Step 6.2 merged min / value / max joint rows
 
 Status: implemented; host and container pytest recorded; interactive Slicer
