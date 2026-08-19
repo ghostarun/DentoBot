@@ -87,6 +87,7 @@ from DENTOROS2Bridge import (
     description_stack_running,
     disconnect_dentobot_motion_control,
     connect_dentobot_motion_control,
+    find_ros2_robot_by_name,
 )
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
@@ -1952,6 +1953,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         enabled = bool(
             robotStageActive
             and self._parameterNode
+            and not self._parameterNode.robotBaseMountLocked
             and self._parameterNode.robotKeyboardNudgeEnabled
             and self.logic
             and self.logic.isRobotBaseTransformNode(
@@ -2051,8 +2053,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if message:
             status = message
             style = "color: #207227;"
+        elif self.logic.isRos2MotionControlActive(baseTransform):
+            status = _("ROS robot is in the viewport. Place the mount, then lock.")
+            style = "color: #207227;"
         elif not self.logic.isRobotBaseTransformNode(baseTransform) or modelCount != 7:
-            status = _("Load the seven articulated robot meshes to begin placement.")
+            status = _("Choose a scene in 6.0, then load the ROS robot in 6.1.")
             style = "color: #b36b00;"
         else:
             matrix = vtk.vtkMatrix4x4()
@@ -2084,28 +2089,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             and int(self.ui.workflowStageComboBox.currentIndex)
             == len(stageEntries) - 1
         )
-        if robotStageActive:
-            ros2_active = self.logic.isRos2MotionControlActive(baseTransform)
-            for modelNode in self.logic.robotModelNodes():
-                modelNode.CreateDefaultDisplayNodes()
-                displayNode = modelNode.GetDisplayNode()
-                if displayNode:
-                    displayNode.SetVisibility(not ros2_active)
-            for modelNode in self.logic.draftPhantomModelNodes():
-                modelNode.CreateDefaultDisplayNodes()
-                displayNode = modelNode.GetDisplayNode()
-                if displayNode:
-                    displayNode.SetVisibility(True)
-            for markupsNode in (
-                planeNode,
-                self._parameterNode.draftJawLandmarks,
-                self._parameterNode.draftJawGapLine,
-            ):
-                if markupsNode:
-                    markupsNode.CreateDefaultDisplayNodes()
-                    displayNode = markupsNode.GetDisplayNode()
-                    if displayNode:
-                        displayNode.SetVisibility(True)
         if baseValid and modelCount:
             self.logic.updateRobotJointPoses(self._robotJointPositionsSi())
         self._updatingRobotPlacementUI = True
@@ -2161,6 +2144,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except ValueError:
                 pass
         self._updateStep6PlanningUi()
+        if robotStageActive:
+            self._updateWorkflowViewControls()
 
     def _updateRos2MotionControlStatus(self, message: str = "") -> None:
         if not hasattr(self, "ui"):
@@ -2174,8 +2159,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if self.logic and base_transform
             else False
         )
-        self.ui.disconnectRos2MotionButton.enabled = ros2_active
-        self.ui.connectRos2MotionButton.enabled = not ros2_active
         if message:
             status = message
             style = "color: #c62828;" if "failed" in message.lower() else "color: #207227;"
@@ -2201,10 +2184,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             style = "color: #b36b00;"
         self.ui.ros2MotionControlStatusLabel.text = status
         self.ui.ros2MotionControlStatusLabel.styleSheet = style
+        self._updateStep6PlanningUi()
 
     def onConnectRos2MotionControl(self, checked: bool = False) -> None:
         del checked
         if not self._parameterNode or not self.logic:
+            return
+        if self._step6SceneKind() not in {"case", "phantom"}:
+            slicer.util.errorDisplay(
+                _("Choose a Step 6 scene before connecting the ROS robot."),
+            )
             return
         try:
             base_transform = self.logic.ensureRobotBaseTransform(
@@ -2228,6 +2217,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if error or robot_node is None:
                 raise RuntimeError(error or _("ROS 2 robot node was not created."))
             self._updateRobotPlacement()
+            self._applyStep6RecommendedView()
             self._updateRos2MotionControlStatus(
                 _("Connected SlicerROS2 robot and opened Motion Control.")
             )
@@ -2312,6 +2302,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del checked
         if not self._parameterNode or not self.logic:
             return
+        if self._step6SceneKind() not in {"case", "phantom"}:
+            slicer.util.errorDisplay(
+                _("Choose a Step 6 scene before loading the MRML robot fallback."),
+            )
+            return
         try:
             baseTransform, models = self.logic.createOrUpdateRobotPlacement(
                 self._parameterNode.robotBaseTransform,
@@ -2325,6 +2320,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self.logic.draftPhantomModelNodes(),
                 )
             self.onFrameStep6ResearchWorkspace()
+            self._applyStep6RecommendedView()
             self._updateRobotPlacementStatus(
                 _("Loaded/reused %1 robot links. Drag the base handles or mount plane.")
                 .replace("%1", str(len(models)))
@@ -2336,6 +2332,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del checked
         if not self._parameterNode or not self.logic:
             return
+        if not self._confirmStep6SceneSwitch("phantom"):
+            return
+        if self._parameterNode.step6PlanningContextImported:
+            self._parameterNode.step6PlanningContextImported = False
         try:
             skull, mandible, models = self.logic.createOrUpdateDraftPhantom()
             self._parameterNode.draftPhantomSkullModel = skull
@@ -2349,6 +2349,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     models,
                 )
             self._updateRobotPlacement()
+            self._applyStep6RecommendedView()
             self._updateDraftPhantomStatus(
                 _(
                     "Loaded generic BodyParts3D neurocranium, maxilla, and mandible. "
@@ -2624,6 +2625,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     ) -> None:
         if not self._parameterNode or not self.logic:
             return
+        if self._parameterNode.robotBaseMountLocked:
+            return
         translation = [0.0, 0.0, 0.0]
         rotation = [0.0, 0.0, 0.0]
         if translationAxis is not None:
@@ -2765,22 +2768,91 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._clearRobotPlacement()
         logging.info("Deleted %d Step 6 robot placement nodes", len(removed))
 
+    def _step6SceneKind(self) -> str:
+        if not self._parameterNode or not self.logic:
+            return "none"
+        imported = bool(self._parameterNode.step6PlanningContextImported)
+        phantom = bool(self.logic.draftPhantomModelNodes())
+        if imported and phantom:
+            return "conflict"
+        if imported:
+            return "case"
+        if phantom:
+            return "phantom"
+        return "none"
+
+    def _step6RobotPresent(self) -> bool:
+        if not self._parameterNode or not self.logic:
+            return False
+        base = self._parameterNode.robotBaseTransform
+        if self.logic.isRos2MotionControlActive(base):
+            return True
+        return bool(self.logic.robotModelNodes())
+
+    def _applyStep6RecommendedView(self) -> None:
+        if not hasattr(self, "ui"):
+            return
+        stage_entries = self._workflowStageEntries()
+        if (
+            not stage_entries
+            or int(self.ui.workflowStageComboBox.currentIndex)
+            != len(stage_entries) - 1
+        ):
+            return
+        self._applyWorkflowViewPreset("recommended", updateStatus=False)
+        self._updateWorkflowViewControls()
+
+    def _confirmStep6SceneSwitch(self, target: str) -> bool:
+        kind = self._step6SceneKind()
+        if kind in {"none", target}:
+            return True
+        if target == "case":
+            return slicer.util.confirmYesNoDisplay(
+                _(
+                    "A draft phantom is already loaded. Switch to the case package "
+                    "and delete the phantom from the scene?"
+                )
+            )
+        return slicer.util.confirmYesNoDisplay(
+            _(
+                "A case package is already imported. Switch to the phantom test "
+                "scene? Case nodes stay in the scene but the recommended view "
+                "will hide them."
+            )
+        )
+
     def _updateStep6PlanningUi(self, message: str = "", error: bool = False) -> None:
         if not hasattr(self, "ui") or not self._parameterNode:
             return
         imported = bool(self._parameterNode.step6PlanningContextImported)
         locked = bool(self._parameterNode.robotBaseMountLocked)
         has_plan = self._step6MotionPlan is not None and self._step6MotionPlan.success
+        scene_kind = self._step6SceneKind()
+        scene_active = scene_kind in {"case", "phantom"}
+        robot_present = self._step6RobotPresent()
+        ros2_active = self.logic.isRos2MotionControlActive(
+            self._parameterNode.robotBaseTransform
+        ) if self.logic else False
 
         if message:
             context_status = message
-        elif imported:
-            context_status = _("Planning package imported for Step 6.")
+        elif scene_kind == "case":
+            context_status = _("Case planning package is the active Step 6 scene.")
+        elif scene_kind == "phantom":
+            context_status = _("Draft phantom is the active Step 6 scene.")
+        elif scene_kind == "conflict":
+            context_status = _(
+                "Both a case package and a phantom are present. Choose one scene."
+            )
         else:
-            context_status = _("Planning package not imported.")
+            context_status = _("No Step 6 scene yet. Import a case or load the phantom.")
 
         if locked:
             mount_status = _("Base mount locked for motion planning.")
+        elif not scene_active:
+            mount_status = _("Choose a scene before loading the robot.")
+        elif not robot_present:
+            mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
             mount_status = _("Base mount is unlocked.")
 
@@ -2788,30 +2860,58 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             plan_status = message
         elif has_plan:
             plan_status = self._step6MotionPlan.message
+        elif not imported:
+            plan_status = _(
+                "Trajectory planning needs the case package. Phantom mode is "
+                "for placement testing only."
+            )
         else:
             plan_status = _("No motion plan yet.")
 
         style_ok = "color: #207227;"
         style_warn = "color: #b36b00;"
         style_err = "color: #b00020;"
-        style = style_err if error else (style_ok if imported or has_plan else style_warn)
+        style = style_err if error else (
+            style_ok if scene_active or has_plan else style_warn
+        )
 
         self.ui.step6PlanningContextStatusLabel.text = context_status
-        self.ui.step6PlanningContextStatusLabel.styleSheet = style if not imported else style_ok
+        self.ui.step6PlanningContextStatusLabel.styleSheet = (
+            style_err if scene_kind == "conflict" else (
+                style_ok if scene_active else style_warn
+            )
+        )
         self.ui.step6MountLockStatusLabel.text = mount_status
-        self.ui.step6MountLockStatusLabel.styleSheet = style_ok if locked else style_warn
+        self.ui.step6MountLockStatusLabel.styleSheet = (
+            style_ok if locked else style_warn
+        )
         self.ui.step6TrajectoryPlanningStatusLabel.text = plan_status
         self.ui.step6TrajectoryPlanningStatusLabel.styleSheet = (
             style_err if error else (style_ok if has_plan else style_warn)
         )
 
-        self.ui.lockRobotBaseMountButton.enabled = not locked
+        self.ui.step6MountLockGroupBox.enabled = scene_active
+        self.ui.step6TaskJointLimitsGroupBox.enabled = robot_present
+        self.ui.step6TrajectoryPlanningGroupBox.enabled = locked and imported
+
+        place_enabled = scene_active and robot_present and not locked
+        self.ui.lockRobotBaseMountButton.enabled = (
+            scene_active and robot_present and not locked
+        )
         self.ui.unlockRobotBaseMountButton.enabled = locked
         self.ui.planTrajectoryMotionButton.enabled = imported and locked
         self.ui.previewTrajectoryMotionButton.enabled = has_plan
-        self.ui.stopTrajectoryMotionButton.enabled = self._step6MotionPreviewTimer is not None
+        self.ui.stopTrajectoryMotionButton.enabled = (
+            self._step6MotionPreviewTimer is not None
+        )
 
-        mount_controls_enabled = not locked
+        self.ui.connectRos2MotionButton.enabled = scene_active and not ros2_active
+        self.ui.disconnectRos2MotionButton.enabled = ros2_active
+        self.ui.loadRobotModelButton.enabled = scene_active
+        self.ui.frameRobotButton.enabled = scene_active
+        self.ui.importStep6PlanningContextButton.enabled = not locked
+        self.ui.loadDraftPhantomButton.enabled = not locked
+
         for widget_name in (
             "createRobotMountPlaneButton",
             "flipRobotMountPlaneButton",
@@ -2820,7 +2920,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             widget = getattr(self.ui, widget_name, None)
             if widget is not None:
-                widget.setEnabled(mount_controls_enabled)
+                widget.setEnabled(place_enabled)
+        self.ui.snapRobotBaseToPlaneButton.enabled = (
+            place_enabled
+            and self.logic.isRobotBaseTransformNode(
+                self._parameterNode.robotBaseTransform
+            )
+            and self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
+        )
+        self.ui.flipRobotMountPlaneButton.enabled = (
+            place_enabled
+            and self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
+        )
         for widget_name in (
             "robotXMinusButton",
             "robotXPlusButton",
@@ -2837,7 +2948,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ):
             widget = getattr(self.ui, widget_name, None)
             if widget is not None:
-                widget.setEnabled(mount_controls_enabled)
+                widget.setEnabled(place_enabled)
+        self.ui.robotKeyboardNudgeCheckBox.enabled = place_enabled
+        self.ui.resetRobotJointsButton.enabled = robot_present
+        self.ui.deleteRobotSetupButton.enabled = robot_present and not locked
+        self.ui.applyTaskJointLimitsButton.enabled = robot_present
+        self.ui.resetTaskJointLimitsButton.enabled = robot_present
 
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -2890,12 +3006,30 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._parameterNode or not self.logic:
             return
         try:
+            if not self._confirmStep6SceneSwitch("case"):
+                return
+            if self.logic.draftPhantomModelNodes():
+                self.logic.deleteDraftPhantom(
+                    self._parameterNode.draftJawLandmarks,
+                    self._parameterNode.draftJawTransform,
+                    self._parameterNode.draftJawGapLine,
+                )
+                was_modifying = self._parameterNode.StartModify()
+                try:
+                    self._parameterNode.draftPhantomSkullModel = None
+                    self._parameterNode.draftPhantomMandibleModel = None
+                    self._parameterNode.draftJawLandmarks = None
+                    self._parameterNode.draftJawTransform = None
+                    self._parameterNode.draftJawGapLine = None
+                finally:
+                    self._parameterNode.EndModify(was_modifying)
             report = self.logic.importStep6PlanningContext(self._parameterNode)
             self.onFrameStep6ResearchWorkspace()
             try:
                 self._applyTaskJointLimitsToJointSpinboxes()
             except ValueError:
                 pass
+            self._applyStep6RecommendedView()
             self._updateStep6PlanningUi(report.message)
         except (RuntimeError, ValueError) as exc:
             self._updateStep6PlanningUi(str(exc), error=True)
@@ -2905,15 +3039,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del checked
         if not self._parameterNode or not self.logic:
             return
-        if not self._parameterNode.step6PlanningContextImported:
+        if self._step6SceneKind() not in {"case", "phantom"}:
             slicer.util.errorDisplay(
-                _("Import the Step 6 planning package before locking the base mount."),
+                _("Import a case package or load the draft phantom before locking."),
             )
             return
-        if not self.logic.isRobotBaseTransformNode(
-            self._parameterNode.robotBaseTransform,
-        ):
-            slicer.util.errorDisplay(_("Load or create the robot base before locking."))
+        if not self._step6RobotPresent():
+            slicer.util.errorDisplay(_("Load the ROS robot or MRML fallback before locking."))
             return
         self.logic.setRobotBaseMountLocked(self._parameterNode, True)
         self._updateStep6PlanningUi(_("Base mount locked."))
@@ -3225,6 +3357,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "templateTrimPlane",
                 "templateTrimCurve",
                 "finalizedTemplateShellModel",
+                "robotBaseTransform",
+                "robotMountPlane",
+                "draftPhantomSkullModel",
+                "draftPhantomMandibleModel",
+                "draftJawLandmarks",
+                "draftJawGapLine",
             ):
                 node = getattr(self._parameterNode, fieldName, None)
                 if node and node.GetID() and node.IsA("vtkMRMLDisplayableNode"):
@@ -3240,11 +3378,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             if any(node.GetAttribute(attribute) for attribute in ownershipAttributes):
                 nodesById[node.GetID()] = node
+        if self.logic:
+            for node in (
+                *self.logic.robotModelNodes(),
+                *self.logic.draftPhantomModelNodes(),
+            ):
+                if node and node.GetID():
+                    nodesById[node.GetID()] = node
+        try:
+            ros_robot = find_ros2_robot_by_name("dentobot")
+        except Exception:
+            ros_robot = None
+        if ros_robot and getattr(ros_robot, "GetID", None) and ros_robot.GetID():
+            nodesById[ros_robot.GetID()] = ros_robot
         return list(nodesById.values())
 
     def _workflowViewEntries(self, stageIndex: int) -> list[dict]:
         if not self._parameterNode or not self.logic or stageIndex < 4:
             return []
+        if stageIndex == 9:
+            return self._step6WorkflowViewEntries()
         segmentationNode = self._parameterNode.teethSegmentation
         targetId = self._parameterNode.targetToothSegmentId
         supportIds = self._workflowViewSupportSegmentIds()
@@ -3514,6 +3667,150 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         return entries
 
+    def _step6WorkflowViewEntries(self) -> list[dict]:
+        """Step 6 Elements list: case package, phantom, robot, mount — not the full 4A–5C dump."""
+        entries: list[dict] = []
+        parameterNode = self._parameterNode
+        segmentationNode = parameterNode.teethSegmentation
+        targetId = parameterNode.targetToothSegmentId
+
+        def addSegments(key, label, segmentIds, category) -> None:
+            if not segmentationNode:
+                return
+            segmentation = segmentationNode.GetSegmentation()
+            validIds = [
+                segmentId
+                for segmentId in segmentIds
+                if segmentation.GetSegment(segmentId)
+            ]
+            if validIds:
+                entries.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "kind": "segments",
+                        "segmentIds": validIds,
+                        "category": category,
+                    }
+                )
+
+        def addNode(key, label, node, category) -> None:
+            if not node or not node.GetID():
+                return
+            if not node.GetDisplayNode():
+                try:
+                    node.CreateDefaultDisplayNodes()
+                except Exception:
+                    return
+            if not node.GetDisplayNode():
+                return
+            entries.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "kind": "node",
+                    "node": node,
+                    "category": category,
+                }
+            )
+
+        def addNodes(key, label, nodes, category) -> None:
+            valid = []
+            for node in nodes:
+                if not node or not node.GetID():
+                    continue
+                if not node.GetDisplayNode():
+                    try:
+                        node.CreateDefaultDisplayNodes()
+                    except Exception:
+                        continue
+                if node.GetDisplayNode():
+                    valid.append(node)
+            if not valid:
+                return
+            entries.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "kind": "nodes",
+                    "nodes": valid,
+                    "category": category,
+                }
+            )
+
+        if segmentationNode and targetId:
+            targetLabel = targetId
+            targetRecord = self._targetToothRecordsById.get(targetId)
+            if targetRecord:
+                targetLabel = targetRecord["displayName"]
+            addSegments(
+                "segments:target",
+                _("[Mask] Target tooth — %1").replace("%1", targetLabel),
+                [targetId],
+                "target_mask",
+            )
+        if parameterNode.trajectoryLine:
+            addNode(
+                "node:step6Trajectory",
+                _("[4A] Selected trajectory"),
+                parameterNode.trajectoryLine,
+                "trajectory",
+            )
+        addNode(
+            "node:step6Docks",
+            _("[4B] Guide rails / docks"),
+            parameterNode.targetDockingAssemblyModel,
+            "target_docking",
+        )
+        addNode(
+            "node:step6Template",
+            _("[5C] Final printable template"),
+            parameterNode.finalPrintableTemplateModel,
+            "final",
+        )
+        addNodes(
+            "nodes:step6Phantom",
+            _("[Step 6] Draft phantom"),
+            self.logic.draftPhantomModelNodes(),
+            "phantom",
+        )
+        addNode(
+            "node:step6JawLandmarks",
+            _("[Step 6] Jaw landmarks"),
+            parameterNode.draftJawLandmarks,
+            "phantom_landmarks",
+        )
+        addNode(
+            "node:step6JawGap",
+            _("[Step 6] Incisor gap line"),
+            parameterNode.draftJawGapLine,
+            "phantom_landmarks",
+        )
+        addNode(
+            "node:step6Mount",
+            _("[Step 6] Mount plane"),
+            parameterNode.robotMountPlane,
+            "robot_mount",
+        )
+        addNodes(
+            "nodes:step6MrmlRobot",
+            _("[Step 6] MRML robot links"),
+            self.logic.robotModelNodes(),
+            "robot_mrml",
+        )
+        try:
+            ros_robot = find_ros2_robot_by_name("dentobot")
+        except Exception:
+            ros_robot = None
+        if ros_robot is not None:
+            addNode(
+                "node:step6RosRobot",
+                _("[Step 6] ROS robot"),
+                ros_robot,
+                "robot_ros",
+            )
+        return entries
+
     @staticmethod
     def _workflowViewPresetCategories(presetKey: str) -> set[str] | None:
         categories = {
@@ -3548,6 +3845,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "final_aux",
             },
             "final_only": {"final"},
+            "robot_mount_only": {"robot_mrml", "robot_ros", "robot_mount"},
+            "case_package": {
+                "target_mask",
+                "trajectory",
+                "target_docking",
+                "final",
+            },
+            "phantom_only": {"phantom", "phantom_landmarks"},
         }
         return categories.get(presetKey)
 
@@ -3582,6 +3887,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 if self._parameterNode.finalPrintableTemplateModel
                 else {"patient_shell", "target_docking"}
             )
+        if stageIndex == 9:
+            ros_active = self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            )
+            robot_category = {"robot_ros"} if ros_active else {"robot_mrml"}
+            kind = self._step6SceneKind()
+            if kind == "phantom":
+                categories = {"phantom", "robot_mount", *robot_category}
+                landmarks = self._parameterNode.draftJawLandmarks
+                if landmarks is None or landmarks.GetNumberOfDefinedControlPoints() < 4:
+                    categories.add("phantom_landmarks")
+                return categories
+            return {
+                "target_mask",
+                "trajectory",
+                "target_docking",
+                "final",
+                "robot_mount",
+                *robot_category,
+            }
         return set()
 
     def _workflowViewPresetDefinitions(
@@ -3618,6 +3943,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             definitions.append(("shell_guides", _("Shell + trajectories + guides")))
         if "final" in categories:
             definitions.append(("final_only", _("Final printable template only")))
+        if stageIndex == 9:
+            definitions.append(("robot_mount_only", _("Robot + mount only")))
+            if categories & {"target_mask", "trajectory", "target_docking", "final"}:
+                definitions.append(
+                    ("case_package", _("Case planning package"))
+                )
+            if "phantom" in categories:
+                definitions.append(("phantom_only", _("Phantom only")))
         definitions.extend(
             (
                 ("all", _("All elements available in this step")),
@@ -3697,6 +4030,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 if displayNode and displayNode.GetVisibility()
                 else qt.Qt.Unchecked
             )
+        if entry["kind"] == "nodes":
+            states = []
+            for node in entry["nodes"]:
+                displayNode = node.GetDisplayNode() if node else None
+                states.append(bool(displayNode and displayNode.GetVisibility()))
+            if states and all(states):
+                return qt.Qt.Checked
+            if any(states):
+                return qt.Qt.PartiallyChecked
+            return qt.Qt.Unchecked
         segmentationNode = self._parameterNode.teethSegmentation
         displayNode = segmentationNode.GetDisplayNode() if segmentationNode else None
         if not displayNode or not displayNode.GetVisibility():
@@ -3837,11 +4180,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if entry["key"] in visibleKeys and entry["kind"] == "segments"
             for segmentId in entry["segmentIds"]
         }
-        visibleNodeIds = {
-            entry["node"].GetID()
-            for entry in entries
-            if entry["key"] in visibleKeys and entry["kind"] == "node"
-        }
+        visibleNodeIds = set()
+        for entry in entries:
+            if entry["key"] not in visibleKeys:
+                continue
+            if entry["kind"] == "node":
+                visibleNodeIds.add(entry["node"].GetID())
+            elif entry["kind"] == "nodes":
+                for node in entry["nodes"]:
+                    if node and node.GetID():
+                        visibleNodeIds.add(node.GetID())
         result = self.logic.applyWorkflowDisplaySelection(
             self._parameterNode.teethSegmentation,
             visibleSegmentIds,
@@ -3979,6 +4327,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             displayNode = entry["node"].GetDisplayNode()
             if displayNode:
                 displayNode.SetVisibility(visible)
+        elif entry["kind"] == "nodes":
+            for node in entry["nodes"]:
+                displayNode = node.GetDisplayNode() if node else None
+                if displayNode:
+                    displayNode.SetVisibility(visible)
         else:
             segmentationNode = self._parameterNode.teethSegmentation
             displayNode = segmentationNode.GetDisplayNode() if segmentationNode else None
@@ -4045,6 +4398,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 bounds = [0.0] * 6
                 entry["node"].GetRASBounds(bounds)
                 boundsList.append(bounds)
+            elif entry["kind"] == "nodes":
+                for node in entry["nodes"]:
+                    bounds = [0.0] * 6
+                    node.GetRASBounds(bounds)
+                    boundsList.append(bounds)
             else:
                 for segmentId in entry["segmentIds"]:
                     try:
@@ -29339,6 +29697,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
 
         widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
         widget.initializeParameterNode()
+        parameterNode = widget._parameterNode
         widget._setWorkflowStage(9, ensureVisible=False)
         self.assertEqual(
             widget.ui.workflowStageComboBox.itemText(9),
@@ -29356,12 +29715,6 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             all(not shortcut.enabled for shortcut in widget._robotKeyboardShortcuts)
         )
 
-        widget.onLoadRobotModel()
-        parameterNode = widget._parameterNode
-        self.assertTrue(widget.logic.isRobotBaseTransformNode(
-            parameterNode.robotBaseTransform
-        ))
-        self.assertEqual(len(widget.logic.robotModelNodes()), 7)
         widget.onLoadDraftPhantom()
         self.assertEqual(len(widget.logic.draftPhantomModelNodes()), 3)
         self.assertTrue(all(
@@ -29369,6 +29722,19 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             for model in widget.logic.draftPhantomModelNodes()
         ))
         self.assertIsNotNone(parameterNode.draftPhantomMandibleModel)
+        self.assertEqual(widget._step6SceneKind(), "phantom")
+        self.assertTrue(widget.ui.step6MountLockGroupBox.enabled)
+        self.assertFalse(widget.ui.planTrajectoryMotionButton.enabled)
+        widget.onLoadRobotModel()
+        self.assertTrue(widget.logic.isRobotBaseTransformNode(
+            parameterNode.robotBaseTransform
+        ))
+        self.assertEqual(len(widget.logic.robotModelNodes()), 7)
+        self.assertIn("nodes:step6Phantom", widget._workflowViewEntriesByKey)
+        self.assertIn("nodes:step6MrmlRobot", widget._workflowViewEntriesByKey)
+        recommended = widget._workflowViewRecommendedCategories(9)
+        self.assertIn("phantom", recommended)
+        self.assertIn("robot_mrml", recommended)
         landmarks = widget.logic.createOrResetDraftJawLandmarks(None)
         for point in widget.logic.draftPhantomExampleLandmarksWorldRas():
             landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))

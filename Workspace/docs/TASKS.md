@@ -84,6 +84,10 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6 gated sequence + Elements (2026-08-19):** panel order is 6.0 scene
+  (case XOR phantom) → 6.1 ROS load/place/lock → 6.2 limits → 6.3 plan.
+  Elements has a Step 6 recommended view. Reload the DENTOBOT extension.
+  Interactive verification pending in the physical Intel graphical session.
 - **Step 6 planning sub-workflow implemented (2026-08-18):** sections **6.0–6.3**
   in DENTOWorkflow — one-click planning-package import, base-mount lock,
   user-defined task joint limits, and simulated trajectory motion planning with

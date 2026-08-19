@@ -1,5 +1,29 @@
 # Dentobot Technical Decisions
 
+## 2026-08-19 — Step 6 gated robotic sequence and Elements recommended view
+
+Status: implemented; host pytest recorded; interactive Slicer verification pending
+
+Step 6 is a gated robotic workflow, not a lab dump:
+
+- **6.0 Choose scene (XOR):** import the Steps 0–5 case package, or load the
+  draft phantom. Switching asks for confirmation; importing a case deletes the
+  phantom; loading a phantom clears the imported-case flag.
+- **6.1 Load ROS robot, place, and lock:** disabled until a scene is active.
+  Placement and lock require a robot in the scene (ROS preferred; MRML STL
+  load is fallback only). Lock freezes the mount.
+- **6.2 Task joint limits:** enabled once a robot is present.
+- **6.3 Plan / preview:** enabled only with an imported case and a locked base.
+
+View Controls → Elements now has a Stage 6 list (target, trajectory, docks,
+template, phantom, robot, mount). Recommended view is applied on scene/robot
+load and when entering Step 6 with auto-recommended on. Step 6 no longer
+force-shows every robot/phantom display node.
+
+MRML **Load / Refresh Robot** and **Frame Scene + Robot** remain as fallback
+controls. Hardware, MoveIt, and clinical collision validation remain out of
+scope.
+
 ## 2026-08-18 — Inspect Record3D iPhone OBJ scans with a host vispy viewer
 
 Status: parser and GUI smoke verified on `data/3dscan_iphone.zip`; interactive

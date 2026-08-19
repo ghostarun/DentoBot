@@ -21,6 +21,19 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 18:45:00 IST (UTC+05:30) — Step 6 panel order, gating, and Elements
+
+- **Why:** Step 6 was a single dump: lock sat above placement, phantom and ROS
+  competed with the case, and Elements had no Stage 6 list so the viewport
+  force-showed every robot/phantom mesh.
+- **Change:** Reordered 6.0–6.3; case vs phantom XOR; 6.1 disabled until a
+  scene exists; place/lock until a robot is present; 6.3 until case+lock.
+  Stage 9 Elements recommended presets. Stopped force-showing all Step 6
+  display nodes.
+- **Verification:** host pytest 22 passed. Slicer widget test updated for
+  phantom-then-robot order; not re-run in this session.
+- **Not claimed:** interactive Slicer verification; planner/collision rewrite.
+
 ## 2026-08-18 19:30:00 IST (UTC+05:30) — Step 6 planning sub-workflow (6.0–6.3)
 
 - **Why:** Step 6 needed a structured path from upstream planning artifacts to

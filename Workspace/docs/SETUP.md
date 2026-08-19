@@ -980,79 +980,49 @@ licensed under CC BY-SA 2.1 Japan. Source pages are
 directory may be selected with `DENTOBOT_PHANTOM_ROOT`, which must point
 directly to the directory containing the three normalized filenames above.
 
-In the stage selector choose **6 · Robot Placement**:
+In the stage selector choose **6 · Robot Placement**. Use **View Controls →
+Elements** and keep **Use recommended view when changing steps** on so the
+viewport does not load the full 4A–5C stack plus two robots.
 
-1. Select **Load Draft Skull + Jaw** to load the fixed neurocranium/maxilla and
-   movable mandible. The phantom relocates near the Step 6 research workspace
-   origin on first load so it appears beside the robot. Only one phantom set is
-   allowed; delete before reloading.
-2. Press the progressive **Place … landmark** button for each of the four points
-   (left TMJ, right TMJ, upper incisor, lower incisor). Each click places one
-   point and returns to view navigation so you can pan before the next landmark.
-   Use **Clear Landmarks** to remove all points and any jaw opening. Jaw opening
-   runs automatically after the fourth landmark is recognized.
-3. Adjust the target gap if needed and select **Set Approx. 40 mm Opening** to
-   re-apply. This performs only a rigid rotation about the approximate TMJ
-   hinge; 40 mm is the final measured incisor gap, not a mandible translation.
-   Use **Reset Jaw Closed** before re-applying if the mandible is already open.
-   Reset or delete the disposable phantom at any time.
-4. Select **Load / Refresh Robot** to create/reuse the seven model nodes, seven
-   link-pose transforms, and the editable robot-base transform. Only one robot
-   placement set is allowed. If the phantom is already loaded and the base is
-   still at the world origin, the loader suggests a pose in front of the phantom.
-5. Use **Frame Phantom + Robot** to centre the 3D views on the combined bounds.
-6. Use the six joint spin boxes for manual articulation at the current draft
-   zero. J1/J3/J5/J6 use degrees; J2/J4 use millimetres. Positive J4 follows
-   the reversed URDF direction established on 2026-08-14.
-7. Select **Create / Reset Mount Plane**, drag the cyan plane's native Slicer
-   translation/rotation handles to the provisional head-mount location, and
-   use **Flip Plane Normal** if base +Z should face the other way.
-8. Select **Snap Base to Mount Plane**. The base origin and orientation copy
-   from the plane, with any plane scale/shear removed.
-9. Fine-tune with X/Y/Z and Rx/Ry/Rz buttons in the robot-base local frame.
-   Change the translation/rotation step sizes as required. Keyboard control is
-   opt-in: arrows move local X/Y, Page Up/Down moves local Z,
-   Shift+Left/Right rotates local Z, and Shift+Up/Down rotates local X.
-10. **6.0 — Import Planning Package for Step 6** after completing upstream
-   workflow stages on the current case. This validates that the CBCT volume,
-   teeth segmentation, trajectory, docking assembly, and printable template are
-   linked in the parameter node; it does not import a separate file bundle.
-11. **6.1 — Move and lock robot base mount.** Use steps 7–9 to place the base,
-   then press **Lock Base Mount** before motion planning. **Unlock Base Mount**
-   restores editable handles.
-12. **6.2 — Task joint limits.** Set per-joint min/max envelopes (degrees or
-   millimetres as appropriate), then **Apply Task Limits to Controls**. Values
-   are clamped to URDF mechanical bounds. **Reset to URDF Limits** restores the
+**6.0 Choose scene (one of):**
+
+1. **Import Planning Package for Step 6** after completing Steps 0–5 on the
+   current case. This validates that the CBCT volume, teeth segmentation,
+   trajectory, docking assembly, and printable template are linked. It does
+   not import a separate file bundle. Recommended view: target tooth,
+   trajectory, docks, template, mount, robot.
+2. **Or** load the **draft open-mouth phantom** for placement testing. Place
+   the four landmarks (left TMJ, right TMJ, upper incisor, lower incisor) and
+   set the approximate 40 mm opening. Recommended view: phantom, mount, robot.
+   Case and phantom are mutually exclusive; switching asks for confirmation.
+
+**6.1 Load ROS robot, place, and lock** (enabled after 6.0):
+
+3. Press **Start Stack & Connect Motion Control** to load the robot from ROS
+   into the viewport (SlicerROS2, parented to the Step 6 base). Stop any
+   competing neutral/manual description launch first.
+4. If ROS is unavailable, use **Fallback if ROS is unavailable → Load /
+   Refresh Robot** for the MRML STL chain.
+5. Create / snap the mount plane, fine-nudge, then **Lock Base Mount**.
+   Unlock to adjust again.
+
+**6.2 Task joint limits** (enabled after a robot is in the scene):
+
+6. Set per-joint min/max envelopes, then **Apply Task Limits to Controls**.
+   Joint spinboxes use those ranges. **Reset to URDF Limits** restores the
    mechanical envelope.
-13. **6.3 — Trajectory motion planning (simulation).** With the package imported
-   and the base locked, press **Plan Motion Along Trajectory**. Each trajectory
-   sample is screened with coarse non-adjacent link AABB self-collision and
-   subsampled environment clearance against segmentation anatomy, template
-   shell, and docking geometry. **Preview Simulated Motion** steps joint values
-   in MRML only; **Stop Preview** cancels. Tune **Trajectory samples**,
-   **Self-clearance (mm)**, and **Environment clearance (mm)** as research
-   gates. Default 5 mm self-clearance may reject the draft neutral pose.
-14. Optional ROS 2 path: start
-   `./scripts/launch-dentobot-description-for-slicer.bash` in another terminal
-   (or rely on the in-Slicer spawn), then press **Start Stack & Connect Motion
-   Control**. SlicerROS2 loads the URDF, aligns to the Step 6 base transform,
-   and opens Motion Control. Sliders stream simulated `/joint_states` (no
-   MoveIt, no hardware). Use **Disconnect ROS 2 Robot** before deleting the
-   Step 6 setup. Stop any existing neutral/manual description launch first.
 
-The keyboard shortcuts are disabled outside Step 6 and while editing a text
-or numeric field. The loader intentionally requests RAS for STL files with no
-embedded coordinate-system metadata; accepting Slicer's default LPS assumption
-would mirror the raw CAD X/Y coordinates before URDF transforms are applied.
+**6.3 Trajectory motion planning** (enabled after case import + lock):
 
-Step 6 MRML robot placement remains simulation-only. The optional ROS 2 bridge
-sources `dentobot_description` and SlicerROS2 Motion Control for joint
-streaming visualization; it does not command hardware, solve MoveIt IK, or
-perform collision validation. The generic phantom and four manually selected
-landmarks are not clinically accurate anatomy or jaw kinematics. The mount
-plane is not a measured forehead/head-mount transform, and the scene contains
-no calibrated bur tip unless that is added through a later controlled
-calibration workflow.
+7. **Plan Motion Along Trajectory**, then **Preview Simulated Motion**.
+   Phantom-only scenes cannot plan; they are for placement testing.
+
+Use **View Controls → Frame Visible** on the active Elements selection instead
+of the old Frame Phantom + Robot control (kept only as fallback). Keyboard
+nudges remain opt-in and are disabled while the mount is locked.
+
+Step 6 remains simulation-only. The ROS bridge does not command hardware or
+solve MoveIt IK. The generic phantom is not clinical jaw kinematics.
 
 ## Verification commands
 

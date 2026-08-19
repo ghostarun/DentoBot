@@ -142,7 +142,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <bool>true</bool>
        </property>
        <property name="toolTip">
-        <string>Automatically apply the first stage preset when navigating from Step 4A through Step 5C. Leaving these steps restores the previous display.</string>
+        <string>Automatically apply the recommended visibility preset when entering Steps 4A–6. Leaving those steps restores the previous display.</string>
        </property>
       </widget>
      </item>
@@ -3423,134 +3423,21 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <property name="collapsed"><bool>true</bool></property>
      <layout class="QVBoxLayout" name="robotPlacementVerticalLayout">
       <item>
-       <widget class="QLabel" name="robotPlacementDescriptionLabel">
-        <property name="text"><string>Step 6 is split into import, mount lock, task joint limits, and simulated trajectory motion planning. Powered hardware motion, MoveIt, and clinical safety validation are not authorized here.</string></property>
+<widget class="QLabel" name="robotPlacementDescriptionLabel">
+        <property name="text"><string>Choose a scene (case package or draft phantom), load the ROS robot, place and lock the base, set task limits, then plan. Hardware motion, MoveIt, and clinical safety validation are not authorized here.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="step6PlanningContextGroupBox">
-        <property name="title"><string>6.0 — Import Planning Package</string></property>
+<widget class="QGroupBox" name="step6PlanningContextGroupBox">
+        <property name="title"><string>6.0 — Choose Scene</string></property>
         <layout class="QVBoxLayout" name="step6PlanningContextVerticalLayout">
-         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>One click validates and links the upstream workflow package: CBCT volume, segmentation, trajectory, docking assembly, and printable template shell. Optional support models remain available for environment screening.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package, or load the draft phantom for testing. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Import Planning Package for Step 6</string></property></widget></item>
          <item><widget class="QLabel" name="step6PlanningContextStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Planning package not imported.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="step6MountLockGroupBox">
-        <property name="title"><string>6.1 — Move and Lock Robot Base Mount</string></property>
-        <layout class="QVBoxLayout" name="step6MountLockVerticalLayout">
-         <item><widget class="QLabel" name="step6MountLockDescriptionLabel"><property name="text"><string>Place the mount plane, snap the base, fine-tune, then lock the mount so motion planning uses a fixed base frame. Unlock to adjust again.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item>
-          <layout class="QHBoxLayout" name="step6MountLockButtonLayout">
-           <item><widget class="QPushButton" name="lockRobotBaseMountButton"><property name="text"><string>Lock Base Mount</string></property></widget></item>
-           <item><widget class="QPushButton" name="unlockRobotBaseMountButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Unlock Base Mount</string></property></widget></item>
-          </layout>
-         </item>
-         <item><widget class="QLabel" name="step6MountLockStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Base mount is unlocked.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="step6TaskJointLimitsGroupBox">
-        <property name="title"><string>6.2 — Task Joint Limits</string></property>
-        <layout class="QFormLayout" name="step6TaskJointLimitsFormLayout">
-         <item row="0" column="0" colspan="2"><widget class="QLabel" name="step6TaskJointLimitsDescriptionLabel"><property name="text"><string>Define the allowed joint envelope for this task. Values are clamped to the mechanical URDF limits and applied to Step 6 controls and motion planning.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item row="1" column="0"><widget class="QLabel"><property name="text"><string>J1 min/max (deg):</string></property></widget></item>
-         <item row="1" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint1TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint1TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1TaskMaxDeg</string></property></widget></item></layout></item>
-         <item row="2" column="0"><widget class="QLabel"><property name="text"><string>J2 min/max (mm):</string></property></widget></item>
-         <item row="2" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint2TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2TaskMinMm</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint2TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2TaskMaxMm</string></property></widget></item></layout></item>
-         <item row="3" column="0"><widget class="QLabel"><property name="text"><string>J3 min/max (deg):</string></property></widget></item>
-         <item row="3" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint3TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint3TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3TaskMaxDeg</string></property></widget></item></layout></item>
-         <item row="4" column="0"><widget class="QLabel"><property name="text"><string>J4 min/max (mm):</string></property></widget></item>
-         <item row="4" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint4TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4TaskMinMm</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint4TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4TaskMaxMm</string></property></widget></item></layout></item>
-         <item row="5" column="0"><widget class="QLabel"><property name="text"><string>J5 min/max (deg):</string></property></widget></item>
-         <item row="5" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint5TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint5TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5TaskMaxDeg</string></property></widget></item></layout></item>
-         <item row="6" column="0"><widget class="QLabel"><property name="text"><string>J6 min/max (deg):</string></property></widget></item>
-         <item row="6" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint6TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint6TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6TaskMaxDeg</string></property></widget></item></layout></item>
-         <item row="7" column="0" colspan="2"><layout class="QHBoxLayout"><item><widget class="QPushButton" name="applyTaskJointLimitsButton"><property name="text"><string>Apply Task Limits to Controls</string></property></widget></item><item><widget class="QPushButton" name="resetTaskJointLimitsButton"><property name="text"><string>Reset to URDF Limits</string></property></widget></item></layout></item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="step6TrajectoryPlanningGroupBox">
-        <property name="title"><string>6.3 — Trajectory Motion Planning (simulation)</string></property>
-        <layout class="QVBoxLayout" name="step6TrajectoryPlanningVerticalLayout">
-         <item><widget class="QLabel" name="step6TrajectoryPlanningDescriptionLabel"><property name="text"><string>Plan a joint-space path along the approved Entry-to-Target trajectory. Each sample is screened with coarse self-collision AABBs and a subsampled environment point cloud. Preview streams simulated joint motion only.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item>
-          <layout class="QFormLayout" name="step6TrajectoryPlanningFormLayout">
-           <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Trajectory samples:</string></property></widget></item>
-           <item row="0" column="1"><widget class="QSpinBox" name="robotMotionPlanSampleCountSpinBox"><property name="minimum"><number>2</number></property><property name="maximum"><number>64</number></property><property name="value"><number>12</number></property><property name="SlicerParameterName" stdset="0"><string>robotMotionPlanSampleCount</string></property></widget></item>
-           <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Self-clearance (mm):</string></property></widget></item>
-           <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotCoarseSelfClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotCoarseSelfClearanceMm</string></property></widget></item>
-           <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Environment clearance (mm):</string></property></widget></item>
-           <item row="2" column="1"><widget class="QDoubleSpinBox" name="robotEnvironmentClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>2.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotEnvironmentClearanceMm</string></property></widget></item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="step6TrajectoryPlanningButtonLayout">
-           <item><widget class="QPushButton" name="planTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Plan Motion Along Trajectory</string></property></widget></item>
-           <item><widget class="QPushButton" name="previewTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Preview Simulated Motion</string></property></widget></item>
-           <item><widget class="QPushButton" name="stopTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Stop Preview</string></property></widget></item>
-          </layout>
-         </item>
-         <item><widget class="QLabel" name="step6TrajectoryPlanningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>No motion plan yet.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <layout class="QFormLayout" name="robotPlacementNodeFormLayout">
-        <item row="0" column="0"><widget class="QLabel" name="robotBaseTransformLabel"><property name="text"><string>Robot base:</string></property></widget></item>
-        <item row="0" column="1">
-         <widget class="qMRMLNodeComboBox" name="robotBaseTransformSelector">
-          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLLinearTransformNode</string></stringlist></property>
-          <property name="noneEnabled"><bool>true</bool></property>
-          <property name="addEnabled"><bool>false</bool></property>
-          <property name="removeEnabled"><bool>false</bool></property>
-          <property name="SlicerParameterName" stdset="0"><string>robotBaseTransform</string></property>
-         </widget>
-        </item>
-        <item row="1" column="0"><widget class="QLabel" name="robotMountPlaneLabel"><property name="text"><string>Mount plane:</string></property></widget></item>
-        <item row="1" column="1">
-         <widget class="qMRMLNodeComboBox" name="robotMountPlaneSelector">
-          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
-          <property name="noneEnabled"><bool>true</bool></property>
-          <property name="addEnabled"><bool>false</bool></property>
-          <property name="removeEnabled"><bool>false</bool></property>
-          <property name="SlicerParameterName" stdset="0"><string>robotMountPlane</string></property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <layout class="QGridLayout" name="robotPlacementPrimaryButtonLayout">
-        <item row="0" column="0"><widget class="QPushButton" name="loadRobotModelButton"><property name="text"><string>Load / Refresh Robot</string></property><property name="toolTip"><string>Load or reuse all seven STL link models and apply the tracked URDF joint chain at the current joint values.</string></property></widget></item>
-        <item row="0" column="1"><widget class="QPushButton" name="frameRobotButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Frame Phantom + Robot</string></property><property name="toolTip"><string>Centre the 3D views on the combined robot and draft phantom bounds.</string></property></widget></item>
-        <item row="1" column="0"><widget class="QPushButton" name="createRobotMountPlaneButton"><property name="text"><string>Create / Reset Mount Plane</string></property><property name="toolTip"><string>Create an editable 120 mm plane at the current robot base, or reset the selected plane there. Drag its cyan translation and rotation handles in a 3D view.</string></property></widget></item>
-        <item row="1" column="1"><widget class="QPushButton" name="flipRobotMountPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Flip Plane Normal</string></property></widget></item>
-        <item row="2" column="0" colspan="2"><widget class="QPushButton" name="snapRobotBaseToPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Snap Base to Mount Plane</string></property><property name="toolTip"><string>Set the robot base origin and orientation to the plane. Scale and shear are removed; the plane normal becomes base +Z.</string></property></widget></item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="ros2MotionControlGroupBox">
-        <property name="title"><string>ROS 2 Motion Control (SlicerROS2)</string></property>
-        <layout class="QVBoxLayout" name="ros2MotionControlVerticalLayout">
-         <item><widget class="QLabel" name="ros2MotionControlDescriptionLabel"><property name="text"><string>Live TF from dentobot_description, aligned to the Step 6 robot-base transform. Motion Control sliders stream simulated /joint_states through the Slicer joint-state publisher. This does not command hardware. MoveIt is not configured. Start the ROS stack in a separate terminal or use the button below (container only).</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item>
-          <layout class="QGridLayout" name="ros2MotionControlButtonLayout">
-           <item row="0" column="0"><widget class="QPushButton" name="connectRos2MotionButton"><property name="text"><string>Start Stack &amp; Connect Motion Control</string></property><property name="toolTip"><string>Launch dentobot_description in slicer joint-state mode if needed, load the URDF through SlicerROS2, parent the ROS robot under the Step 6 base transform, stream Motion Control sliders to /joint_states, and open ROS2 Motion Control.</string></property></widget></item>
-           <item row="0" column="1"><widget class="QPushButton" name="disconnectRos2MotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Disconnect ROS 2 Robot</string></property></widget></item>
-          </layout>
-         </item>
-         <item><widget class="QLabel" name="ros2MotionControlStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>ROS 2 stack not connected.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="draftOpenMouthPhantomGroupBox">
-        <property name="title"><string>Draft Open-Mouth Phantom (disposable design check)</string></property>
+                 <item>
+<widget class="QGroupBox" name="draftOpenMouthPhantomGroupBox">
+        <property name="title"><string>Alternate scene — draft open-mouth phantom</string></property>
         <layout class="QVBoxLayout" name="draftOpenMouthPhantomVerticalLayout">
          <item><widget class="QLabel" name="draftOpenMouthDescriptionLabel"><property name="text"><string>Load the generic BodyParts3D skull/maxilla/mandible once (duplicate phantom or robot sets are rejected). The phantom is relocated near the Step 6 research workspace origin so it appears beside the robot. Place four approximate landmarks one at a time, then the mandible rotates about the TMJ hinge until the measured incisor gap is approximately 40 mm. This is not clinical jaw simulation.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
@@ -3578,29 +3465,58 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item><widget class="QLabel" name="draftOpenMouthStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Load the local generic phantom to begin.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
         </layout>
        </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="robotJointControlGroupBox">
-        <property name="title"><string>Manual Joint Motion (selected zero pose)</string></property>
-        <layout class="QFormLayout" name="robotJointControlFormLayout">
-         <item row="0" column="0"><widget class="QLabel" name="robotJoint1Label"><property name="text"><string>J1 revolute:</string></property></widget></item>
-         <item row="0" column="1"><widget class="QDoubleSpinBox" name="robotJoint1SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-25.380000</double></property><property name="maximum"><double>334.620000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1Deg</string></property></widget></item>
-         <item row="1" column="0"><widget class="QLabel" name="robotJoint2Label"><property name="text"><string>J2 prismatic:</string></property></widget></item>
-         <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotJoint2SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000</double></property><property name="maximum"><double>80.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2Mm</string></property></widget></item>
-         <item row="2" column="0"><widget class="QLabel" name="robotJoint3Label"><property name="text"><string>J3 revolute:</string></property></widget></item>
-         <item row="2" column="1"><widget class="QDoubleSpinBox" name="robotJoint3SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-62.460000</double></property><property name="maximum"><double>297.540000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3Deg</string></property></widget></item>
-         <item row="3" column="0"><widget class="QLabel" name="robotJoint4Label"><property name="text"><string>J4 prismatic (reversed):</string></property></widget></item>
-         <item row="3" column="1"><widget class="QDoubleSpinBox" name="robotJoint4SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000</double></property><property name="maximum"><double>75.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4Mm</string></property></widget></item>
-         <item row="4" column="0"><widget class="QLabel" name="robotJoint5Label"><property name="text"><string>J5 revolute:</string></property></widget></item>
-         <item row="4" column="1"><widget class="QDoubleSpinBox" name="robotJoint5SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-1.080000</double></property><property name="maximum"><double>358.920000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5Deg</string></property></widget></item>
-         <item row="5" column="0"><widget class="QLabel" name="robotJoint6Label"><property name="text"><string>J6 spindle:</string></property></widget></item>
-         <item row="5" column="1"><widget class="QDoubleSpinBox" name="robotJoint6SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.000000</double></property><property name="maximum"><double>360.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6Deg</string></property></widget></item>
-         <item row="6" column="0" colspan="2"><widget class="QPushButton" name="resetRobotJointsButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Reset All Joints to Selected Zero</string></property></widget></item>
-        </layout>
+         </item>
+      </layout>
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="robotFinePlacementGroupBox">
+       <widget class="QGroupBox" name="step6MountLockGroupBox">
+        <property name="title"><string>6.1 — Load ROS Robot, Place, and Lock</string></property>
+        <layout class="QVBoxLayout" name="step6MountLockVerticalLayout">
+         <item><widget class="QLabel" name="step6MountLockDescriptionLabel"><property name="text"><string>After a scene is chosen, load the robot from ROS into the viewport. Then create/snap/nudge the mount plane and lock the base. Placement is blocked until a robot is in the scene. Unlock to adjust again.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QGroupBox" name="ros2MotionControlGroupBox">
+        <property name="title"><string>Load robot from ROS (SlicerROS2)</string></property>
+        <layout class="QVBoxLayout" name="ros2MotionControlVerticalLayout">
+         <item><widget class="QLabel" name="ros2MotionControlDescriptionLabel"><property name="text"><string>Live TF from dentobot_description, aligned to the Step 6 robot-base transform. Motion Control sliders stream simulated /joint_states through the Slicer joint-state publisher. This does not command hardware. MoveIt is not configured. Start the ROS stack in a separate terminal or use the button below (container only).</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <layout class="QGridLayout" name="ros2MotionControlButtonLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="connectRos2MotionButton"><property name="text"><string>Start Stack &amp; Connect Motion Control</string></property><property name="toolTip"><string>Launch dentobot_description in slicer joint-state mode if needed, load the URDF through SlicerROS2, parent the ROS robot under the Step 6 base transform, stream Motion Control sliders to /joint_states, and open ROS2 Motion Control.</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="disconnectRos2MotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Disconnect ROS 2 Robot</string></property></widget></item>
+          </layout>
+         </item>
+         <item><widget class="QLabel" name="ros2MotionControlStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>ROS 2 stack not connected.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget></item>
+         <item><layout class="QFormLayout" name="robotPlacementNodeFormLayout">
+        <item row="0" column="0"><widget class="QLabel" name="robotBaseTransformLabel"><property name="text"><string>Robot base:</string></property></widget></item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="robotBaseTransformSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLLinearTransformNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>robotBaseTransform</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0"><widget class="QLabel" name="robotMountPlaneLabel"><property name="text"><string>Mount plane:</string></property></widget></item>
+        <item row="1" column="1">
+         <widget class="qMRMLNodeComboBox" name="robotMountPlaneSelector">
+          <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
+          <property name="noneEnabled"><bool>true</bool></property>
+          <property name="addEnabled"><bool>false</bool></property>
+          <property name="removeEnabled"><bool>false</bool></property>
+          <property name="SlicerParameterName" stdset="0"><string>robotMountPlane</string></property>
+         </widget>
+        </item>
+       </layout></item>
+         <item>
+          <layout class="QGridLayout" name="robotPlacementPrimaryButtonLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="createRobotMountPlaneButton"><property name="text"><string>Create / Reset Mount Plane</string></property><property name="toolTip"><string>Create an editable 120 mm plane at the current robot base, or reset the selected plane there. Drag its cyan translation and rotation handles in a 3D view.</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="flipRobotMountPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Flip Plane Normal</string></property></widget></item>
+           <item row="1" column="0" colspan="2"><widget class="QPushButton" name="snapRobotBaseToPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Snap Base to Mount Plane</string></property><property name="toolTip"><string>Set the robot base origin and orientation to the plane. Scale and shear are removed; the plane normal becomes base +Z.</string></property></widget></item>
+          </layout>
+         </item>
+         <item><widget class="QGroupBox" name="robotFinePlacementGroupBox">
         <property name="title"><string>Fine Base Placement (local axes)</string></property>
         <layout class="QVBoxLayout" name="robotFinePlacementVerticalLayout">
          <item>
@@ -3635,9 +3551,96 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </layout>
          </item>
         </layout>
+       </widget></item>
+         <item>
+          <layout class="QHBoxLayout" name="step6MountLockButtonLayout">
+<item><widget class="QPushButton" name="lockRobotBaseMountButton"><property name="text"><string>Lock Base Mount</string></property></widget></item>
+           <item><widget class="QPushButton" name="unlockRobotBaseMountButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Unlock Base Mount</string></property></widget></item>
+          
+          </layout>
+         </item>
+         <item><widget class="QLabel" name="step6MountLockStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Base mount is unlocked.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <widget class="QGroupBox" name="step6FallbackRobotGroupBox">
+           <property name="title"><string>Fallback if ROS is unavailable</string></property>
+           <property name="flat"><bool>true</bool></property>
+           <layout class="QHBoxLayout" name="step6FallbackRobotHorizontalLayout">
+            <item><widget class="QPushButton" name="loadRobotModelButton"><property name="text"><string>Load / Refresh Robot</string></property><property name="toolTip"><string>Load or reuse all seven STL link models and apply the tracked URDF joint chain at the current joint values.</string></property></widget></item>
+            <item><widget class="QPushButton" name="frameRobotButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Frame Scene + Robot (fallback)</string></property><property name="toolTip"><string>Centre the 3D views on the combined robot and draft phantom bounds.</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
        </widget>
       </item>
-      <item><widget class="QLabel" name="robotPlacementStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Load the seven articulated robot meshes to begin placement.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item>
+<widget class="QGroupBox" name="step6TaskJointLimitsGroupBox">
+        <property name="title"><string>6.2 — Task Joint Limits</string></property>
+        <layout class="QFormLayout" name="step6TaskJointLimitsFormLayout">
+         <item row="0" column="0" colspan="2"><widget class="QLabel" name="step6TaskJointLimitsDescriptionLabel"><property name="text"><string>Define the allowed joint envelope for this task. Values are clamped to the mechanical URDF limits and applied to Step 6 controls and motion planning.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel"><property name="text"><string>J1 min/max (deg):</string></property></widget></item>
+         <item row="1" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint1TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint1TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1TaskMaxDeg</string></property></widget></item></layout></item>
+         <item row="2" column="0"><widget class="QLabel"><property name="text"><string>J2 min/max (mm):</string></property></widget></item>
+         <item row="2" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint2TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2TaskMinMm</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint2TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2TaskMaxMm</string></property></widget></item></layout></item>
+         <item row="3" column="0"><widget class="QLabel"><property name="text"><string>J3 min/max (deg):</string></property></widget></item>
+         <item row="3" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint3TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint3TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3TaskMaxDeg</string></property></widget></item></layout></item>
+         <item row="4" column="0"><widget class="QLabel"><property name="text"><string>J4 min/max (mm):</string></property></widget></item>
+         <item row="4" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint4TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4TaskMinMm</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint4TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>200.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4TaskMaxMm</string></property></widget></item></layout></item>
+         <item row="5" column="0"><widget class="QLabel"><property name="text"><string>J5 min/max (deg):</string></property></widget></item>
+         <item row="5" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint5TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint5TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5TaskMaxDeg</string></property></widget></item></layout></item>
+         <item row="6" column="0"><widget class="QLabel"><property name="text"><string>J6 min/max (deg):</string></property></widget></item>
+         <item row="6" column="1"><layout class="QHBoxLayout"><item><widget class="QDoubleSpinBox" name="robotJoint6TaskMinSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6TaskMinDeg</string></property></widget></item><item><widget class="QDoubleSpinBox" name="robotJoint6TaskMaxSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.0</double></property><property name="maximum"><double>360.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6TaskMaxDeg</string></property></widget></item></layout></item>
+         <item row="7" column="0" colspan="2"><layout class="QHBoxLayout"><item><widget class="QPushButton" name="applyTaskJointLimitsButton"><property name="text"><string>Apply Task Limits to Controls</string></property></widget></item><item><widget class="QPushButton" name="resetTaskJointLimitsButton"><property name="text"><string>Reset to URDF Limits</string></property></widget></item></layout></item>
+                 <item row="8" column="0" colspan="2">
+<widget class="QGroupBox" name="robotJointControlGroupBox">
+        <property name="title"><string>Manual Joint Motion (selected zero pose)</string></property>
+        <layout class="QFormLayout" name="robotJointControlFormLayout">
+         <item row="0" column="0"><widget class="QLabel" name="robotJoint1Label"><property name="text"><string>J1 revolute:</string></property></widget></item>
+         <item row="0" column="1"><widget class="QDoubleSpinBox" name="robotJoint1SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-25.380000</double></property><property name="maximum"><double>334.620000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint1Deg</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="robotJoint2Label"><property name="text"><string>J2 prismatic:</string></property></widget></item>
+         <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotJoint2SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000</double></property><property name="maximum"><double>80.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint2Mm</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="robotJoint3Label"><property name="text"><string>J3 revolute:</string></property></widget></item>
+         <item row="2" column="1"><widget class="QDoubleSpinBox" name="robotJoint3SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-62.460000</double></property><property name="maximum"><double>297.540000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint3Deg</string></property></widget></item>
+         <item row="3" column="0"><widget class="QLabel" name="robotJoint4Label"><property name="text"><string>J4 prismatic (reversed):</string></property></widget></item>
+         <item row="3" column="1"><widget class="QDoubleSpinBox" name="robotJoint4SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.000000</double></property><property name="maximum"><double>75.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint4Mm</string></property></widget></item>
+         <item row="4" column="0"><widget class="QLabel" name="robotJoint5Label"><property name="text"><string>J5 revolute:</string></property></widget></item>
+         <item row="4" column="1"><widget class="QDoubleSpinBox" name="robotJoint5SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-1.080000</double></property><property name="maximum"><double>358.920000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint5Deg</string></property></widget></item>
+         <item row="5" column="0"><widget class="QLabel" name="robotJoint6Label"><property name="text"><string>J6 spindle:</string></property></widget></item>
+         <item row="5" column="1"><widget class="QDoubleSpinBox" name="robotJoint6SpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>-360.000000</double></property><property name="maximum"><double>360.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string>°</string></property><property name="SlicerParameterName" stdset="0"><string>robotJoint6Deg</string></property></widget></item>
+         <item row="6" column="0" colspan="2"><widget class="QPushButton" name="resetRobotJointsButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Reset All Joints to Selected Zero</string></property></widget></item>
+        </layout>
+       </widget>
+         </item>
+      </layout>
+       </widget>
+      </item>
+      <item>
+<widget class="QGroupBox" name="step6TrajectoryPlanningGroupBox">
+        <property name="title"><string>6.3 — Trajectory Motion Planning (simulation)</string></property>
+        <layout class="QVBoxLayout" name="step6TrajectoryPlanningVerticalLayout">
+         <item><widget class="QLabel" name="step6TrajectoryPlanningDescriptionLabel"><property name="text"><string>Plan a joint-space path along the approved Entry-to-Target trajectory. Each sample is screened with coarse self-collision AABBs and a subsampled environment point cloud. Preview streams simulated joint motion only.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <layout class="QFormLayout" name="step6TrajectoryPlanningFormLayout">
+           <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Trajectory samples:</string></property></widget></item>
+           <item row="0" column="1"><widget class="QSpinBox" name="robotMotionPlanSampleCountSpinBox"><property name="minimum"><number>2</number></property><property name="maximum"><number>64</number></property><property name="value"><number>12</number></property><property name="SlicerParameterName" stdset="0"><string>robotMotionPlanSampleCount</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Self-clearance (mm):</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotCoarseSelfClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotCoarseSelfClearanceMm</string></property></widget></item>
+           <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Environment clearance (mm):</string></property></widget></item>
+           <item row="2" column="1"><widget class="QDoubleSpinBox" name="robotEnvironmentClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>2.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotEnvironmentClearanceMm</string></property></widget></item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="step6TrajectoryPlanningButtonLayout">
+           <item><widget class="QPushButton" name="planTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Plan Motion Along Trajectory</string></property></widget></item>
+           <item><widget class="QPushButton" name="previewTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Preview Simulated Motion</string></property></widget></item>
+           <item><widget class="QPushButton" name="stopTrajectoryMotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Stop Preview</string></property></widget></item>
+          </layout>
+         </item>
+         <item><widget class="QLabel" name="step6TrajectoryPlanningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>No motion plan yet.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item><widget class="QLabel" name="robotPlacementStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Choose a scene in 6.0, then load the ROS robot in 6.1.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
       <item><widget class="QLabel" name="robotPlacementSafetyLabel"><property name="styleSheet"><string notr="true">color: #b00020; font-weight: 600;</string></property><property name="text"><string>SIMULATION / RESEARCH ONLY — no controller or hardware command path is connected. Head mount, calibrated TCP, patient motion, cables, swept-volume collision, forces, and clinical safety are not yet represented.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
      </layout>
     </widget>
