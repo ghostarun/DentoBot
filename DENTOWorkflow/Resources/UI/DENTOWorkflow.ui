@@ -3432,7 +3432,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
 <widget class="QGroupBox" name="step6PlanningContextGroupBox">
         <property name="title"><string>6.0 — Choose Scene</string></property>
         <layout class="QVBoxLayout" name="step6PlanningContextVerticalLayout">
-         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package, or load the draft phantom for testing. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package to bring the CBCT, trajectory, docks, and template into view, or load the draft phantom for testing. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Import Planning Package for Step 6</string></property></widget></item>
          <item><widget class="QLabel" name="step6PlanningContextStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Planning package not imported.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
                  <item>

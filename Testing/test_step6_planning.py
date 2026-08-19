@@ -13,8 +13,11 @@ if str(HELPER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(HELPER_DIRECTORY))
 
 from DENTOStep6Planning import (
+    CASE_VIEW_ROLES,
     apply_task_joint_limits_to_display_ranges,
     build_task_joint_limits_from_parameter_values,
+    case_view_present_roles,
+    combine_ras_bounds,
     default_task_joint_limits_from_urdf,
     plan_trajectory_motion,
     sample_trajectory_world_mm,
@@ -60,6 +63,51 @@ def test_step6_motion_plan_robot_ready_accepts_ros_or_mrml() -> None:
     assert step6_motion_plan_robot_ready(ros_motion_active=True, mrml_link_count=0)
     assert step6_motion_plan_robot_ready(ros_motion_active=False, mrml_link_count=7)
     assert not step6_motion_plan_robot_ready(ros_motion_active=False, mrml_link_count=0)
+
+
+def test_case_view_present_roles_lists_linked_package_nodes() -> None:
+    roles = case_view_present_roles(
+        {
+            "inputVolume": "vol1",
+            "teethSegmentation": "seg1",
+            "trajectoryLine": "line1",
+            "targetDockingAssemblyModel": "",
+            "finalPrintableTemplateModel": "template1",
+            "targetToothBoundsRoi": "roi1",
+        },
+    )
+    assert roles == (
+        "inputVolume",
+        "teethSegmentation",
+        "trajectoryLine",
+        "finalPrintableTemplateModel",
+        "targetToothBoundsRoi",
+    )
+
+
+def test_case_view_roles_are_case_package_not_phantom() -> None:
+    assert "inputVolume" in CASE_VIEW_ROLES
+    assert "finalPrintableTemplateModel" in CASE_VIEW_ROLES
+    assert "targetToothBoundsRoi" in CASE_VIEW_ROLES
+    assert "draftPhantomSkullModel" not in CASE_VIEW_ROLES
+    assert "draftPhantomMandibleModel" not in CASE_VIEW_ROLES
+
+
+def test_combine_ras_bounds_unions_finite_positive_extent_boxes() -> None:
+    combined = combine_ras_bounds(
+        (
+            (40.0, 50.0, 10.0, 20.0, 0.0, 5.0),
+            (45.0, 60.0, 0.0, 12.0, 1.0, 8.0),
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            (float("nan"), 1.0, 0.0, 1.0, 0.0, 1.0),
+        )
+    )
+    assert combined == (40.0, 60.0, 0.0, 20.0, 0.0, 8.0)
+
+
+def test_combine_ras_bounds_returns_none_when_empty() -> None:
+    assert combine_ras_bounds(()) is None
+    assert combine_ras_bounds(((0.0, 0.0, 0.0, 0.0, 0.0, 0.0),)) is None
 
 
 def test_default_task_joint_limits_match_six_joints() -> None:

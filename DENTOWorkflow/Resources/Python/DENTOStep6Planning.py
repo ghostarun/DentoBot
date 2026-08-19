@@ -35,6 +35,15 @@ OPTIONAL_PLANNING_ROLES = (
     "targetToothBoundsRoi",
 )
 
+CASE_VIEW_ROLES = (
+    "inputVolume",
+    "teethSegmentation",
+    "trajectoryLine",
+    "targetDockingAssemblyModel",
+    "finalPrintableTemplateModel",
+    "targetToothBoundsRoi",
+)
+
 
 @dataclass(frozen=True)
 class PlanningContextReport:
@@ -122,6 +131,47 @@ def validate_planning_context(
             "Planning package ready: CBCT volume, segmentation, trajectory, "
             "docking assembly, and printable template are linked."
         ),
+    )
+
+
+def case_view_present_roles(
+    role_to_node_id: Mapping[str, str | None],
+) -> tuple[str, ...]:
+    """Return planning-package roles that should appear in the Step 6 case view."""
+    return tuple(
+        role
+        for role in CASE_VIEW_ROLES
+        if (role_to_node_id.get(role) or "").strip()
+    )
+
+
+def combine_ras_bounds(
+    bounds_list: Sequence[Sequence[float]],
+) -> tuple[float, ...] | None:
+    """Union axis-aligned world-RAS boxes ``[xmin, xmax, ymin, ymax, zmin, zmax]``.
+
+    Degenerate or non-finite boxes are ignored so an empty segmentation or
+    unset ROI cannot pull the camera to the origin.
+    """
+    finite: list[tuple[float, float, float, float, float, float]] = []
+    for bounds in bounds_list:
+        if len(bounds) != 6:
+            continue
+        values = tuple(float(value) for value in bounds)
+        if not all(isfinite(value) for value in values):
+            continue
+        if not all(values[2 * axis + 1] > values[2 * axis] for axis in range(3)):
+            continue
+        finite.append(values)
+    if not finite:
+        return None
+    return (
+        min(item[0] for item in finite),
+        max(item[1] for item in finite),
+        min(item[2] for item in finite),
+        max(item[3] for item in finite),
+        min(item[4] for item in finite),
+        max(item[5] for item in finite),
     )
 
 

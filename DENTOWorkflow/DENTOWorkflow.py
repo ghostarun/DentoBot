@@ -108,11 +108,13 @@ from DENTOPlatform import (
     windows_path_to_wsl_path,
 )
 from DENTOStep6Planning import (
+    CASE_VIEW_ROLES,
     MotionPlanResult,
     PlanningContextReport,
     TaskJointLimits,
     apply_task_joint_limits_to_display_ranges,
     build_task_joint_limits_from_parameter_values,
+    combine_ras_bounds,
     default_task_joint_limits_from_urdf,
     evaluate_motion_configuration,
     plan_trajectory_motion,
@@ -2756,6 +2758,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         baseTransform.SetMatrixTransformToParent(matrix)
         self._updateRobotPlacementStatus(_("Robot base reset to Slicer world RAS."))
 
+    def onFrameStep6CaseScene(self, checked: bool = False) -> None:
+        """Show the imported case in slice and 3D views (not the phantom workspace)."""
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        self._showStep6CaseVolumeInSliceViewers()
+        bounds = self.logic.step6CaseViewRasBounds(self._parameterNode)
+        if bounds is None:
+            return
+        self._frameRasBoundsInViews(bounds)
+
     def onFrameStep6ResearchWorkspace(self, checked: bool = False) -> None:
         del checked
         if not self.logic:
@@ -2823,6 +2836,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return True
         return bool(self.logic.robotModelNodes())
 
+    def _showStep6CaseVolumeInSliceViewers(self) -> None:
+        if not self._parameterNode:
+            return
+        volume = self._parameterNode.inputVolume
+        if volume is None:
+            return
+        try:
+            slicer.util.setSliceViewerLayers(background=volume, fit=True)
+        except Exception:
+            logging.debug("Could not set slice viewers to the Step 6 case volume.")
+
     def _applyStep6RecommendedView(self) -> None:
         if not hasattr(self, "ui"):
             return
@@ -2833,6 +2857,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             != len(stage_entries) - 1
         ):
             return
+        if self._step6SceneKind() == "case":
+            self._showStep6CaseVolumeInSliceViewers()
         self._applyWorkflowViewPreset("recommended", updateStatus=False)
         self._updateWorkflowViewControls()
 
@@ -3065,12 +3091,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 finally:
                     self._parameterNode.EndModify(was_modifying)
             report = self.logic.importStep6PlanningContext(self._parameterNode)
-            self.onFrameStep6ResearchWorkspace()
             try:
                 self._applyTaskJointLimitsToJointSpinboxes()
             except ValueError:
                 pass
             self._applyStep6RecommendedView()
+            self.onFrameStep6CaseScene()
             self._updateStep6PlanningUi(report.message)
         except (RuntimeError, ValueError) as exc:
             self._updateStep6PlanningUi(str(exc), error=True)
@@ -3811,6 +3837,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "trajectory",
             )
         addNode(
+            "node:step6Volume",
+            _("[1] CBCT volume"),
+            parameterNode.inputVolume,
+            "case_volume",
+        )
+        addNode(
+            "node:step6Bounds",
+            _("[4A] Target tooth bounds"),
+            parameterNode.targetToothBoundsRoi,
+            "bounds",
+        )
+        addNode(
             "node:step6Docks",
             _("[4B] Guide rails / docks"),
             parameterNode.targetDockingAssemblyModel,
@@ -3901,7 +3939,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "final_only": {"final"},
             "robot_mount_only": {"robot_mrml", "robot_ros", "robot_mount"},
             "case_package": {
+                "case_volume",
                 "target_mask",
+                "bounds",
                 "trajectory",
                 "target_docking",
                 "final",
@@ -3954,7 +3994,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     categories.add("phantom_landmarks")
                 return categories
             return {
+                "case_volume",
                 "target_mask",
+                "bounds",
                 "trajectory",
                 "target_docking",
                 "final",
@@ -15055,21 +15097,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
 
     @staticmethod
     def combinedRasBounds(boundsList: list[list[float]]) -> tuple[float, ...] | None:
-        finite = [
-            bounds
-            for bounds in boundsList
-            if len(bounds) == 6 and np.all(np.isfinite(bounds))
-        ]
-        if not finite:
-            return None
-        return (
-            min(bounds[0] for bounds in finite),
-            max(bounds[1] for bounds in finite),
-            min(bounds[2] for bounds in finite),
-            max(bounds[3] for bounds in finite),
-            min(bounds[4] for bounds in finite),
-            max(bounds[5] for bounds in finite),
-        )
+        return combine_ras_bounds(boundsList)
 
     def step6ResearchWorkspaceRasBounds(
         self,
@@ -16053,6 +16081,37 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             ),
             "targetToothBoundsRoi": node_id(parameterNode.targetToothBoundsRoi),
         }
+
+    def step6CaseViewNodes(self, parameterNode) -> list:
+        """Return MRML nodes that make up the imported Step 6 case scene."""
+        nodes = []
+        for role in CASE_VIEW_ROLES:
+            node = getattr(parameterNode, role, None)
+            if node is not None:
+                nodes.append(node)
+        return nodes
+
+    @staticmethod
+    def _nodeRasBounds(node) -> list[float] | None:
+        if node is None:
+            return None
+        getter = getattr(node, "GetRASBounds", None)
+        if getter is None:
+            return None
+        bounds = [0.0] * 6
+        getter(bounds)
+        if not np.all(np.isfinite(bounds)):
+            return None
+        return bounds
+
+    def step6CaseViewRasBounds(self, parameterNode) -> tuple[float, ...] | None:
+        """Combined world-RAS bounds of the imported case package."""
+        bounds_list = [
+            bounds
+            for node in self.step6CaseViewNodes(parameterNode)
+            if (bounds := self._nodeRasBounds(node)) is not None
+        ]
+        return self.combinedRasBounds(bounds_list)
 
     @staticmethod
     def _subsample_polydata_points(
@@ -26576,6 +26635,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowWorkflowNavigationWidget",
             "test_DENTOWorkflowRobotPlacementLogic",
             "test_DENTOWorkflowRobotPlacementWidget",
+            "test_DENTOWorkflowStep6CaseViewWidget",
             "test_DENTOWorkflowViewControlsPaletteWidget",
             "test_DENTOWorkflowCompleteTemplateBuildCaching",
             "test_DENTOWorkflowSceneDisplayPresetWidget",
@@ -29869,6 +29929,111 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             parameterNode.EndModify(wasModifying)
         widget._clearRobotPlacement()
         self.delayDisplay("DENTOWorkflow robot placement widget test passed")
+
+    def _addStep6CaseCubeModel(self, name: str, bounds) -> vtkMRMLModelNode:
+        cube = vtk.vtkCubeSource()
+        cube.SetBounds(*bounds)
+        cube.Update()
+        model = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
+        model.SetAndObservePolyData(cube.GetOutput())
+        model.CreateDefaultDisplayNodes()
+        return model
+
+    def test_DENTOWorkflowStep6CaseViewWidget(self) -> None:
+        """Import must frame the case package, not the phantom research origin."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        parameterNode = widget._parameterNode
+        widget._setWorkflowStage(9, ensureVisible=False)
+
+        imageData = vtk.vtkImageData()
+        imageData.SetDimensions(8, 8, 8)
+        imageData.AllocateScalars(vtk.VTK_SHORT, 1)
+        volume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode",
+            "Step6CaseVolume",
+        )
+        volume.SetAndObserveImageData(imageData)
+        volume.SetSpacing(1.0, 1.0, 1.0)
+        volume.SetOrigin(40.0, 10.0, 0.0)
+        volume.CreateDefaultDisplayNodes()
+
+        segmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "Step6CaseSegmentation",
+        )
+        segmentation.CreateDefaultDisplayNodes()
+        segment = slicer.vtkSegment()
+        segment.SetName("target-tooth")
+        tooth = vtk.vtkCubeSource()
+        tooth.SetBounds(42.0, 48.0, 12.0, 18.0, 1.0, 6.0)
+        tooth.Update()
+        segment.AddRepresentation(
+            slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName(),
+            tooth.GetOutput(),
+        )
+        segmentation.GetSegmentation().AddSegment(segment, "tooth-11")
+
+        trajectory = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "Step6CaseTrajectory",
+        )
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(45.0, 15.0, 5.0))
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(46.0, 15.0, 2.0))
+        docks = self._addStep6CaseCubeModel(
+            "Step6CaseDocks",
+            (43.0, 47.0, 13.0, 17.0, 0.5, 4.0),
+        )
+        template = self._addStep6CaseCubeModel(
+            "Step6CaseTemplate",
+            (40.0, 50.0, 10.0, 20.0, 0.0, 5.0),
+        )
+        boundsRoi = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsROINode",
+            "Step6CaseBounds",
+        )
+        boundsRoi.CreateDefaultDisplayNodes()
+        boundsRoi.SetCenterWorld(45.0, 15.0, 2.5)
+        boundsRoi.SetSizeWorld(10.0, 10.0, 5.0)
+
+        wasModifying = parameterNode.StartModify()
+        try:
+            parameterNode.inputVolume = volume
+            parameterNode.teethSegmentation = segmentation
+            parameterNode.targetToothSegmentId = "tooth-11"
+            parameterNode.trajectoryLine = trajectory
+            parameterNode.targetDockingAssemblyModel = docks
+            parameterNode.finalPrintableTemplateModel = template
+            parameterNode.targetToothBoundsRoi = boundsRoi
+        finally:
+            parameterNode.EndModify(wasModifying)
+
+        widget.onImportStep6PlanningContext()
+        self.assertTrue(parameterNode.step6PlanningContextImported)
+        self.assertEqual(widget._step6SceneKind(), "case")
+        self.assertIn("node:step6Volume", widget._workflowViewEntriesByKey)
+        self.assertIn("node:step6Bounds", widget._workflowViewEntriesByKey)
+        recommended = widget._workflowViewRecommendedCategories(9)
+        self.assertIn("case_volume", recommended)
+        self.assertIn("bounds", recommended)
+        self.assertNotIn("phantom", recommended)
+
+        caseBounds = widget.logic.step6CaseViewRasBounds(parameterNode)
+        self.assertIsNotNone(caseBounds)
+        self.assertGreaterEqual(caseBounds[0], 39.0)
+        self.assertLessEqual(caseBounds[1], 51.0)
+        self.assertGreaterEqual(caseBounds[2], 9.0)
+        self.assertLessEqual(caseBounds[3], 21.0)
+
+        layoutManager = slicer.app.layoutManager()
+        if layoutManager is not None:
+            redWidget = layoutManager.sliceWidget("Red")
+            if redWidget is not None:
+                composite = redWidget.mrmlSliceCompositeNode()
+                self.assertEqual(composite.GetBackgroundVolumeID(), volume.GetID())
+
+        self.delayDisplay("DENTOWorkflow Step 6 case-into-view widget test passed")
 
     def test_DENTOWorkflowDraftTemplateSupportModelLogic(self) -> None:
         logic = DENTOWorkflowLogic()
