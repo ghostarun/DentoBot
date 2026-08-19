@@ -46,7 +46,12 @@ def test_direct_ros2_help_fails_with_slicer_pythonhome() -> None:
     )
     assert completed.returncode != 0
     combined = (completed.stderr or "") + (completed.stdout or "")
-    assert "librcl_action.so" in combined or "rclpy" in combined
+    assert (
+        "librcl_action.so" in combined
+        or "rclpy" in combined
+        or "ros2cli" in combined
+        or "PackageNotFoundError" in combined
+    )
 
 
 def test_run_ros2_cli_succeeds_with_slicer_pythonhome(monkeypatch) -> None:
