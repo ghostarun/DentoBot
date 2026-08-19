@@ -665,6 +665,10 @@ launch before connecting.
   system directories before launch, stops that incomplete leftover, and keeps
   the launch log. A healthy slicer-mode stack is `/dentobot_robot_state_publisher`
   **and** `/dentobot_slicer_joint_state_publisher`.
+- If Connect reports that `robot_state_publisher` is running without the
+  Slicer joint publisher, reload the DENTOBOT extension and press Connect
+  again. That dialog is the leftover half-stack (or a stale 1.5 s node-list
+  cache). Do not start a second description launch from a terminal.
 
 **Terminal A — ROS description stack (no RViz):**
 
