@@ -14,7 +14,9 @@ if str(HELPER_DIRECTORY) not in sys.path:
 
 from DENTOStep6Planning import (
     CASE_VIEW_ROLES,
+    JointLimitPair,
     apply_task_joint_limits_to_display_ranges,
+    apply_task_limit_range_to_value,
     build_task_joint_limits_from_parameter_values,
     case_view_present_roles,
     combine_ras_bounds,
@@ -157,6 +159,58 @@ def test_apply_task_joint_limits_rejects_inverted_range() -> None:
     )
     with pytest.raises(ValueError, match="exceeds mechanical range"):
         apply_task_joint_limits_to_display_ranges(invalid, urdf_limits)
+
+
+def test_apply_task_limit_range_to_value_clamps_and_rejects_inverted() -> None:
+    lo, hi, value = apply_task_limit_range_to_value(
+        0.0,
+        JointLimitPair(10.0, 20.0, "deg"),
+    )
+    assert (lo, hi, value) == (10.0, 20.0, 10.0)
+    _lo, _hi, value = apply_task_limit_range_to_value(
+        25.0,
+        JointLimitPair(10.0, 20.0, "deg"),
+    )
+    assert value == 20.0
+    with pytest.raises(ValueError, match="inverted"):
+        apply_task_limit_range_to_value(0.0, JointLimitPair(20.0, 10.0, "deg"))
+
+
+def test_step6_joint_limit_ui_merges_min_value_max_rows() -> None:
+    from xml.etree import ElementTree
+
+    ui_path = (
+        REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "UI" / "DENTOWorkflow.ui"
+    )
+    tree = ElementTree.parse(ui_path)
+    names = {element.get("name") for element in tree.iter() if element.get("name")}
+    assert "robotJointControlGroupBox" not in names
+    assert "step6JointValueHeaderLabel" in names
+    for index in range(1, 7):
+        assert f"robotJoint{index}TaskMinSpinBox" in names
+        assert f"robotJoint{index}SpinBox" in names
+        assert f"robotJoint{index}TaskMaxSpinBox" in names
+    grid = tree.find(".//layout[@name='step6TaskJointLimitsGridLayout']")
+    assert grid is not None
+    j1_columns = {}
+    for item in grid.findall("item"):
+        widget = item.find("widget")
+        if widget is None:
+            continue
+        name = widget.get("name")
+        if name in {
+            "robotJoint1TaskMinSpinBox",
+            "robotJoint1SpinBox",
+            "robotJoint1TaskMaxSpinBox",
+        }:
+            j1_columns[name] = (item.get("row"), int(item.get("column")))
+    assert j1_columns["robotJoint1TaskMinSpinBox"][0] == j1_columns["robotJoint1SpinBox"][0]
+    assert j1_columns["robotJoint1SpinBox"][0] == j1_columns["robotJoint1TaskMaxSpinBox"][0]
+    assert (
+        j1_columns["robotJoint1TaskMinSpinBox"][1]
+        < j1_columns["robotJoint1SpinBox"][1]
+        < j1_columns["robotJoint1TaskMaxSpinBox"][1]
+    )
 
 
 def test_sample_trajectory_world_mm_linear_interpolation() -> None:

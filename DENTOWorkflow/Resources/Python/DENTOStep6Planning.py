@@ -276,6 +276,20 @@ def apply_task_joint_limits_to_display_ranges(
     return TaskJointLimits(*clamped)
 
 
+def apply_task_limit_range_to_value(
+    value: float,
+    joint_limit: JointLimitPair,
+) -> tuple[float, float, float]:
+    """Return ``(minimum, maximum, clamped_value)`` for a merged min/value/max row."""
+    lo = float(joint_limit.minimum)
+    hi = float(joint_limit.maximum)
+    if lo > hi:
+        raise ValueError(
+            f"Task joint limit [{lo}, {hi}] {joint_limit.unit} is inverted."
+        )
+    return lo, hi, min(max(float(value), lo), hi)
+
+
 def sample_trajectory_world_mm(
     entry_ras_mm: Sequence[float],
     target_ras_mm: Sequence[float],

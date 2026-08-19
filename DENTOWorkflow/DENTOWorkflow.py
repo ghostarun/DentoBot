@@ -113,6 +113,7 @@ from DENTOStep6Planning import (
     PlanningContextReport,
     TaskJointLimits,
     apply_task_joint_limits_to_display_ranges,
+    apply_task_limit_range_to_value,
     build_task_joint_limits_from_parameter_values,
     combine_ras_bounds,
     default_task_joint_limits_from_urdf,
@@ -1142,6 +1143,24 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onResetTaskJointLimits,
         )
+        for limitSpinBox in (
+            self.ui.robotJoint1TaskMinSpinBox,
+            self.ui.robotJoint1TaskMaxSpinBox,
+            self.ui.robotJoint2TaskMinSpinBox,
+            self.ui.robotJoint2TaskMaxSpinBox,
+            self.ui.robotJoint3TaskMinSpinBox,
+            self.ui.robotJoint3TaskMaxSpinBox,
+            self.ui.robotJoint4TaskMinSpinBox,
+            self.ui.robotJoint4TaskMaxSpinBox,
+            self.ui.robotJoint5TaskMinSpinBox,
+            self.ui.robotJoint5TaskMaxSpinBox,
+            self.ui.robotJoint6TaskMinSpinBox,
+            self.ui.robotJoint6TaskMaxSpinBox,
+        ):
+            limitSpinBox.connect(
+                "valueChanged(double)",
+                self._onTaskJointLimitSpinBoxChanged,
+            )
         self.ui.planTrajectoryMotionButton.connect(
             "clicked(bool)",
             self.onPlanTrajectoryMotion,
@@ -3028,11 +3047,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             (self.ui.robotJoint6SpinBox, limits.joint_6),
         )
         for spinbox, joint_limit in pairs:
-            spinbox.setMinimum(joint_limit.minimum)
-            spinbox.setMaximum(joint_limit.maximum)
-            spinbox.setValue(
-                min(max(spinbox.value, joint_limit.minimum), joint_limit.maximum),
+            minimum, maximum, value = apply_task_limit_range_to_value(
+                spinbox.value,
+                joint_limit,
             )
+            spinbox.setMinimum(minimum)
+            spinbox.setMaximum(maximum)
+            spinbox.setValue(value)
+
+    def _onTaskJointLimitSpinBoxChanged(self, value: float = 0.0) -> None:
+        del value
+        if self._updatingFromParameterNode or self._updatingRobotPlacementUI:
+            return
+        try:
+            self._applyTaskJointLimitsToJointSpinboxes()
+        except ValueError:
+            pass
 
     def _setRobotJointsFromSi(self, joint_positions_si: dict[str, float]) -> None:
         if not self._parameterNode:
@@ -26636,6 +26666,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowRobotPlacementLogic",
             "test_DENTOWorkflowRobotPlacementWidget",
             "test_DENTOWorkflowStep6CaseViewWidget",
+            "test_DENTOWorkflowStep6JointLimitSpinboxes",
             "test_DENTOWorkflowViewControlsPaletteWidget",
             "test_DENTOWorkflowCompleteTemplateBuildCaching",
             "test_DENTOWorkflowSceneDisplayPresetWidget",
@@ -30034,6 +30065,35 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
                 self.assertEqual(composite.GetBackgroundVolumeID(), volume.GetID())
 
         self.delayDisplay("DENTOWorkflow Step 6 case-into-view widget test passed")
+
+    def test_DENTOWorkflowStep6JointLimitSpinboxes(self) -> None:
+        """Apply task limits must set the merged value spinbox min/max and clamp."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        widget._setWorkflowStage(9, ensureVisible=False)
+        self.assertFalse(hasattr(widget.ui, "robotJointControlGroupBox"))
+        self.assertEqual(
+            widget.ui.robotJoint1TaskMinSpinBox.parent(),
+            widget.ui.robotJoint1SpinBox.parent(),
+        )
+        widget.ui.robotJoint1TaskMinSpinBox.value = 10.0
+        widget.ui.robotJoint1TaskMaxSpinBox.value = 20.0
+        widget.ui.robotJoint1SpinBox.value = 0.0
+        slicer.app.processEvents()
+        widget.onApplyTaskJointLimits()
+        self.assertAlmostEqual(widget.ui.robotJoint1SpinBox.minimum, 10.0, places=2)
+        self.assertAlmostEqual(widget.ui.robotJoint1SpinBox.maximum, 20.0, places=2)
+        self.assertGreaterEqual(widget.ui.robotJoint1SpinBox.value, 10.0)
+        self.assertLessEqual(widget.ui.robotJoint1SpinBox.value, 20.0)
+
+        widget.ui.robotJoint2TaskMinSpinBox.value = 5.0
+        widget.ui.robotJoint2TaskMaxSpinBox.value = 15.0
+        slicer.app.processEvents()
+        widget._onTaskJointLimitSpinBoxChanged()
+        self.assertAlmostEqual(widget.ui.robotJoint2SpinBox.minimum, 5.0, places=2)
+        self.assertAlmostEqual(widget.ui.robotJoint2SpinBox.maximum, 15.0, places=2)
+        self.delayDisplay("DENTOWorkflow Step 6 merged joint-limit spinbox test passed")
 
     def test_DENTOWorkflowDraftTemplateSupportModelLogic(self) -> None:
         logic = DENTOWorkflowLogic()
