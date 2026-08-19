@@ -18,6 +18,7 @@ from DENTOStep6Planning import (
     default_task_joint_limits_from_urdf,
     plan_trajectory_motion,
     sample_trajectory_world_mm,
+    step6_motion_plan_robot_ready,
     validate_planning_context,
 )
 
@@ -53,6 +54,12 @@ def test_validate_planning_context_ready_when_all_required_present() -> None:
     assert report.ready
     assert report.missing_required == ()
     assert len(report.present) == 5
+
+
+def test_step6_motion_plan_robot_ready_accepts_ros_or_mrml() -> None:
+    assert step6_motion_plan_robot_ready(ros_motion_active=True, mrml_link_count=0)
+    assert step6_motion_plan_robot_ready(ros_motion_active=False, mrml_link_count=7)
+    assert not step6_motion_plan_robot_ready(ros_motion_active=False, mrml_link_count=0)
 
 
 def test_default_task_joint_limits_match_six_joints() -> None:
@@ -118,6 +125,7 @@ def test_sample_trajectory_world_mm_linear_interpolation() -> None:
 
 def test_plan_trajectory_motion_reports_self_collision_with_strict_clearance() -> None:
     """Neutral pose can overlap coarse AABBs; strict clearance must reject it."""
+    pytest.importorskip("scipy.optimize")
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
     base_world = np.eye(4, dtype=float)
     burr_at_neutral = (-49.564540494, 1.369804798, 197.675185601)

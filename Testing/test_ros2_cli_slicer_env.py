@@ -72,6 +72,17 @@ def test_ros2_node_list_succeeds_with_slicer_pythonhome(monkeypatch) -> None:
         "PYTHONPATH",
         "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python",
     )
-    ok, nodes, message = ros2_node_list()
+    import DENTOROS2Bridge as bridge
+
+    bridge._NODE_LIST_CACHE = None
+    ok, nodes, message = ros2_node_list(force=True)
     assert ok, message
     assert isinstance(nodes, list)
+    slicer_running = subprocess.run(
+        ["pgrep", "-n", "SlicerApp-real"],
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+    names = {name.lstrip("/") for name in nodes}
+    if slicer_running:
+        assert "slicer" in names

@@ -83,12 +83,16 @@ from DENTORobotPlacement import (
     vtk_matrix_elements,
 )
 from DENTOROS2Bridge import (
+    ROS2_DEFAULT_SLICER_NODE,
     ROS2_MOTION_ACTIVE_ATTRIBUTE,
+    apply_joint_positions_si_to_motion_control,
     description_stack_running,
     disconnect_dentobot_motion_control,
     connect_dentobot_motion_control,
+    ensure_slicer_ros2_runtime,
     find_ros2_robot_by_name,
     is_ros2_runtime_unavailable_message,
+    ros2_node_list,
 )
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
@@ -113,6 +117,7 @@ from DENTOStep6Planning import (
     evaluate_motion_configuration,
     plan_trajectory_motion,
     sample_trajectory_world_mm,
+    step6_motion_plan_robot_ready,
     validate_planning_context,
 )
 
@@ -2164,11 +2169,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             status = message
             style = "color: #c62828;" if "failed" in message.lower() else "color: #207227;"
         elif ros2_active:
-            status = _(
-                "ROS 2 motion control is active. MRML link meshes are hidden while "
-                "the SlicerROS2 robot follows /joint_states."
-            )
-            style = "color: #207227;"
+            ok, nodes, _cli = ros2_node_list()
+            slicer_present = ok and ROS2_DEFAULT_SLICER_NODE in {
+                name.lstrip("/") for name in nodes
+            }
+            if slicer_present:
+                status = _(
+                    "ROS 2 motion control is active. /slicer is present. "
+                    "MRML link meshes are hidden while the SlicerROS2 robot "
+                    "follows /joint_states."
+                )
+            else:
+                status = _(
+                    "ROS 2 motion control is marked active but /slicer was not "
+                    "found. Reload DENTO Workflow."
+                )
+            style = "color: #207227;" if slicer_present else "color: #c62828;"
         elif stack_running:
             status = _(
                 "dentobot_description is running. Connect to load the robot in "
@@ -3018,6 +3034,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             self._parameterNode.EndModify(was_modifying)
         self._updateRobotPlacement()
+        if (
+            self.logic
+            and self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            )
+        ):
+            apply_joint_positions_si_to_motion_control(joint_positions_si)
 
     def onImportStep6PlanningContext(self, checked: bool = False) -> None:
         del checked
@@ -3099,6 +3122,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._parameterNode or not self.logic:
             return
         try:
+            if self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            ):
+                ok, message = ensure_slicer_ros2_runtime(require_stack=True)
+                if not ok:
+                    raise RuntimeError(message)
             self.onStopTrajectoryMotion()
             result = self.logic.planStep6TrajectoryMotion(self._parameterNode)
             self._step6MotionPlan = result
@@ -3116,6 +3145,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         import qt
 
+        if self.logic and self._parameterNode and self.logic.isRos2MotionControlActive(
+            self._parameterNode.robotBaseTransform
+        ):
+            ok, message = ensure_slicer_ros2_runtime(require_stack=True)
+            if not ok:
+                slicer.util.errorDisplay(message)
+                return
         self.onStopTrajectoryMotion()
         self._step6MotionPreviewIndex = 0
         timer = qt.QTimer()
@@ -16193,8 +16229,14 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             )
         if not parameterNode.robotBaseTransform:
             raise ValueError(_("Load or create the Step 6 robot base first."))
-        if not self.robotModelNodes():
-            raise ValueError(_("Load the robot meshes before motion planning."))
+        ros_active = self.isRos2MotionControlActive(parameterNode.robotBaseTransform)
+        if not step6_motion_plan_robot_ready(
+            ros_motion_active=ros_active,
+            mrml_link_count=len(self.robotModelNodes()),
+        ):
+            raise ValueError(
+                _("Load the ROS robot or MRML fallback before motion planning.")
+            )
         trajectory = parameterNode.trajectoryLine
         summary = self.getTrajectorySummary(trajectory)
         if not summary.get("isValid"):

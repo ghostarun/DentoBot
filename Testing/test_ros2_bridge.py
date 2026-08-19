@@ -15,6 +15,7 @@ from DENTOROS2Bridge import (
     ROS2_JOINT_STATES_TOPIC,
     ROS2_MOVE_GROUP_EXISTS,
     ROS2_ROBOT_NAME,
+    ROS2_JOINT_SI_ORDER,
     ROS2_SLICER_JOINT_COMMAND_TOPIC,
     ROS2_URDF_PARAM_NAME,
     ROS2_URDF_PARAM_NODE,
@@ -24,11 +25,13 @@ from DENTOROS2Bridge import (
     ensure_ros2_slicer_modules,
     is_ros2_module_missing_message,
     is_ros2_runtime_unavailable_message,
+    joint_si_vector,
     ros2_cli_available,
     ros2_node_list,
     ros2_unavailable_message,
     run_ros2_cli,
     slicer_ros2_module_search_paths,
+    slicer_ros2_runtime_status,
 )
 
 
@@ -109,6 +112,9 @@ def test_run_ros2_cli_uses_sourced_shell_without_slicer_python(monkeypatch):
 
     monkeypatch.setattr("DENTOROS2Bridge.subprocess.run", fake_run)
     monkeypatch.setenv("PYTHONHOME", "/opt/slicer/Slicer-SuperBuild/python-install")
+    import DENTOROS2Bridge as bridge
+
+    bridge._NODE_LIST_CACHE = None
     completed = run_ros2_cli(("--help",), timeout=8)
     assert completed.returncode == 0
     assert captured["command"][0] == "bash"
@@ -117,7 +123,26 @@ def test_run_ros2_cli_uses_sourced_shell_without_slicer_python(monkeypatch):
     assert "source /opt/ros/jazzy/setup.bash" in captured["command"][2]
     assert "ros2 --help" in captured["command"][2]
     assert "PYTHONHOME" not in captured["env"]
+    bridge._NODE_LIST_CACHE = None
+    Result.stdout = "/slicer\n"
     assert ros2_cli_available() is True
+    assert "ros2 node list" in captured["command"][2]
+
+
+def test_joint_si_vector_matches_tracked_urdf_order():
+    from DENTORobotPlacement import joint_positions_si_from_display
+
+    positions = joint_positions_si_from_display(10.0, 20.0, 30.0, 40.0, 50.0, 60.0)
+    vector = joint_si_vector(positions)
+    assert len(vector) == 6
+    assert vector[0] == positions[ROS2_JOINT_SI_ORDER[0]]
+    assert vector[-1] == positions[ROS2_JOINT_SI_ORDER[-1]]
+
+
+def test_slicer_ros2_runtime_status_without_slicer_reports_launcher():
+    ok, message = slicer_ros2_runtime_status()
+    assert not ok
+    assert "ROS2" in message or "launch-dentoworkflow.bash" in message
 
 
 def test_slicer_ros2_module_search_paths_honors_env(tmp_path, monkeypatch):

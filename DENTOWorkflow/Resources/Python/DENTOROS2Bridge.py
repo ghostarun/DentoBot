@@ -10,7 +10,7 @@ import os
 import shlex
 import subprocess
 import time
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Mapping, Optional, Sequence, Tuple
 
 # DENTOBOT ``description.launch.py`` node and parameter names.
 ROS2_ROBOT_NAME = "dentobot"
@@ -33,6 +33,17 @@ ROS2_SLICER_JOINT_PUBLISH_INTERVAL_MS = 100
 ROS2_ROBOT_NODE_ATTRIBUTE = "DENTOBOT.Ros2RobotName"
 ROS2_MOTION_ACTIVE_ATTRIBUTE = "DENTOBOT.Ros2MotionControlActive"
 ROS2_SLICER_JOINT_PUBLISHER_ATTRIBUTE = "DENTOBOT.SlicerJointCommandPublisher"
+ROS2_DEFAULT_SLICER_NODE = "slicer"
+ROS2_JOINT_SI_ORDER = (
+    "link-1_Revolute-1",
+    "link-2_Slider-2",
+    "link-3_Revolute-3",
+    "link-4_Slider-4",
+    "link-5_Revolute-5",
+    "pneumatic_spindle-Copy_Revolute-6",
+)
+_NODE_LIST_CACHE: Optional[tuple[float, bool, list[str], str]] = None
+_NODE_LIST_CACHE_SEC = 1.5
 
 # Slicer sets PYTHONHOME to its SuperBuild interpreter. The ros2 CLI shebang
 # is /usr/bin/python3; inheriting PYTHONHOME makes that process load Slicer
@@ -108,37 +119,52 @@ def run_ros2_cli(
 
 
 def ros2_cli_available() -> bool:
-    try:
-        completed = run_ros2_cli(("--help",), timeout=8)
-        return completed.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
+    ok, _, _ = ros2_node_list()
+    return ok
 
 
-def ros2_node_list() -> Tuple[bool, list[str], str]:
-    if not ros2_cli_available():
-        return False, [], "ros2 CLI is not available in this Slicer process."
+def ros2_node_list(*, force: bool = False) -> Tuple[bool, list[str], str]:
+    """List ROS 2 nodes via a Slicer-safe sourced CLI (cached briefly)."""
+    global _NODE_LIST_CACHE
+    now = time.monotonic()
+    if (
+        not force
+        and _NODE_LIST_CACHE is not None
+        and now - _NODE_LIST_CACHE[0] < _NODE_LIST_CACHE_SEC
+    ):
+        return _NODE_LIST_CACHE[1], list(_NODE_LIST_CACHE[2]), _NODE_LIST_CACHE[3]
     try:
         completed = run_ros2_cli(("node", "list"), timeout=8)
     except (OSError, subprocess.SubprocessError) as exc:
-        return False, [], str(exc)
+        result = False, [], str(exc)
+        _NODE_LIST_CACHE = (now, *result)
+        return result
     if completed.returncode != 0:
         message = (completed.stderr or completed.stdout or "").strip()
-        return False, [], message or "ros2 node list failed."
+        if "PYTHONHOME" in message or "rclpy" in message or "ros2cli" in message:
+            message = (
+                "ros2 CLI is not available in this Slicer process. "
+                + (message.splitlines()[-1] if message else "")
+            ).strip()
+        result = False, [], message or "ros2 CLI is not available in this Slicer process."
+        _NODE_LIST_CACHE = (now, *result)
+        return result
     nodes = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-    return True, nodes, ""
+    result = True, nodes, ""
+    _NODE_LIST_CACHE = (now, True, list(nodes), "")
+    return result
 
 
-def _normalized_node_names() -> Tuple[bool, set[str], str]:
-    ok, nodes, message = ros2_node_list()
+def _normalized_node_names(*, force: bool = False) -> Tuple[bool, set[str], str]:
+    ok, nodes, message = ros2_node_list(force=force)
     if not ok:
         return False, set(), message
     return True, {node.lstrip("/") for node in nodes}, ""
 
 
-def competing_joint_source_message() -> str:
+def competing_joint_source_message(*, force: bool = False) -> str:
     """Return an error if a non-Slicer joint-state publisher owns /joint_states."""
-    ok, names, message = _normalized_node_names()
+    ok, names, message = _normalized_node_names(force=force)
     if not ok:
         return message
     found = sorted(names & ROS2_COMPETING_JOINT_NODES)
@@ -151,12 +177,12 @@ def competing_joint_source_message() -> str:
     )
 
 
-def slicer_motion_stack_ready() -> Tuple[bool, str]:
+def slicer_motion_stack_ready(*, force: bool = False) -> Tuple[bool, str]:
     """Return whether RSP and the Slicer joint-state publisher are both up."""
-    competing = competing_joint_source_message()
+    competing = competing_joint_source_message(force=force)
     if competing:
         return False, competing
-    ok, names, message = _normalized_node_names()
+    ok, names, message = _normalized_node_names(force=force)
     if not ok:
         return False, message
     expected_rsp = ROS2_URDF_PARAM_NODE.lstrip("/")
@@ -174,9 +200,9 @@ def slicer_motion_stack_ready() -> Tuple[bool, str]:
     )
 
 
-def description_stack_running() -> Tuple[bool, str]:
+def description_stack_running(*, force: bool = False) -> Tuple[bool, str]:
     """Return whether the DENTOBOT description launch appears to be running."""
-    ok, names, message = _normalized_node_names()
+    ok, names, message = _normalized_node_names(force=force)
     if not ok:
         return False, message
     expected = ROS2_URDF_PARAM_NODE.lstrip("/")
@@ -209,7 +235,7 @@ def start_description_stack_background() -> Tuple[bool, str]:
         return False, f"Failed to start description launch: {exc}"
     deadline = time.monotonic() + STACK_START_WAIT_SEC
     while time.monotonic() < deadline:
-        running, _ = slicer_motion_stack_ready()
+        running, _ = slicer_motion_stack_ready(force=True)
         if running:
             return True, "Description stack started."
         time.sleep(0.5)
@@ -374,6 +400,78 @@ def get_motion_control_logic():
         return logic
     _, logic, _ = ensure_ros2_slicer_modules()
     return logic
+
+
+def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
+    """Return movable-joint values in the tracked URDF / Motion Control order."""
+    return [float(positions_si[name]) for name in ROS2_JOINT_SI_ORDER]
+
+
+def slicer_ros2_runtime_status(
+    *,
+    require_stack: bool = False,
+    require_slicer_node: bool = True,
+) -> Tuple[bool, str]:
+    """Return whether the Slicer ROS 2 node (and optionally the description stack) is usable."""
+    ros_logic, _motion_logic, module_error = ensure_ros2_slicer_modules()
+    if ros_logic is None:
+        return False, module_error
+    ros_node = ros_logic.GetDefaultROS2Node()
+    if ros_node is None:
+        return False, "ROS2 default node is not initialized."
+
+    ok, names, message = _normalized_node_names(force=require_stack)
+    if not ok:
+        return False, message
+    if require_slicer_node and ROS2_DEFAULT_SLICER_NODE not in names:
+        return False, (
+            "ROS 2 node /slicer was not found. Reload DENTO Workflow in a "
+            "Slicer started with ./scripts/launch-dentoworkflow.bash."
+        )
+    if require_stack:
+        stack_ok, stack_message = slicer_motion_stack_ready(force=require_stack)
+        if not stack_ok:
+            return False, stack_message
+    return True, ""
+
+
+def ensure_slicer_ros2_runtime(*, require_stack: bool = False) -> Tuple[bool, str]:
+    """Load SlicerROS2 modules and optionally start the description stack."""
+    ok, message = slicer_ros2_runtime_status(
+        require_stack=False,
+        require_slicer_node=False,
+    )
+    if not ok:
+        return False, message
+    if require_stack:
+        started, start_message = start_description_stack_background()
+        if not started:
+            return False, start_message
+        return slicer_ros2_runtime_status(require_stack=True, require_slicer_node=True)
+    return slicer_ros2_runtime_status(require_stack=False, require_slicer_node=True)
+
+
+def apply_joint_positions_si_to_motion_control(
+    positions_si: Mapping[str, float],
+) -> Tuple[bool, str]:
+    """Push Step 6 joint values into ROS2 Motion Control and /joint_states."""
+    try:
+        import slicer
+    except ImportError:
+        return False, ros2_unavailable_message()
+    try:
+        motion_widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
+    except Exception as exc:
+        return False, f"ROS2MotionControl widget is not available ({exc})."
+    if motion_widget is None:
+        return False, "ROS2MotionControl widget is not available."
+    values = joint_si_vector(positions_si)
+    motion_widget.jointPositionsRad = list(values)
+    setter = getattr(motion_widget, "_setJointUi_SIToSlicer", None)
+    if callable(setter):
+        setter(values)
+    _publish_slicer_joint_command()
+    return True, ""
 
 
 def find_ros2_robot_by_name(robot_name: str):

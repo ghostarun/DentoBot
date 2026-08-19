@@ -125,6 +125,15 @@ def validate_planning_context(
     )
 
 
+def step6_motion_plan_robot_ready(
+    *,
+    ros_motion_active: bool,
+    mrml_link_count: int,
+) -> bool:
+    """True when either the SlicerROS2 robot or MRML STL chain is present."""
+    return bool(ros_motion_active) or int(mrml_link_count) > 0
+
+
 def _movable_joint_specs(robot_description: str) -> list[tuple[str, str, float, float]]:
     root = ElementTree.fromstring(robot_description)
     specs: list[tuple[str, str, float, float]] = []
