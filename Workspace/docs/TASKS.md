@@ -84,6 +84,17 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6.0 import frames the case (2026-08-19):** Import Planning Package
+  now sets the CBCT as slice background and frames case RAS bounds. Reload
+  the DENTOBOT extension and import a completed Steps 0–5 scene. Host and
+  container pytest recorded; the Slicer widget test is not executed until
+  the graphical session reloads the module.
+- **Step 6.2 merged min/value/max rows (2026-08-19):** one row per joint.
+  Changing min/max updates the value range. Reload the DENTOBOT extension.
+- **Step 6 Plan/Preview require `/slicer` (2026-08-19):** when the ROS robot
+  is connected, Plan and Preview re-check `/slicer` and the description
+  stack with the sanitized ros2 CLI. Reload the extension before using those
+  buttons.
 - **Step 6 Connect ros2 CLI from Slicer (2026-08-19):** after the module-import
   fix, Connect failed with “ros2 CLI is not available in this Slicer process.”
   Slicer’s `PYTHONHOME` makes `/usr/bin/python3 ros2` load Slicer stdlib and
@@ -511,6 +522,14 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
   established.
 
 ## Completed
+
+- Step 6.0 case-into-view and 6.2 merged joint-limit UI on 2026-08-19.
+  Import frames the case package (not the phantom origin). 6.2 is one
+  min/value/max row per joint. Plan/Preview re-check `/slicer` when ROS is
+  active. Host pytest: 28 passed, 1 skipped (`scipy` absent). Container
+  pytest: 32 passed with live `SlicerApp-real` listing `/slicer`. Interactive
+  Connect/Import/limits after extension reload remain operator-run. No
+  hardware motion.
 
 - Added a host Record3D / iPhone LiDAR OBJ viewer on 2026-08-18.
   `scripts/view_record3d_scan.py` opens a zip, folder, or single coloured OBJ

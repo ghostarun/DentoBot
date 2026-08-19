@@ -30072,7 +30072,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
         widget.initializeParameterNode()
         widget._setWorkflowStage(9, ensureVisible=False)
-        self.assertFalse(hasattr(widget.ui, "robotJointControlGroupBox"))
+        self.assertIsNone(getattr(widget.ui, "robotJointControlGroupBox", None))
         self.assertEqual(
             widget.ui.robotJoint1TaskMinSpinBox.parent(),
             widget.ui.robotJoint1SpinBox.parent(),

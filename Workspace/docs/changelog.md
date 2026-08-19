@@ -21,6 +21,21 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 19:45:00 IST (UTC+05:30) — Step 6.0 case view and 6.2 merged limits
+
+- **Why:** After Connect, import still framed the phantom origin, and 6.2
+  duplicated min/max plus a nested joint-value group. Plan/Preview could
+  keep driving joints after `/slicer` died.
+- **Change:** Import sets the CBCT slice background and frames case RAS
+  bounds. 6.2 is one min/value/max row per joint; min/max changes update
+  the value range. Plan/Preview call `ensure_slicer_ros2_runtime` when ROS
+  is active.
+- **Verification:** host `test_step6_planning.py` + `test_ros2_bridge.py` +
+  `test_robot_placement.py` → 28 passed, 1 skipped. Container the same plus
+  `test_ros2_cli_slicer_env.py` → 32 passed; live `SlicerApp-real` listed
+  `/slicer`. Slicer widget tests added, not run until extension reload.
+- **Not claimed:** hardware motion, MoveIt, or interactive GUI Connect.
+
 ## 2026-08-19 19:35:00 IST (UTC+05:30) — ros2 CLI from Slicer unsets PYTHONHOME
 
 - **Why:** After the ROS2-module import fix, Connect showed “ros2 CLI is not

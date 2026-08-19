@@ -1004,8 +1004,11 @@ viewport does not load the full 4A–5C stack plus two robots.
 1. **Import Planning Package for Step 6** after completing Steps 0–5 on the
    current case. This validates that the CBCT volume, teeth segmentation,
    trajectory, docking assembly, and printable template are linked. It does
-   not import a separate file bundle. Recommended view: target tooth,
-   trajectory, docks, template, mount, robot.
+   not import a separate file bundle. Import also sets the CBCT as the slice
+   background and frames the case RAS bounds (volume, segmentation, trajectory,
+   docks, template, optional tooth ROI). It does **not** frame the phantom
+   research origin. Recommended view: CBCT, target tooth, bounds, trajectory,
+   docks, template, mount, robot.
 2. **Or** load the **draft open-mouth phantom** for placement testing. Place
    the four landmarks (left TMJ, right TMJ, upper incisor, lower incisor) and
    set the approximate 40 mm opening. Recommended view: phantom, mount, robot.
@@ -1025,14 +1028,20 @@ viewport does not load the full 4A–5C stack plus two robots.
 
 **6.2 Task joint limits** (enabled after a robot is in the scene):
 
-6. Set per-joint min/max envelopes, then **Apply Task Limits to Controls**.
-   Joint spinboxes use those ranges. **Reset to URDF Limits** restores the
-   mechanical envelope.
+6. Each joint is one row: **min / current pose / max**. Changing min or max
+   updates the value spinbox range immediately. **Apply Task Limits to
+   Controls** re-clamps all six rows to the URDF mechanical envelope.
+   **Reset to URDF Limits** restores that envelope. **Reset All Joints to
+   Selected Zero** is on the same row of buttons.
 
 **6.3 Trajectory motion planning** (enabled after case import + lock):
 
 7. **Plan Motion Along Trajectory**, then **Preview Simulated Motion**.
-   Phantom-only scenes cannot plan; they are for placement testing.
+   Phantom-only scenes cannot plan; they are for placement testing. When the
+   ROS robot is connected, both buttons re-check that `/slicer` and the
+   `dentobot_description` stack are still running (the same sanitized ros2
+   CLI used by Connect). If that runtime is gone, Plan/Preview fail closed
+   instead of driving joints into an empty graph.
 
 Use **View Controls → Frame Visible** on the active Elements selection instead
 of the old Frame Phantom + Robot control (kept only as fallback). Keyboard

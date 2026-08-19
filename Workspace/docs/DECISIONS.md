@@ -1,5 +1,49 @@
 # Dentobot Technical Decisions
 
+## 2026-08-19 — Step 6.2 merged min / value / max joint rows
+
+Status: implemented; host and container pytest recorded; interactive Slicer
+verification pending after extension reload
+
+6.2 had two UIs for the same six joints: task min/max envelopes and a nested
+Manual Joint Motion group of value spinboxes. Operators had to look in two
+places and Apply was the only way to copy limits onto the pose controls.
+
+Each joint is now one grid row: min, current pose, max. Widget names are
+unchanged (`robotJointNTaskMinSpinBox`, `robotJointNSpinBox`,
+`robotJointNTaskMaxSpinBox`). Changing min or max updates the value range
+immediately; Apply still clamps to URDF mechanical limits. The nested group
+is removed. This is display/control layout only: it does not change IK,
+collision, or hardware policy.
+
+## 2026-08-19 — Step 6.0 import frames the case package, not the phantom origin
+
+Status: implemented; host and container pytest recorded; Slicer widget test
+added; interactive graphical run pending after extension reload
+
+Import Planning Package previously validated IDs and set a flag, then framed
+the research workspace (phantom/robot origin). The case CBCT never became the
+slice background, so 6.0 looked empty.
+
+Import now sets `inputVolume` on the slice viewers, unions RAS bounds of the
+case package (volume, segmentation, trajectory, docks, template, optional
+tooth ROI), and frames that box. Phantom/robot framing stays on the fallback
+**Frame Scene + Robot** path. Elements recommended view includes `case_volume`
+and `bounds`. Degenerate zero-extent boxes are ignored so an empty node cannot
+pull the camera to the origin.
+
+## 2026-08-19 — Keep /slicer healthy on later Step 6 actions
+
+Status: implemented; host and container pytest recorded; live SlicerApp-real
+listed `/slicer`
+
+Connect is not the only Step 6 action that talks to ROS. Plan and Preview now
+call `ensure_slicer_ros2_runtime(require_stack=True)` when the ROS robot is
+active, using a forced `ros2 node list` so a 1.5 s cache cannot hide a dead
+`/slicer`. Preview joint waypoints also push into ROS2 Motion Control /
+`/joint_states`. ROS-only scenes do not require MRML STL meshes. All ros2 CLI
+from Slicer still unsets `PYTHONHOME`. No hardware command.
+
 ## 2026-08-19 — Run ros2 CLI from Slicer without PYTHONHOME
 
 Status: implemented; host and container pytest recorded
