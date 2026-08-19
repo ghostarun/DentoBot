@@ -84,6 +84,12 @@ work; an implemented or synthetic PASS is not a clinical claim.
 
 ### Robot description integration — active follow-up
 
+- **Step 6 Connect ros2 CLI from Slicer (2026-08-19):** after the module-import
+  fix, Connect failed with “ros2 CLI is not available in this Slicer process.”
+  Slicer’s `PYTHONHOME` makes `/usr/bin/python3 ros2` load Slicer stdlib and
+  fail `rclpy`. The bridge now unsets that isolation and sources Jazzy plus
+  the workspace overlay before every CLI call. Reload the DENTOBOT extension
+  and press Connect again. Container pytest covers the PYTHONHOME case.
 - **Step 6 Connect requires SlicerROS2 (2026-08-19):** **Start Stack & Connect
   Motion Control** failed with “The ROS2 Slicer module is not available.”
   The bridge looked up a global `slicer` without importing it and treated the

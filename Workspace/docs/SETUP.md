@@ -654,6 +654,9 @@ launch before connecting.
   relaunch with the script above. Reloading cannot install SlicerROS2 into a
   host Slicer. Connect then offers the MRML robot fallback so place/lock can
   continue.
+- If Connect reports that the ros2 CLI is not available, reload the DENTOBOT
+  extension. The bridge now unsets Slicer’s `PYTHONHOME` before calling
+  `ros2`. Do not expect a raw `ros2` subprocess from Slicer’s Python to work.
 
 **Terminal A — ROS description stack (no RViz):**
 

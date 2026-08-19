@@ -7,6 +7,7 @@ SlicerROS2 container).  This module does not command hardware.
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import time
 from typing import Callable, Optional, Sequence, Tuple
@@ -33,7 +34,13 @@ ROS2_ROBOT_NODE_ATTRIBUTE = "DENTOBOT.Ros2RobotName"
 ROS2_MOTION_ACTIVE_ATTRIBUTE = "DENTOBOT.Ros2MotionControlActive"
 ROS2_SLICER_JOINT_PUBLISHER_ATTRIBUTE = "DENTOBOT.SlicerJointCommandPublisher"
 
+# Slicer sets PYTHONHOME to its SuperBuild interpreter. The ros2 CLI shebang
+# is /usr/bin/python3; inheriting PYTHONHOME makes that process load Slicer
+# stdlib and fail (librcl_action.so / rclpy). Unset those variables, then
+# source the container overlay before every ros2 CLI call.
+SLICER_PYTHON_UNSET = "unset PYTHONHOME PYTHONPATH PYTHONEXECUTABLE"
 CONTAINER_ROS_SETUP = (
+    f"{SLICER_PYTHON_UNSET} && "
     "source /opt/ros/jazzy/setup.bash && "
     "source /workspace/ros2_ws/install/setup.bash"
 )
@@ -41,6 +48,12 @@ DESCRIPTION_LAUNCH_CMD = (
     f"{CONTAINER_ROS_SETUP} && "
     "ros2 launch dentobot_description description.launch.py "
     "use_rviz:=false joint_state_mode:=slicer"
+)
+_SLICER_PYTHON_ENV_KEYS = (
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONEXECUTABLE",
+    "PYTHONNOUSERSITE",
 )
 
 PROCESS_EVENT_POLL_SEC = 0.2
@@ -70,15 +83,33 @@ _slicer_joint_command_timer = None
 _slicer_joint_command_publisher = None
 
 
+def _ros2_child_env() -> dict[str, str]:
+    """Environment for ros2 CLI child processes launched from Slicer."""
+    env = os.environ.copy()
+    for key in _SLICER_PYTHON_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
+def run_ros2_cli(
+    args: Sequence[str],
+    timeout: float,
+) -> subprocess.CompletedProcess:
+    """Run ``ros2`` after sourcing Jazzy and the workspace overlay."""
+    quoted = " ".join(shlex.quote(part) for part in ("ros2", *args))
+    return subprocess.run(
+        ["bash", "-c", f"{CONTAINER_ROS_SETUP} && {quoted}"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        env=_ros2_child_env(),
+    )
+
+
 def ros2_cli_available() -> bool:
     try:
-        completed = subprocess.run(
-            ["ros2", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        completed = run_ros2_cli(("--help",), timeout=8)
         return completed.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
@@ -88,13 +119,7 @@ def ros2_node_list() -> Tuple[bool, list[str], str]:
     if not ros2_cli_available():
         return False, [], "ros2 CLI is not available in this Slicer process."
     try:
-        completed = subprocess.run(
-            ["ros2", "node", "list"],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            check=False,
-        )
+        completed = run_ros2_cli(("node", "list"), timeout=8)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, [], str(exc)
     if completed.returncode != 0:
@@ -174,10 +199,11 @@ def start_description_stack_background() -> Tuple[bool, str]:
         return False, slicer_motion_stack_ready()[1]
     try:
         subprocess.Popen(
-            ["bash", "-lc", DESCRIPTION_LAUNCH_CMD],
+            ["bash", "-c", DESCRIPTION_LAUNCH_CMD],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=_ros2_child_env(),
         )
     except OSError as exc:
         return False, f"Failed to start description launch: {exc}"
@@ -203,6 +229,13 @@ def is_ros2_module_missing_message(message: str) -> bool:
     return "ros2 slicer module is not available" in lowered
 
 
+def is_ros2_runtime_unavailable_message(message: str) -> bool:
+    lowered = (message or "").lower()
+    return is_ros2_module_missing_message(lowered) or (
+        "ros2 cli is not available" in lowered
+    )
+
+
 def _unique_existing_directories(candidates: Sequence[str]) -> list[str]:
     paths: list[str] = []
     for candidate in candidates:
@@ -218,13 +251,7 @@ def _ros2_pkg_prefix(package: str = SLICER_ROS2_PACKAGE) -> str:
     if not ros2_cli_available():
         return ""
     try:
-        completed = subprocess.run(
-            ["ros2", "pkg", "prefix", package],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            check=False,
-        )
+        completed = run_ros2_cli(("pkg", "prefix", package), timeout=8)
     except (OSError, subprocess.SubprocessError):
         return ""
     if completed.returncode != 0:

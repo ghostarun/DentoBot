@@ -21,6 +21,19 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-19 19:35:00 IST (UTC+05:30) — ros2 CLI from Slicer unsets PYTHONHOME
+
+- **Why:** After the ROS2-module import fix, Connect showed “ros2 CLI is not
+  available in this Slicer process.” Live Slicer PATH included
+  `/opt/ros/jazzy/bin`; `PYTHONHOME` made the CLI load Slicer stdlib.
+- **Change:** `run_ros2_cli` sources Jazzy/workspace after unsetting
+  `PYTHONHOME`/`PYTHONPATH`/`PYTHONEXECUTABLE`. Description launch uses the
+  same sanitized `bash -c`.
+- **Verification:** host `test_ros2_bridge.py`; container
+  `test_ros2_cli_slicer_env.py` with Slicer `PYTHONHOME`. Interactive Connect
+  after extension reload still required in the GUI.
+- **Not claimed:** hardware motion or MoveIt.
+
 ## 2026-08-19 19:20:00 IST (UTC+05:30) — Start Stack & Connect discovers SlicerROS2
 
 - **Why:** Step 6 Connect showed “The ROS2 Slicer module is not available.

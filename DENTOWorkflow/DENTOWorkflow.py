@@ -88,7 +88,7 @@ from DENTOROS2Bridge import (
     disconnect_dentobot_motion_control,
     connect_dentobot_motion_control,
     find_ros2_robot_by_name,
-    is_ros2_module_missing_message,
+    is_ros2_runtime_unavailable_message,
 )
 from DENTOPlatform import (
     BACKEND_DEVICE_ENVIRONMENT_VARIABLE as PLATFORM_BACKEND_DEVICE_ENVIRONMENT_VARIABLE,
@@ -2216,7 +2216,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 start_stack_if_needed=True,
             )
             if error or robot_node is None:
-                if is_ros2_module_missing_message(error or ""):
+                if is_ros2_runtime_unavailable_message(error or ""):
                     if slicer.util.confirmYesNoDisplay(
                         (error or "")
                         + "\n\n"

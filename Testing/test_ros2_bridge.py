@@ -9,6 +9,7 @@ if str(HELPER_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(HELPER_DIRECTORY))
 
 from DENTOROS2Bridge import (
+    CONTAINER_ROS_SETUP,
     DESCRIPTION_LAUNCH_CMD,
     ROS2_FIXED_FRAME,
     ROS2_JOINT_STATES_TOPIC,
@@ -17,11 +18,16 @@ from DENTOROS2Bridge import (
     ROS2_SLICER_JOINT_COMMAND_TOPIC,
     ROS2_URDF_PARAM_NAME,
     ROS2_URDF_PARAM_NODE,
+    SLICER_PYTHON_UNSET,
+    _ros2_child_env,
     description_stack_running,
     ensure_ros2_slicer_modules,
     is_ros2_module_missing_message,
+    is_ros2_runtime_unavailable_message,
+    ros2_cli_available,
     ros2_node_list,
     ros2_unavailable_message,
+    run_ros2_cli,
     slicer_ros2_module_search_paths,
 )
 
@@ -37,6 +43,9 @@ def test_ros2_bridge_constants_match_dentobot_launch():
     assert "dentobot_description" in DESCRIPTION_LAUNCH_CMD
     assert "joint_state_mode:=slicer" in DESCRIPTION_LAUNCH_CMD
     assert "use_rviz:=false" in DESCRIPTION_LAUNCH_CMD
+    assert "unset PYTHONHOME" in CONTAINER_ROS_SETUP
+    assert SLICER_PYTHON_UNSET in DESCRIPTION_LAUNCH_CMD
+    assert "source /opt/ros/jazzy/setup.bash" in CONTAINER_ROS_SETUP
 
 
 def test_description_stack_running_reports_missing_node():
@@ -65,6 +74,50 @@ def test_ros2_unavailable_message_points_at_dentoworkflow_launcher():
     assert not is_ros2_module_missing_message(
         "ROS 2 node /dentobot_robot_state_publisher was not found."
     )
+    assert is_ros2_runtime_unavailable_message(
+        "ros2 CLI is not available in this Slicer process."
+    )
+    assert is_ros2_runtime_unavailable_message(message)
+
+
+def test_ros2_child_env_strips_slicer_python_isolation(monkeypatch):
+    monkeypatch.setenv("PYTHONHOME", "/opt/slicer/Slicer-SuperBuild/python-install")
+    monkeypatch.setenv("PYTHONPATH", "/opt/slicer/fake")
+    monkeypatch.setenv("PYTHONEXECUTABLE", "/opt/slicer/bin/python")
+    monkeypatch.setenv("PYTHONNOUSERSITE", "1")
+    monkeypatch.setenv("ROS_DOMAIN_ID", "73")
+    env = _ros2_child_env()
+    assert "PYTHONHOME" not in env
+    assert "PYTHONPATH" not in env
+    assert "PYTHONEXECUTABLE" not in env
+    assert "PYTHONNOUSERSITE" not in env
+    assert env["ROS_DOMAIN_ID"] == "73"
+
+
+def test_run_ros2_cli_uses_sourced_shell_without_slicer_python(monkeypatch):
+    captured: dict = {}
+
+    class Result:
+        returncode = 0
+        stdout = "usage: ros2\n"
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs.get("env")
+        return Result()
+
+    monkeypatch.setattr("DENTOROS2Bridge.subprocess.run", fake_run)
+    monkeypatch.setenv("PYTHONHOME", "/opt/slicer/Slicer-SuperBuild/python-install")
+    completed = run_ros2_cli(("--help",), timeout=8)
+    assert completed.returncode == 0
+    assert captured["command"][0] == "bash"
+    assert captured["command"][1] == "-c"
+    assert "unset PYTHONHOME" in captured["command"][2]
+    assert "source /opt/ros/jazzy/setup.bash" in captured["command"][2]
+    assert "ros2 --help" in captured["command"][2]
+    assert "PYTHONHOME" not in captured["env"]
+    assert ros2_cli_available() is True
 
 
 def test_slicer_ros2_module_search_paths_honors_env(tmp_path, monkeypatch):

@@ -1,5 +1,20 @@
 # Dentobot Technical Decisions
 
+## 2026-08-19 — Run ros2 CLI from Slicer without PYTHONHOME
+
+Status: implemented; host and container pytest recorded
+
+Slicer sets ``PYTHONHOME`` to its SuperBuild interpreter. ``ros2`` uses
+``#!/usr/bin/python3``, so a child process inherits that prefix, loads Slicer
+stdlib, and fails importing ``rclpy`` (``librcl_action.so``). Connect then
+reported “ros2 CLI is not available in this Slicer process” even though
+``/opt/ros/jazzy/bin`` was on PATH.
+
+All DENTOBOT ros2 CLI calls now ``unset PYTHONHOME PYTHONPATH
+PYTHONEXECUTABLE``, source Jazzy plus the workspace overlay, and pass a child
+environment with those Slicer Python variables removed. Description-stack
+launch uses the same sanitized ``bash -c``. This does not command hardware.
+
 ## 2026-08-19 — Load SlicerROS2 with DENTO Workflow; import slicer in the bridge
 
 Status: implemented; host pytest recorded; interactive Connect verification pending
