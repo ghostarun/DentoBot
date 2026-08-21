@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-19
+Last updated: 2026-08-21
 
 The consolidated implementation/evidence boundary, improvement backlog,
 clinical-accuracy questions, mechanical ambiguities, prohibited
@@ -81,6 +81,22 @@ work; an implemented or synthetic PASS is not a clinical claim.
   collision, clinical fit, manufacturing accuracy, material strength,
   registration, and robot safety; convert warnings into measured gates only
   when evidence exists.
+
+### Robot description integration — Step 6 slice checklist (2026-08-21)
+
+Branch `cursor/step6-runtime-case-limits-06d8`. See `docs/logbook/2026-08-21.md`
+for algorithm detail and fix-vs-replace matrix.
+
+| Slice | Status | Verification |
+|-------|--------|--------------|
+| MRML placement + open-mouth phantom | Done | Synthetic 2026-08-17 |
+| 6.0 import + case framing | Done | pytest 2026-08-19; GUI pending |
+| 6.1 SlicerROS2 bridge + Connect fixes | Done (code) | Container pytest 2026-08-19; **GUI Connect pending** |
+| 6.2 merged min/value/max limits | Done | pytest 2026-08-19; GUI pending |
+| 6.3 plan/preview (SciPy IK + AABB gates) | Done | pytest 2026-08-18/19; GUI pending |
+| Preview → `/joint_states` when ROS active | Partial | Fix after Connect GUI pass |
+| Bur-axis alignment, reviewed collision meshes | Not started | Backlog |
+| MoveIt / hardware | Not started | Unauthorized |
 
 ### Robot description integration — active follow-up
 
@@ -471,6 +487,15 @@ as Step 4C and is sequenced through the ordered viewport tasks above.
     drafts~~ — implemented and Slicer-native verified on 2026-08-07.
 
 ## Next
+
+### Step 6 — immediate (after extension reload)
+
+1. Reload DENTOBOT extension; stop stale `description.launch.py` if present.
+2. **Start Stack & Connect Motion Control** — verify sliders drive live TF.
+3. Import Planning Package on representative MRB; Plan/Preview with ROS active.
+4. Stream preview waypoints to `/joint_states` (small bridge follow-up).
+
+### PoC and platform (unchanged priority)
 
 - Derive and validate a dental/occlusal orientation frame and dentist-approved
   gingival/cervical margin semantics before offering any automatic trim height

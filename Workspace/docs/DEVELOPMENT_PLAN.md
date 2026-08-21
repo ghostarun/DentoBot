@@ -870,11 +870,19 @@ target is the primary registration metric.
 
 ## Step 6: Robot placement and simulated navigation
 
-**Status:** robot description, independent manual joint articulation, and a
-simulation-only Slicer Step 6 placement slice implemented and synthetically
-verified; a disposable open-mouth phantom trial is also synthetic-graphical
-verified; physical calibration, representative workspace acceptance,
-navigation metrics, end-effector control, and live transform bridging planned
+**Status:** `dentobot_description`, MRML Step 6 placement, disposable open-mouth
+phantom, SlicerROS2 Motion Control bridge (`DENTOROS2Bridge.py`,
+`joint_state_mode:=slicer`), and planning sub-workflow **6.0–6.3**
+(`DENTOStep6Planning.py`) are implemented and **synthetically verified** (host
+and container pytest through 2026-08-19). Connect hardening fixed SlicerROS2
+discovery, `PYTHONHOME`/ros2 CLI, sanitized PATH for description Python nodes,
+and stale node-list cache (commits through 19:55 IST on branch
+`cursor/step6-runtime-case-limits-06d8`). **Developer-live** graphical Connect,
+import on a representative MRB, and Plan/Preview with live `/slicer` remain
+operator-pending after DENTOBOT extension reload. Preview does not yet
+consistently stream planned joints to `/joint_states` when ROS is active.
+MoveIt, navigation metrics, registration bridging, and hardware motion remain
+unimplemented/unauthorized.
 
 Goal: validate navigation metrics without physical hardware.
 
@@ -903,13 +911,16 @@ positive travel is reversed into negative base X. This is synthetic forward-
 kinematics and conservative bounding-
 box visualization evidence only.
 
-The bounded Slicer slice is **6 · Robot Placement**. It reuses the
-tracked URDF/STLs without duplicating assets, builds seven link-pose transforms
-under one editable MRML base transform, exposes all six joint values, and adds
-an editable Markups mount plane. Explicit snapping aligns the base to the
-orthonormalized plane frame; transform handles plus local-axis buttons and
-opt-in gated keyboard shortcuts provide fine placement. This is scene-local
-manual visualization, not registration and not a ROS/SlicerROS2 bridge.
+The bounded Slicer slice is **6 · Robot Placement** with an optional **SlicerROS2
+Motion Control** path and a **6.0–6.3 planning sub-workflow**. It reuses the
+tracked URDF/STLs, builds seven link-pose transforms under one editable MRML
+base transform (or loads the same URDF via ROS TF when connected), exposes task
+joint limits and coarse simulated motion planning along the approved trajectory,
+and streams slider values to simulated `/joint_states` through
+`dentobot_slicer_joint_state_publisher`. Explicit snapping aligns the base to
+the orthonormalized plane frame. This is scene-local manual visualization and
+simulated joint streaming, **not** physical registration, MoveIt execution, or
+hardware command.
 
 The current disposable head/mouth trial loads aligned BodyParts3D
 neurocranium, maxilla, and mandible meshes under a disposable workspace

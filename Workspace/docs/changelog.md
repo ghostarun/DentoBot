@@ -21,6 +21,31 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-21 15:17:00 IST (UTC+05:30) — Step 6 documentation reconciliation
+
+- **Why:** Operator requested detailed logbook/changelog/plan updates with
+  timestamps, failures, fixes, algorithm status, fix-vs-replace guidance, and
+  next vs backlog aligned to `DEVELOPMENT_PLAN.md`.
+- **Change:** Expanded `docs/logbook/2026-08-21.md` with Step 6 slice
+  checklist, 6.3 algorithm notes, Connect fix matrix, evidence labels, and
+  priority ordering. Updated `DEVELOPMENT_PLAN.md` Step 6 status (bridge +
+  planning sub-workflow now implemented). Updated `TASKS.md` with slice
+  checklist and refreshed last-updated date.
+- **Verification:** documentation-only; no pytest or container rerun.
+- **Not claimed:** interactive Connect after extension reload; Git push; Google
+  Drive sync; any change to planning/collision algorithms.
+
+## 2026-08-21 14:45:00 IST (UTC+05:30) — Logbook reconciliation through 2026-08-21
+
+- **Why:** Operator requested dated logbooks with latest changes, problems faced,
+  and pending tasks mapped to `DEVELOPMENT_PLAN.md`.
+- **Change:** Updated `docs/logbook/2026-08-18.md` and `2026-08-19.md` (session
+  summaries, problem table); added `2026-08-20.md` (no dev recorded) and
+  `2026-08-21.md` (checkpoint + work-package pending matrix). Mirrored to
+  `ros2_ws/src/DentoBot/Workspace/docs/logbook/`.
+- **Verification:** documentation-only; no code or pytest rerun.
+- **Not claimed:** interactive Step 6 Connect; Git push; Google Drive sync.
+
 ## 2026-08-19 19:55:00 IST (UTC+05:30) — Connect forces a fresh ros2 node list
 
 - **Why:** Retry after the 8 s timeout showed “RSP is running without the
