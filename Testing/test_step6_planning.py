@@ -21,7 +21,12 @@ from DENTOStep6Planning import (
     case_view_present_roles,
     combine_ras_bounds,
     default_task_joint_limits_from_urdf,
+    deterministic_joint_workspace_samples_display,
+    halton_value,
+    evaluate_motion_configuration,
+    joint_positions_si_from_display,
     plan_trajectory_motion,
+    sample_filtered_tcp_workspace,
     sample_trajectory_world_mm,
     step6_motion_plan_robot_ready,
     validate_planning_context,
@@ -190,6 +195,10 @@ def test_step6_joint_limit_ui_merges_min_value_max_rows() -> None:
         assert f"robotJoint{index}TaskMinSpinBox" in names
         assert f"robotJoint{index}SpinBox" in names
         assert f"robotJoint{index}TaskMaxSpinBox" in names
+    assert "step6WorkspaceGroupBox" in names
+    assert "robotWorkspaceSampleCountSpinBox" in names
+    assert "generateRobotWorkspaceButton" in names
+    assert "clearRobotWorkspaceButton" in names
     grid = tree.find(".//layout[@name='step6TaskJointLimitsGridLayout']")
     assert grid is not None
     j1_columns = {}
@@ -225,25 +234,80 @@ def test_sample_trajectory_world_mm_linear_interpolation() -> None:
     assert np.allclose(samples[2], (10.0, 0.0, 0.0))
 
 
-def test_plan_trajectory_motion_reports_self_collision_with_strict_clearance() -> None:
-    """Neutral pose can overlap coarse AABBs; strict clearance must reject it."""
-    pytest.importorskip("scipy.optimize")
+def test_halton_workspace_sampling_is_deterministic_and_bounded() -> None:
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
-    base_world = np.eye(4, dtype=float)
-    burr_at_neutral = (-49.564540494, 1.369804798, 197.675185601)
-    result = plan_trajectory_motion(
-        entry_ras_mm=burr_at_neutral,
-        target_ras_mm=burr_at_neutral,
-        start_display_joints=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    first = deterministic_joint_workspace_samples_display(
+        limits,
+        12,
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
+    )
+    second = deterministic_joint_workspace_samples_display(
+        limits,
+        12,
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
+    )
+    assert first == second
+    assert len(first) == 12
+    minimums = limits.as_display_vector()
+    maximums = limits.as_display_max_vector()
+    for sample in first:
+        assert all(
+            minimum <= value <= maximum
+            for value, minimum, maximum in zip(sample, minimums, maximums)
+        )
+    assert halton_value(1, 2) == pytest.approx(0.5)
+    assert halton_value(2, 2) == pytest.approx(0.25)
+
+
+def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
+    limits = default_task_joint_limits_from_urdf(URDF_PATH)
+    result = sample_filtered_tcp_workspace(
         limits=limits,
+        sample_count=10,
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
         urdf_path=URDF_PATH,
         package_root=DESCRIPTION_ROOT,
-        base_world_matrix=base_world,
-        sample_count=2,
-        coarse_self_clearance_mm=5.0,
+        base_world_matrix=np.eye(4, dtype=float),
+        coarse_self_clearance_mm=0.0,
+        environment_points_mm=np.zeros((0, 3), dtype=float),
+        environment_clearance_mm=2.0,
+    )
+    assert result.requested_count == 10
+    assert result.accepted_count == 10
+    assert result.self_collision_rejections == 0
+    assert result.environment_rejections == 0
+    assert all(len(point) == 3 for point in result.accepted_tcp_base_mm)
+
+
+def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others() -> None:
+    neutral_ok, neutral_reason, _neutral_tcp = evaluate_motion_configuration(
+        joint_positions_si_from_display(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        urdf_path=URDF_PATH,
+        package_root=DESCRIPTION_ROOT,
+        base_world_matrix=np.eye(4, dtype=float),
+        coarse_clearance_mm=5.0,
         environment_points_mm=None,
         environment_clearance_mm=2.0,
     )
-    assert not result.success
-    assert "self-collision" in result.message.lower() or "aabb" in result.message.lower()
-    assert result.self_collision_indices == (0,)
+    assert neutral_ok
+    assert neutral_reason == ""
+
+    colliding_display = (
+        19.619997799988266,
+        35.55555555555556,
+        225.53998591992487,
+        42.857142857142854,
+        129.82908450905677,
+        -69.23076923076923,
+    )
+    collision_ok, collision_reason, _collision_tcp = evaluate_motion_configuration(
+        joint_positions_si_from_display(*colliding_display),
+        urdf_path=URDF_PATH,
+        package_root=DESCRIPTION_ROOT,
+        base_world_matrix=np.eye(4, dtype=float),
+        coarse_clearance_mm=5.0,
+        environment_points_mm=None,
+        environment_clearance_mm=2.0,
+    )
+    assert not collision_ok
+    assert "self-collision" in collision_reason.lower()

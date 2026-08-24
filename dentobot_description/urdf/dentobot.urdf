@@ -185,4 +185,13 @@
         <child link="burr" />
         <axis xyz="0.40465999999999996 0.432425 -0.805766" />
     </joint>
+    <!-- Provisional planning TCP. Its origin is the CAD burr-link origin, not a
+         calibrated physical burr tip. +Z is aligned with the spindle axis so
+         Step 6 Cartesian poses have an explicit approach-axis convention. -->
+    <link name="dentobot_tool_tcp" />
+    <joint name="burr_to_dentobot_tool_tcp" type="fixed">
+        <origin xyz="0.0 0.0 0.0" rpy="-2.61089174 -0.36458195 -0.20627347" />
+        <parent link="burr" />
+        <child link="dentobot_tool_tcp" />
+    </joint>
 </robot>

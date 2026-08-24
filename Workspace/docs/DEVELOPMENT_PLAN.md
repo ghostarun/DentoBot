@@ -37,9 +37,10 @@ or an explicitly deferred question with a reason.
 ### Work package 2 — representative end-to-end software acceptance
 
 Run one governed representative case from reviewed segmentation through
-manual/assisted trajectory review, visible support selection, undercut-aware
-shell, Step 4B docks, unified Step 5B fusion, Step 5C verification, scene
-reopen, and one STL. Use the active `TASKS.md` checklist to exercise the
+manual/assisted trajectory review, Step 4B support-tooth selection/full-anatomy
+draft, Step 4C support-aware docks, Step 5A visible-support and undercut
+preparation, unified Step 5B fusion, Step 5C verification, scene reopen, and
+one STL. Use the active `TASKS.md` checklist to exercise the
 already implemented viewport selectors, saved-scene trajectory switching,
 reference-driven backtracking, oblique MPR correction, stale-state gates, and
 channel/dock preservation. Fix only failures that block or invalidate this
@@ -378,8 +379,10 @@ per-label review state remain separate validation or enhancement problems.
 ## Step 4: Procedure definition and minimal trajectory planning
 
 **Status:** manual and assisted creation are unified in Step 4A and
-Slicer-native verified. Representative anatomy, clinician acceptance, live
-viewport UX, and the Step 4B robot docking contract remain active work.
+Slicer-native verified. The Step 4B support-first dependency and Step 4C
+support-aware docking contract are implemented with synthetic Slicer-native
+coverage. Representative anatomy, clinician acceptance, and live viewport UX
+remain active work.
 
 Goal: define a procedure-specific entry-to-target drill trajectory against
 reviewed anatomy.
@@ -416,8 +419,9 @@ MRB persistence, editable-name independence, and duplicate disambiguation.
 All DENTOBOT trajectories remain available in one selector and are grouped by
 their authoritative target tooth. Each tooth receives a deterministic
 persisted lineage color once its first trajectory exists; the same color is
-propagated by MRML-reference relationships to its Step 4A bounds, Step 5A
-support anatomy, and Step 5B ROI/shell/sleeve. Selecting a tooth emphasizes
+propagated by MRML-reference relationships to its Step 4A bounds, Step 4B full
+support draft, Step 5A visible-support surface, and Step 5B shell/guide
+outputs. Selecting a tooth emphasizes
 that group's trajectories while leaving other groups visible and preserving
 explicit visibility choices. Step 5A/5B also expose the inherited FDI/color in
 lineage badges, owned-node selector swatches, and Step 5B visibility-control
@@ -505,10 +509,29 @@ or scene close. Live acceptance must cover real one-/two-root teeth, asymmetric
 roots, fused/poorly separated roots, rotated scans, bounds visibility, placement,
 manual correction, stale downstream behavior, and MRB persistence.
 
-### Step 4B — target-frame registration landmarks and robot docking rails
+### Step 4B — support-tooth selection and full-anatomy draft
 
-**Status:** schema-v3 independent-dock and collision-aware yaw workflow
-implemented and Slicer-native synthetically verified through 2026-08-13;
+**Status:** implemented and Slicer-native synthetically verified; normal-GUI
+representative-case acceptance remains active
+
+After trajectory approval, select any positive number of distinct whole-tooth
+segments from the same reviewed jaw as the target. Append the unmodified
+world-RAS closed surfaces for the target and selected supports into one
+transform-free `TemplateSupportDraft` model. Persist the authoritative
+segmentation, target/support IDs, source names, geometry counts, update
+revision, and Current/Stale state without altering source masks.
+
+This stage deliberately precedes docking. Step 4C requires a current Step 4B
+draft, prioritizes those selected supports during collision screening, and
+marks docking and final geometry stale when the selection or draft geometry
+changes. Step 5A later refines this complete anatomical draft to the visible,
+erupted fitting surface.
+
+### Step 4C — target-frame registration landmarks and robot docking rails
+
+**Status:** schema-v4 independent-dock, support-provenance, and collision-aware
+yaw workflow implemented and Slicer-native synthetically verified through
+2026-08-22;
 representative anatomy, dimensional, mechanical/kinematic, phantom, and live
 acceptance remain active
 
@@ -530,18 +553,20 @@ target-crown-cap PCA normal defines occlusal frame `+Z`, a crown principal axis
 defines `+X`, and `+Y` completes the right-handed world-RAS frame. Each
 robot-facing top/opening lies on the stored plane and depth proceeds along
 crown-to-root `+Z`. The plane/assembly explicitly reference the authoritative
-segmentation and all one/two source trajectories.
+segmentation, the current Step 4B support draft, its selected support IDs and
+update revision, and all one/two source trajectories.
 
-Schema v3 adds a deterministic 5-degree yaw sweep around frame `+Z`. It screens
-the four finite outer dock cylinders, expanded by a configurable development
-clearance, against sampled closed surfaces of every other whole tooth on the
-target FDI arch. The selected yaw remains a Draft. The operator can set another
-yaw, rebuild, inspect 13 referenced read-only annotations (one assumed centroid
-normal plus radius, outer/bore diameter, and depth lines for each dock), and
-must explicitly confirm the current orientation before Step 5B fusion. Changing
-dimensions, yaw, trajectories, or the assembly invalidates that confirmation.
-This sampling pass is not a substitute for continuous collision analysis,
-clinician review, or physical fit testing.
+Schema v4 retains the deterministic 5-degree yaw sweep around frame `+Z` and
+adds direct support-anatomy provenance. It screens the four finite outer dock
+cylinders, expanded by a configurable development clearance, against selected
+Step 4B supports first and all remaining same-jaw whole teeth second. The
+selected yaw remains a Draft. The operator can set another yaw, rebuild,
+inspect 13 referenced read-only annotations (one assumed centroid normal plus
+radius, outer/bore diameter, and depth lines for each dock), and must explicitly
+confirm the current orientation before Step 5B fusion. Changing dimensions,
+yaw, trajectories, support selection/draft, or the assembly invalidates that
+confirmation. This sampling pass is not a substitute for continuous collision
+analysis, clinician review, or physical fit testing.
 
 These values remain provisional. Resolve the final wall thickness,
 manufacturing clearance, four-hole/profile semantics, depth reference,
@@ -550,8 +575,9 @@ a Z-only final actuation can serve two non-parallel trajectories: reindex the
 robot, add angular adjustment, constrain trajectories parallel, or use
 separate docking poses/assemblies.
 
-Schema v2 removed the central hub and all radial spokes; schema v3 retains that
-geometry while adding yaw screening and confirmation. Step 5B builds four
+Schema v2 removed the central hub and all radial spokes; schema v3 added yaw
+screening/confirmation; schema v4 adds the Step 4B support-first dependency and
+provenance. Step 5B builds four
 independent closest-surface attachments from the docks to the shell, keeps the
 annular trajectory drill-guide collar separate, clips attachment material
 against the guide envelope, and rejects any core robot dock that intersects
@@ -561,7 +587,7 @@ mechanically approved rail/load path; representative-case and physical
 validation must determine whether their positions and cross-sections are
 usable.
 
-### Step 4C — dentist-focused viewport navigation and remaining placement QoL
+### Cross-stage viewport navigation and remaining placement QoL
 
 **Status:** first viewport slice implemented on 2026-08-12; remaining
 dentist-guided placement/layout work is deferred
@@ -588,11 +614,13 @@ Live usability acceptance remains developer/dentist-run in Slicer. Static and
 ordinary-Python coverage should address plane validation, lock transitions,
 association/persistence, stale references, and UI callback integrity. This
 plan is preserved. The current increment replaces scattered focus/Step 5
-visibility controls with one stage-aware Step 4A–5C viewport panel. It exposes
+visibility controls with one scene-wide viewport panel available at every
+workflow stage. It exposes
 recommended and explicit target-only, planning, support, docking, undercut,
 shell-only, shell-and-guide, final-only, all, and custom views as applicable;
-lists every relevant role/reference-owned element; and frames their combined
-world-RAS bounds. It captures/restores exact display state and excludes
+lists every segmentation segment, user-facing MRML displayable, and CBCT 3D
+volume-rendering control; and frames their combined world-RAS bounds. It
+captures/restores exact display state and excludes
 transient filtering from MRB save state. These operations do not alter MRML
 identity, masks, or geometry. Dedicated planning layouts, click-selected
 node-to-Subject-Hierarchy routing, additional semantic role-color variants,
@@ -601,37 +629,22 @@ and dentist acceptance remain future increments.
 ## Step 5: Target-region modeling and template research
 
 **Status:** renovated research vertical slice implemented through provisional
-Step 4B fusion, final verification, and one-STL export. Visible-support ROI,
+Step 4C fusion, final verification, and one-STL export. Visible-support ROI,
 explicit insertion direction, undercut/blockout, patient-contact shell,
 trajectory guide holes, four docks/rails, one occupied unified model, and the
 PASS/WARNING/FAIL gate are Slicer-native synthetically verified. Live anatomy,
 dimensional, phantom, clinician, and mechanical acceptance remain active.
 
-### Step 5A — draft template support anatomy
+### Step 5A — visible erupted support surface and insertion preparation
 
-Goal: produce a traceable, geometry-preserving anatomical input for later
-template design without creating or claiming a dental guide.
+Goal: refine the complete Step 4B anatomy draft to the accessible fitting
+surface used by shell generation, without changing authoritative masks or
+claiming clinical fit.
 
 Implemented behavior:
 
-- reuse the authoritative Step 4A target tooth;
-- let the user manually check any positive number of other whole-tooth
-  segments from the same reviewed segmentation;
-- impose no automatic adjacency, arch, side, or maximum-count rule;
-- require unique support IDs and keep the target distinct from all supports;
-- append unmodified world-RAS closed surfaces for the target and selected
-  supports into one transform-free `vtkMRMLModelNode`;
-- persist source-node,
-  segment-ID, FDI, source-name, review-time, geometry-count, schema, and update
-  provenance;
-- retain the last output when inputs change, but mark it Stale and require an
-  explicit Update action;
-- persist support selection and model reference in the workflow parameter
-  node for scene save/reopen;
-- provide a dedicated confirmed deletion action that accepts only the
-  DENTOBOT draft-model role, removes the model and unshared display/storage
-  auxiliaries, clears its workflow reference, and preserves the target,
-  segmentation, and manual support selection for safe recreation.
+- require the current Step 4B full support-anatomy draft and its authoritative
+  segmentation/target/support provenance;
 - create an editable role-owned closed boundary around only the erupted,
   accessible support surfaces and preview the selected patch distinctly;
 - map the single boundary to authoritative tooth segment IDs, treating extra
@@ -646,12 +659,12 @@ Implemented behavior:
   points, selection side, processing resolution, revisions, metrics, and stale
   state; delete the owned boundary/preview safely while preserving authority.
 
-Developer-run acceptance in Slicer must cover small and large selections
-(including two and ten supports), create/update behavior, target/support
-distinctness, save/reopen persistence, source-edit invalidation, and clear
-Current/Stale presentation. The added Slicer-native lifecycle test also covers
-trajectory/model deletion, retained inputs and selections, save/reload, and
-recreation and has passed in the bounded container Slicer runtime.
+Developer-run acceptance in Slicer must cover automatic-plane and editable-
+boundary refinement, target/support mapping, polarity, save/reopen persistence,
+source-edit invalidation, and clear Current/Stale presentation. Step 4B owns
+small/large support selection and full-draft create/update acceptance. The
+Slicer-native lifecycle test covers trajectory/model deletion, retained inputs
+and selections, save/reload, recreation, and the Step 4B→4C→5A dependency.
 
 The visible preview is not an undercut-corrected fitting surface, final shell,
 printable guide, clinical validation, or drilling authorization.
@@ -705,26 +718,27 @@ labelled provisional developer path, not the target clinical/research flow:
 
 Implemented behavior:
 
-- require the current role-gated Step 5A support model and a complete locked
+- require the current role-gated Step 4B support draft and a complete locked
   Step 4A Entry/Target trajectory;
 - create/reset a locked, non-selectable, axis-aligned world-RAS Markups ROI
   automatically around the support model and recompute it before generation;
   the ROI is a visible reference, not a user coverage control;
 - list only role-owned Step 5B automatic ROIs in its selector, reject Step 4A bounds
   and unrelated ROIs at the logic boundary, and require the ROI's source
-  reference to match the current Step 5A model before reset or generation;
+  reference to match the current Step 4B draft before reset or generation;
 - repair a legacy cross-role Step 4A bounds node in place and clear any invalid
   Step 5B parameter reference without deleting the Step 4A node;
 - disable selection and all translation/rotation/scale interaction handles on
   both Step 4A and Step 5B workflow-owned ROI roles, including loaded scenes;
 - provide a dedicated confirmed, role-gated delete action for the shell ROI;
-  preserve Step 5A, trajectory, dimensions, shell, and sleeve while marking
+  preserve the Step 4B draft, trajectory, dimensions, shell, and sleeve while marking
   retained Step 5B outputs Stale so a fresh ROI can be created;
 - provide one Scene visibility panel for the selected Step 4A target box and
-  trajectory, Step 5A support anatomy, and Step 5B ROI/shell/sleeve; hiding is
+  trajectory, Step 4B support draft, Step 5A visible support surface, and Step
+  5B ROI/shell/sleeve; hiding is
   display-only, persists through MRB save/reopen, and is preserved by ordinary
   refresh, reset, update, and regeneration;
-- prefix workflow-owned scene-node names with their Step 4A/5A/5B tag for
+- prefix workflow-owned scene-node names with their Step 4A/4B/5A/5B tag for
   consistent identification in both DENTO Workflow and Slicer's Data view;
 - sample signed distance from the world-RAS anatomy and extract an exterior
   clearance/thickness band inside the ROI;
@@ -978,7 +992,7 @@ bench validation before any specimen or patient-context work.
 
 ## Step 10: Reproducibility, validation, and custom application packaging
 
-**Status:** planned
+**Status:** planned overall; case-package schema V1 implemented 2026-08-24
 
 Goal: turn the stable workflow into a reproducible DENTOBOT research
 application.
@@ -998,3 +1012,80 @@ Implementation themes:
 
 The custom application must reuse the validated extension and contracts; it
 must not introduce a second workflow implementation.
+
+### 2026-08-24 case-persistence V1 increment
+
+Step 0 now offers **Save Case Package** and **Open Case Package** for a
+versioned `.dentocase` archive. The package contains a sanitized authoritative
+MRB plus checksums, a workflow-lineage record, and a portable robot-resource
+fingerprint. Save validates before atomic replacement. Open preflights before
+scene mutation, keeps a recovery snapshot, loads with clear semantics,
+cross-checks restored world-RAS/mm geometry and workflow records, and rolls
+back on a post-load failure. ROS runtime nodes and connection state are never
+restored; Step 6 connection remains explicit.
+
+Pure-Python integrity tests and Slicer-native round trips of the operator
+Step 5C and Step 6 samples passed. Both samples are correctly retained as
+stale—not promoted—because their Step 4B support draft changed after the saved
+Step 4C docking assembly and Step 5C template. Remaining work is normal-window
+operator acceptance, regeneration of those downstream artifacts followed by
+a fresh package, an offline legacy contaminated-scene migrator, schema
+migration policy, and clean-machine/custom-application packaging.
+
+## 2026-08-21 Step 6 simulation-planning status
+
+The first Step 7-enabling slice is now implemented inside Step 6: an external
+ROS 2 description/TF/status stack, a plan-only MoveIt configuration, a thin
+Slicer adapter, manual joint streaming, provisional tool-axis poses, 5 mm
+padded planning-scene collision surfaces, and preview of returned joint
+waypoints. This replaces the ROS-active SciPy planner path; the old
+position-only SciPy/AABB algorithm remains only as an MRML fallback.
+
+Completed acceptance evidence includes the generic three-part skull, 40 mm
+TMJ-hinge opening, forehead base snap, six-joint robot load, J2/J4 manual
+translations, state/TF checks, obstacle publication, and a successful embedded
+Slicer Cartesian plan. The next design-test activity is operator-driven
+placement and reachable Entry→Target trials in the physical desktop viewport.
+
+Still future: calibrated TCP, head-mount contact model, validated collision
+geometry and continuous/swept checks, representative dental trajectories,
+trajectory metrics, fault/state recording, controller/hardware adapter,
+emergency-stop and safety architecture, and all supervised hardware work.
+
+### 2026-08-21 collision-gated IK increment
+
+The economical follow-up keeps the external stack and adds a single ownership
+boundary rather than rewriting Step 6: candidate joint vectors are interpolated
+and accepted/rejected by a MoveIt PlanningScene guard before the sole simulated
+joint-state publisher sees them. Direct `/compute_ik` and collision-aware
+Cartesian service probes now form the IK acceptance test. KDL derives solutions
+from the URDF/SRDF serial chain at runtime; DENTOBOT does not duplicate the
+robot with explicit DH or symbolic IK equations.
+
+Next operator work is graphical design testing: place and lock the base,
+confirm the published phantom/case collision proxies, exercise all six joints,
+and record which disposable mouth trajectories are reachable or rejected.
+Physical calibration, validated collision meshes, continuous hardware safety,
+controllers, execution, and drilling remain later gates.
+
+The developer loop no longer requires a container or Slicer restart after each
+Python/UI edit. The persistent reload action replaces the main module and all
+DENTO helper modules while keeping the scene and external stack alive. Because
+the Slicer-side ROS robot is deliberately torn down to avoid stale publishers,
+observers, and collision proxies, reconnecting it is part of each Step 6 reload
+test cycle.
+
+### 2026-08-22 Step 6 interaction increment
+
+Completed the first operator-facing MoveIt repair: aligned current/goal roots,
+detected readiness, explicit planning group/TCP, visible IK and plan feedback,
+and fail-closed execution controls. Added the separate draft filtered-TCP
+workspace cloud so joint-range coverage can be inspected before selecting
+individual intra-oral targets.
+
+Next design-test work remains operator driven: use a normal graphical session
+to place the base on the forehead, regenerate the cloud after the final base
+pose, manually exercise each joint, drag the TCP probe to several disposable
+mouth poses, and record accepted/rejected IK and trajectories. Later work must
+replace the provisional TCP and draft visual/AABB geometry with calibrated and
+validated models before any hardware or safety claim.

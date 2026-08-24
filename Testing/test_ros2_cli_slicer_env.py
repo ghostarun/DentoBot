@@ -1,118 +1,49 @@
-"""Container checks: ros2 CLI must work under Slicer's PYTHONHOME.
-
-Host pytest skips this file when Jazzy is not installed. Run it inside
-``dentobot-slicerros2`` to verify Start Stack's node-list probe.
-"""
+"""Regression test: embedded Slicer must not own or invoke the ROS CLI."""
 
 from pathlib import Path
-import os
-import subprocess
-import sys
-
-import pytest
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-HELPER_DIRECTORY = REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "Python"
-if str(HELPER_DIRECTORY) not in sys.path:
-    sys.path.insert(0, str(HELPER_DIRECTORY))
-
-from DENTOROS2Bridge import (
-    CONTAINER_ROS_SETUP,
-    ros2_cli_available,
-    ros2_node_list,
-    run_ros2_cli,
-)
-
-JAZZY_SETUP = "/opt/ros/jazzy/setup.bash"
-WORKSPACE_SETUP = "/workspace/ros2_ws/install/setup.bash"
-SLICER_PYTHONHOME = "/opt/slicer/Slicer-SuperBuild/python-install"
-
-pytestmark = pytest.mark.skipif(
-    not os.path.isfile(JAZZY_SETUP) or not os.path.isfile(WORKSPACE_SETUP),
-    reason="requires dentobot-slicerros2 Jazzy overlay",
-)
 
 
-def test_direct_ros2_help_fails_with_slicer_pythonhome() -> None:
-    """Document why Connect reported 'ros2 CLI is not available'."""
-    env = os.environ.copy()
-    env["PYTHONHOME"] = SLICER_PYTHONHOME
-    env["PYTHONPATH"] = (
-        "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python:"
-        + env.get("PYTHONPATH", "")
+def test_ros_cli_is_confined_to_external_launchers():
+    root = Path(__file__).resolve().parents[1]
+    bridge = (root / "DENTOWorkflow/Resources/Python/DENTOROS2Bridge.py").read_text(
+        encoding="utf-8"
     )
-    completed = subprocess.run(
-        ["/opt/ros/jazzy/bin/ros2", "--help"],
-        capture_output=True,
-        text=True,
-        timeout=8,
-        check=False,
-        env=env,
+    assert "subprocess" not in bridge
+    assert "run_ros2_cli" not in bridge
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
     )
-    assert completed.returncode != 0
-    combined = (completed.stderr or "") + (completed.stdout or "")
-    assert (
-        "librcl_action.so" in combined
-        or "rclpy" in combined
-        or "ros2cli" in combined
-        or "PackageNotFoundError" in combined
+    assert "ros2 launch dentobot_moveit_config simulation.launch.py" in launcher
+    assert "/dentobot/simulation_status" in launcher
+
+
+def test_gui_launcher_scopes_nounset_around_ros_generated_setup_files():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
     )
-
-
-def test_run_ros2_cli_succeeds_with_slicer_pythonhome(monkeypatch) -> None:
-    monkeypatch.setenv("PYTHONHOME", SLICER_PYTHONHOME)
-    monkeypatch.setenv(
-        "PYTHONPATH",
-        "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python",
+    gui_block = launcher.split("Opening 3D Slicer directly", 1)[1]
+    ros_source = gui_block.index("source /opt/ros/jazzy/setup.bash")
+    overlay_source = gui_block.index(
+        "source /workspace/ros2_ws/install/setup.bash"
     )
-    completed = run_ros2_cli(("--help",), timeout=8)
-    assert completed.returncode == 0, completed.stderr or completed.stdout
-    assert "usage: ros2" in (completed.stdout or "")
-    assert ros2_cli_available() is True
+    nounset_disabled = gui_block.rfind("set +u", 0, ros_source)
+    nounset_restored = gui_block.index("set -u", overlay_source)
+    assert nounset_disabled >= 0
+    assert nounset_disabled < ros_source < overlay_source < nounset_restored
 
 
-def test_ros2_node_list_succeeds_with_slicer_pythonhome(monkeypatch) -> None:
-    monkeypatch.setenv("PYTHONHOME", SLICER_PYTHONHOME)
-    monkeypatch.setenv(
-        "PYTHONPATH",
-        "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python",
+def test_normal_gui_launch_restarts_the_dedicated_container():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
     )
-    import DENTOROS2Bridge as bridge
-
-    bridge._NODE_LIST_CACHE = None
-    ok, nodes, message = ros2_node_list(force=True)
-    assert ok, message
-    assert isinstance(nodes, list)
-    slicer_running = subprocess.run(
-        ["pgrep", "-n", "SlicerApp-real"],
-        capture_output=True,
-        check=False,
-    ).returncode == 0
-    names = {name.lstrip("/") for name in nodes}
-    if slicer_running:
-        assert "slicer" in names
-
-
-def test_container_setup_uses_system_python_under_slicer_path() -> None:
-    """Slicer-first PATH must not be used for description-launch Python nodes."""
-    env = os.environ.copy()
-    env["PYTHONHOME"] = SLICER_PYTHONHOME
-    env["PYTHONPATH"] = "/opt/slicer/Slicer-SuperBuild/Slicer-build/bin/Python"
-    env["PATH"] = f"{SLICER_PYTHONHOME}/bin:" + env.get("PATH", "/usr/bin")
-    completed = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f"{CONTAINER_ROS_SETUP} && command -v python3 && python3 -c "
-            "'import yaml, rclpy; print(yaml.__name__, rclpy.__name__)'",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=12,
-        check=False,
-        env=env,
-    )
-    assert completed.returncode == 0, completed.stderr or completed.stdout
-    python_path = (completed.stdout or "").splitlines()[0]
-    assert "Slicer-SuperBuild/python-install" not in python_path
-    assert "yaml rclpy" in (completed.stdout or "")
+    reset = launcher.split('if docker inspect "${container_name}"', 1)[1].split(
+        "container_runtime_safeguards", 1
+    )[0]
+    assert "if [[ ${check_only} == false ]]" in reset
+    assert 'docker restart --timeout 30 "${container_name}"' in reset
+    assert '"${compose_command[@]}" up -d' in reset
+    assert "--force-recreate" not in reset
+    assert "Existing DENTOBOT Slicer, ROS, MoveIt, and test processes" in reset
+    assert "Save open Slicer scenes first" in reset

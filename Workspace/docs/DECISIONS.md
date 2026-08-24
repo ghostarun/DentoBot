@@ -1,5 +1,40 @@
 # Dentobot Technical Decisions
 
+## 2026-08-24 — Wrap authoritative MRB scenes in a validated case bundle
+
+Status: implemented and Slicer-native verified as case-bundle schema V1
+
+Routine workflow saves use a versioned `.dentocase` ZIP64 package. Its
+embedded `scene/case.mrb` remains the only restore authority for image,
+segmentation, model, Markups, persistent transform, and workflow parameter
+state. The wrapper adds a canonical manifest, SHA-256 member inventory,
+workflow-lineage snapshot, portable robot-resource fingerprint, and save
+report. JSON metadata validates the MRB after load; it does not recreate or
+transform geometry.
+
+ROS publishers, subscribers, TF/robot wrappers, MoveIt proxies, the
+SlicerROS2 default node, active-connection flags, and machine-specific
+absolute paths are runtime state and must never be case content. The persistent
+Step 6 base and optional local MRML robot remain distinct from a live ROS
+connection. Reconnection is always an explicit Step 6 action. Installed URDF,
+SRDF, YAML, xacro, and mesh inputs are fingerprinted by portable component
+names and content hashes; a mismatch is visible and blocks Step 6 import until
+it is reconciled.
+
+Open is transactional at the application level: preflight validates schema,
+safe paths, inventory, sizes, and every checksum before changing the scene; a
+sanitized recovery MRB is then created; the embedded MRB is loaded with clear
+semantics and compared with its manifest to `1e-6`; and a failed post-load
+check restores the recovery scene. Package integrity is deliberately separate
+from workflow freshness. A valid package with stale Step 4C/5C lineage remains
+stale and is blocked rather than silently promoted.
+
+Reason: MRB alone cannot express the boundary to external ROS runtime state,
+resource compatibility, or a preflight/rollback protocol. A second geometry
+serialization would risk coordinate divergence, so it is explicitly avoided.
+Legacy MRML/MRB remains a labelled compatibility path pending an offline
+migrator for historically contaminated scenes.
+
 ## 2026-08-19 — Description launch from Slicer must not use Slicer Python on PATH
 
 Status: implemented; host and container pytest recorded; leftover incomplete
@@ -1773,3 +1808,179 @@ Status: accepted
 Git initialization and remote reconciliation are postponed until the
 documentation system and Ubuntu workflow migration are complete. This
 supersedes the earlier placement of Git recovery among immediate active tasks.
+
+## 2026-08-21 — External ownership for Step 6 ROS/MoveIt
+
+Status: accepted for simulation
+
+The desktop launcher, not embedded Slicer Python, owns the ROS graph and
+process lifetime. The Slicer adapter is limited to a versioned readiness
+subscriber, MRML robot setup, simulated joint publication, planning-scene
+publication, and planning requests. Previous Slicer-side subprocess launch,
+process scanning, ROS CLI polling/cache, and dynamic module-path mutation are
+retired.
+
+Reason: the older bridge mixed UI state, Python-runtime isolation, process
+lifetime, graph discovery, and robot control. Keeping ROS external produces one
+observable state machine, prevents duplicate joint publishers, and keeps the
+medical UI responsive and testable.
+
+## 2026-08-21 — MoveIt is plan/preview only
+
+Status: accepted for draft research simulation
+
+Use `dentobot_arm` with KDL and OMPL for Cartesian planning, but set
+`allow_trajectory_execution=false` and provide no controller, transmission,
+`ros2_control`, hardware driver, or execution call. Manual controls and planned
+waypoints update visualization through one simulated `/joint_states` source.
+
+Reason: the current goal is design reach/flexibility testing in an open-mouth
+phantom. Planning is useful; physical execution is neither required nor
+authorized.
+
+## 2026-08-21 — Provisional TCP and draft collision contract
+
+Status: provisional
+
+Add `dentobot_tool_tcp` at the CAD burr-link origin with +Z aligned to the
+spindle axis. Publish Step 6 phantom, teeth, docking, and guide surfaces in the
+`base_link` frame, retain exact robot meshes, exclude adjacent pairs only, and
+retain MoveIt's 5 mm robot-world padding, and enforce an explicit 5 mm measured
+self/world clearance in the manual command guard. Retain the original AABB
+checker as a fast MRML-only fallback.
+
+This contract supports design iteration only. It must be replaced or calibrated
+before metrology, tool-tip accuracy, head-mount contact allowances, continuous
+swept-volume safety, hardware motion, or clinical claims.
+
+## 2026-08-21 — Gate simulated joint commands outside Slicer
+
+Status: accepted for draft simulation
+
+Route every manual or preview joint candidate through the external
+`dentobot_collision_guard`; do not publish the candidate directly as robot
+state. Interpolate from the last accepted vector with maximum increments of
+1 degree for revolute joints and 0.5 mm for prismatic joints. At every sample,
+use the MoveIt RobotModel/PlanningScene and FCL-backed collision environment to
+check URDF limits, exact collision, self distance with the SRDF Allowed
+Collision Matrix, and robot-world distance. Require at least 5 mm; on failure,
+retain and republish the last accepted vector and return a versioned structured
+status to Slicer.
+
+Reason: MoveIt provides robust collision primitives and planning-scene
+functions, but a UI slider is not automatically a planned path. Directly
+publishing slider values could jump through an invalid intermediate pose, and
+generic robot padding alone does not establish a measured 5 mm self-clearance
+contract. This gate reuses MoveIt's model rather than adding another kinematic
+or geometry implementation.
+
+KDL remains the runtime IK plugin. The URDF/SRDF and provisional TCP define the
+chain; no Denavit-Hartenberg table or symbolic inverse solution is maintained
+in DENTOBOT code. This reduces duplicate logic, but it does not infer incorrect
+CAD axes, physical zero offsets, joint limits, or a calibrated tool center
+point. Those inputs remain engineering/calibration responsibilities.
+
+## 2026-08-21 — Clean normal launch by restarting, not routinely recreating
+
+Status: accepted for the dedicated development container
+
+Every normal graphical launch first performs a bounded restart of the existing
+running `dentobot-slicerros2` container, then lets Compose reconcile it. This
+terminates stale Slicer, ROS 2, MoveIt, and test descendants while preserving
+the container filesystem and bind mounts. A stopped container is started
+without a preliminary restart. `--check-only` remains non-destructive and
+refuses to proceed when an active graphical or simulation session is present.
+
+Reason: force-recreating on every launch also removes stale processes, but it
+needlessly discards mutable Slicer runtime state and triggered another `psutil`
+installation during the rehearsal. Restarting the exactly named, dedicated
+container gives the desired empty process namespace at lower startup and
+network cost. Compose remains responsible for necessary recreation when the
+image or service configuration changes. Because restart terminates the current
+GUI, the launcher must warn operators to save open Slicer scenes first.
+
+## 2026-08-21 — Case scenes exclude live SlicerROS2 adapter state
+
+Status: accepted and verified in the pinned Slicer 5.10/SlicerROS2 environment
+
+Treat the SlicerROS2 default node and DENTOBOT-owned ROS subscribers,
+publishers, and MoveIt collision proxies as runtime resources rather than case
+content. Mark them `SaveWithSceneOff`, stop Step 6 preview, disconnect the
+Slicer-side robot, and shut down the adapter before MRML scene deletion. After
+scene close/import, reattach the existing SlicerROS2 default node to the active
+scene before the workflow recreates its status subscriber.
+
+The pinned SlicerROS2 implementation retains a stale publisher/subscriber
+reference because its removal code addresses the reference count as an index.
+The Python bridge therefore removes the exact adapter-owned reference ID after
+the upstream deletion call. It does not remove unrelated or valid ROS nodes.
+
+Reason: Step 0 New Empty Case and Load Saved Scene replace the MRML scene.
+Serializing or retaining live ROS wrapper nodes across that boundary made saved
+MRBs depend on a detached default ROS node and allowed callbacks/wrapped VTK
+objects to survive teardown. Case geometry and workflow parameters remain
+persistent; external ROS process lifetime remains launcher-owned.
+
+Amendment after active-robot reproduction: the default ROS node is a
+process-owned singleton retained by case-level `Clear(0)` and remains excluded
+from save. Motion Control is quiesced before native robot removal, and the
+upstream stale final subscriber-reference slot is removed explicitly. DENTOBOT
+does not use upstream deferred MoveIt obstacle publish/remove callbacks because
+they retain native wrappers beyond scene or module lifetime. Saved runtime
+`Ros2MotionControlActive` flags are cleared when no live robot exists.
+
+Step 6 import and motion planning also revalidate trajectory coordinate/lock
+state, current and confirmed Step 4C docking geometry, and current verified
+Step 5C template geometry. A saved boolean cannot override stale upstream
+lineage.
+
+## 2026-08-22 — Adapt generic Motion Control; sample workspace in joint space
+
+Status: accepted for simulation-only design testing
+
+Keep SlicerROS2 as the generic robot/MoveIt provider and implement DENTOBOT
+semantics in a reversible bridge adapter. Current and goal robot roots inherit
+the same placed base. MoveIt readiness is detected rather than operator
+toggled; `dentobot_arm` and the provisional `dentobot_tool_tcp` are fixed for
+this robot; IK and planning outcomes are visible; Execute is unavailable.
+
+Compute the draft workspace by deterministic joint-space sampling plus URDF
+forward kinematics, not by repeated random IK. IK answers reachability for a
+requested pose and remains the correct target-control operation. A Halton
+sequence gives repeatable coverage of all six task ranges without the
+combinatorial cost of a Cartesian grid. Filter the visualization with the
+coarse 5 mm AABB rule and provisional TCP/environment distance, while keeping
+MoveIt/FCL authoritative for every ROS-active candidate or planned path.
+
+Exclude exactly the two persistent CAD-AABB false-positive pairs documented in
+the description package from the coarse fallback. They are not added to the
+SRDF Allowed Collision Matrix: exact geometry has already accepted a nonzero
+test pose, whereas their axis-aligned boxes reject every sample. This preserves
+a useful draft cloud without converting a bounding-box artifact into a robot
+collision-policy claim.
+
+## 2026-08-22 — Support anatomy precedes docking; Elements is scene-wide
+
+Status: accepted and Slicer-native verified
+
+Split the former Step 5A UI responsibility. Step 4B now owns same-jaw support
+tooth selection and the complete world-RAS support-anatomy draft. The former
+Step 4B docking stage becomes Step 4C. Step 5A retains only visible erupted
+support-surface definition and refinement. Existing MRML role names and
+parameter references remain stable for saved-scene compatibility; visible
+node step prefixes are refreshed by role.
+
+Step 4C schema v4 requires and directly references a current Step 4B draft.
+Its collision screen orders the selected supports first and then retains all
+other same-jaw whole teeth as conservative obstacles. It records support IDs
+and the source-draft revision; changing or regenerating support anatomy marks
+the docking assembly and downstream fusion stale. This makes the dependency
+explicit without weakening collision scope or changing world-RAS geometry.
+
+Make the Elements viewer available at every workflow stage. Inventory every
+segment in every segmentation individually, every user-facing displayable
+MRML node, and a distinct 3D volume-rendering toggle for each scalar volume.
+Presets remain display-only and restore exact prior state across save handling;
+geometry, mask voxels, references, coordinate frames, and validity are not
+changed by viewing. This removes step-dependent blind spots, including the
+inability to compare full CBCT volume rendering with the Step 6 robot.

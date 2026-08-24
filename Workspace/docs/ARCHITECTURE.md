@@ -144,6 +144,13 @@ group execution. These are development-runtime containment controls, not
 clinical or inference-performance acceptance criteria, and they do not replace
 per-run backend cancellation/cleanup.
 
+Normal graphical startup owns the lifecycle of this dedicated container. If it
+is already running, the launcher performs a bounded Docker restart before
+Compose reconciliation, guaranteeing an empty process namespace for Slicer,
+ROS 2, MoveIt, and tests without routinely recreating the mutable container
+filesystem. The diagnostic `--check-only` path is intentionally read-only and
+continues to reject an active graphical/simulation session instead.
+
 ### Active Ubuntu workspace
 
 The Ubuntu development layout preserves the DentoBot Git checkout inside the
@@ -204,16 +211,18 @@ does not automatically move the operator after initial scene entry. Detailed
 guidance, volume metadata, backend overrides, and backend logs remain available
 on demand rather than occupying the routine workflow panel continuously.
 
-The active selector contains nine stages: Case, imaging, segmentation, review,
-Step 4A trajectory planning, Step 4B guide rails/docks, and Steps 5A–5C.
+The active selector contains Case, imaging, segmentation, review, Step 4A
+trajectory planning, Step 4B support selection/full-anatomy draft, Step 4C
+guide rails/docks, and Steps 5A–5C.
 Manual and assisted trajectory creation are two UI paths within Step 4A, not
 two sequential workflow stages. They both produce the same referenced
 two-point Markups-line representation. The optional assisted controls remain a
 collapsible subsection visible only while Step 4A is active.
 
-From Step 4A onward, one stage-aware viewport panel inventories only the
-authoritative segmentation's stable segment IDs and role/reference-owned
-workflow display nodes. Presets and per-element toggles alter display-node
+At every stage, one scene-wide viewport panel inventories every segmentation
+segment as an individual row, every user-facing displayable MRML node, and a
+separate 3D volume-rendering control for each scalar volume. Stage presets and
+per-element toggles alter display-node
 visibility only; they never edit mask voxels, polydata, MRML references, or
 workflow validity. Before the first filter the controller snapshots global
 segmentation 2D/3D visibility and opacity, every segment's visibility/opacity,
@@ -224,7 +233,7 @@ visible segments and nodes and fits existing views without generating geometry.
 Viewport presets are deliberately transient presentation state. At MRB save
 start, DENTOWorkflow restores the snapshot so the scene stores the operator's
 underlying display state; after save it reapplies the active preset. Parameter
-replacement, module exit, scene close, cleanup, or navigation before Step 4A
+replacement, module exit, scene close, or cleanup
 restores the snapshot. This avoids making a convenient target-only or
 shell-only inspection state an unexplained persistent scene contract. The old
 Step 5B-specific visibility group remains readable in compatibility code but
@@ -622,11 +631,11 @@ are excluded.
 - Destructive planning actions are role-gated and confirmed. Unlocking,
   interactively editing, clearing, removing a point from, or deleting a
   trajectory first traverses explicit MRML references through the active Step
-  4C/5 branch. One stage-level confirmation deletes the reached descendants
+  4B/4C/5 branch. One stage-level confirmation deletes the reached descendants
   before the upstream geometry changes. The logic-level trajectory deletion
   repeats this contract so controller and future callers cannot diverge.
 - Target-tooth switching performs a confirmed complete backtrack of the active
-  derived Step 4B/5 branch. Per-trajectory backtracking preserves unrelated
+  derived Step 4B/4C/5 branch. Per-trajectory backtracking preserves unrelated
   trajectories and guide selections, the authoritative segmentation, target
   segment, bounds, support-tooth choices, and non-trajectory-derived draft
   support. Full target switching also clears the active draft and branch-local
@@ -636,7 +645,7 @@ are excluded.
   live selector cannot substitute an unrelated node. MRML save/reload must not
   restore deleted descendants or dangling references, and retained inputs must
   remain sufficient to recreate the branch.
-- Step 5A full support anatomy is planning input only. Slicer's segmentation
+- Step 4B full support anatomy is planning input only. Slicer's segmentation
   extraction already returns world-RAS surfaces, so the derived combined model
   has no parent transform and explicitly records `WorldRASmm`; applying the
   source transform again would be a double transform.
@@ -680,10 +689,11 @@ are excluded.
 - `DENTOGuideGeometry.py` owns replaceable trajectory-guide and target-frame
   docking primitives plus cropped voxel fusion. The current annular guide and
   four-dock/attachment profile remain provisional because no final robot
-  mating/load contract exists. Step 4B consumes the complete set of one or two
+  mating/load contract exists. Step 4C consumes the complete set of one or two
   locked trajectories for the target tooth and persists them as repeated MRML
-  references; Step 5B reuses exactly that set.
-- Step 4B schema v2 derives a right-handed target frame in world RAS. Mean
+  references plus the current Step 4B support draft; Step 5B reuses exactly
+  that trajectory set.
+- Step 4C schema v4 derives a right-handed target frame in world RAS. Mean
   Entry→Target establishes crown/root polarity. The fitted target-crown-cap
   occlusal normal is `+Z`, a crown principal direction projected into that
   plane is `+X`, and `+Y` completes the frame. A locked, non-selectable Markups
@@ -692,7 +702,12 @@ are excluded.
   plane and adjustable depth proceeds crown-to-root along `+Z`. The defaults
   interpret 15 mm as radial offset and 1 mm as bore, but every mechanical
   dimension is visible and labelled provisional.
-- No Step 4B solid exists at the crown centroid and there are no radial spokes.
+- Selected Step 4B support segments are ordered first in Step 4C's yaw screen
+  and persisted with a direct support-draft MRML reference and update revision.
+  All remaining same-jaw whole teeth remain conservative secondary obstacles.
+  A changed/stale support selection or draft makes Step 4C and downstream
+  geometry stale.
+- No Step 4C solid exists at the crown centroid and there are no radial spokes.
   Step 5B generates one closest-surface attachment per dock, retains the
   annular trajectory drill-guide sleeve/local collar as a different mechanical
   role, and clips attachment material against the complete trajectory-guide
@@ -702,10 +717,10 @@ are excluded.
 - Docking integration uses a cropped binary domain: remove outer docking
   clearance from the patient shell, union trajectory and four-dock
   reinforcement, add four recorded closest-surface overlapping branches from
-  the Step 4B docks to the shell, apply the trajectory-guide exclusion, union
+  the Step 4C docks to the shell, apply the trajectory-guide exclusion, union
   all guide/dock solids, then subtract all trajectory/dock channels. The
   `FinalPrintableTemplate` explicitly references the patient shell, every
-  source trajectory, Step 4B assembly, docking assembly, clearance,
+  source trajectory, Step 4C assembly, docking assembly, clearance,
   reinforcement, and channels. Occupied-voxel connectivity—not polygonal
   surface-region count—defines whether the printable material is one solid,
   because a valid hollow object may have nested boundary surfaces. Only
@@ -761,7 +776,7 @@ are excluded.
 - Step 4A target bounds and the Step 5B automatic ROI have mutually exclusive
   role attributes. The Step 5B selector lists only its own role; reset, generation,
   and deletion repeat the role check in logic, and reset/generation also
-  require the ROI's source reference to match the current Step 5A model.
+  require the ROI's source reference to match the current Step 4B draft.
   Legacy Step 4A nodes carrying stray Step 5B metadata are repaired in place;
   invalid Step 5B references are cleared without deleting the referenced
   upstream node. Parameter-to-widget synchronization is non-reentrant so the
@@ -769,11 +784,12 @@ are excluded.
 - Both workflow-owned ROI roles are visible-only geometry: their MRML nodes
   are locked and non-selectable from views, and their translation, rotation,
   and scale handles are disabled on creation, reset, scene load, and refresh.
-- The stage-aware viewport panel supersedes the visible Step 5B-only control
-  group. It exposes only elements relevant to the active Step 4A–5C stage,
+- The scene-wide viewport panel supersedes the visible Step 5B-only control
+  group. It exposes all case elements at every stage while retaining
+  stage-recommended views,
   supports target/shell/final isolation and exact restoration, and intentionally
   keeps its presets out of saved MRB presentation state.
-- Workflow-owned nodes carry visible `[Step 4A]`, `[Step 4B]`, `[Step 5A]`, `[Step 5B]`, or
+- Workflow-owned nodes carry visible `[Step 4A]`, `[Step 4B]`, `[Step 4C]`, `[Step 5A]`, `[Step 5B]`, or
   `[Step 5C]` name prefixes for selectors and Slicer's Data view. The prefixes
   are UI categorization only; role attributes, stable segment IDs, and MRML
   node references remain authoritative.
@@ -939,3 +955,166 @@ Python process.
   https://github.com/wasserth/TotalSegmentator
 - NVIDIA CUDA on WSL2:
   https://docs.nvidia.com/cuda/wsl-user-guide/index.html
+
+## Step 6 ROS/MoveIt simulation architecture (2026-08-21)
+
+This section supersedes earlier Step 6 statements that no ROS stream or MoveIt
+planner exists. It does not supersede the rule that safety-critical or
+low-level motion must remain outside Slicer.
+
+```text
+launch-dentoworkflow.bash
+  ├─ dentobot_moveit_config/simulation.launch.py
+  │    ├─ robot_state_publisher (URDF + TF)
+  │    ├─ collision_guard (bounds + swept 5 mm self/world clearance)
+  │    ├─ slicer_joint_state_publisher (accepted states; only /joint_states publisher)
+  │    ├─ move_group (KDL + OMPL; plan only)
+  │    └─ simulation_status_publisher (versioned readiness JSON)
+  └─ SlicerROS2 + DENTOWorkflow
+       ├─ thin DENTOROS2Bridge status subscriber
+       ├─ MRML base placement / forehead plane controls
+       ├─ joint candidate → collision guard → simulated /joint_states
+       ├─ base_link-frame anatomy/guide collision proxies
+       └─ Cartesian plan request → Step 6 preview waypoints
+```
+
+Ownership and failure rules:
+
+- The launcher owns ROS process lifetime and shuts the stack down when Slicer
+  exits. Embedded Slicer Python contains no `subprocess`, process scan, ROS CLI,
+  package discovery, or background launch logic.
+- Case scenes own clinical/research MRML data, not live ROS endpoints. The
+  SlicerROS2 default node, DENTOBOT status/joint subscribers, joint-command
+  publisher, and MoveIt collision proxies are transient (`SaveWithSceneOff`).
+  Before any New Empty Case or saved-scene replacement, DENTOWorkflow stops
+  preview, disconnects the Slicer-side robot, and releases adapter nodes before
+  MRML deletion. After close/import it reattaches SlicerROS2's existing default
+  node to the new scene and recreates only the required adapter subscribers.
+  The bridge also removes stale publisher/subscriber reference IDs left by the
+  pinned SlicerROS2 1.2 removal implementation.
+- Developer reload is local to the Slicer Python/UI layer. The fixed-header
+  action disconnects the SlicerROS2 robot, removes adapter-owned ROS MRML nodes,
+  evicts cached `DENTO*.py` helpers, and invokes Slicer's scripted-module reload.
+  It intentionally does not restart or assume ownership of the container or
+  external ROS graph, and it preserves the MRML scene.
+- Readiness requires the description nodes, collision guard, `/move_group`,
+  `/check_state_validity`, `/compute_ik`, `/compute_cartesian_path`, and exactly
+  one `/joint_states` publisher. The JSON schema and `simulation_only` mode
+  must match; stale or malformed status fails closed.
+- `base_link` is parented under the Step 6 base transform for visualization.
+  Entry/Target Markups remain world RAS millimetres; SlicerROS2 converts
+  base-relative pose matrices to ROS coordinates/metres.
+- `dentobot_tool_tcp` is a provisional fixed frame at the CAD burr origin. Its
+  +Z axis follows the spindle axis. A Cartesian pose basis is built by setting
+  +Z to normalized Entry→Target, projecting a stable reference axis into the
+  normal plane, and completing a right-handed orthonormal basis with cross
+  products.
+- MoveIt builds the `dentobot_arm` serial chain from URDF joint origins, axes,
+  types, and limits plus the SRDF `base_link → dentobot_tool_tcp` group. The
+  configured KDL plugin solves numerical Jacobian-based IK at runtime; there is
+  no handwritten DH table or robot-specific IK equation. OMPL RRTConnect is
+  available for general planning; the current Entry-to-Target operation uses
+  collision-aware Cartesian interpolation.
+- Slicer publishes a candidate vector on `/dentobot/slicer_joint_positions`.
+  The external guard samples the transition at no more than 1 degree per
+  revolute step or 0.5 mm per prismatic step, checks bounds, exact mesh contact,
+  FCL/PlanningScene self distance, and robot-world distance at every sample,
+  and requires at least 5 mm. Only an accepted vector is republished on
+  `/dentobot/validated_joint_positions`; rejection retains the previous
+  accepted state and returns the body pair/reason to the UI. The SRDF Allowed
+  Collision Matrix excludes adjacent mechanical pairs only.
+- Environment meshes are transformed from world RAS into `base_link` RAS and
+  published as hidden collision-object proxies. Locking the placed base
+  refreshes them; disconnect removes them. The original AABB checker is only a
+  coarse MRML fallback and is not part of the ROS-active acceptance gate.
+- Planning returns named joint vectors and timing. Step 6 preview streams those
+  vectors through the single simulation publisher; any failed publish stops the
+  preview and reports an error. No trajectory execution call is exposed.
+
+### Case/runtime persistence boundary
+
+- Case loads replace the MRML scene; they are never merged into existing case
+  or robot state.
+- The SlicerROS2 default node is hidden, non-serialized, and retained as a
+  process singleton across case-level `Clear(0)`. Robot, TF, parameter,
+  publisher/subscriber, goal, and MoveIt proxy nodes are runtime-only.
+- Motion Control timers/observers and the final upstream subscriber-reference
+  slot are synchronously cleared before robot deletion. DENTOBOT uses immediate
+  obstacle publish/remove operations so no Qt callback holds a native ROS
+  wrapper across reload or New Case.
+- The persistent Step 6 base and optional seven-link MRML fallback robot are
+  distinct from the live ROS graph. A restored base never implies an active
+  ROS connection.
+- Step 6 revalidates upstream lineage on import, restore, and motion planning;
+  stale Step 4C docking or unverified Step 5C template state is fail-closed.
+
+### DENTOBOT case bundle V1 (2026-08-24)
+
+New routine saves use a `.dentocase` ZIP64 archive around, not instead of, a
+Slicer MRB. `scene/case.mrb` remains the sole authority for CBCT,
+segmentations, Markups, models, persistent transforms, and parameter-node
+references. The outer archive adds `manifest.json`, a SHA-256 inventory,
+`workflow/lineage.json`, a portable URDF/SRDF/mesh/MoveIt fingerprint, and a
+save report. It records Slicer world RAS and millimetres without duplicating
+geometry into a second restore source.
+
+Save first asks Slicer to produce a transient MRB under the existing
+StartSave/EndSave sanitization contract, audits the MRML text for serialized
+SlicerROS2 nodes/default singleton/active flag, builds the outer archive in a
+sibling temporary file, validates every member, then atomically replaces the
+destination. The temporary save restores the live scene URL, root directory,
+and modified-since-read state.
+
+Open validates archive paths, member count/size, schema, coordinate contract,
+file inventory, and all hashes before scene mutation. It then creates a
+sanitized recovery MRB, extracts the embedded scene, loads it with clear
+semantics, and cross-checks manifest node roles, classes, names, selected
+DENTOBOT attributes, world-RAS Markups points, transform matrices, model
+bounds/counts, volume IJK-to-RAS geometry, and segmentation count to `1e-6`.
+Any post-load mismatch replaces the partial scene with the recovery MRB.
+After success, Slicer's scene URL is cleared and its root is set to the package
+directory so the deleted extraction path cannot become a later save target and
+Ctrl+S cannot overwrite the outer package as an MRML file. Rollback restores
+the prior scene location as well as its content.
+
+An installed robot-resource fingerprint mismatch does not corrupt or hide the
+case; it visibly blocks Step 6 import until reconciled. A valid package also
+does not override Current/Stale state: Step 4C and Step 5C freshness checks run
+after import and the ROS connection remains off until an explicit Step 6
+action. Legacy MRML/MRB loading remains available as a clearly labelled
+compatibility path.
+
+### Motion Control adapter and draft workspace explorer (2026-08-22)
+
+`DENTOROS2Bridge` applies a repository-owned adapter around the pinned generic
+Motion Control widget; the sibling SlicerROS2 checkout is not modified. After
+robot setup it parents both the first live `lookup` root and first
+`goal_transform` root to the Step 6 base. It derives operator-visible
+readiness from the versioned external-stack contract, fixes the planning group
+to `dentobot_arm`, injects the configured chain tip `dentobot_tool_tcp` when no
+SRDF `<end_effector>` entry exists, wraps MoveIt IK and trajectory loading to
+show outcomes, and forces every trajectory load to `enableExecute=False`.
+Adapter callbacks and the added status widget are disconnected/deleted before
+module reload, scene clear, or robot teardown.
+
+The two visual robots represent state, not workspace: current follows
+`/joint_states`; goal contains one accepted IK/selected joint target. A
+workspace is computed independently:
+
+```text
+task min/max for J1..J6
+  → 6-D Halton low-discrepancy samples (current vector first)
+  → display units to radians/metres
+  → URDF FK to provisional TCP origin
+  → non-adjacent-link AABB separation ≥ 5 mm
+  → provisional TCP / subsampled environment point clearance
+  → base-frame MRML point cloud parented to Step 6 robot base
+```
+
+The cloud is transient (`SaveWithSceneOff`) and marked stale when the base is
+moved; task-limit edits remove it. The known `link-3`/`link-5` and
+`link-3`/`pneumatic_spindle-Copy` AABB overlaps are narrowly excluded because
+their long world-axis boxes overlap throughout the sampled space while the
+real MoveIt/FCL smoke pose is valid. Other pairs retain the 5 mm draft rule.
+This exception does not enter the SRDF Allowed Collision Matrix and does not
+authorize hardware motion.

@@ -35,3 +35,10 @@ For every substantial task:
     entries into the applicable controlled Markdown documents and dated
     logbook. Do not sync Git or Google Drive merely because the workbook was
     edited; retain the existing batched approval rule.
+13. Treat any user message beginning with `DENTO-NOTE:` as a durable issue or
+    mental-note capture. Triage it during the same turn as one of: fix now,
+    active investigation, blocked, or backlog. Fix it immediately when safe,
+    authorized, and reasonably scoped; otherwise record it in `docs/TASKS.md`
+    with the affected workflow step, observed behavior, evidence available,
+    risk/impact, and next verification action. Record the triage outcome in
+    today's logbook. Never silently discard a `DENTO-NOTE:` item.

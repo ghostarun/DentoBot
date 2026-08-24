@@ -21,6 +21,88 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-24 16:20:11 IST (UTC+05:30) — Controlled documentation and Drive checkpoint
+
+- **Why:** the developer explicitly requested a current logbook, synchronization
+  of the complete documentation state to Google Drive, and a local commit of
+  the consolidated implementation worktree.
+- **Daily Compass:** reconciled the existing workbook in place. All editable
+  researcher-note fields remained placeholders; only the reconciliation date
+  and current operating phase were updated. A ten-page render was inspected
+  page by page with no visual defect, and DOCX archive integrity passed.
+- **Drive:** replaced all eleven established active-development top-level
+  documents by their existing IDs, replaced the two stale aggregate files in
+  the separate controlled `docs` mirror, and uploaded exactly one copy of each
+  missing dated logbook from 2026-08-18 through 2026-08-24. Folder readback
+  confirmed one matching title per target and byte sizes equal to the local
+  files. No duplicate established file, patient data, runtime artifact, scene,
+  mesh, model, screenshot, or credential was uploaded.
+- **Verification:** the close-day gate passed 55 Python AST files, two Qt UI
+  files, eight Markdown fence checks, dependency integrity, 13 inference
+  tests, and five platform-contract tests. The full current host suite returned
+  `67 passed`; shell syntax, DOCX ZIP integrity, and whitespace checks passed.
+- **Boundary:** the requested Git action is a local non-force commit only. No
+  Git push, robot motion, drilling, or patient-facing operation is authorized
+  or performed by this checkpoint.
+
+## 2026-08-24 15:51:22 IST (UTC+05:30) — Transactional DENTOBOT case package V1
+
+- **Why:** MRML/MRB case files could contain SlicerROS2 nodes and stale active
+  state, causing duplicate subscribers, null URDF roots, failed reconnects,
+  ambiguous fallback robots, and process loss after scene replacement or
+  scripted-module reload.
+- **Change:** added Step 0 **Save Case Package** / **Open Case Package** and a
+  `.dentocase` ZIP64 schema containing a sanitized authoritative MRB,
+  canonical manifest, SHA-256 inventory, workflow-lineage snapshot, portable
+  robot-resource fingerprint, and save report. Save validates before atomic
+  replacement. Open preflights before mutation, saves recovery state, clears
+  and loads the embedded scene, validates restored world-RAS/mm records, and
+  restores the prior scene on a post-load mismatch. ROS runtime objects and
+  active connection state are excluded; connection remains explicit in Step
+  6. A robot fingerprint mismatch visibly blocks Step 6 import.
+- **Files:** `DENTOWorkflow.py`, `DENTOCaseBundle.py`, the module UI/CMake
+  install list, two Slicer smoke scripts, pure-Python tests, and the controlled
+  context/architecture/decision/plan/task/traceability/logbook documents.
+- **Verification:** the full host suite returned `67 passed`; XML, Python
+  compilation, and whitespace checks passed. Real Slicer round trips of
+  `test1_5C_FD14.mrb` and `test1_6_FD14.mrb` printed
+  `DENTOBOT_CASE_BUNDLE_PASS`. A deliberate post-load manifest mismatch
+  restored the prior sentinel scene and printed
+  `DENTOBOT_CASE_BUNDLE_TRANSACTION_PASS`. Successful open also clears the
+  deleted temporary MRB as Slicer's save target; rollback restores the prior
+  scene location.
+- **Preserved truth:** both supplied samples remain blocked as stale because
+  their Step 4B support draft changed after the Step 4C/5C outputs. Package
+  integrity does not override workflow freshness.
+- **Limits:** the known pinned SlicerROS2 VTK debug leak still returns 1 after
+  explicit PASS markers at scripted shutdown. Normal graphical acceptance, a
+  regenerated current Step 5C package, and offline legacy contaminated-scene
+  migration remain pending. No hardware motion, Git publication, or Drive
+  synchronization was performed.
+
+## 2026-08-21 19:22:00 IST (UTC+05:30) — Step 0 scene-replacement crash repair
+
+- **Why:** Slicer exited after Step 0 **New Empty Case** and **Load Saved
+  Scene** while SlicerROS2 and DENTOWorkflow were loaded.
+- **Root causes:** the workflow retained adapter-owned ROS MRML objects through
+  scene deletion; the default SlicerROS2 node became detached after
+  `vtkMRMLScene.Clear`; ROS subscribers were being serialized into case MRBs;
+  the pinned SlicerROS2 removal code left stale reference IDs; and Slicer 5.10's
+  transform display node does not implement every Markups handle method.
+- **Change:** added ordered scene-close teardown and post-close ROS default-node
+  reattachment; made status/joint subscribers, the joint publisher, and MoveIt
+  proxy nodes non-persistent; removed exact stale adapter references after
+  upstream deletion; and guarded transform display API calls.
+- **Verification:** Python compilation and whitespace checks passed; the
+  focused host suite returned `54 passed`; the real windowed-Xvfb SlicerROS2
+  lifecycle probe cleared an empty case, reloaded a saved MRB with a locked
+  Step 6 base, restored its sentinel/parameter state, and printed
+  `DENTOBOT_SCENE_LIFECYCLE_PASS` without the prior exceptions/warnings.
+- **Limit:** the known upstream SlicerROS2 VTK debug-leak report still causes
+  exit code 1 after the explicit PASS marker during scripted app shutdown.
+  Normal graphical operator confirmation remains advisable; no robot motion,
+  Git publish, or Drive sync was performed.
+
 ## 2026-08-21 15:17:00 IST (UTC+05:30) — Step 6 documentation reconciliation
 
 - **Why:** Operator requested detailed logbook/changelog/plan updates with
@@ -1868,3 +1950,61 @@ captured, so they must not be inferred from either timestamp.
   transition markers.
 - Listed the active Drive folder and logbook folder to ground every existing
   file ID before in-place synchronization.
+
+## 2026-08-21 — External Step 6 ROS/MoveIt simulation repair
+
+- Added a reproducible SlicerROS2 derivative image with OMPL, MoveIt config
+  utilities, and xacro; added `dentobot_moveit_config` and launcher-owned stack.
+- Replaced Slicer-side subprocess/ROS-CLI orchestration with a versioned
+  readiness subscriber and explicit simulation-only state checks.
+- Added the provisional spindle-axis TCP, KDL/OMPL plan-only configuration,
+  conservative limits, 5 mm robot padding, and base-frame collision proxies.
+- Routed ROS-active Step 6 planning to MoveIt Cartesian planning; routed Step 6
+  manual joints and preview waypoints to the single joint-state simulation path;
+  made preview fail on publish errors.
+- Added ROS and embedded-Slicer smoke tests. Verified open-mouth phantom,
+  forehead base snap, J2/J4 translations, TF, planning-scene publication, and a
+  fraction-1.0 Cartesian plan. No hardware or trajectory execution was added.
+- Added an external MoveIt PlanningScene command guard between Slicer joint
+  candidates and the sole `/joint_states` source. It interpolates changes,
+  checks URDF bounds plus exact FCL self/world collision and 5 mm distance, and
+  restores the last accepted state on rejection. Added direct KDL `/compute_ik`
+  and deliberate under-clearance tests; no hand-authored IK equations were
+  introduced.
+- Added the persistent top-header **Reload Module (Dev)** action for rapid
+  source iteration without restarting Slicer or the container. The action
+  preserves the MRML scene and external ROS stack, safely releases the
+  Slicer-side robot/adapter nodes, evicts all DENTO helper modules, and invokes
+  Slicer's scripted-module reload API.
+- Fixed graphical startup under strict Bash mode by disabling `nounset` only
+  while sourcing ROS-generated Jazzy/workspace setup files, then restoring it.
+  Verified a live `DISPLAY=:0` launch into DENTOWorkflow with Slicer,
+  collision guard, MoveIt, readiness node, and the sole simulated joint-state
+  publisher all running.
+- Made every normal GUI launch restart the dedicated DENTOBOT container before
+  Compose reconciliation. This clears stale Slicer, ROS 2, MoveIt, and test
+  processes while retaining the container filesystem; `--check-only` remains
+  non-destructive. A seeded stale process was removed, the GUI stack reached
+  ready state, 52 host tests passed, and the container was stopped afterward.
+- Hardened warm Slicer lifecycle: clear/replace saved-scene loading, lazy Step 6
+  ROS creation, synchronous Motion Control/robot teardown, process-owned
+  default ROS singleton, exact stale-reference removal, no deferred MoveIt
+  wrapper callbacks, transient ROS save graph, and fail-closed Step 4B/5C
+  freshness checks. The real `test1_6_FD14.mrb` round trip preserved its
+  15.760533814 mm trajectory and 29,962-point final template without restoring
+  ROS runtime state.
+
+## 2026-08-22 — Motion Control clarity and filtered TCP workspace
+
+- Aligned the generic current and goal robot roots to the placed Step 6 base.
+- Added a DENTOBOT runtime adapter that exposes detected MoveIt readiness,
+  fixed `dentobot_arm`, provisional `dentobot_tool_tcp`, visible IK/plan
+  feedback, and permanently unavailable trajectory execution.
+- Added Step 6.3 deterministic six-axis Halton sampling, URDF FK, draft 5 mm
+  AABB and provisional TCP/environment filtering, and a transient cyan
+  base-parented workspace cloud.
+- Excluded two documented persistent CAD-AABB false-positive pairs only from
+  the coarse fallback; MoveIt/FCL remains authoritative.
+- Extended host and real embedded-Slicer acceptance coverage. The real report
+  verified open-mouth/forehead placement, manual joints, generic IK/Plan,
+  Cartesian planning, and 116 accepted workspace points.

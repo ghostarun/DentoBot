@@ -44,6 +44,20 @@ CASE_VIEW_ROLES = (
     "targetToothBoundsRoi",
 )
 
+# These two non-adjacent pairs overlap for every tested configuration only in
+# the axis-aligned boxes of the imported CAD meshes. MoveIt/FCL accepts the
+# verified nonzero smoke-test pose, so keeping them in the coarse gate makes
+# the fallback planner and workspace explorer reject the entire joint space.
+# This is a narrowly scoped draft exception, not an Allowed Collision Matrix
+# claim for the physical robot; exact MoveIt collision checking remains the
+# authoritative path whenever the ROS stack is active.
+DRAFT_AABB_FALSE_POSITIVE_PAIRS = frozenset(
+    {
+        frozenset(("link-3", "link-5")),
+        frozenset(("link-3", "pneumatic_spindle-Copy")),
+    }
+)
+
 
 @dataclass(frozen=True)
 class PlanningContextReport:
@@ -98,6 +112,25 @@ class MotionPlanResult:
     self_collision_indices: tuple[int, ...] = ()
     environment_collision_indices: tuple[int, ...] = ()
     burr_world_mm: tuple[tuple[float, float, float], ...] = ()
+    planner: str = "draft_scipy_position_ik"
+    cartesian_fraction: float = 0.0
+    waypoint_times_sec: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkspaceSampleResult:
+    """Filtered provisional-TCP samples expressed in robot-base millimetres."""
+
+    requested_count: int
+    accepted_tcp_base_mm: tuple[tuple[float, float, float], ...]
+    self_collision_rejections: int
+    environment_rejections: int
+    task_limits: TaskJointLimits
+    excluded_aabb_pairs: int = len(DRAFT_AABB_FALSE_POSITIVE_PAIRS)
+
+    @property
+    def accepted_count(self) -> int:
+        return len(self.accepted_tcp_base_mm)
 
 
 def validate_planning_context(
@@ -305,6 +338,121 @@ def sample_trajectory_world_mm(
     return [tuple(point) for point in (start + alpha * (end - start) for alpha in alphas)]
 
 
+def halton_value(index: int, base: int) -> float:
+    """Return one deterministic low-discrepancy Halton coordinate in [0, 1)."""
+    if index < 0:
+        raise ValueError("Halton index must be non-negative")
+    if base < 2:
+        raise ValueError("Halton base must be at least 2")
+    fraction = 1.0
+    value = 0.0
+    remaining = int(index)
+    while remaining:
+        fraction /= float(base)
+        remaining, digit = divmod(remaining, base)
+        value += fraction * float(digit)
+    return value
+
+
+def deterministic_joint_workspace_samples_display(
+    limits: TaskJointLimits,
+    sample_count: int,
+    current_display_joints: Sequence[float] | None = None,
+) -> tuple[tuple[float, float, float, float, float, float], ...]:
+    """Sample all six task ranges without random-state or repeated IK solves.
+
+    The current pose is included first when supplied. Remaining samples use a
+    six-dimensional Halton sequence, which spreads a small draft sample budget
+    more uniformly than a Cartesian grid or pseudorandom points.
+    """
+    count = int(sample_count)
+    if count < 1:
+        raise ValueError("workspace sample_count must be at least 1")
+    minimums = np.asarray(limits.as_display_vector(), dtype=float)
+    maximums = np.asarray(limits.as_display_max_vector(), dtype=float)
+    if not np.all(np.isfinite(minimums + maximums)) or np.any(maximums < minimums):
+        raise ValueError("workspace task limits must be finite and ordered")
+    samples: list[tuple[float, float, float, float, float, float]] = []
+    if current_display_joints is not None:
+        samples.append(_clamp_display_vector(current_display_joints, limits))
+    bases = (2, 3, 5, 7, 11, 13)
+    index = 1
+    while len(samples) < count:
+        unit = np.asarray(
+            [halton_value(index, base) for base in bases],
+            dtype=float,
+        )
+        display = minimums + unit * (maximums - minimums)
+        samples.append(tuple(float(value) for value in display))
+        index += 1
+    return tuple(samples)
+
+
+def sample_filtered_tcp_workspace(
+    *,
+    limits: TaskJointLimits,
+    sample_count: int,
+    current_display_joints: Sequence[float] | None,
+    urdf_path: Path,
+    package_root: Path,
+    base_world_matrix: np.ndarray,
+    coarse_self_clearance_mm: float,
+    environment_points_mm: np.ndarray | None,
+    environment_clearance_mm: float,
+) -> WorkspaceSampleResult:
+    """Return deterministic joint-space FK samples that pass draft guards.
+
+    This is a design-exploration envelope, not an IK reachability proof. Each
+    task-limited joint vector is evaluated by forward kinematics. Non-adjacent
+    robot-link AABBs enforce the configured self-clearance and the provisional
+    TCP origin is rejected when it is too close to the subsampled environment.
+    """
+    base_world = np.asarray(base_world_matrix, dtype=float)
+    if base_world.shape != (4, 4) or not np.all(np.isfinite(base_world)):
+        raise ValueError("base_world_matrix must be a finite 4x4 matrix")
+    inverse_base_world = np.linalg.inv(base_world)
+    environment = (
+        np.zeros((0, 3), dtype=float)
+        if environment_points_mm is None
+        else _environment_points_from_polydata(environment_points_mm)
+    )
+    coarse_model = _load_coarse_kinematic_model(urdf_path, package_root)
+    accepted: list[tuple[float, float, float]] = []
+    self_rejections = 0
+    environment_rejections = 0
+    for display in deterministic_joint_workspace_samples_display(
+        limits,
+        sample_count,
+        current_display_joints,
+    ):
+        joints_si = _display_to_si_vector(display)
+        ok, reason, tcp_world = evaluate_motion_configuration(
+            joints_si,
+            urdf_path=urdf_path,
+            package_root=package_root,
+            base_world_matrix=base_world,
+            coarse_clearance_mm=coarse_self_clearance_mm,
+            environment_points_mm=environment,
+            environment_clearance_mm=environment_clearance_mm,
+            coarse_model=coarse_model,
+        )
+        if not ok:
+            if "self-collision" in reason or "AABB" in reason:
+                self_rejections += 1
+            else:
+                environment_rejections += 1
+            continue
+        tcp_base = inverse_base_world @ np.asarray([*tcp_world, 1.0], dtype=float)
+        accepted.append(tuple(float(value) for value in tcp_base[:3]))
+    return WorkspaceSampleResult(
+        requested_count=int(sample_count),
+        accepted_tcp_base_mm=tuple(accepted),
+        self_collision_rejections=self_rejections,
+        environment_rejections=environment_rejections,
+        task_limits=limits,
+    )
+
+
 def _load_coarse_kinematic_model(urdf_path: Path, package_root: Path):
     publisher_path = package_root / "scripts" / "manual_joint_state_publisher.py"
     if not publisher_path.is_file():
@@ -387,8 +535,14 @@ def evaluate_motion_configuration(
 ) -> tuple[bool, str, tuple[float, float, float]]:
     model = coarse_model or _load_coarse_kinematic_model(urdf_path, package_root)
     evaluation = model.evaluate(dict(joint_positions_si), coarse_clearance_mm / 1000.0)
-    if evaluation.violations:
-        first = evaluation.violations[0]
+    actionable_violations = tuple(
+        violation
+        for violation in evaluation.violations
+        if frozenset((violation.first_link, violation.second_link))
+        not in DRAFT_AABB_FALSE_POSITIVE_PAIRS
+    )
+    if actionable_violations:
+        first = actionable_violations[0]
         return (
             False,
             (

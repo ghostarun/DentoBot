@@ -163,7 +163,16 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
     docker unpause "${container_name}" >/dev/null
     container_status="running"
   fi
-  if [[ ${container_status} == "running" ]]; then
+  if [[ ${check_only} == false ]]; then
+    if [[ ${container_status} == "running" ]]; then
+      printf '%s\n' \
+        "Restarting the dedicated ${container_name} container for a clean GUI session..." \
+        'Existing DENTOBOT Slicer, ROS, MoveIt, and test processes will be stopped.' \
+        'Save open Slicer scenes first; unsaved in-container UI state cannot be recovered.'
+      docker restart --timeout 30 "${container_name}" >/dev/null
+      container_status="running"
+    fi
+  elif [[ ${container_status} == "running" ]]; then
     active_slicer_processes="$(
       docker exec "${container_name}" ps -eo pid=,stat=,comm=,args= 2>/dev/null \
         | awk '
@@ -171,7 +180,8 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
             ($3 == "SlicerApp-real" ||
              $3 == "Slicer" ||
              ($3 == "ros2" &&
-              $0 ~ /launch slicer_ros2_module slicer\.launch\.py/)) {
+              ($0 ~ /launch slicer_ros2_module slicer\.launch\.py/ ||
+               $0 ~ /launch dentobot_moveit_config simulation\.launch\.py/))) {
               print
             }
           ' || true
@@ -222,6 +232,17 @@ if docker exec "${container_name}" test -f \
   slicer_module_paths+=" ${endoplanner_module_path}"
 fi
 docker exec "${container_name}" test -c "${render_device}"
+docker exec "${container_name}" bash -lc '
+  source /opt/ros/jazzy/setup.bash
+  python3 -c "import moveit_configs_utils"
+  command -v xacro >/dev/null
+  cd /workspace/ros2_ws
+  colcon build --symlink-install \
+    --base-paths \
+      /workspace/ros2_ws/src/DentoBot/dentobot_description \
+      /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
+    --packages-select dentobot_description dentobot_moveit_config
+'
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
 )"
@@ -279,8 +300,15 @@ docker exec -it \
   -e DENTOBOT_SLICER_MODULE_PATHS="${slicer_module_paths}" \
   "${container_name}" \
   bash -lc '
+    set -euo pipefail
+    # ROS/ament setup files are designed to tolerate unset tracing variables,
+    # but Bash nounset turns their compatibility checks into fatal errors.
+    # Disable nounset only while sourcing trusted ROS-generated overlays, then
+    # restore strict mode for all DENTOBOT launcher logic below.
+    set +u
     source /opt/ros/jazzy/setup.bash
     source /workspace/ros2_ws/install/setup.bash
+    set -u
     export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
     # Merge DENTO Workflow into the SlicerROS2 launch path list. A second
     # --additional-module-paths in slicer_args can leave ROS2 undiscovered
@@ -292,6 +320,41 @@ docker exec -it \
     if [[ -n ${extra_module_paths} ]]; then
       export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
     fi
-    exec ros2 launch slicer_ros2_module slicer.launch.py \
+
+    stack_log=/tmp/dentobot-simulation-stack.log
+    ros2 launch dentobot_moveit_config simulation.launch.py >"${stack_log}" 2>&1 &
+    stack_pid=$!
+    cleanup_stack() {
+      kill -INT "${stack_pid}" >/dev/null 2>&1 || true
+      wait "${stack_pid}" >/dev/null 2>&1 || true
+    }
+    trap cleanup_stack EXIT INT TERM
+
+    stack_ready=false
+    for _attempt in $(seq 1 60); do
+      if ! kill -0 "${stack_pid}" >/dev/null 2>&1; then
+        printf "%s\n" "DENTOBOT simulation stack exited during startup:" >&2
+        tail -n 80 "${stack_log}" >&2 || true
+        exit 2
+      fi
+      status="$(timeout 2s ros2 topic echo \
+        /dentobot/simulation_status std_msgs/msg/String \
+        --once --field data 2>/dev/null || true)"
+      if [[ ${status} == *'"'"'"ready":true'"'"'* ]]; then
+        stack_ready=true
+        break
+      fi
+      sleep 0.5
+    done
+    if [[ ${stack_ready} != true ]]; then
+      printf "%s\n" "DENTOBOT simulation stack was not ready within 30 seconds:" >&2
+      tail -n 80 "${stack_log}" >&2 || true
+      exit 2
+    fi
+
+    printf "%s\n" \
+      "DENTOBOT simulation stack ready (description + one joint-state source + MoveIt)." \
+      "Stack log: ${stack_log}"
+    ros2 launch slicer_ros2_module slicer.launch.py \
       "slicer_args:=--no-splash --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
   '

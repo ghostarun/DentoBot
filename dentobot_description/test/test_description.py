@@ -88,8 +88,8 @@ def test_robot_tree_and_joint_contract() -> None:
     joints = root.findall("joint")
     link_names = [link.get("name") for link in links]
     joint_names = [joint.get("name") for joint in joints]
-    assert len(links) == len(set(link_names)) == 8
-    assert len(joints) == len(set(joint_names)) == 7
+    assert len(links) == len(set(link_names)) == 9
+    assert len(joints) == len(set(joint_names)) == 8
 
     parents: dict[str, str] = {}
     children: dict[str, list[str]] = {name: [] for name in link_names}
@@ -133,7 +133,7 @@ def test_robot_tree_and_joint_contract() -> None:
             assert velocity > 0.0
 
     assert joint_types == {
-        "fixed": 1,
+        "fixed": 2,
         "revolute": 3,
         "prismatic": 2,
         "continuous": 1,
@@ -156,7 +156,7 @@ def test_link_inertials_and_mesh_references() -> None:
     referenced_meshes: set[Path] = set()
 
     for link in root.findall("link"):
-        if link.get("name") == "base_link":
+        if link.get("name") in {"base_link", "dentobot_tool_tcp"}:
             assert len(link) == 0
             continue
         inertial = link.find("inertial")

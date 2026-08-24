@@ -94,6 +94,16 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         </property>
        </widget>
       </item>
+      <item row="4" column="0" colspan="2">
+       <widget class="QPushButton" name="reloadDENTOWorkflowButton">
+        <property name="text">
+         <string>Reload DENTOBOT Module (Developer)</string>
+        </property>
+        <property name="toolTip">
+         <string>Reload DENTOWorkflow.py and its DENTO helper Python modules from repository source without restarting Slicer or the container. The MRML scene and external ROS stack remain; active backend work is cancelled and the SlicerROS2 robot is disconnected before reload.</string>
+        </property>
+       </widget>
+      </item>
      </layout>
    </widget>
   </item>
@@ -149,7 +159,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <item>
       <widget class="QLabel" name="workflowViewElementsLabel">
        <property name="text">
-        <string>Visible elements (click to show / hide):</string>
+        <string>All case and scene elements (click to show / hide):</string>
        </property>
       </widget>
      </item>
@@ -274,6 +284,26 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <layout class="QGridLayout" name="caseButtonGridLayout">
         <item row="0" column="0">
+         <widget class="QPushButton" name="saveCaseBundleButton">
+          <property name="toolTip">
+           <string>Save a versioned DENTOBOT case package containing a sanitized MRB, workflow/coordinate lineage, robot-description fingerprint, and integrity checksums. Live ROS objects are never included.</string>
+          </property>
+          <property name="text">
+           <string>Save Case Package</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="openCaseBundleButton">
+          <property name="toolTip">
+           <string>Preflight and transactionally restore a DENTOBOT .dentocase package. ROS remains disconnected until explicitly initialized in Step 6.</string>
+          </property>
+          <property name="text">
+           <string>Open Case Package</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
          <widget class="QPushButton" name="newCaseButton">
           <property name="toolTip">
            <string>Clear the current MRML scene after confirmation. Original DICOM files are not changed.</string>
@@ -283,17 +313,27 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </property>
          </widget>
         </item>
-        <item row="0" column="1">
+        <item row="1" column="1">
          <widget class="QPushButton" name="openSceneButton">
           <property name="toolTip">
-           <string>Open a previously saved Slicer MRML scene or MRB bundle.</string>
+           <string>Compatibility path for a previously saved Slicer MRML scene or MRB bundle. Prefer a validated DENTOBOT case package for new saves.</string>
           </property>
           <property name="text">
-           <string>Open Saved Scene</string>
+           <string>Open Legacy MRML / MRB</string>
           </property>
          </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="caseBundleStatusLabel">
+        <property name="text">
+         <string>Use a DENTOBOT case package for integrity-checked save and restore.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>
@@ -2239,7 +2279,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
    <item>
     <widget class="ctkCollapsibleButton" name="targetDockingCollapsibleButton">
      <property name="text">
-      <string>Step 4B — Target-Frame Guide Rails and Robot Docks</string>
+      <string>Step 4C — Target-Frame Guide Rails and Robot Docks</string>
      </property>
      <property name="collapsed">
       <bool>true</bool>
@@ -2325,7 +2365,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <layout class="QGridLayout" name="targetDockingButtonLayout">
         <item row="0" column="0"><widget class="QPushButton" name="generateTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Auto-Place Collision-Checked Draft</string></property></widget></item>
-        <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4B Assembly...</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4C Assembly...</string></property></widget></item>
        </layout>
       </item>
       <item><widget class="QLabel" name="targetDockingStatusLabel"><property name="text"><string>Complete and lock one or two target-tooth trajectories first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
@@ -2336,7 +2376,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
    <item>
     <widget class="ctkCollapsibleButton" name="templateModelingCollapsibleButton">
      <property name="text">
-      <string>Step 5A — Support Teeth and Visible Support Surface</string>
+      <string>Step 4B — Select Support Teeth and Build Anatomy Draft</string>
      </property>
      <property name="collapsed">
       <bool>false</bool>
@@ -2429,7 +2469,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <item row="2" column="1">
          <widget class="qMRMLNodeComboBox" name="draftTemplateSupportModelSelector">
           <property name="toolTip">
-           <string>Authoritative Step 5A draft support-anatomy model stored in the scene.</string>
+           <string>Authoritative Step 4B draft support-anatomy model stored in the scene.</string>
           </property>
           <property name="nodeTypes">
            <stringlist notr="true">
@@ -2757,7 +2797,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4B four-dock rail assembly into one connected final template.</string>
+         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4C four-dock rail assembly into one connected final template.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2868,8 +2908,8 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <property name="text"><string>Build unified template — trajectories + four docks</string></property>
         <property name="collapsed"><bool>false</bool></property>
         <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
-         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>The primary action generates only missing or stale stages: directional blockout, cached patient shell, then trajectory-aligned drill guides and the confirmed Step 4B four-dock assembly. A current patient shell is reused unchanged when only guide/dock parameters need rebuilding. Inspection buttons change visibility only and never recompute geometry.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Read-only source list. The exact locked trajectory set used by the confirmed Step 4B dock assembly is included automatically so shell fusion cannot silently use a different drill plan.</string></property></widget></item>
+         <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>The primary action generates only missing or stale stages: directional blockout, cached patient shell, then trajectory-aligned drill guides and the confirmed Step 4C four-dock assembly. A current patient shell is reused unchanged when only guide/dock parameters need rebuilding. Inspection buttons change visibility only and never recompute geometry.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Read-only source list. The exact locked trajectory set used by the confirmed Step 4C dock assembly is included automatically so shell fusion cannot silently use a different drill plan.</string></property></widget></item>
          <item>
           <layout class="QFormLayout" name="templateDockingFusionFormLayout">
            <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Drill-guide exclusion clearance:</string></property></widget></item>
@@ -2882,7 +2922,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
            <item row="3" column="1"><widget class="qMRMLNodeComboBox" name="finalPrintableTemplateModelSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>finalPrintableTemplateModel</string></property></widget></item>
           </layout>
          </item>
-         <item><layout class="QHBoxLayout" name="templateDockingFusionButtonLayout"><item><widget class="QPushButton" name="generateFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Build Complete Template (Missing/Stale Stages Only)</string></property><property name="toolTip"><string>Preflight the confirmed Step 4B assembly and locked trajectories, generate only a missing/stale blockout or patient shell, then rebuild fusion only when required. Current cached geometry is never regenerated merely for inspection.</string></property></widget></item><item><widget class="QPushButton" name="deleteFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Unified Template...</string></property></widget></item></layout></item>
+         <item><layout class="QHBoxLayout" name="templateDockingFusionButtonLayout"><item><widget class="QPushButton" name="generateFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Build Complete Template (Missing/Stale Stages Only)</string></property><property name="toolTip"><string>Preflight the confirmed Step 4C assembly and locked trajectories, generate only a missing/stale blockout or patient shell, then rebuild fusion only when required. Current cached geometry is never regenerated merely for inspection.</string></property></widget></item><item><widget class="QPushButton" name="deleteFinalPrintableTemplateButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Unified Template...</string></property></widget></item></layout></item>
          <item>
           <layout class="QHBoxLayout" name="templateInspectionButtonLayout">
            <item><widget class="QPushButton" name="inspectTemplateFitButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Inspect Fit / Undercuts</string></property><property name="toolTip"><string>Display the visible support, insertion direction, undercut preview, and blockout without generating geometry.</string></property></widget></item>
@@ -2903,13 +2943,13 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          </size>
         </property>
         <property name="toolTip">
-         <string>Step 5B inputs and outputs inherit the authoritative Step 4A target-tooth color through their Step 5A/MRML references.</string>
+         <string>Step 5B inputs and outputs inherit the authoritative Step 4A target-tooth color through their Step 4B/5A MRML references.</string>
         </property>
         <property name="styleSheet">
          <string notr="true">QLabel { color: #555555; background-color: #eeeeee; border-left: 8px solid #999999; border-radius: 3px; padding: 5px 8px; }</string>
         </property>
         <property name="text">
-         <string>Inherited lineage: waiting for a colored Step 5A/Step 4A input.</string>
+         <string>Inherited lineage: waiting for a colored Step 4B/5A/Step 4A input.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2954,7 +2994,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
              <string>Create / Reset Automatic ROI</string>
             </property>
             <property name="toolTip">
-             <string>Create or recompute the locked world-RAS bounds around the Step 5A model. This workflow-owned ROI is visible for reference but cannot be picked, moved, rotated, or resized in a view.</string>
+             <string>Create or recompute the locked world-RAS bounds around the Step 4B support draft. This workflow-owned ROI is visible for reference but cannot be picked, moved, rotated, or resized in a view.</string>
             </property>
            </widget>
           </item>
@@ -3137,7 +3177,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item row="1" column="0">
           <widget class="QCheckBox" name="supportModelVisibilityCheckBox">
            <property name="enabled"><bool>false</bool></property>
-           <property name="text"><string>[Step 5A] Support anatomy</string></property>
+           <property name="text"><string>[Step 4B] Support anatomy draft</string></property>
           </widget>
          </item>
          <item row="1" column="1">
@@ -3228,7 +3268,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="templateGuideStatusLabel">
         <property name="styleSheet"><string notr="true">color: #b36b00;</string></property>
-        <property name="text"><string>Create a current Step 5A model and a complete locked trajectory.</string></property>
+        <property name="text"><string>Create a current Step 4B support draft and Step 5A visible support preview, then lock the trajectory.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
@@ -3253,7 +3293,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <layout class="QVBoxLayout" name="templateFinalizationVerticalLayout">
       <item>
        <widget class="QLabel" name="finalVerificationDescriptionLabel">
-        <property name="text"><string>Verify the current unified Step 5B template, including patient-contact shell, trajectory guide hole(s), and the Step 4B four-dock rail assembly. Export writes one atomic binary STL only when verification is PASS or WARNING.</string></property>
+        <property name="text"><string>Verify the current unified Step 5B template, including patient-contact shell, trajectory guide hole(s), and the Step 4C four-dock rail assembly. Export writes one atomic binary STL only when verification is PASS or WARNING.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
@@ -3424,7 +3464,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <layout class="QVBoxLayout" name="robotPlacementVerticalLayout">
       <item>
 <widget class="QLabel" name="robotPlacementDescriptionLabel">
-        <property name="text"><string>Choose a scene (case package or draft phantom), load the ROS robot, place and lock the base, set task limits, then plan. Hardware motion, MoveIt, and clinical safety validation are not authorized here.</string></property>
+        <property name="text"><string>Choose a scene (case package or draft phantom), connect the simulation robot, place and lock the base, set task limits, then plan and preview. Hardware motion, MoveIt execution, and clinical safety validation are not authorized here.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
@@ -3477,10 +3517,10 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item><widget class="QGroupBox" name="ros2MotionControlGroupBox">
         <property name="title"><string>Load robot from ROS (SlicerROS2)</string></property>
         <layout class="QVBoxLayout" name="ros2MotionControlVerticalLayout">
-         <item><widget class="QLabel" name="ros2MotionControlDescriptionLabel"><property name="text"><string>Requires the ROS2 Slicer module from ./scripts/launch-dentoworkflow.bash (dentobot-slicerros2). Live TF from dentobot_description is aligned to the Step 6 robot-base transform. Motion Control sliders stream simulated /joint_states. This does not command hardware. MoveIt is not configured. If ROS2 is missing, the button offers the MRML robot fallback.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="ros2MotionControlDescriptionLabel"><property name="text"><string>The DENTOBOT launcher owns a simulation-only ROS 2 + MoveIt stack. Manual joint requests are interpolated and accepted only when MoveIt reports valid bounds, no mesh collision, and at least 5 mm self/world clearance. Locking the base refreshes the head/case collision surfaces. Cartesian IK and planning use the URDF/SRDF chain and provisional TCP; no hand-written kinematic equations are used. Execution and hardware interfaces are disabled.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
           <layout class="QGridLayout" name="ros2MotionControlButtonLayout">
-           <item row="0" column="0"><widget class="QPushButton" name="connectRos2MotionButton"><property name="text"><string>Start Stack &amp; Connect Motion Control</string></property><property name="toolTip"><string>Launch dentobot_description in slicer joint-state mode if needed, load the URDF through SlicerROS2, parent the ROS robot under the Step 6 base transform, stream Motion Control sliders to /joint_states, and open ROS2 Motion Control.</string></property></widget></item>
+           <item row="0" column="0"><widget class="QPushButton" name="connectRos2MotionButton"><property name="text"><string>Connect ROS + MoveIt (Simulation)</string></property><property name="toolTip"><string>Connect to the stack already started by launch-dentoworkflow.bash, load the URDF through SlicerROS2, align base_link to the Step 6 base transform, send manual candidates through the collision guard to the sole simulated /joint_states source, and enable plan-only MoveIt.</string></property></widget></item>
            <item row="0" column="1"><widget class="QPushButton" name="disconnectRos2MotionButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Disconnect ROS 2 Robot</string></property></widget></item>
           </layout>
          </item>
@@ -3610,8 +3650,25 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </widget>
       </item>
       <item>
+       <widget class="QGroupBox" name="step6WorkspaceGroupBox">
+        <property name="title"><string>6.3 — Draft TCP Workspace Explorer</string></property>
+        <layout class="QVBoxLayout" name="step6WorkspaceVerticalLayout">
+         <item><widget class="QLabel" name="robotWorkspaceDescriptionLabel"><property name="text"><string>Generate a deterministic joint-space reach cloud for the provisional dentobot_tool_tcp. A six-dimensional Halton sequence is mapped into the selected task limits, evaluated by URDF forward kinematics, then filtered by the draft 5 mm non-adjacent-link AABB guard and provisional TCP-to-environment point clearance. Two documented persistent CAD-AABB false-positive pairs are excluded; MoveIt/FCL remains authoritative. This is not repeated IK, exact mesh collision, swept-volume, or clinical workspace validation.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><layout class="QFormLayout" name="robotWorkspaceFormLayout">
+          <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Joint samples:</string></property></widget></item>
+          <item row="0" column="1"><widget class="QSpinBox" name="robotWorkspaceSampleCountSpinBox"><property name="minimum"><number>50</number></property><property name="maximum"><number>5000</number></property><property name="singleStep"><number>50</number></property><property name="value"><number>600</number></property><property name="SlicerParameterName" stdset="0"><string>robotWorkspaceSampleCount</string></property></widget></item>
+         </layout></item>
+         <item><layout class="QHBoxLayout" name="robotWorkspaceButtonLayout">
+          <item><widget class="QPushButton" name="generateRobotWorkspaceButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Generate / Refresh Workspace</string></property></widget></item>
+          <item><widget class="QPushButton" name="clearRobotWorkspaceButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Workspace</string></property></widget></item>
+         </layout></item>
+         <item><widget class="QLabel" name="robotWorkspaceStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>No workspace cloud generated.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
 <widget class="QGroupBox" name="step6TrajectoryPlanningGroupBox">
-        <property name="title"><string>6.3 — Trajectory Motion Planning (simulation)</string></property>
+        <property name="title"><string>6.4 — Trajectory Motion Planning (simulation)</string></property>
         <layout class="QVBoxLayout" name="step6TrajectoryPlanningVerticalLayout">
          <item><widget class="QLabel" name="step6TrajectoryPlanningDescriptionLabel"><property name="text"><string>Plan a joint-space path along the approved Entry-to-Target trajectory. Each sample is screened with coarse self-collision AABBs and a subsampled environment point cloud. Preview streams simulated joint motion only.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
@@ -3619,7 +3676,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
            <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Trajectory samples:</string></property></widget></item>
            <item row="0" column="1"><widget class="QSpinBox" name="robotMotionPlanSampleCountSpinBox"><property name="minimum"><number>2</number></property><property name="maximum"><number>64</number></property><property name="value"><number>12</number></property><property name="SlicerParameterName" stdset="0"><string>robotMotionPlanSampleCount</string></property></widget></item>
            <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Self-clearance (mm):</string></property></widget></item>
-           <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotCoarseSelfClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotCoarseSelfClearanceMm</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="robotCoarseSelfClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>5.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>5.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotCoarseSelfClearanceMm</string></property></widget></item>
            <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Environment clearance (mm):</string></property></widget></item>
            <item row="2" column="1"><widget class="QDoubleSpinBox" name="robotEnvironmentClearanceSpinBox"><property name="decimals"><number>2</number></property><property name="minimum"><double>0.0</double></property><property name="maximum"><double>50.0</double></property><property name="value"><double>2.0</double></property><property name="SlicerParameterName" stdset="0"><string>robotEnvironmentClearanceMm</string></property></widget></item>
           </layout>

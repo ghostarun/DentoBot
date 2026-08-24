@@ -535,3 +535,205 @@ tasks, model files, output schema, or the Slicer/backend contract require:
 - [NVIDIA CUDA on WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html)
 - [Conda environment management](https://docs.conda.io/projects/conda/en/stable/user-guide/tasks/manage-environments.html)
 - [Conda environment export](https://docs.conda.io/projects/conda/en/latest/commands/env/export.html)
+
+## 15. Step 6 ROS/MoveIt evidence procedure
+
+The reproducible container layer is built from
+`Workspace/Dockerfile.slicerros2` and tagged
+`dentobot/slicerros2:jazzy-moveit-sim-20260821`. The added runtime packages are
+`moveit_configs_utils`, `moveit_planners_ompl`, and `xacro`; the 2026-08-21
+verified ROS package versions were MoveIt 2.12.4, OMPL 1.7.0, and xacro 2.1.1.
+
+Run the non-GUI environment/build gate:
+
+```bash
+Workspace/scripts/launch-dentoworkflow.bash --check-only
+```
+
+For the clean-start lifecycle acceptance test, start the dedicated container,
+seed a harmless long-running `sleep` process, and invoke the normal GUI
+launcher. The launcher must report a bounded restart, Compose must report the
+same container as running rather than force-recreated, the seeded process must
+be absent, and only the expected Slicer/simulation stack may remain. After the
+GUI proof, close the launcher and stop the dedicated container. Do not use this
+test while an unsaved Slicer scene is open. The 2026-08-21 rehearsal satisfied
+all of these conditions and ended with `dentobot-slicerros2` stopped.
+
+With the simulation stack running, record:
+
+```bash
+ros2 topic echo /dentobot/simulation_status std_msgs/msg/String \
+  --once --field data
+ros2 topic info /joint_states --verbose
+python3 Testing/run_dentobot_moveit_smoke.py
+```
+
+The expected status has `mode=simulation_only`, both readiness flags true, and
+`joint_state_publisher_count=1`. The ROS smoke must observe J2/J4 commands,
+`base_link → dentobot_tool_tcp` TF, a valid state, direct `/compute_ik` success,
+a nonempty Cartesian trajectory with fraction at least 0.99, acceptance of a
+clear interpolated transition, rejection below 5 mm, and preservation of the
+last accepted `/joint_states` state.
+
+`Testing/run_dentobot_slicer_moveit_smoke.py` is the embedded-Slicer acceptance
+probe. Its 2026-08-21 result loaded three BodyParts3D meshes, measured a
+40.0009 mm incisor gap, snapped the base to the forehead plane, moved J2/J4,
+published three collision surfaces, and returned a 29-point MoveIt path with
+fraction 1.0. The upstream SlicerROS2 build still exits code 1 during headless
+plugin teardown after printing the successful result; treat that exit as an
+open lifecycle defect, not a clean-run claim. The ordinary open-mouth MRML
+regression exits zero.
+
+The 2026-08-21 guard evidence used a 40-sample accepted transition with minimum
+self distance `0.0127129535156 m`. A deliberately under-clearance vector was
+rejected between `link-1` and `link-3` at `4.500000 mm`, below the `5.000000 mm`
+draft minimum. Direct KDL IK for a 1 mm TCP +X target returned six joints and
+MoveIt success code 1. Collision-aware Cartesian interpolation for the same
+offset returned fraction 1.0 and eight timed trajectory points. The live stack
+then exposed a separate MoveIt 2.12.4 SIGINT teardown segmentation fault in an
+`rclcpp::CallbackGroup` destructor; this is recorded as an environment/upstream
+lifecycle defect and not hidden by the successful service assertions.
+
+For source-reload acceptance, run Slicer with a main window under the verified
+SlicerROS2 environment inside the development container:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+export LD_LIBRARY_PATH=/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules:/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules:${LD_LIBRARY_PATH:-}
+xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer \
+  --additional-module-paths \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules \
+  /workspace/ros2_ws/src/DentoBot/DENTOWorkflow \
+  --python-script \
+  /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_slicer_reload_smoke.py
+```
+
+The 2026-08-21 Xvfb run returned
+`button_visible=true`, `module_reload_success=true`,
+`helper_module_reloaded=true`, and `scene_preserved=true`, then exited zero.
+This proves replacement of the widget plus helper-module cache eviction and
+MRML persistence. It does not prove that an active robot connection survives;
+the accepted design intentionally disconnects that Slicer-side connection so
+it can be recreated against the unchanged external stack.
+
+For the Step 0 scene-replacement regression, use the same sourced ROS and
+`LD_LIBRARY_PATH` environment above and replace the final script with:
+
+```bash
+xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer \
+  --no-splash \
+  --additional-module-paths \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules \
+  /workspace/ros2_ws/src/DentoBot/DENTOWorkflow \
+  --python-script \
+  /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_scene_lifecycle_smoke.py
+```
+
+The probe selects DENTOWorkflow, confirms adapter ROS nodes are transient,
+locks a Step 6 base transform using the pinned Slicer 5.10 display API, saves
+an MRB, clears the scene, reloads the MRB, and verifies the workflow parameter
+node, sentinel data, locked transform, and ROS references after both
+replacements. The 2026-08-21 result printed
+`DENTOBOT_SCENE_LIFECYCLE_PASS` without the former transform exception or stale
+subscriber warning. The upstream SlicerROS2 VTK leak report still makes the
+scripted Slicer process return 1 after the PASS marker; this is the same open
+teardown-only defect described above, not a scene-replacement failure.
+
+The active version of this probe connects and resolves the DENTOBOT URDF,
+reloads the scripted module, reconnects, clears to New Empty Case, reconnects
+again, and reloads the saved case. Acceptance is the
+`DENTOBOT_SCENE_LIFECYCLE_PASS` marker with no process loss before it.
+
+For the operator-supplied FDI 14 Step 6 bundle, replace the final script with:
+
+```bash
+/workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_step6_restore_smoke.py
+```
+
+This loads `/workspace/data/Slicer_Saved/SampleStudy1/test1_6_FD14.mrb` with
+clear semantics, verifies that no ROS robot or active flag is restored,
+fail-closes its explicitly stale Step 4C/5C state, saves/reloads a sanitized
+MRB, and compares world-RAS trajectory points/length, final-template bounds and
+mesh counts, and the robot-base world matrix to `1e-6`.
+
+### 2026-08-22 Motion Control/workspace acceptance
+
+Host verification from the repository checkout:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/dentobot-pycache \
+  /home/light-tarun/miniconda3/envs/dentobot/bin/python \
+  -m pytest -q Testing dentobot_description/test
+git diff --check
+```
+
+Expected recorded result: `61 passed` and no whitespace diagnostics. A
+standalone 600-sample workspace probe must be deterministic; the 2026-08-22
+run completed in 0.191 s, accepted 348, rejected 252 by actionable 5 mm AABB
+pairs, and reported two documented coarse-box exclusions.
+
+The real container acceptance uses the existing sourced MoveIt launch plus:
+
+```bash
+xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer \
+  --additional-module-paths \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules \
+  /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules \
+  /workspace/ros2_ws/src/DentoBot/DENTOWorkflow \
+  --python-script \
+  /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_slicer_moveit_smoke.py
+```
+
+Acceptance is the JSON report before shutdown. The recorded report includes
+`goal_root_matches_live_root=true`, `selected_tcp=dentobot_tool_tcp`, detected
+read-only MoveIt status, hidden execution, successful +1 mm generic IK, a
+25-point generic plan, Step 6 Cartesian fraction 1.0, J2/J4 at 0.02 m, and a
+200-sample workspace with 116 accepted and 84 actionable AABB rejections. The
+known SlicerROS2 VTK leak still causes process exit 1 after this explicit
+report; do not record that scripted process as a clean shutdown.
+
+## 16. DENTOBOT case-bundle persistence evidence — 2026-08-24
+
+Routine case persistence uses schema-V1 `.dentocase` packages. The required
+members are `manifest.json`, `scene/case.mrb`,
+`integrity/checksums.sha256`, `workflow/lineage.json`,
+`robot/robot-profile.json`, and `records/save-report.json`. The MRB is the sole
+geometry source; the JSON records are integrity, compatibility, provenance,
+and post-load validation evidence. Coordinate declarations are Slicer world
+RAS in millimetres, and numerical restore comparisons use `1e-6` tolerance.
+
+Host contract verification:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/dentobot-casebundle-full-pycache \
+  /home/light-tarun/miniconda3/envs/dentobot/bin/python \
+  -m pytest -q Testing dentobot_description/test
+```
+
+The recorded 2026-08-24 result was `67 passed`. Tests cover round trip,
+inventory and hash validation, path/duplicate rejection, serialized-ROS
+rejection, deterministic portable robot fingerprints, UI/install contracts,
+and the existing workflow/ROS/planning regressions.
+
+The real Slicer evidence uses
+`Testing/run_dentobot_case_bundle_smoke.py`. It opened the de-identified
+operator samples `test1_5C_FD14.mrb` and `test1_6_FD14.mrb`, saved and
+validated packages, reloaded them, and reproduced world-RAS trajectories,
+model point/cell counts and bounds, volume geometry, segmentation counts, and
+robot-base matrices to `1e-6`. It printed
+`DENTOBOT_CASE_BUNDLE_PASS`. The separate
+`Testing/run_dentobot_case_bundle_transaction_smoke.py` deliberately supplied
+a valid archive with mismatched workflow metadata, observed post-load
+rejection, restored the prior sentinel scene, and printed
+`DENTOBOT_CASE_BUNDLE_TRANSACTION_PASS`.
+
+Both scripts printed their explicit PASS marker before the pinned SlicerROS2
+VTK debug-leak report made scripted shutdown return 1. Record the marker as
+functional evidence but not as a clean process-shutdown result. These are
+software persistence results on representative saved research scenes; they do
+not validate anatomy, registration, robot accuracy, hardware safety, or
+clinical use. Normal-window operator acceptance and a regenerated current
+Step 5C package remain required.

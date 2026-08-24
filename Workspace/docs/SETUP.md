@@ -1113,3 +1113,150 @@ run_slicerros2_imaging_bridge_test.py'
 - Hardware, robot, tracking, and drilling interfaces; no robot hardware is
   currently present. The host Arduino pressure-monitor GUI is a sensing bench
   only.
+
+## Step 6 simulation robot + MoveIt (verified 2026-08-21)
+
+Use the normal launcher; do not start the description stack from Slicer:
+
+```bash
+cd /home/light-tarun/dentobot/ros2_ws/src/DentoBot
+Workspace/scripts/launch-dentoworkflow.bash --check-only
+Workspace/scripts/launch-dentoworkflow.bash
+```
+
+The launcher builds `dentobot_description` and `dentobot_moveit_config`, starts
+one simulation stack, waits for `/dentobot/simulation_status`, then opens
+SlicerROS2 with DENTO Workflow. The stack stops when that Slicer session exits.
+On every normal GUI invocation, it first restarts the dedicated
+`dentobot-slicerros2` container when that container is already running. This
+bounded restart stops stale Slicer, ROS 2, MoveIt, and test descendants while
+preserving the existing container filesystem and all bind-mounted workspace,
+data, and configuration paths. A stopped container is simply started. Compose
+may still recreate the container when its image or configuration has actually
+changed. Save any open Slicer scene before invoking the launcher: the clean
+restart intentionally discards unsaved in-container UI state.
+
+`--check-only` remains non-destructive. It does not restart a running
+container and refuses the check when an active DENTOBOT Slicer or simulation
+launch is found, allowing it to be used without interrupting an operator
+session.
+
+Its container-side shell keeps `errexit`, `nounset`, and `pipefail` for
+DENTOBOT logic, but temporarily disables only `nounset` while sourcing the
+trusted ROS Jazzy and workspace-generated setup files. This is required because
+Jazzy's ament setup reads optional tracing variables such as
+`AMENT_TRACE_SETUP_FILES` while they may be unset; leaving `nounset` enabled
+there prevents Slicer from being invoked.
+During source development, use the fixed-header **Reload Module (Dev)** button
+to reload `DENTOWorkflow.py` and every `Resources/Python/DENTO*.py` helper
+without restarting Slicer, the container, or the external ROS stack. The MRML
+scene remains loaded. The button cancels active backend work, disconnects the
+Slicer-side ROS robot, synchronously quiesces Motion Control, removes
+adapter-owned publishers/subscribers and obstacle proxies, then uses Slicer's
+supported scripted-module reload; reconnect the ROS robot after reloading when
+Step 6 testing is required. New Empty Case performs the same Slicer-side
+teardown while retaining only the hidden, non-serialized, process-owned default
+ROS node.
+
+Saved DENTOBOT MRB packages contain dental case geometry, the optional MRML
+fallback robot, and the Step 6 base transform, but never the live ROS robot,
+TF/parameter nodes, publishers, subscribers, MoveIt proxies, or an active-ROS
+flag. Load Saved Scene uses clear/replace semantics. On restore, stale Step 4C
+or Step 5C lineage deactivates Step 6 planning and requires regeneration and
+verification upstream.
+
+For a separate diagnostic terminal without Slicer, use:
+
+```bash
+Workspace/scripts/launch-dentobot-description-for-slicer.bash
+```
+
+Step 6 operator sequence:
+
+1. Load the draft phantom, place all four jaw landmarks once, and apply the
+   approximately 40 mm measured incisor gap; or import a completed case package.
+2. Press **Connect ROS + MoveIt (Simulation)**. The button only connects to the
+   externally ready stack; it does not launch anything.
+3. Create the mount plane, drag it to the forehead, snap the robot base, and use
+   arrows/keyboard nudges for fine placement. Lock the base before planning.
+4. Move individual joints through either the Step 6 joint rows or ROS2 Motion
+   Control. J2/J4 values are millimetres in the UI and metres on ROS.
+5. Set narrower task limits if desired and press **Generate / Refresh
+   Workspace**. The cyan points are accepted provisional-TCP origins from
+   deterministic joint-space FK sampling; regenerate after moving the base.
+6. To try one arbitrary TCP goal in generic Motion Control, open **3D Control**,
+   press **Current State**, and drag the TCP probe a small distance. A successful
+   KDL/MoveIt IK solve moves only the red goal robot. In **Trajectory
+   Generation**, leave the generator on MoveIt, press **Plan**, then **Preview**.
+7. For a case package, define a reachable Entry→Target line, press **Plan Motion
+   Along Trajectory**, and then **Preview Simulated Motion**. Planning requires
+   Cartesian fraction at least 0.99 and uses collision avoidance; failed joint
+   publication stops preview.
+
+Do not press or script Execute. The current `move_group` intentionally has no
+controller and reports that paths cannot be executed. `dentobot_tool_tcp` is at
+the uncalibrated CAD burr origin; the 5 mm clearance gate and generic phantom
+are draft design aids only.
+
+Manual and preview values use this ROS-only simulation chain:
+
+```text
+/dentobot/slicer_joint_positions
+  → /dentobot_collision_guard
+  → /dentobot/validated_joint_positions
+  → /dentobot_slicer_joint_state_publisher
+  → /joint_states
+```
+
+The guard checks the entire sampled transition, not only the requested end
+state. Revolute changes are divided into increments no larger than 1 degree;
+prismatic changes use increments no larger than 0.5 mm. Every sample must be
+inside URDF bounds, collision-free, and at least 5 mm from non-allowed robot
+links and current MoveIt world objects. A rejection restores the last accepted
+joint values in the Step 6 and Motion Control widgets. Locking the base uploads
+the current phantom/case/guide proxies; reconnect or re-lock after changing the
+scene. This is a design-test guard, not certified continuous collision safety.
+
+No explicit IK formula must be entered. The required model configuration is:
+
+- URDF link/joint tree with correct origins, axes, joint types, and limits;
+- SRDF group `dentobot_arm`, serial chain `base_link` to
+  `dentobot_tool_tcp`, and intentionally allowed adjacent contacts;
+- `kinematics.yaml` selecting
+  `kdl_kinematics_plugin/KDLKinematicsPlugin`.
+
+MoveIt constructs the RobotModel and KDL numerically solves a requested TCP
+pose from a seed joint state. `/compute_ik` tests a single pose. The current
+Step 6 `/compute_cartesian_path` call samples Entry-to-Target at a maximum
+0.5 mm end-effector step, seeds each IK solve from the preceding solution, and
+returns the completed fraction; Step 6 accepts at least 0.99. OMPL RRTConnect
+is installed for general obstacle-avoiding joint-space plans but is not the
+algorithm used by this straight Cartesian Step 6 request.
+
+Generic Motion Control interpretation:
+
+- **Robot:** current/grey subscribes to `/joint_states`; red goal is one target
+  joint configuration, not a precalculated workspace. Both must remain mounted
+  under the same Step 6 base.
+- **MoveIt:** `MoveIt ready (detected)` is read-only. The fixed group is
+  `dentobot_arm`; the end-effector selector shows the provisional
+  `dentobot_tool_tcp`. Planning time is only an upper bound for a request.
+- **Manual Joint Control:** suitable for the present free-movement design test;
+  every candidate still passes through the external transition guard.
+- **3D Control:** Home/Last Goal/Current State choose an initial goal state.
+  Current State creates the draggable TCP probe; moving it invokes numerical IK.
+- **Trajectory Generation:** MoveIt plans current-to-goal after IK. A
+  Simple Joint Trajectory also needs distinct start/goal states; it does not
+  invent a path from an unchanged goal. Preview animates simulation only.
+- **Planning Scene:** Step 6 uploads the phantom/case surfaces when the base is
+  locked. Use the generic obstacle list only for diagnostics.
+- The lower SlicerROS2 Parameters/Topics/TF2/Robots panels are diagnostic; no
+  normal Step 6 operator edit is required there.
+
+The workspace explorer is separate from IK. It maps a repeatable six-axis
+Halton sequence into the selected task limits and runs URDF FK. It filters
+other non-adjacent-link AABBs using 5 mm, excludes two displayed persistent
+CAD-box false positives, and filters only the provisional TCP origin against a
+subsampled environment point cloud. It does not perform exact mesh/swept-volume
+environment collision or prove orientation reachability; use MoveIt IK and
+planning for each candidate task pose.

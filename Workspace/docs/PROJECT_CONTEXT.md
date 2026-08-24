@@ -90,20 +90,23 @@ It is achieved using supported Slicer custom-build mechanisms.
 5. Review and correct teeth, pulp/canal, jaw, sinus, and related labels.
 6. Define, verify, and approve one or two Entry-to-Target trajectories using
    either manual placement or the optional assisted initializer.
-7. Derive the target-tooth/occlusal frame and generate the provisional
-   trajectory guide plus four independent robot/registration docking features.
-8. Select only the erupted, accessible support surfaces; establish insertion
+7. Select same-jaw support teeth and generate a traceable full-anatomy support
+   draft before any docking geometry is placed.
+8. Derive the target-tooth/occlusal frame and generate four provisional
+   robot/registration docks using the selected support anatomy first, and all
+   remaining same-jaw teeth second, in the collision-aware yaw screen.
+9. Select only the erupted, accessible support surfaces; establish insertion
    direction; process undercuts; and generate the patient-contact shell.
-9. Fuse shell, trajectory guide, reinforcement, and docking geometry into one
+10. Fuse shell, trajectory guide, reinforcement, and docking geometry into one
    referenced `FinalPrintableTemplate` model.
-10. Run the Step 5C PASS/WARNING/FAIL gate and export one atomic STL only from
+11. Run the Step 5C PASS/WARNING/FAIL gate and export one atomic STL only from
     the current verified unified model.
-11. Register image/planning space to the physical tooth/template and robot
+12. Register image/planning space to the physical tooth/template and robot
     frames.
-12. Calibrate tool, robot, and docking transforms.
-13. Rehearse navigation and motion in simulation.
-14. Connect to a robot adapter for supervised research experiments.
-15. Record inputs, transforms, plans, events, measurements, and verification
+13. Calibrate tool, robot, and docking transforms.
+14. Rehearse navigation and motion in simulation.
+15. Connect to a robot adapter for supervised research experiments.
+16. Record inputs, transforms, plans, events, measurements, and verification
     results.
 
 The precise dental procedure and the anatomical meaning of entry, target,
@@ -156,6 +159,13 @@ DENTOBOT will orchestrate rather than recreate:
 - markups and measurements
 - transforms and registration representation
 - scene save/reopen and subject hierarchy
+
+For routine DENTOBOT persistence, the Slicer MRB remains authoritative for
+case geometry and workflow references, while a versioned `.dentocase` wrapper
+adds integrity checks, workflow/coordinate lineage, and robot-resource
+fingerprints. Live ROS nodes, publishers, subscribers, TF state, Motion
+Control wrappers, and MoveIt proxies are never case content and must be
+reconstructed explicitly in Step 6.
 
 ### Isolate heavy Python dependencies
 
@@ -276,3 +286,52 @@ requests include an in-place Drive sync of the corresponding files and any
 other design documents changed in the same batch. This mirror is strictly for
 documentation and never includes patient data, inference artifacts, or
 credentials.
+
+## 2026-08-21 Step 6 robot-simulation checkpoint
+
+Step 6 now has a verified **simulation-only** ROS 2/MoveIt planning baseline.
+The DENTOBOT launcher owns `robot_state_publisher`, one guarded simulated
+`/joint_states` source, `move_group`, a collision-guard node, and a versioned
+readiness publisher.
+Slicer does not start, inspect, or kill ROS processes; it subscribes to the
+readiness contract, loads the URDF, aligns `base_link` to the manually placed
+forehead mount transform, submits manual joint candidates to the guard, and
+requests plans.
+
+The provisional planning frame is `dentobot_tool_tcp`, fixed at the CAD burr
+link origin with +Z aligned to the spindle axis. It is explicitly **not** a
+calibrated burr tip. MoveIt trajectory execution, controllers, hardware
+interfaces, drilling, and clinical safety claims remain disabled. The generic
+open-mouth phantom and 5 mm draft clearance policy remain disposable design
+checks, not patient registration or validated collision safety. Every manual
+or preview joint transition is interpolated and screened with MoveIt's exact
+URDF collision geometry before the accepted state reaches `/joint_states`.
+
+The fixed workflow header now includes **Reload Module (Dev)** for rapid source
+iteration. It preserves Slicer, the loaded MRML scene, the container, and the
+launcher-owned ROS stack while replacing `DENTOWorkflow.py` and all
+`Resources/Python/DENTO*.py` helper modules. To prevent stale callbacks and ROS
+MRML nodes, it cancels active inference work and disconnects the Slicer-side
+robot before replacement; Step 6 must reconnect afterward.
+
+## 2026-08-22 Motion Control usability and workspace checkpoint
+
+The generic SlicerROS2 Motion Control module is now adapted at runtime to the
+DENTOBOT simulation contract. The grey/current and red/goal robot hierarchies
+share the same Step 6 forehead-base parent, so a goal is a second joint
+configuration of the mounted robot rather than a second world-origin robot.
+The UI displays detected MoveIt readiness, fixes the planning group to
+`dentobot_arm`, exposes the provisional `dentobot_tool_tcp` even though the
+SRDF has no separate end-effector group, and reports IK/plan results beside the
+controls. Execute remains hidden and disabled.
+
+Step 6 also has a separate draft TCP Workspace Explorer. It maps a
+deterministic six-dimensional Halton sequence into the selected task joint
+limits, evaluates each vector using URDF forward kinematics, and renders the
+accepted provisional-TCP origins as a base-parented point cloud. The coarse
+fallback rejects non-adjacent robot AABBs below 5 mm and TCP origins below the
+configured subsampled environment clearance. Two documented CAD-AABB pairs
+that overlap at every pose but are accepted by MoveIt/FCL are excluded only
+from this draft box gate; MoveIt remains authoritative for ROS-active motion.
+The cloud is a design-coverage aid, not an IK proof, exact mesh/swept collision
+result, calibrated tool workspace, or clinical validation.

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<robot name="dentobot">
+  <group name="dentobot_arm">
+    <chain base_link="base_link" tip_link="dentobot_tool_tcp"/>
+  </group>
+
+  <group_state name="draft_zero" group="dentobot_arm">
+    <joint name="link-1_Revolute-1" value="0"/>
+    <joint name="link-2_Slider-2" value="0"/>
+    <joint name="link-3_Revolute-3" value="0"/>
+    <joint name="link-4_Slider-4" value="0"/>
+    <joint name="link-5_Revolute-5" value="0"/>
+    <joint name="pneumatic_spindle-Copy_Revolute-6" value="0"/>
+  </group_state>
+
+  <!-- Adjacent meshes share mechanical interfaces and are intentionally
+       excluded. Non-adjacent pairs remain collision checked. -->
+  <disable_collisions link1="base_link" link2="link-1" reason="Adjacent"/>
+  <disable_collisions link1="link-1" link2="link-2" reason="Adjacent"/>
+  <disable_collisions link1="link-2" link2="link-3" reason="Adjacent"/>
+  <disable_collisions link1="link-3" link2="link-4" reason="Adjacent"/>
+  <disable_collisions link1="link-4" link2="link-5" reason="Adjacent"/>
+  <disable_collisions link1="link-5" link2="pneumatic_spindle-Copy" reason="Adjacent"/>
+  <disable_collisions link1="pneumatic_spindle-Copy" link2="burr" reason="Adjacent"/>
+  <disable_collisions link1="burr" link2="dentobot_tool_tcp" reason="Adjacent"/>
+</robot>

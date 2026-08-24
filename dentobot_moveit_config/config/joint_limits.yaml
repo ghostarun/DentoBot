@@ -1,0 +1,33 @@
+# Conservative research defaults for simulation preview only. These values are
+# not actuator specifications and must not be used as hardware safety limits.
+joint_limits:
+  link-1_Revolute-1:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  link-2_Slider-2:
+    has_velocity_limits: true
+    max_velocity: 0.02
+    has_acceleration_limits: true
+    max_acceleration: 0.05
+  link-3_Revolute-3:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  link-4_Slider-4:
+    has_velocity_limits: true
+    max_velocity: 0.02
+    has_acceleration_limits: true
+    max_acceleration: 0.05
+  link-5_Revolute-5:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  pneumatic_spindle-Copy_Revolute-6:
+    has_velocity_limits: true
+    max_velocity: 1.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0

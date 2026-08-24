@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Start dentobot_description for SlicerROS2 (no RViz). Use with DENTOWorkflow
-# Step 6 "Start Stack & Connect Motion Control" or the ROS2 module Load Robot
-# workflow. Joint states are driven by Motion Control sliders, not a neutral pose.
+# Start the external DENTOBOT description + MoveIt simulation stack without
+# opening Slicer. Joint states are driven by Slicer messages when it connects.
 
 set -euo pipefail
 
@@ -13,8 +12,8 @@ usage() {
   printf '%s\n' \
     "Usage: scripts/launch-dentobot-description-for-slicer.bash [--check-only]" \
     "" \
-    "Start robot_state_publisher and the Slicer-driven joint_states bridge." \
-    "Does not open RViz or the manual PyQt slider window." \
+    "Start robot_state_publisher, one Slicer joint-state source, and MoveIt." \
+    "Planning is enabled; trajectory execution and hardware are disabled." \
     "" \
     "--check-only  Verify the container and package build without launching."
 }
@@ -48,16 +47,22 @@ fi
 docker exec "${container_name}" bash -lc '
   source /opt/ros/jazzy/setup.bash
   cd /workspace/ros2_ws
-  colcon build --symlink-install --packages-select dentobot_description
+  python3 -c "import moveit_configs_utils"
+  command -v xacro >/dev/null
+  colcon build --symlink-install \
+    --base-paths \
+      /workspace/ros2_ws/src/DentoBot/dentobot_description \
+      /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
+    --packages-select dentobot_description dentobot_moveit_config
 '
 
 active_description_processes="$(
   docker exec "${container_name}" ps -eo pid=,stat=,comm=,args= \
     | awk '
         $2 !~ /^Z/ &&
-        ($3 == "robot_state_pub" ||
+        ($3 == "robot_state_pub" || $3 == "move_group" ||
          $0 ~ /dentobot_(manual|neutral|slicer)_joint_state_publisher/ ||
-         $0 ~ /ros2 launch dentobot_description/) {
+         $0 ~ /ros2 launch (dentobot_description|dentobot_moveit_config)/) {
           print
         }
       '
@@ -75,18 +80,17 @@ if [[ -n ${active_description_processes} ]]; then
 fi
 
 if [[ ${check_only} == true ]]; then
-  printf 'DENTOBOT description-for-Slicer check passed.\n'
+  printf 'DENTOBOT simulation-stack check passed.\n'
   exit 0
 fi
 
 printf '%s\n' \
-  'Starting dentobot_description (no RViz, Slicer-driven joint_states).' \
+  'Starting the DENTOBOT simulation stack (description + MoveIt).' \
   'Press Ctrl+C in this terminal to stop the stack.' \
-  'Then in Slicer: DENTO Workflow Step 6 → Start Stack & Connect Motion Control.'
+  'Then in Slicer: DENTO Workflow Step 6 → Connect Motion Control.'
 
 docker exec -it "${container_name}" bash -lc '
   source /opt/ros/jazzy/setup.bash
   source /workspace/ros2_ws/install/setup.bash
-  exec ros2 launch dentobot_description description.launch.py \
-    use_rviz:=false joint_state_mode:=slicer
+  exec ros2 launch dentobot_moveit_config simulation.launch.py
 '
