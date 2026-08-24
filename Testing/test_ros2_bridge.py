@@ -209,6 +209,24 @@ def test_step6_joint_controls_publish_when_ros_robot_is_active():
     handler = workflow.split("def onRobotJointValueChanged", 1)[1].split(
         "def onRobotBaseTransformSelectionChanged", 1
     )[0]
-    assert "isRos2MotionControlActive" in handler
-    assert "apply_joint_positions_si_to_motion_control" in handler
-    assert "last_accepted_joint_positions_si" in handler
+    assert "_robotWorkflowFacade.requestCurrentJointState()" in handler
+    facade = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    request = facade.split("def requestCurrentJointState", 1)[1].split(
+        "def setBasePose", 1
+    )[0]
+    assert "apply_joint_positions_si_to_motion_control" in request
+    assert "last_accepted_joint_positions_si" in request
+
+
+def test_robot_facade_exposes_moveit_goal_without_hardware_execute_path():
+    bridge = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    facade = (HELPERS / "DENTORobotWorkflowFacade.py").read_text(encoding="utf-8")
+    assert "def ensure_moveit_tcp_goal_control" in bridge
+    assert "def solve_moveit_tcp_goal" in bridge
+    assert "def plan_moveit_joint_goal" in bridge
+    assert "def solveIk" in facade
+    assert "def planToGoal" in facade
+    assert "def execute" not in facade

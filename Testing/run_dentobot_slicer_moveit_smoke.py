@@ -28,6 +28,7 @@ from DENTOROS2Bridge import (  # noqa: E402
     plan_moveit_cartesian_path,
     shutdown_slicer_adapter,
 )
+from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade  # noqa: E402
 from DENTOWorkflow import DENTOWorkflowLogic  # noqa: E402
 
 
@@ -91,6 +92,22 @@ def run() -> dict[str, object]:
     )
     if robot is None:
         raise RuntimeError(error)
+    robot_facade = DENTORobotWorkflowFacade(
+        workflow_logic,
+        lambda: parameter_node,
+    )
+    capabilities = robot_facade.capabilities()
+    if not (
+        capabilities.simulation_only
+        and capabilities.connected
+        and capabilities.move_group_available
+        and capabilities.ik_available
+        and capabilities.collision_check_available
+        and capabilities.single_joint_state_source
+        and capabilities.planning_group == "dentobot_arm"
+        and capabilities.tcp_link == "dentobot_tool_tcp"
+    ):
+        raise RuntimeError(f"unexpected robot façade capabilities: {capabilities}")
     root_tip = robot.FindRootAndTipLinks()
     if not root_tip or root_tip[0] != "base_link" or root_tip[-1] != "dentobot_tool_tcp":
         raise RuntimeError(f"unexpected robot chain endpoints: {root_tip}")
@@ -191,21 +208,20 @@ def run() -> dict[str, object]:
                 probe_matrix.GetElement(axis, 3) + offset[axis],
             )
         motion_widget.fromtransform.SetMatrixTransformToParent(probe_matrix)
-        ik_solution = motion_widget.logic.computeIKWithMoveIt(
-            robotmodel=robot,
-            tipLink="dentobot_tool_tcp",
-        )
-        if ik_solution:
+        ik_result = robot_facade.solveIk()
+        if ik_result.success:
+            ik_solution = ik_result.payload
             ik_offset_world_mm = offset
             break
     if not ik_solution:
         raise RuntimeError("generic 3D Control failed all 1 mm MoveIt IK targets")
     if "IK solution found" not in motion_status.text:
         raise RuntimeError("successful IK result was not shown in the Motion Control UI")
-    motion_widget.ui.generatorComboBox.setCurrentIndex(0)
-    motion_widget.onPlanButton()
+    facade_plan = robot_facade.planToGoal()
+    if not facade_plan.success:
+        raise RuntimeError(facade_plan.message)
     if motion_widget.trajectoryData is None:
-        raise RuntimeError("generic MoveIt Plan returned no trajectory")
+        raise RuntimeError("façade MoveIt Plan returned no trajectory")
     generic_points = motion_widget.trajectoryData.GetJointTrajectory().GetPoints()
     if not generic_points:
         raise RuntimeError("generic MoveIt Plan returned an empty trajectory")
@@ -296,6 +312,7 @@ def run() -> dict[str, object]:
         "generic_ik_success": True,
         "generic_ik_offset_world_mm": ik_offset_world_mm,
         "generic_plan_points": len(generic_points),
+        "facade_contract": True,
         "moveit_status_read_only": True,
         "selected_tcp": selected_tcp,
         "execution_enabled": False,

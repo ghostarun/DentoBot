@@ -1,0 +1,64 @@
+QWidget#DENTOBOTNavigationPanel,
+QWidget#DENTOBOTTaskPanel {
+  background: #f5f7fa;
+  color: #1f2933;
+  font-size: 12px;
+}
+QWidget#DENTOBOTHeader {
+  background: #ffffff;
+  border: 1px solid #d8e0e8;
+  border-radius: 6px;
+}
+QLabel[dentobotRole="brand"] {
+  color: #124e6a;
+  font-size: 22px;
+  font-weight: 700;
+}
+QLabel[dentobotRole="heading"] {
+  color: #124e6a;
+  font-size: 16px;
+  font-weight: 700;
+}
+QLabel[dentobotRole="muted"] { color: #5d6b78; }
+QLabel[dentobotRole="warning"] {
+  color: #9a4f00;
+  font-weight: 700;
+}
+QLabel[dentobotRole="status"] {
+  background: #e9f2f7;
+  border-left: 3px solid #2b7a9b;
+  color: #29414f;
+  padding: 8px;
+}
+QLabel[dentobotState="ok"] { color: #176b2c; }
+QLabel[dentobotState="blocked"] { color: #7a5a24; }
+QLabel[dentobotState="error"] { color: #b00020; font-weight: 600; }
+QPushButton[dentobotRole="workspace"] {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #344451;
+  padding: 8px 10px;
+  text-align: left;
+}
+QPushButton[dentobotRole="workspace"]:hover {
+  background: #e8eef3;
+  border-color: #ccd7e0;
+}
+QPushButton[dentobotRole="workspace"]:checked {
+  background: #d9ecf5;
+  border-color: #2b7a9b;
+  color: #124e6a;
+  font-weight: 700;
+}
+QPushButton[dentobotRole="workspace"][dentobotRecommended="true"]:!checked {
+  border-right: 3px solid #2b7a9b;
+}
+QPushButton, QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox {
+  min-height: 26px;
+}
+QToolTip {
+  background: #ffffff;
+  color: #1f2933;
+  border: 1px solid #9eacb8;
+}

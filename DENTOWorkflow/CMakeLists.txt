@@ -4,11 +4,14 @@ set(MODULE_NAME DENTOWorkflow)
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
+  Resources/Python/DENTOApplicationShell.py
   Resources/Python/DENTOCaseBundle.py
   Resources/Python/DENTOGuideGeometry.py
   Resources/Python/DENTOPlatform.py
   Resources/Python/DENTOROS2Bridge.py
   Resources/Python/DENTORobotPlacement.py
+  Resources/Python/DENTORobotSimulationPanel.py
+  Resources/Python/DENTORobotWorkflowFacade.py
   Resources/Python/DENTOStep6Planning.py
   Resources/Python/DENTOTemplateGeometry.py
   Resources/Python/DENTOTrajectoryGeometry.py
@@ -16,6 +19,8 @@ set(MODULE_PYTHON_SCRIPTS
 
 set(MODULE_PYTHON_RESOURCES
   Resources/UI/${MODULE_NAME}.ui
+  Resources/Themes/dentobot-light.qss
+  Resources/Themes/dentobot-dark.qss
   )
 
 # Keep one source copy in dentobot_description while making the exact tracked

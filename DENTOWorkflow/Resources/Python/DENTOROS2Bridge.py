@@ -1317,6 +1317,166 @@ def plan_moveit_cartesian_path(
     )
 
 
+def _dentobot_motion_widget_context(*, initialize_goal: bool = False):
+    """Return the configured generic Motion Control objects for façade use."""
+    try:
+        import slicer
+    except ImportError:
+        return None, None, None, ROS2_UNAVAILABLE_MESSAGE
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
+    if robot_node is None or widget is None:
+        return None, None, None, "Connect DENTOBOT Motion Control first."
+    parameter_node = get_motion_control_logic().getParameterNode()
+    if not configure_dentobot_motion_control_ui(widget, parameter_node):
+        return None, None, None, "Could not configure DENTOBOT plan-only Motion Control."
+    if initialize_goal and widget.fromtransform is None:
+        widget.onCurrentStateButton()
+        widget.enterControlMode()
+    if widget.fromtransform is None:
+        return widget, robot_node, None, "Create the DENTOBOT TCP goal control first."
+    return widget, robot_node, widget.fromtransform, ""
+
+
+def ensure_moveit_tcp_goal_control():
+    """Create or reuse the draggable provisional-TCP goal transform."""
+    widget, _robot, goal_node, error = _dentobot_motion_widget_context(
+        initialize_goal=True
+    )
+    if error or widget is None or goal_node is None:
+        return False, error or "TCP goal control is unavailable.", None
+    return (
+        True,
+        "DENTOBOT TCP goal is ready. Drag the probe, then solve IK.",
+        goal_node,
+    )
+
+
+def set_moveit_tcp_goal_matrix(matrix_goal_parent):
+    """Set the generic Motion Control TCP probe without exposing its widget."""
+    ok, message, goal_node = ensure_moveit_tcp_goal_control()
+    if not ok or goal_node is None:
+        return False, message, None
+    try:
+        if hasattr(matrix_goal_parent, "GetElement"):
+            goal_node.SetMatrixTransformToParent(matrix_goal_parent)
+        else:
+            import vtk
+
+            matrix = vtk.vtkMatrix4x4()
+            matrix.Identity()
+            for row in range(4):
+                for column in range(4):
+                    matrix.SetElement(row, column, float(matrix_goal_parent[row][column]))
+            goal_node.SetMatrixTransformToParent(matrix)
+    except (TypeError, ValueError, IndexError) as exc:
+        return False, f"Invalid TCP goal matrix: {exc}", goal_node
+    return True, "Updated the provisional TCP goal transform.", goal_node
+
+
+def solve_moveit_tcp_goal():
+    """Solve the current goal probe through the configured MoveIt IK plugin."""
+    widget, robot_node, _goal_node, error = _dentobot_motion_widget_context(
+        initialize_goal=False
+    )
+    if error or widget is None or robot_node is None:
+        return False, error or "TCP goal control is unavailable.", {}
+    try:
+        solution = widget.logic.computeIKWithMoveIt(
+            robotmodel=robot_node,
+            tipLink=ROS2_TOOL_TCP_LINK,
+        )
+    except Exception as exc:
+        return False, f"MoveIt IK request failed: {exc}", {}
+    if not solution:
+        return (
+            False,
+            "MoveIt found no collision-aware IK solution for the requested TCP pose.",
+            {},
+        )
+    joint_names = [str(name) for name in robot_node.GetJoints()]
+    if len(joint_names) != len(solution):
+        return False, "MoveIt IK returned a joint-count mismatch.", {}
+    by_name = dict(zip(joint_names, map(float, solution)))
+    missing = [name for name in ROS2_JOINT_SI_ORDER if name not in by_name]
+    if missing:
+        return False, "MoveIt IK omitted: " + ", ".join(missing), {}
+    ordered = {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+    return (
+        True,
+        f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
+        ordered,
+    )
+
+
+def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
+    ok, message = _trajectory_motion_summary(trajectory)
+    if not ok:
+        return MoveItCartesianResult(False, message)
+    joint_trajectory = trajectory.GetJointTrajectory()
+    names = [str(name) for name in joint_trajectory.GetJointNames()]
+    missing = [name for name in ROS2_JOINT_SI_ORDER if name not in names]
+    if missing:
+        return MoveItCartesianResult(
+            False,
+            "MoveIt trajectory omitted: " + ", ".join(missing),
+        )
+    waypoints: list[dict[str, float]] = []
+    times: list[float] = []
+    for point in joint_trajectory.GetPoints():
+        values = [float(value) for value in point.GetPositions()]
+        if len(values) != len(names):
+            return MoveItCartesianResult(
+                False,
+                "MoveIt returned a malformed joint point.",
+            )
+        by_name = dict(zip(names, values))
+        waypoints.append({name: by_name[name] for name in ROS2_JOINT_SI_ORDER})
+        times.append(_trajectory_time_seconds(point))
+    return MoveItCartesianResult(
+        True,
+        message,
+        fraction=1.0,
+        waypoint_joint_vectors_si=tuple(waypoints),
+        waypoint_times_sec=tuple(times),
+    )
+
+
+def plan_moveit_joint_goal() -> MoveItCartesianResult:
+    """Plan current joints to the most recent successful TCP IK goal."""
+    widget, robot_node, _goal_node, error = _dentobot_motion_widget_context(
+        initialize_goal=False
+    )
+    if error or widget is None or robot_node is None:
+        return MoveItCartesianResult(False, error or "TCP goal control is unavailable.")
+    if not getattr(widget.logic, "last_ik_solution", None):
+        return MoveItCartesianResult(
+            False,
+            "Solve a distinct TCP IK goal before planning.",
+        )
+    moveit_index = -1
+    combo = widget.ui.generatorComboBox
+    for index in range(int(combo.count)):
+        if "moveit" in str(combo.itemText(index)).lower():
+            moveit_index = index
+            break
+    if moveit_index < 0:
+        return MoveItCartesianResult(False, "MoveIt trajectory generator is unavailable.")
+    combo.setCurrentIndex(moveit_index)
+    previous = widget.trajectoryData
+    try:
+        widget.onPlanButton()
+    except Exception as exc:
+        return MoveItCartesianResult(False, f"MoveIt goal planning failed: {exc}")
+    trajectory = widget.trajectoryData
+    if trajectory is previous:
+        return MoveItCartesianResult(
+            False,
+            "MoveIt returned no new goal trajectory.",
+        )
+    return _moveit_trajectory_result(trajectory)
+
+
 def sync_moveit_obstacle_polydata(
     *,
     source_id: str,

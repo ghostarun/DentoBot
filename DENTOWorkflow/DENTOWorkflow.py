@@ -81,6 +81,11 @@ from DENTOCaseBundle import (
     extract_scene_mrb,
     validate_case_bundle,
 )
+from DENTOApplicationShell import (
+    DENTOApplicationShell,
+    GUI_MODE_LEGACY,
+    GUI_MODE_SHELL,
+)
 from DENTOTrajectoryGeometry import infer_root_targets
 from DENTORobotPlacement import (
     joint_positions_si_from_display,
@@ -91,6 +96,8 @@ from DENTORobotPlacement import (
     world_transform_to_parent_local,
     vtk_matrix_elements,
 )
+from DENTORobotSimulationPanel import DENTORobotSimulationPanel
+from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade
 from DENTOROS2Bridge import (
     ROS2_DEFAULT_SLICER_NODE,
     ROS2_MOTION_ACTIVE_ATTRIBUTE,
@@ -332,6 +339,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._guidanceToolButton = None
         self._viewControlsPaletteDesiredVisible = False
         self._viewControlsPaletteGeometryRestored = False
+        self._applicationShell: DENTOApplicationShell | None = None
+        self._guiModeButton = None
         self._cbctWindowSlider = None
         self._cbctLevelSlider = None
         self._cbctWindowSliderValueLabel = None
@@ -411,6 +420,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._restoringTemplateTrimPlane = False
         self._robotKeyboardShortcuts: list[qt.QShortcut] = []
         self._robotBaseTransformNode = None
+        self._robotWorkflowFacade: DENTORobotWorkflowFacade | None = None
+        self._robotSimulationPanel: DENTORobotSimulationPanel | None = None
         self._step6MotionPlan: MotionPlanResult | None = None
         self._step6MotionPreviewTimer = None
         self._step6MotionPreviewIndex = 0
@@ -549,6 +560,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             nodeSelector.setMRMLScene(slicer.mrmlScene)
 
         self.logic = DENTOWorkflowLogic()
+        self._robotWorkflowFacade = DENTORobotWorkflowFacade(
+            self.logic,
+            lambda: self._parameterNode,
+        )
         self._setupWorkflowNavigation()
         self.ui.assistedTrajectoryCountComboBox.clear()
         self.ui.assistedTrajectoryCountComboBox.addItem(
@@ -1276,6 +1291,264 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self._addSceneObservers()
         self.initializeParameterNode()
+        self._setupApplicationShell()
+
+    def _setupRobotSimulationShellPanel(self) -> None:
+        if self._robotSimulationPanel is not None:
+            return
+        self._robotSimulationPanel = DENTORobotSimulationPanel(
+            self.ui.robotPlacementCollapsibleButton,
+            {
+                "connect": self._onShellConnectRobot,
+                "disconnect": self._onShellDisconnectRobot,
+                "load_fallback": self._onShellLoadFallbackRobot,
+                "create_goal": self._onShellCreateTcpGoal,
+                "solve_ik": self._onShellSolveIk,
+                "plan_goal": self._onShellPlanGoal,
+                "refresh": self._refreshShellRobotCapabilities,
+                "sync_collision": self._onShellSyncCollisionScene,
+                "check_state": self._onShellCheckRobotState,
+            },
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.runtimeGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.goalGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.collisionGroup
+        )
+
+    def _refreshShellRobotCapabilities(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        self._robotSimulationPanel.updateCapabilities(
+            self._robotWorkflowFacade.capabilities()
+        )
+
+    def _onShellConnectRobot(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.connect(open_motion_module=False)
+        self._robotSimulationPanel.showRuntimeResult(result)
+        if result.success:
+            self._updateRobotPlacement()
+            self._applyStep6RecommendedView()
+        else:
+            slicer.util.errorDisplay(result.message)
+        self._refreshShellRobotCapabilities()
+
+    def _onShellDisconnectRobot(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.disconnect()
+        self._robotSimulationPanel.showRuntimeResult(result)
+        if result.success:
+            self._updateRobotPlacement()
+        else:
+            slicer.util.errorDisplay(result.message)
+        self._refreshShellRobotCapabilities()
+
+    def _onShellLoadFallbackRobot(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.loadRobot()
+        self._robotSimulationPanel.showRuntimeResult(result)
+        if result.success:
+            self._updateRobotPlacement()
+            self.onFrameStep6ResearchWorkspace()
+        else:
+            slicer.util.errorDisplay(result.message)
+        self._refreshShellRobotCapabilities()
+
+    def _onShellCreateTcpGoal(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.ensureTcpGoal()
+        self._robotSimulationPanel.showGoalResult(result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onShellSolveIk(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.solveIk()
+        self._robotSimulationPanel.showGoalResult(result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onShellPlanGoal(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.planToGoal()
+        self._robotSimulationPanel.showGoalResult(result)
+        self._step6MotionPlan = result.payload if result.success else None
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onShellSyncCollisionScene(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.syncPlanningScene()
+        self._robotSimulationPanel.showCollisionResult(result)
+        self._refreshShellRobotCapabilities()
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onShellCheckRobotState(self) -> None:
+        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+            return
+        result = self._robotWorkflowFacade.checkStateValidity()
+        self._robotSimulationPanel.showCollisionResult(result)
+        if not result.success and result.code != "state_invalid":
+            slicer.util.errorDisplay(result.message)
+
+    def _onApplicationShellSubstepSelected(
+        self,
+        workspace_id: str,
+        substep_index: int,
+    ) -> None:
+        if workspace_id != "robot_simulation":
+            return
+        self._configureRobotSimulationShellSubstep(substep_index)
+
+    def _configureRobotSimulationShellSubstep(self, substep_index: int) -> None:
+        if not self._robotSimulationPanel:
+            return
+        index = max(0, min(int(substep_index), 5))
+        groups = (
+            self.ui.step6PlanningContextGroupBox,
+            self.ui.step6MountLockGroupBox,
+            self.ui.step6TaskJointLimitsGroupBox,
+            self.ui.step6WorkspaceGroupBox,
+            self.ui.step6TrajectoryPlanningGroupBox,
+            self._robotSimulationPanel.runtimeGroup,
+            self._robotSimulationPanel.goalGroup,
+            self._robotSimulationPanel.collisionGroup,
+        )
+        for group in groups:
+            group.visible = False
+        visible_by_substep = {
+            0: (
+                self.ui.step6PlanningContextGroupBox,
+                self._robotSimulationPanel.runtimeGroup,
+            ),
+            1: (self.ui.step6MountLockGroupBox,),
+            2: (self.ui.step6TaskJointLimitsGroupBox,),
+            3: (
+                self._robotSimulationPanel.goalGroup,
+                self.ui.step6WorkspaceGroupBox,
+            ),
+            4: (self._robotSimulationPanel.collisionGroup,),
+            5: (self.ui.step6TrajectoryPlanningGroupBox,),
+        }
+        for group in visible_by_substep[index]:
+            group.visible = True
+        self.ui.ros2MotionControlGroupBox.visible = index != 1
+        self.ui.robotPlacementDescriptionLabel.visible = index == 0
+        if index in {0, 3, 4}:
+            self._refreshShellRobotCapabilities()
+
+    def _restoreLegacyRobotSimulationGroups(self) -> None:
+        if not self._robotSimulationPanel:
+            return
+        for group in (
+            self.ui.step6PlanningContextGroupBox,
+            self.ui.step6MountLockGroupBox,
+            self.ui.step6TaskJointLimitsGroupBox,
+            self.ui.step6WorkspaceGroupBox,
+            self.ui.step6TrajectoryPlanningGroupBox,
+        ):
+            group.visible = True
+        self.ui.ros2MotionControlGroupBox.visible = True
+        self.ui.robotPlacementDescriptionLabel.visible = True
+        self._robotSimulationPanel.runtimeGroup.visible = False
+        self._robotSimulationPanel.goalGroup.visible = False
+        self._robotSimulationPanel.collisionGroup.visible = False
+
+    def _setupApplicationShell(self) -> None:
+        """Install the opt-in six-workspace shell without duplicating controls."""
+        if self._applicationShell is not None:
+            return
+        self._setupRobotSimulationShellPanel()
+        self._guiModeButton = qt.QPushButton(
+            _("Try New GUI"),
+            self.ui.workflowNavigationGroupBox,
+        )
+        self._guiModeButton.objectName = "switchDENTOBOTGuiModeButton"
+        self._guiModeButton.toolTip = _(
+            "Switch between the current eleven-stage module and the new "
+            "six-workspace DENTOBOT application shell. MRML and backend state "
+            "are shared; no case data is copied."
+        )
+        self.ui.workflowNavigationLayout.addWidget(
+            self._guiModeButton,
+            3,
+            0,
+            1,
+            4,
+        )
+        self._guiModeButton.connect(
+            "clicked(bool)",
+            self.onToggleDENTOBOTGuiMode,
+        )
+        self._applicationShell = DENTOApplicationShell(
+            main_window=slicer.util.mainWindow(),
+            module_layout=self.layout,
+            workflow_widget=self._uiWidget,
+            ui=self.ui,
+            set_stage=lambda index: self._setWorkflowStage(index),
+            resource_path=self.resourcePath,
+            on_mode_requested=self._applyDENTOBOTGuiMode,
+            on_substep_selected=self._onApplicationShellSubstepSelected,
+        )
+        self._applyDENTOBOTGuiMode(
+            DENTOApplicationShell.storedGuiMode(),
+            persist=False,
+        )
+
+    def onToggleDENTOBOTGuiMode(self, checked: bool = False) -> None:
+        del checked
+        if not self._applicationShell:
+            return
+        target = (
+            GUI_MODE_LEGACY
+            if self._applicationShell.active
+            else GUI_MODE_SHELL
+        )
+        self._applyDENTOBOTGuiMode(target)
+
+    def _applyDENTOBOTGuiMode(
+        self,
+        mode: str,
+        *,
+        persist: bool = True,
+    ) -> None:
+        if not self._applicationShell:
+            return
+        mode = GUI_MODE_SHELL if mode == GUI_MODE_SHELL else GUI_MODE_LEGACY
+        if persist:
+            DENTOApplicationShell.storeGuiMode(mode)
+        if mode == GUI_MODE_SHELL:
+            try:
+                stage_index = int(self.ui.workflowStageComboBox.currentIndex)
+                recommended = self._recommendedWorkflowStageIndex()
+                self._applicationShell.activate(stage_index, recommended)
+                self._applicationShell.updateCaseAndRuntime(
+                    self._parameterNode.caseName if self._parameterNode else "",
+                )
+                self._guiModeButton.text = _("New GUI Active")
+            except RuntimeError as exc:
+                DENTOApplicationShell.storeGuiMode(GUI_MODE_LEGACY)
+                self._applicationShell.deactivate()
+                self._guiModeButton.text = _("Try New GUI")
+                slicer.util.errorDisplay(str(exc))
+        else:
+            self._applicationShell.deactivate()
+            self._restoreLegacyRobotSimulationGroups()
+            self._guiModeButton.text = _("Try New GUI")
 
     def onReloadDENTOWorkflowModule(self, checked: bool = False) -> None:
         """Reload DENTOBOT Python sources while preserving Slicer and ROS."""
@@ -2375,85 +2648,49 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onConnectRos2MotionControl(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        if self._step6SceneKind() not in {"case", "phantom"}:
-            slicer.util.errorDisplay(
-                _("Choose a Step 6 scene before connecting the ROS robot."),
-            )
-            return
-        try:
-            base_transform = self.logic.ensureRobotBaseTransform(
-                self._parameterNode.robotBaseTransform,
-            )
-            self._parameterNode.robotBaseTransform = base_transform
-            phantom_models = self.logic.draftPhantomModelNodes()
-            if phantom_models:
-                self.logic.positionRobotBaseNearResearchPhantom(
-                    base_transform,
-                    phantom_models,
-                )
-            mrml_models = self.logic.robotModelNodes()
-            robot_node, error = connect_dentobot_motion_control(
-                base_transform,
-                hide_mrml_robot=bool(mrml_models),
-                mrml_robot_models=mrml_models,
-                open_motion_module=True,
-                start_stack_if_needed=False,
-            )
-            if error or robot_node is None:
-                if is_ros2_runtime_unavailable_message(error or ""):
-                    if slicer.util.confirmYesNoDisplay(
-                        (error or "")
+        result = self._robotWorkflowFacade.connect(open_motion_module=True)
+        if not result.success:
+            if is_ros2_runtime_unavailable_message(result.message):
+                if slicer.util.confirmYesNoDisplay(
+                        result.message
                         + "\n\n"
                         + _(
                             "Load the local URDF robot in MRML instead so you "
                             "can place and lock it?"
                         )
-                    ):
-                        self.onLoadRobotModel()
+                ):
+                    fallback = self._robotWorkflowFacade.loadRobot()
+                    if fallback.success:
+                        self._updateRobotPlacement()
+                        self._applyStep6RecommendedView()
                         self._updateRos2MotionControlStatus(
-                            _(
-                                "ROS2 module missing; loaded the MRML robot "
-                                "fallback."
-                            )
+                            _("ROS2 module missing; loaded the MRML robot fallback.")
                         )
                         return
-                raise RuntimeError(error or _("ROS 2 robot node was not created."))
-            self._updateRobotPlacement()
-            self._applyStep6RecommendedView()
             self._updateRos2MotionControlStatus(
-                _(
-                    "Connected SlicerROS2 robot with plan-only MoveIt Motion "
-                    "Control. The self-collision guard is active; lock the "
-                    "placed base to sync head/case collision surfaces."
-                )
+                _("ROS 2 connect failed: %1").replace("%1", result.message)
             )
-        except (RuntimeError, ValueError, OSError) as exc:
-            self._updateRos2MotionControlStatus(
-                _("ROS 2 connect failed: %1").replace("%1", str(exc))
-            )
-            slicer.util.errorDisplay(str(exc))
+            slicer.util.errorDisplay(result.message)
+            return
+        self._updateRobotPlacement()
+        self._applyStep6RecommendedView()
+        self._updateRos2MotionControlStatus(result.message)
 
     def onDisconnectRos2MotionControl(self, checked: bool = False) -> None:
         del checked
-        if not self.logic:
+        if not self.logic or not self._robotWorkflowFacade:
             return
-        try:
-            ok, message = disconnect_dentobot_motion_control(
-                self.logic.robotModelNodes(),
-            )
-            if not ok:
-                raise RuntimeError(message)
-            self._updateRobotPlacement()
+        result = self._robotWorkflowFacade.disconnect()
+        if not result.success:
             self._updateRos2MotionControlStatus(
-                _("Disconnected ROS 2 robot; MRML link meshes restored.")
+                _("ROS 2 disconnect failed: %1").replace("%1", result.message)
             )
-        except (RuntimeError, ValueError, OSError) as exc:
-            self._updateRos2MotionControlStatus(
-                _("ROS 2 disconnect failed: %1").replace("%1", str(exc))
-            )
-            slicer.util.errorDisplay(str(exc))
+            slicer.util.errorDisplay(result.message)
+            return
+        self._updateRobotPlacement()
+        self._updateRos2MotionControlStatus(result.message)
 
     def _clearRobotPlacement(self) -> None:
         if not hasattr(self, "ui"):
@@ -2508,33 +2745,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onLoadRobotModel(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        if self._step6SceneKind() not in {"case", "phantom"}:
-            slicer.util.errorDisplay(
-                _("Choose a Step 6 scene before loading the MRML robot fallback."),
-            )
+        result = self._robotWorkflowFacade.loadRobot()
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
             return
-        try:
-            baseTransform, models = self.logic.createOrUpdateRobotPlacement(
-                self._parameterNode.robotBaseTransform,
-                self._robotJointPositionsSi(),
-            )
-            self._parameterNode.robotBaseTransform = baseTransform
-            self._updateRobotPlacement()
-            if self.logic.draftPhantomModelNodes():
-                self.logic.positionRobotBaseNearResearchPhantom(
-                    baseTransform,
-                    self.logic.draftPhantomModelNodes(),
-                )
-            self.onFrameStep6ResearchWorkspace()
-            self._applyStep6RecommendedView()
-            self._updateRobotPlacementStatus(
-                _("Loaded/reused %1 robot links. Drag the base handles or mount plane.")
-                .replace("%1", str(len(models)))
-            )
-        except (RuntimeError, ValueError, OSError) as exc:
-            slicer.util.errorDisplay(str(exc))
+        self._updateRobotPlacement()
+        self.onFrameStep6ResearchWorkspace()
+        self._applyStep6RecommendedView()
+        self._updateRobotPlacementStatus(result.message)
 
     def onLoadDraftPhantom(self, checked: bool = False) -> None:
         del checked
@@ -2857,30 +3077,20 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onRobotJointValueChanged(self, value: float) -> None:
         del value
-        if self._updatingRobotPlacementUI or not self._parameterNode or not self.logic:
-            return
-        positions = self._robotJointPositionsSi()
-        if self.logic.isRos2MotionControlActive(
-            self._parameterNode.robotBaseTransform
+        if (
+            self._updatingRobotPlacementUI
+            or not self._parameterNode
+            or not self.logic
+            or not self._robotWorkflowFacade
         ):
-            ok, message = apply_joint_positions_si_to_motion_control(positions)
-            if not ok:
-                accepted = last_accepted_joint_positions_si()
-                if accepted:
-                    self._updatingRobotPlacementUI = True
-                    try:
-                        self._setRobotJointsFromSi(
-                            accepted,
-                            publish_to_ros=False,
-                        )
-                    finally:
-                        self._updatingRobotPlacementUI = False
-                self._updateRos2MotionControlStatus(
-                    _("ROS 2 joint update failed: %1").replace("%1", message)
-                )
-                return
-        elif self.logic.robotLinkTransformNodes():
-            self.logic.updateRobotJointPoses(positions)
+            return
+        result = self._robotWorkflowFacade.requestCurrentJointState()
+        if not result.success:
+            self._updateRos2MotionControlStatus(
+                _("ROS 2 joint update failed: %1").replace("%1", result.message)
+            )
+            self._updateRobotPlacement()
+            return
         self._updateRobotPlacementStatus()
 
     def onRobotBaseTransformSelectionChanged(self, transformNode) -> None:
@@ -3078,7 +3288,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         imported = bool(self._parameterNode.step6PlanningContextImported)
         locked = bool(self._parameterNode.robotBaseMountLocked)
-        has_plan = self._step6MotionPlan is not None and self._step6MotionPlan.success
+        facade_plan = (
+            self._robotWorkflowFacade.motionPlan
+            if self._robotWorkflowFacade
+            else None
+        )
+        active_plan = facade_plan or self._step6MotionPlan
+        has_plan = active_plan is not None and active_plan.success
         scene_kind = self._step6SceneKind()
         scene_active = scene_kind in {"case", "phantom"}
         robot_present = self._step6RobotPresent()
@@ -3111,7 +3327,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if message and "motion plan" in message.lower():
             plan_status = message
         elif has_plan:
-            plan_status = self._step6MotionPlan.message
+            plan_status = active_plan.message
         elif not imported:
             plan_status = _(
                 "Trajectory planning needs the case package. Phantom mode is "
@@ -3156,6 +3372,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.previewTrajectoryMotionButton.enabled = has_plan
         self.ui.stopTrajectoryMotionButton.enabled = (
             self._step6MotionPreviewTimer is not None
+            or bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.previewActive
+            )
         )
 
         self.ui.connectRos2MotionButton.enabled = scene_active and not ros2_active
@@ -3339,40 +3559,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onLockRobotBaseMount(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        if self._step6SceneKind() not in {"case", "phantom"}:
-            slicer.util.errorDisplay(
-                _("Import a case package or load the draft phantom before locking."),
-            )
-            return
-        if not self._step6RobotPresent():
-            slicer.util.errorDisplay(_("Load the ROS robot or MRML fallback before locking."))
-            return
-        try:
-            self.logic.setRobotBaseMountLocked(self._parameterNode, True)
-            message = _("Base mount locked.")
-            if self.logic.isRos2MotionControlActive(
-                self._parameterNode.robotBaseTransform
-            ):
-                obstacle_count = self.logic.syncStep6MoveItPlanningScene(
-                    self._parameterNode
-                )
-                message = _(
-                    "Base mount locked; refreshed %1 MoveIt collision surface(s)."
-                ).replace("%1", str(obstacle_count))
-            self._updateStep6PlanningUi(message)
-        except (RuntimeError, ValueError) as exc:
-            self.logic.setRobotBaseMountLocked(self._parameterNode, False)
-            self._updateStep6PlanningUi(str(exc), error=True)
-            slicer.util.errorDisplay(str(exc))
+        result = self._robotWorkflowFacade.lockBase()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
 
     def onUnlockRobotBaseMount(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        self.logic.setRobotBaseMountLocked(self._parameterNode, False)
-        self._updateStep6PlanningUi(_("Base mount unlocked."))
+        result = self._robotWorkflowFacade.unlockBase()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
 
     def onApplyTaskJointLimits(self, checked: bool = False) -> None:
         del checked
@@ -3396,27 +3597,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onGenerateRobotWorkspace(self, checked: bool = False) -> None:
         """Build a deterministic, filtered provisional-TCP reach cloud."""
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
         try:
             qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
-            model, report = self.logic.createOrUpdateRobotWorkspace(
-                self._parameterNode
-            )
-            self.ui.robotWorkspaceStatusLabel.text = _(
-                "%1/%2 TCP samples accepted; %3 rejected by 5 mm self-AABB "
-                "clearance and %4 by provisional TCP/environment clearance. "
-                "%5 persistent CAD-AABB false-positive pairs are excluded; "
-                "MoveIt remains authoritative."
-            ).replace("%1", str(report.accepted_count)).replace(
-                "%2", str(report.requested_count)
-            ).replace("%3", str(report.self_collision_rejections)).replace(
-                "%4", str(report.environment_rejections)
-            ).replace(
-                "%5", str(report.excluded_aabb_pairs)
+            result = self._robotWorkflowFacade.generateWorkspaceCloud()
+            if not result.success:
+                raise RuntimeError(result.message)
+            self.ui.robotWorkspaceStatusLabel.text = result.message + " " + _(
+                "The Halton/FK/AABB cloud is a draft design-space estimate; MoveIt remains authoritative."
             )
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #207227;"
-            self.ui.clearRobotWorkspaceButton.enabled = model is not None
+            self.ui.clearRobotWorkspaceButton.enabled = True
         except (RuntimeError, ValueError) as exc:
             self.ui.robotWorkspaceStatusLabel.text = str(exc)
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b00020;"
@@ -3435,47 +3627,36 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onPlanTrajectoryMotion(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
+        if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        try:
-            if self.logic.isRos2MotionControlActive(
-                self._parameterNode.robotBaseTransform
-            ):
-                ok, message = ensure_slicer_ros2_runtime(require_stack=True)
-                if not ok:
-                    raise RuntimeError(message)
-            self.onStopTrajectoryMotion()
-            result = self.logic.planStep6TrajectoryMotion(self._parameterNode)
-            self._step6MotionPlan = result
-            if not result.success:
-                raise RuntimeError(result.message)
-            self._updateStep6PlanningUi(result.message)
-        except (RuntimeError, ValueError) as exc:
+        self.onStopTrajectoryMotion()
+        action = self._robotWorkflowFacade.planAlongTrajectory()
+        self._step6MotionPlan = action.payload if action.success else None
+        if not action.success:
             self._step6MotionPlan = None
-            self._updateStep6PlanningUi(str(exc), error=True)
-            slicer.util.errorDisplay(str(exc))
+            self._updateStep6PlanningUi(action.message, error=True)
+            slicer.util.errorDisplay(action.message)
+            return
+        self._updateStep6PlanningUi(action.message)
 
     def onPreviewTrajectoryMotion(self, checked: bool = False) -> None:
         del checked
-        if not self._step6MotionPlan or not self._step6MotionPlan.success:
+        if not self._robotWorkflowFacade:
             return
-        import qt
-
-        if self.logic and self._parameterNode and self.logic.isRos2MotionControlActive(
-            self._parameterNode.robotBaseTransform
-        ):
-            ok, message = ensure_slicer_ros2_runtime(require_stack=True)
-            if not ok:
-                slicer.util.errorDisplay(message)
-                return
         self.onStopTrajectoryMotion()
-        self._step6MotionPreviewIndex = 0
-        timer = qt.QTimer()
-        timer.setInterval(250)
-        timer.timeout.connect(self._advanceStep6MotionPreview)
-        timer.start()
-        self._step6MotionPreviewTimer = timer
-        self._updateStep6PlanningUi(_("Previewing simulated motion plan."))
+        result = self._robotWorkflowFacade.previewPlan(
+            on_progress=lambda _index, _count: self._updateRobotPlacement(),
+            on_finished=self._onFacadePreviewFinished,
+        )
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onFacadePreviewFinished(self, result) -> None:
+        self._updateRobotPlacement()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
 
     def _advanceStep6MotionPreview(self) -> None:
         if not self._step6MotionPlan or not self._step6MotionPlan.waypoint_joint_vectors_si:
@@ -3499,6 +3680,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onStopTrajectoryMotion(self, checked: bool = False) -> None:
         del checked
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.stopPreview()
         if self._step6MotionPreviewTimer is not None:
             self._step6MotionPreviewTimer.stop()
             self._step6MotionPreviewTimer = None
@@ -5151,6 +5334,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateWorkflowNavigationButtons()
         self._activateWorkflowViewStage(index, stageChanged=stageChanged)
         self._updateWorkflowNavigationRecommendation()
+        if self._applicationShell and self._applicationShell.active:
+            self._applicationShell.syncStage(
+                index,
+                self._recommendedWorkflowStageIndex(),
+            )
         self._updateRobotKeyboardShortcutState()
         if index == len(entries) - 1:
             # ROS status nodes are intentionally lazy: entering Step 6 is the
@@ -5321,9 +5509,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not self._workflowNavigationInitializedFromScene:
             self._workflowNavigationInitializedFromScene = True
             self._setWorkflowStage(recommendedIndex, ensureVisible=False)
+        elif self._applicationShell and self._applicationShell.active:
+            self._applicationShell.syncStage(currentIndex, recommendedIndex)
 
     def cleanup(self) -> None:
         self._isCleaningUp = True
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
+        if self._applicationShell:
+            self._applicationShell.cleanup()
         self._setRobotTransformInteractionVisible(False)
         self._disableRobotKeyboardShortcuts()
         self._hideViewControlsPalette(preservePreference=True)
@@ -5345,10 +5539,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def enter(self) -> None:
         self._addSceneObservers()
         self.initializeParameterNode()
+        if self._applicationShell:
+            self._applyDENTOBOTGuiMode(
+                DENTOApplicationShell.storedGuiMode(),
+                persist=False,
+            )
         self._updateRobotKeyboardShortcutState()
         qt.QTimer.singleShot(0, self._restoreViewControlsPaletteOnEnter)
 
     def exit(self) -> None:
+        if self._applicationShell:
+            self._applicationShell.deactivate()
         self._setRobotTransformInteractionVisible(False)
         self._disableRobotKeyboardShortcuts()
         self._hideViewControlsPalette(preservePreference=True)
@@ -5404,6 +5605,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             updateStatus=True,
             message=_("Backend process cancelled because the scene is closing."),
         )
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
         if self._step6MotionPreviewTimer is not None:
             self._step6MotionPreviewTimer.stop()
             self._step6MotionPreviewTimer = None
@@ -5787,6 +5990,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateRobotPlacement()
         self._updateWorkflowNavigationRecommendation()
         self._refreshWorkflowViewAfterStateChange()
+        if self._applicationShell and self._applicationShell.active:
+            self._applicationShell.updateCaseAndRuntime(
+                self._parameterNode.caseName,
+            )
 
         if not volumeNode:
             self._setMetadataPlaceholders()
