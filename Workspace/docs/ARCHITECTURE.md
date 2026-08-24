@@ -1118,3 +1118,51 @@ their long world-axis boxes overlap throughout the sampled space while the
 real MoveIt/FCL smoke pose is valid. Other pairs retain the 5 mm draft rule.
 This exception does not enter the SRDF Allowed Collision Matrix and does not
 authorize hardware motion.
+
+## Parallel Step 6 and application-shell architecture — 2026-08-24
+
+The active GUI migration is a presentation refactor around the existing
+extension, not a standalone application or algorithm rewrite:
+
+```text
+Legacy eleven-stage UI ─┐
+                        ├─ DENTOWorkflow controller ─ existing MRML logic
+Six-workspace shell ────┘             │
+                                      └─ DENTORobotWorkflowFacade
+                                           ├─ DENTOROS2Bridge
+                                           ├─ MoveIt/KDL IK and planning
+                                           ├─ PlanningScene/FCL collision guard
+                                           ├─ DENTORobotPlacement
+                                           └─ simulated plan preview
+```
+
+`DENTOApplicationShell.py` owns the two Slicer docks, six-workspace navigation,
+task header, substep selector, theme, and Focus/Expert chrome restoration.
+`DENTORobotSimulationPanel.py` owns presentation-only cards for runtime,
+Goal/IK, and scene/collision actions. It contains no ROS import, URDF parsing,
+kinematics, or collision mathematics. `DENTORobotWorkflowFacade.py` is the
+UI-independent Step 6 orchestration boundary. Legacy handlers and the new
+Robot Simulation page both call this same object.
+
+The shell reparents the authoritative existing module widget into its task
+dock. Therefore the Case workspace and not-yet-visually-migrated workspaces
+retain their exact MRML bindings and callbacks while the new navigation maps
+six workspaces onto stable internal stage indices 0–10. Robot Simulation adds
+six operator substeps—Scene and Runtime, Base Placement, Manual Joints, Goal
+and IK, Scene and Collision, and Plan and Preview—while reusing the existing
+base, joint, workspace, and trajectory widgets where they already satisfy the
+contract.
+
+Presentation mode, light/dark theme, Expert mode, and dock geometry are local
+`QSettings`. MRML nodes and the parameter node remain authoritative case state;
+no second database exists. Switching navigation or theme cannot alter geometry
+or workflow lineage. Legacy stays the default until the Case and Robot operator
+acceptance cycle is complete. The complete action classification is maintained
+in `GUI_ACTION_PARITY.md`.
+
+Lifecycle ownership is symmetrical. Deactivation or module cleanup reparents
+the module widget, restores exact captured Slicer chrome, deletes both docks,
+disconnects signals, and clears façade preview state. The established ROS
+adapter teardown still owns transient SlicerROS2 nodes. A developer reload
+therefore preserves case MRML and the external stack but constructs exactly one
+new interface instance and requires an explicit robot reconnect.

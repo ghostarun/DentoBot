@@ -1089,3 +1089,36 @@ pose, manually exercise each joint, drag the TCP probe to several disposable
 mouth poses, and record accepted/rejected IK and trajectories. Later work must
 replace the provisional TCP and draft visual/AABB geometry with calibrated and
 validated models before any hardware or safety claim.
+
+## 2026-08-24 parallel Step 6 / custom-GUI milestone status
+
+The approved two-track plan is now operating on branch
+`integration/gui-step6` with one source tree. Milestones 0–2 and the first
+Case/Robot Simulation vertical slice of Milestone 3 are implemented.
+
+- **Milestone 0 — baseline:** completed. The accepted starting branch was
+  clean at `23ea572`; the pre-change host suite returned 67 passed. Current
+  launcher, ROS, MoveIt, UI, and known VTK shutdown behavior were recorded.
+- **Milestone 1 — shared seam:** completed for the present Step 6 surface.
+  Legacy connect/load/joint/base/workspace/plan/preview handlers use the robot
+  façade. Pure contract tests run without constructing the complete widget.
+- **Milestone 2 — shell foundation:** completed and synthetically verified in
+  real Slicer. Both modes launch from one module; the shell provides six
+  workspaces, dual themes, Focus/Expert mode, stable stage mapping, and cleanup.
+- **Milestone 3 — vertical slice:** foundation completed. Case uses the exact
+  authoritative Step 0 controls inside the shell. Robot Simulation exposes six
+  task-focused substeps and façade-backed capability, TCP-goal/IK, collision,
+  and plan actions while retaining tested placement/joint/trajectory controls.
+  Normal-window operator acceptance remains active before this becomes the
+  primary Step 6 interface.
+- **Milestone 4:** pending. Imaging, Segmentation, Drill Planning, and Guide
+  Design still use compatibility presentation inside the shell and must be
+  migrated incrementally with cloned-scene parity checks.
+- **Milestone 5:** pending. Do not make the shell default or remove Legacy
+  presentation code until parity and one stabilization cycle pass.
+
+Track 1 remains active behind the façade. The next bounded acceptance is the
+normal graphical phantom/case trial: place and lock the forehead base, move all
+six joints, manipulate a TCP goal, solve through KDL/MoveIt, synchronize scene
+objects, plan and preview, reload/reconnect, then save/reopen. No controller,
+hardware execution, drilling, or patient-facing motion is authorized.

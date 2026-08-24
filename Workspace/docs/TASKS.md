@@ -1086,3 +1086,53 @@ sequenced through the ordered viewport tasks above.
   safety validation remain disabled/unauthorized.
 - No Git commit/push or Google Drive synchronization was requested or performed
   in this increment.
+
+## 2026-08-24 — Parallel Step 6 / application-shell checkpoint
+
+### Completed and verified
+
+- Created `integration/gui-step6` from the clean accepted baseline; retained
+  one repository, module, ROS workspace, and container mount.
+- Added the reusable robot workflow façade with structured capabilities and
+  results, operator-unit conversion, base/joint/IK/collision/planning/preview
+  orchestration, and no execution method. Routed Legacy Step 6 handlers through
+  it and added pure contract tests.
+- Added the opt-in six-workspace Slicer shell, workstation-local Legacy/New
+  mode selection, light/dark themes, Focus/Expert mode, dock cleanup, and stable
+  mapping of internal stages 0–10. Legacy remains default.
+- Added the Robot Simulation task presentation with six substeps and dedicated
+  runtime, Goal/IK, and Scene/Collision cards. Current and goal robot roots stay
+  under the same base; the user manipulates a TCP goal rather than the base.
+- Updated the live MoveIt smoke to call the façade for capability reporting,
+  KDL/MoveIt IK, and joint-goal planning. Verified one `/joint_states` source,
+  `dentobot_arm`, `dentobot_tool_tcp`, FCL-backed rejection, three planning
+  surfaces, fraction-1.0 Cartesian planning, and 116/200 draft workspace points.
+- Recorded `81 passed` for the full host suite. Real Slicer printed
+  `DENTOBOT_APPLICATION_SHELL_PASS`; module reload preserved its sentinel and
+  replaced helper/widget objects; ROS-backed reload/New Case/saved-scene flow
+  printed `DENTOBOT_SCENE_LIFECYCLE_PASS`. Launcher `--check-only` rebuilt both
+  ROS packages and passed.
+
+### Active next tasks
+
+1. Run the twelve-item normal-window operator acceptance in the new shell and
+   record actual forehead placement, all six joint motions, mouth-space TCP
+   goals, IK failures/successes, collision messages, and plan/preview behavior.
+2. Keep Legacy as default and fallback until that acceptance passes. Fix façade
+   or lifecycle defects in shared code; do not add robot logic to GUI files.
+3. Migrate Imaging, Segmentation, Drill Planning, and Guide Design one
+   workspace at a time. Compare node roles/references, Current/Stale state,
+   geometry hashes/bounds, lineage, exports, and failures on cloned scenes.
+4. Decide the intended forehead-mount contact representation without weakening
+   unrelated MoveIt/FCL checks. Keep the draft AABB cloud labelled approximate.
+5. Upstream-report or isolate the pinned SlicerROS2 VTK/class-loader shutdown
+   leak. Explicit PASS markers are functional evidence, not clean shutdown.
+6. After a stabilization cycle and complete parity inventory, make the shell
+   the development default; remove Legacy presentation only in a later,
+   separately verified change.
+
+### Boundaries
+
+- No copied `DENTOWorkflow-v1/v2`, second state database, custom renderer,
+  standalone Qt application, hardware execution, controller, drilling, or
+  patient-facing motion.

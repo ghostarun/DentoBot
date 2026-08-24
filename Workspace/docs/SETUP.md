@@ -1260,3 +1260,42 @@ CAD-box false positives, and filters only the provisional TCP origin against a
 subsampled environment point cloud. It does not perform exact mesh/swept-volume
 environment collision or prove orientation reachability; use MoveIt IK and
 planning for each candidate task pose.
+
+### Opt-in six-workspace application shell
+
+The development launcher and module path do not change. Legacy remains the
+default. In DENTO Workflow, press **Try New GUI** in developer controls to open
+the application-style shell without restarting Slicer or ROS. Press **Legacy
+UI** in the shell header to return. The selection is stored in workstation
+`QSettings`; it is not saved in MRML or `.dentocase`.
+
+The shell provides **Case**, **Imaging**, **Segmentation**, **Drill Planning**,
+**Guide Design**, and **Robot Simulation** around Slicer's native viewport.
+Use the task-header selector for substeps. Use the theme selector for complete
+light/dark task panels. Clear **Expert** for Focus mode; re-enable it to restore
+the exact Slicer menu, toolbars, and module panel captured when the shell was
+entered. Theme/navigation changes are presentation-only.
+
+For the current Robot Simulation vertical slice:
+
+1. **Scene and Runtime:** choose/import a valid Step 6 case or create the draft
+   phantom, connect ROS + MoveIt, and confirm the capability rows name
+   `dentobot_arm` and `dentobot_tool_tcp`.
+2. **Base Placement:** load the robot, create/drag/snap/fine-nudge the forehead
+   plane and base, then lock it.
+3. **Manual Joints:** move each synchronized operator-unit row. Rejected moves
+   restore the last accepted value.
+4. **Goal and IK:** create/show the TCP goal, drag only that probe, solve IK,
+   then plan to the resulting joint goal. The translucent goal robot is one
+   pose, not the workspace cloud, and its base must remain coincident with the
+   current robot base.
+5. **Scene and Collision:** refresh status, synchronize case/phantom surfaces,
+   and check the latest MoveIt/FCL state. The Halton/FK/AABB cloud remains a
+   separately labelled draft approximation.
+6. **Plan and Preview:** plan the approved Entry-to-Target path, preview only,
+   and Stop. Hardware Execute is unavailable.
+
+After a source edit use **Reload Module (Dev)**. The external stack and case
+scene remain, while the Slicer-side robot and GUI are rebuilt; reconnect before
+continuing Robot Simulation. Repeated reload must leave exactly one navigation
+dock, one task dock, and no duplicate callbacks.

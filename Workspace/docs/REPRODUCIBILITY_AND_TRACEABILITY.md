@@ -737,3 +737,40 @@ software persistence results on representative saved research scenes; they do
 not validate anatomy, registration, robot accuracy, hardware safety, or
 clinical use. Normal-window operator acceptance and a regenerated current
 Step 5C package remain required.
+
+## 17. Application-shell and robot-façade evidence — 2026-08-24
+
+Presentation settings use `QSettings` keys below
+`DENTOBOT/ApplicationShell`; they are deliberately excluded from MRML,
+`.dentocase`, workflow lineage, and geometry hashes. Stage indices, MRML node
+references, parameter values, world-RAS/mm coordinates, and existing case
+transactions remain authoritative. Both GUI modes therefore exercise the same
+traceable backend records.
+
+The pure host suite returned `81 passed`. Contract coverage includes the six
+workspace/stage mapping, fail-closed mode/theme normalization, presentation-
+only Robot panel imports, façade degree/mm to radian/metre conversion, task
+limits, rejected-joint rollback, base lock state, static bridge contracts, and
+existing workflow/description regressions.
+
+`Testing/run_dentobot_application_shell_smoke.py` constructed a real Slicer
+main window, selected all six workspaces, mapped stage 5B to Guide Design,
+exposed six Robot Simulation substeps, showed the Goal/IK and Scene/Collision
+cards, applied both themes, toggled Focus/Expert, restored Legacy, saved a
+screenshot, and printed `DENTOBOT_APPLICATION_SHELL_PASS`.
+
+The live ROS/MoveIt smoke reported `facade_contract=true`, exactly one joint
+publisher, group `dentobot_arm`, TCP `dentobot_tool_tcp`, a +1 mm IK solution,
+five joint-goal plan points, 29 Cartesian trajectory points at fraction 1.0,
+three planning-scene obstacles, a rejected forehead-collision start, a
+collision-clear 20 mm base nudge, and 116/200 accepted draft workspace samples.
+The ROS-backed lifecycle test reconnected after module reload and New Empty
+Case, restored the saved locked base, and printed
+`DENTOBOT_SCENE_LIFECYCLE_PASS`.
+
+The pinned SlicerROS2/MoveIt class-loader and VTK objects still produce a
+nonzero process exit after explicit functional success. Tests must record both
+facts: the PASS/JSON result is functional evidence, while shutdown remains an
+open dependency defect. This evidence is synthetic/developer-runtime only; it
+does not establish calibrated kinematics, validated clearance, hardware
+execution, drilling safety, or clinical suitability.

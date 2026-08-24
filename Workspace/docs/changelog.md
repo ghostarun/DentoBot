@@ -2008,3 +2008,16 @@ captured, so they must not be inferred from either timestamp.
 - Extended host and real embedded-Slicer acceptance coverage. The real report
   verified open-mouth/forehead placement, manual joints, generic IK/Plan,
   Cartesian planning, and 116 accepted workspace points.
+
+## 2026-08-24 — Shared robot façade and six-workspace application shell
+
+- Created one integration branch for parallel Step 6 and GUI work; no duplicate
+  workflow module or ROS workspace was introduced.
+- Added a UI-independent Step 6 façade and routed Legacy robot actions through
+  it. Added structured capability/action results and retained simulation-only
+  MoveIt/KDL/FCL ownership.
+- Added the opt-in six-workspace Slicer shell, light/dark themes, Focus/Expert
+  mode, Legacy fallback, and Robot Simulation runtime/IK/collision task cards.
+- Added host and real-Slicer tests. Recorded 81 host passes, application-shell
+  PASS, module reload PASS, scene lifecycle PASS, and live façade IK/planning/
+  collision evidence. The known post-PASS SlicerROS2 shutdown leak remains.

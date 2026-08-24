@@ -1,5 +1,35 @@
 # Dentobot Technical Decisions
 
+## 2026-08-24 — One backend, two switchable presentations during GUI migration
+
+Status: application-shell foundation and Case/Robot Simulation vertical slice
+implemented; remaining workspace presentation migration is active
+
+Develop the Step 6 robotics track and the custom-GUI track on one authoritative
+integration branch and one mounted source tree. Do not copy the 34,000-line
+`DENTOWorkflow` module into versioned folders or create a second ROS workspace.
+The eleven-stage Legacy presentation and six-workspace application shell share
+the same MRML scene, parameter node, workflow logic, ROS adapter, and robot
+workflow façade.
+
+Store only presentation preferences—`legacy`/`shell`, light/dark theme, Expert
+mode, and dock geometry—in workstation-local `QSettings`. They are not case
+state and must not enter MRML or `.dentocase`. Legacy remains the fail-closed
+default while migration is incomplete. Either presentation can switch at
+runtime without restarting Slicer, the container, or ROS.
+
+Step 6 widget handlers now call `DENTORobotWorkflowFacade`. The façade accepts
+operator degrees/millimetres and Slicer world-RAS/millimetre poses, delegates
+SI conversion to the ROS adapter, uses existing workflow logic for placement
+and workspace generation, and returns structured success/code/message/details
+results. It owns no hardware-execution operation. MoveIt/KDL remains the IK
+authority, MoveIt PlanningScene/FCL remains the ROS-active collision authority,
+and the Halton/FK/AABB cloud remains explicitly approximate.
+
+Reason: a shared service seam permits continued robotics fixes while UI pages
+are migrated incrementally. Duplicated module trees or late backend merges
+would create divergent scene state, coordinate logic, and safety behavior.
+
 ## 2026-08-24 — Wrap authoritative MRB scenes in a validated case bundle
 
 Status: implemented and Slicer-native verified as case-bundle schema V1

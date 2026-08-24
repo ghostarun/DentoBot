@@ -19,6 +19,7 @@
 - Continuous design baseline: `docs/PROJECT_CONTEXT.md`,
   `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT_PLAN.md`, and
   `docs/REPRODUCIBILITY_AND_TRACEABILITY.md`.
+- Active GUI migration inventory: `docs/GUI_ACTION_PARITY.md`.
 - Change history: `docs/changelog.md`.
 - Platform history: `docs/logbook/logbook-windows-history.md`.
 - Active chronological evidence: dated files under `docs/logbook/`.

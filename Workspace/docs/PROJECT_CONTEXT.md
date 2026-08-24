@@ -335,3 +335,20 @@ that overlap at every pose but are accepted by MoveIt/FCL are excluded only
 from this draft box gate; MoveIt remains authoritative for ROS-active motion.
 The cloud is a design-coverage aid, not an IK proof, exact mesh/swept collision
 result, calibrated tool workspace, or clinical validation.
+
+## 2026-08-24 application-shell development checkpoint
+
+DENTOBOT now has an opt-in six-workspace application shell inside stock Slicer
+while the eleven-stage interface remains the default fallback. Both
+presentations use the same MRML/parameter state and backend. The shell adds
+Case, Imaging, Segmentation, Drill Planning, Guide Design, and Robot Simulation
+navigation, light/dark themes, and Focus/Expert mode; it is the foundation for
+the later custom Slicer package, not a separate Qt application.
+
+Step 6 UI orchestration now passes through one robot workflow façade. Legacy
+and new Robot Simulation controls share the same ROS bridge, MoveIt/KDL IK,
+PlanningScene/FCL collision guard, base placement, and plan-preview code. The
+current vertical slice is developer-runtime verified, but normal-window
+operator acceptance and the visual migration of Imaging through Guide Design
+remain active. Legacy must not be removed or cease to be the default until
+those parity checks and one stabilization cycle pass.
