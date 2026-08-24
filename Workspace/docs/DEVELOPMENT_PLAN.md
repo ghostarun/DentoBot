@@ -14,6 +14,27 @@
 - Advance only after acceptance evidence and a short milestone review.
 - Future milestones are a blueprint, not authorization to implement them.
 
+## Active Step 6 closure gate — 2026-08-24
+
+The native placement-to-task implementation is complete through guarded
+simulation preview. Before any stronger robotics claim:
+
+1. repeat a representative normal-window case trial with a regenerated Current
+   Step 4C/5C package and record base placement, renderer/opacity review, Task
+   Home, assisted limits, Connect, task confirmation, both phase previews, and
+   save/reopen behavior;
+2. physically calibrate the TCP/tool axis and home source, define and measure
+   robot-base registration, and replace `ProvisionalLocked` only through a
+   traceable registered source;
+3. define controller ownership, force/stop logic, emergency handling, and a
+   verified safety procedure before exposing hardware homing or Execute; and
+4. validate the phase-guard corridor and target/non-target collision split on
+   representative anatomy and a physical phantom, not only synthetic meshes.
+
+The implementation must remain preview-only until all four gates are closed.
+Opacity/camera work is visualization state; it cannot be treated as coordinate,
+registration, or clearance evidence.
+
 ## Immediate fast-track PoC closure order — 2026-08-13
 
 The implementation has crossed the point where feature count is the useful
@@ -521,6 +542,14 @@ transform-free `TemplateSupportDraft` model. Persist the authoritative
 segmentation, target/support IDs, source names, geometry counts, update
 revision, and Current/Stale state without altering source masks.
 
+The Step 4B arch is the sole membership editor. Creating/updating the draft
+persists and locks the package; an explicit revision action unlocks it and
+immediately stales Step 4C and all Step 5 descendants, and rebuilding locks it
+again. Step 5A displays only the read-only target/support/draft/lock summary
+and a return-to-Step-4B action. Saved-scene recovery may rehydrate missing
+support parameter JSON from model provenance only while the parent is Current,
+locked, and source/target matching.
+
 This stage deliberately precedes docking. Step 4C requires a current Step 4B
 draft, prioritizes those selected supports during collision screening, and
 marks docking and final geometry stale when the selection or draft geometry
@@ -618,8 +647,11 @@ visibility controls with one scene-wide viewport panel available at every
 workflow stage. It exposes
 recommended and explicit target-only, planning, support, docking, undercut,
 shell-only, shell-and-guide, final-only, all, and custom views as applicable;
-lists every segmentation segment, user-facing MRML displayable, and CBCT 3D
-volume-rendering control; and frames their combined world-RAS bounds. It
+adds one-click upper/lower/all permanent-tooth mask views in 2D, 3D, or both;
+groups the remaining anatomy and workflow objects; and frames their combined
+world-RAS bounds. The Advanced list may expose an already-existing CBCT volume
+renderer with an explicit **not a mask** label, but inventory refresh no longer
+creates rendering nodes and recommended views exclude them. It
 captures/restores exact display state and excludes
 transient filtering from MRB save state. These operations do not alter MRML
 identity, masks, or geometry. Dedicated planning layouts, click-selected
@@ -645,6 +677,8 @@ Implemented behavior:
 
 - require the current Step 4B full support-anatomy draft and its authoritative
   segmentation/target/support provenance;
+- present that Step 4B package read-only and route every membership change
+  back to the exclusive Step 4B editor;
 - create an editable role-owned closed boundary around only the erupted,
   accessible support surfaces and preview the selected patch distinctly;
 - map the single boundary to authoritative tooth segment IDs, treating extra
@@ -673,6 +707,15 @@ printable guide, clinical validation, or drilling authorization.
 
 Current renovation behavior:
 
+- present routine work as one ordered unified-template build: approved
+  Step 4A/4B/4C/5A inputs and lineage, every shell/guide/dock-fusion dimension,
+  collapsed Advanced fit/intermediate diagnostics, the generated result, and
+  a final action footer. The footer owns the only routine Build/Update action,
+  three display-only inspection actions, and the subordinate delete action;
+- reuse Current cached intermediates and regenerate only missing/stale stages.
+  A Current final result disables the build action instead of changing that
+  button into an inspection shortcut. Step 5C remains the separate verification
+  and export gate;
 - require a Current visible support preview explicitly linked to the Current
   full support model and authoritative segmentation;
 - expose fit clearance, wall thickness, and tight-domain processing resolution;

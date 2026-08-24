@@ -17,11 +17,15 @@ if str(HELPERS) not in sys.path:
     sys.path.insert(0, str(HELPERS))
 
 from DENTOCaseBundle import validate_case_bundle  # noqa: E402
+from DENTOROS2Bridge import shutdown_slicer_adapter  # noqa: E402
 
 
 SOURCES = (
     Path("/workspace/data/Slicer_Saved/SampleStudy1/test1_5C_FD14.mrb"),
     Path("/workspace/data/Slicer_Saved/SampleStudy1/test1_6_FD14.mrb"),
+)
+EXISTING_PACKAGE = Path(
+    "/workspace/data/Slicer_Saved/SampleStudy1/dentobot-step6.dentocase"
 )
 
 
@@ -103,13 +107,13 @@ def assert_signature_close(before: object, after: object, path: str = "scene") -
         raise RuntimeError(f"{path} changed: {before!r} != {after!r}")
 
 
-def assert_no_ros_runtime(widget) -> None:
+def assert_no_ros_runtime(widget, *, require_current_robot_profile: bool = True) -> None:
     if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
         raise RuntimeError("case package restored a live ROS robot")
     for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
         if node.GetAttribute("DENTOBOT.Ros2MotionControlActive") == "true":
             raise RuntimeError("case package restored a ROS-active flag")
-    if widget._caseBundleRobotProfileCompatible is not True:
+    if require_current_robot_profile and widget._caseBundleRobotProfileCompatible is not True:
         raise RuntimeError("case package robot profile did not match this runtime")
 
 
@@ -165,7 +169,32 @@ def run() -> None:
         )
         bundle.unlink(missing_ok=True)
 
+    if not EXISTING_PACKAGE.is_file():
+        raise RuntimeError(f"operator package is missing: {EXISTING_PACKAGE}")
+    inspection = validate_case_bundle(EXISTING_PACKAGE)
+    widget._openCaseBundle(inspection.path)
+    process_events(1.0)
+    widget = slicer.util.getModuleWidget("DENTOWorkflow")
+    # This package predates the provisional drill-tip URDF revision.  Its case
+    # geometry must still restore exactly, while Step 6 remains review-gated by
+    # the intentionally mismatched robot-resource fingerprint.
+    assert_no_ros_runtime(widget, require_current_robot_profile=False)
+    existing_signature = scene_geometry_signature()
+    if not existing_signature["trajectories"]:
+        raise RuntimeError("existing operator package restored no trajectory")
+    results.append(
+        {
+            "source": EXISTING_PACKAGE.name,
+            "bundleBytes": EXISTING_PACKAGE.stat().st_size,
+            "trajectoryCount": len(existing_signature["trajectories"]),
+            "modelCount": len(existing_signature["models"]),
+            "validatedAgainstLineageTolerance": 1e-6,
+            "robotProfileCompatible": widget._caseBundleRobotProfileCompatible,
+        }
+    )
+
     print(f"DENTOBOT_CASE_BUNDLE_PASS {results}", flush=True)
+    shutdown_slicer_adapter()
     slicer.mrmlScene.Clear(0)
     process_events()
     slicer.util.exit(0)
@@ -175,4 +204,5 @@ try:
     run()
 except Exception as exc:
     print(f"DENTOBOT_CASE_BUNDLE_FAILED: {exc}", file=sys.stderr, flush=True)
+    shutdown_slicer_adapter()
     slicer.util.exit(1)

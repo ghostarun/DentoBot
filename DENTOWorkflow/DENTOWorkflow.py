@@ -86,6 +86,11 @@ from DENTOApplicationShell import (
     GUI_MODE_LEGACY,
     GUI_MODE_SHELL,
 )
+from DENTOViewPresets import (
+    group_segmentation_records,
+    recommended_view_categories,
+    recommended_view_description,
+)
 from DENTOTrajectoryGeometry import infer_root_targets
 from DENTORobotPlacement import (
     joint_positions_si_from_display,
@@ -97,7 +102,7 @@ from DENTORobotPlacement import (
     vtk_matrix_elements,
 )
 from DENTORobotSimulationPanel import DENTORobotSimulationPanel
-from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade
+from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade, PhasePlan
 from DENTOROS2Bridge import (
     ROS2_DEFAULT_SLICER_NODE,
     ROS2_MOTION_ACTIVE_ATTRIBUTE,
@@ -116,6 +121,7 @@ from DENTOROS2Bridge import (
     last_accepted_joint_positions_si,
     mark_slicer_ros2_runtime_nodes_transient,
     plan_moveit_cartesian_path,
+    prepare_dentobot_motion_diagnostics,
     release_default_ros2_node_singleton,
     remove_stale_moveit_obstacle_proxies,
     ros2_node_list,
@@ -152,6 +158,21 @@ from DENTOStep6Planning import (
     sample_trajectory_world_mm,
     step6_motion_plan_robot_ready,
     validate_planning_context,
+)
+from DENTOStep6State import (
+    BasePlacementStatus,
+    MotionPhase,
+    approach_points,
+    build_assisted_limit_proposal,
+    build_phase_guard_configuration,
+    build_task_home,
+    build_task_snapshot,
+    canonical_json,
+    fingerprint,
+    normalize_base_status,
+    parse_task_snapshot,
+    parse_task_home,
+    task_snapshot_invalidation_reasons,
 )
 
 
@@ -237,6 +258,7 @@ class DENTOWorkflowParameterNode:
     finalizedTemplateShellModel: vtkMRMLModelNode
     robotBaseTransform: vtkMRMLLinearTransformNode
     robotMountPlane: vtkMRMLMarkupsPlaneNode
+    robotForeheadProxyModel: vtkMRMLModelNode
     draftPhantomSkullModel: vtkMRMLModelNode
     draftPhantomMandibleModel: vtkMRMLModelNode
     draftJawLandmarks: vtkMRMLMarkupsFiducialNode
@@ -253,6 +275,28 @@ class DENTOWorkflowParameterNode:
     robotRotationStepDeg: float = 1.0
     robotKeyboardNudgeEnabled: bool = False
     robotBaseMountLocked: bool = False
+    step6BasePlacementStatus: str = "Unlocked"
+    step6BasePlacementSource: str = "manual-mount-plane"
+    step6BasePlacementRevision: int = 0
+    step6ForeheadProxyWidthMm: float = 140.0
+    step6ForeheadProxyHeightMm: float = 85.0
+    step6ForeheadProxyDepthMm: float = 28.0
+    step6ForeheadProxyOffsetMm: float = 0.0
+    step6TaskHomeJson: str = ""
+    step6AssistedLimitProposalJson: str = ""
+    step6ConfirmedTaskJson: str = ""
+    step6ApproachStandoffMm: float = 5.0
+    step6TrajectoryCorridorRadiusMm: float = 0.75
+    step6ToolFrame: str = "dentobot_drill_tip_provisional"
+    step6CbctVolumeRenderingNodeId: str = ""
+    step6CbctOpacity: float = 0.18
+    step6MasksOpacity: float = 0.45
+    step6RobotOpacity: float = 1.0
+    step6GoalRobotOpacity: float = 0.35
+    step6GuidesOpacity: float = 0.65
+    step6MountPlaneOpacity: float = 0.35
+    step6TrajectoryOpacity: float = 1.0
+    step6ForeheadProxyOpacity: float = 0.20
     step6PlanningContextImported: bool = False
     robotMotionPlanSampleCount: int = 12
     robotCoarseSelfClearanceMm: float = 5.0
@@ -336,6 +380,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._viewControlsElementsTabIndex = -1
         self._viewControlsDisplayTabIndex = -1
         self._viewControlsButton = None
+        self._workflowViewStageLabel = None
+        self._workflowRecommendedViewButton = None
+        self._workflowViewAdvancedButton = None
+        self._workflowJawViewButtons: dict[tuple[str, str], object] = {}
         self._guidanceToolButton = None
         self._viewControlsPaletteDesiredVisible = False
         self._viewControlsPaletteGeometryRestored = False
@@ -382,7 +430,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._templateSupportArchWidget = None
         self._templateSupportArchGridLayout = None
         self._templateSupportArchStatusLabel = None
+        self._reviseTemplateSupportPackageButton = None
+        self._templateSupportPackageWidget = None
+        self._templateSupportPackageSummaryLabel = None
+        self._templateSupportPackageDetailsLabel = None
+        self._returnToStep4BSupportButton = None
         self._templateSupportButtonsBySegmentId: dict[str, object] = {}
+        self._unifiedTemplateReadinessGroup = None
+        self._unifiedTemplateInputsGroup = None
+        self._unifiedTemplateActionGroup = None
         self._updatingTemplateUI = False
         self._templateStatusWarning = ""
         self._templateSupportBoundaryNode = None
@@ -420,8 +476,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._restoringTemplateTrimPlane = False
         self._robotKeyboardShortcuts: list[qt.QShortcut] = []
         self._robotBaseTransformNode = None
+        self._lastRobotBasePoseFingerprint = ""
         self._robotWorkflowFacade: DENTORobotWorkflowFacade | None = None
         self._robotSimulationPanel: DENTORobotSimulationPanel | None = None
+        self._step6ExpertDiagnosticHandoffActive = False
+        self._step6ExpertReturnToolbar = None
         self._step6MotionPlan: MotionPlanResult | None = None
         self._step6MotionPreviewTimer = None
         self._step6MotionPreviewIndex = 0
@@ -443,6 +502,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._setupPersistentWorkflowShell(uiWidget)
         self._setupTrajectoryPlanningModes()
         self._setupTemplateSupportArchSelector()
+        self.ui.draftTemplateSupportModelSelector.addAttribute(
+            "vtkMRMLModelNode",
+            "DENTOBOT.ModelRole",
+            "TemplateSupportDraft",
+        )
         self.ui.templateShellRoiSelector.addAttribute(
             "vtkMRMLMarkupsROINode",
             "DENTOBOT.MarkupsRole",
@@ -549,6 +613,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "DENTOBOT.TrajectoryRole",
             "EntryToTarget",
         )
+
+        self._setupUnifiedTemplateBuildPanel()
 
         # _setupPersistentWorkflowShell reparents the scrollable workflow
         # controls below a pinned header. qMRMLNodeComboBox does not reliably
@@ -855,6 +921,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.deleteDraftTemplateSupportModelButton.connect(
             "clicked(bool)",
             self.onDeleteDraftTemplateSupportModel,
+        )
+        self._reviseTemplateSupportPackageButton.connect(
+            "clicked(bool)",
+            self.onReviseTemplateSupportPackage,
+        )
+        self._returnToStep4BSupportButton.connect(
+            "clicked(bool)",
+            self.onReturnToStep4BSupportSelection,
         )
         self.ui.focusTemplateSupportButton.connect(
             "clicked(bool)",
@@ -1308,7 +1382,30 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "refresh": self._refreshShellRobotCapabilities,
                 "sync_collision": self._onShellSyncCollisionScene,
                 "check_state": self._onShellCheckRobotState,
+                "enable_cbct_rendering": self._onStep6EnableCbctRendering,
+                "cbct_preset": self._onStep6CbctPresetChanged,
+                "create_proxy": self._onStep6CreateForeheadProxy,
+                "placement_review": self._onStep6PlacementReview,
+                "appearance_changed": self._onStep6AppearanceChanged,
+                "save_home": self._onStep6SaveTaskHome,
+                "apply_home": self._onStep6ApplyTaskHome,
+                "review_limits": self._onStep6ReviewAssistedLimits,
+                "confirm_task": self._onStep6ConfirmTask,
+                "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
+                "plan_approach": self._onStep6PlanApproach,
+                "preview_approach": self._onStep6PreviewApproach,
+                "plan_drilling": self._onStep6PlanDrilling,
+                "preview_drilling": self._onStep6PreviewDrilling,
             },
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.visualizationGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.homeGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.workspaceReviewGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.runtimeGroup
@@ -1319,6 +1416,25 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.collisionGroup
         )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.approachGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.drillingGroup
+        )
+        self.ui.robotPlacementCollapsibleButton.text = _(
+            "Step 6 — Native Placement-to-Task Simulation"
+        )
+        self.ui.robotPlacementDescriptionLabel.text = _(
+            "Validate the case, place the local robot in CBCT context, save Task "
+            "Home, review workspace-assisted limits, connect ROS/MoveIt, confirm "
+            "one immutable task, then preview guarded approach and drilling phases."
+        )
+        self.ui.step6MountLockGroupBox.title = _("6.1 — Local Robot and Provisional Base")
+        self.ui.step6TaskJointLimitsGroupBox.title = _("6.2 — Joint State for Task Home")
+        self.ui.step6WorkspaceGroupBox.title = _("6.3 — Workspace and Assisted Limits")
+        self.ui.step6TrajectoryPlanningGroupBox.visible = False
+        self.ui.ros2MotionControlGroupBox.visible = False
 
     def _refreshShellRobotCapabilities(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
@@ -1405,6 +1521,220 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if not result.success and result.code != "state_invalid":
             slicer.util.errorDisplay(result.message)
 
+    def _setStep6PanelResult(self, label, result) -> None:
+        if label is None:
+            return
+        label.text = result.message
+        label.setProperty("dentobotState", "ok" if result.success else "error")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+    def _onStep6EnableCbctRendering(self) -> None:
+        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
+            return
+        try:
+            node = self.logic.enableStep6CbctVolumeRendering(
+                self._parameterNode,
+                self._robotSimulationPanel.cbctPreset(),
+            )
+            self._robotSimulationPanel.setAppearance(
+                "cbct", True, self._parameterNode.step6CbctOpacity
+            )
+            self._robotSimulationPanel.visualizationStatusLabel.text = _(
+                "Enabled one display-only CBCT renderer (%1); source voxel geometry is unchanged."
+            ).replace("%1", node.GetName())
+            self._applyStep6RecommendedView()
+        except (RuntimeError, ValueError) as exc:
+            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
+            slicer.util.errorDisplay(str(exc))
+
+    def _onStep6CbctPresetChanged(self) -> None:
+        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
+            return
+        try:
+            changed = self.logic.applyStep6CbctRenderingPreset(
+                self._parameterNode,
+                self._robotSimulationPanel.cbctPreset(),
+                createIfMissing=False,
+            )
+            self._robotSimulationPanel.visualizationStatusLabel.text = (
+                _("Updated CBCT intensity appearance; geometry was not changed.")
+                if changed
+                else _("Enable CBCT 3D Context before selecting an appearance preset.")
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
+
+    def _onStep6CreateForeheadProxy(self) -> None:
+        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
+            return
+        try:
+            proxy = self.logic.createOrUpdateStep6ForeheadProxy(self._parameterNode)
+            self._parameterNode.robotForeheadProxyModel = proxy
+            self._robotSimulationPanel.setAppearance(
+                "forehead_proxy", True, self._parameterNode.step6ForeheadProxyOpacity
+            )
+            self._robotSimulationPanel.visualizationStatusLabel.text = _(
+                "Created the curved Unregistered / Provisional / Visualization-only forehead envelope."
+            )
+            self._updateWorkflowViewControls()
+        except (RuntimeError, ValueError) as exc:
+            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
+            slicer.util.errorDisplay(str(exc))
+
+    def _onStep6PlacementReview(self) -> None:
+        if not self._robotSimulationPanel:
+            return
+        self._applyStep6RecommendedView()
+        self.onFrameWorkflowView()
+        self._robotSimulationPanel.visualizationStatusLabel.text = _(
+            "Applied Robot + CBCT Placement Review and framed the union of visible case, robot, goal, mount, and proxy bounds."
+        )
+
+    def _onStep6AppearanceChanged(
+        self,
+        key: str,
+        visible: bool,
+        opacity: float,
+    ) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        self.logic.setStep6Appearance(
+            self._parameterNode,
+            key,
+            visible=visible,
+            opacity=opacity,
+        )
+        self._updateWorkflowViewControls()
+
+    def _onStep6SaveTaskHome(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.saveTaskHome()
+        self._setStep6PanelResult(self._robotSimulationPanel.homeStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6ApplyTaskHome(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.applyTaskHome()
+        self._setStep6PanelResult(self._robotSimulationPanel.homeStatusLabel, result)
+        if result.success:
+            self._updateRobotPlacement()
+        else:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6ReviewAssistedLimits(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.reviewAssistedLimits()
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.workspaceReviewStatusLabel, result
+        )
+        if result.success:
+            self._applyTaskJointLimitsToJointSpinboxes()
+        else:
+            slicer.util.errorDisplay(result.message)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+
+    def _onStep6ConfirmTask(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.confirmTask()
+        self._robotSimulationPanel.showRuntimeResult(result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6OpenExpertDiagnostics(self) -> None:
+        ready, message = prepare_dentobot_motion_diagnostics()
+        if not ready:
+            slicer.util.errorDisplay(message)
+            return
+        self.onOpenViewControlsPalette()
+        self._ensureStep6ExpertReturnToolbar()
+        if self._applicationShell and self._applicationShell.active:
+            self._applicationShell.setExpertMode(True)
+        self._step6ExpertDiagnosticHandoffActive = True
+        slicer.util.selectModule("ROS2MotionControl")
+
+    def _ensureStep6ExpertReturnToolbar(self) -> None:
+        mainWindow = slicer.util.mainWindow()
+        if mainWindow is None:
+            return
+        toolbar = mainWindow.findChild("QToolBar", "DENTOBOTExpertReturnToolbar")
+        if toolbar is None:
+            toolbar = qt.QToolBar(_("DENTOBOT Expert Diagnostics"), mainWindow)
+            toolbar.objectName = "DENTOBOTExpertReturnToolbar"
+            action = toolbar.addAction(_("Return to Robot Simulation"))
+            action.objectName = "DENTOBOTReturnToRobotSimulationAction"
+            action.connect("triggered(bool)", self._onReturnFromStep6ExpertDiagnostics)
+            mainWindow.addToolBar(qt.Qt.TopToolBarArea, toolbar)
+        self._step6ExpertReturnToolbar = toolbar
+        toolbar.show()
+        toolbar.raise_()
+
+    def _onReturnFromStep6ExpertDiagnostics(self, checked: bool = False) -> None:
+        del checked
+        self._step6ExpertDiagnosticHandoffActive = False
+        if self._step6ExpertReturnToolbar:
+            self._step6ExpertReturnToolbar.hide()
+        slicer.util.selectModule("DENTOWorkflow")
+        qt.QTimer.singleShot(0, lambda: self._setWorkflowStage(10))
+        qt.QTimer.singleShot(0, self.onOpenViewControlsPalette)
+
+    def _onStep6PlanApproach(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.planApproachPhase()
+        self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6PhasePreviewFinished(self, label, result) -> None:
+        self._setStep6PanelResult(label, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+
+    def _onStep6PreviewApproach(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.previewPhase(
+            MotionPhase.APPROACH.value,
+            on_progress=lambda _index, _count: self._updateRobotPlacement(),
+            on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
+                self._robotSimulationPanel.approachStatusLabel, outcome
+            ),
+        )
+        self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6PlanDrilling(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.planDrillingPhase()
+        self._setStep6PanelResult(self._robotSimulationPanel.drillingStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6PreviewDrilling(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.previewPhase(
+            MotionPhase.DRILLING.value,
+            on_progress=lambda _index, _count: self._updateRobotPlacement(),
+            on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
+                self._robotSimulationPanel.drillingStatusLabel, outcome
+            ),
+        )
+        self._setStep6PanelResult(self._robotSimulationPanel.drillingStatusLabel, result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
     def _onApplicationShellSubstepSelected(
         self,
         workspace_id: str,
@@ -1417,7 +1747,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _configureRobotSimulationShellSubstep(self, substep_index: int) -> None:
         if not self._robotSimulationPanel:
             return
-        index = max(0, min(int(substep_index), 5))
+        index = max(0, min(int(substep_index), 6))
         groups = (
             self.ui.step6PlanningContextGroupBox,
             self.ui.step6MountLockGroupBox,
@@ -1427,28 +1757,40 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._robotSimulationPanel.runtimeGroup,
             self._robotSimulationPanel.goalGroup,
             self._robotSimulationPanel.collisionGroup,
+            self._robotSimulationPanel.visualizationGroup,
+            self._robotSimulationPanel.homeGroup,
+            self._robotSimulationPanel.workspaceReviewGroup,
+            self._robotSimulationPanel.approachGroup,
+            self._robotSimulationPanel.drillingGroup,
         )
         for group in groups:
             group.visible = False
         visible_by_substep = {
-            0: (
-                self.ui.step6PlanningContextGroupBox,
-                self._robotSimulationPanel.runtimeGroup,
+            0: (self.ui.step6PlanningContextGroupBox,),
+            1: (
+                self._robotSimulationPanel.visualizationGroup,
+                self.ui.step6MountLockGroupBox,
             ),
-            1: (self.ui.step6MountLockGroupBox,),
-            2: (self.ui.step6TaskJointLimitsGroupBox,),
+            2: (
+                self.ui.step6TaskJointLimitsGroupBox,
+                self._robotSimulationPanel.homeGroup,
+            ),
             3: (
-                self._robotSimulationPanel.goalGroup,
                 self.ui.step6WorkspaceGroupBox,
+                self._robotSimulationPanel.workspaceReviewGroup,
             ),
-            4: (self._robotSimulationPanel.collisionGroup,),
-            5: (self.ui.step6TrajectoryPlanningGroupBox,),
+            4: (
+                self._robotSimulationPanel.runtimeGroup,
+                self._robotSimulationPanel.collisionGroup,
+            ),
+            5: (self._robotSimulationPanel.approachGroup,),
+            6: (self._robotSimulationPanel.drillingGroup,),
         }
         for group in visible_by_substep[index]:
             group.visible = True
-        self.ui.ros2MotionControlGroupBox.visible = index != 1
+        self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.robotPlacementDescriptionLabel.visible = index == 0
-        if index in {0, 3, 4}:
+        if index in {4, 5, 6}:
             self._refreshShellRobotCapabilities()
 
     def _restoreLegacyRobotSimulationGroups(self) -> None:
@@ -1459,14 +1801,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.step6MountLockGroupBox,
             self.ui.step6TaskJointLimitsGroupBox,
             self.ui.step6WorkspaceGroupBox,
-            self.ui.step6TrajectoryPlanningGroupBox,
+            self._robotSimulationPanel.visualizationGroup,
+            self._robotSimulationPanel.homeGroup,
+            self._robotSimulationPanel.workspaceReviewGroup,
+            self._robotSimulationPanel.runtimeGroup,
+            self._robotSimulationPanel.collisionGroup,
+            self._robotSimulationPanel.approachGroup,
+            self._robotSimulationPanel.drillingGroup,
         ):
             group.visible = True
-        self.ui.ros2MotionControlGroupBox.visible = True
+        self.ui.step6TrajectoryPlanningGroupBox.visible = False
+        self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.robotPlacementDescriptionLabel.visible = True
-        self._robotSimulationPanel.runtimeGroup.visible = False
         self._robotSimulationPanel.goalGroup.visible = False
-        self._robotSimulationPanel.collisionGroup.visible = False
 
     def _setupApplicationShell(self) -> None:
         """Install the opt-in six-workspace shell without duplicating controls."""
@@ -1503,6 +1850,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             resource_path=self.resourcePath,
             on_mode_requested=self._applyDENTOBOTGuiMode,
             on_substep_selected=self._onApplicationShellSubstepSelected,
+            on_view_controls_requested=self.onOpenViewControlsPalette,
         )
         self._applyDENTOBOTGuiMode(
             DENTOApplicationShell.storedGuiMode(),
@@ -1759,20 +2107,120 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         elementsPage.objectName = "viewControlsElementsPage"
         elementsLayout = qt.QVBoxLayout(elementsPage)
         elementsLayout.setContentsMargins(8, 8, 8, 8)
-        elementsLayout.setSpacing(5)
+        elementsLayout.setSpacing(8)
+
+        stageLabel = qt.QLabel(elementsPage)
+        stageLabel.objectName = "workflowViewStageLabel"
+        stageLabel.wordWrap = True
+        stageLabel.styleSheet = "font-weight: 600; color: #1f5f99;"
+        elementsLayout.addWidget(stageLabel)
+        recommendedButton = qt.QPushButton(
+            _("Apply Recommended View for This Step"),
+            elementsPage,
+        )
+        recommendedButton.objectName = "applyRecommendedWorkflowViewButton"
+        recommendedButton.toolTip = _(
+            "Show only the anatomy and workflow objects normally needed for "
+            "the active step. This changes MRML display visibility only."
+        )
+        elementsLayout.addWidget(recommendedButton)
+
+        teethGroup = qt.QGroupBox(_("Teeth masks"), elementsPage)
+        teethGroup.objectName = "workflowJawMaskViewsGroupBox"
+        teethLayout = qt.QGridLayout(teethGroup)
+        teethLayout.setContentsMargins(8, 8, 8, 8)
+        teethLayout.setHorizontalSpacing(5)
+        teethLayout.setVerticalSpacing(5)
+        teethHelp = qt.QLabel(
+            _(
+                "One click isolates existing tooth segmentation masks. "
+                "Choose whether they appear in slice views, the 3D view, or both."
+            ),
+            teethGroup,
+        )
+        teethHelp.wordWrap = True
+        teethHelp.styleSheet = "color: #555555;"
+        teethLayout.addWidget(teethHelp, 0, 0, 1, 4)
+        for column, title in enumerate((_("Jaw"), _("2D"), _("3D"), _("Both"))):
+            heading = qt.QLabel(title, teethGroup)
+            heading.alignment = qt.Qt.AlignCenter
+            heading.styleSheet = "font-weight: 600;"
+            teethLayout.addWidget(heading, 1, column)
+        for row, (jaw, title) in enumerate(
+            (("upper", _("Upper")), ("lower", _("Lower")), ("all", _("All teeth"))),
+            start=2,
+        ):
+            jawLabel = qt.QLabel(title, teethGroup)
+            jawLabel.styleSheet = "font-weight: 600;"
+            teethLayout.addWidget(jawLabel, row, 0)
+            for column, (dimension, buttonText) in enumerate(
+                (("2d", _("2D")), ("3d", _("3D")), ("both", _("2D + 3D"))),
+                start=1,
+            ):
+                button = qt.QPushButton(buttonText, teethGroup)
+                button.objectName = (
+                    f"workflow{jaw.capitalize()}Teeth{dimension.upper()}ViewButton"
+                )
+                button.toolTip = _(
+                    "Isolate %1 tooth masks in %2 and frame their world-RAS bounds."
+                ).replace("%1", title.lower()).replace("%2", buttonText)
+                button.connect(
+                    "clicked(bool)",
+                    lambda checked=False, selectedJaw=jaw, selectedDimension=dimension: (
+                        self._applyJawTeethView(selectedJaw, selectedDimension)
+                    ),
+                )
+                teethLayout.addWidget(button, row, column)
+                self._workflowJawViewButtons[(jaw, dimension)] = button
+        elementsLayout.addWidget(teethGroup)
+
+        self.ui.workflowViewStatusLabel.wordWrap = True
+        self.ui.workflowViewVerticalLayout.removeWidget(
+            self.ui.workflowViewStatusLabel
+        )
+        elementsLayout.addWidget(self.ui.workflowViewStatusLabel)
+        advancedButton = ctk.ctkCollapsibleButton(elementsPage)
+        advancedButton.objectName = "workflowAdvancedElementsCollapsibleButton"
+        advancedButton.text = _("Advanced: display groups and workflow objects")
+        advancedButton.collapsed = True
+        advancedLayout = qt.QVBoxLayout(advancedButton)
+        advancedLayout.setContentsMargins(8, 8, 8, 8)
+        advancedLayout.setSpacing(5)
         for widget in (
             self.ui.autoWorkflowViewCheckBox,
             self.ui.workflowViewElementsLabel,
             self.ui.workflowViewElementsListWidget,
-            self.ui.workflowViewStatusLabel,
         ):
             self.ui.workflowViewVerticalLayout.removeWidget(widget)
-            elementsLayout.addWidget(widget)
+            advancedLayout.addWidget(widget)
+        self.ui.workflowViewElementsLabel.text = _(
+            "Grouped masks and workflow objects (checkboxes):"
+        )
         self.ui.workflowViewElementsListWidget.setMinimumHeight(180)
         self.ui.workflowViewElementsListWidget.setMaximumHeight(16777215)
         self.ui.workflowViewElementsListWidget.setSizePolicy(
             qt.QSizePolicy.Expanding,
             qt.QSizePolicy.Expanding,
+        )
+        volumeRenderingNote = qt.QLabel(
+            _(
+                "Volume rendering is a 3D intensity rendering of the CBCT, "
+                "not a segmentation mask. DENTOBOT lists an existing renderer "
+                "here but never creates one just by opening or refreshing Views."
+            ),
+            advancedButton,
+        )
+        volumeRenderingNote.objectName = "workflowVolumeRenderingExplanationLabel"
+        volumeRenderingNote.wordWrap = True
+        volumeRenderingNote.styleSheet = "color: #6b6b6b; font-style: italic;"
+        advancedLayout.addWidget(volumeRenderingNote)
+        elementsLayout.addWidget(advancedButton, 1)
+        self._workflowViewStageLabel = stageLabel
+        self._workflowRecommendedViewButton = recommendedButton
+        self._workflowViewAdvancedButton = advancedButton
+        recommendedButton.connect(
+            "clicked(bool)",
+            self.onApplyRecommendedWorkflowView,
         )
         self._viewControlsElementsTabIndex = tabs.addTab(
             elementsPage,
@@ -1984,6 +2432,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del checked
         if not self._viewControlsPalette:
             return
+        self._updateWorkflowViewControls()
+        if self._viewControlsTabWidget:
+            self._viewControlsTabWidget.currentIndex = (
+                self._viewControlsElementsTabIndex
+            )
         self._restoreViewControlsPaletteGeometry()
         self._viewControlsPaletteDesiredVisible = True
         settings = self._viewControlsSettings()
@@ -2078,6 +2531,252 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "valueChanged(int)", self.onCbctWindowLevelSliderChanged
         )
 
+    def _setupUnifiedTemplateBuildPanel(self) -> None:
+        """Present Step 5B as one ordered, dependency-aware build workflow."""
+
+        if self._unifiedTemplateInputsGroup is not None:
+            return
+
+        stageLayout = self.ui.templateGuideVerticalLayout
+        self.ui.templateGuideCollapsibleButton.text = _(
+            "Step 5B — Build Unified Template"
+        )
+        self.ui.templateGuideDescriptionLabel.text = _(
+            "Build one unified research template from the approved Step 4A "
+            "trajectory, Step 4B support draft, confirmed Step 4C rails/docks, "
+            "and Step 5A visible support surface. Set every dimension before "
+            "using the single build action at the bottom."
+        )
+
+        # The Designer order placed the result and actions before several
+        # generation parameters. Move the existing widgets—without duplicating
+        # their parameter-node bindings—into an explicit operator sequence.
+        for widget in (
+            self.ui.templateGuideLineageLabel,
+            self.ui.patientContactShellGroupBox,
+            self.ui.templateDockingFusionGroupBox,
+        ):
+            stageLayout.removeWidget(widget)
+
+        readinessGroup = qt.QGroupBox(
+            _("1 · Approved inputs and lineage"),
+            self.ui.templateGuideCollapsibleButton,
+        )
+        readinessGroup.objectName = "unifiedTemplateReadinessGroupBox"
+        readinessLayout = qt.QVBoxLayout(readinessGroup)
+        readinessLayout.setContentsMargins(8, 8, 8, 8)
+        readinessLayout.setSpacing(5)
+        readinessHelp = qt.QLabel(
+            _(
+                "The complete build validates these references first and stops "
+                "before voxel processing when a source is missing, stale, "
+                "unconfirmed, or unlocked."
+            ),
+            readinessGroup,
+        )
+        readinessHelp.objectName = "unifiedTemplateReadinessHelpLabel"
+        readinessHelp.wordWrap = True
+        readinessHelp.styleSheet = "color: #555555;"
+        readinessLayout.addWidget(readinessHelp)
+        readinessLayout.addWidget(self.ui.templateGuideLineageLabel)
+
+        sourceTrajectories = ctk.ctkCollapsibleButton(readinessGroup)
+        sourceTrajectories.objectName = "unifiedTemplateSourceTrajectoriesGroupBox"
+        sourceTrajectories.text = _("Approved source trajectories — read only")
+        sourceTrajectories.collapsed = True
+        sourceTrajectoriesLayout = qt.QVBoxLayout(sourceTrajectories)
+        sourceTrajectoriesLayout.setContentsMargins(8, 8, 8, 8)
+        self.ui.templateDockingFusionVerticalLayout.removeWidget(
+            self.ui.templateGuideTrajectoriesListWidget
+        )
+        self.ui.templateGuideTrajectoriesListWidget.setMinimumHeight(80)
+        sourceTrajectoriesLayout.addWidget(
+            self.ui.templateGuideTrajectoriesListWidget
+        )
+        readinessLayout.addWidget(sourceTrajectories)
+
+        inputsGroup = ctk.ctkCollapsibleButton(
+            self.ui.templateGuideCollapsibleButton
+        )
+        inputsGroup.objectName = "unifiedTemplateInputsGroupBox"
+        inputsGroup.text = _("2 · Unified template dimensions")
+        inputsGroup.collapsed = False
+        inputsLayout = qt.QVBoxLayout(inputsGroup)
+        inputsLayout.setContentsMargins(8, 8, 8, 8)
+        inputsLayout.setSpacing(6)
+        inputsHelp = qt.QLabel(
+            _(
+                "Changing any value marks the affected cached stage stale. "
+                "Build / Update regenerates only the stages that require it."
+            ),
+            inputsGroup,
+        )
+        inputsHelp.objectName = "unifiedTemplateInputsHelpLabel"
+        inputsHelp.wordWrap = True
+        inputsHelp.styleSheet = "color: #555555;"
+        inputsLayout.addWidget(inputsHelp)
+
+        shellDimensions = qt.QGroupBox(_("Patient-contact shell"), inputsGroup)
+        shellDimensions.objectName = "unifiedTemplateShellDimensionsGroupBox"
+        shellForm = qt.QFormLayout(shellDimensions)
+        guideDimensions = qt.QGroupBox(_("Trajectory guide"), inputsGroup)
+        guideDimensions.objectName = "unifiedTemplateGuideDimensionsGroupBox"
+        guideForm = qt.QFormLayout(guideDimensions)
+        fusionDimensions = qt.QGroupBox(_("Guide and dock fusion"), inputsGroup)
+        fusionDimensions.objectName = "unifiedTemplateFusionDimensionsGroupBox"
+        fusionForm = qt.QFormLayout(fusionDimensions)
+
+        def moveFormRow(sourceLayout, label, field, destinationLayout) -> None:
+            sourceLayout.removeWidget(label)
+            sourceLayout.removeWidget(field)
+            destinationLayout.addRow(label, field)
+
+        for label, field in (
+            (self.ui.templateShellClearanceLabel, self.ui.templateShellClearanceSpinBox),
+            (self.ui.templateShellThicknessLabel, self.ui.templateShellThicknessSpinBox),
+            (self.ui.templateSamplingSpacingLabel, self.ui.templateSamplingSpacingSpinBox),
+        ):
+            moveFormRow(self.ui.templateGuideFormLayout, label, field, shellForm)
+        for label, field in (
+            (
+                self.ui.templateSleeveOuterDiameterLabel,
+                self.ui.templateSleeveOuterDiameterSpinBox,
+            ),
+            (
+                self.ui.templateSleeveInnerDiameterLabel,
+                self.ui.templateSleeveInnerDiameterSpinBox,
+            ),
+            (self.ui.templateSleeveHeightLabel, self.ui.templateSleeveHeightSpinBox),
+        ):
+            moveFormRow(self.ui.templateGuideFormLayout, label, field, guideForm)
+        for label, field in (
+            (
+                self.ui.templateDockingClearanceLabel,
+                self.ui.templateDockingClearanceSpinBox,
+            ),
+            (
+                self.ui.templateReinforcementRadialLabel,
+                self.ui.templateReinforcementRadialSpinBox,
+            ),
+            (
+                self.ui.templateReinforcementDepthLabel,
+                self.ui.templateReinforcementDepthSpinBox,
+            ),
+        ):
+            moveFormRow(
+                self.ui.templateDockingFusionFormLayout,
+                label,
+                field,
+                fusionForm,
+            )
+        inputsLayout.addWidget(shellDimensions)
+        inputsLayout.addWidget(guideDimensions)
+        inputsLayout.addWidget(fusionDimensions)
+
+        advancedGroup = self.ui.patientContactShellGroupBox
+        advancedGroup.text = _(
+            "Advanced · Fit processing and cached intermediate shell"
+        )
+        advancedGroup.collapsed = True
+        advancedHelp = qt.QLabel(
+            _(
+                "Optional diagnostic controls for undercut/blockout analysis "
+                "and the cached patient shell. Routine generation does not "
+                "require these staged buttons; the complete build below runs "
+                "or reuses them automatically."
+            ),
+            advancedGroup,
+        )
+        advancedHelp.objectName = "unifiedTemplateAdvancedHelpLabel"
+        advancedHelp.wordWrap = True
+        advancedHelp.styleSheet = "color: #555555;"
+        self.ui.patientContactShellVerticalLayout.insertWidget(0, advancedHelp)
+
+        resultGroup = self.ui.templateDockingFusionGroupBox
+        resultGroup.text = _("3 · Unified template result")
+        resultGroup.collapsed = False
+        resultLayout = self.ui.templateDockingFusionVerticalLayout
+        self.ui.templateDockingFusionDescriptionLabel.text = _(
+            "This is the generated Step 5B geometry. Current means its inputs "
+            "match; Step 5C verification is still required before export."
+        )
+        self.ui.templateDockingFusionFormLayout.removeWidget(
+            self.ui.finalPrintableTemplateModelLabel
+        )
+        self.ui.templateDockingFusionFormLayout.removeWidget(
+            self.ui.finalPrintableTemplateModelSelector
+        )
+        self.ui.templateDockingFusionButtonLayout.removeWidget(
+            self.ui.generateFinalPrintableTemplateButton
+        )
+        self.ui.templateDockingFusionButtonLayout.removeWidget(
+            self.ui.deleteFinalPrintableTemplateButton
+        )
+        inspectionButtons = (
+            self.ui.inspectTemplateFitButton,
+            self.ui.inspectShellAndGuidesButton,
+            self.ui.inspectUnifiedTemplateButton,
+        )
+        for button in inspectionButtons:
+            self.ui.templateInspectionButtonLayout.removeWidget(button)
+        resultLayout.removeWidget(self.ui.templateDockingFusionStatusLabel)
+        resultForm = qt.QFormLayout()
+        resultForm.addRow(
+            self.ui.finalPrintableTemplateModelLabel,
+            self.ui.finalPrintableTemplateModelSelector,
+        )
+        resultLayout.addLayout(resultForm)
+        resultLayout.addWidget(self.ui.templateDockingFusionStatusLabel)
+
+        actionGroup = qt.QGroupBox(
+            _("4 · Build and inspect"),
+            self.ui.templateGuideCollapsibleButton,
+        )
+        actionGroup.objectName = "unifiedTemplateActionGroupBox"
+        actionLayout = qt.QVBoxLayout(actionGroup)
+        actionLayout.setContentsMargins(8, 8, 8, 8)
+        actionLayout.setSpacing(6)
+        self.ui.generateFinalPrintableTemplateButton.text = _(
+            "Build / Update Unified Template"
+        )
+        self.ui.generateFinalPrintableTemplateButton.toolTip = _(
+            "Validate the approved upstream package, then generate only a "
+            "missing or stale blockout, cached patient shell, or unified "
+            "guide/dock fusion. Current cached geometry is reused."
+        )
+        self.ui.generateFinalPrintableTemplateButton.setMinimumHeight(34)
+        self.ui.generateFinalPrintableTemplateButton.styleSheet = (
+            "font-weight: 600;"
+        )
+        actionLayout.addWidget(self.ui.generateFinalPrintableTemplateButton)
+        inspectionLabel = qt.QLabel(_("Display-only inspection:"), actionGroup)
+        inspectionLabel.objectName = "unifiedTemplateInspectionLabel"
+        inspectionLabel.styleSheet = "font-weight: 600;"
+        actionLayout.addWidget(inspectionLabel)
+        inspectionLayout = qt.QHBoxLayout()
+        for button in inspectionButtons:
+            inspectionLayout.addWidget(button)
+        actionLayout.addLayout(inspectionLayout)
+        deleteLayout = qt.QHBoxLayout()
+        deleteLayout.addStretch(1)
+        self.ui.deleteFinalPrintableTemplateButton.text = _(
+            "Delete Unified Template…"
+        )
+        deleteLayout.addWidget(self.ui.deleteFinalPrintableTemplateButton)
+        actionLayout.addLayout(deleteLayout)
+
+        # Visible order is prerequisites → all parameters → optional
+        # intermediates → result → actions. Hidden legacy adapters remain for
+        # saved-scene compatibility only.
+        stageLayout.insertWidget(1, readinessGroup)
+        stageLayout.insertWidget(2, inputsGroup)
+        stageLayout.insertWidget(3, advancedGroup)
+        stageLayout.insertWidget(4, resultGroup)
+        stageLayout.insertWidget(5, actionGroup)
+        self._unifiedTemplateReadinessGroup = readinessGroup
+        self._unifiedTemplateInputsGroup = inputsGroup
+        self._unifiedTemplateActionGroup = actionGroup
+
     def _setupTrajectoryPlanningModes(self) -> None:
         """Place manual/assisted initialization behind one Step 4A choice."""
 
@@ -2110,20 +2809,35 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
 
     def _setupTemplateSupportArchSelector(self) -> None:
-        """Replace the hidden FDI checklist with a compact clickable arch map."""
+        """Build the Step 4B editor and the Step 5A read-only package card."""
 
         formLayout = self.ui.templateModelingFormLayout
         formLayout.removeWidget(self.ui.templateSupportTeethListWidget)
         self.ui.templateSupportTeethListWidget.visible = False
-        archWidget = qt.QWidget(self.ui.templateModelingCollapsibleButton)
+        # The QListWidget remains a hidden scene-state adapter for the existing
+        # itemChanged handler.  It must never be made visible after removal
+        # from the form layout, otherwise Qt treats it as an unmanaged child
+        # and it floats over the visual arch controls.
+        formLayout.removeWidget(self.ui.templateSupportTeethTitleLabel)
+        self.ui.templateSupportTeethTitleLabel.visible = False
+        archWidget = qt.QGroupBox(
+            _("Select and lock the Step 4B support package"),
+            self.ui.templateModelingCollapsibleButton,
+        )
         archWidget.objectName = "templateSupportArchSelectorWidget"
+        archWidget.setSizePolicy(
+            qt.QSizePolicy.Expanding,
+            qt.QSizePolicy.Minimum,
+        )
+        archWidget.setMinimumHeight(178)
         archLayout = qt.QVBoxLayout(archWidget)
-        archLayout.setContentsMargins(0, 0, 0, 0)
-        archLayout.setSpacing(4)
+        archLayout.setContentsMargins(8, 8, 8, 8)
+        archLayout.setSpacing(6)
         orientationLabel = qt.QLabel(
             _(
                 "Patient right and left halves are shown back→centre. "
-                "Click teeth to add/remove support."
+                "Click teeth to add/remove support, then create the draft to "
+                "lock the package."
             ),
             archWidget,
         )
@@ -2131,6 +2845,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         orientationLabel.styleSheet = "color: #555555;"
         archLayout.addWidget(orientationLabel)
         gridWidget = qt.QWidget(archWidget)
+        gridWidget.objectName = "templateSupportArchGridWidget"
+        gridWidget.setSizePolicy(
+            qt.QSizePolicy.Expanding,
+            qt.QSizePolicy.Fixed,
+        )
+        gridWidget.setMinimumHeight(112)
         gridLayout = qt.QGridLayout(gridWidget)
         gridLayout.setContentsMargins(0, 0, 0, 0)
         gridLayout.setHorizontalSpacing(3)
@@ -2143,11 +2863,67 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         statusLabel.wordWrap = True
         statusLabel.styleSheet = "color: #1f5f99;"
         archLayout.addWidget(statusLabel)
-        formLayout.setWidget(1, qt.QFormLayout.FieldRole, archWidget)
-        self.ui.templateSupportTeethTitleLabel.text = _("Support arch:")
+        reviseButton = qt.QPushButton(
+            _("Revise locked support package…"),
+            archWidget,
+        )
+        reviseButton.objectName = "reviseTemplateSupportPackageButton"
+        reviseButton.enabled = False
+        reviseButton.toolTip = _(
+            "Unlock Step 4B support-tooth selection and mark every dependent "
+            "Step 4C/5A/5B/5C result stale. Rebuild the draft to lock it again."
+        )
+        archLayout.addWidget(reviseButton)
+        formLayout.setWidget(1, qt.QFormLayout.SpanningRole, archWidget)
         self._templateSupportArchWidget = archWidget
         self._templateSupportArchGridLayout = gridLayout
         self._templateSupportArchStatusLabel = statusLabel
+        self._reviseTemplateSupportPackageButton = reviseButton
+
+        packageWidget = qt.QGroupBox(
+            _("Locked Step 4B support package"),
+            self.ui.templateModelingCollapsibleButton,
+        )
+        packageWidget.objectName = "templateSupportPackageWidget"
+        packageWidget.setSizePolicy(
+            qt.QSizePolicy.Expanding,
+            qt.QSizePolicy.Minimum,
+        )
+        packageLayout = qt.QVBoxLayout(packageWidget)
+        packageLayout.setContentsMargins(8, 8, 8, 8)
+        packageLayout.setSpacing(6)
+        packageSummaryLabel = qt.QLabel(
+            _("No locked Step 4B support package is available."),
+            packageWidget,
+        )
+        packageSummaryLabel.objectName = "templateSupportPackageSummaryLabel"
+        packageSummaryLabel.wordWrap = True
+        packageSummaryLabel.styleSheet = (
+            "QLabel { color: #b36b00; background: #fff5df; "
+            "border-left: 6px solid #b36b00; padding: 6px; }"
+        )
+        packageLayout.addWidget(packageSummaryLabel)
+        packageDetailsLabel = qt.QLabel("", packageWidget)
+        packageDetailsLabel.objectName = "templateSupportPackageDetailsLabel"
+        packageDetailsLabel.wordWrap = True
+        packageDetailsLabel.textInteractionFlags = qt.Qt.TextSelectableByMouse
+        packageLayout.addWidget(packageDetailsLabel)
+        returnButton = qt.QPushButton(
+            _("Return to Step 4B to change support teeth"),
+            packageWidget,
+        )
+        returnButton.objectName = "returnToStep4BSupportButton"
+        returnButton.toolTip = _(
+            "Step 5A never edits support-tooth membership. Return to Step 4B "
+            "to explicitly unlock, revise, and rebuild the support package."
+        )
+        packageLayout.addWidget(returnButton)
+        self.ui.templateModelingVerticalLayout.insertWidget(2, packageWidget)
+        packageWidget.visible = False
+        self._templateSupportPackageWidget = packageWidget
+        self._templateSupportPackageSummaryLabel = packageSummaryLabel
+        self._templateSupportPackageDetailsLabel = packageDetailsLabel
+        self._returnToStep4BSupportButton = returnButton
 
     @staticmethod
     def _templateSupportArchRows(targetFdi: str) -> tuple[list[str], list[str]]:
@@ -2428,6 +3204,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self._onRobotPlacementNodeModified,
                 )
             self._robotBaseTransformNode = baseTransform
+            self._lastRobotBasePoseFingerprint = (
+                self.logic.robotBasePoseFingerprint(baseTransform)
+                if self.logic and baseTransform
+                else ""
+            )
             if baseTransform:
                 self.addObserver(
                     baseTransform,
@@ -2458,6 +3239,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             and self._parameterNode
             and caller is self._parameterNode.robotBaseTransform
         ):
+            poseFingerprint = self.logic.robotBasePoseFingerprint(caller)
+            if (
+                self._lastRobotBasePoseFingerprint
+                and poseFingerprint != self._lastRobotBasePoseFingerprint
+            ):
+                self._parameterNode.step6BasePlacementRevision = max(
+                    0, int(self._parameterNode.step6BasePlacementRevision)
+                ) + 1
+                self.logic.invalidateStep6TaskConfirmation(
+                    self._parameterNode,
+                    _("Robot base pose changed."),
+                    makeBaseStale=bool(self._parameterNode.robotBaseMountLocked),
+                )
+                self._step6MotionPlan = None
+                if self._robotWorkflowFacade:
+                    self._robotWorkflowFacade.clearTransientState()
+            self._lastRobotBasePoseFingerprint = poseFingerprint
             workspace = self.logic.robotWorkspaceModelNode()
             if workspace:
                 workspace.SetAttribute("DENTOBOT.WorkspaceState", "Stale")
@@ -2480,7 +3278,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             status = _("ROS robot is in the viewport. Place the mount, then lock.")
             style = "color: #207227;"
         elif not self.logic.isRobotBaseTransformNode(baseTransform) or modelCount != 7:
-            status = _("Choose a scene in 6.0, then load the ROS robot in 6.1.")
+            status = _("Choose a scene in 6.0, then load the local MRML robot in 6.1.")
             style = "color: #b36b00;"
         else:
             matrix = vtk.vtkMatrix4x4()
@@ -2650,25 +3448,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.connect(open_motion_module=True)
+        result = self._robotWorkflowFacade.connect(open_motion_module=False)
         if not result.success:
-            if is_ros2_runtime_unavailable_message(result.message):
-                if slicer.util.confirmYesNoDisplay(
-                        result.message
-                        + "\n\n"
-                        + _(
-                            "Load the local URDF robot in MRML instead so you "
-                            "can place and lock it?"
-                        )
-                ):
-                    fallback = self._robotWorkflowFacade.loadRobot()
-                    if fallback.success:
-                        self._updateRobotPlacement()
-                        self._applyStep6RecommendedView()
-                        self._updateRos2MotionControlStatus(
-                            _("ROS2 module missing; loaded the MRML robot fallback.")
-                        )
-                        return
             self._updateRos2MotionControlStatus(
                 _("ROS 2 connect failed: %1").replace("%1", result.message)
             )
@@ -3298,9 +4079,24 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         scene_kind = self._step6SceneKind()
         scene_active = scene_kind in {"case", "phantom"}
         robot_present = self._step6RobotPresent()
+        local_robot_present = bool(self.logic.robotModelNodes()) if self.logic else False
         ros2_active = self.logic.isRos2MotionControlActive(
             self._parameterNode.robotBaseTransform
         ) if self.logic else False
+        home_issues = self.logic.taskHomeFreshnessIssues(self._parameterNode) if self.logic else ()
+        home_ready = not home_issues
+        assisted_reviewed = (
+            self.logic.assistedTaskLimitsReviewed(self._parameterNode)
+            if self.logic else False
+        )
+        task_issues = self.logic.confirmedTaskFreshnessIssues(
+            self._parameterNode
+        ) if self.logic else ()
+        task_ready = not task_issues
+        facade_capabilities = (
+            self._robotWorkflowFacade.capabilities()
+            if self._robotWorkflowFacade else None
+        )
 
         if message:
             context_status = message
@@ -3315,8 +4111,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             context_status = _("No Step 6 scene yet. Import a case or load the phantom.")
 
+        base_state = str(self._parameterNode.step6BasePlacementStatus or "Unlocked")
         if locked:
-            mount_status = _("Base mount locked for motion planning.")
+            mount_status = _("Base placement: %1 (simulation review only).").replace(
+                "%1", base_state
+            )
+        elif base_state == BasePlacementStatus.STALE.value:
+            mount_status = _("Base placement is Stale; review and provisionally lock it again.")
         elif not scene_active:
             mount_status = _("Choose a scene before loading the robot.")
         elif not robot_present:
@@ -3378,9 +4179,16 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             )
         )
 
-        self.ui.connectRos2MotionButton.enabled = scene_active and not ros2_active
+        self.ui.connectRos2MotionButton.enabled = bool(
+            scene_active
+            and local_robot_present
+            and locked
+            and home_ready
+            and assisted_reviewed
+            and not ros2_active
+        )
         self.ui.disconnectRos2MotionButton.enabled = ros2_active
-        self.ui.loadRobotModelButton.enabled = scene_active
+        self.ui.loadRobotModelButton.enabled = scene_active and not locked
         self.ui.frameRobotButton.enabled = scene_active
         self.ui.importStep6PlanningContextButton.enabled = not locked
         self.ui.loadDraftPhantomButton.enabled = not locked
@@ -3428,7 +4236,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.applyTaskJointLimitsButton.enabled = robot_present
         self.ui.resetTaskJointLimitsButton.enabled = robot_present
         self.ui.generateRobotWorkspaceButton.enabled = (
-            robot_present
+            robot_present and locked and home_ready
             and self.logic.isRobotBaseTransformNode(
                 self._parameterNode.robotBaseTransform
             )
@@ -3436,6 +4244,66 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.clearRobotWorkspaceButton.enabled = bool(
             self.logic.robotWorkspaceModelNode()
         )
+
+        panel = self._robotSimulationPanel
+        if panel is not None:
+            panel.loadFallbackButton.enabled = scene_active and not locked
+            panel.enableCbctRenderingButton.enabled = imported
+            panel.createProxyButton.enabled = bool(
+                self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
+                and not locked
+            )
+            panel.saveTaskHomeButton.enabled = locked
+            panel.applyTaskHomeButton.enabled = home_ready
+            panel.homeStatusLabel.text = (
+                _("Task Home is current for this base and robot profile.")
+                if home_ready
+                else " ".join(home_issues)
+            )
+            panel.reviewLimitsButton.enabled = bool(
+                str(self._parameterNode.step6AssistedLimitProposalJson or "").strip()
+                and not assisted_reviewed
+            )
+            panel.workspaceReviewStatusLabel.text = (
+                _("Workspace-assisted task limits were explicitly reviewed and applied.")
+                if assisted_reviewed
+                else _("Generate the FK workspace, then review its proposed limits.")
+            )
+            runtime_ready = bool(
+                local_robot_present and locked and home_ready and assisted_reviewed
+            )
+            panel.connectButton.enabled = runtime_ready and not ros2_active
+            panel.disconnectButton.enabled = ros2_active
+            panel.confirmTaskButton.enabled = bool(
+                imported
+                and ros2_active
+                and facade_capabilities
+                and facade_capabilities.planning_scene_synchronized
+            )
+            panel.runtimeStatusLabel.text = (
+                _("Immutable task snapshot is current; phased plans are enabled.")
+                if task_ready
+                else " ".join(task_issues)
+            )
+            panel.planApproachButton.enabled = bool(task_ready and ros2_active)
+            panel.previewApproachButton.enabled = bool(
+                isinstance(facade_plan, PhasePlan)
+                and facade_plan.success
+                and facade_plan.requested_phase == MotionPhase.APPROACH.value
+            )
+            approach_complete = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.completedPhase == MotionPhase.APPROACH.value
+            )
+            panel.planDrillingButton.enabled = bool(
+                task_ready and ros2_active and approach_complete
+            )
+            panel.previewDrillingButton.enabled = bool(
+                approach_complete
+                and isinstance(facade_plan, PhasePlan)
+                and facade_plan.success
+                and facade_plan.requested_phase == MotionPhase.DRILLING.value
+            )
 
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -3463,6 +4331,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self._updatingFromParameterNode or self._updatingRobotPlacementUI:
             return
         try:
+            if self.logic and self._parameterNode:
+                self.logic.invalidateStep6TaskConfirmation(
+                    self._parameterNode,
+                    _("Task joint limits changed."),
+                )
+            self._step6MotionPlan = None
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
             self._applyTaskJointLimitsToJointSpinboxes()
             if self.logic.deleteRobotWorkspaceModel():
                 self.ui.robotWorkspaceStatusLabel.text = _(
@@ -4242,41 +5118,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return entries
 
     def _workflowViewEntries(self, stageIndex: int) -> list[dict]:
-        """Return a complete, individually toggleable inventory for every stage.
-
-        Curated workflow entries supply meaningful categories for presets.  The
-        inventory then expands segmentation groups into one row per segment and
-        appends every other user-facing displayable node in the MRML scene.
-        """
+        """Return grouped masks and existing display objects without scene mutation."""
 
         if not self._parameterNode or not self.logic:
             return []
-        curated = self._workflowCuratedViewEntries(stageIndex)
-        entries = []
-        for entry in curated:
-            if entry["kind"] == "segments":
-                continue
-            if entry["kind"] != "nodes":
-                entries.append(entry)
-                continue
-            for nodeIndex, node in enumerate(entry["nodes"]):
-                entries.append(
-                    {
-                        "key": f"{entry['key']}:{node.GetID()}",
-                        "label": _("%1 — %2")
-                        .replace("%1", entry["label"])
-                        .replace("%2", node.GetName() or str(nodeIndex + 1)),
-                        "kind": "node",
-                        "node": node,
-                        "category": entry["category"],
-                    }
-                )
-        categoryBySegment = {}
-        for entry in curated:
-            if entry["kind"] != "segments":
-                continue
-            for segmentId in entry["segmentIds"]:
-                categoryBySegment.setdefault(segmentId, entry["category"])
+        curated = list(self._workflowCuratedViewEntries(stageIndex))
+        entries = list(curated)
+
+        groupLabels = {
+            "upper_teeth": _("Teeth masks — upper jaw"),
+            "lower_teeth": _("Teeth masks — lower jaw"),
+            "pulp_root_canals": _("Pulp and root-canal masks"),
+            "neural_canals": _("Neural and mandibular-canal masks"),
+            "jaws": _("Jaw masks"),
+            "sinuses_airway": _("Sinus and airway masks"),
+            "restorations_implants": _("Restoration and implant masks"),
+            "other_mask": _("Other anatomy masks"),
+        }
 
         for segmentationNode in slicer.util.getNodesByClass(
             "vtkMRMLSegmentationNode"
@@ -4286,39 +5144,52 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 continue
             segmentIds = vtk.vtkStringArray()
             segmentation.GetSegmentIDs(segmentIds)
+            records = []
             for segmentIndex in range(segmentIds.GetNumberOfValues()):
                 segmentId = segmentIds.GetValue(segmentIndex)
                 segment = segmentation.GetSegment(segmentId)
                 if not segment:
                     continue
-                category = categoryBySegment.get(segmentId, "other_mask")
-                if (
+                records.append(
+                    {
+                        "segmentId": segmentId,
+                        **self.logic.describeSegmentForReview(
+                            segment.GetName() or segmentId
+                        ),
+                    }
+                )
+            for groupKey, groupedIds in group_segmentation_records(records).items():
+                if not groupedIds:
+                    continue
+                authoritative = (
                     segmentationNode is self._parameterNode.teethSegmentation
-                    and segmentId == self._parameterNode.targetToothSegmentId
-                ):
-                    key = "segments:target"
-                    category = "target_mask"
-                elif category == "target_detail":
-                    key = (
-                        "segments:targetDetail"
-                        if not any(
-                            item.get("key") == "segments:targetDetail"
-                            for item in entries
-                        )
-                        else f"segment:{segmentationNode.GetID()}:{segmentId}"
-                    )
-                else:
-                    key = f"segment:{segmentationNode.GetID()}:{segmentId}"
+                )
                 entries.append(
                     {
-                        "key": key,
-                        "label": _("[Mask] %1 — %2")
-                        .replace("%1", segment.GetName() or segmentId)
-                        .replace("%2", segmentationNode.GetName() or _("Segmentation")),
+                        "key": (
+                            f"segments:anatomy:{groupKey}:{segmentationNode.GetID()}"
+                        ),
+                        "label": _("[%1] %2 (%3) — %4")
+                        .replace(
+                            "%1",
+                            _("Dental mask group")
+                            if authoritative
+                            else _("Other scene mask group"),
+                        )
+                        .replace("%2", groupLabels[groupKey])
+                        .replace("%3", str(len(groupedIds)))
+                        .replace(
+                            "%4",
+                            segmentationNode.GetName() or _("Segmentation"),
+                        ),
                         "kind": "segments",
                         "segmentationNode": segmentationNode,
-                        "segmentIds": [segmentId],
-                        "category": category,
+                        "segmentIds": groupedIds,
+                        "category": (
+                            groupKey
+                            if authoritative
+                            else "scene_mask"
+                        ),
                     }
                 )
 
@@ -4334,19 +5205,30 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if node.GetID() in representedNodeIds:
                 continue
             classLabel = node.GetClassName().replace("vtkMRML", "").replace("Node", "")
+            scalarVolume = node.IsA("vtkMRMLScalarVolumeNode")
+            category = (
+                "case_volume"
+                if scalarVolume and node is self._parameterNode.inputVolume
+                else "scene_volume"
+                if scalarVolume
+                else "scene_element"
+            )
+            labelPrefix = (
+                _("Case CBCT")
+                if category == "case_volume"
+                else _("Other scene volume")
+                if category == "scene_volume"
+                else _("Scene/%1").replace("%1", classLabel)
+            )
             entries.append(
                 {
                     "key": f"scene:{node.GetID()}",
-                    "label": _("[Scene/%1] %2")
-                    .replace("%1", classLabel)
+                    "label": _("[%1] %2")
+                    .replace("%1", labelPrefix)
                     .replace("%2", node.GetName() or node.GetID()),
                     "kind": "node",
                     "node": node,
-                    "category": (
-                        "case_volume"
-                        if node.IsA("vtkMRMLScalarVolumeNode")
-                        else "scene_element"
-                    ),
+                    "category": category,
                 }
             )
         volumeRenderingLogic = (
@@ -4362,19 +5244,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                             volumeNode
                         )
                     )
-                    if not renderingDisplay:
-                        renderingDisplay = (
-                            volumeRenderingLogic.CreateDefaultVolumeRenderingNodes(
-                                volumeNode
-                            )
-                        )
                 except Exception:
                     renderingDisplay = None
                 if renderingDisplay:
                     entries.append(
                         {
                             "key": f"volumeRendering:{volumeNode.GetID()}",
-                            "label": _("[3D Volume] %1").replace(
+                            "label": _("[Volume rendering — not a mask] %1").replace(
                                 "%1", volumeNode.GetName() or volumeNode.GetID()
                             ),
                             "kind": "volume_rendering",
@@ -4522,6 +5398,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             parameterNode.robotMountPlane,
             "robot_mount",
         )
+        addNode(
+            "node:step6ForeheadProxy",
+            _("[Step 6] Forehead proxy — unregistered / visualization only"),
+            parameterNode.robotForeheadProxyModel,
+            "forehead_proxy",
+        )
         addNodes(
             "nodes:step6MrmlRobot",
             _("[Step 6] MRML robot links"),
@@ -4543,11 +5425,35 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 ros_models,
                 "robot_ros",
             )
+            goal_models = [
+                ros_robot.GetNthNodeReference("goal_model", index)
+                for index in range(ros_robot.GetNumberOfNodeReferences("goal_model"))
+            ]
+            addNodes(
+                "nodes:step6GoalRobot",
+                _("[Step 6] Goal robot"),
+                goal_models,
+                "robot_goal",
+            )
         return entries
 
     @staticmethod
     def _workflowViewPresetCategories(presetKey: str) -> set[str] | None:
         categories = {
+            "cbct_slices": {"case_volume"},
+            "teeth_upper_both": {"upper_teeth"},
+            "teeth_lower_both": {"lower_teeth"},
+            "teeth_all_both": {"upper_teeth", "lower_teeth"},
+            "all_masks": {
+                "upper_teeth",
+                "lower_teeth",
+                "pulp_root_canals",
+                "neural_canals",
+                "jaws",
+                "sinuses_airway",
+                "restorations_implants",
+                "other_mask",
+            },
             "target_only": {"target_mask"},
             "trajectory_only": {
                 "target_mask",
@@ -4579,10 +5485,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "final_aux",
             },
             "final_only": {"final"},
-            "robot_mount_only": {"robot_mrml", "robot_ros", "robot_mount"},
+            "robot_mount_only": {
+                "robot_mrml", "robot_ros", "robot_goal", "robot_mount", "forehead_proxy"
+            },
             "case_package": {
                 "case_volume",
-                "case_volume_3d",
                 "target_mask",
                 "bounds",
                 "trajectory",
@@ -4594,39 +5501,20 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return categories.get(presetKey)
 
     def _workflowViewRecommendedCategories(self, stageIndex: int) -> set[str]:
-        if stageIndex == 4:
-            return {"target_mask", "bounds", "trajectory", "assisted"}
-        if stageIndex == 5:
-            return {"target_mask", "support_mask", "draft_support"}
-        if stageIndex == 6:
-            return {
-                "target_mask",
-                "support_mask",
-                "draft_support",
-                "trajectory",
-                "target_docking",
-                "target_docking_measurement",
-            }
+        categories = recommended_view_categories(stageIndex)
         if stageIndex == 7:
-            categories = {
-                "target_mask",
-                "support_mask",
-                "support_boundary",
-                "support_plane",
-                "visible_support",
-            }
             if not self._parameterNode.visibleTemplateSupportModel:
                 categories.add("draft_support")
             return categories
         if stageIndex == 8:
             if self._parameterNode.finalPrintableTemplateModel:
                 return {"final"}
-            return {"patient_shell", "trajectory", "target_docking"}
+            return categories
         if stageIndex == 9:
             return (
                 {"final"}
                 if self._parameterNode.finalPrintableTemplateModel
-                else {"patient_shell", "target_docking"}
+                else categories
             )
         if stageIndex == 10:
             ros_active = self.logic.isRos2MotionControlActive(
@@ -4649,9 +5537,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "target_docking",
                 "final",
                 "robot_mount",
+                "forehead_proxy",
                 *robot_category,
             }
-        return set()
+        return categories
 
     def _workflowViewPresetDefinitions(
         self,
@@ -4662,8 +5551,32 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         definitions = [
             ("scene", _("Current scene visibility (unchanged)")),
             ("recommended", _("Recommended for this step")),
-            ("target_only", _("Target tooth mask only")),
         ]
+        if "case_volume" in categories:
+            definitions.append(("cbct_slices", _("CBCT slices only")))
+        if "upper_teeth" in categories:
+            definitions.append(
+                ("teeth_upper_both", _("Upper teeth masks — 2D + 3D"))
+            )
+        if "lower_teeth" in categories:
+            definitions.append(
+                ("teeth_lower_both", _("Lower teeth masks — 2D + 3D"))
+            )
+        if categories & {"upper_teeth", "lower_teeth"}:
+            definitions.append(
+                ("teeth_all_both", _("All teeth masks — 2D + 3D"))
+            )
+        if categories & {
+            "pulp_root_canals",
+            "neural_canals",
+            "jaws",
+            "sinuses_airway",
+            "restorations_implants",
+            "other_mask",
+        }:
+            definitions.append(("all_masks", _("All segmentation masks")))
+        if "target_mask" in categories:
+            definitions.append(("target_only", _("Target tooth mask only")))
         if stageIndex == 4 and "trajectory" in categories:
             definitions.append(
                 ("trajectory_only", _("Selected trajectory context only"))
@@ -4711,12 +5624,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     ) -> set[str]:
         if presetKey == "all":
             return {entry["key"] for entry in entries}
-        if presetKey == "recommended" and stageIndex < 4:
-            return {
-                entry["key"]
-                for entry in entries
-                if self._workflowViewEntryCheckState(entry) != qt.Qt.Unchecked
-            }
         if presetKey == "recommended":
             categories = self._workflowViewRecommendedCategories(stageIndex)
         else:
@@ -4815,6 +5722,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
         active = bool(self._parameterNode and self.logic)
+        if self._workflowViewStageLabel:
+            stageTitle = str(self.ui.workflowStageComboBox.currentText or "")
+            self._workflowViewStageLabel.text = _(
+                "Active step: %1\nRecommended: %2."
+            ).replace("%1", stageTitle or str(stageIndex + 1)).replace(
+                "%2", recommended_view_description(stageIndex)
+            )
         self.ui.workflowViewGroupBox.visible = False
         self._setWorkflowViewAvailability(active)
         if not active:
@@ -4838,6 +5752,49 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._workflowViewEntriesByKey = {
             entry["key"]: entry for entry in entries
         }
+        teethCounts = {"upper": 0, "lower": 0}
+        for entry in entries:
+            if entry["kind"] != "segments":
+                continue
+            if entry["category"] == "upper_teeth":
+                teethCounts["upper"] += len(entry["segmentIds"])
+            elif entry["category"] == "lower_teeth":
+                teethCounts["lower"] += len(entry["segmentIds"])
+        for (jaw, dimension), button in self._workflowJawViewButtons.items():
+            count = (
+                teethCounts["upper"] + teethCounts["lower"]
+                if jaw == "all"
+                else teethCounts[jaw]
+            )
+            button.enabled = active and count > 0
+            button.setProperty("dentobotAvailable", count > 0)
+            button.toolTip = _(
+                "%1 recognized permanent-tooth mask(s). Show them in %2."
+            ).replace("%1", str(count)).replace(
+                "%2",
+                {"2d": _("2D slices"), "3d": _("3D"), "both": _("2D and 3D")}[dimension],
+            )
+        if self._workflowRecommendedViewButton:
+            self._workflowRecommendedViewButton.enabled = active and bool(entries)
+        if not self._workflowViewPriorState and not self._workflowViewActivePresetKey:
+            teethCount = teethCounts["upper"] + teethCounts["lower"]
+            if teethCount:
+                self.ui.workflowViewStatusLabel.text = _(
+                    "%1 permanent-tooth mask(s) recognized from FDI labels."
+                ).replace("%1", str(teethCount))
+                self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
+            elif entries:
+                self.ui.workflowViewStatusLabel.text = _(
+                    "No FDI-labelled permanent-tooth masks are available; "
+                    "step-relevant volumes and objects can still be selected."
+                )
+                self.ui.workflowViewStatusLabel.styleSheet = "color: #b36b00;"
+            else:
+                self.ui.workflowViewStatusLabel.text = _(
+                    "No case volume, segmentation masks, or workflow objects "
+                    "are available in the current scene yet."
+                )
+                self.ui.workflowViewStatusLabel.styleSheet = "color: #6b6b6b;"
         self._updatingWorkflowViewUI = True
         try:
             comboBox = self.ui.workflowViewPresetComboBox
@@ -4857,6 +5814,41 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 item.setData(qt.Qt.UserRole, entry["key"])
                 item.setFlags(item.flags() | qt.Qt.ItemIsUserCheckable)
                 item.setCheckState(self._workflowViewEntryCheckState(entry))
+                if entry["category"] in {"upper_teeth", "lower_teeth"}:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setData(
+                        qt.Qt.BackgroundRole,
+                        qt.QColor(225, 242, 250),
+                    )
+                elif entry["category"] in {"scene_mask", "scene_volume"}:
+                    item.setData(
+                        qt.Qt.ForegroundRole,
+                        qt.QColor(105, 105, 105),
+                    )
+                if entry["kind"] == "volume_rendering":
+                    item.setToolTip(
+                        _(
+                            "This is a Slicer intensity rendering of the named "
+                            "scalar volume, not a segmentation mask. Views did "
+                            "not create it."
+                        )
+                    )
+                elif entry["category"] == "scene_volume":
+                    item.setToolTip(
+                        _(
+                            "This scalar volume is in the MRML scene but is not "
+                            "the DENTOBOT case input volume."
+                        )
+                    )
+                elif entry["category"] == "scene_mask":
+                    item.setToolTip(
+                        _(
+                            "This segmentation is in the MRML scene but is not "
+                            "the authoritative DENTOBOT teeth segmentation."
+                        )
+                    )
                 color = None
                 if entry["kind"] == "node":
                     color = self.logic.lineageColorFromNode(entry["node"])
@@ -4883,6 +5875,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         active = bool(active)
         self.ui.workflowViewPresetComboBox.enabled = active
+        if self._workflowRecommendedViewButton:
+            self._workflowRecommendedViewButton.enabled = active
+        for button in self._workflowJawViewButtons.values():
+            if not active:
+                button.enabled = False
         self.ui.frameWorkflowViewButton.enabled = (
             active and bool(self._workflowViewEntriesByKey)
         )
@@ -4957,6 +5954,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         }
         visibleNodeIds = set()
         for entry in entries:
+            if entry["kind"] == "volume_rendering":
+                entry["displayNode"].SetVisibility(entry["key"] in visibleKeys)
+                continue
             if entry["key"] not in visibleKeys:
                 continue
             if entry["kind"] == "node":
@@ -4965,9 +5965,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 for node in entry["nodes"]:
                     if node and node.GetID():
                         visibleNodeIds.add(node.GetID())
-            elif entry["kind"] == "volume_rendering":
-                entry["displayNode"].SetVisibility(entry["key"] in visibleKeys)
-        result = self.logic.applyWorkflowDisplaySelection(
+        self.logic.applyWorkflowDisplaySelection(
             self._parameterNode.teethSegmentation,
             visibleSegmentIds,
             managedNodes,
@@ -5006,12 +6004,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateTemplateGuideVisibilityControls()
         if updateStatus:
             self.ui.workflowViewStatusLabel.text = _(
-                "Display selection: %1 mask segment(s), %2 scene element(s), "
-                "including any checked 3D volumes."
+                "Applied %1 grouped display selection(s). This changes "
+                "visibility only; masks and geometry are unchanged."
             ).replace(
-                "%1", str(len(result["visibleSegmentIds"]))
-            ).replace(
-                "%2", str(len(visibleKeys) - len(result["visibleSegmentIds"]))
+                "%1", str(len(visibleKeys))
             )
             self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
 
@@ -5021,6 +6017,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         *,
         updateStatus: bool = True,
     ) -> None:
+        teethPreset = re.fullmatch(
+            r"teeth_(upper|lower|all)_(2d|3d|both)",
+            str(presetKey),
+        )
+        if teethPreset:
+            self._applyJawTeethView(
+                teethPreset.group(1),
+                teethPreset.group(2),
+                updateStatus=updateStatus,
+            )
+            return
         stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
         entries = self._workflowViewEntries(stageIndex)
         self._workflowViewEntriesByKey = {
@@ -5036,6 +6043,111 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             activePresetKey=presetKey,
             updateStatus=updateStatus,
         )
+
+    def onApplyRecommendedWorkflowView(self, checked: bool = False) -> None:
+        """Apply the explicit recommendation for the active workflow step."""
+
+        del checked
+        self._applyWorkflowViewPreset("recommended")
+
+    def _applyJawTeethView(
+        self,
+        jaw: str,
+        dimension: str,
+        *,
+        updateStatus: bool = True,
+    ) -> None:
+        """Isolate upper/lower tooth masks and independently select 2D/3D."""
+
+        jaw = str(jaw).lower()
+        dimension = str(dimension).lower()
+        if jaw not in {"upper", "lower", "all"}:
+            raise ValueError(_("Jaw view must be upper, lower, or all."))
+        if dimension not in {"2d", "3d", "both"}:
+            raise ValueError(_("Jaw view dimension must be 2D, 3D, or both."))
+        if not self._parameterNode or not self.logic:
+            return
+
+        stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+        entries = self._workflowViewEntries(stageIndex)
+        self._workflowViewEntriesByKey = {
+            entry["key"]: entry for entry in entries
+        }
+        wantedCategories = (
+            {"upper_teeth", "lower_teeth"}
+            if jaw == "all"
+            else {f"{jaw}_teeth"}
+        )
+        visibleKeys = {
+            entry["key"]
+            for entry in entries
+            if entry["category"] in wantedCategories
+        }
+        segmentSelections = [
+            entry
+            for entry in entries
+            if entry["key"] in visibleKeys and entry["kind"] == "segments"
+        ]
+        if not segmentSelections:
+            self.ui.workflowViewStatusLabel.text = _(
+                "No %1 permanent-tooth masks with valid FDI labels are available."
+            ).replace("%1", jaw)
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #b36b00;"
+            return
+
+        activePresetKey = f"teeth_{jaw}_{dimension}"
+        self._applyWorkflowViewKeys(
+            visibleKeys,
+            activePresetKey=activePresetKey,
+            updateStatus=False,
+        )
+        selectedByNode = {}
+        for entry in segmentSelections:
+            segmentationNode = (
+                entry.get("segmentationNode")
+                or self._parameterNode.teethSegmentation
+            )
+            if segmentationNode:
+                selectedByNode.setdefault(segmentationNode, set()).update(
+                    entry["segmentIds"]
+                )
+        for segmentationNode, segmentIds in selectedByNode.items():
+            displayNode = segmentationNode.GetDisplayNode()
+            if not displayNode or not segmentIds:
+                continue
+            wasModifying = displayNode.StartModify()
+            try:
+                displayNode.SetVisibility(True)
+                displayNode.SetVisibility2D(dimension in {"2d", "both"})
+                displayNode.SetVisibility3D(dimension in {"3d", "both"})
+            finally:
+                displayNode.EndModify(wasModifying)
+
+        self._workflowViewActivePresetKey = activePresetKey
+        self._workflowViewVisibleKeys = set(visibleKeys)
+        self._updateWorkflowViewControls()
+        if updateStatus:
+            self.onFrameWorkflowView()
+            jawLabel = {
+                "upper": _("Upper-jaw"),
+                "lower": _("Lower-jaw"),
+                "all": _("All"),
+            }[jaw]
+            dimensionLabel = {
+                "2d": _("2D slices only"),
+                "3d": _("3D view only"),
+                "both": _("2D slices and 3D view"),
+            }[dimension]
+            maskCount = sum(
+                len(segmentIds) for segmentIds in selectedByNode.values()
+            )
+            self.ui.workflowViewStatusLabel.text = _(
+                "%1 tooth masks: %2 mask(s), shown in %3. Other workflow "
+                "objects are hidden; mask geometry is unchanged."
+            ).replace("%1", jawLabel).replace("%2", str(maskCount)).replace(
+                "%3", dimensionLabel
+            )
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
 
     def _activateWorkflowViewStage(
         self,
@@ -5396,8 +6508,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         selectionWidgets = (
             self.ui.templateTargetToothTitleLabel,
             self.ui.templateTargetToothValueLabel,
-            self.ui.templateSupportTeethTitleLabel,
-            self.ui.templateSupportTeethListWidget,
+            self._templateSupportArchWidget,
             self.ui.draftTemplateSupportModelTitleLabel,
             self.ui.draftTemplateSupportModelSelector,
             self.ui.reviewSegmentationForTemplateButton,
@@ -5431,10 +6542,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         for widget in selectionWidgets:
             widget.visible = selectionStage
+        # This hidden QListWidget is only the persistent adapter behind the
+        # Step 4B arch map. It has been removed from the form layout and must
+        # remain hidden in every stage.
+        self.ui.templateSupportTeethListWidget.visible = False
+        self.ui.templateSupportTeethTitleLabel.visible = False
+        self._templateSupportPackageWidget.visible = surfaceStage
         for widget in surfaceWidgets:
             if widget:
                 widget.visible = surfaceStage
         self.ui.templateSupportViewControlsGroupBox.visible = True
+
+    def onReturnToStep4BSupportSelection(self, checked: bool = False) -> None:
+        """Navigate from the Step 5A consumer view to the Step 4B owner."""
+
+        del checked
+        self._setWorkflowStage(5)
 
     def _ensureWorkflowSectionVisible(self, section) -> None:
         if not self._workflowContentScrollArea:
@@ -5514,6 +6637,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def cleanup(self) -> None:
         self._isCleaningUp = True
+        self._step6ExpertDiagnosticHandoffActive = False
+        if self._step6ExpertReturnToolbar:
+            self._step6ExpertReturnToolbar.hide()
+            self._step6ExpertReturnToolbar.deleteLater()
+            self._step6ExpertReturnToolbar = None
         if self._robotWorkflowFacade:
             self._robotWorkflowFacade.clearTransientState()
         if self._applicationShell:
@@ -5548,6 +6676,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         qt.QTimer.singleShot(0, self._restoreViewControlsPaletteOnEnter)
 
     def exit(self) -> None:
+        if self._step6ExpertDiagnosticHandoffActive:
+            self._setRobotTransformInteractionVisible(False)
+            self._disableRobotKeyboardShortcuts()
+            return
         if self._applicationShell:
             self._applicationShell.deactivate()
         self._setRobotTransformInteractionVisible(False)
@@ -5639,11 +6771,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onSceneEndClose(self, caller=None, event=None) -> None:
         del caller, event
+        if self._isCleaningUp:
+            return
         ensure_default_ros2_node_in_scene()
         qt.QTimer.singleShot(0, self._initializeAfterSceneClose)
 
     def _initializeAfterSceneClose(self) -> None:
-        if self.parent.isEntered and self._parameterNode is None:
+        if self._isCleaningUp:
+            return
+        try:
+            is_entered = bool(self.parent and self.parent.isEntered)
+        except (RuntimeError, ValueError):
+            return
+        if is_entered and self._parameterNode is None:
             self.initializeParameterNode()
 
     def onSceneEndImport(self, caller=None, event=None) -> None:
@@ -5678,6 +6818,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def _revalidateImportedStep6ContextAfterLoad(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        if (
+            self._parameterNode.robotBaseMountLocked
+            and normalize_base_status(self._parameterNode.step6BasePlacementStatus)
+            is BasePlacementStatus.UNLOCKED
+        ):
+            self._parameterNode.step6BasePlacementStatus = (
+                BasePlacementStatus.PROVISIONAL_LOCKED.value
+            )
+            self._parameterNode.step6BasePlacementSource = "legacy-scene/unreviewed"
+            self._parameterNode.step6BasePlacementRevision = max(
+                1, int(self._parameterNode.step6BasePlacementRevision)
+            )
+            self._parameterNode.step6ConfirmedTaskJson = ""
+            logging.warning(
+                "Restored a legacy Boolean base lock as provisional/unreviewed; "
+                "task confirmation is required before planning"
+            )
         if not self._parameterNode.step6PlanningContextImported:
             return
         issues = self.logic.step6PlanningContextFreshnessIssues(
@@ -7569,6 +8726,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         finally:
             self._updatingPlanningUI = False
         if self._parameterNode and caller:
+            self.logic.invalidateStep6TaskConfirmation(
+                self._parameterNode,
+                _("Approved trajectory geometry changed."),
+            )
+            self._step6MotionPlan = None
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
             try:
                 dockingSummary = self.logic.getTargetDockingAssemblySummary(
                     self._parameterNode.targetDockingAssemblyModel
@@ -10034,6 +11198,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self._updatingPlanningUI = False
                 return
             self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
+            self.logic.invalidateStep6TaskConfirmation(
+                self._parameterNode,
+                _("Target tooth changed."),
+            )
 
         trajectoryNode = self._parameterNode.trajectoryLine
         trajectoryAssociation = None
@@ -10415,6 +11583,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.templateSupportTeethListWidget.clear()
             self.ui.templateSupportTeethListWidget.enabled = False
             self._rebuildTemplateSupportArchSelector(None, [], [])
+            self._reviseTemplateSupportPackageButton.enabled = False
+            self._reviseTemplateSupportPackageButton.text = _(
+                "Revise locked support package…"
+            )
+            self._templateSupportPackageSummaryLabel.text = _(
+                "No locked Step 4B support package is available."
+            )
+            self._templateSupportPackageSummaryLabel.styleSheet = (
+                "QLabel { color: #b36b00; background: #fff5df; "
+                "border-left: 6px solid #b36b00; padding: 6px; }"
+            )
+            self._templateSupportPackageDetailsLabel.text = ""
             self.ui.draftTemplateSupportModelSelector.setCurrentNode(None)
             self.ui.templateSupportBoundaryCurveSelector.setCurrentNode(None)
             self.ui.templateSupportBoundaryPlaneSelector.setCurrentNode(None)
@@ -10684,6 +11864,102 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 selectedIds.append(str(segmentId))
         return selectedIds
 
+    def _updateTemplateSupportPackageSummary(
+        self,
+        targetRecord: dict | None,
+        persistedSupportIds: list[str],
+        modelNode,
+        modelSummary: dict | None,
+        modelError: str,
+    ) -> None:
+        """Render the Step 4B parent as a read-only Step 5A input package."""
+
+        if not self._templateSupportPackageWidget:
+            return
+        selectionLocked = self.logic.isTemplateSupportSelectionLocked(modelNode)
+        geometryCurrent = bool(
+            modelSummary and modelSummary["geometryState"] == "Current"
+        )
+        if selectionLocked and geometryCurrent:
+            summary = _(
+                "Ready: this support package is locked in Step 4B and is the "
+                "only support-tooth input used by Step 5A."
+            )
+            style = (
+                "QLabel { color: #207227; background: #e8f5e9; "
+                "border-left: 6px solid #207227; padding: 6px; }"
+            )
+        elif modelError:
+            summary = _("Blocked: the Step 4B support package is invalid: %1").replace(
+                "%1", modelError
+            )
+            style = (
+                "QLabel { color: #b00020; background: #fdecef; "
+                "border-left: 6px solid #b00020; padding: 6px; }"
+            )
+        elif modelSummary and not selectionLocked:
+            summary = _(
+                "Blocked: support-tooth selection is unlocked for revision. "
+                "Return to Step 4B and update the draft to lock it again."
+            )
+            style = (
+                "QLabel { color: #b36b00; background: #fff5df; "
+                "border-left: 6px solid #b36b00; padding: 6px; }"
+            )
+        elif modelSummary:
+            summary = _(
+                "Blocked: the locked Step 4B support package is stale. Return "
+                "to Step 4B and update it before continuing."
+            )
+            style = (
+                "QLabel { color: #b36b00; background: #fff5df; "
+                "border-left: 6px solid #b36b00; padding: 6px; }"
+            )
+        else:
+            summary = _(
+                "Blocked: no locked Step 4B support package is available."
+            )
+            style = (
+                "QLabel { color: #b36b00; background: #fff5df; "
+                "border-left: 6px solid #b36b00; padding: 6px; }"
+            )
+
+        supportIds = (
+            modelSummary["supportSegmentIds"]
+            if modelSummary
+            else persistedSupportIds
+        )
+        targetName = (
+            targetRecord.get("displayName")
+            if targetRecord
+            else (modelSummary or {}).get("targetSegmentId", "")
+        ) or _("Not selected")
+        supportNames = []
+        for segmentId in supportIds:
+            record = self._targetToothRecordsById.get(segmentId)
+            supportNames.append(
+                str(record.get("displayName")) if record else str(segmentId)
+            )
+        modelName = modelNode.GetName() if modelNode else _("Not created")
+        stateText = (
+            modelSummary["geometryState"]
+            if modelSummary
+            else _("Unavailable")
+        )
+        lockText = _("Locked") if selectionLocked else _("Unlocked")
+        details = (
+            _("Target: %1\nSupport teeth (%2): %3\nDraft: %4\nState: %5 • %6")
+            .replace("%1", str(targetName))
+            .replace("%2", str(len(supportNames)))
+            .replace("%3", ", ".join(supportNames) or _("None"))
+            .replace("%4", str(modelName))
+            .replace("%5", str(stateText))
+            .replace("%6", lockText)
+        )
+        self._templateSupportPackageSummaryLabel.text = summary
+        self._templateSupportPackageSummaryLabel.styleSheet = style
+        self._templateSupportPackageDetailsLabel.text = details
+
     def _startTemplateSupportBoundaryFocus(self) -> None:
         """Temporarily show only the tooth masks used by the support boundary."""
 
@@ -10772,6 +12048,41 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         except ValueError as exc:
             persistedSupportIds = []
             persistedSelectionError = str(exc)
+
+        # A locked current Step 4B model carries redundant selection
+        # provenance.  Recover the parameter JSON from that parent on legacy
+        # or partially-restored scenes, but never overwrite an intentionally
+        # unlocked revision or a malformed saved value.
+        if (
+            not persistedSelectionError
+            and not persistedSupportIds
+            and self.logic.isDraftTemplateSupportModelNode(modelNode)
+            and self.logic.isTemplateSupportSelectionLocked(modelNode)
+        ):
+            try:
+                savedModelSummary = self.logic.getDraftTemplateSupportModelSummary(
+                    modelNode
+                )
+                if (
+                    savedModelSummary["geometryState"] == "Current"
+                    and savedModelSummary["sourceSegmentation"] is segmentationNode
+                    and savedModelSummary["targetSegmentId"] == targetSegmentId
+                    and savedModelSummary["supportSegmentIds"]
+                ):
+                    persistedSupportIds = list(
+                        savedModelSummary["supportSegmentIds"]
+                    )
+                    self._updatingTemplateUI = True
+                    try:
+                        self._parameterNode.templateSupportToothSegmentIdsJson = (
+                            self.logic.encodeTemplateSupportSegmentIds(
+                                persistedSupportIds
+                            )
+                        )
+                    finally:
+                        self._updatingTemplateUI = False
+            except (RuntimeError, ValueError, json.JSONDecodeError):
+                pass
 
         targetFdi = str(targetRecord.get("fdiNumber") or "") if targetRecord else ""
         targetArch = self.logic.dentalArchForFdi(targetFdi)
@@ -10922,6 +12233,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 modelSummary = self.logic.getDraftTemplateSupportModelSummary(
                     modelNode
                 )
+
             elif (
                 modelSummary["geometryState"] == "Stale"
                 and modelSummary["staleReason"] == automaticSelectionStaleReason
@@ -10935,6 +12247,46 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 modelSummary = self.logic.getDraftTemplateSupportModelSummary(
                     modelNode
                 )
+
+        selectionLocked = self.logic.isTemplateSupportSelectionLocked(modelNode)
+        if (
+            selectionLocked
+            and modelNode
+            and modelNode.GetAttribute("DENTOBOT.SupportSelectionLocked") is None
+        ):
+            # Make the legacy default explicit so the lock survives future
+            # package exports without depending on compatibility behavior.
+            modelNode.SetAttribute("DENTOBOT.SupportSelectionLocked", "true")
+        selectionEditable = bool(
+            targetRecord and availableRecords and not selectionLocked
+        )
+        self.ui.templateSupportTeethListWidget.enabled = selectionEditable
+        for supportButton in self._templateSupportButtonsBySegmentId.values():
+            supportButton.enabled = selectionEditable
+        self._reviseTemplateSupportPackageButton.enabled = bool(
+            modelSummary and selectionLocked
+        )
+        self._reviseTemplateSupportPackageButton.text = (
+            _("Revise locked support package…")
+            if selectionLocked
+            else _("Selection unlocked — update the draft to lock")
+        )
+        if modelSummary and selectionLocked:
+            self._templateSupportArchStatusLabel.text += _(
+                " Package locked; use Revise before changing membership."
+            )
+        elif modelSummary:
+            self._templateSupportArchStatusLabel.text += _(
+                " Package unlocked; update the draft to lock the new membership."
+            )
+
+        self._updateTemplateSupportPackageSummary(
+            targetRecord,
+            persistedSupportIds,
+            modelNode,
+            modelSummary,
+            modelError,
+        )
 
         reviewState = (
             self.logic.getSegmentationReviewState(segmentationNode)
@@ -11522,10 +12874,43 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         selectedNodeId = modelNode.GetID() if modelNode else None
         if currentNodeId != selectedNodeId:
             self._parameterNode.draftTemplateSupportModel = modelNode
+            reason = _("The authoritative Step 4B support package changed.")
             self.logic.markTargetDockingAssemblyStale(
                 self._parameterNode.targetDockingAssemblyModel,
-                _("The Step 4B support-anatomy draft was regenerated."),
+                reason,
             )
+            self._invalidateTemplateSupportSurfaceDownstream(reason)
+        self._updateTemplateModeling()
+
+    def onReviseTemplateSupportPackage(self, checked: bool = False) -> None:
+        """Explicitly unlock Step 4B and stale every dependent child."""
+
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        modelNode = self._parameterNode.draftTemplateSupportModel
+        if not self.logic.isDraftTemplateSupportModelNode(modelNode):
+            slicer.util.errorDisplay(
+                _("Create the Step 4B draft support package first.")
+            )
+            return
+        if not self.logic.isTemplateSupportSelectionLocked(modelNode):
+            self._updateTemplateModeling()
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            _(
+                "Unlock the Step 4B support package for revision? The draft "
+                "and all dependent Step 4C/5A/5B/5C geometry will be marked "
+                "stale immediately. Select support teeth here, then Update "
+                "Draft Support Model to lock the package again."
+            ),
+            windowTitle=_("Revise Step 4B support package"),
+        ):
+            return
+        modelNode.SetAttribute("DENTOBOT.SupportSelectionLocked", "false")
+        self._markCurrentDraftTemplateModelStale(
+            _("The Step 4B support package was unlocked for revision.")
+        )
         self._updateTemplateModeling()
 
     def onCreateDraftTemplateSupportModel(self) -> None:
@@ -12345,19 +13730,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             finalSummary and finalSummary["geometryState"] == "Current"
         )
         self.ui.generateFinalPrintableTemplateButton.enabled = bool(
-            not buildPreflightError and not outputError
+            not finalCurrent and not buildPreflightError and not outputError
         )
         if finalCurrent:
             self.ui.generateFinalPrintableTemplateButton.text = _(
-                "Inspect Current Unified Template (No Rebuild)"
-            )
-        elif patientShellCurrent:
-            self.ui.generateFinalPrintableTemplateButton.text = _(
-                "Fuse Cached Shell + Guides + 4 Docks"
+                "Unified Template Is Current"
             )
         else:
             self.ui.generateFinalPrintableTemplateButton.text = _(
-                "Build Complete Template (Missing/Stale Stages Only)"
+                "Build / Update Unified Template"
             )
         self.ui.deleteFinalPrintableTemplateButton.enabled = bool(
             self.logic.isFinalPrintableTemplateModelNode(finalModel)
@@ -15934,6 +17315,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     ROBOT_LINK_POSE_ROLE = "RobotLinkPose"
     ROBOT_LINK_MODEL_ROLE = "RobotLink"
     ROBOT_MOUNT_PLANE_ROLE = "RobotMountPlane"
+    ROBOT_FOREHEAD_PROXY_ROLE = "RobotForeheadProxy"
     ROBOT_WORKSPACE_MODEL_ROLE = "RobotWorkspaceCloud"
     DRAFT_PHANTOM_MODEL_ROLE = "DraftOpenMouthPhantom"
     DRAFT_PHANTOM_SKULL_PART = "Neurocranium"
@@ -16268,6 +17650,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "finalPrintableTemplateModel",
             "robotBaseTransform",
             "robotMountPlane",
+            "robotForeheadProxyModel",
         )
         records = []
         for fieldName in fields:
@@ -16286,6 +17669,47 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 "planningContextImportedAtSave": bool(
                     parameterNode.step6PlanningContextImported
                 ),
+                "basePlacement": {
+                    "status": str(parameterNode.step6BasePlacementStatus),
+                    "source": str(parameterNode.step6BasePlacementSource),
+                    "sourceRevision": int(parameterNode.step6BasePlacementRevision),
+                    "fingerprint": self.robotBaseFingerprint(parameterNode),
+                },
+                "foreheadProxy": {
+                    "present": bool(parameterNode.robotForeheadProxyModel),
+                    "registrationState": "Unregistered",
+                    "geometryState": "Provisional",
+                    "intendedUse": "VisualizationOnly",
+                    "widthMm": float(parameterNode.step6ForeheadProxyWidthMm),
+                    "heightMm": float(parameterNode.step6ForeheadProxyHeightMm),
+                    "depthMm": float(parameterNode.step6ForeheadProxyDepthMm),
+                    "offsetMm": float(parameterNode.step6ForeheadProxyOffsetMm),
+                },
+                "taskHome": (
+                    json.loads(parameterNode.step6TaskHomeJson)
+                    if str(parameterNode.step6TaskHomeJson or "").strip()
+                    else None
+                ),
+                "assistedLimitProposal": (
+                    json.loads(parameterNode.step6AssistedLimitProposalJson)
+                    if str(parameterNode.step6AssistedLimitProposalJson or "").strip()
+                    else None
+                ),
+                "confirmedTask": (
+                    json.loads(parameterNode.step6ConfirmedTaskJson)
+                    if str(parameterNode.step6ConfirmedTaskJson or "").strip()
+                    else None
+                ),
+                "appearance": {
+                    "cbctOpacity": float(parameterNode.step6CbctOpacity),
+                    "masksOpacity": float(parameterNode.step6MasksOpacity),
+                    "robotOpacity": float(parameterNode.step6RobotOpacity),
+                    "goalRobotOpacity": float(parameterNode.step6GoalRobotOpacity),
+                    "guidesOpacity": float(parameterNode.step6GuidesOpacity),
+                    "mountPlaneOpacity": float(parameterNode.step6MountPlaneOpacity),
+                    "trajectoryOpacity": float(parameterNode.step6TrajectoryOpacity),
+                    "foreheadProxyOpacity": float(parameterNode.step6ForeheadProxyOpacity),
+                },
                 "freshnessIssuesAtSave": self.step6PlanningContextFreshnessIssues(
                     parameterNode
                 ),
@@ -16364,14 +17788,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         expectedStep6 = expected.get("step6")
         if not isinstance(expectedStep6, dict):
             raise CaseBundleError(_("The Step 6 package-lineage record is invalid."))
+        currentStep6 = self.caseBundleWorkflowSummary(parameterNode)["step6"]
+        # Step 6 lineage extensions are optional for schema-V1 compatibility.
+        # Compare every field that the package actually records, without making
+        # old bundles invent the new placement/home/task records.
         actualStep6 = {
-            "planningContextImportedAtSave": bool(
-                parameterNode.step6PlanningContextImported
-            ),
-            "freshnessIssuesAtSave": self.step6PlanningContextFreshnessIssues(
-                parameterNode
-            ),
-            "runtimeRestorePolicy": "never-auto-connect",
+            key: currentStep6.get(key)
+            for key in expectedStep6
         }
         if not self._caseBundleValuesMatch(expectedStep6, actualStep6):
             raise CaseBundleError(
@@ -17411,6 +18834,318 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             displayNode.SetPropertiesLabelVisibility(False)
         return planeNode
 
+    @classmethod
+    def step6ForeheadProxyNodes(cls) -> list[vtkMRMLModelNode]:
+        return [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if node.GetAttribute("DENTOBOT.ModelRole") == cls.ROBOT_FOREHEAD_PROXY_ROLE
+        ]
+
+    def createOrUpdateStep6ForeheadProxy(self, parameterNode) -> vtkMRMLModelNode:
+        plane = parameterNode.robotMountPlane
+        if not self.isRobotMountPlaneNode(plane):
+            raise ValueError(_("Create and position the mount plane before the forehead proxy."))
+        existing = self.step6ForeheadProxyNodes()
+        selected = parameterNode.robotForeheadProxyModel
+        if selected is not None and selected not in existing:
+            raise ValueError(_("The selected forehead proxy is not owned by Step 6."))
+        if len(existing) > 1:
+            raise ValueError(_("Multiple Step 6 forehead proxies are present; remove duplicates before continuing."))
+        model = selected or (existing[0] if existing else None)
+        width = float(parameterNode.step6ForeheadProxyWidthMm)
+        height = float(parameterNode.step6ForeheadProxyHeightMm)
+        depth = float(parameterNode.step6ForeheadProxyDepthMm)
+        offset = float(parameterNode.step6ForeheadProxyOffsetMm)
+        if not all(math.isfinite(value) and value > 0.0 for value in (width, height, depth)):
+            raise ValueError(_("Forehead-proxy width, height, and depth must be positive."))
+        if not math.isfinite(offset):
+            raise ValueError(_("Forehead-proxy offset must be finite."))
+        plane_matrix = vtk.vtkMatrix4x4()
+        plane.GetObjectToWorldMatrix(plane_matrix)
+        origin = np.asarray(
+            [plane_matrix.GetElement(axis, 3) for axis in range(3)], dtype=float
+        )
+        x_axis = np.asarray(
+            [plane_matrix.GetElement(axis, 0) for axis in range(3)], dtype=float
+        )
+        y_axis = np.asarray(
+            [plane_matrix.GetElement(axis, 1) for axis in range(3)], dtype=float
+        )
+        normal = np.asarray(
+            [plane_matrix.GetElement(axis, 2) for axis in range(3)], dtype=float
+        )
+        points = vtk.vtkPoints()
+        quads = vtk.vtkCellArray()
+        columns, rows = 40, 24
+        point_ids = []
+        for row in range(rows + 1):
+            v = -1.0 + 2.0 * row / rows
+            row_ids = []
+            for column in range(columns + 1):
+                u = -1.0 + 2.0 * column / columns
+                local_x = 0.5 * width * u
+                local_y = 0.5 * height * v
+                # A shallow paraboloid is tangent to the mount plane at its
+                # centre and curves away from it toward every boundary.
+                local_z = offset - depth * (0.55 * u * u + 0.45 * v * v)
+                world = origin + x_axis * local_x + y_axis * local_y + normal * local_z
+                row_ids.append(points.InsertNextPoint(*map(float, world)))
+            point_ids.append(row_ids)
+        for row in range(rows):
+            for column in range(columns):
+                quad = vtk.vtkQuad()
+                quad.GetPointIds().SetId(0, point_ids[row][column])
+                quad.GetPointIds().SetId(1, point_ids[row][column + 1])
+                quad.GetPointIds().SetId(2, point_ids[row + 1][column + 1])
+                quad.GetPointIds().SetId(3, point_ids[row + 1][column])
+                quads.InsertNextCell(quad)
+        polydata = vtk.vtkPolyData()
+        polydata.SetPoints(points)
+        polydata.SetPolys(quads)
+        normals = vtk.vtkPolyDataNormals()
+        normals.SetInputData(polydata)
+        normals.AutoOrientNormalsOn()
+        normals.SplittingOff()
+        normals.Update()
+        resolved = vtk.vtkPolyData()
+        resolved.DeepCopy(normals.GetOutput())
+        if model is None:
+            model = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode", "[Step 6] Provisional Forehead Contact Envelope"
+            )
+        model.SetName("[Step 6] Provisional Forehead Contact Envelope")
+        model.SetAttribute("DENTOBOT.ModelRole", self.ROBOT_FOREHEAD_PROXY_ROLE)
+        model.SetAttribute("DENTOBOT.RegistrationState", "Unregistered")
+        model.SetAttribute("DENTOBOT.GeometryState", "Provisional")
+        model.SetAttribute("DENTOBOT.IntendedUse", "VisualizationOnly")
+        model.SetAttribute("DENTOBOT.ExcludedFromCollision", "true")
+        model.SetAttribute("DENTOBOT.RegistrationEvidence", "false")
+        model.SetAttribute("DENTOBOT.CoordinateSystem", "SlicerRASmm")
+        model.SetAndObserveTransformNodeID(None)
+        model.SetAndObservePolyData(resolved)
+        model.CreateDefaultDisplayNodes()
+        display = model.GetDisplayNode()
+        if display:
+            display.SetVisibility(True)
+            display.SetVisibility2D(False)
+            display.SetVisibility3D(True)
+            display.SetColor(0.35, 0.75, 0.95)
+            display.SetOpacity(float(parameterNode.step6ForeheadProxyOpacity))
+            display.SetBackfaceCulling(False)
+        model.SetSelectable(True)
+        parameterNode.robotForeheadProxyModel = model
+        self.invalidateStep6TaskConfirmation(
+            parameterNode,
+            _("Provisional forehead-proxy geometry changed."),
+            makeBaseStale=bool(parameterNode.robotBaseMountLocked),
+        )
+        return model
+
+    def step6CbctVolumeRenderingDisplayNode(self, parameterNode):
+        volume = parameterNode.inputVolume
+        if volume is None or not hasattr(slicer.modules, "volumerendering"):
+            return None
+        stored_id = str(parameterNode.step6CbctVolumeRenderingNodeId or "")
+        stored = slicer.mrmlScene.GetNodeByID(stored_id) if stored_id else None
+        if stored is not None:
+            return stored
+        logic = slicer.modules.volumerendering.logic()
+        display = logic.GetFirstVolumeRenderingDisplayNode(volume)
+        if display is not None:
+            parameterNode.step6CbctVolumeRenderingNodeId = display.GetID()
+        return display
+
+    def applyStep6CbctRenderingPreset(
+        self,
+        parameterNode,
+        presetName: str,
+        *,
+        createIfMissing: bool,
+    ) -> bool:
+        volume = parameterNode.inputVolume
+        if volume is None:
+            raise ValueError(_("Load the case CBCT before enabling 3D context."))
+        if not hasattr(slicer.modules, "volumerendering"):
+            raise RuntimeError(_("Slicer's Volume Rendering module is unavailable."))
+        logic = slicer.modules.volumerendering.logic()
+        display = self.step6CbctVolumeRenderingDisplayNode(parameterNode)
+        if display is None and createIfMissing:
+            display = logic.CreateDefaultVolumeRenderingNodes(volume)
+            if display is None:
+                raise RuntimeError(_("Slicer could not create a CBCT renderer."))
+            parameterNode.step6CbctVolumeRenderingNodeId = display.GetID()
+            display.SetAttribute("DENTOBOT.DisplayRole", "Step6CbctContext")
+        if display is None:
+            return False
+        presetName = str(presetName or "current")
+        if presetName == "current":
+            logic.CopyScalarDisplayToVolumeRenderingDisplayNode(
+                display, volume.GetDisplayNode()
+            )
+        elif presetName in {"CT-Bone", "uCT-Skull"}:
+            preset = logic.GetPresetByName(presetName)
+            if preset is None:
+                raise ValueError(_("Volume-rendering preset %1 is unavailable.").replace("%1", presetName))
+            property_node = display.GetVolumePropertyNode()
+            if property_node is None:
+                property_node = slicer.mrmlScene.AddNewNodeByClass(
+                    "vtkMRMLVolumePropertyNode",
+                    f"[Step 6] {presetName} Intensity Appearance",
+                )
+                display.SetAndObserveVolumePropertyNodeID(property_node.GetID())
+            property_node.Copy(preset)
+            property_node.SetName(f"[Step 6] {presetName} Intensity Appearance")
+        else:
+            raise ValueError(_("Unknown CBCT intensity-appearance preset."))
+        display.SetVisibility(True)
+        self._captureStep6CbctBaseOpacity(display)
+        self._applyStep6CbctOpacity(display, float(parameterNode.step6CbctOpacity))
+        return True
+
+    @staticmethod
+    def _captureStep6CbctBaseOpacity(display) -> None:
+        property_node = display.GetVolumePropertyNode() if display else None
+        volume_property = property_node.GetVolumeProperty() if property_node else None
+        opacity_function = volume_property.GetScalarOpacity() if volume_property else None
+        if opacity_function is None:
+            return
+        points = []
+        for index in range(opacity_function.GetSize()):
+            values = [0.0, 0.0, 0.0, 0.0]
+            opacity_function.GetNodeValue(index, values)
+            points.append([float(value) for value in values])
+        display.SetAttribute(
+            "DENTOBOT.Step6BaseScalarOpacityJson",
+            json.dumps(points, separators=(",", ":")),
+        )
+
+    @staticmethod
+    def _applyStep6CbctOpacity(display, opacity: float) -> None:
+        if display is None:
+            return
+        property_node = display.GetVolumePropertyNode()
+        volume_property = property_node.GetVolumeProperty() if property_node else None
+        opacity_function = volume_property.GetScalarOpacity() if volume_property else None
+        if opacity_function is None:
+            return
+        try:
+            points = json.loads(
+                display.GetAttribute("DENTOBOT.Step6BaseScalarOpacityJson") or "[]"
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            points = []
+        if not points:
+            return
+        scale = max(0.0, min(1.0, float(opacity)))
+        opacity_function.RemoveAllPoints()
+        for point in points:
+            if len(point) != 4:
+                continue
+            opacity_function.AddPoint(
+                float(point[0]),
+                float(point[1]) * scale,
+                float(point[2]),
+                float(point[3]),
+            )
+        property_node.Modified()
+
+    def enableStep6CbctVolumeRendering(self, parameterNode, presetName: str):
+        self.applyStep6CbctRenderingPreset(
+            parameterNode,
+            presetName,
+            createIfMissing=True,
+        )
+        return self.step6CbctVolumeRenderingDisplayNode(parameterNode)
+
+    def setStep6Appearance(
+        self,
+        parameterNode,
+        key: str,
+        *,
+        visible: bool,
+        opacity: float,
+    ) -> None:
+        opacity = max(0.0, min(1.0, float(opacity)))
+        parameter_fields = {
+            "cbct": "step6CbctOpacity",
+            "masks": "step6MasksOpacity",
+            "robot": "step6RobotOpacity",
+            "goal_robot": "step6GoalRobotOpacity",
+            "guides": "step6GuidesOpacity",
+            "mount_plane": "step6MountPlaneOpacity",
+            "trajectory": "step6TrajectoryOpacity",
+            "forehead_proxy": "step6ForeheadProxyOpacity",
+        }
+        if key not in parameter_fields:
+            raise ValueError(_("Unknown Step 6 appearance element."))
+        setattr(parameterNode, parameter_fields[key], opacity)
+
+        displays = []
+        if key == "cbct":
+            display = self.step6CbctVolumeRenderingDisplayNode(parameterNode)
+            if display is not None:
+                display.SetVisibility(bool(visible))
+                self._applyStep6CbctOpacity(display, opacity)
+                return
+        elif key == "masks" and parameterNode.teethSegmentation:
+            display = parameterNode.teethSegmentation.GetDisplayNode()
+            if display:
+                display.SetVisibility(bool(visible))
+                set_opacity = getattr(display, "SetOpacity3D", None)
+                if set_opacity:
+                    set_opacity(opacity)
+                return
+        elif key == "robot":
+            displays.extend(
+                node.GetDisplayNode() for node in self.robotModelNodes() if node.GetDisplayNode()
+            )
+            ros_robot = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+            if ros_robot:
+                displays.extend(
+                    node.GetDisplayNode()
+                    for index in range(ros_robot.GetNumberOfNodeReferences("model"))
+                    for node in [ros_robot.GetNthNodeReference("model", index)]
+                    if node and node.GetDisplayNode()
+                )
+        elif key == "goal_robot":
+            ros_robot = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+            if ros_robot:
+                displays.extend(
+                    node.GetDisplayNode()
+                    for index in range(ros_robot.GetNumberOfNodeReferences("goal_model"))
+                    for node in [ros_robot.GetNthNodeReference("goal_model", index)]
+                    if node and node.GetDisplayNode()
+                )
+        elif key == "guides":
+            displays.extend(
+                node.GetDisplayNode()
+                for node in (
+                    parameterNode.draftTemplateSupportModel,
+                    parameterNode.visibleTemplateSupportModel,
+                    parameterNode.targetDockingAssemblyModel,
+                    parameterNode.finalPrintableTemplateModel,
+                )
+                if node and node.GetDisplayNode()
+            )
+        elif key == "mount_plane" and parameterNode.robotMountPlane:
+            display = parameterNode.robotMountPlane.GetDisplayNode()
+            if display:
+                displays.append(display)
+        elif key == "trajectory" and parameterNode.trajectoryLine:
+            display = parameterNode.trajectoryLine.GetDisplayNode()
+            if display:
+                displays.append(display)
+        elif key == "forehead_proxy" and parameterNode.robotForeheadProxyModel:
+            display = parameterNode.robotForeheadProxyModel.GetDisplayNode()
+            if display:
+                displays.append(display)
+        for display in dict.fromkeys(displays):
+            display.SetVisibility(bool(visible))
+            set_opacity = getattr(display, "SetOpacity", None)
+            if set_opacity:
+                set_opacity(opacity)
+
     def snapRobotBaseToPlane(
         self,
         baseTransform: vtkMRMLLinearTransformNode,
@@ -17608,6 +19343,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     def _segmentationSurfaceWorld(
         self,
         segmentation_node: vtkMRMLSegmentationNode,
+        segment_ids: set[str] | None = None,
     ) -> vtk.vtkPolyData | None:
         """Combine available tooth closed surfaces in world-RAS coordinates."""
         if segmentation_node is None:
@@ -17622,7 +19358,9 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         surface_count = 0
         for record in self.getTargetToothRecords(segmentation_node):
             segment_id = record.get("segmentId")
-            if not segment_id:
+            if not segment_id or (
+                segment_ids is not None and segment_id not in segment_ids
+            ):
                 continue
             try:
                 surface = self._getClosedSurfaceCopy(segmentation_node, segment_id)
@@ -17663,13 +19401,35 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 continue
             sources.append((model.GetID(), model.GetName(), world_surface))
 
-        teeth_world = self._segmentationSurfaceWorld(parameterNode.teethSegmentation)
-        if teeth_world is not None:
+        segmentation = parameterNode.teethSegmentation
+        target_id = str(parameterNode.targetToothSegmentId or "")
+        all_tooth_ids = {
+            str(record.get("segmentId") or "")
+            for record in self.getTargetToothRecords(segmentation)
+            if record.get("segmentId")
+        } if segmentation else set()
+        target_world = self._segmentationSurfaceWorld(
+            segmentation,
+            {target_id} if target_id else set(),
+        )
+        if target_world is not None:
             sources.append(
                 (
-                    parameterNode.teethSegmentation.GetID(),
-                    parameterNode.teethSegmentation.GetName(),
-                    teeth_world,
+                    f"{segmentation.GetID()}:target:{target_id}",
+                    self.step6TargetCollisionObjectName(parameterNode),
+                    target_world,
+                )
+            )
+        non_target_world = self._segmentationSurfaceWorld(
+            segmentation,
+            all_tooth_ids - {target_id},
+        )
+        if non_target_world is not None:
+            sources.append(
+                (
+                    f"{segmentation.GetID()}:non-target-teeth",
+                    "dentobot_non_target_teeth",
+                    non_target_world,
                 )
             )
 
@@ -17688,6 +19448,29 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             if not ok:
                 raise RuntimeError(message)
         return len(sources)
+
+    @staticmethod
+    def step6TargetCollisionObjectName(parameterNode) -> str:
+        segment_id = re.sub(
+            r"[^A-Za-z0-9_.-]+",
+            "_",
+            str(parameterNode.targetToothSegmentId or "unknown"),
+        )
+        return f"dentobot_target_tooth_{segment_id}"
+
+    def step6TargetCollisionObjectId(self, parameterNode) -> str:
+        segmentation = parameterNode.teethSegmentation
+        target_id = str(parameterNode.targetToothSegmentId or "")
+        if segmentation is None or not target_id:
+            return ""
+        source_id = f"{segmentation.GetID()}:target:{target_id}"
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if (
+                node.GetAttribute("DENTOBOT.MoveItObstacleProxy") == "true"
+                and node.GetAttribute("DENTOBOT.MoveItObstacleSource") == source_id
+            ):
+                return str(node.GetID() or "")
+        return ""
 
     def importStep6PlanningContext(self, parameterNode) -> PlanningContextReport:
         report = validate_planning_context(
@@ -17759,7 +19542,28 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         return issues
 
     def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
+        requested_status = (
+            BasePlacementStatus.PROVISIONAL_LOCKED
+            if locked
+            else BasePlacementStatus.UNLOCKED
+        )
+        current_status = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        state_changed = bool(parameterNode.robotBaseMountLocked) != bool(locked) or (
+            current_status is not requested_status
+        )
         parameterNode.robotBaseMountLocked = bool(locked)
+        parameterNode.step6BasePlacementStatus = requested_status.value
+        if state_changed:
+            parameterNode.step6BasePlacementSource = (
+                "manual-mount-plane" if locked else "operator-unlocked"
+            )
+            parameterNode.step6BasePlacementRevision = max(
+                0, int(parameterNode.step6BasePlacementRevision)
+            ) + 1
+            self.invalidateStep6TaskConfirmation(
+                parameterNode,
+                _("Robot base lock state changed."),
+            )
         base_transform = parameterNode.robotBaseTransform
         plane_node = parameterNode.robotMountPlane
         if base_transform and self.isRobotBaseTransformNode(base_transform):
@@ -17787,6 +19591,239 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                 display.SetHandlesInteractive(not locked)
                 display.SetTranslationHandleVisibility(not locked)
                 display.SetRotationHandleVisibility(not locked)
+
+    def robotProfileFingerprint(self) -> str:
+        return str(self.caseBundleRobotProfile().get("identitySha256") or "")
+
+    def robotBaseFingerprint(self, parameterNode) -> str:
+        base = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base):
+            return ""
+        pose_fingerprint = self.robotBasePoseFingerprint(base)
+        return fingerprint(
+            {
+                "poseFingerprint": pose_fingerprint,
+                "status": normalize_base_status(
+                    parameterNode.step6BasePlacementStatus
+                    or ("LegacyLocked" if parameterNode.robotBaseMountLocked else "Unlocked")
+                ).value,
+                "source": str(parameterNode.step6BasePlacementSource or "legacy-scene"),
+                "sourceRevision": int(parameterNode.step6BasePlacementRevision),
+            }
+        )
+
+    def robotBasePoseFingerprint(self, base) -> str:
+        if not self.isRobotBaseTransformNode(base):
+            return ""
+        matrix = self._worldMatrixFromTransform(base)
+        elements = tuple(
+            tuple(round(float(matrix.GetElement(row, column)), 9) for column in range(4))
+            for row in range(4)
+        )
+        return fingerprint({"matrixToWorldRas": elements})
+
+    def step6TrajectoryRevision(self, parameterNode) -> str:
+        trajectory = parameterNode.trajectoryLine
+        if trajectory is None:
+            return ""
+        summary = self.getTrajectorySummary(trajectory)
+        if not summary.get("isValid"):
+            return ""
+        attributes = {}
+        for name in (
+            "DENTOBOT.CoordinateSystem",
+            "DENTOBOT.LineageTargetSegmentID",
+            "DENTOBOT.GeometryState",
+            "DENTOBOT.SchemaVersion",
+        ):
+            value = trajectory.GetAttribute(name)
+            if value is not None:
+                attributes[name] = str(value)
+        return fingerprint(
+            {
+                "entryRasMm": tuple(round(float(value), 9) for value in summary["entryRas"]),
+                "targetRasMm": tuple(round(float(value), 9) for value in summary["targetRas"]),
+                "locked": bool(trajectory.GetLocked()),
+                "attributes": attributes,
+            }
+        )
+
+    def step6TaskLimitsFingerprint(self, parameterNode) -> str:
+        limits = self.getTaskJointLimits(parameterNode)
+        return fingerprint(
+            {
+                "minimumDisplay": limits.as_display_vector(),
+                "maximumDisplay": limits.as_display_max_vector(),
+                "reviewedProposal": str(parameterNode.step6AssistedLimitProposalJson or ""),
+            }
+        )
+
+    def taskHomeRecord(self, parameterNode):
+        payload = str(parameterNode.step6TaskHomeJson or "").strip()
+        return parse_task_home(payload) if payload else None
+
+    def saveCurrentTaskHome(self, parameterNode):
+        state = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        if state not in {
+            BasePlacementStatus.PROVISIONAL_LOCKED,
+            BasePlacementStatus.REGISTERED_LOCKED,
+        }:
+            raise ValueError(_("Provisionally lock the robot base before saving Task Home."))
+        previous = self.taskHomeRecord(parameterNode)
+        record = build_task_home(
+            joint_positions_si_from_display(
+                parameterNode.robotJoint1Deg,
+                parameterNode.robotJoint2Mm,
+                parameterNode.robotJoint3Deg,
+                parameterNode.robotJoint4Mm,
+                parameterNode.robotJoint5Deg,
+                parameterNode.robotJoint6Deg,
+            ),
+            base_fingerprint=self.robotBaseFingerprint(parameterNode),
+            robot_profile_fingerprint=self.robotProfileFingerprint(),
+            revision=(previous.revision + 1 if previous else 1),
+        )
+        parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
+        self.invalidateStep6TaskConfirmation(parameterNode, _("Task Home changed."))
+        return record
+
+    def taskHomeFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        try:
+            record = self.taskHomeRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            return (_("Saved Task Home record is invalid."),)
+        if record is None:
+            return (_("Save a case/base-specific Task Home."),)
+        issues = []
+        if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
+            issues.append(_("Task Home belongs to a different base pose."))
+        if record.robot_profile_fingerprint != self.robotProfileFingerprint():
+            issues.append(_("Task Home belongs to different robot resources."))
+        return tuple(issues)
+
+    def proposeAssistedTaskLimits(self, parameterNode, workspaceResult):
+        mechanical = default_task_joint_limits_from_urdf(self.robotDescriptionPaths()[0])
+        previous_revision = 0
+        try:
+            previous = json.loads(parameterNode.step6AssistedLimitProposalJson or "{}")
+            previous_revision = int(previous.get("revision", 0))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+        proposal = build_assisted_limit_proposal(
+            workspaceResult.accepted_joint_display_vectors,
+            mechanical.as_display_vector(),
+            mechanical.as_display_max_vector(),
+            revision=previous_revision + 1,
+            reviewed=False,
+        )
+        parameterNode.step6AssistedLimitProposalJson = canonical_json(proposal.to_dict())
+        self.invalidateStep6TaskConfirmation(parameterNode, _("Workspace limit proposal changed."))
+        return proposal
+
+    def reviewAndApplyAssistedTaskLimits(self, parameterNode):
+        try:
+            data = json.loads(parameterNode.step6AssistedLimitProposalJson or "")
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(_("Generate an assisted-limit proposal first.")) from exc
+        minima = tuple(float(value) for value in data.get("minimum_display", ()))
+        maxima = tuple(float(value) for value in data.get("maximum_display", ()))
+        if len(minima) != 6 or len(maxima) != 6:
+            raise ValueError(_("The assisted-limit proposal is invalid."))
+        fields = (
+            ("robotJoint1TaskMinDeg", "robotJoint1TaskMaxDeg"),
+            ("robotJoint2TaskMinMm", "robotJoint2TaskMaxMm"),
+            ("robotJoint3TaskMinDeg", "robotJoint3TaskMaxDeg"),
+            ("robotJoint4TaskMinMm", "robotJoint4TaskMaxMm"),
+            ("robotJoint5TaskMinDeg", "robotJoint5TaskMaxDeg"),
+            ("robotJoint6TaskMinDeg", "robotJoint6TaskMaxDeg"),
+        )
+        for index, (minimum_field, maximum_field) in enumerate(fields):
+            setattr(parameterNode, minimum_field, minima[index])
+            setattr(parameterNode, maximum_field, maxima[index])
+        data["reviewed"] = True
+        parameterNode.step6AssistedLimitProposalJson = canonical_json(data)
+        self.invalidateStep6TaskConfirmation(parameterNode, _("Reviewed task limits changed."))
+        return data
+
+    def assistedTaskLimitsReviewed(self, parameterNode) -> bool:
+        try:
+            data = json.loads(parameterNode.step6AssistedLimitProposalJson or "")
+            return bool(data.get("reviewed"))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return False
+
+    def confirmStep6Task(self, parameterNode):
+        if normalize_base_status(parameterNode.step6BasePlacementStatus) not in {
+            BasePlacementStatus.PROVISIONAL_LOCKED,
+            BasePlacementStatus.REGISTERED_LOCKED,
+        }:
+            raise ValueError(_("Review and provisionally lock the robot base first."))
+        home_issues = self.taskHomeFreshnessIssues(parameterNode)
+        if home_issues:
+            raise ValueError(" ".join(home_issues))
+        if not self.assistedTaskLimitsReviewed(parameterNode):
+            raise ValueError(_("Review and apply the assisted task-limit proposal first."))
+        freshness = self.step6PlanningContextFreshnessIssues(parameterNode)
+        if freshness:
+            raise ValueError(" ".join(freshness))
+        trajectory = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        home = self.taskHomeRecord(parameterNode)
+        record = build_task_snapshot(
+            target_segment_id=str(parameterNode.targetToothSegmentId or ""),
+            trajectory_revision=self.step6TrajectoryRevision(parameterNode),
+            entry_ras_mm=trajectory["entryRas"],
+            target_ras_mm=trajectory["targetRas"],
+            base_fingerprint=self.robotBaseFingerprint(parameterNode),
+            home_fingerprint=fingerprint(home.to_dict()),
+            limits_fingerprint=self.step6TaskLimitsFingerprint(parameterNode),
+            robot_profile_fingerprint=self.robotProfileFingerprint(),
+            tool_frame=str(parameterNode.step6ToolFrame),
+            tool_provenance="CAD-derived/provisional/un-calibrated",
+            corridor_radius_mm=float(parameterNode.step6TrajectoryCorridorRadiusMm),
+        )
+        parameterNode.step6ConfirmedTaskJson = canonical_json(record.to_dict())
+        return record
+
+    def confirmedTaskRecord(self, parameterNode):
+        payload = str(parameterNode.step6ConfirmedTaskJson or "").strip()
+        return parse_task_snapshot(payload) if payload else None
+
+    def confirmedTaskFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        try:
+            snapshot = self.confirmedTaskRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            return (_("Confirmed Step 6 task record is invalid."),)
+        if snapshot is None:
+            return (_("Confirm the immutable Step 6 task snapshot."),)
+        home = self.taskHomeRecord(parameterNode)
+        return task_snapshot_invalidation_reasons(
+            snapshot,
+            target_segment_id=str(parameterNode.targetToothSegmentId or ""),
+            trajectory_revision=self.step6TrajectoryRevision(parameterNode),
+            base_fingerprint=self.robotBaseFingerprint(parameterNode),
+            home_fingerprint=fingerprint(home.to_dict()) if home else "",
+            limits_fingerprint=self.step6TaskLimitsFingerprint(parameterNode),
+            robot_profile_fingerprint=self.robotProfileFingerprint(),
+            tool_frame=str(parameterNode.step6ToolFrame),
+        )
+
+    def invalidateStep6TaskConfirmation(
+        self,
+        parameterNode,
+        reason: str,
+        *,
+        makeBaseStale: bool = False,
+    ) -> None:
+        had_confirmation = bool(str(parameterNode.step6ConfirmedTaskJson or "").strip())
+        parameterNode.step6ConfirmedTaskJson = ""
+        if makeBaseStale and parameterNode.robotBaseMountLocked:
+            parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
+            parameterNode.robotBaseMountLocked = False
+        workspace = self.robotWorkspaceModelNode()
+        if workspace is not None:
+            workspace.SetAttribute("DENTOBOT.WorkspaceState", "Stale")
+        if had_confirmation:
+            logging.warning("Invalidated Step 6 task confirmation: %s", reason)
 
     def getTaskJointLimits(self, parameterNode) -> TaskJointLimits:
         urdf_path, _package_root = self.robotDescriptionPaths()
@@ -18008,6 +20045,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
         )
 
+    def step6ApproachPoints(self, parameterNode):
+        summary = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        if not summary.get("isValid"):
+            raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
+        return approach_points(
+            summary["entryRas"],
+            summary["targetRas"],
+            float(parameterNode.step6ApproachStandoffMm),
+        )
+
     def _worldMatrixFromTransform(
         self,
         transform_node: vtkMRMLLinearTransformNode,
@@ -18029,6 +20076,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             nodes.append(baseTransform)
         if self.isRobotMountPlaneNode(planeNode):
             nodes.append(planeNode)
+        nodes.extend(self.step6ForeheadProxyNodes())
         removed = []
         for node in dict.fromkeys(nodes):
             if slicer.mrmlScene.IsNodePresent(node):
@@ -20571,6 +22619,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             modelNode.SetAttribute("DENTOBOT.Status", "DraftResearchOnly")
             modelNode.SetAttribute("DENTOBOT.GeometryState", "Current")
             modelNode.SetAttribute("DENTOBOT.StaleReason", None)
+            modelNode.SetAttribute("DENTOBOT.SupportSelectionLocked", "true")
             modelNode.SetAttribute(
                 "DENTOBOT.CoordinateConvention",
                 "WorldRASmm",
@@ -20677,6 +22726,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             == "TemplateSupportDraft"
         )
 
+    @classmethod
+    def isTemplateSupportSelectionLocked(cls, modelNode) -> bool:
+        """Return the persistent Step 4B ownership lock (legacy drafts lock)."""
+
+        if not cls.isDraftTemplateSupportModelNode(modelNode):
+            return False
+        return (
+            modelNode.GetAttribute("DENTOBOT.SupportSelectionLocked") or "true"
+        ).strip().lower() != "false"
+
     def validateDraftTemplateSupportModelForDeletion(
         self,
         modelNode: vtkMRMLModelNode,
@@ -20758,6 +22817,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             ) or "",
             "supportSegmentIds": supportIds,
             "supportCount": len(supportIds),
+            "selectionLocked": self.isTemplateSupportSelectionLocked(modelNode),
             "geometryState": modelNode.GetAttribute(
                 "DENTOBOT.GeometryState"
             ) or "Unknown",
@@ -28401,8 +30461,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowRobotPlacementLogic",
             "test_DENTOWorkflowRobotPlacementWidget",
             "test_DENTOWorkflowStep6CaseViewWidget",
+            "test_DENTOWorkflowStep6NativePlacementPersistence",
             "test_DENTOWorkflowStep6JointLimitSpinboxes",
             "test_DENTOWorkflowViewControlsPaletteWidget",
+            "test_DENTOWorkflowUnifiedTemplatePanelLayout",
             "test_DENTOWorkflowCompleteTemplateBuildCaching",
             "test_DENTOWorkflowSceneDisplayPresetWidget",
             "test_DENTOWorkflowSavedSceneAuthoritativeSourceRestoration",
@@ -30210,18 +32272,27 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertTrue(widget.ui.segmentationProvenanceGroupBox.collapsed)
         self.assertTrue(widget.ui.planningSummaryGroupBox.collapsed)
         self.assertTrue(widget.ui.trajectoryVerificationGroupBox.collapsed)
-        self.assertFalse(widget.ui.patientContactShellGroupBox.collapsed)
+        self.assertTrue(widget.ui.patientContactShellGroupBox.collapsed)
         self.assertFalse(widget.ui.templateDockingFusionGroupBox.collapsed)
         self.assertTrue(widget.ui.templateGuideVisibilityGroupBox.collapsed)
 
         widget._setWorkflowStage(5, ensureVisible=False)
         self.assertEqual(widget.ui.workflowStageComboBox.currentIndex, 5)
         self.assertFalse(widget.ui.templateModelingCollapsibleButton.collapsed)
-        self.assertFalse(widget.ui.templateSupportTeethListWidget.isHidden())
+        self.assertTrue(widget.ui.templateSupportTeethListWidget.isHidden())
+        self.assertFalse(widget._templateSupportArchWidget.isHidden())
+        self.assertTrue(widget._templateSupportPackageWidget.isHidden())
+        self.assertGreaterEqual(widget._templateSupportArchWidget.minimumHeight, 178)
         self.assertTrue(widget.ui.createTemplateSupportPlaneButton.isHidden())
         widget._setWorkflowStage(7, ensureVisible=False)
         self.assertTrue(widget.ui.templateSupportTeethListWidget.isHidden())
+        self.assertTrue(widget._templateSupportArchWidget.isHidden())
+        self.assertFalse(widget._templateSupportPackageWidget.isHidden())
+        self.assertTrue(widget.ui.draftTemplateSupportModelSelector.isHidden())
         self.assertFalse(widget.ui.createTemplateSupportPlaneButton.isHidden())
+        widget.onReturnToStep4BSupportSelection()
+        self.assertEqual(widget.ui.workflowStageComboBox.currentIndex, 5)
+        self.assertFalse(widget._templateSupportArchWidget.isHidden())
         self.assertTrue(widget.ui.planningCollapsibleButton.collapsed)
         self.assertTrue(widget.ui.planningCollapsibleButton.isHidden())
         self.assertTrue(widget.ui.assistedTrajectoryCollapsibleButton.isHidden())
@@ -30388,6 +32459,56 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             scenePath.unlink(missing_ok=True)
 
         self.delayDisplay("DENTOWorkflow scene display preset test passed")
+
+    def test_DENTOWorkflowUnifiedTemplatePanelLayout(self) -> None:
+        """Keep every Step 5B input before result and action controls."""
+
+        slicer.mrmlScene.Clear(0)
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        widget._setWorkflowStage(8, ensureVisible=False)
+        slicer.app.processEvents()
+
+        layout = widget.ui.templateGuideVerticalLayout
+        orderedWidgets = (
+            widget._unifiedTemplateReadinessGroup,
+            widget._unifiedTemplateInputsGroup,
+            widget.ui.patientContactShellGroupBox,
+            widget.ui.templateDockingFusionGroupBox,
+            widget._unifiedTemplateActionGroup,
+        )
+        indices = [layout.indexOf(item) for item in orderedWidgets]
+        self.assertEqual(indices, sorted(indices))
+        self.assertTrue(all(index >= 0 for index in indices))
+        self.assertTrue(widget.ui.patientContactShellGroupBox.collapsed)
+        self.assertFalse(widget.ui.templateDockingFusionGroupBox.collapsed)
+        self.assertIs(
+            widget.ui.generateFinalPrintableTemplateButton.parent(),
+            widget._unifiedTemplateActionGroup,
+        )
+        self.assertIs(
+            widget.ui.deleteFinalPrintableTemplateButton.parent(),
+            widget._unifiedTemplateActionGroup,
+        )
+        self.assertEqual(
+            widget.ui.generateFinalPrintableTemplateButton.text,
+            "Build / Update Unified Template",
+        )
+        for spinBox in (
+            widget.ui.templateShellClearanceSpinBox,
+            widget.ui.templateShellThicknessSpinBox,
+            widget.ui.templateSamplingSpacingSpinBox,
+            widget.ui.templateSleeveOuterDiameterSpinBox,
+            widget.ui.templateSleeveInnerDiameterSpinBox,
+            widget.ui.templateSleeveHeightSpinBox,
+            widget.ui.templateDockingClearanceSpinBox,
+            widget.ui.templateReinforcementRadialSpinBox,
+            widget.ui.templateReinforcementDepthSpinBox,
+        ):
+            self.assertTrue(
+                widget._unifiedTemplateInputsGroup.isAncestorOf(spinBox)
+            )
+        self.delayDisplay("DENTOWorkflow unified-template panel layout test passed")
 
     def test_DENTOWorkflowCompleteTemplateBuildCaching(self) -> None:
         """Complete build and inspection must reuse current expensive stages."""
@@ -30746,6 +32867,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             ("tooth-14", "upper_right_first_premolar_fdi14", 0.0),
             ("tooth-15", "upper_right_second_premolar_fdi15", 4.0),
             ("tooth-16", "upper_right_first_molar_fdi16", 8.0),
+            ("tooth-36", "lower_left_first_molar_fdi36", 12.0),
         ):
             cube = vtk.vtkCubeSource()
             cube.SetBounds(
@@ -30851,6 +32973,28 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         parameterNode.patientContactShellModel = shellNode
         widget.setParameterNode(parameterNode)
 
+        unrelatedSegmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "Unrelated scene segmentation",
+        )
+        unrelatedSegmentation.CreateDefaultDisplayNodes()
+        unrelatedCube = vtk.vtkCubeSource()
+        unrelatedCube.SetBounds(20.0, 22.0, -1.0, 1.0, -1.0, 1.0)
+        unrelatedCube.Update()
+        unrelatedSegment = slicer.vtkSegment()
+        unrelatedSegment.SetName("upper_left_central_incisor_fdi21")
+        unrelatedSegment.AddRepresentation(
+            slicer.vtkSegmentationConverter
+            .GetSegmentationClosedSurfaceRepresentationName(),
+            unrelatedCube.GetOutput(),
+        )
+        unrelatedSegmentation.GetSegmentation().AddSegment(
+            unrelatedSegment,
+            "unrelated-21",
+        )
+        unrelatedSegmentation.GetDisplayNode().SetVisibility(True)
+        unrelatedSegmentation.GetDisplayNode().SetAllSegmentsVisibility(True)
+
         segmentationDisplay = segmentationNode.GetDisplayNode()
         segmentationDisplay.SetVisibility(True)
         segmentationDisplay.SetAllSegmentsVisibility(True)
@@ -30876,12 +33020,16 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             f"trajectory:{trajectoryNode.GetID()}",
             widget._workflowViewEntriesByKey,
         )
-        self.assertIn(
+        volumeRenderingLogic = slicer.modules.volumerendering.logic()
+        self.assertIsNone(
+            volumeRenderingLogic.GetFirstVolumeRenderingDisplayNode(volumeNode)
+        )
+        self.assertNotIn(
             f"volumeRendering:{volumeNode.GetID()}",
             widget._workflowViewEntriesByKey,
         )
         self.assertIn(
-            f"segment:{segmentationNode.GetID()}:tooth-15",
+            f"segments:anatomy:upper_teeth:{segmentationNode.GetID()}",
             widget._workflowViewEntriesByKey,
         )
         self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-14"))
@@ -30889,6 +33037,30 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertFalse(segmentationDisplay.GetSegmentVisibility("tooth-16"))
         self.assertFalse(boundsNode.GetDisplayNode().GetVisibility())
         self.assertFalse(trajectoryNode.GetDisplayNode().GetVisibility())
+
+        widget._applyJawTeethView("upper", "2d")
+        self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-14"))
+        self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-16"))
+        self.assertFalse(segmentationDisplay.GetSegmentVisibility("tooth-36"))
+        self.assertTrue(segmentationDisplay.GetVisibility2D())
+        self.assertFalse(segmentationDisplay.GetVisibility3D())
+        self.assertFalse(unrelatedSegmentation.GetDisplayNode().GetVisibility())
+        self.assertEqual(
+            widget._workflowViewEntriesByKey[
+                f"segments:anatomy:upper_teeth:{unrelatedSegmentation.GetID()}"
+            ]["category"],
+            "scene_mask",
+        )
+        widget._applyJawTeethView("lower", "3d")
+        self.assertFalse(segmentationDisplay.GetSegmentVisibility("tooth-14"))
+        self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-36"))
+        self.assertFalse(segmentationDisplay.GetVisibility2D())
+        self.assertTrue(segmentationDisplay.GetVisibility3D())
+        widget._applyJawTeethView("all", "both")
+        self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-14"))
+        self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-36"))
+        self.assertTrue(segmentationDisplay.GetVisibility2D())
+        self.assertTrue(segmentationDisplay.GetVisibility3D())
 
         widget._applyWorkflowViewPreset("trajectory_only")
         self.assertIn(
@@ -30934,7 +33106,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertFalse(shellNode.GetDisplayNode().GetVisibility())
         widget._setWorkflowStage(0, ensureVisible=False)
         self.assertIn(
-            f"segment:{segmentationNode.GetID()}:tooth-16",
+            f"segments:anatomy:upper_teeth:{segmentationNode.GetID()}",
             widget._workflowViewEntriesByKey,
         )
         self.assertTrue(widget.ui.workflowViewGroupBox.isHidden())
@@ -31732,6 +33904,191 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         model.CreateDefaultDisplayNodes()
         return model
 
+    def test_DENTOWorkflowStep6NativePlacementPersistence(self) -> None:
+        """Explicit CBCT context and persistent placement state round-trip safely."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        logic = widget.logic
+        parameterNode = widget._parameterNode
+        image = vtk.vtkImageData()
+        image.SetDimensions(9, 8, 7)
+        image.AllocateScalars(vtk.VTK_SHORT, 1)
+        image.GetPointData().GetScalars().FillComponent(0, 625.0)
+        volume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode", "Step6NativePersistenceCBCT"
+        )
+        volume.SetAndObserveImageData(image)
+        ijk_to_ras = vtk.vtkMatrix4x4()
+        ijk_to_ras.DeepCopy(
+            (
+                0.31, 0.0, 0.0, -42.5,
+                0.0, 0.27, 0.0, 18.25,
+                0.0, 0.0, 0.34, 73.75,
+                0.0, 0.0, 0.0, 1.0,
+            )
+        )
+        volume.SetIJKToRASMatrix(ijk_to_ras)
+        volume.CreateDefaultDisplayNodes()
+        volume.GetDisplayNode().SetWindowLevel(1800.0, 500.0)
+
+        segmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode", "Step6NativePersistenceMasks"
+        )
+        segmentation.CreateDefaultDisplayNodes()
+        segment = slicer.vtkSegment()
+        segment.SetName("FDI 14")
+        tooth_source = vtk.vtkSphereSource()
+        tooth_source.SetCenter(-41.0, 19.0, 74.5)
+        tooth_source.SetRadius(1.25)
+        tooth_source.Update()
+        segment.AddRepresentation(
+            slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName(),
+            tooth_source.GetOutput(),
+        )
+        segmentation.GetSegmentation().AddSegment(segment, "tooth-fdi-14")
+        parameterNode.inputVolume = volume
+        parameterNode.teethSegmentation = segmentation
+        parameterNode.targetToothSegmentId = "tooth-fdi-14"
+
+        matrix_before = vtk.vtkMatrix4x4()
+        volume.GetIJKToRASMatrix(matrix_before)
+        geometry_before = tuple(
+            float(matrix_before.GetElement(row, column))
+            for row in range(4) for column in range(4)
+        )
+        dimensions_before = tuple(volume.GetImageData().GetDimensions())
+        scalar_range_before = tuple(volume.GetImageData().GetScalarRange())
+        mask_bounds_before = logic.getSegmentationSegmentBoundsWorld(
+            segmentation, "tooth-fdi-14"
+        )
+
+        widget._updateWorkflowViewControls()
+        self.assertEqual(
+            len(slicer.util.getNodesByClass("vtkMRMLVolumeRenderingDisplayNode")),
+            0,
+        )
+        first_renderer = logic.enableStep6CbctVolumeRendering(
+            parameterNode, "current"
+        )
+        second_renderer = logic.enableStep6CbctVolumeRendering(
+            parameterNode, "current"
+        )
+        self.assertIs(first_renderer, second_renderer)
+        self.assertEqual(
+            len(slicer.util.getNodesByClass("vtkMRMLVolumeRenderingDisplayNode")),
+            1,
+        )
+        logic.setStep6Appearance(
+            parameterNode, "cbct", visible=True, opacity=0.37
+        )
+        logic.setStep6Appearance(
+            parameterNode, "masks", visible=True, opacity=0.42
+        )
+
+        base, models = logic.createOrUpdateRobotPlacement(
+            None,
+            joint_positions_si_from_display(0, 0, 0, 0, 0, 0),
+        )
+        base_matrix = vtk.vtkMatrix4x4()
+        base_matrix.Identity()
+        base_matrix.SetElement(0, 3, 180.0)
+        base_matrix.SetElement(1, 3, -75.0)
+        base.SetMatrixTransformToParent(base_matrix)
+        parameterNode.robotBaseTransform = base
+        plane = logic.createOrResetRobotMountPlane(None, base)
+        parameterNode.robotMountPlane = plane
+        proxy = logic.createOrUpdateStep6ForeheadProxy(parameterNode)
+        parameterNode.robotForeheadProxyModel = proxy
+        logic.setStep6Appearance(
+            parameterNode, "robot", visible=True, opacity=0.73
+        )
+        logic.setStep6Appearance(
+            parameterNode, "mount_plane", visible=True, opacity=0.31
+        )
+        logic.setStep6Appearance(
+            parameterNode, "forehead_proxy", visible=True, opacity=0.22
+        )
+        logic.setRobotBaseMountLocked(parameterNode, True)
+        task_home = logic.saveCurrentTaskHome(parameterNode)
+        self.assertFalse(logic.taskHomeFreshnessIssues(parameterNode))
+
+        matrix_after = vtk.vtkMatrix4x4()
+        volume.GetIJKToRASMatrix(matrix_after)
+        self.assertEqual(
+            geometry_before,
+            tuple(
+                float(matrix_after.GetElement(row, column))
+                for row in range(4) for column in range(4)
+            ),
+        )
+        self.assertEqual(dimensions_before, tuple(volume.GetImageData().GetDimensions()))
+        self.assertEqual(scalar_range_before, tuple(volume.GetImageData().GetScalarRange()))
+        self.assertEqual(
+            tuple(mask_bounds_before),
+            tuple(logic.getSegmentationSegmentBoundsWorld(segmentation, "tooth-fdi-14")),
+        )
+
+        case_bounds = logic._nodeRasBounds(volume)
+        robot_bounds = [logic._modelRasBounds(model) for model in models]
+        proxy_bounds = logic._modelRasBounds(proxy)
+        union = logic.combinedRasBounds([case_bounds, proxy_bounds, *robot_bounds])
+        self.assertIsNotNone(union)
+        self.assertLessEqual(union[0], case_bounds[0])
+        self.assertGreaterEqual(union[1], max(bounds[1] for bounds in robot_bounds))
+
+        scene_path = Path(slicer.app.temporaryPath) / (
+            f"dentobot-step6-native-persistence-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scene_path)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scene_path)))
+            reloaded_logic = DENTOWorkflowLogic()
+            reloaded = reloaded_logic.getParameterNode()
+            self.assertEqual(
+                reloaded.step6BasePlacementStatus,
+                BasePlacementStatus.PROVISIONAL_LOCKED.value,
+            )
+            self.assertTrue(reloaded.robotBaseMountLocked)
+            self.assertEqual(len(reloaded_logic.step6ForeheadProxyNodes()), 1)
+            self.assertEqual(
+                reloaded.robotForeheadProxyModel.GetAttribute("DENTOBOT.IntendedUse"),
+                "VisualizationOnly",
+            )
+            self.assertEqual(
+                reloaded.robotForeheadProxyModel.GetAttribute("DENTOBOT.ExcludedFromCollision"),
+                "true",
+            )
+            self.assertAlmostEqual(reloaded.step6CbctOpacity, 0.37)
+            self.assertAlmostEqual(reloaded.step6MasksOpacity, 0.42)
+            self.assertAlmostEqual(reloaded.step6RobotOpacity, 0.73)
+            self.assertAlmostEqual(reloaded.step6MountPlaneOpacity, 0.31)
+            self.assertAlmostEqual(reloaded.step6ForeheadProxyOpacity, 0.22)
+            reloaded_home = reloaded_logic.taskHomeRecord(reloaded)
+            self.assertEqual(reloaded_home, task_home)
+            self.assertFalse(reloaded_logic.taskHomeFreshnessIssues(reloaded))
+            self.assertEqual(
+                len(slicer.util.getNodesByClass("vtkMRMLVolumeRenderingDisplayNode")),
+                1,
+            )
+            restored_matrix = vtk.vtkMatrix4x4()
+            reloaded.inputVolume.GetIJKToRASMatrix(restored_matrix)
+            restored_geometry = tuple(
+                float(restored_matrix.GetElement(row, column))
+                for row in range(4) for column in range(4)
+            )
+            self.assertTrue(
+                all(
+                    abs(before - after) <= 1e-6
+                    for before, after in zip(geometry_before, restored_geometry)
+                )
+            )
+        finally:
+            scene_path.unlink(missing_ok=True)
+
+        self.delayDisplay("DENTOWorkflow native Step 6 persistence test passed")
+
     def test_DENTOWorkflowStep6CaseViewWidget(self) -> None:
         """Import must frame the case package, not the phantom research origin."""
 
@@ -32035,6 +34392,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "Current",
         )
         self.assertEqual(
+            modelNode.GetAttribute("DENTOBOT.SupportSelectionLocked"),
+            "true",
+        )
+        self.assertEqual(
             modelNode.GetAttribute("DENTOBOT.SupportCount"),
             "10",
         )
@@ -32072,6 +34433,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(summary["supportSegmentIds"], supportIds)
         self.assertEqual(summary["supportCount"], 10)
         self.assertEqual(summary["geometryState"], "Current")
+        self.assertTrue(summary["selectionLocked"])
 
         parameterNode = logic.getParameterNode()
         parameterNode.teethSegmentation = segmentationNode
@@ -32118,6 +34480,14 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             staleSummary["staleReason"],
             "Manual selection changed.",
         )
+        modelNode.SetAttribute("DENTOBOT.SupportSelectionLocked", "false")
+        self.assertFalse(logic.isTemplateSupportSelectionLocked(modelNode))
+        legacyLockNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "LegacySupportLock",
+        )
+        legacyLockNode.SetAttribute("DENTOBOT.ModelRole", "TemplateSupportDraft")
+        self.assertTrue(logic.isTemplateSupportSelectionLocked(legacyLockNode))
 
         logic.setSegmentationReviewState(
             segmentationNode,
@@ -32231,8 +34601,74 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertTrue(widget.ui.createDraftTemplateSupportModelButton.enabled)
         self.assertFalse(widget.ui.reviewSegmentationForTemplateButton.visible)
 
+        supportSource = vtk.vtkSphereSource()
+        supportSource.SetRadius(2.0)
+        supportSource.Update()
+        supportModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "[Step 4B] Locked FDI 14 Support Package",
+        )
+        supportModel.SetAndObservePolyData(supportSource.GetOutput())
+        supportModel.SetAttribute("DENTOBOT.ModelRole", "TemplateSupportDraft")
+        supportModel.SetAttribute("DENTOBOT.GeometryState", "Current")
+        supportModel.SetAttribute("DENTOBOT.SupportSelectionLocked", "true")
+        supportModel.SetAttribute("DENTOBOT.TargetSegmentID", "tooth-14")
+        supportModel.SetAttribute(
+            "DENTOBOT.SupportSegmentIDsJson",
+            logic.encodeTemplateSupportSegmentIds(["tooth-15"]),
+        )
+        supportModel.SetNodeReferenceID(
+            logic.TEMPLATE_SOURCE_SEGMENTATION_REFERENCE_ROLE,
+            segmentationNode.GetID(),
+        )
+        widget._updatingFromParameterNode = True
+        try:
+            wasModifying = parameterNode.StartModify()
+            try:
+                parameterNode.templateSupportToothSegmentIdsJson = "[]"
+                parameterNode.draftTemplateSupportModel = supportModel
+            finally:
+                parameterNode.EndModify(wasModifying)
+        finally:
+            widget._updatingFromParameterNode = False
+        widget._updateTemplateModeling()
+        supportArchButton = widget._templateSupportButtonsBySegmentId[
+            "tooth-15"
+        ]
+        self.assertEqual(
+            logic.decodeTemplateSupportSegmentIds(
+                parameterNode.templateSupportToothSegmentIdsJson
+            ),
+            ["tooth-15"],
+        )
+        self.assertFalse(supportArchButton.enabled)
+        self.assertTrue(widget._reviseTemplateSupportPackageButton.enabled)
+        self.assertIn("Package locked", widget._templateSupportArchStatusLabel.text)
+        self.assertIn("FDI 15", widget._templateSupportPackageDetailsLabel.text)
+        self.assertIn("Ready", widget._templateSupportPackageSummaryLabel.text)
+
+        originalConfirm = slicer.util.confirmYesNoDisplay
+        slicer.util.confirmYesNoDisplay = lambda *args, **kwargs: True
+        try:
+            widget.onReviseTemplateSupportPackage()
+        finally:
+            slicer.util.confirmYesNoDisplay = originalConfirm
+        self.assertEqual(
+            supportModel.GetAttribute("DENTOBOT.SupportSelectionLocked"),
+            "false",
+        )
+        self.assertEqual(
+            supportModel.GetAttribute("DENTOBOT.GeometryState"),
+            "Stale",
+        )
+        supportArchButton = widget._templateSupportButtonsBySegmentId[
+            "tooth-15"
+        ]
+        self.assertTrue(supportArchButton.enabled)
+        self.assertIn("unlocked", widget._templateSupportPackageSummaryLabel.text)
+
         self.delayDisplay(
-            "DENTOWorkflow Step 5A segmentation-review gate widget test passed"
+            "DENTOWorkflow Step 4B ownership and Step 5A consumer widget test passed"
         )
 
     def test_DENTOWorkflowInsertionAlignedSupportPlaneBoundary(self) -> None:
@@ -32369,9 +34805,28 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.assertTrue(slicer.util.loadScene(str(scenePath)))
             reloadedLogic = DENTOWorkflowLogic()
             reloadedParameterNode = reloadedLogic.getParameterNode()
+            reloadedSupportModel = (
+                reloadedParameterNode.draftTemplateSupportModel
+            )
             reloadedPlane = reloadedParameterNode.templateSupportBoundaryPlane
             reloadedCurve = reloadedParameterNode.templateSupportBoundaryCurve
             reloadedPreview = reloadedParameterNode.visibleTemplateSupportModel
+            reloadedSupportSummary = (
+                reloadedLogic.getDraftTemplateSupportModelSummary(
+                    reloadedSupportModel
+                )
+            )
+            self.assertTrue(reloadedSupportSummary["selectionLocked"])
+            self.assertEqual(
+                reloadedSupportSummary["supportSegmentIds"],
+                ["tooth-13", "tooth-15"],
+            )
+            self.assertEqual(
+                reloadedLogic.decodeTemplateSupportSegmentIds(
+                    reloadedParameterNode.templateSupportToothSegmentIdsJson
+                ),
+                ["tooth-13", "tooth-15"],
+            )
             self.assertTrue(
                 reloadedLogic.isTemplateSupportBoundaryPlaneNode(reloadedPlane)
             )

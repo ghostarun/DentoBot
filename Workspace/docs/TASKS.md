@@ -18,17 +18,124 @@ interpretations, and validation gates are recorded in
 active list below into clinician, phantom, manufacturing, or robot acceptance
 work; an implemented or synthetic PASS is not a clinical claim.
 
+## DENTO-NOTE: native Step 6 placement-to-task sequence — 2026-08-24
+
+- **Triage: fixed now through guarded simulation preview.** Step 6 now exposes
+  6.0 Case/task, 6.1 local robot/base/provisional proxy, 6.2 Task Home, 6.3 FK
+  workspace and reviewed assisted limits, 6.4 native ROS/MoveIt connection and
+  immutable task confirmation, 6.5 collision-checked approach/terminal Entry
+  contact, and 6.6 guarded Entry-to-Target drilling preview in both GUIs.
+- **Persistence/stale behavior fixed:** base source/revision/status, proxy,
+  versioned Task Home, reviewed limits, task snapshot, and opacities persist;
+  runtime robots/goals/plans/ROS objects do not. Material input changes
+  invalidate the task and both phases; appearance changes do not. Historical
+  locked scenes restore as legacy provisional/unreviewed and require review.
+- **Visualization fixed at software level:** CBCT rendering is explicit,
+  singleton, display-only, geometry-preserving, and independently adjustable
+  with masks/robot/goal/guides/mount/trajectory/proxy. Placement Review frames
+  their visible union. The curved forehead proxy never appears automatically
+  and is excluded from collision/registration evidence.
+- **Motion policy fixed at software level:** ordinary/home commands remain
+  strict; phase messages are fingerprinted; only selected burr-target contact
+  inside the approved corridor can be accepted for terminal/drilling preview.
+  Wrong-task, non-target, other-link, self-collision, lateral escape, overshoot,
+  and joint-bound cases fail closed. Execute is hidden/disabled.
+- **Verified:** 95 host tests; focused native Slicer renderer/base/home/proxy
+  MRB round trip; the supplied Step 6 restore at `1e-6`; all three operator
+  package fixtures at `1e-6`; isolated ROS/MoveIt strict smoke; and phase-guard
+  acceptance/rejection smoke. See today's logbook for exact commands/results.
+- **Active operator acceptance:** repeat the complete sequence in the visible
+  workstation GUI using a newly regenerated Current Step 4C/5C case. The two
+  supplied MRBs truthfully remain stale because their support draft changed.
+- **Blocked future capability:** physical actuator homing, calibrated TCP,
+  registered base lock, controller ownership, force/stop behavior, hardware
+  motion, powered drilling, and Execute require hardware plus a verified safety
+  procedure and are not authorized.
+
+## Draft oral-workspace bounds from CBCT — active investigation 2026-08-24
+
+- **Feasibility conclusion:** the current 0.5 mm Slicer dental sample contains
+  a visible external cheek/skin-to-air boundary and can support an experimental
+  outer facial envelope. It does not expose a continuous inner-cheek boundary:
+  the mouth is substantially closed and buccal mucosa is apposed to adjacent
+  soft tissue, gingiva, and teeth.
+- **Required representation correction:** prototype a confidence-labelled
+  `ObservedOralAir` segment rather than claiming an `InnerCheek` anatomical
+  layer. Only air-contact mucosal surfaces are observed. Treat all unobserved
+  material inside a bounded mouth ROI as occupied/unknown for conservative
+  planning; retain teeth/jaw segmentations as separate rigid obstacles.
+- **Planned non-destructive trial:** use core Slicer Segment Editor threshold,
+  Grow from Seeds, Islands, Scissors/virtual cap planes, and light smoothing;
+  create closed-surface previews; sweep acquisition-specific thresholds and
+  report surface/volume sensitivity. Do not reuse CT HU constants blindly for
+  CBCT grey values.
+- **Acceptance required before integration:** open-mouth acquisition or phantom
+  with cheeks/lips/forehead inside the FOV; slice-by-slice review; no unintended
+  contact with image bounds; explicit mouth-entry/posterior caps; repeatable
+  threshold sensitivity; and comparison against an optical/intraoral surface,
+  known phantom geometry, or another suitable reference. This remains design
+  context, not a clinical or safety-certified workspace boundary.
+
+## Step 5B unified-template panel — 2026-08-24
+
+- **Fixed and focused Slicer-native verified:** Step 5B now presents approved
+  inputs/lineage, all nine dimensions, collapsed Advanced intermediate
+  processing, unified result, and one bottom Build/Inspect/Delete footer in
+  that order. No generation parameter appears after the result or actions.
+- **Fixed:** Build/Update remains a build action. A Current final disables and
+  labels it as Current; inspection remains on three separate display-only
+  buttons. Existing dependency-aware preflight, stale propagation, geometry
+  caching, and Step 5C verification/export behavior are unchanged.
+- **Verification:** the focused embedded-Slicer layout, navigation, and
+  complete-build caching tests printed
+  `DENTOBOT_UNIFIED_TEMPLATE_REGRESSION_PASS`; the full host suite returned
+  `101 passed`. The representative saved `test1_5b.mrb` loaded and screenshots
+  confirmed the visible order and the bottom footer. Its final model correctly
+  reports a missing Step 4C docking reference and blocks rebuilding.
+- **Active acceptance:** reload the live module and inspect the new Step 5B
+  panel at the normal workstation width; use a newly regenerated Current
+  Step 4C package to exercise Build/Update, each display-only inspection mode,
+  stale-on-dimension-change behavior, Step 5C verification, and MRB reopen.
+
+## View chooser and grouped anatomy — 2026-08-24
+
+- **Fixed and focused Slicer-native verified:** both Legacy and New GUI now
+  expose one shared **Views** palette. New GUI has a persistent Views button;
+  opening it always lands on Elements rather than an old Display-tab choice.
+- **Fixed:** every internal stage 0–10 has an explicit recommended category
+  set and concise description. Upper, lower, and all permanent teeth can be
+  isolated in 2D, 3D, or both with one click and automatic world-RAS framing.
+- **Fixed:** the Advanced inventory groups anatomy and workflow objects rather
+  than expanding every segmentation segment into the routine flat list.
+- **Fixed:** refreshing Views no longer calls Slicer's volume-render creation.
+  Existing renderers are labelled **not a mask**, excluded from recommended
+  views, and hidden by other isolation presets unless explicitly selected.
+- **Verification:** 80 current host tests passed in the final task-local run; focused
+  Slicer mask/palette tests printed `DENTOBOT_GROUPED_VIEWS_PASS`; the visible
+  application-shell smoke printed `DENTOBOT_APPLICATION_SHELL_PASS` and
+  confirmed the shared Views button. The palette screenshot was visually
+  inspected. These use synthetic labels/geometry and Xvfb, not representative
+  dental anatomy or clinician acceptance.
+- **Active acceptance:** after module reload, open the real segmentation in a
+  normal-window session and confirm its imported segment names contain valid
+  FDI suffixes; exercise upper/lower/all in each dimension, every stage's
+  recommendation, Advanced restore, MRB save/reopen, and light/dark
+  readability. A segment without recognized permanent FDI metadata correctly
+  remains outside the jaw shortcut and must be fixed at the metadata/import
+  boundary rather than guessed from geometry.
+
 ## DENTO-NOTE dispositions — 2026-08-22
 
 - **Fixed and Slicer-native verified:** reordered support selection/full draft
   to Step 4B, moved docking to Step 4C, and made the dock schema require and
   record current support anatomy while retaining all same-jaw obstacles.
-- **Fixed and Slicer-native verified:** replaced the stage-limited Elements
+- **Superseded on 2026-08-24:** replaced the stage-limited Elements
   list with an every-stage, scene-wide inventory. Every segmentation segment
   is individually toggleable, all user-facing displayable nodes are listed,
   and scalar volumes expose separate 3D volume-rendering toggles for CBCT/robot
-  comparison. Focused navigation/view tests and the full support-to-final
-  geometry/MRB regression exited zero.
+  comparison. The every-stage requirement remains; the flat per-segment list
+  and automatic volume-render creation were replaced by grouped Views because
+  they were confusing and mutated scene display state during inventory.
 - **Remaining acceptance:** repeat the revised ordering and viewer interaction
   in a normal graphical session on representative saved cases; synthetic and
   Xvfb verification is not dentist, anatomy, mechanical, or clinical
@@ -60,6 +167,28 @@ work; an implemented or synthetic PASS is not a clinical claim.
   decide whether an optional robot-resource snapshot is needed in addition to
   the current portable fingerprint. Do not load a contaminated legacy scene
   into a live ROS-enabled process as the migration mechanism.
+
+## Step 4B support ownership / Step 5A UI — 2026-08-24
+
+- **Fixed and Slicer-native verified:** the removed internal support checklist
+  is now permanently hidden instead of being re-shown as an unmanaged widget
+  over the visual arch. The Step 4B arch is a full-width bounded card, and the
+  former list/dropdown overlap path is gone.
+- **Fixed and Slicer-native verified:** creating/updating the Step 4B support
+  draft locks tooth membership persistently. Explicit revision unlocks it and
+  marks Step 4C plus all Step 5 children stale; rebuilding locks it again.
+  The model provenance can restore a missing support-ID parameter only for a
+  Current, locked, source/target-matching package.
+- **Fixed and Slicer-native verified:** Step 5A now shows only a read-only
+  target/support/draft/state summary and a **Return to Step 4B** action. It no
+  longer exposes the arch editor or raw Step 4B draft selector.
+- **Verification:** `100 passed` in the reconciled host suite; focused real-Slicer widget,
+  layout, lock/provenance, and MRB save/clear/reload tests printed explicit
+  PASS markers. No ROS stack or robot motion was used.
+- **Active acceptance:** in a freshly launched normal Slicer window, confirm
+  the Step 4B card has no overlap at the normal panel width, create/lock a
+  representative support package, inspect the read-only Step 5A card, use the
+  return/revise path, and confirm Step 4C/5A descendants visibly become stale.
 
 ## Active
 
@@ -288,10 +417,12 @@ for algorithm detail and fix-vs-replace matrix.
    present only inside CBCT Imaging. Exercise the nonmodal View Controls
    palette: close/reopen it, move/resize it, leave and re-enter the module, and
    restart Slicer to confirm its `QSettings` visibility/geometry restore without
-   becoming MRB state. Confirm Elements is available at every stage, lists
-   individual teeth/segments plus other user-facing displayables, and offers a
-   separate 3D rendering control for each CBCT volume. Check dark/light theme
-   readability. Also confirm Step 4A presents manual placement and the optional
+   becoming MRB state. Confirm Views is available at every stage, opens on
+   Elements in both GUIs, applies each step recommendation, and isolates
+   upper/lower/all FDI-labelled teeth in 2D, 3D, and both. Confirm Advanced
+   groups other masks/workflow objects and labels only already-existing volume
+   renderers as **not a mask**. Check dark/light theme readability. Also
+   confirm Step 4A presents manual placement and the optional
    assisted initializer together, Step 4B owns support selection/full draft,
    and Step 4C is the next docking/guide stage.
 2. Live-test the optional assisted Step 4A trajectory initializer on
@@ -307,7 +438,7 @@ for algorithm detail and fix-vs-replace matrix.
    and Continue for unlock/edit/clear/delete backtracking, and confirm Continue
    purges only reference-linked Step 4B/4C/5 descendants while retaining the
    other trajectory and authoritative anatomy.
-3. Live-test the **View Controls → Elements** palette across every workflow
+3. Live-test the **Views → Elements** palette across every workflow
    stage. Exercise recommended, target-only, all-trajectories,
    target/support-mask, docks-only, undercut, shell-only, shell-and-guides,
    final-only, all, and manual checkbox selection where available. Confirm
@@ -315,7 +446,9 @@ for algorithm detail and fix-vs-replace matrix.
    **Frame Visible** fits the intended combined bounds; and **Restore Previous
    View** exactly restores segmentation/global/per-segment opacity and owned
    object visibility. Confirm Step 6 can show the complete CBCT volume against
-   individual robot links/package elements. Save an MRB while shell-only is active, verify the
+   grouped robot/package elements. If an explicit CBCT renderer is needed for
+   Step 6 comparison, create it deliberately in Slicer and confirm Advanced
+   labels it as rendering, not a mask. Save an MRB while shell-only is active, verify the
    underlying pre-filter display—not the transient isolation—is serialized,
    and confirm the shell-only preset resumes after saving. Confirm colors and
    opacity remain readable in physical-session Intel rendering and after MRB

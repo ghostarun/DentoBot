@@ -6,6 +6,7 @@ set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
   Resources/Python/DENTOApplicationShell.py
   Resources/Python/DENTOCaseBundle.py
+  Resources/Python/DENTOViewPresets.py
   Resources/Python/DENTOGuideGeometry.py
   Resources/Python/DENTOPlatform.py
   Resources/Python/DENTOROS2Bridge.py
@@ -13,6 +14,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/DENTORobotSimulationPanel.py
   Resources/Python/DENTORobotWorkflowFacade.py
   Resources/Python/DENTOStep6Planning.py
+  Resources/Python/DENTOStep6State.py
   Resources/Python/DENTOTemplateGeometry.py
   Resources/Python/DENTOTrajectoryGeometry.py
   )

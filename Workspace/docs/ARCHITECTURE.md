@@ -40,6 +40,43 @@ the external Linux interpreter owns dependency-heavy compute; the robot
 runtime owns hardware safety and real-time behavior. DENTOWorkflow never
 imports the external environment into Slicer's embedded Python.
 
+## Step 6 persistent-intent and transient-runtime boundary
+
+```text
+MRML / .dentocase (persistent)                 ROS/MoveIt session (transient)
+case + world-RAS geometry                      live TF robot + goal robot
+base status/source/revision                    Motion Control parameter/probes
+optional provisional forehead proxy            publishers/subscribers
+Task Home + reviewed assisted limits    -->    strict joint-command guard
+immutable task snapshot                        phased task guard configuration
+display opacities                               approach/drilling plans + status
+```
+
+`DENTORobotWorkflowFacade` is the shared Legacy/New-GUI application seam. It
+loads the local MRML robot before ROS, saves/applies Task Home, retains sampled
+TCP poses with their six-joint vectors, reviews assisted limits, connects the
+runtime without changing modules, synchronizes split target/non-target planning
+objects, confirms the task fingerprint, and builds the two preview phases.
+Routine calls use SlicerROS2 logic/MRML APIs; the upstream widget is optional
+expert diagnostics and never a lifecycle prerequisite.
+
+Task confirmation fingerprints target/trajectory, base, home, reviewed limits,
+tool/corridor provenance, and robot resources. Any material input change clears
+both transient plans. Appearance and camera changes are excluded. The only
+current lock state reachable by an operator is `ProvisionalLocked`;
+`RegisteredLocked` is reserved for a future measured registration source.
+
+The explicit CBCT renderer is display-only and singleton-by-source. The curved
+forehead proxy is a separately editable visualization envelope, excluded from
+planning-scene collision objects and registration evidence. The planning TCP is
+`dentobot_drill_tip_provisional`; its CAD offset is not physical calibration.
+
+The external guard preserves the ordinary strict channel and adds task/phase
+messages tied to the immutable fingerprint. Terminal contact and drilling may
+accept only the burr-to-selected-target pair inside the confirmed corridor.
+All other robot/world/self contacts and joint violations remain fail-closed.
+No controller or hardware execution path is exposed.
+
 ## PoC closure and evidence architecture
 
 The software pipeline and the research-validation pipeline are related but
@@ -219,16 +256,59 @@ two sequential workflow stages. They both produce the same referenced
 two-point Markups-line representation. The optional assisted controls remain a
 collapsible subsection visible only while Step 4A is active.
 
-At every stage, one scene-wide viewport panel inventories every segmentation
-segment as an individual row, every user-facing displayable MRML node, and a
-separate 3D volume-rendering control for each scalar volume. Stage presets and
-per-element toggles alter display-node
-visibility only; they never edit mask voxels, polydata, MRML references, or
-workflow validity. Before the first filter the controller snapshots global
-segmentation 2D/3D visibility and opacity, every segment's visibility/opacity,
-and owned-node 2D/3D visibility. **Restore Previous View** replays that exact
-snapshot. **Frame Visible** combines finite world-RAS bounds of the currently
-visible segments and nodes and fits existing views without generating geometry.
+Support membership follows the same single-authority rule. Step 4B alone owns
+the editable same-jaw arch and the persisted membership lock on the
+transform-free `TemplateSupportDraft`. Create/update locks; explicit revision
+unlocks and invalidates the reference-linked Step 4C/5 branch; rebuild locks
+again. Step 5A renders that parent as a read-only package summary and can only
+navigate back to Step 4B for change. Its visible-surface controls refine the
+locked parent without duplicating target/support membership inputs. A Current
+locked model also carries redundant support-ID provenance for narrowly scoped
+parameter repair after restore, but source/target mismatch, staleness,
+malformed data, or an unlocked state always fails closed.
+
+At every stage, one scene-wide **Views** palette presents the active step's
+recommended display, explicit upper/lower/all permanent-tooth mask shortcuts
+for 2D, 3D, or both, and a collapsed Advanced inventory. Segmentation records
+are classified from their existing review category plus valid permanent-tooth
+FDI number, then reduced into operator-facing anatomy groups rather than one
+flat row per segment. Routine jaw shortcuts and recommendations use only the
+parameter node's authoritative teeth segmentation and input CBCT; unrelated
+scene segmentations/volumes remain Advanced objects and cannot leak into the
+routine recommended view. Workflow nodes remain grouped by semantic role.
+Both Legacy and the six-workspace shell open this same palette and controller.
+
+The recommendation table is explicit for every retained internal stage:
+
+| Stage | Default display intent |
+|---|---|
+| Case | Case volume in slice views, when available |
+| CBCT Imaging | CBCT volume in slice views |
+| AI Segmentation | CBCT slices plus all grouped masks |
+| Review and Correct | CBCT slices plus all grouped masks for review |
+| Step 4A | Target tooth, bounds, and trajectory context |
+| Step 4B | Target, selected supports, and complete support draft |
+| Step 4C | Support package, trajectory, rails, and docks |
+| Step 5A | Support masks, boundary/plane, and visible-surface preview |
+| Step 5B | Current shell/guide result, or final template if present |
+| Step 5C | Final template, or current shell and docks |
+| Step 6 | Active case or phantom with robot and mount context |
+
+Presets and per-group toggles alter display-node visibility only; they never
+edit mask voxels, polydata, MRML references, or workflow validity. Before the
+first filter the controller snapshots global segmentation 2D/3D visibility
+and opacity, every segment's visibility/opacity, and owned-node 2D/3D
+visibility. **Restore Previous View** replays that exact snapshot. **Frame
+Visible** combines finite world-RAS bounds of the currently visible segments
+and nodes and fits existing views without generating geometry.
+
+A volume renderer is not a segmentation mask: it maps scalar CBCT intensities
+through a Slicer transfer function and may look like an outer skin/scan
+envelope. Opening or refreshing Views must not create a volume-rendering
+display node. If one already exists because the operator created it elsewhere
+or an MRB restored it, Advanced may list it as **Volume rendering — not a
+mask**. It is excluded from every recommended preset and is hidden by an
+isolation preset unless explicitly selected.
 
 Viewport presets are deliberately transient presentation state. At MRB save
 start, DENTOWorkflow restores the snapshot so the scene stores the operator's
@@ -676,6 +756,14 @@ are excluded.
   accepting the invalid mesh. The shell explicitly references the full source
   model, visible patch, boundary, authoritative segmentation, fitting surface,
   Hollow candidate, boundary bridge, and both Dynamic Modeler nodes.
+- Step 5B's presentation is a view over that existing dependency graph, not a
+  second generation pipeline. It orders approved references, all nine exposed
+  dimensions, optional intermediate diagnostics, final-result state, and the
+  bottom action footer. Existing parameter-bound Qt widgets are reparented so
+  MRML remains authoritative; their original generated layouts stay alive for
+  Slicer's GUI-connector traversal. Build/Update calls the same complete-build
+  preflight and stale-stage cache. Inspection changes display only, and Step
+  5C still owns verification and atomic export.
 - A locked, non-selectable two-point `TemplateInsertionDirection` line is
   derived from the selected target trajectory and stores Approach→Seat in world
   RAS; removal is its opposite. The visible-support model references both the
@@ -785,10 +873,11 @@ are excluded.
   are locked and non-selectable from views, and their translation, rotation,
   and scale handles are disabled on creation, reset, scene load, and refresh.
 - The scene-wide viewport panel supersedes the visible Step 5B-only control
-  group. It exposes all case elements at every stage while retaining
-  stage-recommended views,
-  supports target/shell/final isolation and exact restoration, and intentionally
-  keeps its presets out of saved MRB presentation state.
+  group. It exposes stage recommendations plus grouped anatomy/workflow
+  objects at every stage, supports target/shell/final and upper/lower-jaw
+  isolation with exact restoration, and intentionally keeps its presets out
+  of saved MRB presentation state. Existing volume rendering is labelled as
+  rendering rather than a mask and is never created by inventory refresh.
 - Workflow-owned nodes carry visible `[Step 4A]`, `[Step 4B]`, `[Step 4C]`, `[Step 5A]`, `[Step 5B]`, or
   `[Step 5C]` name prefixes for selectors and Slicer's Data view. The prefixes
   are UI categorization only; role attributes, stable segment IDs, and MRML
@@ -1004,13 +1093,15 @@ Ownership and failure rules:
 - `base_link` is parented under the Step 6 base transform for visualization.
   Entry/Target Markups remain world RAS millimetres; SlicerROS2 converts
   base-relative pose matrices to ROS coordinates/metres.
-- `dentobot_tool_tcp` is a provisional fixed frame at the CAD burr origin. Its
-  +Z axis follows the spindle axis. A Cartesian pose basis is built by setting
+- `dentobot_drill_tip_provisional` is a provisional CAD-derived fixed frame
+  7 mm distal to the former burr-origin frame. Its +Z axis follows the spindle
+  axis. A Cartesian pose basis is built by setting
   +Z to normalized Entry→Target, projecting a stable reference axis into the
   normal plane, and completing a right-handed orthonormal basis with cross
   products.
 - MoveIt builds the `dentobot_arm` serial chain from URDF joint origins, axes,
-  types, and limits plus the SRDF `base_link → dentobot_tool_tcp` group. The
+  types, and limits plus the SRDF `base_link → dentobot_drill_tip_provisional`
+  group. The
   configured KDL plugin solves numerical Jacobian-based IK at runtime; there is
   no handwritten DH table or robot-specific IK equation. OMPL RRTConnect is
   available for general planning; the current Entry-to-Target operation uses
@@ -1086,12 +1177,13 @@ compatibility path.
 
 ### Motion Control adapter and draft workspace explorer (2026-08-22)
 
-`DENTOROS2Bridge` applies a repository-owned adapter around the pinned generic
-Motion Control widget; the sibling SlicerROS2 checkout is not modified. After
-robot setup it parents both the first live `lookup` root and first
+`DENTOROS2Bridge` exposes repository-owned native logic/MRML calls and an
+optional adapter around the pinned generic Motion Control widget; the sibling
+SlicerROS2 checkout is not modified. After robot setup it parents both the first live `lookup` root and first
 `goal_transform` root to the Step 6 base. It derives operator-visible
 readiness from the versioned external-stack contract, fixes the planning group
-to `dentobot_arm`, injects the configured chain tip `dentobot_tool_tcp` when no
+to `dentobot_arm`, injects the configured chain tip
+`dentobot_drill_tip_provisional` when no
 SRDF `<end_effector>` entry exists, wraps MoveIt IK and trajectory loading to
 show outcomes, and forces every trajectory load to `enableExecute=False`.
 Adapter callbacks and the added status widget are disconnected/deleted before

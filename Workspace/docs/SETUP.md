@@ -631,6 +631,12 @@ manual GUI and Slicer slider stream do not command a robot.
 
 ### SlicerROS2 Motion Control from DENTO Workflow Step 6
 
+> Historical initial-bridge procedure (2026-08-18/19), retained only for
+> diagnosis history. It is superseded by **Step 6 native placement-to-task
+> simulation (updated 2026-08-24)** below. Do not connect before loading the
+> local robot/base, Task Home, and reviewed limits; routine Connect no longer
+> opens Motion Control or launches a fallback prompt.
+
 Step 6 bridges the tracked `dentobot_description` stack into SlicerROS2
 Motion Control without MoveIt. MRML-only Step 6 robot meshes and the ROS 2
 robot are separate representations; the bridge parents the SlicerROS2 TF root
@@ -1114,7 +1120,7 @@ run_slicerros2_imaging_bridge_test.py'
   currently present. The host Arduino pressure-monitor GUI is a sensing bench
   only.
 
-## Step 6 simulation robot + MoveIt (verified 2026-08-21)
+## Step 6 native placement-to-task simulation (updated 2026-08-24)
 
 Use the normal launcher; do not start the description stack from Slicer:
 
@@ -1173,30 +1179,44 @@ Workspace/scripts/launch-dentobot-description-for-slicer.bash
 
 Step 6 operator sequence:
 
-1. Load the draft phantom, place all four jaw landmarks once, and apply the
-   approximately 40 mm measured incisor gap; or import a completed case package.
-2. Press **Connect ROS + MoveIt (Simulation)**. The button only connects to the
-   externally ready stack; it does not launch anything.
-3. Create the mount plane, drag it to the forehead, snap the robot base, and use
-   arrows/keyboard nudges for fine placement. Lock the base before planning.
-4. Move individual joints through either the Step 6 joint rows or ROS2 Motion
-   Control. J2/J4 values are millimetres in the UI and metres on ROS.
-5. Set narrower task limits if desired and press **Generate / Refresh
-   Workspace**. The cyan points are accepted provisional-TCP origins from
-   deterministic joint-space FK sampling; regenerate after moving the base.
-6. To try one arbitrary TCP goal in generic Motion Control, open **3D Control**,
-   press **Current State**, and drag the TCP probe a small distance. A successful
-   KDL/MoveIt IK solve moves only the red goal robot. In **Trajectory
-   Generation**, leave the generator on MoveIt, press **Plan**, then **Preview**.
-7. For a case package, define a reachable Entry→Target line, press **Plan Motion
-   Along Trajectory**, and then **Preview Simulated Motion**. Planning requires
-   Cartesian fraction at least 0.99 and uses collision avoidance; failed joint
-   publication stops preview.
+1. **6.0 Case and task:** import a valid `.dentocase` and validate its target,
+   Entry/Target line, CBCT, guides/template, and lineage. A draft phantom remains
+   available for placement experiments but cannot confirm a drilling task.
+2. **6.1 Robot and base:** load the local MRML robot first. Create/place the
+   mount plane and provisionally lock the base only after reviewing robot,
+   CBCT/masks, guides, and trajectory together. **Enable CBCT 3D Context** is
+   explicit and creates/reuses one display-only renderer; CT-Bone/uCT-Skull are
+   intensity presets and do not segment anatomy. The optional curved forehead
+   envelope never appears automatically and is visualization-only.
+3. **6.2 Task Home:** set the desired six-joint pose and save it as Task Home.
+   The record is bound to the base and installed robot profile. This is a
+   simulation task pose, not physical actuator homing.
+4. **6.3 Workspace and limits:** generate the deterministic FK workspace. Each
+   accepted TCP point retains its six-joint vector. Inspect the proposed task
+   limits and explicitly **Review & Apply**; generation alone does not apply
+   them.
+5. **6.4 Runtime and confirmation:** press **Connect ROS + MoveIt
+   (Simulation)**. Connect remains inside DENTOWorkflow, aligns the live robot
+   to the locked base, applies Task Home through the strict guard, and syncs
+   obstacles. Confirm one immutable task snapshot before planning.
+6. **6.5 Goal 1 — approach:** plan collision-free to the default 5 mm pre-entry
+   point, then preview the short guarded terminal move to Entry. Only the
+   selected burr-to-target contact at Entry can be accepted.
+7. **6.6 Goal 2 — drilling preview:** after Goal 1 completes, plan and preview
+   Entry-to-Target strictly inside the approved corridor. Intentional selected
+   target contact is allowed only by the independent phase guard; every other
+   contact, joint-bound violation, lateral escape, backtracking, or overshoot is
+   rejected.
 
-Do not press or script Execute. The current `move_group` intentionally has no
-controller and reports that paths cannot be executed. `dentobot_tool_tcp` is at
-the uncalibrated CAD burr origin; the 5 mm clearance gate and generic phantom
-are draft design aids only.
+The same sequence is exposed by Legacy and New GUI. **Open Expert ROS
+Diagnostics** is optional; application-level Views stays available and the
+DENTOBOT toolbar returns to Robot Simulation with one click. Routine operation
+does not enter `ROS2MotionControl`.
+
+Do not press or script Execute. It is hidden and disabled, and `move_group` has
+no controller. `dentobot_drill_tip_provisional` is a CAD-derived fixed frame,
+not a physically calibrated TCP; the 5 mm policy and generic phantom/proxy are
+draft simulation aids only.
 
 Manual and preview values use this ROS-only simulation chain:
 
@@ -1207,6 +1227,12 @@ Manual and preview values use this ROS-only simulation chain:
   → /dentobot_slicer_joint_state_publisher
   → /joint_states
 ```
+
+Phased preview additionally uses transient JSON contracts on
+`/dentobot/task_guard/configuration`, `/dentobot/task_guard/command`, and
+`/dentobot/task_guard/status`. The configuration and every command carry the
+same immutable task fingerprint. These topics and their Slicer MRML wrappers
+must never be serialized into MRML/MRB/`.dentocase`.
 
 The guard checks the entire sampled transition, not only the requested end
 state. Revolute changes are divided into increments no larger than 1 degree;
@@ -1221,7 +1247,7 @@ No explicit IK formula must be entered. The required model configuration is:
 
 - URDF link/joint tree with correct origins, axes, joint types, and limits;
 - SRDF group `dentobot_arm`, serial chain `base_link` to
-  `dentobot_tool_tcp`, and intentionally allowed adjacent contacts;
+  `dentobot_drill_tip_provisional`, and intentionally allowed adjacent contacts;
 - `kinematics.yaml` selecting
   `kdl_kinematics_plugin/KDLKinematicsPlugin`.
 
@@ -1240,7 +1266,7 @@ Generic Motion Control interpretation:
   under the same Step 6 base.
 - **MoveIt:** `MoveIt ready (detected)` is read-only. The fixed group is
   `dentobot_arm`; the end-effector selector shows the provisional
-  `dentobot_tool_tcp`. Planning time is only an upper bound for a request.
+  `dentobot_drill_tip_provisional`. Planning time is only an upper bound for a request.
 - **Manual Joint Control:** suitable for the present free-movement design test;
   every candidate still passes through the external transition guard.
 - **3D Control:** Home/Last Goal/Current State choose an initial goal state.
@@ -1278,20 +1304,20 @@ entered. Theme/navigation changes are presentation-only.
 
 For the current Robot Simulation vertical slice:
 
-1. **Scene and Runtime:** choose/import a valid Step 6 case or create the draft
-   phantom, connect ROS + MoveIt, and confirm the capability rows name
-   `dentobot_arm` and `dentobot_tool_tcp`.
-2. **Base Placement:** load the robot, create/drag/snap/fine-nudge the forehead
-   plane and base, then lock it.
-3. **Manual Joints:** move each synchronized operator-unit row. Rejected moves
-   restore the last accepted value.
-4. **Goal and IK:** create/show the TCP goal, drag only that probe, solve IK,
-   then plan to the resulting joint goal. The translucent goal robot is one
-   pose, not the workspace cloud, and its base must remain coincident with the
-   current robot base.
-5. **Scene and Collision:** refresh status, synchronize case/phantom surfaces,
-   and check the latest MoveIt/FCL state. The Halton/FK/AABB cloud remains a
-   separately labelled draft approximation.
+1. **6.0 Case and task** validates the package and lineage.
+2. **6.1 Robot and base** loads the local model, provides explicit CBCT/proxy
+   context, and provisionally locks placement.
+3. **6.2 Task Home** records the six-joint case/base/profile pose.
+4. **6.3 Workspace and limits** retains accepted TCP+joint samples and requires
+   review before applying the suggestion.
+5. **6.4 Runtime and confirmation** connects natively, applies home, syncs
+   obstacles, and confirms the immutable task.
+6. **6.5 Goal 1** plans strict pre-entry plus guarded terminal contact.
+7. **6.6 Goal 2** plans guarded Entry-to-Target simulation preview.
+
+The capability rows must name `dentobot_arm` and
+`dentobot_drill_tip_provisional`. Generic Goal/IK/Plan is an optional façade
+diagnostic; the routine sequence does not leave DENTOWorkflow.
 6. **Plan and Preview:** plan the approved Entry-to-Target path, preview only,
    and Stop. Hardware Execute is unavailable.
 

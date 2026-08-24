@@ -21,6 +21,137 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-24 20:53:23 IST (UTC+05:30) — Native Step 6 placement-to-task stack
+
+- **Workflow/UI:** rebuilt Legacy and New GUI Robot Simulation as the same
+  seven-gate 6.0–6.6 sequence. Routine Connect stays in DENTOWorkflow; generic
+  Motion Control is an explicit expert diagnostic with persistent Views and a
+  one-click return. Execute remains hidden/disabled.
+- **Persistent state:** added base status/source/revision, optional provisional
+  curved forehead proxy, versioned six-joint Task Home, accepted workspace poses
+  with joint vectors, reviewed assisted limits, immutable task snapshot, and
+  independent Step 6 opacities. Material input changes invalidate task/phases;
+  ROS robots/goals/plans/publishers/subscribers/guards remain transient.
+- **Visualization:** added an explicit singleton CBCT renderer with current-WL,
+  CT-Bone, and uCT-Skull intensity appearances; display-only opacity/visibility
+  controls; combined robot+case framing; and a visualization-only proxy. Source
+  scalar/IJK geometry and segmentation bounds are not changed.
+- **Planning/runtime:** added direct façade operations for Task Home, workspace
+  review, native Connect/Goal/IK/Plan, task confirmation, strict approach,
+  terminal Entry contact, drilling preview, and phase status. Added
+  `dentobot_drill_tip_provisional`, target/non-target collision objects, and a
+  task-fingerprinted external phase guard that accepts only selected
+  burr-target contact inside the approved corridor.
+- **Verification:** 95 host tests passed. The focused Slicer persistence test,
+  Step 6 operator-MRB restore, three-fixture case-package round trip, isolated
+  ROS/MoveIt strict smoke, and phase-guard rejection/acceptance smoke printed
+  their PASS markers. The supplied scenes preserve truthful stale Step 4C/5C
+  lineage; the older `.dentocase` restores geometry at `1e-6` but remains
+  robot-profile review-gated after the provisional-tip resource change.
+- **Window/lifecycle evidence:** the main-window shell smoke exposed all seven
+  substeps and shared Views; the native ROS report kept Connect/Goal/IK/Plan in
+  DENTOWorkflow and returned from expert diagnostics; and reload, New Empty
+  Case, reconnect, and saved-scene restore reached the lifecycle PASS marker.
+  The arbitrary tangent visual-phantom pose remained colliding during its
+  bounded diagnostic search, so representative base placement is still active.
+- **Boundary:** no physical homing, calibrated TCP, registered base, controller,
+  force/stop logic, hardware motion, drilling, or clinical validation was
+  added. Normal visible-window representative-case acceptance remains active.
+- **Final static gate:** whitespace, 66 Python AST files, two Qt UI files,
+  eight canonical Markdown fence checks, dependency integrity, 13 inference
+  tests, and five platform-contract tests passed.
+- **Drive checkpoint:** replaced nine changed active-development Markdown files
+  and six changed canonical Markdown files by their existing IDs. Readback
+  retained both established parent folders and matched local byte sizes; no
+  duplicate or non-document artifact was uploaded.
+
+## 2026-08-24 19:18:32 IST (UTC+05:30) — Ordered Step 5B unified-template build panel
+
+- **Why:** Step 5B displayed its generated output and action buttons before
+  several shell and guide dimensions, which implied a finalized result and
+  blurred the boundary between Steps 4B, 5B, and 5C.
+- **Change:** rebuilt the visible Step 5B sequence as approved inputs/lineage →
+  all nine dimensions → collapsed Advanced fit/intermediate processing →
+  unified result → bottom Build/Inspect/Delete footer. Reused the existing
+  parameter-bound widgets and complete-build backend; no geometry, MRML role,
+  world-RAS/mm, invalidation, or Step 5C verification/export contract changed.
+  Build/Update no longer becomes an inspection shortcut when the result is
+  Current; inspection has dedicated display-only actions.
+- **Implementation note:** Slicer's generated UI wrapper queries every original
+  layout during parameter-node connection. Empty source layouts therefore stay
+  alive after their widgets are reparented; destroying them caused and then
+  resolved `removeWidget`/`property` errors during module construction.
+- **Verification:** focused embedded-Slicer layout, navigation, and cache tests
+  printed `DENTOBOT_UNIFIED_TEMPLATE_REGRESSION_PASS`; the host suite returned
+  `101 passed`. The representative `test1_5b.mrb` loaded in isolated Slicer;
+  visually inspected top/bottom screenshots confirmed dimensions precede the
+  result and all actions are last. The saved case's missing Step 4C reference
+  was explicitly reported and correctly disabled Build/Update.
+- **Limits:** representative fresh-Current generation and normal-window
+  operator acceptance remain pending. No robot motion, drilling, environment
+  change, commit, push, or Drive synchronization was performed.
+
+## 2026-08-24 18:09:33 IST (UTC+05:30) — Grouped Views and non-mutating volume-render inventory
+
+- **Why:** the scene-wide Elements list was chaotic, unavailable from the New
+  GUI header, and made CBCT volume rendering look like newly generated skin
+  masks. Source tracing showed that refreshing the inventory itself called
+  Slicer's default volume-render-node creation for every scalar volume.
+- **Change:** added a shared New-GUI **Views** button; made Views open on
+  Elements; added explicit per-stage recommendations; added upper/lower/all
+  permanent-teeth shortcuts for 2D, 3D, or both; grouped anatomy by review
+  category and FDI jaw; scoped routine choices to the authoritative teeth
+  segmentation/input CBCT; collapsed unrelated scene data and the longer workflow inventory under
+  Advanced; stopped creating volume renderers during inventory; labelled only
+  existing renderers **not a mask** and removed them from recommended presets.
+  Display changes remain transient and restore exact prior MRML display state.
+- **Logic:** pure `DENTOViewPresets` maps FDI quadrants 1/2→upper and 3/4→lower,
+  groups stable segment IDs without geometry inference, and defines one
+  category set/description for each internal stage 0–10. The widget maps those
+  results onto existing segmentation/display nodes; no mask voxels, polydata,
+  workflow references, coordinate frames, or clinical algorithms change.
+- **Verification:** Python compilation with a `/tmp` bytecode cache passed;
+  the final task-local host suite returned 80 passed; focused embedded-Slicer tests
+  printed `DENTOBOT_GROUPED_VIEWS_PASS`; the visible shell smoke printed
+  `DENTOBOT_APPLICATION_SHELL_PASS`, opened the shared palette, and saved a
+  visually inspected Elements screenshot. Xvfb/synthetic evidence is not a
+  representative-anatomy, clinician, or clinical-validation claim.
+- **Boundary:** no environment/setup contract changed. No robot motion,
+  drilling, commit, push, or Google Drive synchronization was performed.
+
+## 2026-08-24 18:06:10 IST (UTC+05:30) — Step 4B ownership lock and Step 5A consumer UI
+
+- **Why:** workflow testing found the removed support checklist being made
+  visible as an unmanaged child over the Step 4B arch, while Step 5A still
+  exposed the custom support editor and implied a second place to change
+  support membership.
+- **Change:** made the hidden list a permanent state adapter; placed the arch
+  in a full-width bounded Step 4B card; added a persistent support-selection
+  lock to `TemplateSupportDraft`; added explicit revise→stale and
+  rebuild→lock behavior; made Step 5A a read-only support-package summary with
+  a return-to-Step-4B action; filtered the draft selector by DENTOBOT model
+  role; propagated draft-selector changes through Step 4C and all Step 5
+  descendants; and restored missing support JSON only from a matching Current
+  locked model. No geometry or coordinate conversion changed.
+- **Concurrent reconciliation:** preserved the simultaneously added grouped
+  view-preset helper and new-shell Views action, then added the missing
+  `DENTOViewPresets.py` CMake install entry and a packaging regression test so
+  source-mounted and installed extensions use the same helper set.
+- **Verification:** Python AST and whitespace checks passed. The complete host
+  suite returned `100 passed` after preserving the concurrent grouped-view
+  refactor. Real Slicer focused tests printed
+  `DENTOBOT_STEP4B_5A_OWNERSHIP_TEST_PASS`,
+  `DENTOBOT_STEP4B_LAYOUT_AND_LOCK_LOGIC_PASS`, and
+  `DENTOBOT_STEP4B_5A_MRB_RESTORE_PASS`; the final combined rerun against the
+  reconciled shared source printed
+  `DENTOBOT_STEP4B_5A_RECONCILED_SUITE_PASS`. The MRB test saved, cleared, and
+  reloaded the scene while retaining the locked Step 4B support IDs and the
+  current Step 5A plane/boundary/preview provenance.
+- **Limits:** Xvfb/synthetic evidence is not a representative anatomy,
+  clinician, fit, collision, dimensional, or clinical-validation claim. A
+  normal-window operator pass remains required. No robot motion, drilling,
+  commit, Git publication, or Drive synchronization was performed.
+
 ## 2026-08-24 16:20:11 IST (UTC+05:30) — Controlled documentation and Drive checkpoint
 
 - **Why:** the developer explicitly requested a current logbook, synchronization

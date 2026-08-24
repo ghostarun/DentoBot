@@ -16,7 +16,7 @@ from xml.etree import ElementTree
 import numpy as np
 
 from DENTORobotPlacement import (
-    burr_origin_base_m,
+    drill_tip_origin_base_m,
     joint_positions_si_from_display,
 )
 
@@ -118,11 +118,23 @@ class MotionPlanResult:
 
 
 @dataclass(frozen=True)
+class WorkspaceAcceptedSample:
+    """One accepted workspace pose with the joint vector that produced it."""
+
+    tcp_base_mm: tuple[float, float, float]
+    joint_display: tuple[float, float, float, float, float, float]
+    joint_positions_si: tuple[tuple[str, float], ...]
+
+    def joint_positions_si_dict(self) -> dict[str, float]:
+        return dict(self.joint_positions_si)
+
+
+@dataclass(frozen=True)
 class WorkspaceSampleResult:
     """Filtered provisional-TCP samples expressed in robot-base millimetres."""
 
     requested_count: int
-    accepted_tcp_base_mm: tuple[tuple[float, float, float], ...]
+    accepted_samples: tuple[WorkspaceAcceptedSample, ...]
     self_collision_rejections: int
     environment_rejections: int
     task_limits: TaskJointLimits
@@ -130,7 +142,19 @@ class WorkspaceSampleResult:
 
     @property
     def accepted_count(self) -> int:
-        return len(self.accepted_tcp_base_mm)
+        return len(self.accepted_samples)
+
+    @property
+    def accepted_tcp_base_mm(self) -> tuple[tuple[float, float, float], ...]:
+        """Compatibility view used by the existing MRML point-cloud builder."""
+
+        return tuple(sample.tcp_base_mm for sample in self.accepted_samples)
+
+    @property
+    def accepted_joint_display_vectors(
+        self,
+    ) -> tuple[tuple[float, float, float, float, float, float], ...]:
+        return tuple(sample.joint_display for sample in self.accepted_samples)
 
 
 def validate_planning_context(
@@ -417,7 +441,7 @@ def sample_filtered_tcp_workspace(
         else _environment_points_from_polydata(environment_points_mm)
     )
     coarse_model = _load_coarse_kinematic_model(urdf_path, package_root)
-    accepted: list[tuple[float, float, float]] = []
+    accepted: list[WorkspaceAcceptedSample] = []
     self_rejections = 0
     environment_rejections = 0
     for display in deterministic_joint_workspace_samples_display(
@@ -443,10 +467,18 @@ def sample_filtered_tcp_workspace(
                 environment_rejections += 1
             continue
         tcp_base = inverse_base_world @ np.asarray([*tcp_world, 1.0], dtype=float)
-        accepted.append(tuple(float(value) for value in tcp_base[:3]))
+        accepted.append(
+            WorkspaceAcceptedSample(
+                tcp_base_mm=tuple(float(value) for value in tcp_base[:3]),
+                joint_display=tuple(float(value) for value in display),
+                joint_positions_si=tuple(
+                    (name, float(joints_si[name])) for name in joints_si
+                ),
+            )
+        )
     return WorkspaceSampleResult(
         requested_count=int(sample_count),
-        accepted_tcp_base_mm=tuple(accepted),
+        accepted_samples=tuple(accepted),
         self_collision_rejections=self_rejections,
         environment_rejections=environment_rejections,
         task_limits=limits,
@@ -495,7 +527,7 @@ def burr_world_mm_from_joints(
     package_root: Path,
     base_world_matrix: np.ndarray,
 ) -> tuple[float, float, float]:
-    burr_base_m = burr_origin_base_m(joint_positions_si, urdf_path, package_root)
+    burr_base_m = drill_tip_origin_base_m(joint_positions_si, urdf_path, package_root)
     burr_base_mm = burr_base_m * 1000.0
     world = _world_from_base_mm(base_world_matrix)(burr_base_mm)
     return float(world[0]), float(world[1]), float(world[2])
@@ -612,7 +644,7 @@ def _solve_position_ik_display(
     def objective(display_vector: np.ndarray) -> float:
         clamped = np.clip(display_vector, mins, maxs)
         joint_si = _display_to_si_vector(clamped)
-        burr_base_m = burr_origin_base_m(joint_si, urdf_path, package_root)
+        burr_base_m = drill_tip_origin_base_m(joint_si, urdf_path, package_root)
         burr_base_mm = burr_base_m * 1000.0
         delta = burr_base_mm - target_base_mm
         return float(np.dot(delta, delta))

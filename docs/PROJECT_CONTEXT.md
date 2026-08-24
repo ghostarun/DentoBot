@@ -33,6 +33,16 @@ custom branding.
 - Robot execution and safety require a separate control architecture,
   hazard analysis, and verification program.
 
+### Ubuntu Step 6 checkpoint — 2026-08-24
+
+The Ubuntu SlicerROS2 profile now keeps routine Robot Simulation inside
+`DENTOWorkflow` as a gated placement→Task Home→workspace/limits→runtime/task
+confirmation→approach→drilling-preview sequence. MRML persists intent and
+world-RAS/mm geometry; ROS/TF robots, goals, plans, publishers/subscribers, and
+guard sessions are transient. The provisional forehead envelope and
+`dentobot_drill_tip_provisional` are not registered anatomy or calibrated TCP
+evidence. Execute, hardware homing, robot motion, and drilling remain blocked.
+
 ## Developer context
 
 The developer has prior experience with standalone Python/C++, Qt, ITK, VTK,

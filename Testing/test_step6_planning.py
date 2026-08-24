@@ -277,6 +277,9 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     assert result.self_collision_rejections == 0
     assert result.environment_rejections == 0
     assert all(len(point) == 3 for point in result.accepted_tcp_base_mm)
+    assert len(result.accepted_samples) == 10
+    assert all(len(sample.joint_display) == 6 for sample in result.accepted_samples)
+    assert all(len(sample.joint_positions_si) == 6 for sample in result.accepted_samples)
 
 
 def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others() -> None:

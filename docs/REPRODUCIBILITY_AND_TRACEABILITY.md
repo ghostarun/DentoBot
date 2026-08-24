@@ -414,3 +414,16 @@ tasks, model files, output schema, or the Slicer/backend contract require:
 - [NVIDIA CUDA on WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html)
 - [Conda environment management](https://docs.conda.io/projects/conda/en/stable/user-guide/tasks/manage-environments.html)
 - [Conda environment export](https://docs.conda.io/projects/conda/en/latest/commands/env/export.html)
+
+## 15. Ubuntu native Step 6 evidence — 2026-08-24
+
+The current tool link is `dentobot_drill_tip_provisional`; it is CAD-derived
+and not physically calibrated. The host contract command
+`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider Testing
+dentobot_description/test` returned `95 passed`. Focused Slicer probes verified
+explicit singleton rendering without scalar/IJK/mask geometry changes,
+base/proxy/home/opacity MRB round trip, the supplied Step 6 restore, and three
+case packages at `1e-6`. Isolated ROS probes verified strict MoveIt behavior and
+that only selected burr-target contact in the approved task corridor is
+accepted; wrong task, non-target, self collision, bounds, lateral escape, and
+overshoot are rejected. These are simulation/software results only.

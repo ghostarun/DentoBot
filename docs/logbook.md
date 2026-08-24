@@ -25,6 +25,25 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-24 20:53:23 IST (UTC+05:30) — Native Step 6 implementation
+
+- Implemented the requested placement→Task Home→workspace/review→native
+  runtime/task confirmation→approach→drilling-preview stack in the Ubuntu
+  SlicerROS2 profile. Persistent intent and transient ROS objects now have an
+  explicit save/restore boundary; material input changes invalidate phases.
+- Added display-only CBCT context and provisional forehead envelope, the
+  uncalibrated `dentobot_drill_tip_provisional` frame, and a selective
+  target-contact phase guard. Execute and all hardware behavior remain blocked.
+- Verified 95 host tests, Slicer MRB renderer/state round trip, operator-scene
+  restore and three-package geometry checks at `1e-6`, strict MoveIt smoke, and
+  accepted/rejected phase cases. The first isolated normal-window harness set
+  ROS domain before sourcing and collided with domain 73; its five exact
+  test-only children were stopped and the test was corrected to set the domain
+  after sourcing. See `Workspace/docs/logbook/2026-08-24.md` for full evidence.
+- Replaced all changed active and canonical Drive documentation by established
+  IDs and verified parent/size metadata. No duplicate or research/runtime data
+  was uploaded.
+
 ## 2026-08-17 16:06:00 IST (UTC+05:30) — Publication outcome
 
 - Created local commits `28d940f` and `901ee17`. The non-force Git push was

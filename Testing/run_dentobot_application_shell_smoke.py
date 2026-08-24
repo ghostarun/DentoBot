@@ -41,6 +41,18 @@ def run() -> None:
             raise RuntimeError("shell does not expose exactly six workspaces")
         if widget.ui.workflowNavigationGroupBox.visible:
             raise RuntimeError("legacy navigator remained visible in shell mode")
+        if shell._view_button is None or not shell._view_button.visible:
+            raise RuntimeError("new shell does not expose the shared Views control")
+        shell._view_button.click()
+        slicer.app.processEvents()
+        if not widget._viewControlsPalette.visible:
+            raise RuntimeError("new-shell Views button did not open the view palette")
+        views_screenshot_path = (
+            "/workspace/data/dentobot-runs/dentobot-grouped-views-smoke.png"
+        )
+        if not widget._viewControlsPalette.grab().save(views_screenshot_path):
+            raise RuntimeError("could not capture the grouped Views palette")
+        widget._hideViewControlsPalette(preservePreference=False)
 
         widget._setWorkflowStage(8)
         slicer.app.processEvents()
@@ -51,22 +63,34 @@ def run() -> None:
 
         widget._setWorkflowStage(10)
         slicer.app.processEvents()
-        if shell._substep_combo.count != 6:
-            raise RuntimeError("Robot Simulation does not expose six task substeps")
+        if shell._substep_combo.count != 7:
+            raise RuntimeError("Robot Simulation does not expose seven gated substeps")
         if not shell._substep_combo.visible:
             raise RuntimeError("Robot Simulation substep selector is hidden")
         shell._substep_combo.setCurrentIndex(3)
         slicer.app.processEvents()
-        if not widget._robotSimulationPanel.goalGroup.visible:
-            raise RuntimeError("Goal and IK card was not shown")
         if not widget.ui.step6WorkspaceGroupBox.visible:
-            raise RuntimeError("draft workspace explorer was not grouped with Goal and IK")
+            raise RuntimeError("workspace explorer was not shown in 6.3")
+        if not widget._robotSimulationPanel.workspaceReviewGroup.visible:
+            raise RuntimeError("assisted-limit review was not shown in 6.3")
         if widget.ui.step6TaskJointLimitsGroupBox.visible:
-            raise RuntimeError("manual-joint controls leaked into Goal and IK")
+            raise RuntimeError("Task Home controls leaked into workspace review")
         shell._substep_combo.setCurrentIndex(4)
         slicer.app.processEvents()
+        if not widget._robotSimulationPanel.runtimeGroup.visible:
+            raise RuntimeError("native runtime/task confirmation was not shown in 6.4")
         if not widget._robotSimulationPanel.collisionGroup.visible:
-            raise RuntimeError("Scene and Collision card was not shown")
+            raise RuntimeError("Scene and Collision diagnostics were not shown in 6.4")
+        if widget._robotSimulationPanel.goalGroup.visible:
+            raise RuntimeError("expert Goal/IK controls leaked into the routine sequence")
+        shell._substep_combo.setCurrentIndex(5)
+        slicer.app.processEvents()
+        if not widget._robotSimulationPanel.approachGroup.visible:
+            raise RuntimeError("Goal 1 approach card was not shown in 6.5")
+        shell._substep_combo.setCurrentIndex(6)
+        slicer.app.processEvents()
+        if not widget._robotSimulationPanel.drillingGroup.visible:
+            raise RuntimeError("Goal 2 drilling-preview card was not shown in 6.6")
 
         shell.applyTheme("dark")
         if str(settings.value("DENTOBOT/ApplicationShell/Theme")) != "dark":
@@ -103,8 +127,10 @@ def run() -> None:
             "expert_focus_toggle": True,
             "legacy_restore": True,
             "workspace_count": 6,
-            "robot_substep_count": 6,
+            "robot_substep_count": 7,
+            "shared_views_control": True,
             "screenshot": screenshot_path,
+            "views_screenshot": views_screenshot_path,
         }
         print(json.dumps(report, indent=2, sort_keys=True))
         print("DENTOBOT_APPLICATION_SHELL_PASS", flush=True)

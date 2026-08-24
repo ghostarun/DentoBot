@@ -1,5 +1,153 @@
 # Dentobot Technical Decisions
 
+## 2026-08-24 — Keep Step 6 native, gated, persistent-by-contract, and preview-only
+
+Status: implemented and automated simulation verified; representative operator
+and hardware/calibration acceptance remain blocked
+
+Routine Step 6 stays inside `DENTOWorkflow` and uses one shared Legacy/New-GUI
+façade. Its ordered gates are: validate case/task; load the local MRML robot and
+place/provisionally lock its base; record a case/base/profile-specific six-joint
+Task Home; generate an FK workspace and explicitly review its assisted-limit
+proposal; connect ROS/MoveIt, apply home, synchronize obstacles, and confirm one
+immutable task snapshot; preview a strict approach plus terminal Entry contact;
+then preview Entry-to-Target drilling. `ROS2MotionControl` is an explicit expert
+diagnostic only, with application-level Views retained and a one-click return.
+
+Persistent MRML/`.dentocase` state includes the base status/source/revision,
+optional curved forehead proxy and dimensions, versioned Task Home, reviewed
+assisted limits, immutable task snapshot, display opacities, and placement
+context. ROS robot/TF wrappers, goal robot, Motion Control nodes, plans,
+publishers/subscribers, phase-guard sessions, and active flags are transient and
+are reconstructed only after Connect. Old locked scenes normalize to legacy
+provisional/unreviewed state and cannot plan until reviewed. Changes to target,
+trajectory, base, proxy, home, limits, tool profile, or robot resources
+invalidate confirmation and both phases; camera and opacity changes do not.
+
+The explicit **Enable CBCT 3D Context** action creates or reuses exactly one
+volume-render display, copies the current scalar display mapping initially, and
+never resamples voxels or changes IJK-to-RAS. CT-Bone and uCT-Skull are intensity
+appearance presets, not anatomy segmentations. The optional curved forehead
+contact envelope is labelled Unregistered/Provisional/Visualization-only and is
+excluded from registration and collision evidence. Only `ProvisionalLocked` is
+reachable until a measured registration workflow exists.
+
+The CAD burr-link origin is superseded as a planning label by
+`dentobot_drill_tip_provisional`, a CAD-derived fixed frame that remains
+uncalibrated. The collision guard keeps ordinary/manual/home commands strict and
+adds a versioned simulation-only phase channel. Goal 1 is strict to a default
+5 mm pre-entry point; only its terminal segment may accept the selected
+burr-to-target contact at Entry. Goal 2 may ask the Cartesian solver to ignore
+intentional target contact, but an independent guard still rejects wrong-task,
+off-corridor, overshoot/backtracking, non-target, other-link, self-collision,
+and joint-bound violations. Execute remains hidden and disabled.
+
+Reason: serializing external ROS state caused duplicate subscribers, null URDF
+roots, ambiguous fallback robots, and unsafe stale behavior. A deterministic
+persistent intent layer plus transient runtime reconstruction preserves one
+world-RAS/mm geometry authority while keeping intentional target contact
+narrow, phase-specific, and simulation-only.
+
+## 2026-08-24 — Present Step 5B as one ordered unified-template build
+
+Status: implemented and focused Slicer-native verified; representative
+normal-window acceptance remains active
+
+Keep the dependency-aware Step 5B backend and its cached geometry contracts,
+but present them as one operator sequence: approved inputs and lineage, all
+generation dimensions, optional advanced fit/intermediate processing, unified
+result, then the complete action footer. The routine build action validates
+the Step 4A trajectory, Step 4B support package, Step 4C docking assembly, and
+Step 5A visible support surface before voxel work; it regenerates only missing
+or stale blockout, shell, or fusion stages and reuses Current intermediates.
+
+Do not make a Current result's build button behave like an inspection button.
+When Current, disable and label that action as status; keep fit, shell/guide,
+and unified-result inspection as separate display-only actions. Keep deletion
+visually subordinate and last. The older staged generation controls remain
+available only in the collapsed Advanced section or as hidden compatibility
+adapters for saved parameter-node bindings.
+
+The panel reuses and reparents the existing Designer widgets instead of
+creating duplicate controls. The original Designer layouts must remain alive,
+even when empty, because Slicer's parameter-node GUI connector still traverses
+the generated UI wrapper and queries their properties.
+
+Reason: showing result/actions before dimensions implied that geometry had
+already been finalized and made Step 5B look like an extension of Step 4B or
+Step 5C. One visible dependency order matches the actual algorithm while
+preserving MRML roles, world-RAS/mm geometry, invalidation, caching, and Step
+5C verification/export contracts.
+
+## 2026-08-24 — Group Views by operator intent; never create renderers during inventory
+
+Status: implemented and focused Slicer-native verified; representative
+normal-window acceptance remains active
+
+Replace the flat every-segment Elements list with one shared Views palette for
+Legacy and the six-workspace shell. The routine surface contains the explicit
+recommendation for each internal stage and one-click upper/lower/all
+permanent-tooth masks in 2D, 3D, or both. FDI quadrants 1/2 map to upper and
+3/4 to lower; only review records categorized as `Teeth` with a valid
+two-digit permanent FDI number enter those jaw groups. Routine jaw and stage
+recommendations are scoped to the parameter node's authoritative teeth
+segmentation and input CBCT; unrelated scene segmentations/volumes stay in a
+collapsed Advanced inventory with the role-owned workflow objects.
+
+Supersede the 2026-08-22 decision to create a separate default 3D renderer for
+every scalar volume during Elements refresh. That code queried Slicer's first
+volume-rendering display node and, when absent, called
+`CreateDefaultVolumeRenderingNodes`. Therefore DENTOBOT triggered a new
+display node while Slicer rendered the intensity data of whichever CBCT or
+sample scalar volume was already in the scene. It did not generate a skin
+segmentation or new voxel dataset, but the resulting transfer function could
+look like a skin/outer scan envelope and the `[3D Volume]` label obscured that
+distinction.
+
+Inventory is now read-only: it only queries an existing renderer, labels it
+**Volume rendering — not a mask**, excludes it from every recommended preset,
+and hides it during other isolation presets. Creating a renderer is an
+explicit Slicer/operator action outside inventory refresh. Existing MRB
+renderers remain compatible and restorable. The mask and workflow selection
+snapshot/restore contract is unchanged.
+
+Reason: opening a chooser must not mutate the MRML scene, and routine dental
+views should be expressed in anatomical/task language rather than a flat list
+of implementation objects. Central pure classification keeps the same
+recommendations and FDI grouping available to both presentations without
+duplicating mask, geometry, or rendering logic.
+
+## 2026-08-24 — Step 4B exclusively owns locked support-tooth membership
+
+Status: implemented and Slicer-native verified; representative normal-window
+acceptance remains active
+
+Step 4B is the only editor for target/support-tooth membership. Creating or
+updating `TemplateSupportDraft` sets the persisted
+`DENTOBOT.SupportSelectionLocked=true` contract. A current locked package
+disables the visual arch buttons. Revising membership is an explicit Step 4B
+action that sets the lock false and immediately marks the support draft, Step
+4C docks, and every reference-linked Step 5 descendant stale; updating the
+draft rebuilds and locks the package again. Legacy role-owned drafts without
+the attribute are treated as locked and acquire the explicit attribute during
+UI reconciliation.
+
+Step 5A is a read-only consumer of that parent package. It displays the target,
+support list, draft identity, Current/Stale state, and lock state, plus one
+button to return to Step 4B. It never displays or mutates the support arch or
+the raw Step 4B draft selector. If a saved parameter node loses only its
+support-ID JSON, a Current locked draft whose segmentation and target
+references still match may restore those IDs from its redundant model
+provenance. Unlocked, stale, malformed, or mismatched packages are never
+promoted.
+
+Reason: stage-local widgets are transient presentation state and must not be
+allowed to become a second authority. One persisted parent lock makes
+backtracking deliberate and prevents Step 5A from silently diverging from the
+support anatomy used by Step 4C collision screening. Geometry remains
+transform-free world-RAS/mm; this decision changes ownership and invalidation,
+not measurements or coordinates.
+
 ## 2026-08-24 — One backend, two switchable presentations during GUI migration
 
 Status: application-shell foundation and Case/Robot Simulation vertical slice
@@ -1991,7 +2139,8 @@ collision-policy claim.
 
 ## 2026-08-22 — Support anatomy precedes docking; Elements is scene-wide
 
-Status: accepted and Slicer-native verified
+Status: support-order portion accepted; flat inventory and automatic
+volume-render creation superseded by the 2026-08-24 grouped Views decision
 
 Split the former Step 5A UI responsibility. Step 4B now owns same-jaw support
 tooth selection and the complete world-RAS support-anatomy draft. The former

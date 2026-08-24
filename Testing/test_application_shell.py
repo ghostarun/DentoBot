@@ -37,7 +37,7 @@ def test_workspace_mapping_preserves_segmentation_and_guide_substeps():
     assert workspace_for_stage(5).workspace_id == "guide_design"
     assert workspace_for_stage(9).workspace_id == "guide_design"
     assert workspace_for_stage(10).workspace_id == "robot_simulation"
-    assert len(workspace_for_stage(10).substep_titles) == 6
+    assert len(workspace_for_stage(10).substep_titles) == 7
     assert workspace_index_for_stage(999) == 0
 
 
@@ -65,6 +65,16 @@ def test_workflow_owns_one_switchable_shell_and_restores_it_on_exit():
     exit_handler = source.split("def exit(self)", 1)[1].split("def _addSceneObservers", 1)[0]
     assert "self._applicationShell.deactivate()" in exit_handler
     assert "DENTOWorkflow-v2" not in source
+
+
+def test_new_shell_exposes_the_shared_view_controls_palette():
+    shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
+    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(
+        encoding="utf-8"
+    )
+    assert "DENTOBOTViewControlsButton" in shell
+    assert "self._on_view_controls_requested()" in shell
+    assert "on_view_controls_requested=self.onOpenViewControlsPalette" in workflow
 
 
 def test_shell_preferences_are_qsettings_not_parameter_node_fields():

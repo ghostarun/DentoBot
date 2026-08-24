@@ -116,7 +116,7 @@ def test_joint_guard_status_rejects_wrong_mode_and_vector_length():
 
 def test_moveit_frame_contract_constants():
     assert ROS2_PLANNING_GROUP == "dentobot_arm"
-    assert ROS2_TOOL_TCP_LINK == "dentobot_tool_tcp"
+    assert ROS2_TOOL_TCP_LINK == "dentobot_drill_tip_provisional"
 
 
 class _FakeTransform:

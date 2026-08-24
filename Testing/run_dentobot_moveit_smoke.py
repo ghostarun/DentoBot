@@ -152,16 +152,16 @@ def main() -> None:
         transform = spin_until(
             node,
             lambda: node.tf_buffer.lookup_transform(
-                "base_link", "dentobot_tool_tcp", rclpy.time.Time()
+                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
             )
             if node.tf_buffer.can_transform(
-                "base_link", "dentobot_tool_tcp", rclpy.time.Time()
+                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
             )
             else None,
             10.0,
         )
         if transform is None:
-            raise RuntimeError("base_link -> dentobot_tool_tcp TF unavailable")
+            raise RuntimeError("base_link -> dentobot_drill_tip_provisional TF unavailable")
 
         validity = GetStateValidity.Request()
         validity.group_name = "dentobot_arm"
@@ -196,7 +196,7 @@ def main() -> None:
             ik_request.ik_request.group_name = "dentobot_arm"
             ik_request.ik_request.robot_state.joint_state = node.joint_state
             ik_request.ik_request.robot_state.is_diff = False
-            ik_request.ik_request.ik_link_name = "dentobot_tool_tcp"
+            ik_request.ik_request.ik_link_name = "dentobot_drill_tip_provisional"
             ik_request.ik_request.pose_stamped.header.frame_id = "base_link"
             ik_request.ik_request.pose_stamped.pose.position.x = (
                 transform.transform.translation.x + offset[0]
@@ -243,7 +243,7 @@ def main() -> None:
             request.start_state.joint_state = node.joint_state
             request.start_state.is_diff = False
             request.group_name = "dentobot_arm"
-            request.link_name = "dentobot_tool_tcp"
+            request.link_name = "dentobot_drill_tip_provisional"
             for scale in (0.0, 1.0):
                 pose = Pose()
                 pose.position.x = transform.transform.translation.x + scale * offset[0]

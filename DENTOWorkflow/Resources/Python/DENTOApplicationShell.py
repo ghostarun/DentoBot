@@ -72,12 +72,13 @@ WORKSPACE_SPECS = (
         "ROBOT SIM",
         (10,),
         (
-            "Scene and Runtime",
-            "Base Placement",
-            "Manual Joints",
-            "Goal and IK",
-            "Scene and Collision",
-            "Plan and Preview",
+            "6.0 Case and Task",
+            "6.1 Robot and Base",
+            "6.2 Task Home",
+            "6.3 Workspace and Limits",
+            "6.4 Runtime and Confirmation",
+            "6.5 Goal 1: Approach",
+            "6.6 Goal 2: Drilling Preview",
         ),
     ),
 )
@@ -117,6 +118,7 @@ class DENTOApplicationShell:
         resource_path: Callable[[str], str],
         on_mode_requested: Callable[[str], None],
         on_substep_selected: Callable[[str, int], None],
+        on_view_controls_requested: Callable[[], None],
     ) -> None:
         if qt is None:
             raise RuntimeError("Qt is required for the DENTOBOT application shell.")
@@ -128,6 +130,7 @@ class DENTOApplicationShell:
         self._resource_path = resource_path
         self._on_mode_requested = on_mode_requested
         self._on_substep_selected = on_substep_selected
+        self._on_view_controls_requested = on_view_controls_requested
         self._settings = qt.QSettings()
         self._active = False
         self._updating_navigation = False
@@ -145,6 +148,7 @@ class DENTOApplicationShell:
         self._recommendation_label = None
         self._theme_combo = None
         self._expert_checkbox = None
+        self._view_button = None
         self._chrome_snapshot = []
         self._panel_dock = None
         self._current_stage = 0
@@ -229,6 +233,7 @@ class DENTOApplicationShell:
         self._recommendation_label = None
         self._theme_combo = None
         self._expert_checkbox = None
+        self._view_button = None
 
     def cleanup(self) -> None:
         self.deactivate()
@@ -322,6 +327,16 @@ class DENTOApplicationShell:
         self._substep_combo.objectName = "DENTOBOTSubstepComboBox"
         self._substep_combo.currentIndexChanged.connect(self._on_substep_changed)
         controls_layout.addWidget(self._substep_combo, 1)
+        self._view_button = qt.QPushButton("Views", controls)
+        self._view_button.objectName = "DENTOBOTViewControlsButton"
+        self._view_button.toolTip = (
+            "Open recommended views, grouped dental masks, and advanced "
+            "display controls without leaving the current workspace."
+        )
+        self._view_button.clicked.connect(
+            lambda checked=False: self._on_view_controls_requested()
+        )
+        controls_layout.addWidget(self._view_button)
         self._theme_combo = qt.QComboBox(controls)
         self._theme_combo.objectName = "DENTOBOTThemeComboBox"
         self._theme_combo.addItem("Light", "light")

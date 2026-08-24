@@ -9,6 +9,14 @@
 - Advance only after acceptance evidence and a short milestone review.
 - Future milestones are a blueprint, not authorization to implement them.
 
+## Ubuntu Step 6 closure gate — 2026-08-24
+
+Native placement-to-task behavior is implemented through guarded simulation
+preview. Remaining gates are representative normal-window case acceptance,
+physical TCP/home calibration, registered robot-base metrology, controller and
+force/stop ownership, and a verified safety procedure. Do not expose Execute or
+claim hardware/drilling readiness before those gates close.
+
 ## Current baseline: imaging plus external-process bridge
 
 **Status:** Step 0 and Bridge A/B work in the developer's Windows Slicer

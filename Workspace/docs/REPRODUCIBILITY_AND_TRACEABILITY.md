@@ -755,12 +755,12 @@ existing workflow/description regressions.
 
 `Testing/run_dentobot_application_shell_smoke.py` constructed a real Slicer
 main window, selected all six workspaces, mapped stage 5B to Guide Design,
-exposed six Robot Simulation substeps, showed the Goal/IK and Scene/Collision
+exposed seven Robot Simulation substeps, showed the native gated cards
 cards, applied both themes, toggled Focus/Expert, restored Legacy, saved a
 screenshot, and printed `DENTOBOT_APPLICATION_SHELL_PASS`.
 
 The live ROS/MoveIt smoke reported `facade_contract=true`, exactly one joint
-publisher, group `dentobot_arm`, TCP `dentobot_tool_tcp`, a +1 mm IK solution,
+publisher, group `dentobot_arm`, TCP `dentobot_drill_tip_provisional`, a +1 mm IK solution,
 five joint-goal plan points, 29 Cartesian trajectory points at fraction 1.0,
 three planning-scene obstacles, a rejected forehead-collision start, a
 collision-clear 20 mm base nudge, and 116/200 accepted draft workspace samples.
@@ -774,3 +774,72 @@ facts: the PASS/JSON result is functional evidence, while shutdown remains an
 open dependency defect. This evidence is synthetic/developer-runtime only; it
 does not establish calibrated kinematics, validated clearance, hardware
 execution, drilling safety, or clinical suitability.
+
+## 18. Native Step 6 placement/task and phase-guard evidence — 2026-08-24
+
+The current planning link is `dentobot_drill_tip_provisional`. It is fixed 7 mm
+distal to the former CAD burr-origin frame and is still a provisional design
+frame, not physical TCP calibration. Rebuild the changed guard and description
+resources from the container workspace before acceptance:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd /workspace/ros2_ws
+colcon build --base-paths /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
+  --packages-select dentobot_moveit_config
+```
+
+Host contract gate:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider \
+  Testing dentobot_description/test
+```
+
+Recorded result: `95 passed in 1.27s`. Coverage includes base/home/task state
+transitions and invalidation, workspace joint-vector retention and assisted
+limit suggestions, phase/config schemas, seven shell substeps, provisional TCP
+resources, façade/bridge contracts, and static phase-guard policy.
+
+Focused Slicer tests recorded:
+
+- `test_DENTOWorkflowStep6NativePlacementPersistence` passed after proving that
+  Views refresh creates no renderer; explicit enable creates exactly one;
+  presets/opacity alter display only; CBCT scalars, IJK-to-RAS, and mask bounds
+  remain unchanged; visible case+robot bounds frame together; and proxy,
+  base/home/opacities/renderer survive MRB round trip.
+- `run_dentobot_step6_restore_smoke.py` printed
+  `DENTOBOT_STEP6_RESTORE_PASS` for `test1_6_FD14.mrb`, including trajectory
+  length `15.760533814 mm`, `29,962` template points, no restored ROS robot or
+  active flag, and `1e-6` geometry tolerance.
+- `run_dentobot_case_bundle_smoke.py` printed
+  `DENTOBOT_CASE_BUNDLE_PASS` for `test1_5C_FD14.mrb`,
+  `test1_6_FD14.mrb`, and `dentobot-step6.dentocase`. The two MRBs retained
+  their truthful stale Step 4C/5C lineage. The historical `.dentocase` restored
+  geometry at `1e-6` but reported the expected old robot-profile fingerprint,
+  so planning stays review-gated.
+
+The isolated ROS-domain-74 guard probe is
+`Testing/run_dentobot_phase_guard_smoke.py`. It recorded selected burr-target
+contact accepted in-corridor and rejection of strict target contact, non-target
+contact, self-collision, wrong task, lateral corridor escape, overshoot, and
+joint bounds. `Testing/run_dentobot_moveit_smoke.py` separately retained the
+strict joint/clearance, TF, IK, and Cartesian baseline. No hardware, controller,
+powered motion, or drilling was exercised.
+
+The normal-window Xvfb acceptance used
+`Testing/run_dentobot_slicer_moveit_smoke.py` with an isolated simulation stack.
+Its final JSON recorded native Connect and Goal/IK/Plan staying in
+DENTOWorkflow, hidden Execute, Views retained through expert diagnostics and
+Return, coincident current/goal roots, a successful −1 mm IK target, a 55-point
+goal plan, and 119/200 workspace samples. The disposable visual phantom's
+forehead-tangent placement did not become collision-clear during the bounded
+diagnostic search, so that report did not rerun the redundant Cartesian check;
+the separate strict and phase-guard smokes remain the collision authorities.
+
+The updated application-shell smoke printed
+`DENTOBOT_APPLICATION_SHELL_PASS` with seven Robot Simulation substeps. The
+scene-lifecycle probe reconnected after developer reload and New Empty Case,
+then restored a saved locked-base scene and printed
+`DENTOBOT_SCENE_LIFECYCLE_PASS`. Each functional result preceded the known
+nonzero pinned SlicerROS2 teardown leak; no clean-shutdown claim is made.

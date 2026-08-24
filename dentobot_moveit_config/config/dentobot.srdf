@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot name="dentobot">
   <group name="dentobot_arm">
-    <chain base_link="base_link" tip_link="dentobot_tool_tcp"/>
+    <chain base_link="base_link" tip_link="dentobot_drill_tip_provisional"/>
   </group>
 
   <group_state name="draft_zero" group="dentobot_arm">
@@ -23,4 +23,5 @@
   <disable_collisions link1="link-5" link2="pneumatic_spindle-Copy" reason="Adjacent"/>
   <disable_collisions link1="pneumatic_spindle-Copy" link2="burr" reason="Adjacent"/>
   <disable_collisions link1="burr" link2="dentobot_tool_tcp" reason="Adjacent"/>
+  <disable_collisions link1="dentobot_tool_tcp" link2="dentobot_drill_tip_provisional" reason="Adjacent"/>
 </robot>

@@ -194,4 +194,13 @@
         <parent link="burr" />
         <child link="dentobot_tool_tcp" />
     </joint>
+    <!-- CAD-derived provisional drill-tip point. The burr STL spans 7.000 mm
+         along dentobot_tool_tcp +Z, so this child marks that distal mesh end.
+         It is not a physical TCP calibration and must not be treated as one. -->
+    <link name="dentobot_drill_tip_provisional" />
+    <joint name="dentobot_tool_tcp_to_drill_tip_provisional" type="fixed">
+        <origin xyz="0.0 0.0 0.007" rpy="0.0 0.0 0.0" />
+        <parent link="dentobot_tool_tcp" />
+        <child link="dentobot_drill_tip_provisional" />
+    </joint>
 </robot>

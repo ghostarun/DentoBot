@@ -41,6 +41,30 @@ custom branding.
 - Robot execution and safety require a separate control architecture,
   hazard analysis, and verification program.
 
+## 2026-08-24 native Step 6 placement-to-task checkpoint
+
+Step 6 is now one seven-gate simulation workflow inside DENTOWorkflow rather
+than a handoff to the generic Motion Control module. It restores only persistent
+operator intent: case/trajectory lineage, the robot-base state, optional
+provisional forehead proxy, Task Home, reviewed assisted limits, immutable task
+confirmation, and display preferences. Live ROS/TF robots, goal controls,
+plans, publishers/subscribers, guard sessions, and connection flags remain
+transient and are rebuilt after an explicit gated Connect.
+
+The operator can explicitly enable one display-only CBCT volume renderer and
+review CBCT/masks, robot, guides, trajectory, mount plane, goal, and optional
+curved forehead envelope together. Renderer creation and appearance controls do
+not change voxel data or IJK-to-RAS. The forehead envelope and current
+`dentobot_drill_tip_provisional` frame are visualization/design inputs, not
+registered anatomy or a physically calibrated TCP.
+
+The external MoveIt guard now distinguishes strict approach, terminal Entry
+contact, and drilling preview. Intentional contact is limited to the burr and
+selected target tooth inside the confirmed Entry-to-Target corridor; every
+other contact, wrong/stale task, corridor escape, overshoot, self-collision, or
+joint-bound violation remains rejected. Hardware homing, controller ownership,
+force/stop behavior, powered motion, drilling, and Execute remain unavailable.
+
 ## Developer context
 
 The developer has prior experience with standalone Python/C++, Qt, ITK, VTK,
@@ -298,9 +322,11 @@ readiness contract, loads the URDF, aligns `base_link` to the manually placed
 forehead mount transform, submits manual joint candidates to the guard, and
 requests plans.
 
-The provisional planning frame is `dentobot_tool_tcp`, fixed at the CAD burr
-link origin with +Z aligned to the spindle axis. It is explicitly **not** a
-calibrated burr tip. MoveIt trajectory execution, controllers, hardware
+The 2026-08-21 provisional planning frame was `dentobot_tool_tcp` at the CAD
+burr-link origin. It was superseded on 2026-08-24 by
+`dentobot_drill_tip_provisional`, fixed 7 mm distally with +Z aligned to the
+spindle axis. It remains explicitly **not** a calibrated burr tip. MoveIt
+trajectory execution, controllers, hardware
 interfaces, drilling, and clinical safety claims remain disabled. The generic
 open-mouth phantom and 5 mm draft clearance policy remain disposable design
 checks, not patient registration or validated collision safety. Every manual
@@ -318,10 +344,10 @@ robot before replacement; Step 6 must reconnect afterward.
 
 The generic SlicerROS2 Motion Control module is now adapted at runtime to the
 DENTOBOT simulation contract. The grey/current and red/goal robot hierarchies
-share the same Step 6 forehead-base parent, so a goal is a second joint
+share the same Step 6 base parent, so a goal is a second joint
 configuration of the mounted robot rather than a second world-origin robot.
 The UI displays detected MoveIt readiness, fixes the planning group to
-`dentobot_arm`, exposes the provisional `dentobot_tool_tcp` even though the
+`dentobot_arm`, exposes `dentobot_drill_tip_provisional` even though the
 SRDF has no separate end-effector group, and reports IK/plan results beside the
 controls. Execute remains hidden and disabled.
 

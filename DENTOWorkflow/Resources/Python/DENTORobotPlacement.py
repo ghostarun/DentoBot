@@ -191,6 +191,20 @@ def burr_origin_base_m(
     return transforms_m["burr"][:3, 3].copy()
 
 
+def drill_tip_origin_base_m(
+    joint_positions_si: dict[str, float],
+    urdf_path: str | Path,
+    package_root: str | Path,
+) -> np.ndarray:
+    """Return the CAD-derived provisional drill-tip in base_link metres."""
+
+    transforms_m = link_transforms_base_m(urdf_path, package_root, joint_positions_si)
+    frame = "dentobot_drill_tip_provisional"
+    if frame not in transforms_m:
+        raise ValueError(f"The tracked URDF does not contain {frame}.")
+    return transforms_m[frame][:3, 3].copy()
+
+
 def robot_link_mesh_poses_mm(
     urdf_path: str | Path,
     package_root: str | Path,

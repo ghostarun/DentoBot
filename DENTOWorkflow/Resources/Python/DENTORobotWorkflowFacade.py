@@ -85,6 +85,21 @@ class RobotWorkflowState:
     preview_active: bool
 
 
+@dataclass(frozen=True)
+class PhasePlan:
+    """Transient guarded simulation plan; never serialized in MRML."""
+
+    success: bool
+    message: str
+    task_fingerprint: str
+    requested_phase: str
+    waypoint_joint_vectors_si: tuple[dict[str, float], ...]
+    waypoint_phases: tuple[str, ...]
+    waypoint_times_sec: tuple[float, ...] = ()
+    cartesian_fraction: float = 0.0
+    planner: str = "moveit+dentobot_phase_guard"
+
+
 class DENTORobotWorkflowFacade:
     """Coordinate Step 6 services without depending on DENTOWorkflow widgets."""
 
@@ -103,6 +118,8 @@ class DENTORobotWorkflowFacade:
         self._preview_index = 0
         self._planning_scene_object_count = 0
         self._planning_scene_synchronized = False
+        self._phase_sequence = 0
+        self._completed_phase = ""
 
     def setLogic(self, logic) -> None:
         self._logic = logic
@@ -115,11 +132,17 @@ class DENTORobotWorkflowFacade:
     def previewActive(self) -> bool:
         return self._preview_timer is not None
 
+    @property
+    def completedPhase(self) -> str:
+        return self._completed_phase
+
     def clearTransientState(self) -> None:
         self.stopPreview()
         self._motion_plan = None
         self._planning_scene_object_count = 0
         self._planning_scene_synchronized = False
+        self._phase_sequence = 0
+        self._completed_phase = ""
 
     def _parameter_node(self):
         return self._parameter_node_provider()
@@ -239,13 +262,31 @@ class DENTORobotWorkflowFacade:
                     "scene_required",
                     "Choose a Step 6 case or draft phantom before connecting.",
                 )
+            if not self._logic.robotModelNodes():
+                return RobotActionResult(
+                    False,
+                    "local_robot_required",
+                    "Load and place the local MRML robot before connecting ROS/MoveIt.",
+                )
+            if not bool(parameter_node.robotBaseMountLocked):
+                return RobotActionResult(
+                    False,
+                    "base_lock_required",
+                    "Provisionally lock the robot base before connecting ROS/MoveIt.",
+                )
+            home_issues = self._logic.taskHomeFreshnessIssues(parameter_node)
+            if home_issues:
+                return RobotActionResult(False, "task_home_required", " ".join(home_issues))
+            if not self._logic.assistedTaskLimitsReviewed(parameter_node):
+                return RobotActionResult(
+                    False,
+                    "assisted_limits_required",
+                    "Generate, review, and apply the workspace-assisted task limits before connecting.",
+                )
             base = self._logic.ensureRobotBaseTransform(
                 parameter_node.robotBaseTransform
             )
             parameter_node.robotBaseTransform = base
-            phantom_models = self._logic.draftPhantomModelNodes()
-            if phantom_models:
-                self._logic.positionRobotBaseNearResearchPhantom(base, phantom_models)
             mrml_models = self._logic.robotModelNodes()
             robot_node, error = self._bridge.connect_dentobot_motion_control(
                 base,
@@ -260,11 +301,25 @@ class DENTORobotWorkflowFacade:
                     "connect_failed",
                     error or "ROS 2 robot node was not created.",
                 )
-            self._planning_scene_synchronized = False
+            home_result = self.applyTaskHome()
+            if not home_result.success:
+                self._bridge.disconnect_dentobot_motion_control(mrml_models)
+                return RobotActionResult(
+                    False,
+                    "task_home_apply_failed",
+                    "Connected ROS/MoveIt but could not apply Task Home: " + home_result.message,
+                )
+            obstacle_count = 0
+            if scene_kind == "case":
+                obstacle_count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
+            self._planning_scene_object_count = obstacle_count
+            self._planning_scene_synchronized = scene_kind == "case"
+            self._completed_phase = ""
             return RobotActionResult(
                 True,
                 "connected",
-                "Connected the simulation-only SlicerROS2 robot and MoveIt planning group.",
+                "Connected natively inside DENTOWorkflow, aligned the live robot to the locked base, applied Task Home, and synchronized the simulation planning scene.",
+                details={"obstacleCount": obstacle_count},
                 payload=robot_node,
             )
         except (RuntimeError, ValueError, OSError) as exc:
@@ -279,6 +334,7 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(False, "disconnect_failed", message)
             self._planning_scene_synchronized = False
             self._planning_scene_object_count = 0
+            self._completed_phase = ""
             return RobotActionResult(
                 True,
                 "disconnected",
@@ -361,6 +417,7 @@ class DENTORobotWorkflowFacade:
             elif self._logic.robotLinkTransformNodes():
                 self._logic.updateRobotJointPoses(positions_si)
             self._motion_plan = None
+            self._completed_phase = ""
             return RobotActionResult(
                 True,
                 "joint_accepted",
@@ -392,6 +449,7 @@ class DENTORobotWorkflowFacade:
             elif self._logic.robotLinkTransformNodes():
                 self._logic.updateRobotJointPoses(positions_si)
             self._motion_plan = None
+            self._completed_phase = ""
             return RobotActionResult(
                 True,
                 "joint_state_accepted",
@@ -412,6 +470,7 @@ class DENTORobotWorkflowFacade:
             base.SetMatrixTransformToParent(matrix_world_ras_mm)
             self._planning_scene_synchronized = False
             self._motion_plan = None
+            self._completed_phase = ""
             return RobotActionResult(True, "base_pose_updated", "Updated the robot base in world RAS millimetres.")
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_pose_failed", str(exc))
@@ -448,6 +507,7 @@ class DENTORobotWorkflowFacade:
             self._logic.setRobotBaseMountLocked(parameter_node, False)
             self._planning_scene_synchronized = False
             self._motion_plan = None
+            self._completed_phase = ""
             return RobotActionResult(True, "base_unlocked", "Base mount unlocked.")
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_unlock_failed", str(exc))
@@ -500,6 +560,76 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "state_check_failed", str(exc))
 
+    def saveTaskHome(self) -> RobotActionResult:
+        """Persist the current six-joint simulation pose as Task Home."""
+
+        try:
+            parameter_node = self._require_context()
+            record = self._logic.saveCurrentTaskHome(parameter_node)
+            self._motion_plan = None
+            return RobotActionResult(
+                True,
+                "task_home_saved",
+                f"Saved Task Home revision {record.revision} for this base and robot profile.",
+                details={"revision": record.revision},
+                payload=record,
+            )
+        except (RuntimeError, ValueError, OSError, KeyError) as exc:
+            return RobotActionResult(False, "task_home_failed", str(exc))
+
+    def applyTaskHome(self) -> RobotActionResult:
+        """Apply Task Home through the ordinary strict collision channel."""
+
+        try:
+            parameter_node = self._require_context()
+            issues = self._logic.taskHomeFreshnessIssues(parameter_node)
+            if issues:
+                return RobotActionResult(False, "task_home_stale", " ".join(issues))
+            record = self._logic.taskHomeRecord(parameter_node)
+            result = self._apply_positions_si(
+                dict(zip(record.joint_names, record.joint_positions_si))
+            )
+            if not result.success:
+                return result
+            self._motion_plan = None
+            return RobotActionResult(
+                True,
+                "task_home_applied",
+                "Applied Task Home through the strict simulation collision channel.",
+                payload=record,
+            )
+        except (RuntimeError, ValueError, OSError, KeyError) as exc:
+            return RobotActionResult(False, "task_home_failed", str(exc))
+
+    def reviewAssistedLimits(self) -> RobotActionResult:
+        try:
+            parameter_node = self._require_context()
+            proposal = self._logic.reviewAndApplyAssistedTaskLimits(parameter_node)
+            self._motion_plan = None
+            return RobotActionResult(
+                True,
+                "assisted_limits_reviewed",
+                "Reviewed and applied the workspace-assisted task limits.",
+                payload=proposal,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            return RobotActionResult(False, "assisted_limits_failed", str(exc))
+
+    def confirmTask(self) -> RobotActionResult:
+        try:
+            parameter_node = self._require_context()
+            snapshot = self._logic.confirmStep6Task(parameter_node)
+            self._motion_plan = None
+            return RobotActionResult(
+                True,
+                "task_confirmed",
+                "Confirmed one immutable simulation task snapshot. Any geometry, base, home, limit, tool, or robot-resource change invalidates it.",
+                details={"taskFingerprint": snapshot.snapshot_fingerprint},
+                payload=snapshot,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            return RobotActionResult(False, "task_confirmation_failed", str(exc))
+
     def setTcpGoal(self, matrix_goal_parent) -> RobotActionResult:
         ok, message, goal_node = self._bridge.set_moveit_tcp_goal_matrix(
             matrix_goal_parent
@@ -541,25 +671,228 @@ class DENTORobotWorkflowFacade:
         )
 
     def planAlongTrajectory(self) -> RobotActionResult:
+        return self.planDrillingPhase()
+
+    def _prepare_phase_guard(self, parameter_node, snapshot) -> tuple[bool, str]:
+        count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
+        self._planning_scene_object_count = count
+        self._planning_scene_synchronized = True
+        target_object_id = self._logic.step6TargetCollisionObjectId(parameter_node)
+        if not target_object_id:
+            return False, "The selected target-tooth collision object is unavailable."
+        return self._bridge.configure_task_phase_guard(
+            task_fingerprint=snapshot.snapshot_fingerprint,
+            target_object_id=target_object_id,
+            base_transform=parameter_node.robotBaseTransform,
+            entry_ras_mm=snapshot.entry_ras_mm,
+            target_ras_mm=snapshot.target_ras_mm,
+            corridor_radius_mm=snapshot.corridor_radius_mm,
+            approach_standoff_mm=float(parameter_node.step6ApproachStandoffMm),
+        )
+
+    def planApproachPhase(self) -> RobotActionResult:
+        """Plan strict current→pre-entry plus independently guarded contact."""
+
         try:
             parameter_node = self._require_context()
             self.stopPreview()
-            result = self._logic.planStep6TrajectoryMotion(parameter_node)
-            self._motion_plan = result if result.success else None
+            issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
+            if issues:
+                raise ValueError("Task confirmation is missing or stale: " + ", ".join(issues))
+            if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
+                raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
+            snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            guard_ok, guard_message = self._prepare_phase_guard(parameter_node, snapshot)
+            if not guard_ok:
+                raise RuntimeError(guard_message)
+            pre_entry, entry = self._logic.step6ApproachPoints(parameter_node)
+            pose = self._bridge.tool_pose_matrices_world_mm(pre_entry, entry, 2)[0]
+            ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
+            if not ok:
+                raise RuntimeError(message)
+            ok, message, _positions = self._bridge.solve_moveit_tcp_goal()
+            if not ok:
+                raise RuntimeError(message)
+            strict_plan = self._bridge.plan_moveit_joint_goal()
+            if not strict_plan.success:
+                raise RuntimeError(strict_plan.message)
+            terminal = self._bridge.plan_moveit_cartesian_path(
+                entry_ras_mm=pre_entry,
+                target_ras_mm=entry,
+                sample_count=max(3, int(parameter_node.robotMotionPlanSampleCount) // 2),
+                base_transform=parameter_node.robotBaseTransform,
+                avoid_collisions=False,
+                minimum_fraction=0.99,
+                start_joint_positions_si=(
+                    strict_plan.waypoint_joint_vectors_si[-1]
+                    if strict_plan.waypoint_joint_vectors_si
+                    else None
+                ),
+            )
+            if not terminal.success:
+                raise RuntimeError(terminal.message)
+            strict_waypoints = tuple(strict_plan.waypoint_joint_vectors_si)
+            terminal_waypoints = tuple(terminal.waypoint_joint_vectors_si)
+            plan = PhasePlan(
+                success=True,
+                message=(
+                    f"Goal 1 ready: {len(strict_waypoints)} strict approach point(s) "
+                    f"plus {len(terminal_waypoints)} terminal-contact point(s). "
+                    "Preview remains subject to the independent phase guard."
+                ),
+                task_fingerprint=snapshot.snapshot_fingerprint,
+                requested_phase="approach",
+                waypoint_joint_vectors_si=strict_waypoints + terminal_waypoints,
+                waypoint_phases=("approach",) * len(strict_waypoints)
+                + ("terminal_contact",) * len(terminal_waypoints),
+                waypoint_times_sec=tuple(strict_plan.waypoint_times_sec)
+                + tuple(terminal.waypoint_times_sec),
+                cartesian_fraction=float(terminal.fraction),
+            )
+            self._motion_plan = plan
             return RobotActionResult(
-                result.success,
-                "trajectory_plan_ready" if result.success else "trajectory_plan_failed",
-                result.message,
-                details={
-                    "planner": result.planner,
-                    "waypointCount": len(result.waypoint_joint_vectors_si),
-                    "cartesianFraction": result.cartesian_fraction,
-                },
-                payload=result,
+                True,
+                "approach_plan_ready",
+                plan.message,
+                details={"waypointCount": len(plan.waypoint_joint_vectors_si)},
+                payload=plan,
             )
         except (RuntimeError, ValueError, OSError) as exc:
             self._motion_plan = None
-            return RobotActionResult(False, "trajectory_plan_failed", str(exc))
+            return RobotActionResult(False, "approach_plan_failed", str(exc))
+
+    def planDrillingPhase(self) -> RobotActionResult:
+        """Plan Entry→Target with solver collision-off but guard enforcement on."""
+
+        try:
+            parameter_node = self._require_context()
+            self.stopPreview()
+            issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
+            if issues:
+                raise ValueError("Task confirmation is missing or stale: " + ", ".join(issues))
+            if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
+                raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
+            if self._completed_phase != "approach":
+                raise ValueError(
+                    "Complete the guarded Goal 1 approach preview before planning Goal 2."
+                )
+            snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            guard_ok, guard_message = self._prepare_phase_guard(parameter_node, snapshot)
+            if not guard_ok:
+                raise RuntimeError(guard_message)
+            result = self._bridge.plan_moveit_cartesian_path(
+                entry_ras_mm=snapshot.entry_ras_mm,
+                target_ras_mm=snapshot.target_ras_mm,
+                sample_count=int(parameter_node.robotMotionPlanSampleCount),
+                base_transform=parameter_node.robotBaseTransform,
+                avoid_collisions=False,
+                minimum_fraction=0.99,
+            )
+            if not result.success:
+                raise RuntimeError(result.message)
+            waypoints = tuple(result.waypoint_joint_vectors_si)
+            plan = PhasePlan(
+                success=True,
+                message=(
+                    f"Goal 2 preview ready: {len(waypoints)} Entry-to-Target "
+                    "point(s). Solver collision avoidance was disabled only for "
+                    "intentional target contact; every preview point still requires guard acceptance."
+                ),
+                task_fingerprint=snapshot.snapshot_fingerprint,
+                requested_phase="drilling",
+                waypoint_joint_vectors_si=waypoints,
+                waypoint_phases=("drilling",) * len(waypoints),
+                waypoint_times_sec=tuple(result.waypoint_times_sec),
+                cartesian_fraction=float(result.fraction),
+            )
+            self._motion_plan = plan
+            return RobotActionResult(
+                True,
+                "drilling_plan_ready",
+                plan.message,
+                details={"waypointCount": len(waypoints), "cartesianFraction": result.fraction},
+                payload=plan,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            self._motion_plan = None
+            return RobotActionResult(False, "drilling_plan_failed", str(exc))
+
+    def previewPhase(
+        self,
+        requested_phase: str,
+        *,
+        interval_ms: int = 250,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_finished: Optional[Callable[[RobotActionResult], None]] = None,
+    ) -> RobotActionResult:
+        plan = self._motion_plan
+        if (
+            not isinstance(plan, PhasePlan)
+            or not plan.success
+            or plan.requested_phase != str(requested_phase)
+        ):
+            return RobotActionResult(False, "phase_plan_required", "Create the matching guarded phase plan first.")
+        if str(requested_phase) == "drilling" and self._completed_phase != "approach":
+            return RobotActionResult(
+                False,
+                "approach_required",
+                "Complete the guarded Goal 1 approach preview before Goal 2.",
+            )
+        try:
+            parameter_node = self._require_context()
+            issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
+            if issues:
+                return RobotActionResult(False, "task_stale", "Task confirmation is stale: " + ", ".join(issues))
+            import qt
+        except (RuntimeError, ValueError, ImportError) as exc:
+            return RobotActionResult(False, "phase_preview_failed", str(exc))
+        self.stopPreview()
+        self._preview_index = 0
+        self._phase_sequence = 0
+        timer = qt.QTimer()
+        timer.setInterval(max(20, int(interval_ms)))
+
+        def advance() -> None:
+            if self._preview_index >= len(plan.waypoint_joint_vectors_si):
+                completed_phase = plan.requested_phase
+                self.stopPreview()
+                self._completed_phase = completed_phase
+                if on_finished:
+                    on_finished(RobotActionResult(True, "phase_preview_complete", "Guarded simulation phase preview complete."))
+                return
+            current_issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
+            if current_issues:
+                self.stopPreview()
+                if on_finished:
+                    on_finished(RobotActionResult(False, "task_stale", "Task changed during preview: " + ", ".join(current_issues)))
+                return
+            positions = plan.waypoint_joint_vectors_si[self._preview_index]
+            phase = plan.waypoint_phases[self._preview_index]
+            ok, message = self._bridge.apply_task_phase_joint_positions(
+                positions,
+                task_fingerprint=plan.task_fingerprint,
+                phase=phase,
+                sequence=self._phase_sequence,
+            )
+            if not ok:
+                self.stopPreview()
+                if on_finished:
+                    on_finished(RobotActionResult(False, "phase_waypoint_rejected", message))
+                return
+            self._write_display_values(parameter_node, self._display_values_from_si(positions))
+            self._preview_index += 1
+            self._phase_sequence += 1
+            if on_progress:
+                on_progress(self._preview_index, len(plan.waypoint_joint_vectors_si))
+
+        timer.timeout.connect(advance)
+        timer.start()
+        self._preview_timer = timer
+        return RobotActionResult(
+            True,
+            "phase_preview_started",
+            f"Guarded simulation preview started for {len(plan.waypoint_joint_vectors_si)} waypoint(s).",
+        )
 
     def _apply_positions_si(self, positions_si: Mapping[str, float]) -> RobotActionResult:
         parameter_node = self._require_context()
@@ -629,6 +962,7 @@ class DENTORobotWorkflowFacade:
         try:
             parameter_node = self._require_context()
             model, report = self._logic.createOrUpdateRobotWorkspace(parameter_node)
+            proposal = self._logic.proposeAssistedTaskLimits(parameter_node, report)
             return RobotActionResult(
                 True,
                 "workspace_ready",
@@ -639,8 +973,9 @@ class DENTORobotWorkflowFacade:
                     "selfCollisionRejections": report.self_collision_rejections,
                     "environmentRejections": report.environment_rejections,
                     "excludedAabbPairs": report.excluded_aabb_pairs,
+                    "proposalReviewed": proposal.reviewed,
                 },
-                payload=(model, report),
+                payload=(model, report, proposal),
             )
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "workspace_failed", str(exc))

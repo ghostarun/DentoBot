@@ -21,10 +21,16 @@ ROS2_FIXED_FRAME = "base_link"
 ROS2_TF_PREFIX = ""
 ROS2_JOINT_STATES_TOPIC = "/joint_states"
 ROS2_PLANNING_GROUP = "dentobot_arm"
-ROS2_TOOL_TCP_LINK = "dentobot_tool_tcp"
+ROS2_TOOL_TCP_LINK = "dentobot_drill_tip_provisional"
 ROS2_SLICER_JOINT_COMMAND_TOPIC = "/dentobot/slicer_joint_positions"
 ROS2_JOINT_COMMAND_STATUS_TOPIC = "/dentobot/joint_command_status"
 ROS2_JOINT_COMMAND_STATUS_SCHEMA = "dentobot.joint_command_status.v1"
+ROS2_TASK_GUARD_CONFIG_TOPIC = "/dentobot/task_guard_config"
+ROS2_TASK_JOINT_COMMAND_TOPIC = "/dentobot/task_joint_command"
+ROS2_TASK_JOINT_STATUS_TOPIC = "/dentobot/task_joint_status"
+ROS2_TASK_GUARD_CONFIG_SCHEMA = "dentobot.task_guard_config.v1"
+ROS2_TASK_JOINT_COMMAND_SCHEMA = "dentobot.task_joint_command.v1"
+ROS2_TASK_JOINT_STATUS_SCHEMA = "dentobot.task_joint_status.v1"
 ROS2_SIMULATION_STATUS_TOPIC = "/dentobot/simulation_status"
 ROS2_SIMULATION_STATUS_SCHEMA = "dentobot.simulation_status.v1"
 ROS2_DEFAULT_SLICER_NODE = "slicer"
@@ -106,6 +112,23 @@ class JointCommandStatus:
     world_object_count: int = 0
 
 
+@dataclass(frozen=True)
+class TaskJointStatus:
+    accepted: bool
+    reason: str
+    task_fingerprint: str = ""
+    phase: str = ""
+    sequence: int = -1
+    requested_positions: tuple[float, ...] = ()
+    accepted_positions: tuple[float, ...] = ()
+    checked_samples: int = 0
+    corridor_ok: bool = False
+    corridor_progress: Optional[float] = None
+    corridor_distance_m: Optional[float] = None
+    first_body: str = ""
+    second_body: str = ""
+
+
 _status_subscriber = None
 _status_observer = None
 _last_status = SimulationStackStatus(RuntimeState.OFFLINE, reason="No status received.")
@@ -117,6 +140,15 @@ _joint_status_observer = None
 _last_joint_status = None
 _last_joint_status_at = 0.0
 _configured_motion_widget = None
+_native_joint_positions = [0.0] * len(ROS2_JOINT_SI_ORDER)
+_native_goal_transform = None
+_task_config_publisher = None
+_task_command_publisher = None
+_task_status_subscriber = None
+_task_status_observer = None
+_last_task_status = None
+_last_task_status_at = 0.0
+_last_task_config_json = ""
 
 
 def parse_simulation_status(payload: str) -> SimulationStackStatus:
@@ -202,6 +234,50 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
         first_body=str(data.get("first_body", "") or ""),
         second_body=str(data.get("second_body", "") or ""),
         world_object_count=max(0, int(data.get("world_object_count", 0))),
+    )
+
+
+def parse_task_joint_status(payload: str) -> TaskJointStatus:
+    data = json.loads(payload)
+    if data.get("schema") != ROS2_TASK_JOINT_STATUS_SCHEMA:
+        raise ValueError("Unsupported task-joint status schema.")
+    if data.get("mode") != "simulation_only":
+        raise ValueError("Task-joint status is not simulation-only.")
+
+    def positions(key: str) -> tuple[float, ...]:
+        values = tuple(float(value) for value in data.get(key, ()))
+        if values and (
+            len(values) != len(ROS2_JOINT_SI_ORDER)
+            or not all(isfinite(value) for value in values)
+        ):
+            raise ValueError(f"{key} must contain six finite values.")
+        return values
+
+    def optional_number(key: str) -> Optional[float]:
+        value = data.get(key)
+        if value is None:
+            return None
+        result = float(value)
+        if not isfinite(result):
+            raise ValueError(f"{key} must be finite or null.")
+        return result
+
+    if not isinstance(data.get("accepted"), bool):
+        raise ValueError("accepted must be a boolean.")
+    return TaskJointStatus(
+        accepted=bool(data["accepted"]),
+        reason=str(data.get("reason") or ""),
+        task_fingerprint=str(data.get("task_fingerprint") or ""),
+        phase=str(data.get("phase") or ""),
+        sequence=int(data.get("sequence", -1)),
+        requested_positions=positions("requested_positions"),
+        accepted_positions=positions("accepted_positions"),
+        checked_samples=max(0, int(data.get("checked_samples", 0))),
+        corridor_ok=bool(data.get("corridor_ok", False)),
+        corridor_progress=optional_number("corridor_progress"),
+        corridor_distance_m=optional_number("corridor_distance_m"),
+        first_body=str(data.get("first_body") or ""),
+        second_body=str(data.get("second_body") or ""),
     )
 
 
@@ -418,8 +494,10 @@ def _ensure_status_subscriber():
 
 def _restore_motion_control_positions(values: Sequence[float]) -> None:
     """Return the ROS2MotionControl sliders to the guard's accepted state."""
+    global _native_joint_positions
     if len(values) != len(ROS2_JOINT_SI_ORDER):
         return
+    _native_joint_positions = [float(value) for value in values]
     try:
         import slicer
 
@@ -499,6 +577,189 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
     if status is None or len(status.accepted_positions) != len(ROS2_JOINT_SI_ORDER):
         return {}
     return dict(zip(ROS2_JOINT_SI_ORDER, status.accepted_positions))
+
+
+def _on_task_status_modified(caller=None, event=None) -> None:
+    del event
+    global _last_task_status, _last_task_status_at
+    try:
+        payload = caller.GetLastMessage() if caller is not None else ""
+        _last_task_status = parse_task_joint_status(str(payload or ""))
+        _last_task_status_at = time.monotonic()
+        if not _last_task_status.accepted:
+            _restore_motion_control_positions(_last_task_status.accepted_positions)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return
+
+
+def _ensure_task_status_subscriber():
+    global _task_status_subscriber, _task_status_observer
+    ros_node = ensure_default_ros2_node_in_scene()
+    if ros_node is None:
+        return None
+    if _task_status_subscriber is not None:
+        return _task_status_subscriber
+    subscriber = ros_node.GetSubscriberNodeByTopic(ROS2_TASK_JOINT_STATUS_TOPIC)
+    if subscriber is None:
+        subscriber = ros_node.CreateAndAddSubscriberNode(
+            "String", ROS2_TASK_JOINT_STATUS_TOPIC
+        )
+    if subscriber is None:
+        return None
+    subscriber.SetAttribute("DENTOBOT.TaskJointStatusSubscriber", "true")
+    subscriber.SaveWithSceneOff()
+    _task_status_subscriber = subscriber
+    _task_status_observer = subscriber.AddObserver(
+        "ModifiedEvent", _on_task_status_modified
+    )
+    return subscriber
+
+
+def _ensure_task_publishers() -> tuple[object | None, object | None]:
+    global _task_config_publisher, _task_command_publisher
+    ros_node = ensure_default_ros2_node_in_scene()
+    if ros_node is None:
+        return None, None
+    if _task_config_publisher is None:
+        _task_config_publisher = ros_node.GetPublisherNodeByTopic(
+            ROS2_TASK_GUARD_CONFIG_TOPIC
+        ) or ros_node.CreateAndAddPublisherNode(
+            "String", ROS2_TASK_GUARD_CONFIG_TOPIC
+        )
+    if _task_command_publisher is None:
+        _task_command_publisher = ros_node.GetPublisherNodeByTopic(
+            ROS2_TASK_JOINT_COMMAND_TOPIC
+        ) or ros_node.CreateAndAddPublisherNode(
+            "String", ROS2_TASK_JOINT_COMMAND_TOPIC
+        )
+    for publisher, role in (
+        (_task_config_publisher, "DENTOBOT.TaskGuardConfigPublisher"),
+        (_task_command_publisher, "DENTOBOT.TaskJointCommandPublisher"),
+    ):
+        if publisher is not None:
+            publisher.SetAttribute(role, "true")
+            publisher.SaveWithSceneOff()
+    mark_slicer_ros2_runtime_nodes_transient()
+    return _task_config_publisher, _task_command_publisher
+
+
+def world_ras_mm_to_base_m(point_ras_mm: Sequence[float], base_transform) -> list[float]:
+    import numpy as np
+    import vtk
+
+    values = np.asarray(point_ras_mm, dtype=float)
+    if values.shape != (3,) or not np.all(np.isfinite(values)):
+        raise ValueError("World RAS point must contain three finite values.")
+    base_to_world = vtk.vtkMatrix4x4()
+    base_transform.GetMatrixTransformToWorld(base_to_world)
+    world_to_base = vtk.vtkMatrix4x4()
+    vtk.vtkMatrix4x4.Invert(base_to_world, world_to_base)
+    source = [float(values[0]), float(values[1]), float(values[2]), 1.0]
+    target = [0.0, 0.0, 0.0, 0.0]
+    world_to_base.MultiplyPoint(source, target)
+    return [float(target[index]) / 1000.0 for index in range(3)]
+
+
+def configure_task_phase_guard(
+    *,
+    task_fingerprint: str,
+    target_object_id: str,
+    base_transform,
+    entry_ras_mm: Sequence[float],
+    target_ras_mm: Sequence[float],
+    corridor_radius_mm: float,
+    approach_standoff_mm: float,
+) -> Tuple[bool, str]:
+    global _last_task_config_json
+    config_publisher, _command_publisher = _ensure_task_publishers()
+    if config_publisher is None or _ensure_task_status_subscriber() is None:
+        return False, "Could not create the transient task-guard ROS interface."
+    payload = {
+        "schema": ROS2_TASK_GUARD_CONFIG_SCHEMA,
+        "mode": "simulation_only",
+        "task_fingerprint": str(task_fingerprint),
+        "target_object_id": str(target_object_id),
+        "allowed_robot_link": "burr",
+        "tool_tip_frame": ROS2_TOOL_TCP_LINK,
+        "entry_base_m": world_ras_mm_to_base_m(entry_ras_mm, base_transform),
+        "target_base_m": world_ras_mm_to_base_m(target_ras_mm, base_transform),
+        "corridor_radius_m": float(corridor_radius_mm) / 1000.0,
+        "approach_standoff_m": float(approach_standoff_mm) / 1000.0,
+    }
+    if not payload["task_fingerprint"] or not payload["target_object_id"]:
+        return False, "Task-guard configuration is missing its task or target identity."
+    _last_task_config_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    config_publisher.Publish(_last_task_config_json)
+    return True, "Published the versioned simulation-only task-guard configuration."
+
+
+def apply_task_phase_joint_positions(
+    positions_si: Mapping[str, float],
+    *,
+    task_fingerprint: str,
+    phase: str,
+    sequence: int,
+    timeout_sec: float = 1.5,
+) -> Tuple[bool, str]:
+    global _native_joint_positions
+    config_publisher, command_publisher = _ensure_task_publishers()
+    if (
+        config_publisher is None
+        or command_publisher is None
+        or _ensure_task_status_subscriber() is None
+    ):
+        return False, "The transient task-guard ROS interface is unavailable."
+    values = joint_si_vector(positions_si)
+    prior = list(_native_joint_positions)
+    status_before = _last_task_status_at
+    command = {
+        "schema": ROS2_TASK_JOINT_COMMAND_SCHEMA,
+        "mode": "simulation_only",
+        "task_fingerprint": str(task_fingerprint),
+        "phase": str(phase),
+        "sequence": int(sequence),
+        "joint_positions": values,
+    }
+    if _last_task_config_json:
+        config_publisher.Publish(_last_task_config_json)
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+    command_publisher.Publish(json.dumps(command, sort_keys=True, separators=(",", ":")))
+    deadline = time.monotonic() + float(timeout_sec)
+    while time.monotonic() < deadline:
+        ros_logic = get_ros2_logic()
+        if ros_logic is not None:
+            ros_logic.Spin()
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        status = _last_task_status
+        if (
+            status is not None
+            and _last_task_status_at > status_before
+            and status.task_fingerprint == str(task_fingerprint)
+            and status.phase == str(phase)
+            and status.sequence == int(sequence)
+        ):
+            if status.accepted:
+                _native_joint_positions = values
+                return True, status.reason
+            _native_joint_positions = prior
+            pair = (
+                f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
+                if status.first_body or status.second_body
+                else ""
+            )
+            return False, f"Task guard rejected the waypoint: {status.reason}{pair}"
+        time.sleep(0.01)
+    return False, "Task guard did not answer the phased simulation command."
 
 
 def _wait_for_joint_command_result(
@@ -835,7 +1096,7 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
         if solution:
             _motion_ui_status(
                 widget,
-                "IK solution found for dentobot_tool_tcp. Press Plan to compute "
+                "IK solution found for dentobot_drill_tip_provisional. Press Plan to compute "
                 "a collision-aware path from the current state.",
             )
         else:
@@ -903,7 +1164,7 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
     widget.ui.executeButton.visible = False
     _motion_ui_status(
         widget,
-        "MoveIt ready · group dentobot_arm · TCP dentobot_tool_tcp · plan/preview "
+        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tip_provisional · plan/preview "
         "only. In 3D Control, drag the TCP probe to solve IK before Plan.",
     )
     _configured_motion_widget = widget
@@ -971,10 +1232,18 @@ def _motion_control_joint_positions() -> list[float]:
         import slicer
 
         widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
-        values = getattr(widget, "jointPositionsRad", None) if widget else None
-        return [float(value) for value in values] if values else []
+        values = (
+            getattr(widget, "jointPositionsRad", None)
+            if widget is not None and getattr(widget, "_dentobotUiConfigured", False)
+            else None
+        )
+        if values and len(values) == len(ROS2_JOINT_SI_ORDER):
+            return [float(value) for value in values]
     except Exception:
-        return []
+        pass
+    if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
+        return list(_native_joint_positions)
+    return []
 
 
 def _publish_slicer_joint_command() -> bool:
@@ -1059,23 +1328,15 @@ def apply_joint_positions_si_to_motion_control(
     positions_si: Mapping[str, float],
 ) -> Tuple[bool, str]:
     """Apply one simulated joint vector and publish it; report every failure."""
-    try:
-        import slicer
-
-        widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
-    except Exception as exc:
-        return False, f"ROS2MotionControl widget is unavailable ({exc})."
-    if widget is None or getattr(widget, "robot", None) is None:
-        return False, "ROS2MotionControl is not active for the DENTOBOT robot."
+    global _native_joint_positions
+    if find_ros2_robot_by_name(ROS2_ROBOT_NAME) is None:
+        return False, "The DENTOBOT ROS robot is not connected."
     try:
         values = joint_si_vector(positions_si)
     except (KeyError, TypeError, ValueError) as exc:
         return False, str(exc)
-    widget.jointPositionsRad = list(values)
-    setter = getattr(widget, "_setJointUi_SIToSlicer", None)
-    if not callable(setter):
-        return False, "ROS2MotionControl joint UI conversion is unavailable."
-    setter(values)
+    prior_native = list(_native_joint_positions)
+    _native_joint_positions = list(values)
     stream_was_active = bool(
         _slicer_joint_command_timer is not None
         and _slicer_joint_command_timer.isActive()
@@ -1091,6 +1352,7 @@ def apply_joint_positions_si_to_motion_control(
             after_monotonic=status_before,
         )
         if result is None:
+            _native_joint_positions = prior_native
             return False, "Collision guard did not answer the simulated joint request."
         if not result.accepted:
             _restore_motion_control_positions(result.accepted_positions)
@@ -1167,18 +1429,38 @@ def connect_dentobot_motion_control(
     base_transform.SetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE, "true")
     if hide_mrml_robot and mrml_robot_models:
         set_mrml_link_models_visible(mrml_robot_models, False)
-    widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
-    if widget is not None:
-        widget.setParameterNode(parameter_node)
-        if not configure_dentobot_motion_control_ui(widget, parameter_node):
-            return None, "Could not configure the DENTOBOT plan-only Motion Control UI."
     if open_motion_module:
+        widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
+        if widget is not None:
+            widget.setParameterNode(parameter_node)
+            if not configure_dentobot_motion_control_ui(widget, parameter_node):
+                return None, "Could not configure the DENTOBOT plan-only Motion Control UI."
         try:
             if slicer.util.mainWindow() is not None:
                 slicer.util.selectModule(ROS2_MOTION_MODULE_NAME)
         except RuntimeError:
             pass
     return robot_node, ""
+
+
+def prepare_dentobot_motion_diagnostics() -> Tuple[bool, str]:
+    """Configure the optional generic widget only for explicit expert use."""
+
+    try:
+        import slicer
+
+        widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
+    except Exception as exc:
+        return False, f"ROS2MotionControl diagnostics are unavailable ({exc})."
+    logic = get_motion_control_logic()
+    robot = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if widget is None or logic is None or robot is None:
+        return False, "Connect the DENTOBOT runtime before opening expert diagnostics."
+    parameter_node = logic.getParameterNode()
+    widget.setParameterNode(parameter_node)
+    if not configure_dentobot_motion_control_ui(widget, parameter_node):
+        return False, "Could not configure plan-only expert diagnostics."
+    return True, "Expert ROS diagnostics configured; execution remains disabled."
 
 
 def _trajectory_time_seconds(point) -> float:
@@ -1242,6 +1524,7 @@ def plan_moveit_cartesian_path(
     base_transform,
     avoid_collisions: bool = True,
     minimum_fraction: float = 0.99,
+    start_joint_positions_si: Optional[Mapping[str, float]] = None,
 ) -> MoveItCartesianResult:
     """Plan a collision-aware TCP path and convert it for Step 6 preview."""
     status = simulation_stack_status()
@@ -1263,6 +1546,11 @@ def plan_moveit_cartesian_path(
         return MoveItCartesianResult(False, "MoveIt motion-control node is unavailable.")
     try:
         poses = tool_pose_matrices_world_mm(entry_ras_mm, target_ras_mm, sample_count)
+        start_names = None
+        start_values = None
+        if start_joint_positions_si is not None:
+            start_names = list(ROS2_JOINT_SI_ORDER)
+            start_values = joint_si_vector(start_joint_positions_si)
         trajectory = motion_logic.PlanMoveItCartesianTrajectoryFromPoseMarkers(
             motionControlNode=motion_node,
             groupName=ROS2_PLANNING_GROUP,
@@ -1275,6 +1563,8 @@ def plan_moveit_cartesian_path(
             velocityScaling=0.2,
             accelerationScaling=0.2,
             planningTimeSec=10.0,
+            startJointNames=start_names,
+            startJointValues=start_values,
             linkName=ROS2_TOOL_TCP_LINK,
         )
     except Exception as exc:
@@ -1317,33 +1607,49 @@ def plan_moveit_cartesian_path(
     )
 
 
-def _dentobot_motion_widget_context(*, initialize_goal: bool = False):
-    """Return the configured generic Motion Control objects for façade use."""
+def _dentobot_native_motion_context(*, initialize_goal: bool = False):
+    """Return native logic/MRML objects without entering the generic widget."""
+    global _native_goal_transform
     try:
         import slicer
     except ImportError:
         return None, None, None, ROS2_UNAVAILABLE_MESSAGE
     robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
-    widget = slicer.util.getModuleWidget(ROS2_MOTION_MODULE_NAME)
-    if robot_node is None or widget is None:
+    logic = get_motion_control_logic()
+    if robot_node is None or logic is None:
         return None, None, None, "Connect DENTOBOT Motion Control first."
-    parameter_node = get_motion_control_logic().getParameterNode()
-    if not configure_dentobot_motion_control_ui(widget, parameter_node):
-        return None, None, None, "Could not configure DENTOBOT plan-only Motion Control."
-    if initialize_goal and widget.fromtransform is None:
-        widget.onCurrentStateButton()
-        widget.enterControlMode()
-    if widget.fromtransform is None:
-        return widget, robot_node, None, "Create the DENTOBOT TCP goal control first."
-    return widget, robot_node, widget.fromtransform, ""
+    if _native_goal_transform is not None and _native_goal_transform.GetScene() is None:
+        _native_goal_transform = None
+    if initialize_goal and _native_goal_transform is None:
+        root_and_tip = robot_node.FindRootAndTipLinks()
+        root_link = str(root_and_tip[0]) if root_and_tip else ROS2_FIXED_FRAME
+        state = logic.EnterControlMode(
+            robot_node,
+            root_link,
+            ROS2_TOOL_TCP_LINK,
+            ROS2_TOOL_TCP_LINK,
+            baseGoalColor=(0.25, 0.75, 0.95),
+        )
+        if not state:
+            return logic, robot_node, None, "Could not create native TCP goal controls."
+        _native_goal_transform = state.get("fromTransform")
+        _mark_node_and_storage_transient(_native_goal_transform)
+        try:
+            _mark_node_and_storage_transient(slicer.util.getNode("ProbeSphere"))
+        except Exception:
+            pass
+        mark_slicer_ros2_runtime_nodes_transient()
+    if _native_goal_transform is None:
+        return logic, robot_node, None, "Create the DENTOBOT TCP goal control first."
+    return logic, robot_node, _native_goal_transform, ""
 
 
 def ensure_moveit_tcp_goal_control():
     """Create or reuse the draggable provisional-TCP goal transform."""
-    widget, _robot, goal_node, error = _dentobot_motion_widget_context(
+    logic, _robot, goal_node, error = _dentobot_native_motion_context(
         initialize_goal=True
     )
-    if error or widget is None or goal_node is None:
+    if error or logic is None or goal_node is None:
         return False, error or "TCP goal control is unavailable.", None
     return (
         True,
@@ -1376,13 +1682,13 @@ def set_moveit_tcp_goal_matrix(matrix_goal_parent):
 
 def solve_moveit_tcp_goal():
     """Solve the current goal probe through the configured MoveIt IK plugin."""
-    widget, robot_node, _goal_node, error = _dentobot_motion_widget_context(
+    logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
         initialize_goal=False
     )
-    if error or widget is None or robot_node is None:
+    if error or logic is None or robot_node is None:
         return False, error or "TCP goal control is unavailable.", {}
     try:
-        solution = widget.logic.computeIKWithMoveIt(
+        solution = logic.computeIKWithMoveIt(
             robotmodel=robot_node,
             tipLink=ROS2_TOOL_TCP_LINK,
         )
@@ -1444,36 +1750,36 @@ def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
 
 def plan_moveit_joint_goal() -> MoveItCartesianResult:
     """Plan current joints to the most recent successful TCP IK goal."""
-    widget, robot_node, _goal_node, error = _dentobot_motion_widget_context(
+    logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
         initialize_goal=False
     )
-    if error or widget is None or robot_node is None:
+    if error or logic is None or robot_node is None:
         return MoveItCartesianResult(False, error or "TCP goal control is unavailable.")
-    if not getattr(widget.logic, "last_ik_solution", None):
+    if not getattr(logic, "last_ik_solution", None):
         return MoveItCartesianResult(
             False,
             "Solve a distinct TCP IK goal before planning.",
         )
-    moveit_index = -1
-    combo = widget.ui.generatorComboBox
-    for index in range(int(combo.count)):
-        if "moveit" in str(combo.itemText(index)).lower():
-            moveit_index = index
-            break
-    if moveit_index < 0:
-        return MoveItCartesianResult(False, "MoveIt trajectory generator is unavailable.")
-    combo.setCurrentIndex(moveit_index)
-    previous = widget.trajectoryData
+    parameter_node = logic.getParameterNode()
     try:
-        widget.onPlanButton()
+        import slicer
+
+        motion_node = slicer.mrmlScene.GetNodeByID(parameter_node.motionControlNodeID)
+    except Exception:
+        motion_node = None
+    if motion_node is None:
+        return MoveItCartesianResult(False, "MoveIt motion-control node is unavailable.")
+    try:
+        logic.RefreshMoveItPlanningScene(robot_node)
+        trajectory = motion_node.PlanMoveItTrajectory(
+            ROS2_PLANNING_GROUP,
+            list(logic.last_ik_solution),
+            0.2,
+            0.2,
+            10.0,
+        )
     except Exception as exc:
         return MoveItCartesianResult(False, f"MoveIt goal planning failed: {exc}")
-    trajectory = widget.trajectoryData
-    if trajectory is previous:
-        return MoveItCartesianResult(
-            False,
-            "MoveIt returned no new goal trajectory.",
-        )
     return _moveit_trajectory_result(trajectory)
 
 
@@ -1549,6 +1855,7 @@ def remove_stale_moveit_obstacle_proxies(active_source_ids: set[str]) -> None:
 def disconnect_dentobot_motion_control(
     mrml_robot_models: Optional[list] = None,
 ) -> Tuple[bool, str]:
+    global _native_goal_transform
     try:
         import slicer
     except ImportError:
@@ -1561,6 +1868,12 @@ def disconnect_dentobot_motion_control(
     stop_slicer_joint_command_stream(delete_publisher=False)
     motion_logic = get_motion_control_logic()
     robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if motion_logic is not None and _native_goal_transform is not None:
+        try:
+            motion_logic.ExitControlMode(_native_goal_transform)
+        except Exception:
+            pass
+        _native_goal_transform = None
     if motion_logic is not None and robot_node is not None:
         for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
             if node.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) != "true":
@@ -1639,6 +1952,10 @@ def shutdown_slicer_adapter() -> None:
     global _status_subscriber, _status_observer, _last_status, _last_status_at
     global _joint_status_subscriber, _joint_status_observer
     global _last_joint_status, _last_joint_status_at
+    global _task_config_publisher, _task_command_publisher
+    global _task_status_subscriber, _task_status_observer
+    global _last_task_status, _last_task_status_at, _last_task_config_json
+    global _native_goal_transform
     release_dentobot_motion_control_ui()
     stop_slicer_joint_command_stream()
     subscriber = _status_subscriber
@@ -1673,6 +1990,33 @@ def shutdown_slicer_adapter() -> None:
             _remove_ros2_node_reference(
                 ros_node, "subscriber", joint_subscriber_id
             )
+    task_subscriber = _task_status_subscriber
+    if task_subscriber is not None and _task_status_observer is not None:
+        try:
+            task_subscriber.RemoveObserver(_task_status_observer)
+        except Exception:
+            pass
+    if ros_node is not None and task_subscriber is not None:
+        task_subscriber_id = task_subscriber.GetID()
+        try:
+            ros_node.RemoveAndDeleteSubscriberNode(ROS2_TASK_JOINT_STATUS_TOPIC)
+        except Exception:
+            pass
+        finally:
+            _remove_ros2_node_reference(ros_node, "subscriber", task_subscriber_id)
+    for topic, publisher in (
+        (ROS2_TASK_GUARD_CONFIG_TOPIC, _task_config_publisher),
+        (ROS2_TASK_JOINT_COMMAND_TOPIC, _task_command_publisher),
+    ):
+        if ros_node is None or publisher is None:
+            continue
+        publisher_id = publisher.GetID()
+        try:
+            ros_node.RemoveAndDeletePublisherNode(topic)
+        except Exception:
+            pass
+        finally:
+            _remove_ros2_node_reference(ros_node, "publisher", publisher_id)
     _status_subscriber = None
     _status_observer = None
     _last_status = SimulationStackStatus(RuntimeState.OFFLINE, reason="No status received.")
@@ -1681,3 +2025,11 @@ def shutdown_slicer_adapter() -> None:
     _joint_status_observer = None
     _last_joint_status = None
     _last_joint_status_at = 0.0
+    _task_config_publisher = None
+    _task_command_publisher = None
+    _task_status_subscriber = None
+    _task_status_observer = None
+    _last_task_status = None
+    _last_task_status_at = 0.0
+    _last_task_config_json = ""
+    _native_goal_transform = None

@@ -32,6 +32,18 @@ The boundaries are deliberate. Slicer owns interactive medical-image state;
 an isolated external interpreter owns dependency-heavy compute; the robot
 runtime owns hardware safety and real-time behavior.
 
+### Ubuntu Step 6 persistence/runtime split — 2026-08-24
+
+Persistent MRML/`.dentocase` state contains base status/source/revision,
+optional visualization-only forehead proxy, Task Home, reviewed assisted
+limits, immutable task fingerprint, and display preferences. Live ROS robot/TF,
+goal controls, Motion Control nodes, plans, publishers/subscribers, and phase
+guard sessions are recreated after explicit Connect. One shared façade serves
+Legacy and New GUI without entering the upstream widget. The external guard
+permits only selected burr-target contact inside a confirmed trajectory
+corridor; all other contacts, stale/wrong tasks, bounds, and overshoot remain
+rejected. This is simulation preview, not a hardware controller.
+
 ### Shared launcher-supplied runtime configuration
 
 Windows and Ubuntu launchers now provide one non-persistent contract:

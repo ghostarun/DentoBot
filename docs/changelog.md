@@ -21,6 +21,19 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-24 20:53:23 IST (UTC+05:30) — Ubuntu native Step 6 simulation workflow
+
+- Rebuilt Step 6 as one gated DENTOWorkflow sequence with persistent
+  base/proxy/Task-Home/limits/task intent and transient ROS/MoveIt runtime.
+- Added explicit geometry-preserving CBCT context, shared Views/expert return,
+  provisional drill-tip frame, native façade Goal/IK/Plan, split target
+  collision objects, and task-fingerprinted approach/drilling phase guarding.
+- Recorded 95 host-test passes plus focused Slicer restore/persistence and
+  isolated ROS phase-guard PASS markers. Supplied old cases remain truthfully
+  stale/review-gated. No hardware motion, drilling, or clinical validation.
+- Synchronized the changed active/canonical Markdown documents to their existing
+  Drive IDs only; provider metadata retained parents and matching byte sizes.
+
 ## 2026-08-17 16:06:00 IST (UTC+05:30) — Robot-workspace publication checkpoint
 
 - Created local commits `28d940f` and `901ee17` for the manual Step 6 placement

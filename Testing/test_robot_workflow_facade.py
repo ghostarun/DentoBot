@@ -53,7 +53,7 @@ class FakeParameterNode:
 
 class FakeBridge:
     ROS2_PLANNING_GROUP = "dentobot_arm"
-    ROS2_TOOL_TCP_LINK = "dentobot_tool_tcp"
+    ROS2_TOOL_TCP_LINK = "dentobot_drill_tip_provisional"
 
     def __init__(self):
         self.reject = False
@@ -158,7 +158,7 @@ def test_capabilities_expose_fixed_moveit_contract_without_saved_ui_state():
     assert capabilities.single_joint_state_source
     assert capabilities.move_group_available
     assert capabilities.planning_group == "dentobot_arm"
-    assert capabilities.tcp_link == "dentobot_tool_tcp"
+    assert capabilities.tcp_link == "dentobot_drill_tip_provisional"
 
 
 def test_current_state_uses_operator_units_and_ros_si_values():
@@ -211,4 +211,3 @@ def test_joint_limit_rejection_does_not_mutate_parameter_node():
     assert result.code == "joint_limit"
     assert parameter_node.robotJoint1Deg == 0.0
     assert logic.updated == []
-
