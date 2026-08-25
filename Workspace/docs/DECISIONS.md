@@ -1,12 +1,123 @@
 # Dentobot Technical Decisions
 
+## 2026-08-25 — Validate schema-v1 lineage as saved requirements, not exact future dictionaries
+
+Status: software implemented and host verified; operator Slicer reopen pending
+
+Treat schema-v1 `.dentocase` lineage dictionaries as append-only contracts.
+Every key and value present in the saved package must reconstruct, with the
+existing `1e-6` numerical tolerance and exact list lengths, but a newer
+application may reconstruct additional dictionary keys. MRML node IDs remain
+traceability metadata and are excluded from semantic equivalence. When a saved
+value is missing or changed, report its first nested field path.
+
+Reason: newly added target/jaw lineage attributes are legitimate stronger
+metadata, not geometry drift. Requiring identical dictionary key sets made an
+otherwise internally consistent Step 6 package fail at
+`targetToothBoundsRoi`. Allowing only actual-side extensions preserves
+fail-closed validation of all evidence the package did record without forcing
+a schema bump for every append-only metadata field.
+
+## 2026-08-25 — Compose views from anatomy/dimension/CBCT/overlays and enforce stage-owned interaction
+
+Status: implementation and synthetic Slicer verification complete;
+representative-case operator acceptance remains active
+
+Replace the 3×3 tooth-button grid and flat reparented Advanced list with one
+shared `ViewComposition` contract and compact selectors for Anatomy, 2D/3D,
+CBCT, and overlay groups. Resolve metadata into upper/lower/full anatomy
+without geometry inference. Present individual nodes and segments in a fresh,
+hierarchical Advanced tree so its lifecycle does not depend on a moved
+Designer list. Recommended compositions remain explicit for all eleven
+internal stages and never create a CBCT renderer.
+
+An explicit CBCT 3D choice may lazily ask Slicer's Volume Rendering logic for a
+default intensity renderer. DENTOBOT tracks and deletes only nodes it created
+for that view session; it restores slice-composite assignments and existing
+renderer state exactly. This preserves the distinction between intensity
+rendering and a segmentation/model.
+
+Treat markup editability as stage ownership. Outside its owning stage, a
+DENTOBOT markup is locked and non-selectable, then restored exactly on return.
+In Step 6, case versus draft phantom and MRML versus ROS robot sources are XOR;
+mouth-opening landmarks and the robot mount plane are editable only while
+their explicit preparation substep permits it. Advanced visibility cannot
+bypass these source rules. The robot workspace context card reports scene,
+robot, jaw-opening, and base-lock state before the operator changes the view.
+
+Reason: the viewer must maximize 3D-viewport usefulness without allowing a
+presentation action or accidental handle drag to mutate upstream geometry and
+stale a later shell/template branch. This remains simulation/research UI; it
+does not authorize hardware motion or make clinical claims.
+
+## 2026-08-25 — Require non-destructive case mouth opening before Step 6.1
+
+Status: implemented and synthetic/automated verified; representative operator
+acceptance remains open
+
+Imported Step 6 case packages must complete **6.0A — Open Case Mouth about the
+TMJ** before load-robot, base lock, ROS connect, planning-scene sync, or other
+6.1+ actions. Reuse the draft-phantom four-landmark TMJ hinge solver
+(`solve_hinge_rotation_for_gap`) without resampling or parenting the source
+CBCT or segmentation under the hinge. Persist landmarks, target gap, hinge
+transform, gap line, and derived opened lower-jaw / mandibular display proxies;
+gate on freshness (geometry, landmarks, fingerprint, matrix, gap). Phantom
+scenes remain an alternate XOR path and do not require 6.0A.
+
+Reason: collision-aware motion planning needs intra-oral clearance, but a CBCT
+volume cannot partially rotate only the mandible without destructive
+resampling. A derived planning surface plus mandibular trajectory proxies keep
+source anatomy intact while making opened-mouth obstacles and targets available
+to MoveIt. The requirement is research planning preparation, not clinical jaw
+kinematics or physical registration evidence.
+
+## 2026-08-25 — Bound occupied-voxel artifact cleanup by physical volume
+
+Status: accepted and representative-scene verified for research geometry
+
+During final shell/guide/dock voxel fusion, retain the hard requirement for one
+connected printable occupied region. Permit cleanup only when exactly one
+region exceeds the artifact threshold and every other region is no larger than
+0.1 mm³ in sampled volume, with a one-voxel compatibility floor at coarse
+sampling. Persist raw region sizes, the resolution-derived sample threshold,
+and every removed-region count/volume alongside the final one-region metrics.
+
+Reason: `test1_5b2.mrb` generated four valid independent shell-contact branches
+but VTK sampling produced occupied regions `[85852, 3, 1, 1]`. The former
+single-voxel-only rule rejected a three-voxel island of approximately
+0.080 mm³ as though it were a detached dock. A fixed voxel-count threshold
+would vary physically with processing resolution. The bounded-volume rule
+removes numerical islands while preserving failure for a detached guide, dock,
+shell section, or any other larger second component. It is topology cleanup,
+not manufacturing-feature deletion or mechanical/clinical acceptance.
+
+## 2026-08-25 — Allocate a Docker TTY only for interactive GUI launches
+
+Status: implemented and live-launch verified
+
+Keep the Ubuntu launcher attached to Slicer in both interactive and
+non-interactive callers. Pass `-it` to the final `docker exec` only when both
+standard input and standard output are terminals; otherwise use an attached
+non-TTY exec. Start the simulation stack in its own process group and clean
+that complete owned group with bounded INT, TERM, then KILL escalation when
+Slicer exits. X11 forwarding, scoped `xhost` access, and the
+no-hardware-execution boundary are unchanged.
+
+Reason: an unconditional `-it` aborts before Slicer starts when Cursor or
+automation has no terminal-backed stdin, even though `DISPLAY` and X11 are
+valid. Also, signalling only the top-level `ros2 launch` PID can orphan its
+ROS/MoveIt children after Slicer's known nonzero VTK-leak shutdown. Conditional
+TTY allocation and bounded process-group ownership address both lifecycle
+failures.
+
 ## 2026-08-24 — Keep Step 6 native, gated, persistent-by-contract, and preview-only
 
 Status: implemented and automated simulation verified; representative operator
 and hardware/calibration acceptance remain blocked
 
 Routine Step 6 stays inside `DENTOWorkflow` and uses one shared Legacy/New-GUI
-façade. Its ordered gates are: validate case/task; load the local MRML robot and
+façade. Its ordered gates are: validate case/task; for imported cases complete
+required 6.0A non-destructive TMJ mouth opening; load the local MRML robot and
 place/provisionally lock its base; record a case/base/profile-specific six-joint
 Task Home; generate an FK workspace and explicitly review its assisted-limit
 proposal; connect ROS/MoveIt, apply home, synchronize obstacles, and confirm one
@@ -198,6 +309,13 @@ connection. Reconnection is always an explicit Step 6 action. Installed URDF,
 SRDF, YAML, xacro, and mesh inputs are fingerprinted by portable component
 names and content hashes; a mismatch is visible and blocks Step 6 import until
 it is reconciled.
+
+2026-08-25 amendment: a programmatic case-package MRB snapshot explicitly
+suspends active-connection attributes and marks SlicerROS2 nodes transient
+around the save, then restores the active flag only in the running scene.
+General StartSave/EndSave observers remain defense in depth for ordinary MRB
+saves but are not the sole package-boundary mechanism. The archive audit still
+rejects any runtime token or active flag that reaches the snapshot.
 
 Open is transactional at the application level: preflight validates schema,
 safe paths, inventory, sizes, and every checksum before changing the scene; a

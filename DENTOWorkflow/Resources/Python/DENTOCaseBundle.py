@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import stat
@@ -74,6 +75,78 @@ def sha256_file(path: str | Path) -> str:
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def lineage_snapshot_matches(
+    expected: object,
+    actual: object,
+    tolerance: float = 1e-6,
+) -> bool:
+    """Compare saved lineage against a reconstructed, possibly newer record.
+
+    Schema-v1 lineage fields are append-only extensions. A package therefore
+    defines the values that must still match after MRML restoration, while a
+    newer application may reconstruct additional dictionary keys that the
+    older package could not have recorded. Lists remain exact and coordinates
+    retain the established absolute tolerance.
+    """
+
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return expected is actual
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return (
+            math.isfinite(float(expected))
+            and math.isfinite(float(actual))
+            and abs(float(expected) - float(actual)) <= tolerance
+        )
+    if isinstance(expected, list):
+        return isinstance(actual, list) and len(expected) == len(actual) and all(
+            lineage_snapshot_matches(left, right, tolerance)
+            for left, right in zip(expected, actual)
+        )
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(
+            key in actual
+            and lineage_snapshot_matches(expected[key], actual[key], tolerance)
+            for key in expected
+        )
+    return expected == actual
+
+
+def lineage_snapshot_mismatch_path(
+    expected: object,
+    actual: object,
+    tolerance: float = 1e-6,
+) -> str:
+    """Return the first saved-lineage field that does not reconstruct."""
+
+    if lineage_snapshot_matches(expected, actual, tolerance):
+        return ""
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return "<record>"
+        for key in expected:
+            if key not in actual:
+                return str(key)
+            nested = lineage_snapshot_mismatch_path(
+                expected[key], actual[key], tolerance
+            )
+            if nested:
+                if nested == "<value>":
+                    return str(key)
+                separator = "" if nested.startswith("[") else "."
+                return f"{key}{separator}{nested}"
+    if isinstance(expected, list):
+        if not isinstance(actual, list) or len(expected) != len(actual):
+            return "<list>"
+        for index, (left, right) in enumerate(zip(expected, actual)):
+            nested = lineage_snapshot_mismatch_path(left, right, tolerance)
+            if nested:
+                if nested == "<value>":
+                    return f"[{index}]"
+                separator = "" if nested.startswith("[") else "."
+                return f"[{index}]{separator}{nested}"
+    return "<value>"
 
 
 def _safe_member_name(name: str) -> bool:

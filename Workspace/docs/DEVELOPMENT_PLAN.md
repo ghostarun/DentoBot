@@ -1154,6 +1154,14 @@ Case/Robot Simulation vertical slice of Milestone 3 are implemented.
   and plan actions while retaining tested placement/joint/trajectory controls.
   Normal-window operator acceptance remains active before this becomes the
   primary Step 6 interface.
+- **Shared viewer increment (2026-08-25):** implemented the compact
+  `ViewComposition` controller and hierarchical Advanced inventory for both
+  presentation modes. Step 6 adds an explicit scene/robot/jaw/base context,
+  enforces case/phantom and MRML/ROS view-source exclusivity, and makes all
+  non-owning workflow markups read-only. Explicit CBCT intensity rendering is
+  view-session-owned and reversible; recommendations remain non-creating.
+  Synthetic Slicer verification passed, while representative-case visual and
+  interaction acceptance remains part of the Milestone 3 gate.
 - **Milestone 4:** pending. Imaging, Segmentation, Drill Planning, and Guide
   Design still use compatibility presentation inside the shell and must be
   migrated incrementally with cloned-scene parity checks.

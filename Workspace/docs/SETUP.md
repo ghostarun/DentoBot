@@ -1,6 +1,6 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-17
+Last verified: 2026-08-25
 
 ## Scope
 
@@ -420,6 +420,15 @@ Compose and the final `docker exec`, grants container root scoped X11 access
 with `xhost +SI:localuser:root`, and revokes that access on exit. `docker
 compose up -d` recreates the service when its display environment changed. A
 terminal multiplexer or a particular terminal application is not required.
+The host Docker service must be active; if `/var/run/docker.sock` is absent,
+start `docker.service` through the host service manager before retrying. The
+launcher allocates Docker's pseudo-TTY only when both its input and output are
+terminals, so the same command also works from Cursor and other non-TTY
+automation while remaining attached until Slicer closes.
+The launcher starts the simulation stack in its own process group. When Slicer
+closes—even with the pinned SlicerROS2 build's known VTK-leak exit code—the
+launcher sends bounded INT, TERM, then KILL escalation to that owned group so
+ROS and MoveIt children cannot remain orphaned.
 The current verified CRD session reported:
 
 ```text

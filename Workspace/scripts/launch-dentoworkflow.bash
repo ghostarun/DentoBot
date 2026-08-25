@@ -124,10 +124,92 @@ export DENTOBOT_RUN_ARTIFACT_ROOT="${run_artifact_root}"
 export DENTOBOT_TOTALSEG_HOME_DIR="${totalseg_home_dir}"
 export DENTOBOT_WORKSPACE_ROOT="${workspace_root}"
 
+docker_daemon_ready() {
+  docker info >/dev/null 2>&1
+}
+
+docker_units_enabled_on_boot() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl is-enabled --quiet docker.socket 2>/dev/null \
+    && systemctl is-enabled --quiet docker.service 2>/dev/null
+}
+
+try_systemctl() {
+  local action="$1"
+  shift
+  if [[ -z ${action} ]] || (( $# < 1 )); then
+    return 1
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+  if systemctl "${action}" "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 \
+    && sudo -n systemctl "${action}" "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+start_docker_daemon() {
+  try_systemctl start docker.socket docker.service
+}
+
+enable_docker_daemon_on_boot() {
+  docker_units_enabled_on_boot && return 0
+  try_systemctl enable docker.socket docker.service
+}
+
+ensure_docker_daemon() {
+  local started_now=false
+  local attempt
+
+  if ! docker_daemon_ready; then
+    printf 'Docker daemon is not reachable; attempting to start docker.socket/docker.service...\n'
+    if ! start_docker_daemon; then
+      printf '%s\n' \
+        'Could not start the Docker daemon.' \
+        'Start it once with: systemctl start docker' \
+        'Enable on boot (may need your password) with: systemctl enable --now docker' >&2
+      exit 2
+    fi
+    started_now=true
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+      if docker_daemon_ready; then
+        break
+      fi
+      sleep 0.25
+    done
+    if ! docker_daemon_ready; then
+      printf '%s\n' \
+        'Docker start was requested, but the API socket is still unavailable.' \
+        'Check: systemctl status docker' >&2
+      exit 2
+    fi
+    printf 'Docker daemon is ready.\n'
+  fi
+
+  if docker_units_enabled_on_boot; then
+    return 0
+  fi
+  if enable_docker_daemon_on_boot; then
+    printf 'Enabled docker.socket and docker.service to start on boot.\n'
+    return 0
+  fi
+  if [[ ${started_now} == true ]]; then
+    printf '%s\n' \
+      'Docker started for this launch, but enabling on boot needs elevated rights.' \
+      'Run once (password may be required): systemctl enable --now docker' >&2
+  fi
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   printf 'Required command is unavailable: docker\n' >&2
   exit 2
 fi
+ensure_docker_daemon
 if [[ ! -x ${backend_python} ]]; then
   printf '%s\n' \
     "The dentobot Conda environment has no Python: ${backend_python}" \
@@ -295,7 +377,11 @@ xhost +SI:localuser:root >/dev/null
 x11_access_granted=true
 
 printf 'Opening 3D Slicer directly on DENTO Workflow.\n'
-docker exec -it \
+docker_exec_options=()
+if [[ -t 0 && -t 1 ]]; then
+  docker_exec_options=(-it)
+fi
+docker exec "${docker_exec_options[@]}" \
   -e DISPLAY="${DISPLAY}" \
   -e DENTOBOT_SLICER_MODULE_PATHS="${slicer_module_paths}" \
   "${container_name}" \
@@ -322,10 +408,30 @@ docker exec -it \
     fi
 
     stack_log=/tmp/dentobot-simulation-stack.log
-    ros2 launch dentobot_moveit_config simulation.launch.py >"${stack_log}" 2>&1 &
+    setsid ros2 launch dentobot_moveit_config simulation.launch.py >"${stack_log}" 2>&1 &
     stack_pid=$!
+    stack_group_alive() {
+      kill -0 -- "-${stack_pid}" >/dev/null 2>&1
+    }
     cleanup_stack() {
-      kill -INT "${stack_pid}" >/dev/null 2>&1 || true
+      trap - EXIT INT TERM
+      if stack_group_alive; then
+        kill -INT -- "-${stack_pid}" >/dev/null 2>&1 || true
+        for _attempt in $(seq 1 20); do
+          stack_group_alive || break
+          sleep 0.25
+        done
+      fi
+      if stack_group_alive; then
+        kill -TERM -- "-${stack_pid}" >/dev/null 2>&1 || true
+        for _attempt in $(seq 1 20); do
+          stack_group_alive || break
+          sleep 0.25
+        done
+      fi
+      if stack_group_alive; then
+        kill -KILL -- "-${stack_pid}" >/dev/null 2>&1 || true
+      fi
       wait "${stack_pid}" >/dev/null 2>&1 || true
     }
     trap cleanup_stack EXIT INT TERM

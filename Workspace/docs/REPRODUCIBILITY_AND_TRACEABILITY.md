@@ -704,6 +704,12 @@ members are `manifest.json`, `scene/case.mrb`,
 geometry source; the JSON records are integrity, compatibility, provenance,
 and post-load validation evidence. Coordinate declarations are Slicer world
 RAS in millimetres, and numerical restore comparisons use `1e-6` tolerance.
+Within schema V1, saved lineage dictionaries are append-only requirements:
+every saved key/value must reconstruct, while a newer reader may add keys that
+an older package could not record. Lists remain exact, MRML IDs are ignored for
+semantic equivalence, and a missing or changed saved value fails with its
+first nested field path. This rule prevents new provenance metadata from being
+misreported as geometry drift without weakening validation of saved evidence.
 
 Host contract verification:
 

@@ -3472,10 +3472,35 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
 <widget class="QGroupBox" name="step6PlanningContextGroupBox">
         <property name="title"><string>6.0 — Choose Scene</string></property>
         <layout class="QVBoxLayout" name="step6PlanningContextVerticalLayout">
-         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package to bring the CBCT, trajectory, docks, and template into view, or load the draft phantom for testing. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package to bring the CBCT, trajectory, docks, and template into view, then complete the required case mouth-opening step below. The draft phantom remains an alternate test scene. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Import Planning Package for Step 6</string></property></widget></item>
          <item><widget class="QLabel" name="step6PlanningContextStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Planning package not imported.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-                 <item>
+         <item>
+<widget class="QGroupBox" name="step6CaseJawOpeningGroupBox">
+        <property name="title"><string>6.0A — Open Case Mouth about the TMJ (required before 6.1)</string></property>
+        <layout class="QVBoxLayout" name="step6CaseJawOpeningVerticalLayout">
+         <item><widget class="QLabel" name="step6CaseJawOpeningDescriptionLabel"><property name="text"><string>After importing the case, place Left TMJ, Right TMJ, Upper central incisor, and Lower central incisor in that order. DENTOBOT preserves the source CBCT and segmentation, creates a derived lower-jaw planning surface, and rotates it rigidly about the TMJ axis to the requested incisor gap. For a mandibular target, Step 6 also evaluates the trajectory, guide, and target-attached geometry in this opened pose. This research transform is not patient motion prediction or clinical jaw simulation.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <layout class="QFormLayout" name="step6CaseJawOpeningFormLayout">
+           <item row="0" column="0"><widget class="QLabel" name="step6CaseJawLandmarksLabel"><property name="text"><string>Four case landmarks:</string></property></widget></item>
+           <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="step6CaseJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawLandmarks</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="step6CaseJawTargetGapLabel"><property name="text"><string>Target incisor gap:</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="step6CaseJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawTargetGapMm</string></property></widget></item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QGridLayout" name="step6CaseJawOpeningButtonLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="createStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="clearStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Landmarks</string></property></widget></item>
+           <item row="1" column="0"><widget class="QPushButton" name="applyStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Apply Open-Mouth Transform</string></property></widget></item>
+           <item row="1" column="1"><widget class="QPushButton" name="resetStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Reset Case Jaw Closed</string></property></widget></item>
+          </layout>
+         </item>
+         <item><widget class="QLabel" name="step6CaseJawOpeningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Import the Steps 0–5 planning package first.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+         </item>
+         <item>
 <widget class="QGroupBox" name="draftOpenMouthPhantomGroupBox">
         <property name="title"><string>Alternate scene — draft open-mouth phantom</string></property>
         <layout class="QVBoxLayout" name="draftOpenMouthPhantomVerticalLayout">

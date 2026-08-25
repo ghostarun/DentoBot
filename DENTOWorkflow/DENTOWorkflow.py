@@ -67,6 +67,7 @@ from DENTOGuideGeometry import (
     create_multi_trajectory_docking_geometry,
     create_target_frame_docking_geometry,
     evaluate_target_docking_obstacle_clearance,
+    filter_tiny_occupied_region_artifacts,
     fuse_shell_and_docking_voxel,
     find_collision_aware_target_docking_yaw,
     normalize_docking_parameters,
@@ -79,6 +80,8 @@ from DENTOCaseBundle import (
     build_robot_profile,
     create_case_bundle,
     extract_scene_mrb,
+    lineage_snapshot_matches,
+    lineage_snapshot_mismatch_path,
     validate_case_bundle,
 )
 from DENTOApplicationShell import (
@@ -87,8 +90,19 @@ from DENTOApplicationShell import (
     GUI_MODE_SHELL,
 )
 from DENTOViewPresets import (
-    group_segmentation_records,
+    ANATOMY_DIMENSION_LABELS,
+    ANATOMY_SCOPE_LABELS,
+    CBCT_MODE_LABELS,
+    DETAILED_ANATOMY_GROUP_CATEGORY,
+    DETAILED_ANATOMY_GROUP_LABELS,
+    OVERLAY_CATEGORY_MAP,
+    OVERLAY_GROUP_LABELS,
+    ViewComposition,
+    anatomy_scopes_for_group,
+    dental_jaw_from_fdi,
+    group_segmentation_records_detailed,
     recommended_view_categories,
+    recommended_view_composition,
     recommended_view_description,
 )
 from DENTOTrajectoryGeometry import infer_root_targets
@@ -265,6 +279,13 @@ class DENTOWorkflowParameterNode:
     draftJawTransform: vtkMRMLLinearTransformNode
     draftJawGapLine: vtkMRMLMarkupsLineNode
     draftJawTargetGapMm: float = 40.0
+    step6CaseJawLandmarks: vtkMRMLMarkupsFiducialNode
+    step6CaseJawTransform: vtkMRMLLinearTransformNode
+    step6CaseJawGapLine: vtkMRMLMarkupsLineNode
+    step6OpenedLowerJawModel: vtkMRMLModelNode
+    step6OpenedTargetGeometryModel: vtkMRMLModelNode
+    step6OpenedTrajectoryLine: vtkMRMLMarkupsLineNode
+    step6CaseJawTargetGapMm: float = 40.0
     robotJoint1Deg: float = 0.0
     robotJoint2Mm: float = 0.0
     robotJoint3Deg: float = 0.0
@@ -384,6 +405,19 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._workflowRecommendedViewButton = None
         self._workflowViewAdvancedButton = None
         self._workflowJawViewButtons: dict[tuple[str, str], object] = {}
+        self._workflowAnatomyComboBox = None
+        self._workflowDimensionComboBox = None
+        self._workflowCbctComboBox = None
+        self._workflowOverlayButton = None
+        self._workflowOverlayActions: dict[str, object] = {}
+        self._workflowAdvancedTree = None
+        self._workflowAutoRecommendCheckBox = None
+        self._step6ViewContextWidget = None
+        self._step6ViewContextLabel = None
+        self._workflowViewComposition: ViewComposition | None = None
+        self._workflowViewCreatedRendererNodeIds: set[str] = set()
+        self._workflowViewCreatedPropertyNodeIds: set[str] = set()
+        self._stageExclusiveInteractionPriorState: dict[str, dict] = {}
         self._guidanceToolButton = None
         self._viewControlsPaletteDesiredVisible = False
         self._viewControlsPaletteGeometryRestored = False
@@ -403,6 +437,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._planningTrajectoryNode = None
         self._planningTrajectoryDisplayNode = None
         self._draftJawLandmarksNode = None
+        self._step6CaseJawLandmarksNode = None
+        self._updatingStep6CaseJawLandmarks = False
         self._assistedTrajectoryEntryNode = None
         self._assistedTrajectoryFocusState: dict | None = None
         self._resumeAssistedTrajectoryFocusAfterSave = False
@@ -460,6 +496,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._resumeWorkflowViewPresetAfterSave = ""
         self._resumeWorkflowViewPriorStateAfterSave: dict | None = None
         self._resumeWorkflowViewVisibleKeysAfterSave: set[str] = set()
+        self._resumeWorkflowViewCompositionAfterSave: ViewComposition | None = None
         self._updatingTemplateFinalizationUI = False
         self._templateFinalizationPriorVisibilityByNodeId: dict[str, bool] = {}
         self._templateFinalizationPriorLayoutId: int | None = None
@@ -592,6 +629,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "vtkMRMLMarkupsFiducialNode",
             "DENTOBOT.MarkupsRole",
             "DraftJawLandmarks",
+        )
+        self.ui.step6CaseJawLandmarksSelector.addAttribute(
+            "vtkMRMLMarkupsFiducialNode",
+            "DENTOBOT.MarkupsRole",
+            "Step6CaseJawLandmarks",
         )
         self.ui.targetDockingReferencePlaneSelector.addAttribute(
             "vtkMRMLMarkupsPlaneNode",
@@ -1216,6 +1258,26 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "clicked(bool)",
             self.onDeleteDraftPhantom,
         )
+        self.ui.createStep6CaseJawLandmarksButton.connect(
+            "clicked(bool)",
+            self.onCreateStep6CaseJawLandmarks,
+        )
+        self.ui.clearStep6CaseJawLandmarksButton.connect(
+            "clicked(bool)",
+            self.onClearStep6CaseJawLandmarks,
+        )
+        self.ui.applyStep6CaseJawOpeningButton.connect(
+            "clicked(bool)",
+            self.onApplyStep6CaseJawOpening,
+        )
+        self.ui.resetStep6CaseJawOpeningButton.connect(
+            "clicked(bool)",
+            self.onResetStep6CaseJawOpening,
+        )
+        self.ui.step6CaseJawTargetGapSpinBox.connect(
+            "valueChanged(double)",
+            self.onStep6CaseJawTargetGapChanged,
+        )
         self.ui.createRobotMountPlaneButton.connect(
             "clicked(bool)",
             self.onCreateRobotMountPlane,
@@ -1354,6 +1416,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.draftJawLandmarksSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onDraftJawLandmarksSelectionChanged,
+        )
+        self.ui.step6CaseJawLandmarksSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onStep6CaseJawLandmarksSelectionChanged,
         )
         self.ui.robotKeyboardNudgeCheckBox.connect(
             "toggled(bool)",
@@ -2125,54 +2191,72 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
         elementsLayout.addWidget(recommendedButton)
 
-        teethGroup = qt.QGroupBox(_("Teeth masks"), elementsPage)
-        teethGroup.objectName = "workflowJawMaskViewsGroupBox"
-        teethLayout = qt.QGridLayout(teethGroup)
-        teethLayout.setContentsMargins(8, 8, 8, 8)
-        teethLayout.setHorizontalSpacing(5)
-        teethLayout.setVerticalSpacing(5)
-        teethHelp = qt.QLabel(
-            _(
-                "One click isolates existing tooth segmentation masks. "
-                "Choose whether they appear in slice views, the 3D view, or both."
-            ),
-            teethGroup,
+        step6Context = qt.QFrame(elementsPage)
+        step6Context.objectName = "workflowStep6ViewContextFrame"
+        step6Context.frameShape = qt.QFrame.StyledPanel
+        step6ContextLayout = qt.QVBoxLayout(step6Context)
+        step6ContextLayout.setContentsMargins(8, 6, 8, 6)
+        step6ContextTitle = qt.QLabel(_("ROBOT WORKSPACE VIEW"), step6Context)
+        step6ContextTitle.styleSheet = "font-weight: 700; color: #7a3e00;"
+        step6ContextLayout.addWidget(step6ContextTitle)
+        step6ContextLabel = qt.QLabel(step6Context)
+        step6ContextLabel.objectName = "workflowStep6ViewContextLabel"
+        step6ContextLabel.wordWrap = True
+        step6ContextLayout.addWidget(step6ContextLabel)
+        step6Context.visible = False
+        elementsLayout.addWidget(step6Context)
+
+        compositionGroup = qt.QGroupBox(_("View composition"), elementsPage)
+        compositionGroup.objectName = "workflowViewCompositionGroupBox"
+        compositionLayout = qt.QFormLayout(compositionGroup)
+        compositionLayout.setContentsMargins(8, 8, 8, 8)
+        compositionLayout.setHorizontalSpacing(8)
+        compositionLayout.setVerticalSpacing(5)
+
+        anatomyCombo = qt.QComboBox(compositionGroup)
+        anatomyCombo.objectName = "workflowAnatomyScopeComboBox"
+        for key, label in ANATOMY_SCOPE_LABELS.items():
+            anatomyCombo.addItem(_(label), key)
+        anatomyCombo.toolTip = _(
+            "Choose a metadata-classified anatomy group. No mask geometry is edited."
         )
-        teethHelp.wordWrap = True
-        teethHelp.styleSheet = "color: #555555;"
-        teethLayout.addWidget(teethHelp, 0, 0, 1, 4)
-        for column, title in enumerate((_("Jaw"), _("2D"), _("3D"), _("Both"))):
-            heading = qt.QLabel(title, teethGroup)
-            heading.alignment = qt.Qt.AlignCenter
-            heading.styleSheet = "font-weight: 600;"
-            teethLayout.addWidget(heading, 1, column)
-        for row, (jaw, title) in enumerate(
-            (("upper", _("Upper")), ("lower", _("Lower")), ("all", _("All teeth"))),
-            start=2,
-        ):
-            jawLabel = qt.QLabel(title, teethGroup)
-            jawLabel.styleSheet = "font-weight: 600;"
-            teethLayout.addWidget(jawLabel, row, 0)
-            for column, (dimension, buttonText) in enumerate(
-                (("2d", _("2D")), ("3d", _("3D")), ("both", _("2D + 3D"))),
-                start=1,
-            ):
-                button = qt.QPushButton(buttonText, teethGroup)
-                button.objectName = (
-                    f"workflow{jaw.capitalize()}Teeth{dimension.upper()}ViewButton"
-                )
-                button.toolTip = _(
-                    "Isolate %1 tooth masks in %2 and frame their world-RAS bounds."
-                ).replace("%1", title.lower()).replace("%2", buttonText)
-                button.connect(
-                    "clicked(bool)",
-                    lambda checked=False, selectedJaw=jaw, selectedDimension=dimension: (
-                        self._applyJawTeethView(selectedJaw, selectedDimension)
-                    ),
-                )
-                teethLayout.addWidget(button, row, column)
-                self._workflowJawViewButtons[(jaw, dimension)] = button
-        elementsLayout.addWidget(teethGroup)
+        compositionLayout.addRow(_("Anatomy:"), anatomyCombo)
+
+        dimensionCombo = qt.QComboBox(compositionGroup)
+        dimensionCombo.objectName = "workflowAnatomyDimensionComboBox"
+        for key, label in ANATOMY_DIMENSION_LABELS.items():
+            dimensionCombo.addItem(_(label), key)
+        compositionLayout.addRow(_("Show in:"), dimensionCombo)
+
+        cbctCombo = qt.QComboBox(compositionGroup)
+        cbctCombo.objectName = "workflowCbctModeComboBox"
+        for key, label in CBCT_MODE_LABELS.items():
+            cbctCombo.addItem(_(label), key)
+        cbctCombo.toolTip = _(
+            "3D intensity rendering uses the CBCT voxels and a Slicer transfer "
+            "function. It is not a segmentation mask or collision surface."
+        )
+        compositionLayout.addRow(_("CBCT:"), cbctCombo)
+
+        overlayButton = qt.QToolButton(compositionGroup)
+        overlayButton.objectName = "workflowOverlayGroupsToolButton"
+        overlayButton.text = _("Choose overlays…")
+        overlayButton.popupMode = qt.QToolButton.InstantPopup
+        overlayMenu = qt.QMenu(overlayButton)
+        for key, label in OVERLAY_GROUP_LABELS.items():
+            action = overlayMenu.addAction(_(label))
+            action.checkable = True
+            action.connect(
+                "toggled(bool)",
+                lambda checked, overlayKey=key: self._onWorkflowOverlayToggled(
+                    overlayKey,
+                    checked,
+                ),
+            )
+            self._workflowOverlayActions[key] = action
+        overlayButton.setMenu(overlayMenu)
+        compositionLayout.addRow(_("Overlays:"), overlayButton)
+        elementsLayout.addWidget(compositionGroup)
 
         self.ui.workflowViewStatusLabel.wordWrap = True
         self.ui.workflowViewVerticalLayout.removeWidget(
@@ -2181,32 +2265,44 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         elementsLayout.addWidget(self.ui.workflowViewStatusLabel)
         advancedButton = ctk.ctkCollapsibleButton(elementsPage)
         advancedButton.objectName = "workflowAdvancedElementsCollapsibleButton"
-        advancedButton.text = _("Advanced: display groups and workflow objects")
-        advancedButton.collapsed = True
+        advancedButton.text = _("Advanced objects")
+        advancedButton.collapsed = False
         advancedLayout = qt.QVBoxLayout(advancedButton)
         advancedLayout.setContentsMargins(8, 8, 8, 8)
         advancedLayout.setSpacing(5)
-        for widget in (
-            self.ui.autoWorkflowViewCheckBox,
-            self.ui.workflowViewElementsLabel,
-            self.ui.workflowViewElementsListWidget,
-        ):
-            self.ui.workflowViewVerticalLayout.removeWidget(widget)
-            advancedLayout.addWidget(widget)
-        self.ui.workflowViewElementsLabel.text = _(
-            "Grouped masks and workflow objects (checkboxes):"
+        autoRecommend = qt.QCheckBox(
+            _("Apply the recommended composition when entering a step"),
+            advancedButton,
         )
-        self.ui.workflowViewElementsListWidget.setMinimumHeight(180)
-        self.ui.workflowViewElementsListWidget.setMaximumHeight(16777215)
-        self.ui.workflowViewElementsListWidget.setSizePolicy(
+        autoRecommend.objectName = "workflowAutoRecommendedViewCheckBox"
+        autoRecommend.checked = bool(self.ui.autoWorkflowViewCheckBox.checked)
+        autoRecommend.connect(
+            "toggled(bool)",
+            self._onWorkflowAutoRecommendToggled,
+        )
+        advancedLayout.addWidget(autoRecommend)
+        objectTree = qt.QTreeWidget(advancedButton)
+        objectTree.objectName = "workflowAdvancedObjectTreeWidget"
+        objectTree.headerHidden = True
+        objectTree.setColumnCount(1)
+        objectTree.setMinimumHeight(250)
+        objectTree.setSizePolicy(
             qt.QSizePolicy.Expanding,
             qt.QSizePolicy.Expanding,
         )
+        objectTree.connect(
+            "itemChanged(QTreeWidgetItem*,int)",
+            self.onWorkflowViewTreeItemChanged,
+        )
+        advancedLayout.addWidget(objectTree, 1)
+        self.ui.autoWorkflowViewCheckBox.visible = False
+        self.ui.workflowViewElementsLabel.visible = False
+        self.ui.workflowViewElementsListWidget.visible = False
         volumeRenderingNote = qt.QLabel(
             _(
                 "Volume rendering is a 3D intensity rendering of the CBCT, "
-                "not a segmentation mask. DENTOBOT lists an existing renderer "
-                "here but never creates one just by opening or refreshing Views."
+                "not a segmentation mask. Opening, refreshing, or automatically "
+                "applying Views never creates one; only the explicit CBCT 3D choice does."
             ),
             advancedButton,
         )
@@ -2214,14 +2310,36 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         volumeRenderingNote.wordWrap = True
         volumeRenderingNote.styleSheet = "color: #6b6b6b; font-style: italic;"
         advancedLayout.addWidget(volumeRenderingNote)
-        elementsLayout.addWidget(advancedButton, 1)
+        elementsLayout.addWidget(advancedButton)
+        elementsLayout.addStretch(1)
         self._workflowViewStageLabel = stageLabel
         self._workflowRecommendedViewButton = recommendedButton
         self._workflowViewAdvancedButton = advancedButton
+        self._workflowAnatomyComboBox = anatomyCombo
+        self._workflowDimensionComboBox = dimensionCombo
+        self._workflowCbctComboBox = cbctCombo
+        self._workflowOverlayButton = overlayButton
+        self._workflowAdvancedTree = objectTree
+        self._workflowAutoRecommendCheckBox = autoRecommend
+        self._step6ViewContextWidget = step6Context
+        self._step6ViewContextLabel = step6ContextLabel
+        anatomyCombo.connect(
+            "currentIndexChanged(int)",
+            self.onWorkflowViewCompositionChanged,
+        )
+        dimensionCombo.connect(
+            "currentIndexChanged(int)",
+            self.onWorkflowViewCompositionChanged,
+        )
+        cbctCombo.connect(
+            "currentIndexChanged(int)",
+            self.onWorkflowViewCompositionChanged,
+        )
         recommendedButton.connect(
             "clicked(bool)",
             self.onApplyRecommendedWorkflowView,
         )
+        advancedButton.collapsed = True
         self._viewControlsElementsTabIndex = tabs.addTab(
             elementsPage,
             _("Elements"),
@@ -3355,6 +3473,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self._updatingRobotPlacementUI = False
         self._updateRobotPlacementStatus()
         self._updateDraftPhantomStatus()
+        self._updateStep6CaseJawOpeningControls()
+        self._updateStep6CaseJawOpeningStatus()
         self._updateRos2MotionControlStatus()
         self._updateRobotKeyboardShortcutState()
         if self._parameterNode and self.logic:
@@ -3523,6 +3643,315 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "Load the local generic phantom to begin."
             )
             self.ui.draftOpenMouthStatusLabel.styleSheet = "color: #b36b00;"
+
+    def _bindStep6CaseJawLandmarksNode(
+        self,
+        landmarksNode: vtkMRMLMarkupsFiducialNode | None,
+    ) -> None:
+        if landmarksNode is self._step6CaseJawLandmarksNode:
+            return
+        if self._step6CaseJawLandmarksNode:
+            for landmarkEvent in (
+                vtk.vtkCommand.ModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.removeObserver(
+                    self._step6CaseJawLandmarksNode,
+                    landmarkEvent,
+                    self._onStep6CaseJawLandmarksModified,
+                )
+        self._step6CaseJawLandmarksNode = landmarksNode
+        if landmarksNode:
+            for landmarkEvent in (
+                vtk.vtkCommand.ModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent,
+                slicer.vtkMRMLMarkupsNode.PointRemovedEvent,
+            ):
+                self.addObserver(
+                    landmarksNode,
+                    landmarkEvent,
+                    self._onStep6CaseJawLandmarksModified,
+                )
+
+    def _markStep6CaseJawOpeningStale(self, reason: str) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        transform = self._parameterNode.step6CaseJawTransform
+        if self.logic.isStep6CaseJawTransformNode(transform):
+            transform.SetAttribute("DENTOBOT.GeometryState", "Stale")
+            transform.SetAttribute("DENTOBOT.StaleReason", reason)
+        model = self._parameterNode.step6OpenedLowerJawModel
+        if self.logic.isStep6OpenedLowerJawModelNode(model):
+            model.SetAttribute("DENTOBOT.GeometryState", "Stale")
+        self.logic.invalidateStep6TaskConfirmation(
+            self._parameterNode,
+            reason,
+            makeBaseStale=True,
+        )
+        self.logic.deleteRobotWorkspaceModel()
+        self._step6MotionPlan = None
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
+
+    def _onStep6CaseJawLandmarksModified(self, caller=None, event=None) -> None:
+        del caller, event
+        if (
+            self._updatingStep6CaseJawLandmarks
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        node = self._step6CaseJawLandmarksNode
+        if not node or not self.logic.isStep6CaseJawLandmarksNode(node):
+            return
+        self._updatingStep6CaseJawLandmarks = True
+        try:
+            summary = self.logic.getStep6CaseJawLandmarkSummary(node)
+        except ValueError:
+            return
+        finally:
+            self._updatingStep6CaseJawLandmarks = False
+        if self.logic.isStep6CaseJawTransformNode(
+            self._parameterNode.step6CaseJawTransform
+        ):
+            self._markStep6CaseJawOpeningStale(
+                _("Case jaw landmarks changed; apply the mouth opening again.")
+            )
+        if summary["isComplete"]:
+            self.logic.stopTrajectoryPlacement()
+        self._updateStep6CaseJawOpeningControls()
+        self._updateStep6CaseJawOpeningStatus()
+        self._updateStep6PlanningUi()
+
+    def _updateStep6CaseJawOpeningControls(self) -> None:
+        if not hasattr(self, "ui") or not self._parameterNode or not self.logic:
+            return
+        imported = bool(self._parameterNode.step6PlanningContextImported)
+        blocked = bool(
+            self._parameterNode.robotBaseMountLocked
+            or self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            )
+        )
+        node = self._parameterNode.step6CaseJawLandmarks
+        summary = None
+        if node and self.logic.isStep6CaseJawLandmarksNode(node):
+            try:
+                summary = self.logic.getStep6CaseJawLandmarkSummary(node)
+            except ValueError:
+                summary = None
+        pointCount = summary["definedPointCount"] if summary else 0
+        complete = bool(summary and summary["isComplete"])
+        labels = self.logic.draftJawLandmarkButtonLabels()
+        self._updatingRobotPlacementUI = True
+        try:
+            self.ui.step6CaseJawOpeningGroupBox.enabled = imported
+            self.ui.createStep6CaseJawLandmarksButton.enabled = bool(
+                imported and not blocked and not complete
+            )
+            self.ui.createStep6CaseJawLandmarksButton.text = (
+                labels[pointCount]
+                if pointCount < len(labels)
+                else _("All landmarks placed")
+            )
+            self.ui.clearStep6CaseJawLandmarksButton.enabled = bool(
+                imported and not blocked and pointCount > 0
+            )
+            self.ui.applyStep6CaseJawOpeningButton.enabled = bool(
+                imported and not blocked and complete
+            )
+            self.ui.resetStep6CaseJawOpeningButton.enabled = bool(
+                imported
+                and not blocked
+                and (
+                    self.logic.isStep6CaseJawTransformNode(
+                        self._parameterNode.step6CaseJawTransform
+                    )
+                    or self.logic.isStep6OpenedLowerJawModelNode(
+                        self._parameterNode.step6OpenedLowerJawModel
+                    )
+                )
+            )
+        finally:
+            self._updatingRobotPlacementUI = False
+
+    def _updateStep6CaseJawOpeningStatus(
+        self,
+        message: str = "",
+        error: bool = False,
+    ) -> None:
+        if not hasattr(self, "ui") or not self._parameterNode or not self.logic:
+            return
+        if message:
+            self.ui.step6CaseJawOpeningStatusLabel.text = message
+            self.ui.step6CaseJawOpeningStatusLabel.styleSheet = (
+                "color: #b00020;" if error else "color: #207227;"
+            )
+            return
+        if not self._parameterNode.step6PlanningContextImported:
+            text = _("Import the Steps 0–5 planning package first.")
+            style = "color: #b36b00;"
+        else:
+            issues = self.logic.step6CaseJawOpeningFreshnessIssues(
+                self._parameterNode
+            )
+            if issues:
+                node = self._parameterNode.step6CaseJawLandmarks
+                pointCount = (
+                    node.GetNumberOfDefinedControlPoints()
+                    if self.logic.isStep6CaseJawLandmarksNode(node)
+                    else 0
+                )
+                text = (
+                    _("Case jaw landmarks placed: %1/4. %2")
+                    .replace("%1", str(pointCount))
+                    .replace("%2", " ".join(issues))
+                )
+                style = "color: #b36b00;"
+            else:
+                transform = self._parameterNode.step6CaseJawTransform
+                angle = transform.GetAttribute("DENTOBOT.HingeAngleDeg") or "--"
+                gap = transform.GetAttribute("DENTOBOT.AchievedIncisorGapMm") or "--"
+                model = self._parameterNode.step6OpenedLowerJawModel
+                try:
+                    movingCount = len(
+                        json.loads(
+                            model.GetAttribute("DENTOBOT.MovingSegmentIdsJson") or "[]"
+                        )
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    movingCount = 0
+                text = _(
+                    "Case mouth open: TMJ hinge rotation %1°, measured incisor "
+                    "gap %2 mm; %3 lower-jaw surface(s) drive Step 6 collision."
+                ).replace("%1", angle).replace("%2", gap).replace(
+                    "%3", str(movingCount)
+                )
+                style = "color: #207227;"
+        self.ui.step6CaseJawOpeningStatusLabel.text = text
+        self.ui.step6CaseJawOpeningStatusLabel.styleSheet = style
+
+    def onCreateStep6CaseJawLandmarks(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            if not self._parameterNode.step6PlanningContextImported:
+                raise ValueError(_("Import the Steps 0–5 planning package first."))
+            node = self.logic.ensureStep6CaseJawLandmarksNode(
+                self._parameterNode.step6CaseJawLandmarks
+            )
+            self._parameterNode.step6CaseJawLandmarks = node
+            self._bindStep6CaseJawLandmarksNode(node)
+            summary = self.logic.getStep6CaseJawLandmarkSummary(node)
+            if summary["isComplete"]:
+                return
+            self.logic.startStep6CaseJawLandmarkPlacement(node)
+            landmarkIndex = summary["definedPointCount"]
+            self._updateStep6CaseJawOpeningStatus(
+                _(
+                    "Click one point in a 2D or 3D view for %1, then press the "
+                    "placement button for the next landmark."
+                ).replace(
+                    "%1",
+                    self.logic.draftJawLandmarkPlacementHints()[landmarkIndex],
+                )
+            )
+            self._updateStep6CaseJawOpeningControls()
+        except (RuntimeError, ValueError) as exc:
+            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onClearStep6CaseJawLandmarks(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        node = self._parameterNode.step6CaseJawLandmarks
+        if not self.logic.isStep6CaseJawLandmarksNode(node):
+            return
+        try:
+            self.logic.stopTrajectoryPlacement()
+            if (
+                self._parameterNode.step6CaseJawTransform
+                or self._parameterNode.step6OpenedLowerJawModel
+            ):
+                self.logic.resetStep6CaseJawOpening(self._parameterNode)
+            self._updatingStep6CaseJawLandmarks = True
+            node.RemoveAllControlPoints()
+            self._updatingStep6CaseJawLandmarks = False
+            self._updateStep6CaseJawOpeningControls()
+            self._updateStep6CaseJawOpeningStatus(
+                _("Case jaw landmarks cleared. Place Left TMJ first.")
+            )
+            self._updateStep6PlanningUi()
+        except (RuntimeError, ValueError) as exc:
+            self._updatingStep6CaseJawLandmarks = False
+            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onApplyStep6CaseJawOpening(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            _transform, _model, _gapLine, summary = (
+                self.logic.createOrUpdateStep6CaseJawOpening(self._parameterNode)
+            )
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
+            self._updateStep6CaseJawOpeningControls()
+            self._updateStep6CaseJawOpeningStatus(
+                _(
+                    "Applied case TMJ opening %1°; measured incisor gap %2 mm. "
+                    "Continue to 6.1 with the opened planning anatomy."
+                )
+                .replace("%1", f"{summary['angleDeg']:.2f}")
+                .replace("%2", f"{summary['gapMm']:.2f}")
+            )
+            self._applyStep6RecommendedView()
+            self._updateStep6PlanningUi()
+        except (RuntimeError, ValueError) as exc:
+            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onResetStep6CaseJawOpening(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            self.logic.resetStep6CaseJawOpening(self._parameterNode)
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
+            self._updateStep6CaseJawOpeningControls()
+            self._updateStep6CaseJawOpeningStatus(
+                _("Case jaw reset to the closed source pose; Step 6 is blocked.")
+            )
+            self._updateStep6PlanningUi()
+        except (RuntimeError, ValueError) as exc:
+            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onStep6CaseJawTargetGapChanged(self, value: float = 0.0) -> None:
+        del value
+        if (
+            self._updatingFromParameterNode
+            or self._updatingRobotPlacementUI
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        if self.logic.isStep6CaseJawTransformNode(
+            self._parameterNode.step6CaseJawTransform
+        ):
+            self._markStep6CaseJawOpeningStale(
+                _("Requested case incisor gap changed; apply the mouth opening again.")
+            )
+        self._updateStep6CaseJawOpeningControls()
+        self._updateStep6CaseJawOpeningStatus()
+        self._updateStep6PlanningUi()
 
     def onLoadRobotModel(self, checked: bool = False) -> None:
         del checked
@@ -3905,6 +4334,18 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._bindDraftJawLandmarksNode(node)
         self._updateRobotPlacement()
 
+    def onStep6CaseJawLandmarksSelectionChanged(self, node) -> None:
+        if self._updatingRobotPlacementUI or not self._parameterNode:
+            return
+        if node and self.logic and not self.logic.isStep6CaseJawLandmarksNode(node):
+            slicer.util.errorDisplay(_("Select the Step 6 case jaw landmark set."))
+            return
+        self._parameterNode.step6CaseJawLandmarks = node
+        self._bindStep6CaseJawLandmarksNode(node)
+        self._updateStep6CaseJawOpeningControls()
+        self._updateStep6CaseJawOpeningStatus()
+        self._updateStep6PlanningUi()
+
     def onRobotKeyboardNudgeToggled(self, checked: bool) -> None:
         if self._updatingRobotPlacementUI or not self._parameterNode:
             return
@@ -4078,6 +4519,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         has_plan = active_plan is not None and active_plan.success
         scene_kind = self._step6SceneKind()
         scene_active = scene_kind in {"case", "phantom"}
+        case_jaw_issues = (
+            self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
+            if self.logic and scene_kind == "case"
+            else []
+        )
+        scene_prepared = bool(
+            scene_kind == "phantom"
+            or (scene_kind == "case" and not case_jaw_issues)
+        )
         robot_present = self._step6RobotPresent()
         local_robot_present = bool(self.logic.robotModelNodes()) if self.logic else False
         ros2_active = self.logic.isRos2MotionControlActive(
@@ -4100,8 +4550,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if message:
             context_status = message
+        elif scene_kind == "case" and case_jaw_issues:
+            context_status = _(
+                "Case package imported. Complete 6.0A before loading or placing "
+                "the robot: %1"
+            ).replace("%1", " ".join(case_jaw_issues))
         elif scene_kind == "case":
-            context_status = _("Case planning package is the active Step 6 scene.")
+            context_status = _(
+                "Case package and opened-mouth planning anatomy are current."
+            )
         elif scene_kind == "phantom":
             context_status = _("Draft phantom is the active Step 6 scene.")
         elif scene_kind == "conflict":
@@ -4120,6 +4577,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             mount_status = _("Base placement is Stale; review and provisionally lock it again.")
         elif not scene_active:
             mount_status = _("Choose a scene before loading the robot.")
+        elif not scene_prepared:
+            mount_status = _("Complete the required case mouth opening in 6.0A.")
         elif not robot_present:
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
@@ -4147,7 +4606,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.step6PlanningContextStatusLabel.text = context_status
         self.ui.step6PlanningContextStatusLabel.styleSheet = (
             style_err if scene_kind == "conflict" else (
-                style_ok if scene_active else style_warn
+                style_ok if scene_prepared else style_warn
             )
         )
         self.ui.step6MountLockStatusLabel.text = mount_status
@@ -4159,17 +4618,23 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             style_err if error else (style_ok if has_plan else style_warn)
         )
 
-        self.ui.step6MountLockGroupBox.enabled = scene_active
-        self.ui.step6TaskJointLimitsGroupBox.enabled = robot_present
-        self.ui.step6WorkspaceGroupBox.enabled = robot_present
-        self.ui.step6TrajectoryPlanningGroupBox.enabled = locked and imported
+        self.ui.step6MountLockGroupBox.enabled = scene_prepared
+        self.ui.step6TaskJointLimitsGroupBox.enabled = (
+            robot_present and scene_prepared
+        )
+        self.ui.step6WorkspaceGroupBox.enabled = robot_present and scene_prepared
+        self.ui.step6TrajectoryPlanningGroupBox.enabled = (
+            locked and imported and scene_prepared
+        )
 
-        place_enabled = scene_active and robot_present and not locked
+        place_enabled = scene_prepared and robot_present and not locked
         self.ui.lockRobotBaseMountButton.enabled = (
-            scene_active and robot_present and not locked
+            scene_prepared and robot_present and not locked
         )
         self.ui.unlockRobotBaseMountButton.enabled = locked
-        self.ui.planTrajectoryMotionButton.enabled = imported and locked
+        self.ui.planTrajectoryMotionButton.enabled = (
+            imported and locked and scene_prepared
+        )
         self.ui.previewTrajectoryMotionButton.enabled = has_plan
         self.ui.stopTrajectoryMotionButton.enabled = (
             self._step6MotionPreviewTimer is not None
@@ -4180,7 +4645,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         )
 
         self.ui.connectRos2MotionButton.enabled = bool(
-            scene_active
+            scene_prepared
             and local_robot_present
             and locked
             and home_ready
@@ -4188,8 +4653,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             and not ros2_active
         )
         self.ui.disconnectRos2MotionButton.enabled = ros2_active
-        self.ui.loadRobotModelButton.enabled = scene_active and not locked
-        self.ui.frameRobotButton.enabled = scene_active
+        self.ui.loadRobotModelButton.enabled = scene_prepared and not locked
+        self.ui.frameRobotButton.enabled = scene_prepared
         self.ui.importStep6PlanningContextButton.enabled = not locked
         self.ui.loadDraftPhantomButton.enabled = not locked
 
@@ -4231,12 +4696,12 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if widget is not None:
                 widget.setEnabled(place_enabled)
         self.ui.robotKeyboardNudgeCheckBox.enabled = place_enabled
-        self.ui.resetRobotJointsButton.enabled = robot_present
+        self.ui.resetRobotJointsButton.enabled = robot_present and scene_prepared
         self.ui.deleteRobotSetupButton.enabled = robot_present and not locked
-        self.ui.applyTaskJointLimitsButton.enabled = robot_present
-        self.ui.resetTaskJointLimitsButton.enabled = robot_present
+        self.ui.applyTaskJointLimitsButton.enabled = robot_present and scene_prepared
+        self.ui.resetTaskJointLimitsButton.enabled = robot_present and scene_prepared
         self.ui.generateRobotWorkspaceButton.enabled = (
-            robot_present and locked and home_ready
+            scene_prepared and robot_present and locked and home_ready
             and self.logic.isRobotBaseTransformNode(
                 self._parameterNode.robotBaseTransform
             )
@@ -4247,21 +4712,22 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         panel = self._robotSimulationPanel
         if panel is not None:
-            panel.loadFallbackButton.enabled = scene_active and not locked
-            panel.enableCbctRenderingButton.enabled = imported
+            panel.loadFallbackButton.enabled = scene_prepared and not locked
+            panel.enableCbctRenderingButton.enabled = imported and scene_prepared
             panel.createProxyButton.enabled = bool(
                 self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
                 and not locked
             )
-            panel.saveTaskHomeButton.enabled = locked
-            panel.applyTaskHomeButton.enabled = home_ready
+            panel.saveTaskHomeButton.enabled = scene_prepared and locked
+            panel.applyTaskHomeButton.enabled = scene_prepared and home_ready
             panel.homeStatusLabel.text = (
                 _("Task Home is current for this base and robot profile.")
                 if home_ready
                 else " ".join(home_issues)
             )
             panel.reviewLimitsButton.enabled = bool(
-                str(self._parameterNode.step6AssistedLimitProposalJson or "").strip()
+                scene_prepared
+                and str(self._parameterNode.step6AssistedLimitProposalJson or "").strip()
                 and not assisted_reviewed
             )
             panel.workspaceReviewStatusLabel.text = (
@@ -4270,12 +4736,17 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 else _("Generate the FK workspace, then review its proposed limits.")
             )
             runtime_ready = bool(
-                local_robot_present and locked and home_ready and assisted_reviewed
+                scene_prepared
+                and local_robot_present
+                and locked
+                and home_ready
+                and assisted_reviewed
             )
             panel.connectButton.enabled = runtime_ready and not ros2_active
             panel.disconnectButton.enabled = ros2_active
             panel.confirmTaskButton.enabled = bool(
                 imported
+                and scene_prepared
                 and ros2_active
                 and facade_capabilities
                 and facade_capabilities.planning_scene_synchronized
@@ -5125,17 +5596,6 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         curated = list(self._workflowCuratedViewEntries(stageIndex))
         entries = list(curated)
 
-        groupLabels = {
-            "upper_teeth": _("Teeth masks — upper jaw"),
-            "lower_teeth": _("Teeth masks — lower jaw"),
-            "pulp_root_canals": _("Pulp and root-canal masks"),
-            "neural_canals": _("Neural and mandibular-canal masks"),
-            "jaws": _("Jaw masks"),
-            "sinuses_airway": _("Sinus and airway masks"),
-            "restorations_implants": _("Restoration and implant masks"),
-            "other_mask": _("Other anatomy masks"),
-        }
-
         for segmentationNode in slicer.util.getNodesByClass(
             "vtkMRMLSegmentationNode"
         ):
@@ -5158,7 +5618,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         ),
                     }
                 )
-            for groupKey, groupedIds in group_segmentation_records(records).items():
+            for groupKey, groupedIds in group_segmentation_records_detailed(
+                records
+            ).items():
                 if not groupedIds:
                     continue
                 authoritative = (
@@ -5176,7 +5638,10 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                             if authoritative
                             else _("Other scene mask group"),
                         )
-                        .replace("%2", groupLabels[groupKey])
+                        .replace(
+                            "%2",
+                            _(DETAILED_ANATOMY_GROUP_LABELS[groupKey]),
+                        )
                         .replace("%3", str(len(groupedIds)))
                         .replace(
                             "%4",
@@ -5186,9 +5651,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         "segmentationNode": segmentationNode,
                         "segmentIds": groupedIds,
                         "category": (
-                            groupKey
+                            DETAILED_ANATOMY_GROUP_CATEGORY[groupKey]
                             if authoritative
                             else "scene_mask"
+                        ),
+                        "anatomyGroup": groupKey,
+                        "anatomyScopes": (
+                            anatomy_scopes_for_group(groupKey)
+                            if authoritative
+                            else frozenset()
                         ),
                     }
                 )
@@ -5256,7 +5727,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                             "kind": "volume_rendering",
                             "node": volumeNode,
                             "displayNode": renderingDisplay,
-                            "category": "case_volume_3d",
+                            "category": (
+                                "case_volume_3d"
+                                if volumeNode is self._parameterNode.inputVolume
+                                else "scene_volume_rendering"
+                            ),
                         }
                     )
         return entries
@@ -5373,6 +5848,36 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             _("[5C] Final printable template"),
             parameterNode.finalPrintableTemplateModel,
             "final",
+        )
+        addNode(
+            "node:step6CaseLowerJaw",
+            _("[Step 6.0A] Opened lower-jaw planning surface"),
+            parameterNode.step6OpenedLowerJawModel,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6CaseOpenedTargetGeometry",
+            _("[Step 6.0A] Opened target-attached geometry"),
+            parameterNode.step6OpenedTargetGeometryModel,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6CaseOpenedTrajectory",
+            _("[Step 6.0A] Opened Entry-to-Target"),
+            parameterNode.step6OpenedTrajectoryLine,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6CaseJawLandmarks",
+            _("[Step 6.0A] Case TMJ/incisor landmarks"),
+            parameterNode.step6CaseJawLandmarks,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6CaseJawGap",
+            _("[Step 6.0A] Case incisor gap"),
+            parameterNode.step6CaseJawGapLine,
+            "case_jaw_opening",
         )
         addNodes(
             "nodes:step6Phantom",
@@ -5495,6 +6000,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "trajectory",
                 "target_docking",
                 "final",
+                "case_jaw_opening",
             },
             "phantom_only": {"phantom", "phantom_landmarks"},
         }
@@ -5536,6 +6042,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "trajectory",
                 "target_docking",
                 "final",
+                "case_jaw_opening",
                 "robot_mount",
                 "forehead_proxy",
                 *robot_category,
@@ -5717,6 +6224,334 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return qt.Qt.PartiallyChecked
         return qt.Qt.Unchecked
 
+    @staticmethod
+    def _workflowAdvancedTreeGroup(entry: dict) -> tuple[str, str]:
+        category = entry["category"]
+        anatomyGroup = str(entry.get("anatomyGroup") or "")
+        if anatomyGroup:
+            region = (
+                "Upper jaw"
+                if anatomyGroup.startswith("upper_")
+                else "Lower jaw"
+                if anatomyGroup.startswith("lower_")
+                else "Other / adjacent anatomy"
+            )
+            return "Authoritative anatomy", region
+        if category == "scene_mask":
+            return "Other scene data", "Other segmentations"
+        if category in {
+            "target_mask",
+            "target_detail",
+            "bounds",
+            "trajectory",
+            "assisted",
+        }:
+            return "Planning objects", "Trajectory planning"
+        if category in {
+            "support_mask",
+            "draft_support",
+            "support_boundary",
+            "support_plane",
+            "visible_support",
+            "insertion",
+            "undercut",
+            "blockout",
+            "patient_shell",
+            "target_docking",
+            "target_docking_measurement",
+            "final_aux",
+            "final",
+        }:
+            return "Guide-design objects", "Guide and template"
+        if category in {
+            "robot_mrml",
+            "robot_ros",
+            "robot_goal",
+            "robot_mount",
+            "forehead_proxy",
+            "phantom",
+            "phantom_landmarks",
+            "case_jaw_opening",
+        }:
+            return "Robot simulation objects", "Step 6 scene"
+        if category in {
+            "case_volume",
+            "case_volume_3d",
+            "scene_volume",
+            "scene_volume_rendering",
+        }:
+            return "CBCT and rendering", "Volumes and renderers"
+        return "Other scene data", "Displayable nodes"
+
+    def _workflowSegmentLeafEntry(
+        self,
+        parentEntry: dict,
+        segmentId: str,
+    ) -> dict:
+        segmentationNode = (
+            parentEntry.get("segmentationNode")
+            or self._parameterNode.teethSegmentation
+        )
+        return {
+            **parentEntry,
+            "key": f"segment:{segmentationNode.GetID()}:{segmentId}",
+            "label": segmentId,
+            "segmentIds": [segmentId],
+            "parentGroupKey": parentEntry["key"],
+        }
+
+    def _populateWorkflowAdvancedTree(
+        self,
+        entries: list[dict],
+        stageIndex: int,
+    ) -> None:
+        tree = self._workflowAdvancedTree
+        if not tree:
+            return
+        tree.clear()
+        recommendedCategories = self._workflowViewRecommendedCategories(stageIndex)
+        rootOrder = (
+            "Authoritative anatomy",
+            "Planning objects",
+            "Guide-design objects",
+            "Robot simulation objects",
+            "CBCT and rendering",
+            "Other scene data",
+        )
+        roots: dict[str, object] = {}
+        subgroups: dict[tuple[str, str], object] = {}
+        for title in rootOrder:
+            root = qt.QTreeWidgetItem(tree)
+            root.setText(0, _(title))
+            root.setFlags(
+                root.flags()
+                | qt.Qt.ItemIsUserCheckable
+                | qt.Qt.ItemIsAutoTristate
+            )
+            root.setCheckState(0, qt.Qt.Unchecked)
+            roots[title] = root
+
+        sortedEntries = sorted(
+            entries,
+            key=lambda entry: (
+                entry["category"] not in recommendedCategories,
+                self._workflowAdvancedTreeGroup(entry),
+                entry["label"].lower(),
+            ),
+        )
+        for entry in sortedEntries:
+            rootTitle, subgroupTitle = self._workflowAdvancedTreeGroup(entry)
+            root = roots[rootTitle]
+            subgroupKey = (rootTitle, subgroupTitle)
+            subgroup = subgroups.get(subgroupKey)
+            if subgroup is None:
+                subgroup = qt.QTreeWidgetItem(root)
+                subgroup.setText(0, _(subgroupTitle))
+                subgroup.setFlags(
+                    subgroup.flags()
+                    | qt.Qt.ItemIsUserCheckable
+                    | qt.Qt.ItemIsAutoTristate
+                )
+                subgroup.setCheckState(0, qt.Qt.Unchecked)
+                subgroups[subgroupKey] = subgroup
+            item = qt.QTreeWidgetItem(subgroup)
+            item.setText(0, entry["label"])
+            item.setData(0, qt.Qt.UserRole, entry["key"])
+            item.setFlags(item.flags() | qt.Qt.ItemIsUserCheckable)
+            item.setCheckState(0, self._workflowViewEntryCheckState(entry))
+            relevant = entry["category"] in recommendedCategories
+            if relevant:
+                item.setBackground(0, qt.QColor(225, 242, 250))
+                font = item.font(0)
+                font.setBold(True)
+                item.setFont(0, font)
+                root.setExpanded(True)
+                subgroup.setExpanded(True)
+            elif rootTitle == "Other scene data":
+                item.setForeground(0, qt.QColor(115, 115, 115))
+            if entry["kind"] == "segments":
+                item.setFlags(
+                    item.flags()
+                    | qt.Qt.ItemIsAutoTristate
+                )
+                segmentationNode = (
+                    entry.get("segmentationNode")
+                    or self._parameterNode.teethSegmentation
+                )
+                segmentation = (
+                    segmentationNode.GetSegmentation()
+                    if segmentationNode
+                    else None
+                )
+                for segmentId in entry["segmentIds"]:
+                    childEntry = self._workflowSegmentLeafEntry(entry, segmentId)
+                    self._workflowViewEntriesByKey[childEntry["key"]] = childEntry
+                    segment = segmentation.GetSegment(segmentId) if segmentation else None
+                    child = qt.QTreeWidgetItem(item)
+                    child.setText(
+                        0,
+                        segment.GetName() if segment else segmentId,
+                    )
+                    child.setData(0, qt.Qt.UserRole, childEntry["key"])
+                    child.setFlags(child.flags() | qt.Qt.ItemIsUserCheckable)
+                    child.setCheckState(
+                        0,
+                        self._workflowViewEntryCheckState(childEntry),
+                    )
+        for root in roots.values():
+            root.setHidden(root.childCount() == 0)
+
+    def _workflowViewEntryVisibilityRestriction(
+        self,
+        entry: dict,
+        visible: bool,
+    ) -> str:
+        """Return why an Advanced visibility request is unsafe in Step 6."""
+
+        if not visible or not self._parameterNode or not self.logic:
+            return ""
+        if int(self.ui.workflowStageComboBox.currentIndex) != 10:
+            return ""
+        sceneKind = self._step6SceneKind()
+        category = entry["category"]
+        if sceneKind == "conflict":
+            return _(
+                "Resolve the Step 6 case/phantom source conflict before changing robot-workspace visibility."
+            )
+        if sceneKind == "phantom" and (
+            entry.get("anatomyScopes")
+            or category in {
+                "case_volume",
+                "case_volume_3d",
+                "case_jaw_opening",
+                "target_mask",
+                "bounds",
+                "trajectory",
+                "target_docking",
+                "final",
+            }
+        ):
+            return _(
+                "The disposable phantom source is active; case/CBCT anatomy is intentionally unavailable in this Step 6 view."
+            )
+        if sceneKind == "case" and category in {
+            "phantom",
+            "phantom_landmarks",
+        }:
+            return _(
+                "The CBCT workflow case is active; disposable phantom nodes are intentionally unavailable in this Step 6 view."
+            )
+        rosActive = self.logic.isRos2MotionControlActive(
+            self._parameterNode.robotBaseTransform
+        )
+        if rosActive and category == "robot_mrml":
+            return _(
+                "ROS robot control is active; the MRML-only robot is hidden to prevent two authoritative robot states."
+            )
+        if not rosActive and category in {"robot_ros", "robot_goal"}:
+            return _(
+                "ROS robot control is inactive; ROS current/goal representations cannot be enabled yet."
+            )
+        return ""
+
+    def _setWorkflowViewEntryVisible(
+        self,
+        entry: dict,
+        visible: bool,
+    ) -> str:
+        restriction = self._workflowViewEntryVisibilityRestriction(
+            entry,
+            visible,
+        )
+        if restriction:
+            return restriction
+        if entry["kind"] == "node":
+            displayNode = entry["node"].GetDisplayNode()
+            if displayNode:
+                displayNode.SetVisibility(visible)
+        elif entry["kind"] == "nodes":
+            for node in entry["nodes"]:
+                displayNode = node.GetDisplayNode() if node else None
+                if displayNode:
+                    displayNode.SetVisibility(visible)
+        elif entry["kind"] == "volume_rendering":
+            entry["displayNode"].SetVisibility(visible)
+        else:
+            segmentationNode = (
+                entry.get("segmentationNode")
+                or self._parameterNode.teethSegmentation
+            )
+            displayNode = segmentationNode.GetDisplayNode() if segmentationNode else None
+            if displayNode:
+                wasModifying = displayNode.StartModify()
+                try:
+                    for segmentId in entry["segmentIds"]:
+                        displayNode.SetSegmentVisibility(segmentId, visible)
+                    segmentation = segmentationNode.GetSegmentation()
+                    segmentIds = vtk.vtkStringArray()
+                    segmentation.GetSegmentIDs(segmentIds)
+                    hasVisibleSegment = any(
+                        displayNode.GetSegmentVisibility(
+                            segmentIds.GetValue(segmentIndex)
+                        )
+                        for segmentIndex in range(segmentIds.GetNumberOfValues())
+                    )
+                    displayNode.SetVisibility(hasVisibleSegment)
+                    displayNode.SetVisibility2D(hasVisibleSegment)
+                    displayNode.SetVisibility3D(hasVisibleSegment)
+                finally:
+                    displayNode.EndModify(wasModifying)
+        return ""
+
+    def onWorkflowViewTreeItemChanged(self, item, column: int) -> None:
+        del column
+        if self._updatingWorkflowViewUI or not item or not self._parameterNode:
+            return
+        self._ensureWorkflowViewSnapshot()
+        desired = item.checkState(0) == qt.Qt.Checked
+        key = str(item.data(0, qt.Qt.UserRole) or "")
+        entriesToChange = []
+        if key and key in self._workflowViewEntriesByKey:
+            entriesToChange.append(self._workflowViewEntriesByKey[key])
+        else:
+            stack = [item.child(index) for index in range(item.childCount())]
+            while stack:
+                child = stack.pop()
+                childKey = str(child.data(0, qt.Qt.UserRole) or "")
+                if childKey and childKey in self._workflowViewEntriesByKey:
+                    entriesToChange.append(self._workflowViewEntriesByKey[childKey])
+                    continue
+                stack.extend(
+                    child.child(index) for index in range(child.childCount())
+                )
+        restrictions = []
+        self._updatingWorkflowViewUI = True
+        try:
+            for entry in entriesToChange:
+                restriction = self._setWorkflowViewEntryVisible(entry, desired)
+                if restriction and restriction not in restrictions:
+                    restrictions.append(restriction)
+        finally:
+            self._updatingWorkflowViewUI = False
+        self._workflowViewVisibleKeys = {
+            entryKey
+            for entryKey, entry in self._workflowViewEntriesByKey.items()
+            if self._workflowViewEntryCheckState(entry) != qt.Qt.Unchecked
+        }
+        self._workflowViewActivePresetKey = "custom"
+        self._workflowViewComposition = None
+        self._enforceStep6OpenedJawDisplaySeparation()
+        if restrictions:
+            self.ui.workflowViewStatusLabel.text = " ".join(restrictions)
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #b06a00;"
+        else:
+            self.ui.workflowViewStatusLabel.text = _(
+                "Custom object visibility; geometry, mask contents, and workflow lineage are unchanged."
+            )
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #1f5f99;"
+        self._updateWorkflowViewControls()
+        self._updateTemplateGuideVisibilityControls()
+
     def _updateWorkflowViewControls(self) -> None:
         if not hasattr(self, "ui"):
             return
@@ -5741,6 +6576,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     "",
                 )
                 self.ui.workflowViewElementsListWidget.clear()
+                if self._workflowAdvancedTree:
+                    self._workflowAdvancedTree.clear()
                 self.ui.workflowViewStatusLabel.text = _(
                     "Element visibility controls need an active DENTOBOT case."
                 )
@@ -5752,6 +6589,48 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._workflowViewEntriesByKey = {
             entry["key"]: entry for entry in entries
         }
+        if self._step6ViewContextWidget:
+            isStep6 = stageIndex == len(self._workflowStageEntries()) - 1
+            self._step6ViewContextWidget.visible = isStep6
+            if isStep6 and self._step6ViewContextLabel:
+                sceneKind = self._step6SceneKind()
+                rosActive = self.logic.isRos2MotionControlActive(
+                    self._parameterNode.robotBaseTransform
+                )
+                robotSource = (
+                    _("ROS robot")
+                    if rosActive
+                    else _("MRML robot")
+                    if self.logic.robotModelNodes()
+                    else _("not loaded")
+                )
+                if sceneKind == "case":
+                    openingIssues = self.logic.step6CaseJawOpeningFreshnessIssues(
+                        self._parameterNode
+                    )
+                    preparation = (
+                        _("opened-jaw planning anatomy is current")
+                        if not openingIssues
+                        else _("TMJ opening must be completed")
+                    )
+                elif sceneKind == "phantom":
+                    preparation = _("draft phantom test scene")
+                elif sceneKind == "conflict":
+                    preparation = _("CONFLICT — resolve case versus phantom")
+                else:
+                    preparation = _("load one case package or the draft phantom")
+                baseState = (
+                    _("base locked")
+                    if self._parameterNode.robotBaseMountLocked
+                    else _("base placement unlocked")
+                )
+                self._step6ViewContextLabel.text = _(
+                    "Scene: %1 · Robot: %2 · %3 · %4.\n"
+                    "Case/phantom and MRML/ROS sources are mutually exclusive in "
+                    "the recommended view. Earlier planning markups are read-only here."
+                ).replace("%1", sceneKind).replace("%2", robotSource).replace(
+                    "%3", preparation
+                ).replace("%4", baseState)
         teethCounts = {"upper": 0, "lower": 0}
         for entry in entries:
             if entry["kind"] != "segments":
@@ -5807,62 +6686,8 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     selectedIndex = index
             comboBox.currentIndex = selectedIndex
 
-            listWidget = self.ui.workflowViewElementsListWidget
-            listWidget.clear()
-            for entry in entries:
-                item = qt.QListWidgetItem(entry["label"])
-                item.setData(qt.Qt.UserRole, entry["key"])
-                item.setFlags(item.flags() | qt.Qt.ItemIsUserCheckable)
-                item.setCheckState(self._workflowViewEntryCheckState(entry))
-                if entry["category"] in {"upper_teeth", "lower_teeth"}:
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                    item.setData(
-                        qt.Qt.BackgroundRole,
-                        qt.QColor(225, 242, 250),
-                    )
-                elif entry["category"] in {"scene_mask", "scene_volume"}:
-                    item.setData(
-                        qt.Qt.ForegroundRole,
-                        qt.QColor(105, 105, 105),
-                    )
-                if entry["kind"] == "volume_rendering":
-                    item.setToolTip(
-                        _(
-                            "This is a Slicer intensity rendering of the named "
-                            "scalar volume, not a segmentation mask. Views did "
-                            "not create it."
-                        )
-                    )
-                elif entry["category"] == "scene_volume":
-                    item.setToolTip(
-                        _(
-                            "This scalar volume is in the MRML scene but is not "
-                            "the DENTOBOT case input volume."
-                        )
-                    )
-                elif entry["category"] == "scene_mask":
-                    item.setToolTip(
-                        _(
-                            "This segmentation is in the MRML scene but is not "
-                            "the authoritative DENTOBOT teeth segmentation."
-                        )
-                    )
-                color = None
-                if entry["kind"] == "node":
-                    color = self.logic.lineageColorFromNode(entry["node"])
-                elif entry["category"] in {"target_mask", "target_detail"}:
-                    colorSource = self._parameterNode.trajectoryLine
-                    color = self.logic.lineageColorFromNode(colorSource)
-                if color:
-                    item.setData(
-                        qt.Qt.DecorationRole,
-                        qt.QColor(
-                            *(int(round(component * 255.0)) for component in color)
-                        ),
-                    )
-                listWidget.addItem(item)
+            self._updateWorkflowViewCompositionControls(stageIndex)
+            self._populateWorkflowAdvancedTree(entries, stageIndex)
             self.ui.restoreWorkflowViewButton.enabled = bool(
                 self._workflowViewPriorState
             )
@@ -5877,6 +6702,15 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.workflowViewPresetComboBox.enabled = active
         if self._workflowRecommendedViewButton:
             self._workflowRecommendedViewButton.enabled = active
+        for widget in (
+            self._workflowAnatomyComboBox,
+            self._workflowDimensionComboBox,
+            self._workflowCbctComboBox,
+            self._workflowOverlayButton,
+            self._workflowAdvancedTree,
+        ):
+            if widget:
+                widget.enabled = active
         for button in self._workflowJawViewButtons.values():
             if not active:
                 button.enabled = False
@@ -5920,6 +6754,21 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if entry["kind"] == "volume_rendering"
             and entry["displayNode"].GetID()
         }
+        self._workflowViewPriorState["sliceComposites"] = {
+            composite.GetID(): {
+                "background": composite.GetBackgroundVolumeID(),
+                "foreground": composite.GetForegroundVolumeID(),
+                "label": composite.GetLabelVolumeID(),
+                "foregroundOpacity": float(composite.GetForegroundOpacity()),
+                "labelOpacity": float(composite.GetLabelOpacity()),
+            }
+            for composite in slicer.util.getNodesByClass(
+                "vtkMRMLSliceCompositeNode"
+            )
+            if composite.GetID()
+        }
+        self._workflowViewCreatedRendererNodeIds.clear()
+        self._workflowViewCreatedPropertyNodeIds.clear()
 
     def _extendWorkflowViewSnapshotForNewNodes(self, nodes: list) -> None:
         if not self._workflowViewPriorState or not self.logic:
@@ -5971,6 +6820,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             managedNodes,
             visibleNodeIds,
         )
+        self._enforceStep6OpenedJawDisplaySeparation()
         primarySegmentation = self._parameterNode.teethSegmentation
         segmentIdsByNode = {}
         for entry in entries:
@@ -6017,6 +6867,24 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         *,
         updateStatus: bool = True,
     ) -> None:
+        if presetKey == "recommended":
+            stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+            self._applyWorkflowViewComposition(
+                self._recommendedWorkflowViewComposition(stageIndex),
+                recommended=True,
+                allowRendererCreation=False,
+                updateStatus=updateStatus,
+            )
+            return
+        if presetKey == "composition" and self._workflowViewComposition:
+            self._applyWorkflowViewComposition(
+                self._workflowViewComposition,
+                recommended=False,
+                allowRendererCreation=True,
+                updateStatus=updateStatus,
+            )
+            return
+        self._workflowViewComposition = None
         teethPreset = re.fullmatch(
             r"teeth_(upper|lower|all)_(2d|3d|both)",
             str(presetKey),
@@ -6122,6 +6990,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 displayNode.SetVisibility3D(dimension in {"3d", "both"})
             finally:
                 displayNode.EndModify(wasModifying)
+        self._enforceStep6OpenedJawDisplaySeparation()
 
         self._workflowViewActivePresetKey = activePresetKey
         self._workflowViewVisibleKeys = set(visibleKeys)
@@ -6148,6 +7017,505 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 "%3", dimensionLabel
             )
             self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
+
+    @staticmethod
+    def _comboBoxData(comboBox) -> str:
+        if not comboBox or int(comboBox.currentIndex) < 0:
+            return ""
+        return str(comboBox.itemData(int(comboBox.currentIndex)) or "")
+
+    @staticmethod
+    def _setComboBoxData(comboBox, value: str) -> None:
+        if not comboBox:
+            return
+        for index in range(int(comboBox.count)):
+            if str(comboBox.itemData(index) or "") == str(value):
+                comboBox.currentIndex = index
+                return
+
+    def _recommendedWorkflowViewComposition(
+        self,
+        stageIndex: int,
+    ) -> ViewComposition:
+        composition = recommended_view_composition(stageIndex)
+        if not self._parameterNode or not self.logic:
+            return composition
+        if stageIndex == 6:
+            record = self._targetToothRecordsById.get(
+                self._parameterNode.targetToothSegmentId,
+                {},
+            )
+            jaw = dental_jaw_from_fdi(record.get("fdiNumber"))
+            if jaw:
+                composition = composition.updated(
+                    anatomy_scope=f"{jaw}_jaw_anatomy"
+                )
+        elif stageIndex == 9 and not self._parameterNode.finalPrintableTemplateModel:
+            composition = composition.updated(
+                overlay_groups=frozenset({"docks", "shell_components"})
+            )
+        elif stageIndex == 10:
+            sceneKind = self._step6SceneKind()
+            if sceneKind == "phantom":
+                composition = ViewComposition(
+                    anatomy_scope="none",
+                    anatomy_dimension="3d",
+                    cbct_mode="off",
+                    overlay_groups=frozenset({"phantom", "robot"}),
+                    anatomy_opacity=0.35,
+                )
+            elif sceneKind == "none":
+                composition = ViewComposition()
+        return composition
+
+    def _workflowViewCompositionFromControls(self) -> ViewComposition:
+        overlays = frozenset(
+            key
+            for key, action in self._workflowOverlayActions.items()
+            if bool(action.checked)
+        )
+        previousOpacity = (
+            self._workflowViewComposition.anatomy_opacity
+            if self._workflowViewComposition
+            else self._recommendedWorkflowViewComposition(
+                int(self.ui.workflowStageComboBox.currentIndex)
+            ).anatomy_opacity
+        )
+        return ViewComposition(
+            anatomy_scope=self._comboBoxData(self._workflowAnatomyComboBox)
+            or "none",
+            anatomy_dimension=self._comboBoxData(
+                self._workflowDimensionComboBox
+            )
+            or "both",
+            cbct_mode=self._comboBoxData(self._workflowCbctComboBox) or "off",
+            overlay_groups=overlays,
+            anatomy_opacity=previousOpacity,
+        )
+
+    def _updateWorkflowViewCompositionControls(self, stageIndex: int) -> None:
+        if not self._workflowAnatomyComboBox:
+            return
+        composition = self._workflowViewComposition
+        if composition is None:
+            composition = self._recommendedWorkflowViewComposition(stageIndex)
+        self._setComboBoxData(
+            self._workflowAnatomyComboBox,
+            composition.anatomy_scope,
+        )
+        self._setComboBoxData(
+            self._workflowDimensionComboBox,
+            composition.anatomy_dimension,
+        )
+        self._setComboBoxData(self._workflowCbctComboBox, composition.cbct_mode)
+        for key, action in self._workflowOverlayActions.items():
+            action.checked = key in composition.overlay_groups
+        overlayCount = len(composition.overlay_groups)
+        self._workflowOverlayButton.text = (
+            _("No overlays")
+            if overlayCount == 0
+            else _("%1 overlay group(s)").replace("%1", str(overlayCount))
+        )
+        if self._workflowAutoRecommendCheckBox:
+            self._workflowAutoRecommendCheckBox.checked = bool(
+                self.ui.autoWorkflowViewCheckBox.checked
+            )
+
+    def _onWorkflowAutoRecommendToggled(self, checked: bool) -> None:
+        if self._updatingWorkflowViewUI:
+            return
+        self.ui.autoWorkflowViewCheckBox.checked = bool(checked)
+
+    def onWorkflowViewCompositionChanged(self, index: int = -1) -> None:
+        del index
+        if self._updatingWorkflowViewUI or not self._parameterNode:
+            return
+        composition = self._workflowViewCompositionFromControls()
+        self._applyWorkflowViewComposition(
+            composition,
+            recommended=False,
+            allowRendererCreation=True,
+        )
+
+    def _onWorkflowOverlayToggled(self, overlayKey: str, checked: bool) -> None:
+        del overlayKey, checked
+        if self._updatingWorkflowViewUI or not self._parameterNode:
+            return
+        composition = self._workflowViewCompositionFromControls()
+        self._applyWorkflowViewComposition(
+            composition,
+            recommended=False,
+            allowRendererCreation=True,
+        )
+
+    def _workflowViewKeysForComposition(
+        self,
+        composition: ViewComposition,
+        entries: list[dict],
+        stageIndex: int,
+    ) -> set[str]:
+        overlayCategories = set().union(
+            *(
+                OVERLAY_CATEGORY_MAP[key]
+                for key in composition.overlay_groups
+            ),
+        ) if composition.overlay_groups else set()
+        visibleKeys: set[str] = set()
+        for entry in entries:
+            category = entry["category"]
+            anatomyVisible = False
+            if composition.anatomy_scope == "target_tooth":
+                anatomyVisible = category == "target_mask"
+            elif composition.anatomy_scope == "target_support":
+                anatomyVisible = category in {"target_mask", "support_mask"}
+            elif composition.anatomy_scope != "none":
+                anatomyVisible = composition.anatomy_scope in entry.get(
+                    "anatomyScopes",
+                    (),
+                )
+            cbctVisible = (
+                category == "case_volume"
+                and composition.cbct_mode in {"slices", "both"}
+            ) or (
+                category == "case_volume_3d"
+                and composition.cbct_mode in {"intensity_3d", "both"}
+            )
+            if anatomyVisible or cbctVisible or category in overlayCategories:
+                visibleKeys.add(entry["key"])
+
+        if stageIndex == 4 and "trajectories" in composition.overlay_groups:
+            selected = self._parameterNode.trajectoryLine
+            visibleKeys = {
+                key
+                for key in visibleKeys
+                if not key.startswith("trajectory:")
+                or (
+                    selected is not None
+                    and key == f"trajectory:{selected.GetID()}"
+                )
+            }
+        if stageIndex == 10:
+            sceneKind = self._step6SceneKind()
+            rosActive = self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            )
+            for entry in entries:
+                category = entry["category"]
+                if sceneKind == "phantom" and (
+                    entry.get("anatomyScopes")
+                    or category in {
+                        "case_volume",
+                        "case_volume_3d",
+                        "case_jaw_opening",
+                        "target_mask",
+                        "bounds",
+                        "trajectory",
+                        "target_docking",
+                        "final",
+                    }
+                ):
+                    visibleKeys.discard(entry["key"])
+                if sceneKind == "case" and category in {
+                    "phantom",
+                    "phantom_landmarks",
+                }:
+                    visibleKeys.discard(entry["key"])
+                if rosActive and category == "robot_mrml":
+                    visibleKeys.discard(entry["key"])
+                if not rosActive and category in {"robot_ros", "robot_goal"}:
+                    visibleKeys.discard(entry["key"])
+        return visibleKeys
+
+    def _setWorkflowCbctSlices(self, enabled: bool) -> None:
+        volume = self._parameterNode.inputVolume if self._parameterNode else None
+        volumeId = volume.GetID() if volume else None
+        for composite in slicer.util.getNodesByClass(
+            "vtkMRMLSliceCompositeNode"
+        ):
+            if enabled and volumeId:
+                composite.SetBackgroundVolumeID(volumeId)
+            elif volumeId and composite.GetBackgroundVolumeID() == volumeId:
+                composite.SetBackgroundVolumeID(None)
+
+    def _ensureExplicitWorkflowCbctRenderer(self):
+        volume = self._parameterNode.inputVolume if self._parameterNode else None
+        if not volume or not hasattr(slicer.modules, "volumerendering"):
+            return None
+        logic = slicer.modules.volumerendering.logic()
+        display = logic.GetFirstVolumeRenderingDisplayNode(volume)
+        if display:
+            return display
+        priorDisplayIds = {
+            node.GetID()
+            for node in slicer.util.getNodesByClass(
+                "vtkMRMLVolumeRenderingDisplayNode"
+            )
+        }
+        priorPropertyIds = {
+            node.GetID()
+            for node in slicer.util.getNodesByClass("vtkMRMLVolumePropertyNode")
+        }
+        display = logic.CreateDefaultVolumeRenderingNodes(volume)
+        if display and display.GetID() not in priorDisplayIds:
+            self._workflowViewCreatedRendererNodeIds.add(display.GetID())
+        self._workflowViewCreatedPropertyNodeIds.update(
+            node.GetID()
+            for node in slicer.util.getNodesByClass("vtkMRMLVolumePropertyNode")
+            if node.GetID() not in priorPropertyIds
+        )
+        return display
+
+    def _applyWorkflowCbctMode(
+        self,
+        composition: ViewComposition,
+        *,
+        allowRendererCreation: bool,
+    ) -> None:
+        self._setWorkflowCbctSlices(composition.cbct_mode in {"slices", "both"})
+        wantsRenderer = composition.cbct_mode in {"intensity_3d", "both"}
+        display = None
+        volume = self._parameterNode.inputVolume if self._parameterNode else None
+        if volume and hasattr(slicer.modules, "volumerendering"):
+            display = slicer.modules.volumerendering.logic().GetFirstVolumeRenderingDisplayNode(
+                volume
+            )
+        if wantsRenderer and display is None and allowRendererCreation:
+            display = self._ensureExplicitWorkflowCbctRenderer()
+        if display:
+            display.SetVisibility(bool(wantsRenderer))
+
+    def _applyWorkflowAnatomyAppearance(
+        self,
+        composition: ViewComposition,
+        visibleKeys: set[str],
+    ) -> None:
+        selectedByNode: dict[object, set[str]] = {}
+        for entry in self._workflowViewEntriesByKey.values():
+            if entry["key"] not in visibleKeys or entry["kind"] != "segments":
+                continue
+            segmentationNode = (
+                entry.get("segmentationNode")
+                or self._parameterNode.teethSegmentation
+            )
+            if segmentationNode:
+                selectedByNode.setdefault(segmentationNode, set()).update(
+                    entry["segmentIds"]
+                )
+        show2d = composition.anatomy_dimension in {"2d", "both"}
+        show3d = composition.anatomy_dimension in {"3d", "both"}
+        for segmentationNode, segmentIds in selectedByNode.items():
+            display = segmentationNode.GetDisplayNode()
+            if not display:
+                continue
+            wasModifying = display.StartModify()
+            try:
+                display.SetVisibility(bool(segmentIds))
+                display.SetVisibility2D(show2d and bool(segmentIds))
+                display.SetVisibility3D(show3d and bool(segmentIds))
+                for segmentId in segmentIds:
+                    display.SetSegmentVisibility3D(segmentId, show3d)
+                    if hasattr(display, "SetSegmentVisibility2DFill"):
+                        display.SetSegmentVisibility2DFill(segmentId, show2d)
+                    if hasattr(display, "SetSegmentVisibility2DOutline"):
+                        display.SetSegmentVisibility2DOutline(segmentId, show2d)
+                    display.SetSegmentOpacity3D(
+                        segmentId,
+                        composition.anatomy_opacity,
+                    )
+            finally:
+                display.EndModify(wasModifying)
+        for entry in self._workflowViewEntriesByKey.values():
+            if entry["key"] not in visibleKeys or entry["kind"] not in {"node", "nodes"}:
+                continue
+            if entry["category"] == "robot_goal":
+                opacity = 0.3
+            else:
+                opacity = 1.0
+            nodes = [entry["node"]] if entry["kind"] == "node" else entry["nodes"]
+            for node in nodes:
+                display = node.GetDisplayNode() if node else None
+                if display and hasattr(display, "SetOpacity"):
+                    display.SetOpacity(opacity)
+
+    def _applyWorkflowViewComposition(
+        self,
+        composition: ViewComposition,
+        *,
+        recommended: bool,
+        allowRendererCreation: bool,
+        updateStatus: bool = True,
+    ) -> None:
+        if not self._parameterNode or not self.logic:
+            return
+        stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+        if stageIndex == 10 and self._step6SceneKind() == "conflict":
+            self.ui.workflowViewStatusLabel.text = _(
+                "Step 6 has both case and phantom scene sources. Resolve the scene conflict before composing the robot workspace view."
+            )
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #b00020;"
+            return
+        entries = self._workflowViewEntries(stageIndex)
+        self._workflowViewEntriesByKey = {entry["key"]: entry for entry in entries}
+        self._ensureWorkflowViewSnapshot()
+        self._applyWorkflowCbctMode(
+            composition,
+            allowRendererCreation=allowRendererCreation,
+        )
+        entries = self._workflowViewEntries(stageIndex)
+        self._workflowViewEntriesByKey = {entry["key"]: entry for entry in entries}
+        visibleKeys = self._workflowViewKeysForComposition(
+            composition,
+            entries,
+            stageIndex,
+        )
+        self._workflowViewComposition = composition
+        activeKey = "recommended" if recommended else "composition"
+        self._applyWorkflowViewKeys(
+            visibleKeys,
+            activePresetKey=activeKey,
+            updateStatus=False,
+        )
+        self._applyWorkflowAnatomyAppearance(composition, visibleKeys)
+        self._enforceStep6OpenedJawDisplaySeparation()
+        self._updateWorkflowViewControls()
+        if updateStatus:
+            self.ui.workflowViewStatusLabel.text = _(
+                "Applied one composable display view. Anatomy, slices, renderers, and overlays changed presentation only."
+            )
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
+
+    def _workflowOwnedMarkupStages(self) -> dict[object, int]:
+        """Return editable-stage ownership for DENTOBOT markups only."""
+
+        if not self._parameterNode:
+            return {}
+        stages: dict[object, int] = {}
+        fieldStages = {
+            "targetToothBoundsRoi": 4,
+            "trajectoryLine": 4,
+            "assistedTrajectoryEntries": 4,
+            "targetDockingReferencePlane": 6,
+            "templateSupportBoundaryCurve": 7,
+            "templateSupportBoundaryPlane": 7,
+            "templateInsertionDirection": 8,
+            "templateShellRoi": 8,
+            "templateTrimPlane": 9,
+            "templateTrimCurve": 9,
+            "draftJawLandmarks": 10,
+            "draftJawGapLine": 10,
+            "step6CaseJawLandmarks": 10,
+            "step6CaseJawGapLine": 10,
+            "step6OpenedTrajectoryLine": 10,
+            "robotMountPlane": 10,
+        }
+        for fieldName, stage in fieldStages.items():
+            node = getattr(self._parameterNode, fieldName, None)
+            if node and node.IsA("vtkMRMLMarkupsNode"):
+                stages[node] = stage
+        roleStages = {
+            "TemplateSupportBoundary": 7,
+            "TemplateSupportBoundaryPlane": 7,
+            "TargetDockingReferencePlane": 6,
+            "TargetDockingMeasurement": 6,
+            "TemplateShellTrimROI": 8,
+            "RobotMountPlane": 10,
+            "DraftJawLandmarks": 10,
+            "DraftJawGapLine": 10,
+            "Step6CaseJawLandmarks": 10,
+            "Step6CaseJawGapLine": 10,
+        }
+        for node in slicer.util.getNodesByClass(
+            "vtkMRMLDisplayableNode"
+        ):
+            if not node.IsA("vtkMRMLMarkupsNode"):
+                continue
+            if node.GetAttribute("DENTOBOT.TrajectoryRole"):
+                stages[node] = 4
+                continue
+            if node.GetAttribute("DENTOBOT.BoundsRole"):
+                stages[node] = 4
+                continue
+            role = node.GetAttribute("DENTOBOT.MarkupsRole") or ""
+            if role in roleStages:
+                stages[node] = roleStages[role]
+        return stages
+
+    def _step6OwnedMarkupMayInteract(self, node) -> bool:
+        if not self._parameterNode or not self.logic:
+            return False
+        role = node.GetAttribute("DENTOBOT.MarkupsRole") or ""
+        sceneKind = self._step6SceneKind()
+        if role == self.logic.STEP6_CASE_JAW_LANDMARKS_ROLE:
+            return bool(
+                sceneKind == "case"
+                and self.logic.step6CaseJawOpeningFreshnessIssues(
+                    self._parameterNode
+                )
+            )
+        if role == self.logic.DRAFT_JAW_LANDMARKS_ROLE:
+            return bool(
+                sceneKind == "phantom"
+                and not self._parameterNode.draftJawTransform
+            )
+        if role == self.logic.ROBOT_MOUNT_PLANE_ROLE:
+            return bool(
+                self._step6RobotPresent()
+                and not self._parameterNode.robotBaseMountLocked
+                and not self.logic.isRos2MotionControlActive(
+                    self._parameterNode.robotBaseTransform
+                )
+            )
+        return False
+
+    def _restoreStageExclusiveInteractionLocks(self) -> None:
+        for nodeId, state in list(
+            self._stageExclusiveInteractionPriorState.items()
+        ):
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if node:
+                node.SetLocked(bool(state["locked"]))
+                node.SetSelectable(bool(state["selectable"]))
+        self._stageExclusiveInteractionPriorState.clear()
+
+    def _updateStageExclusiveInteractionLocks(self, stageIndex: int) -> None:
+        """Make non-owning workflow markups non-selectable and non-draggable."""
+
+        ownedStages = self._workflowOwnedMarkupStages()
+        restrictedIds = set()
+        for node, ownerStage in ownedStages.items():
+            allowInteraction = ownerStage == int(stageIndex)
+            if allowInteraction and ownerStage == 10:
+                allowInteraction = self._step6OwnedMarkupMayInteract(node)
+            nodeId = node.GetID()
+            if not nodeId:
+                continue
+            if allowInteraction:
+                prior = self._stageExclusiveInteractionPriorState.pop(
+                    nodeId,
+                    None,
+                )
+                if prior:
+                    node.SetLocked(bool(prior["locked"]))
+                    node.SetSelectable(bool(prior["selectable"]))
+                continue
+            restrictedIds.add(nodeId)
+            self._stageExclusiveInteractionPriorState.setdefault(
+                nodeId,
+                {
+                    "locked": bool(node.GetLocked()),
+                    "selectable": bool(node.GetSelectable()),
+                },
+            )
+            node.SetLocked(True)
+            node.SetSelectable(False)
+        for nodeId in list(self._stageExclusiveInteractionPriorState):
+            if nodeId in restrictedIds:
+                continue
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            prior = self._stageExclusiveInteractionPriorState.pop(nodeId)
+            if node:
+                node.SetLocked(bool(prior["locked"]))
+                node.SetSelectable(bool(prior["selectable"]))
 
     def _activateWorkflowViewStage(
         self,
@@ -6262,19 +7630,58 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             self._workflowViewVisibleKeys.discard(key)
         self._workflowViewActivePresetKey = "custom"
+        self._workflowViewComposition = None
         self.ui.workflowViewStatusLabel.text = _(
             "Custom display selection; geometry and masks are unchanged."
         )
         self.ui.workflowViewStatusLabel.styleSheet = "color: #1f5f99;"
+        self._enforceStep6OpenedJawDisplaySeparation()
         self._updateWorkflowViewControls()
         self._updateTemplateGuideVisibilityControls()
+
+    def _removeWorkflowCreatedVolumeRenderingNodes(self) -> None:
+        for nodeId in list(self._workflowViewCreatedRendererNodeIds):
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if node:
+                slicer.mrmlScene.RemoveNode(node)
+        for nodeId in list(self._workflowViewCreatedPropertyNodeIds):
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if not node:
+                continue
+            references = vtk.vtkCollection()
+            try:
+                slicer.mrmlScene.GetReferencingNodes(node, references)
+            except Exception:
+                continue
+            if references.GetNumberOfItems() == 0:
+                slicer.mrmlScene.RemoveNode(node)
+        self._workflowViewCreatedRendererNodeIds.clear()
+        self._workflowViewCreatedPropertyNodeIds.clear()
 
     def _restoreWorkflowViewState(self, updateUi: bool = True) -> None:
         state = self._workflowViewPriorState
         self._workflowViewPriorState = None
         self._workflowViewActivePresetKey = ""
         self._workflowViewVisibleKeys.clear()
+        self._workflowViewComposition = None
         if state and self.logic:
+            self._removeWorkflowCreatedVolumeRenderingNodes()
+            for compositeId, compositeState in state.get(
+                "sliceComposites",
+                {},
+            ).items():
+                composite = slicer.mrmlScene.GetNodeByID(compositeId)
+                if not composite:
+                    continue
+                composite.SetBackgroundVolumeID(compositeState.get("background"))
+                composite.SetForegroundVolumeID(compositeState.get("foreground"))
+                composite.SetLabelVolumeID(compositeState.get("label"))
+                composite.SetForegroundOpacity(
+                    float(compositeState.get("foregroundOpacity", 0.0))
+                )
+                composite.SetLabelOpacity(
+                    float(compositeState.get("labelOpacity", 1.0))
+                )
             for displayNodeId, visible in state.get("volumeRendering", {}).items():
                 displayNode = slicer.mrmlScene.GetNodeByID(displayNodeId)
                 if displayNode:
@@ -6284,6 +7691,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             ).values():
                 self.logic.restoreWorkflowDisplayState(segmentationState)
             self.logic.restoreWorkflowDisplayState(state)
+            self._enforceStep6OpenedJawDisplaySeparation()
         if updateUi and hasattr(self, "ui"):
             self.ui.restorePlanningViewButton.enabled = False
             self.ui.workflowViewStatusLabel.text = _(
@@ -6292,6 +7700,50 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.workflowViewStatusLabel.styleSheet = "color: #207227;"
             self._updateWorkflowViewControls()
             self._updateTemplateGuideVisibilityControls()
+
+    def _enforceStep6OpenedJawDisplaySeparation(self) -> None:
+        """Keep closed-pose lower masks out of 3D while the opened proxy is current."""
+        if (
+            not self._parameterNode
+            or not self.logic
+            or self._step6SceneKind() != "case"
+            or self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
+        ):
+            return
+        segmentation = self._parameterNode.teethSegmentation
+        display = segmentation.GetDisplayNode() if segmentation else None
+        if not display:
+            return
+        for segmentId in self.logic.step6CaseJawSegmentIds(segmentation)["lower"]:
+            display.SetSegmentVisibility3D(segmentId, False)
+        model = self._parameterNode.step6OpenedLowerJawModel
+        modelDisplay = model.GetDisplayNode() if model else None
+        if modelDisplay:
+            modelDisplay.SetVisibility3D(True)
+        if self.logic.step6TargetJaw(self._parameterNode) == "lower":
+            sourceModels = (
+                [self._parameterNode.finalPrintableTemplateModel]
+                if self._parameterNode.finalPrintableTemplateModel
+                else [
+                    self._parameterNode.draftTemplateSupportModel,
+                    self._parameterNode.targetDockingAssemblyModel,
+                ]
+            )
+            for source in sourceModels:
+                sourceDisplay = source.GetDisplayNode() if source else None
+                if sourceDisplay:
+                    sourceDisplay.SetVisibility(False)
+            trajectory = self._parameterNode.trajectoryLine
+            trajectoryDisplay = trajectory.GetDisplayNode() if trajectory else None
+            if trajectoryDisplay:
+                trajectoryDisplay.SetVisibility(False)
+            for proxy in (
+                self._parameterNode.step6OpenedTargetGeometryModel,
+                self._parameterNode.step6OpenedTrajectoryLine,
+            ):
+                proxyDisplay = proxy.GetDisplayNode() if proxy else None
+                if proxyDisplay:
+                    proxyDisplay.SetVisibility(True)
 
     def onRestoreWorkflowView(self, checked: bool = False) -> None:
         del checked
@@ -6439,6 +7891,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 section.visible = isActive
                 section.collapsed = not isActive
             self._configureTemplateModelingStage(index)
+            self._updateStageExclusiveInteractionLocks(index)
             self.ui.stepTitleLabel.text = entries[index][0].upper()
         finally:
             self._updatingWorkflowNavigationUI = False
@@ -6655,6 +8108,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._restoreTemplateFinalizationViewState(updateUi=False)
         self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self._restoreWorkflowViewState(updateUi=False)
+        self._restoreStageExclusiveInteractionLocks()
         self.setParameterNode(None)
         self.removeObservers()
         self._sceneObserversActive = False
@@ -6691,6 +8145,7 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._restoreTemplateFinalizationViewState(updateUi=False)
         self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self._restoreWorkflowViewState(updateUi=False)
+        self._restoreStageExclusiveInteractionLocks()
         self.setParameterNode(None)
         self._removeSceneObservers()
 
@@ -6727,12 +8182,14 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._resumeWorkflowViewPresetAfterSave = ""
         self._resumeWorkflowViewPriorStateAfterSave = None
         self._resumeWorkflowViewVisibleKeysAfterSave.clear()
+        self._resumeWorkflowViewCompositionAfterSave = None
         self._restoreTrajectoryVerificationViewState(updateUi=False)
         self._restoreCrossViewNavigation(updateUi=False)
         self._restoreAssistedTrajectoryFocus(updateUi=False)
         self._restoreTemplateFinalizationViewState(updateUi=False)
         self._restoreTemplateSupportBoundaryFocus(updateUi=False)
         self._restoreWorkflowViewState(updateUi=False)
+        self._restoreStageExclusiveInteractionLocks()
         self._cancelBackendProcess(
             updateStatus=True,
             message=_("Backend process cancelled because the scene is closing."),
@@ -6850,17 +8307,33 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         logging.error(message)
         self._updateStep6PlanningUi(message, error=True)
 
+    @staticmethod
+    def _suspendRos2MotionActiveAttributesForSave() -> list[str]:
+        """Remove process-only active flags and return nodes to resume afterward."""
+
+        resumeNodeIds = []
+        for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
+            if node.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) != "true":
+                continue
+            resumeNodeIds.append(node.GetID())
+            node.RemoveAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE)
+        return resumeNodeIds
+
+    @staticmethod
+    def _restoreRos2MotionActiveAttributesAfterSave(nodeIds: list[str]) -> None:
+        for nodeId in nodeIds:
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if node is not None:
+                node.SetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE, "true")
+
     def onSceneStartSave(self, caller=None, event=None) -> None:
         """Keep transient verification presentation out of saved MRB state."""
 
         del caller, event
         mark_slicer_ros2_runtime_nodes_transient()
-        self._resumeRos2MotionActiveBaseIdsAfterSave = []
-        for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
-            if node.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) != "true":
-                continue
-            self._resumeRos2MotionActiveBaseIdsAfterSave.append(node.GetID())
-            node.RemoveAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE)
+        self._resumeRos2MotionActiveBaseIdsAfterSave = (
+            self._suspendRos2MotionActiveAttributesForSave()
+        )
         self._resumeTrajectoryVerificationAfterSave = bool(
             self._trajectoryVerificationEnabled
         )
@@ -6906,6 +8379,11 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if self._workflowViewPriorState
             else ""
         )
+        self._resumeWorkflowViewCompositionAfterSave = (
+            self._workflowViewComposition
+            if self._workflowViewPriorState
+            else None
+        )
         self._resumeWorkflowViewPriorStateAfterSave = (
             self._workflowViewPriorState
         )
@@ -6917,24 +8395,33 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onSceneEndSave(self, caller=None, event=None) -> None:
         del caller, event
-        for node_id in self._resumeRos2MotionActiveBaseIdsAfterSave:
-            node = slicer.mrmlScene.GetNodeByID(node_id)
-            if node is not None:
-                node.SetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE, "true")
+        self._restoreRos2MotionActiveAttributesAfterSave(
+            self._resumeRos2MotionActiveBaseIdsAfterSave
+        )
         self._resumeRos2MotionActiveBaseIdsAfterSave = []
         workflowViewPreset = self._resumeWorkflowViewPresetAfterSave
+        workflowViewComposition = self._resumeWorkflowViewCompositionAfterSave
         workflowViewState = self._resumeWorkflowViewPriorStateAfterSave
         workflowViewVisibleKeys = set(
             self._resumeWorkflowViewVisibleKeysAfterSave
         )
         self._resumeWorkflowViewPresetAfterSave = ""
+        self._resumeWorkflowViewCompositionAfterSave = None
         self._resumeWorkflowViewPriorStateAfterSave = None
         self._resumeWorkflowViewVisibleKeysAfterSave.clear()
         if workflowViewState and self._parameterNode:
             self._workflowViewPriorState = workflowViewState
             self._workflowViewVisibleKeys = workflowViewVisibleKeys
+            self._workflowViewComposition = workflowViewComposition
             self._updateWorkflowViewControls()
-            if workflowViewPreset == "custom":
+            if workflowViewPreset == "composition" and workflowViewComposition:
+                self._applyWorkflowViewComposition(
+                    workflowViewComposition,
+                    recommended=False,
+                    allowRendererCreation=True,
+                    updateStatus=False,
+                )
+            elif workflowViewPreset == "custom":
                 self._applyWorkflowViewKeys(
                     workflowViewVisibleKeys,
                     activePresetKey="custom",
@@ -7144,7 +8631,13 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updateTemplateGuide()
         self._updateTemplateFinalization()
         self._bindDraftJawLandmarksNode(self._parameterNode.draftJawLandmarks)
+        self._bindStep6CaseJawLandmarksNode(
+            self._parameterNode.step6CaseJawLandmarks
+        )
         self._updateRobotPlacement()
+        self._updateStageExclusiveInteractionLocks(
+            int(self.ui.workflowStageComboBox.currentIndex)
+        )
         self._updateWorkflowNavigationRecommendation()
         self._refreshWorkflowViewAfterStateChange()
         if self._applicationShell and self._applicationShell.active:
@@ -7320,6 +8813,9 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._updatePlanning()
         self._markCurrentDraftTemplateModelStale(
             _("Source segmentation content changed.")
+        )
+        self._markStep6CaseJawOpeningStale(
+            _("Source segmentation content changed; re-apply the case jaw opening.")
         )
         self._updateTemplateModeling()
         self.ui.segmentationReviewStatusLabel.text = (
@@ -16266,11 +17762,20 @@ class DENTOWorkflowWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Save a sanitized MRB without retaining the temporary scene location."""
 
         locationState = self._sceneLocationState()
+        mark_slicer_ros2_runtime_nodes_transient()
+        resumeRos2ActiveNodeIds = (
+            self._suspendRos2MotionActiveAttributesForSave()
+        )
         try:
             if not slicer.util.saveScene(str(scenePath)):
                 raise CaseBundleError(_("Slicer could not create the MRB snapshot."))
         finally:
-            self._restoreSceneLocationState(locationState)
+            try:
+                self._restoreSceneLocationState(locationState)
+            finally:
+                self._restoreRos2MotionActiveAttributesAfterSave(
+                    resumeRos2ActiveNodeIds
+                )
 
     def _createCaseBundle(self, destination: str | Path):
         if not self._parameterNode or not self.logic:
@@ -17332,6 +18837,13 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
     STEP_6_RESEARCH_PHANTOM_CENTER_RAS = (0.0, -150.0, 250.0)
     DRAFT_JAW_TRANSFORM_ROLE = "DraftJawTransform"
     DRAFT_JAW_GAP_LINE_ROLE = "DraftJawGapLine"
+    STEP6_CASE_JAW_LANDMARKS_ROLE = "Step6CaseJawLandmarks"
+    STEP6_CASE_JAW_TRANSFORM_ROLE = "Step6CaseJawTransform"
+    STEP6_CASE_JAW_GAP_LINE_ROLE = "Step6CaseJawGapLine"
+    STEP6_OPENED_LOWER_JAW_MODEL_ROLE = "Step6OpenedLowerJaw"
+    STEP6_OPENED_TARGET_GEOMETRY_MODEL_ROLE = "Step6OpenedTargetGeometry"
+    STEP6_OPENED_TRAJECTORY_ROLE = "Step6OpenedTrajectory"
+    STEP6_CASE_JAW_SCHEMA_VERSION = "1.0"
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
     SOURCE_VOLUME_REFERENCE_ROLE = "DENTOBOT.SourceVolume"
     SEGMENTATION_2D_RENDERING_MODE_ATTRIBUTE = (
@@ -17587,6 +19099,15 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "DENTOBOT.CoordinateSystem",
             "DENTOBOT.StaleReason",
             "DENTOBOT.RobotBaseMountLocked",
+            "DENTOBOT.JawMotion",
+            "DENTOBOT.TargetIncisorGapMm",
+            "DENTOBOT.AchievedIncisorGapMm",
+            "DENTOBOT.HingeAngleDeg",
+            "DENTOBOT.SourceGeometryFingerprint",
+            "DENTOBOT.LandmarksFingerprint",
+            "DENTOBOT.TargetSegmentID",
+            "DENTOBOT.TargetAttachedGeometryFingerprint",
+            "DENTOBOT.MovingSegmentIdsJson",
         )
         attributes = {
             name: str(node.GetAttribute(name))
@@ -17651,6 +19172,12 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             "robotBaseTransform",
             "robotMountPlane",
             "robotForeheadProxyModel",
+            "step6CaseJawLandmarks",
+            "step6CaseJawTransform",
+            "step6CaseJawGapLine",
+            "step6OpenedLowerJawModel",
+            "step6OpenedTargetGeometryModel",
+            "step6OpenedTrajectoryLine",
         )
         records = []
         for fieldName in fields:
@@ -17684,6 +19211,25 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     "heightMm": float(parameterNode.step6ForeheadProxyHeightMm),
                     "depthMm": float(parameterNode.step6ForeheadProxyDepthMm),
                     "offsetMm": float(parameterNode.step6ForeheadProxyOffsetMm),
+                },
+                "jawOpening": {
+                    "requiredForImportedCase": True,
+                    "targetGapMm": float(parameterNode.step6CaseJawTargetGapMm),
+                    "current": not bool(
+                        self.step6CaseJawOpeningFreshnessIssues(parameterNode)
+                    )
+                    if parameterNode.step6PlanningContextImported
+                    else False,
+                    "sourceGeometryFingerprint": (
+                        parameterNode.step6CaseJawTransform.GetAttribute(
+                            "DENTOBOT.SourceGeometryFingerprint"
+                        )
+                        if self.isStep6CaseJawTransformNode(
+                            parameterNode.step6CaseJawTransform
+                        )
+                        else ""
+                    ),
+                    "motionModel": "PureTMJHingeRotation",
                 },
                 "taskHome": (
                     json.loads(parameterNode.step6TaskHomeJson)
@@ -17724,23 +19270,8 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         actual: object,
         tolerance: float = 1e-6,
     ) -> bool:
-        if isinstance(expected, bool) or isinstance(actual, bool):
-            return expected is actual
-        if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
-            return math.isfinite(float(expected)) and math.isfinite(float(actual)) and (
-                abs(float(expected) - float(actual)) <= tolerance
-            )
-        if isinstance(expected, list) and isinstance(actual, list):
-            return len(expected) == len(actual) and all(
-                cls._caseBundleValuesMatch(left, right, tolerance)
-                for left, right in zip(expected, actual)
-            )
-        if isinstance(expected, dict) and isinstance(actual, dict):
-            return expected.keys() == actual.keys() and all(
-                cls._caseBundleValuesMatch(expected[key], actual[key], tolerance)
-                for key in expected
-            )
-        return expected == actual
+        del cls
+        return lineage_snapshot_matches(expected, actual, tolerance)
 
     def validateLoadedCaseBundleWorkflow(
         self,
@@ -17780,9 +19311,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             expectedComparable.pop("id", None)
             actualComparable.pop("id", None)
             if not self._caseBundleValuesMatch(expectedComparable, actualComparable):
+                mismatchPath = lineage_snapshot_mismatch_path(
+                    expectedComparable,
+                    actualComparable,
+                )
+                mismatchField = fieldName
+                if mismatchPath and not mismatchPath.startswith("<"):
+                    mismatchField = f"{fieldName}.{mismatchPath}"
                 raise CaseBundleError(
                     _("Loaded MRML geometry/lineage differs from the package: %1").replace(
-                        "%1", fieldName
+                        "%1", mismatchField
                     )
                 )
         expectedStep6 = expected.get("step6")
@@ -17859,6 +19397,51 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             and node.IsA("vtkMRMLLinearTransformNode")
             and node.GetAttribute("DENTOBOT.TransformRole")
             == cls.DRAFT_JAW_TRANSFORM_ROLE
+        )
+
+    @classmethod
+    def isStep6CaseJawLandmarksNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsFiducialNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole")
+            == cls.STEP6_CASE_JAW_LANDMARKS_ROLE
+        )
+
+    @classmethod
+    def isStep6CaseJawTransformNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLLinearTransformNode")
+            and node.GetAttribute("DENTOBOT.TransformRole")
+            == cls.STEP6_CASE_JAW_TRANSFORM_ROLE
+        )
+
+    @classmethod
+    def isStep6OpenedLowerJawModelNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLModelNode")
+            and node.GetAttribute("DENTOBOT.ModelRole")
+            == cls.STEP6_OPENED_LOWER_JAW_MODEL_ROLE
+        )
+
+    @classmethod
+    def isStep6OpenedTargetGeometryModelNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLModelNode")
+            and node.GetAttribute("DENTOBOT.ModelRole")
+            == cls.STEP6_OPENED_TARGET_GEOMETRY_MODEL_ROLE
+        )
+
+    @classmethod
+    def isStep6OpenedTrajectoryNode(cls, node) -> bool:
+        return bool(
+            node
+            and node.IsA("vtkMRMLMarkupsLineNode")
+            and node.GetAttribute("DENTOBOT.MarkupsRole")
+            == cls.STEP6_OPENED_TRAJECTORY_ROLE
         )
 
     @classmethod
@@ -18287,6 +19870,107 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             _("Place fourth landmark (Lower incisor)"),
         )
 
+    def ensureStep6CaseJawLandmarksNode(
+        self,
+        node: vtkMRMLMarkupsFiducialNode | None,
+    ) -> vtkMRMLMarkupsFiducialNode:
+        if node and not self.isStep6CaseJawLandmarksNode(node):
+            raise ValueError(_("Select the Step 6 case jaw landmark set."))
+        node = node or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsFiducialNode",
+            "[Step 6.0A] Case Jaw Landmarks",
+        )
+        node.SetName("[Step 6.0A] Case Jaw Landmarks")
+        if hasattr(node, "SetMaximumNumberOfControlPoints"):
+            node.SetMaximumNumberOfControlPoints(len(self.DRAFT_JAW_LANDMARK_LABELS))
+        node.SetLocked(False)
+        node.SetSelectable(True)
+        node.SetAttribute("DENTOBOT.MarkupsRole", self.STEP6_CASE_JAW_LANDMARKS_ROLE)
+        node.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
+        node.SetAttribute("DENTOBOT.Status", "CasePlanningInput")
+        node.SetAttribute(
+            "DENTOBOT.PlacementOrder",
+            "LeftTMJ,RightTMJ,UpperCentralIncisor,LowerCentralIncisor",
+        )
+        node.CreateDefaultDisplayNodes()
+        display = node.GetDisplayNode()
+        if display:
+            display.SetVisibility(True)
+            display.SetVisibility2D(True)
+            display.SetVisibility3D(True)
+            display.SetColor(0.10, 0.85, 1.00)
+            display.SetSelectedColor(1.0, 0.55, 0.10)
+            display.SetPointLabelsVisibility(True)
+            display.SetGlyphScale(1.4)
+        return node
+
+    def getStep6CaseJawLandmarkSummary(
+        self,
+        node: vtkMRMLMarkupsFiducialNode,
+    ) -> dict:
+        if not self.isStep6CaseJawLandmarksNode(node):
+            raise ValueError(_("Create the Step 6 case jaw landmarks first."))
+        expectedCount = len(self.DRAFT_JAW_LANDMARK_LABELS)
+        pointCount = node.GetNumberOfDefinedControlPoints()
+        if pointCount < 0 or pointCount > expectedCount:
+            raise ValueError(_("The case jaw landmark markup has an invalid point count."))
+        for index in range(min(pointCount, expectedCount)):
+            desiredLabel = self.DRAFT_JAW_LANDMARK_LABELS[index]
+            if node.GetNthControlPointLabel(index) != desiredLabel:
+                node.SetNthControlPointLabel(index, desiredLabel)
+        return {
+            "definedPointCount": pointCount,
+            "isComplete": pointCount == expectedCount,
+        }
+
+    @staticmethod
+    def startStep6CaseJawLandmarkPlacement(
+        landmarksNode: vtkMRMLMarkupsFiducialNode,
+    ) -> None:
+        if not DENTOWorkflowLogic.isStep6CaseJawLandmarksNode(landmarksNode):
+            raise ValueError(_("Create the Step 6 case jaw landmarks first."))
+        if landmarksNode.GetNumberOfDefinedControlPoints() >= 4:
+            raise ValueError(_("All four case jaw landmarks are already placed."))
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if not selectionNode:
+            raise RuntimeError(_("Slicer's selection node is unavailable."))
+        selectionNode.SetReferenceActivePlaceNodeClassName(
+            "vtkMRMLMarkupsFiducialNode"
+        )
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        slicer.modules.markups.logic().StartPlaceMode(0)
+        selectionNode.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        if (
+            selectionNode.GetActivePlaceNodeID() != landmarksNode.GetID()
+            or selectionNode.GetActivePlaceNodeClassName()
+            != "vtkMRMLMarkupsFiducialNode"
+            or not selectionNode.GetActivePlaceNodePlacementValid()
+        ):
+            DENTOWorkflowLogic.stopTrajectoryPlacement()
+            raise RuntimeError(
+                _("Slicer could not activate case jaw landmark placement.")
+            )
+
+    def step6CaseJawLandmarkPositions(
+        self,
+        node: vtkMRMLMarkupsFiducialNode,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        summary = self.getStep6CaseJawLandmarkSummary(node)
+        if not summary["isComplete"]:
+            raise ValueError(
+                _(
+                    "Place exactly four case landmarks in order: left TMJ, right "
+                    "TMJ, upper central incisor, lower central incisor."
+                )
+            )
+        positions = []
+        for index in range(4):
+            point = [0.0, 0.0, 0.0]
+            node.GetNthControlPointPositionWorld(index, point)
+            positions.append(np.asarray(point, dtype=float))
+        return tuple(positions)
+
     def getDraftJawLandmarkSummary(
         self,
         node: vtkMRMLMarkupsFiducialNode,
@@ -18520,6 +20204,662 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             mandible.SetAndObserveTransformNodeID(transform.GetID())
         if gapLine and slicer.mrmlScene.IsNodePresent(gapLine):
             slicer.mrmlScene.RemoveNode(gapLine)
+
+    def step6CaseJawSegmentIds(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+    ) -> dict[str, tuple[str, ...]]:
+        """Classify rigid upper and lower case surfaces from reviewed labels."""
+        upper: list[str] = []
+        lower: list[str] = []
+        upperJaw: list[str] = []
+        lowerJaw: list[str] = []
+        for record in self.getSegmentationReviewRecords(segmentationNode):
+            segmentId = str(record.get("segmentId") or "")
+            if not segmentId:
+                continue
+            category = str(record.get("category") or "")
+            if category == "Teeth":
+                jaw = dental_jaw_from_fdi(record.get("fdiNumber"))
+                if jaw == "upper":
+                    upper.append(segmentId)
+                elif jaw == "lower":
+                    lower.append(segmentId)
+                continue
+            if category != "Jaws":
+                continue
+            sourceName = str(record.get("sourceName") or "").strip().lower()
+            if "mandible" in sourceName or sourceName.startswith("lower_jaw"):
+                lowerJaw.append(segmentId)
+            elif "maxilla" in sourceName or sourceName.startswith("upper_jaw"):
+                upperJaw.append(segmentId)
+        return {
+            "upperTeeth": tuple(upper),
+            "lowerTeeth": tuple(lower),
+            "upperJaw": tuple(upperJaw),
+            "lowerJaw": tuple(lowerJaw),
+            "upper": tuple(dict.fromkeys((*upper, *upperJaw))),
+            "lower": tuple(dict.fromkeys((*lower, *lowerJaw))),
+        }
+
+    def _step6CaseJawGeometryFingerprint(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentIds: tuple[str, ...],
+    ) -> str:
+        segmentation = segmentationNode.GetSegmentation()
+        if not segmentation:
+            return ""
+        representationName = (
+            slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName()
+        )
+        records = []
+        for segmentId in segmentIds:
+            segment = segmentation.GetSegment(segmentId)
+            polydata = (
+                segment.GetRepresentation(representationName)
+                if segment
+                else None
+            )
+            if not polydata:
+                records.append({"id": segmentId, "missing": True})
+                continue
+            bounds = polydata.GetBounds()
+            records.append(
+                {
+                    "id": segmentId,
+                    "points": int(polydata.GetNumberOfPoints()),
+                    "cells": int(polydata.GetNumberOfCells()),
+                    "bounds": tuple(round(float(value), 6) for value in bounds),
+                }
+            )
+        parentMatrix = vtk.vtkMatrix4x4()
+        parentMatrix.Identity()
+        parent = segmentationNode.GetParentTransformNode()
+        if parent:
+            parent.GetMatrixTransformToWorld(parentMatrix)
+        return fingerprint(
+            {
+                "segmentationId": str(segmentationNode.GetID() or ""),
+                "parentToWorldRas": tuple(
+                    round(float(parentMatrix.GetElement(row, column)), 9)
+                    for row in range(4)
+                    for column in range(4)
+                ),
+                "segments": records,
+            }
+        )
+
+    def _step6CaseJawLandmarksFingerprint(
+        self,
+        landmarks: vtkMRMLMarkupsFiducialNode,
+    ) -> str:
+        positions = self.step6CaseJawLandmarkPositions(landmarks)
+        return fingerprint(
+            {
+                "role": self.STEP6_CASE_JAW_LANDMARKS_ROLE,
+                "pointsWorldRasMm": tuple(
+                    tuple(round(float(value), 9) for value in point)
+                    for point in positions
+                ),
+            }
+        )
+
+    def _step6TargetAttachedGeometryFingerprint(self, parameterNode) -> str:
+        trajectory = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        modelSources = (
+            [parameterNode.finalPrintableTemplateModel]
+            if parameterNode.finalPrintableTemplateModel
+            else [
+                parameterNode.draftTemplateSupportModel,
+                parameterNode.targetDockingAssemblyModel,
+            ]
+        )
+        modelRecords = []
+        for model in modelSources:
+            if not model:
+                continue
+            polydata = model_polydata_in_world(model)
+            bounds = polydata.GetBounds() if polydata else (0.0,) * 6
+            modelRecords.append(
+                {
+                    "id": str(model.GetID() or ""),
+                    "role": str(model.GetAttribute("DENTOBOT.ModelRole") or ""),
+                    "points": int(polydata.GetNumberOfPoints()) if polydata else 0,
+                    "cells": int(polydata.GetNumberOfCells()) if polydata else 0,
+                    "boundsWorldRasMm": tuple(
+                        round(float(value), 6) for value in bounds
+                    ),
+                }
+            )
+        return fingerprint(
+            {
+                "targetSegmentId": str(parameterNode.targetToothSegmentId or ""),
+                "targetJaw": self.step6TargetJaw(parameterNode),
+                "entryWorldRasMm": tuple(
+                    round(float(value), 9)
+                    for value in trajectory.get("entryRas", ())
+                ),
+                "targetWorldRasMm": tuple(
+                    round(float(value), 9)
+                    for value in trajectory.get("targetRas", ())
+                ),
+                "models": modelRecords,
+            }
+        )
+
+    def step6TargetJaw(self, parameterNode) -> str:
+        segmentation = parameterNode.teethSegmentation
+        targetId = str(parameterNode.targetToothSegmentId or "")
+        if not segmentation or not targetId:
+            return ""
+        for record in self.getTargetToothRecords(segmentation):
+            if str(record.get("segmentId") or "") == targetId:
+                return dental_jaw_from_fdi(record.get("fdiNumber")) or ""
+        return ""
+
+    def step6CaseJawOpeningFreshnessIssues(self, parameterNode) -> list[str]:
+        """Return reasons the imported case is not in a current open-mouth pose."""
+        if not bool(parameterNode.step6PlanningContextImported):
+            return []
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            return [_("The authoritative dental segmentation is missing.")]
+        landmarks = parameterNode.step6CaseJawLandmarks
+        if not self.isStep6CaseJawLandmarksNode(landmarks):
+            return [_("Place the four Step 6 case jaw landmarks.")]
+        try:
+            summary = self.getStep6CaseJawLandmarkSummary(landmarks)
+        except ValueError as exc:
+            return [str(exc)]
+        if not summary["isComplete"]:
+            return [
+                _("Place all four case landmarks: Left TMJ, Right TMJ, upper incisor, lower incisor.")
+            ]
+        transform = parameterNode.step6CaseJawTransform
+        model = parameterNode.step6OpenedLowerJawModel
+        if not self.isStep6CaseJawTransformNode(transform):
+            return [_("Apply the Step 6 case open-mouth transform.")]
+        if not self.isStep6OpenedLowerJawModelNode(model):
+            return [_("The derived opened lower-jaw planning surface is missing.")]
+        if transform.GetAttribute("DENTOBOT.GeometryState") != "Current":
+            return [
+                transform.GetAttribute("DENTOBOT.StaleReason")
+                or _("Re-apply the Step 6 case open-mouth transform.")
+            ]
+        if transform.GetParentTransformNode() is not None:
+            return [_("The case TMJ transform must remain in world RAS.")]
+        left, right, upper, lower = self.step6CaseJawLandmarkPositions(landmarks)
+        _angle, expectedMatrix, _openedLower, _gap = solve_hinge_rotation_for_gap(
+            left,
+            right,
+            upper,
+            lower,
+            float(parameterNode.step6CaseJawTargetGapMm),
+        )
+        actualVtk = vtk.vtkMatrix4x4()
+        transform.GetMatrixTransformToWorld(actualVtk)
+        actualMatrix = self._numpyFromVtkMatrix(actualVtk)
+        if not np.allclose(actualMatrix, expectedMatrix, atol=1e-6, rtol=0.0):
+            return [
+                _("The case TMJ transform matrix changed; re-apply the mouth opening.")
+            ]
+        if model.GetParentTransformNode() is not transform:
+            return [_("The opened lower-jaw surface is detached from its TMJ transform.")]
+        if self.step6TargetJaw(parameterNode) == "lower":
+            if not self.isStep6OpenedTrajectoryNode(
+                parameterNode.step6OpenedTrajectoryLine
+            ):
+                return [_("The opened mandibular Entry-to-Target display is missing.")]
+            if parameterNode.finalPrintableTemplateModel and not (
+                self.isStep6OpenedTargetGeometryModelNode(
+                    parameterNode.step6OpenedTargetGeometryModel
+                )
+            ):
+                return [_("The opened mandibular template display is missing.")]
+        sourceId = transform.GetNodeReferenceID("DENTOBOT.SourceSegmentation")
+        if sourceId != segmentation.GetID():
+            return [_("The open-mouth transform belongs to a different segmentation.")]
+        if (
+            transform.GetAttribute("DENTOBOT.LandmarksFingerprint")
+            != self._step6CaseJawLandmarksFingerprint(landmarks)
+        ):
+            return [
+                _("Case jaw landmarks changed; re-apply the mouth opening.")
+            ]
+        if transform.GetAttribute("DENTOBOT.TargetSegmentID") != str(
+            parameterNode.targetToothSegmentId or ""
+        ):
+            return [
+                _("The selected target changed; re-apply the case mouth opening.")
+            ]
+        if (
+            transform.GetAttribute("DENTOBOT.TargetAttachedGeometryFingerprint")
+            != self._step6TargetAttachedGeometryFingerprint(parameterNode)
+        ):
+            return [
+                _("Target trajectory or guide geometry changed; re-apply the mouth opening.")
+            ]
+        segmentGroups = self.step6CaseJawSegmentIds(segmentation)
+        lowerIds = segmentGroups["lower"]
+        if not lowerIds:
+            return [_("No lower-jaw or mandibular tooth surfaces are available.")]
+        expectedFingerprint = self._step6CaseJawGeometryFingerprint(
+            segmentation,
+            lowerIds,
+        )
+        if transform.GetAttribute("DENTOBOT.SourceGeometryFingerprint") != expectedFingerprint:
+            return [
+                _("Lower-jaw segmentation geometry changed; re-apply the mouth opening.")
+            ]
+        if model.GetAttribute("DENTOBOT.SourceGeometryFingerprint") != expectedFingerprint:
+            return [
+                _("The opened lower-jaw surface provenance is stale.")
+            ]
+        requestedGap = float(parameterNode.step6CaseJawTargetGapMm)
+        recordedGap = transform.GetAttribute("DENTOBOT.TargetIncisorGapMm")
+        try:
+            gapMatches = (
+                recordedGap is not None
+                and abs(float(recordedGap) - requestedGap) <= 1e-6
+            )
+        except (TypeError, ValueError):
+            gapMatches = False
+        if not gapMatches:
+            return [_("The requested incisor gap changed; re-apply the mouth opening.")]
+        return []
+
+    def _restoreStep6CaseLowerJawVisibility(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode | None,
+        model: vtkMRMLModelNode | None,
+    ) -> None:
+        if not segmentationNode or not model:
+            return
+        display = segmentationNode.GetDisplayNode()
+        if not display:
+            return
+        try:
+            states = json.loads(
+                model.GetAttribute("DENTOBOT.SourceSegmentVisibility3DJson") or "{}"
+            )
+        except (TypeError, json.JSONDecodeError):
+            states = {}
+        for segmentId, visible in states.items():
+            if segmentationNode.GetSegmentation().GetSegment(str(segmentId)):
+                display.SetSegmentVisibility3D(str(segmentId), bool(visible))
+
+    def _restoreStep6CaseTargetAttachedVisibility(self, parameterNode) -> None:
+        modelProxy = parameterNode.step6OpenedTargetGeometryModel
+        if modelProxy:
+            try:
+                states = json.loads(
+                    modelProxy.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson")
+                    or "{}"
+                )
+            except (TypeError, json.JSONDecodeError):
+                states = {}
+            for nodeId, visible in states.items():
+                node = slicer.mrmlScene.GetNodeByID(str(nodeId))
+                display = node.GetDisplayNode() if node else None
+                if display:
+                    display.SetVisibility(bool(visible))
+        trajectoryProxy = parameterNode.step6OpenedTrajectoryLine
+        if trajectoryProxy:
+            try:
+                state = json.loads(
+                    trajectoryProxy.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson")
+                    or "{}"
+                )
+            except (TypeError, json.JSONDecodeError):
+                state = {}
+            source = parameterNode.trajectoryLine
+            display = source.GetDisplayNode() if source else None
+            if display:
+                display.SetVisibility(bool(state.get("visible", True)))
+                display.SetVisibility2D(bool(state.get("visible2D", True)))
+                display.SetVisibility3D(bool(state.get("visible3D", True)))
+
+    def _updateStep6CaseTargetAttachedDisplay(
+        self,
+        parameterNode,
+        transform: vtkMRMLLinearTransformNode,
+    ) -> None:
+        """Create derived display proxies without moving Steps 0–5 source nodes."""
+        if self.step6TargetJaw(parameterNode) != "lower":
+            self._restoreStep6CaseTargetAttachedVisibility(parameterNode)
+            for node in (
+                parameterNode.step6OpenedTargetGeometryModel,
+                parameterNode.step6OpenedTrajectoryLine,
+            ):
+                if node and slicer.mrmlScene.IsNodePresent(node):
+                    slicer.mrmlScene.RemoveNode(node)
+            parameterNode.step6OpenedTargetGeometryModel = None
+            parameterNode.step6OpenedTrajectoryLine = None
+            return
+
+        modelSources = (
+            [parameterNode.finalPrintableTemplateModel]
+            if parameterNode.finalPrintableTemplateModel
+            else [
+                parameterNode.draftTemplateSupportModel,
+                parameterNode.targetDockingAssemblyModel,
+            ]
+        )
+        modelSources = [node for node in modelSources if node is not None]
+        surfaces = [model_polydata_in_world(node) for node in modelSources]
+        combined = self._appendPolydata(surfaces)
+        if combined is not None:
+            proxy = parameterNode.step6OpenedTargetGeometryModel
+            if proxy and not self.isStep6OpenedTargetGeometryModelNode(proxy):
+                raise ValueError(_("Select the Step 6 opened target-geometry model."))
+            proxy = proxy or slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode",
+                "[Step 6.0A] Opened Target-Attached Geometry",
+            )
+            proxy.SetName("[Step 6.0A] Opened Target-Attached Geometry")
+            proxy.SetAttribute(
+                "DENTOBOT.ModelRole",
+                self.STEP6_OPENED_TARGET_GEOMETRY_MODEL_ROLE,
+            )
+            proxy.SetAttribute("DENTOBOT.GeometryState", "Current")
+            try:
+                visibility = json.loads(
+                    proxy.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson")
+                    or "{}"
+                )
+            except (TypeError, json.JSONDecodeError):
+                visibility = {}
+            for source in modelSources:
+                sourceDisplay = source.GetDisplayNode()
+                if sourceDisplay and source.GetID() not in visibility:
+                    visibility[source.GetID()] = bool(sourceDisplay.GetVisibility())
+                if sourceDisplay:
+                    sourceDisplay.SetVisibility(False)
+            proxy.SetAttribute(
+                "DENTOBOT.SourceDisplayVisibilityJson",
+                canonical_json(visibility),
+            )
+            proxy.SetAndObservePolyData(combined)
+            proxy.SetAndObserveTransformNodeID(transform.GetID())
+            proxy.SetSelectable(False)
+            proxy.CreateDefaultDisplayNodes()
+            proxyDisplay = proxy.GetDisplayNode()
+            if proxyDisplay:
+                proxyDisplay.SetVisibility(True)
+                proxyDisplay.SetVisibility2D(False)
+                proxyDisplay.SetVisibility3D(True)
+                proxyDisplay.SetColor(0.95, 0.76, 0.18)
+                proxyDisplay.SetOpacity(float(parameterNode.step6GuidesOpacity))
+            parameterNode.step6OpenedTargetGeometryModel = proxy
+
+        trajectory = parameterNode.trajectoryLine
+        summary = self.getTrajectorySummary(trajectory) if trajectory else {}
+        if summary.get("isValid"):
+            proxyLine = parameterNode.step6OpenedTrajectoryLine
+            if proxyLine and not self.isStep6OpenedTrajectoryNode(proxyLine):
+                raise ValueError(_("Select the Step 6 opened trajectory line."))
+            proxyLine = proxyLine or slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsLineNode",
+                "[Step 6.0A] Opened Entry-to-Target",
+            )
+            proxyLine.SetName("[Step 6.0A] Opened Entry-to-Target")
+            proxyLine.SetAttribute(
+                "DENTOBOT.MarkupsRole",
+                self.STEP6_OPENED_TRAJECTORY_ROLE,
+            )
+            proxyLine.SetAttribute("DENTOBOT.GeometryState", "Current")
+            sourceDisplay = trajectory.GetDisplayNode()
+            if not proxyLine.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson"):
+                proxyLine.SetAttribute(
+                    "DENTOBOT.SourceDisplayVisibilityJson",
+                    canonical_json(
+                        {
+                            "visible": bool(sourceDisplay.GetVisibility())
+                            if sourceDisplay
+                            else True,
+                            "visible2D": bool(sourceDisplay.GetVisibility2D())
+                            if sourceDisplay
+                            else True,
+                            "visible3D": bool(sourceDisplay.GetVisibility3D())
+                            if sourceDisplay
+                            else True,
+                        }
+                    ),
+                )
+            if sourceDisplay:
+                sourceDisplay.SetVisibility(False)
+            proxyLine.SetAndObserveTransformNodeID(None)
+            proxyLine.RemoveAllControlPoints()
+            proxyLine.AddControlPointWorld(vtk.vtkVector3d(*summary["entryRas"]))
+            proxyLine.AddControlPointWorld(vtk.vtkVector3d(*summary["targetRas"]))
+            proxyLine.SetNthControlPointLabel(0, "Entry")
+            proxyLine.SetNthControlPointLabel(1, "Target")
+            proxyLine.SetLocked(True)
+            proxyLine.SetAndObserveTransformNodeID(transform.GetID())
+            proxyLine.CreateDefaultDisplayNodes()
+            proxyDisplay = proxyLine.GetDisplayNode()
+            if proxyDisplay:
+                proxyDisplay.SetVisibility(True)
+                proxyDisplay.SetVisibility2D(True)
+                proxyDisplay.SetVisibility3D(True)
+                proxyDisplay.SetColor(1.0, 0.25, 0.15)
+                proxyDisplay.SetSelectedColor(1.0, 0.85, 0.15)
+                proxyDisplay.SetLineThickness(0.5)
+            parameterNode.step6OpenedTrajectoryLine = proxyLine
+
+    def createOrUpdateStep6CaseJawOpening(
+        self,
+        parameterNode,
+    ) -> tuple[vtkMRMLLinearTransformNode, vtkMRMLModelNode, vtkMRMLMarkupsLineNode, dict]:
+        if not bool(parameterNode.step6PlanningContextImported):
+            raise ValueError(_("Import the Steps 0–5 planning package first."))
+        if bool(parameterNode.robotBaseMountLocked) or self.isRos2MotionControlActive(
+            parameterNode.robotBaseTransform
+        ):
+            raise ValueError(
+                _("Disconnect ROS and unlock the robot base before changing the case jaw pose.")
+            )
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            raise ValueError(_("The imported case has no authoritative dental segmentation."))
+        lowerIds = self.step6CaseJawSegmentIds(segmentation)["lower"]
+        if not lowerIds:
+            raise ValueError(
+                _("The imported segmentation has no mandibular jaw or lower-tooth surfaces.")
+            )
+        left, right, upper, lower = self.step6CaseJawLandmarkPositions(
+            parameterNode.step6CaseJawLandmarks
+        )
+        angle, matrix, openedLower, gap = solve_hinge_rotation_for_gap(
+            left,
+            right,
+            upper,
+            lower,
+            float(parameterNode.step6CaseJawTargetGapMm),
+        )
+        sourceSurface = self._segmentationSegmentsSurfaceWorld(
+            segmentation,
+            set(lowerIds),
+        )
+        if sourceSurface is None or sourceSurface.GetNumberOfPoints() == 0:
+            raise ValueError(_("Could not build the lower-jaw closed surface."))
+        sourceFingerprint = self._step6CaseJawGeometryFingerprint(
+            segmentation,
+            lowerIds,
+        )
+
+        transform = parameterNode.step6CaseJawTransform
+        if transform and not self.isStep6CaseJawTransformNode(transform):
+            raise ValueError(_("Select the Step 6 case jaw transform."))
+        transform = transform or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLinearTransformNode",
+            "[Step 6.0A] Case TMJ Mouth Opening",
+        )
+        transform.SetName("[Step 6.0A] Case TMJ Mouth Opening")
+        transform.SetAttribute("DENTOBOT.TransformRole", self.STEP6_CASE_JAW_TRANSFORM_ROLE)
+        transform.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
+        transform.SetAttribute("DENTOBOT.GeometryState", "Current")
+        transform.SetAttribute("DENTOBOT.StaleReason", None)
+        transform.SetAttribute("DENTOBOT.JawMotion", "PureTMJHingeRotation")
+        transform.SetAttribute(
+            "DENTOBOT.TargetIncisorGapMm",
+            f"{float(parameterNode.step6CaseJawTargetGapMm):.6f}",
+        )
+        transform.SetAttribute("DENTOBOT.AchievedIncisorGapMm", f"{gap:.6f}")
+        transform.SetAttribute("DENTOBOT.HingeAngleDeg", f"{angle:.6f}")
+        transform.SetAttribute("DENTOBOT.SourceGeometryFingerprint", sourceFingerprint)
+        transform.SetAttribute(
+            "DENTOBOT.LandmarksFingerprint",
+            self._step6CaseJawLandmarksFingerprint(
+                parameterNode.step6CaseJawLandmarks
+            ),
+        )
+        transform.SetAttribute(
+            "DENTOBOT.TargetSegmentID",
+            str(parameterNode.targetToothSegmentId or ""),
+        )
+        transform.SetAttribute(
+            "DENTOBOT.TargetAttachedGeometryFingerprint",
+            self._step6TargetAttachedGeometryFingerprint(parameterNode),
+        )
+        transform.SetAttribute("DENTOBOT.MovingSegmentIdsJson", canonical_json(lowerIds))
+        transform.SetNodeReferenceID(
+            "DENTOBOT.SourceSegmentation",
+            segmentation.GetID(),
+        )
+        transform.SetAndObserveTransformNodeID(None)
+        transform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
+
+        model = parameterNode.step6OpenedLowerJawModel
+        if model and not self.isStep6OpenedLowerJawModelNode(model):
+            raise ValueError(_("Select the Step 6 opened lower-jaw model."))
+        model = model or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "[Step 6.0A] Opened Lower Jaw Planning Surface",
+        )
+        model.SetName("[Step 6.0A] Opened Lower Jaw Planning Surface")
+        model.SetAttribute("DENTOBOT.ModelRole", self.STEP6_OPENED_LOWER_JAW_MODEL_ROLE)
+        model.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
+        model.SetAttribute("DENTOBOT.GeometryState", "Current")
+        model.SetAttribute("DENTOBOT.SourceGeometryFingerprint", sourceFingerprint)
+        model.SetAttribute("DENTOBOT.MovingSegmentIdsJson", canonical_json(lowerIds))
+        display = segmentation.GetDisplayNode()
+        if display:
+            try:
+                visibility = json.loads(
+                    model.GetAttribute("DENTOBOT.SourceSegmentVisibility3DJson")
+                    or "{}"
+                )
+            except (TypeError, json.JSONDecodeError):
+                visibility = {}
+            for segmentId in lowerIds:
+                if segmentId not in visibility:
+                    visibility[segmentId] = bool(
+                        display.GetSegmentVisibility3D(segmentId)
+                    )
+            model.SetAttribute(
+                "DENTOBOT.SourceSegmentVisibility3DJson",
+                canonical_json(visibility),
+            )
+        model.SetAndObservePolyData(sourceSurface)
+        model.SetAndObserveTransformNodeID(transform.GetID())
+        model.SetSelectable(False)
+        model.CreateDefaultDisplayNodes()
+        modelDisplay = model.GetDisplayNode()
+        if modelDisplay:
+            modelDisplay.SetVisibility(True)
+            modelDisplay.SetVisibility2D(False)
+            modelDisplay.SetVisibility3D(True)
+            modelDisplay.SetColor(0.90, 0.74, 0.56)
+            modelDisplay.SetOpacity(float(parameterNode.step6MasksOpacity))
+        if display:
+            for segmentId in lowerIds:
+                display.SetSegmentVisibility3D(segmentId, False)
+
+        gapLine = parameterNode.step6CaseJawGapLine
+        if gapLine and (
+            not gapLine.IsA("vtkMRMLMarkupsLineNode")
+            or gapLine.GetAttribute("DENTOBOT.MarkupsRole")
+            != self.STEP6_CASE_JAW_GAP_LINE_ROLE
+        ):
+            raise ValueError(_("Select the Step 6 case incisor-gap line."))
+        gapLine = gapLine or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "[Step 6.0A] Case Incisor Gap",
+        )
+        gapLine.SetName("[Step 6.0A] Case Incisor Gap")
+        gapLine.RemoveAllControlPoints()
+        gapLine.AddControlPointWorld(vtk.vtkVector3d(*upper))
+        gapLine.AddControlPointWorld(vtk.vtkVector3d(*openedLower))
+        gapLine.SetNthControlPointLabel(0, "Upper incisor")
+        gapLine.SetNthControlPointLabel(1, "Opened lower incisor")
+        gapLine.SetLocked(True)
+        gapLine.SetSelectable(False)
+        gapLine.SetAttribute("DENTOBOT.MarkupsRole", self.STEP6_CASE_JAW_GAP_LINE_ROLE)
+        gapLine.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
+        gapLine.CreateDefaultDisplayNodes()
+        gapDisplay = gapLine.GetDisplayNode()
+        if gapDisplay:
+            gapDisplay.SetVisibility(True)
+            gapDisplay.SetVisibility2D(True)
+            gapDisplay.SetVisibility3D(True)
+            gapDisplay.SetColor(0.15, 1.0, 0.25)
+            gapDisplay.SetPointLabelsVisibility(True)
+            gapDisplay.SetPropertiesLabelVisibility(True)
+
+        parameterNode.step6CaseJawTransform = transform
+        parameterNode.step6OpenedLowerJawModel = model
+        parameterNode.step6CaseJawGapLine = gapLine
+        self._updateStep6CaseTargetAttachedDisplay(parameterNode, transform)
+        self.invalidateStep6TaskConfirmation(
+            parameterNode,
+            _("Case jaw opening changed."),
+            makeBaseStale=True,
+        )
+        self.deleteRobotWorkspaceModel()
+        return transform, model, gapLine, {
+            "angleDeg": angle,
+            "gapMm": gap,
+            "openedLowerIncisorRas": openedLower,
+            "movingSegmentCount": len(lowerIds),
+        }
+
+    def resetStep6CaseJawOpening(self, parameterNode) -> None:
+        if bool(parameterNode.robotBaseMountLocked) or self.isRos2MotionControlActive(
+            parameterNode.robotBaseTransform
+        ):
+            raise ValueError(
+                _("Disconnect ROS and unlock the robot base before resetting the case jaw.")
+            )
+        model = parameterNode.step6OpenedLowerJawModel
+        transform = parameterNode.step6CaseJawTransform
+        gapLine = parameterNode.step6CaseJawGapLine
+        self._restoreStep6CaseLowerJawVisibility(
+            parameterNode.teethSegmentation,
+            model,
+        )
+        self._restoreStep6CaseTargetAttachedVisibility(parameterNode)
+        for node in (
+            parameterNode.step6OpenedTrajectoryLine,
+            parameterNode.step6OpenedTargetGeometryModel,
+            gapLine,
+            model,
+            transform,
+        ):
+            if node and slicer.mrmlScene.IsNodePresent(node):
+                slicer.mrmlScene.RemoveNode(node)
+        parameterNode.step6OpenedTrajectoryLine = None
+        parameterNode.step6OpenedTargetGeometryModel = None
+        parameterNode.step6CaseJawTransform = None
+        parameterNode.step6OpenedLowerJawModel = None
+        parameterNode.step6CaseJawGapLine = None
+        self.invalidateStep6TaskConfirmation(
+            parameterNode,
+            _("Case jaw opening was reset."),
+            makeBaseStale=True,
+        )
+        self.deleteRobotWorkspaceModel()
 
     def deleteDraftPhantom(
         self,
@@ -19280,16 +21620,37 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         """Return a coarse obstacle point cloud for Step 6 environment screening."""
         samples: list[tuple[float, float, float]] = []
         if parameterNode.teethSegmentation:
-            samples.extend(
-                self.step6SegmentationAnatomyPointsMm(
-                    parameterNode.teethSegmentation,
-                    stride=80,
-                ),
+            segmentation = parameterNode.teethSegmentation
+            jawGroups = self.step6CaseJawSegmentIds(segmentation)
+            fixedSurface = self._segmentationSegmentsSurfaceWorld(
+                segmentation,
+                set(jawGroups["upper"]),
             )
+            movingSurface = self._segmentationSegmentsSurfaceWorld(
+                segmentation,
+                set(jawGroups["lower"]),
+            )
+            if fixedSurface:
+                samples.extend(
+                    self._subsample_polydata_points(fixedSurface, stride=80),
+                )
+            if movingSurface:
+                if bool(parameterNode.step6PlanningContextImported):
+                    movingSurface = self._step6CaseJawPolydataWorld(
+                        parameterNode,
+                        movingSurface,
+                    )
+                samples.extend(
+                    self._subsample_polydata_points(movingSurface, stride=80),
+                )
         if parameterNode.draftTemplateSupportModel:
             try:
                 collision_world, _ = self.templateCollisionAnatomyWorld(
                     parameterNode.draftTemplateSupportModel,
+                )
+                collision_world = self._step6TargetAttachedPolydataWorld(
+                    parameterNode,
+                    collision_world,
                 )
                 samples.extend(
                     self._subsample_polydata_points(collision_world, stride=40),
@@ -19297,14 +21658,16 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             except ValueError:
                 pass
         if parameterNode.finalPrintableTemplateModel:
-            template_poly = model_polydata_in_world(
+            template_poly = self._step6TargetAttachedModelPolydataWorld(
+                parameterNode,
                 parameterNode.finalPrintableTemplateModel,
             )
             samples.extend(
                 self._subsample_polydata_points(template_poly, stride=60),
             )
         if parameterNode.targetDockingAssemblyModel:
-            dock_poly = model_polydata_in_world(
+            dock_poly = self._step6TargetAttachedModelPolydataWorld(
+                parameterNode,
                 parameterNode.targetDockingAssemblyModel,
             )
             samples.extend(
@@ -19320,6 +21683,96 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         if not samples:
             return np.zeros((0, 3), dtype=float)
         return np.asarray(samples, dtype=float)
+
+    @staticmethod
+    def _transformPolydataWithMatrix(
+        polydata: vtk.vtkPolyData,
+        matrix: vtk.vtkMatrix4x4,
+    ) -> vtk.vtkPolyData:
+        transform = vtk.vtkTransform()
+        transform.SetMatrix(matrix)
+        surfaceFilter = vtk.vtkTransformPolyDataFilter()
+        surfaceFilter.SetInputData(polydata)
+        surfaceFilter.SetTransform(transform)
+        surfaceFilter.Update()
+        result = vtk.vtkPolyData()
+        result.DeepCopy(surfaceFilter.GetOutput())
+        return result
+
+    @staticmethod
+    def _appendPolydata(
+        surfaces: list[vtk.vtkPolyData | None],
+    ) -> vtk.vtkPolyData | None:
+        valid = [
+            surface
+            for surface in surfaces
+            if surface is not None and surface.GetNumberOfPoints() > 0
+        ]
+        if not valid:
+            return None
+        append = vtk.vtkAppendPolyData()
+        for surface in valid:
+            append.AddInputData(surface)
+        append.Update()
+        result = vtk.vtkPolyData()
+        result.DeepCopy(append.GetOutput())
+        return result
+
+    def _step6CaseJawMatrixWorld(self, parameterNode) -> vtk.vtkMatrix4x4:
+        issues = self.step6CaseJawOpeningFreshnessIssues(parameterNode)
+        if issues:
+            raise ValueError(" ".join(issues))
+        matrix = vtk.vtkMatrix4x4()
+        parameterNode.step6CaseJawTransform.GetMatrixTransformToWorld(matrix)
+        return matrix
+
+    def _step6CaseJawPolydataWorld(
+        self,
+        parameterNode,
+        polydataWorld: vtk.vtkPolyData,
+    ) -> vtk.vtkPolyData:
+        return self._transformPolydataWithMatrix(
+            polydataWorld,
+            self._step6CaseJawMatrixWorld(parameterNode),
+        )
+
+    def _step6TargetAttachedPolydataWorld(
+        self,
+        parameterNode,
+        polydataWorld: vtk.vtkPolyData,
+    ) -> vtk.vtkPolyData:
+        if (
+            bool(parameterNode.step6PlanningContextImported)
+            and self.step6TargetJaw(parameterNode) == "lower"
+        ):
+            return self._step6CaseJawPolydataWorld(parameterNode, polydataWorld)
+        return polydataWorld
+
+    def _step6TargetAttachedModelPolydataWorld(
+        self,
+        parameterNode,
+        model: vtkMRMLModelNode,
+    ) -> vtk.vtkPolyData:
+        polydata = model_polydata_in_world(model)
+        return self._step6TargetAttachedPolydataWorld(parameterNode, polydata)
+
+    def step6TrajectorySummary(self, parameterNode) -> dict:
+        """Return Entry/Target in the active opened-mouth Step 6 world pose."""
+        summary = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        if (
+            not summary.get("isValid")
+            or not bool(parameterNode.step6PlanningContextImported)
+            or self.step6TargetJaw(parameterNode) != "lower"
+        ):
+            return summary
+        matrix = self._step6CaseJawMatrixWorld(parameterNode)
+        transformed = dict(summary)
+        for key in ("entryRas", "targetRas"):
+            point = [*map(float, summary[key]), 1.0]
+            result = [0.0, 0.0, 0.0, 0.0]
+            matrix.MultiplyPoint(point, result)
+            transformed[key] = np.asarray(result[:3], dtype=float)
+        return transformed
 
     def _polydataWorldToRobotBase(
         self,
@@ -19340,14 +21793,15 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         result.DeepCopy(surface_filter.GetOutput())
         return result
 
-    def _segmentationSurfaceWorld(
+    def _segmentationSegmentsSurfaceWorld(
         self,
         segmentation_node: vtkMRMLSegmentationNode,
-        segment_ids: set[str] | None = None,
+        segment_ids: set[str],
     ) -> vtk.vtkPolyData | None:
-        """Combine available tooth closed surfaces in world-RAS coordinates."""
-        if segmentation_node is None:
+        """Combine explicit segmentation surfaces in world-RAS coordinates."""
+        if segmentation_node is None or not segment_ids:
             return None
+        segmentation_node.CreateClosedSurfaceRepresentation()
         parent_to_world = vtk.vtkGeneralTransform()
         slicer.vtkMRMLTransformNode.GetTransformBetweenNodes(
             segmentation_node.GetParentTransformNode(),
@@ -19356,12 +21810,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
         append = vtk.vtkAppendPolyData()
         surface_count = 0
-        for record in self.getTargetToothRecords(segmentation_node):
-            segment_id = record.get("segmentId")
-            if not segment_id or (
-                segment_ids is not None and segment_id not in segment_ids
-            ):
-                continue
+        for segment_id in sorted(str(value) for value in segment_ids if value):
             try:
                 surface = self._getClosedSurfaceCopy(segmentation_node, segment_id)
             except (RuntimeError, ValueError):
@@ -19381,11 +21830,38 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         combined.DeepCopy(append.GetOutput())
         return combined
 
+    def _segmentationSurfaceWorld(
+        self,
+        segmentation_node: vtkMRMLSegmentationNode,
+        segment_ids: set[str] | None = None,
+    ) -> vtk.vtkPolyData | None:
+        """Combine available tooth closed surfaces in world-RAS coordinates."""
+        if segmentation_node is None:
+            return None
+        available_ids = {
+            str(record.get("segmentId") or "")
+            for record in self.getTargetToothRecords(segmentation_node)
+            if record.get("segmentId")
+        }
+        selected_ids = (
+            available_ids
+            if segment_ids is None
+            else available_ids.intersection(segment_ids)
+        )
+        return self._segmentationSegmentsSurfaceWorld(
+            segmentation_node,
+            selected_ids,
+        )
+
     def syncStep6MoveItPlanningScene(self, parameterNode) -> int:
         """Publish Step 6 anatomy/guide surfaces in the base_link frame."""
         base_transform = parameterNode.robotBaseTransform
         if base_transform is None:
             raise ValueError(_("Select the Step 6 robot base before syncing obstacles."))
+        if bool(parameterNode.step6PlanningContextImported):
+            jawIssues = self.step6CaseJawOpeningFreshnessIssues(parameterNode)
+            if jawIssues:
+                raise ValueError(" ".join(jawIssues))
         sources: list[tuple[str, str, vtk.vtkPolyData]] = []
         model_candidates = [
             *self.draftPhantomModelNodes(),
@@ -19397,6 +21873,15 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             if not isinstance(model, vtkMRMLModelNode):
                 continue
             world_surface = model_polydata_in_world(model)
+            if model in {
+                parameterNode.draftTemplateSupportModel,
+                parameterNode.finalPrintableTemplateModel,
+                parameterNode.targetDockingAssemblyModel,
+            }:
+                world_surface = self._step6TargetAttachedPolydataWorld(
+                    parameterNode,
+                    world_surface,
+                )
             if world_surface is None or world_surface.GetNumberOfPoints() == 0:
                 continue
             sources.append((model.GetID(), model.GetName(), world_surface))
@@ -19408,10 +21893,26 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             for record in self.getTargetToothRecords(segmentation)
             if record.get("segmentId")
         } if segmentation else set()
-        target_world = self._segmentationSurfaceWorld(
+        jawGroups = (
+            self.step6CaseJawSegmentIds(segmentation)
+            if segmentation
+            else {
+                "upperTeeth": (),
+                "lowerTeeth": (),
+                "upperJaw": (),
+                "lowerJaw": (),
+            }
+        )
+        lowerToothIds = set(jawGroups["lowerTeeth"])
+        target_world = self._segmentationSegmentsSurfaceWorld(
             segmentation,
             {target_id} if target_id else set(),
-        )
+        ) if segmentation else None
+        if target_world is not None and target_id in lowerToothIds:
+            target_world = self._step6CaseJawPolydataWorld(
+                parameterNode,
+                target_world,
+            )
         if target_world is not None:
             sources.append(
                 (
@@ -19420,9 +21921,22 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     target_world,
                 )
             )
-        non_target_world = self._segmentationSurfaceWorld(
+        nonTargetIds = all_tooth_ids - {target_id}
+        fixedNonTarget = self._segmentationSegmentsSurfaceWorld(
             segmentation,
-            all_tooth_ids - {target_id},
+            nonTargetIds - lowerToothIds,
+        ) if segmentation else None
+        movingNonTarget = self._segmentationSegmentsSurfaceWorld(
+            segmentation,
+            nonTargetIds.intersection(lowerToothIds),
+        ) if segmentation else None
+        if movingNonTarget is not None:
+            movingNonTarget = self._step6CaseJawPolydataWorld(
+                parameterNode,
+                movingNonTarget,
+            )
+        non_target_world = self._appendPolydata(
+            [fixedNonTarget, movingNonTarget],
         )
         if non_target_world is not None:
             sources.append(
@@ -19430,6 +21944,28 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     f"{segmentation.GetID()}:non-target-teeth",
                     "dentobot_non_target_teeth",
                     non_target_world,
+                )
+            )
+        fixedJaw = self._segmentationSegmentsSurfaceWorld(
+            segmentation,
+            set(jawGroups["upperJaw"]),
+        ) if segmentation else None
+        movingJaw = self._segmentationSegmentsSurfaceWorld(
+            segmentation,
+            set(jawGroups["lowerJaw"]),
+        ) if segmentation else None
+        if movingJaw is not None:
+            movingJaw = self._step6CaseJawPolydataWorld(
+                parameterNode,
+                movingJaw,
+            )
+        jawWorld = self._appendPolydata([fixedJaw, movingJaw])
+        if jawWorld is not None:
+            sources.append(
+                (
+                    f"{segmentation.GetID()}:case-jaw-bones",
+                    "dentobot_case_jaw_bones",
+                    jawWorld,
                 )
             )
 
@@ -19539,6 +22075,8 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
                     .replace("%2", verification)
                     .replace("%3", reason)
                 )
+        if bool(parameterNode.step6PlanningContextImported):
+            issues.extend(self.step6CaseJawOpeningFreshnessIssues(parameterNode))
         return issues
 
     def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
@@ -19626,7 +22164,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         trajectory = parameterNode.trajectoryLine
         if trajectory is None:
             return ""
-        summary = self.getTrajectorySummary(trajectory)
+        summary = self.step6TrajectorySummary(parameterNode)
         if not summary.get("isValid"):
             return ""
         attributes = {}
@@ -19766,7 +22304,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         freshness = self.step6PlanningContextFreshnessIssues(parameterNode)
         if freshness:
             raise ValueError(" ".join(freshness))
-        trajectory = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        trajectory = self.step6TrajectorySummary(parameterNode)
         home = self.taskHomeRecord(parameterNode)
         record = build_task_snapshot(
             target_segment_id=str(parameterNode.targetToothSegmentId or ""),
@@ -19987,8 +22525,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
             raise ValueError(
                 _("Load the ROS robot or MRML fallback before motion planning.")
             )
-        trajectory = parameterNode.trajectoryLine
-        summary = self.getTrajectorySummary(trajectory)
+        summary = self.step6TrajectorySummary(parameterNode)
         if not summary.get("isValid"):
             raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
 
@@ -20046,7 +22583,7 @@ class DENTOWorkflowLogic(ScriptedLoadableModuleLogic):
         )
 
     def step6ApproachPoints(self, parameterNode):
-        summary = self.getTrajectorySummary(parameterNode.trajectoryLine)
+        summary = self.step6TrajectorySummary(parameterNode)
         if not summary.get("isValid"):
             raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
         return approach_points(
@@ -30449,6 +32986,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowDirectionalSupportSideSelection",
             "test_DENTOWorkflowPatientContactShellVoxelFallback",
             "test_DENTOWorkflowTargetDockingYawMath",
+            "test_DENTOWorkflowTinyFusionArtifactFiltering",
             "test_DENTOWorkflowVisibleTemplateSupportSurface",
             "test_DENTOWorkflowTemplateFinalizationCameraMath",
             "test_DENTOWorkflowTemplateFinalizationPlaneConstraint",
@@ -30461,6 +32999,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             "test_DENTOWorkflowRobotPlacementLogic",
             "test_DENTOWorkflowRobotPlacementWidget",
             "test_DENTOWorkflowStep6CaseViewWidget",
+            "test_DENTOWorkflowStep6CaseJawOpening",
             "test_DENTOWorkflowStep6NativePlacementPersistence",
             "test_DENTOWorkflowStep6JointLimitSpinboxes",
             "test_DENTOWorkflowViewControlsPaletteWidget",
@@ -33010,6 +35549,10 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertFalse(secondTrajectoryNode.GetDisplayNode().GetVisibility())
         widget._applyWorkflowViewPreset("target_only")
         self.assertTrue(widget.ui.workflowViewGroupBox.isHidden())
+        self.assertIsNotNone(widget._workflowAnatomyComboBox)
+        self.assertIsNotNone(widget._workflowCbctComboBox)
+        self.assertIsNotNone(widget._workflowAdvancedTree)
+        self.assertGreater(widget._workflowAdvancedTree.topLevelItemCount, 0)
         self.assertTrue(
             widget._viewControlsTabWidget.isTabEnabled(
                 widget._viewControlsElementsTabIndex
@@ -33104,6 +35647,53 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-15"))
         self.assertTrue(boundsNode.GetDisplayNode().GetVisibility())
         self.assertFalse(shellNode.GetDisplayNode().GetVisibility())
+
+        widget._applyWorkflowViewComposition(
+            ViewComposition(
+                anatomy_scope="full_anatomy",
+                anatomy_dimension="3d",
+                cbct_mode="intensity_3d",
+                anatomy_opacity=0.35,
+            ),
+            recommended=False,
+            allowRendererCreation=True,
+        )
+        createdRendering = volumeRenderingLogic.GetFirstVolumeRenderingDisplayNode(
+            volumeNode
+        )
+        self.assertIsNotNone(createdRendering)
+        self.assertTrue(createdRendering.GetVisibility())
+        self.assertIn(
+            createdRendering.GetID(),
+            widget._workflowViewCreatedRendererNodeIds,
+        )
+        self.assertAlmostEqual(
+            segmentationDisplay.GetSegmentOpacity3D("tooth-14"),
+            0.35,
+        )
+        widget.onRestoreWorkflowView()
+        self.assertIsNone(
+            volumeRenderingLogic.GetFirstVolumeRenderingDisplayNode(volumeNode)
+        )
+
+        supportBoundary = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsClosedCurveNode",
+            "Step 5A interaction lock regression",
+        )
+        supportBoundary.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TemplateSupportBoundary",
+        )
+        supportBoundary.SetLocked(False)
+        supportBoundary.SetSelectable(True)
+        parameterNode.templateSupportBoundaryCurve = supportBoundary
+        robotStage = len(widget._workflowStageEntries()) - 1
+        widget._setWorkflowStage(robotStage, ensureVisible=False)
+        self.assertTrue(supportBoundary.GetLocked())
+        self.assertFalse(supportBoundary.GetSelectable())
+        widget._setWorkflowStage(7, ensureVisible=False)
+        self.assertFalse(supportBoundary.GetLocked())
+        self.assertTrue(supportBoundary.GetSelectable())
         widget._setWorkflowStage(0, ensureVisible=False)
         self.assertIn(
             f"segments:anatomy:upper_teeth:{segmentationNode.GetID()}",
@@ -33783,16 +36373,20 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
         widget.initializeParameterNode()
         parameterNode = widget._parameterNode
-        widget._setWorkflowStage(9, ensureVisible=False)
+        robotStageIndex = len(widget._workflowStageEntries()) - 1
+        widget._setWorkflowStage(robotStageIndex, ensureVisible=False)
         self.assertEqual(
-            widget.ui.workflowStageComboBox.itemText(9),
+            widget.ui.workflowStageComboBox.itemText(robotStageIndex),
             "6 · Robot Placement",
         )
         self.assertTrue(
             widget.ui.robotPlacementCollapsibleButton.text.startswith("Step 6")
         )
         self.assertFalse(widget.ui.draftOpenMouthPhantomGroupBox.isHidden())
+        self.assertFalse(widget.ui.step6CaseJawOpeningGroupBox.isHidden())
+        self.assertFalse(widget.ui.step6CaseJawOpeningGroupBox.enabled)
         self.assertAlmostEqual(widget.ui.draftJawTargetGapSpinBox.value, 40.0)
+        self.assertAlmostEqual(widget.ui.step6CaseJawTargetGapSpinBox.value, 40.0)
         self.assertFalse(widget.ui.robotPlacementCollapsibleButton.isHidden())
         self.assertTrue(widget.ui.caseCollapsibleButton.isHidden())
         self.assertEqual(len(widget._robotKeyboardShortcuts), 10)
@@ -33817,7 +36411,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
         self.assertEqual(len(widget.logic.robotModelNodes()), 7)
         self.assertIn("nodes:step6Phantom", widget._workflowViewEntriesByKey)
         self.assertIn("nodes:step6MrmlRobot", widget._workflowViewEntriesByKey)
-        recommended = widget._workflowViewRecommendedCategories(9)
+        recommended = widget._workflowViewRecommendedCategories(robotStageIndex)
         self.assertIn("phantom", recommended)
         self.assertIn("robot_mrml", recommended)
         landmarks = widget.logic.createOrResetDraftJawLandmarks(None)
@@ -33865,7 +36459,7 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             afterJoint.GetElement(0, 3) - beforeJoint.GetElement(0, 3),
             -9.99,
         )
-        widget._setWorkflowStage(8, ensureVisible=False)
+        widget._setWorkflowStage(robotStageIndex - 1, ensureVisible=False)
         self.assertTrue(
             all(not shortcut.enabled for shortcut in widget._robotKeyboardShortcuts)
         )
@@ -33894,6 +36488,175 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             parameterNode.EndModify(wasModifying)
         widget._clearRobotPlacement()
         self.delayDisplay("DENTOWorkflow robot placement widget test passed")
+
+    def test_DENTOWorkflowStep6CaseJawOpening(self) -> None:
+        """Case opening preserves source data and drives mandibular Step 6 world geometry."""
+        logic = DENTOWorkflowLogic()
+        parameterNode = logic.getParameterNode()
+        segmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "Step6CaseJawMasks",
+        )
+        segmentation.CreateDefaultDisplayNodes()
+        segmentation.GetSegmentation().SetSourceRepresentationName(
+            slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName()
+        )
+
+        def addCubeSegment(segmentId, name, bounds):
+            source = vtk.vtkCubeSource()
+            source.SetBounds(*bounds)
+            source.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(name)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName(),
+                source.GetOutput(),
+            )
+            segmentation.GetSegmentation().AddSegment(segment, segmentId)
+
+        addCubeSegment(
+            "upper-tooth-16",
+            "upper_right_first_molar_fdi16",
+            (-5.0, 5.0, -93.0, -87.0, -13.0, -7.0),
+        )
+        addCubeSegment(
+            "lower-tooth-36",
+            "lower_left_first_molar_fdi36",
+            (-5.0, 5.0, -93.0, -87.0, -15.0, -9.0),
+        )
+        addCubeSegment(
+            "maxilla",
+            "maxilla",
+            (-45.0, 45.0, -100.0, -50.0, -25.0, 5.0),
+        )
+        addCubeSegment(
+            "mandible",
+            "mandible",
+            (-45.0, 45.0, -100.0, -45.0, -30.0, -5.0),
+        )
+        segmentation.GetDisplayNode().SetAllSegmentsVisibility(True)
+        parameterNode.teethSegmentation = segmentation
+        parameterNode.targetToothSegmentId = "lower-tooth-36"
+
+        trajectory = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "Step6MandibularTrajectory",
+        )
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(0.0, -88.0, -8.0))
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(0.0, -90.0, -13.0))
+        trajectory.SetLocked(True)
+        trajectory.SetAttribute("DENTOBOT.CoordinateSystem", "SlicerRASmm")
+        parameterNode.trajectoryLine = trajectory
+
+        docking = self._addStep6CaseCubeModel(
+            "Step6MandibularDocking",
+            (-4.0, 4.0, -94.0, -86.0, -16.0, -6.0),
+        )
+        docking.SetAttribute("DENTOBOT.ModelRole", "TargetDockingAssembly")
+        docking.SetAttribute("DENTOBOT.GeometryState", "Current")
+        docking.SetAttribute("DENTOBOT.OrientationState", "Confirmed")
+        parameterNode.targetDockingAssemblyModel = docking
+        finalTemplate = self._addStep6CaseCubeModel(
+            "Step6MandibularTemplate",
+            (-8.0, 8.0, -98.0, -82.0, -18.0, -4.0),
+        )
+        finalTemplate.SetAttribute("DENTOBOT.ModelRole", "FinalPrintableTemplate")
+        finalTemplate.SetAttribute("DENTOBOT.GeometryState", "Current")
+        finalTemplate.SetAttribute("DENTOBOT.VerificationState", "PASS")
+        parameterNode.finalPrintableTemplateModel = finalTemplate
+        parameterNode.step6PlanningContextImported = True
+
+        landmarks = logic.ensureStep6CaseJawLandmarksNode(None)
+        for point in (
+            (-50.0, 0.0, 0.0),
+            (50.0, 0.0, 0.0),
+            (0.0, -90.0, -10.0),
+            (0.0, -90.0, -12.0),
+        ):
+            landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))
+        parameterNode.step6CaseJawLandmarks = landmarks
+        sourceLowerBounds = logic.getSegmentationSegmentBoundsWorld(
+            segmentation,
+            "lower-tooth-36",
+        )
+        sourceTrajectory = logic.getTrajectorySummary(trajectory)
+        transform, openedJaw, gapLine, opening = (
+            logic.createOrUpdateStep6CaseJawOpening(parameterNode)
+        )
+
+        self.assertAlmostEqual(opening["gapMm"], 40.0, delta=0.1)
+        self.assertTrue(logic.isStep6CaseJawTransformNode(transform))
+        self.assertIs(openedJaw.GetParentTransformNode(), transform)
+        self.assertEqual(gapLine.GetNumberOfDefinedControlPoints(), 2)
+        self.assertFalse(
+            segmentation.GetDisplayNode().GetSegmentVisibility3D("lower-tooth-36")
+        )
+        self.assertEqual(
+            tuple(sourceLowerBounds),
+            tuple(
+                logic.getSegmentationSegmentBoundsWorld(
+                    segmentation,
+                    "lower-tooth-36",
+                )
+            ),
+        )
+        self.assertIsNone(finalTemplate.GetParentTransformNode())
+        self.assertIs(
+            parameterNode.step6OpenedTargetGeometryModel.GetParentTransformNode(),
+            transform,
+        )
+        transformedTrajectory = logic.step6TrajectorySummary(parameterNode)
+        self.assertFalse(
+            np.allclose(
+                sourceTrajectory["targetRas"],
+                transformedTrajectory["targetRas"],
+            )
+        )
+        openedTarget = [0.0, 0.0, 0.0]
+        parameterNode.step6OpenedTrajectoryLine.GetNthControlPointPositionWorld(
+            1,
+            openedTarget,
+        )
+        self.assertTrue(
+            np.allclose(
+                openedTarget,
+                transformedTrajectory["targetRas"],
+                atol=1e-6,
+            )
+        )
+        self.assertFalse(logic.step6CaseJawOpeningFreshnessIssues(parameterNode))
+        self.assertFalse(logic.step6PlanningContextFreshnessIssues(parameterNode))
+
+        scenePath = Path(slicer.app.temporaryPath) / (
+            f"dentobot-case-jaw-opening-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scenePath)))
+            slicer.mrmlScene.Clear(0)
+            self.assertTrue(slicer.util.loadScene(str(scenePath)))
+            reloadedLogic = DENTOWorkflowLogic()
+            reloaded = reloadedLogic.getParameterNode()
+            self.assertTrue(reloaded.step6PlanningContextImported)
+            self.assertFalse(
+                reloadedLogic.step6CaseJawOpeningFreshnessIssues(reloaded)
+            )
+            self.assertTrue(
+                reloadedLogic.isStep6OpenedLowerJawModelNode(
+                    reloaded.step6OpenedLowerJawModel
+                )
+            )
+            reloadedLogic.resetStep6CaseJawOpening(reloaded)
+            self.assertIsNone(reloaded.step6CaseJawTransform)
+            self.assertIsNone(reloaded.step6OpenedLowerJawModel)
+            self.assertTrue(
+                reloaded.teethSegmentation.GetDisplayNode().GetSegmentVisibility3D(
+                    "lower-tooth-36"
+                )
+            )
+        finally:
+            scenePath.unlink(missing_ok=True)
+
+        self.delayDisplay("DENTOWorkflow Step 6 case jaw-opening test passed")
 
     def _addStep6CaseCubeModel(self, name: str, bounds) -> vtkMRMLModelNode:
         cube = vtk.vtkCubeSource()
@@ -35250,6 +38013,39 @@ class DENTOWorkflowTest(ScriptedLoadableModuleTest):
             self.assertAlmostEqual(dock["radialDistanceMm"], 10.0, places=6)
             self.assertLessEqual(abs(dock["topFacePlaneResidualMm"]), 1e-8)
         self.delayDisplay("DENTOWorkflow collision-aware Step 4C yaw tests passed")
+
+    def test_DENTOWorkflowTinyFusionArtifactFiltering(self) -> None:
+        """Discard only sub-resolution islands beside one printable component."""
+
+        rankedLabels = np.zeros(125, dtype=np.uint16)
+        rankedLabels[:100] = 1
+        rankedLabels[100:103] = 2
+        rankedLabels[103] = 3
+        rankedLabels[104] = 4
+        filteredMask, metrics = filter_tiny_occupied_region_artifacts(
+            rankedLabels.reshape((5, 5, 5)),
+            [100, 3, 1, 1],
+            (0.3, 0.3, 0.3),
+        )
+        self.assertTrue(metrics["tinyOccupiedArtifactCleanupApplied"])
+        self.assertEqual(metrics["maximumDiscardedOccupiedArtifactSampleCount"], 3)
+        self.assertEqual(metrics["removedTinyOccupiedRegionCount"], 3)
+        self.assertEqual(metrics["removedTinyOccupiedSampleCount"], 5)
+        self.assertEqual(metrics["removedSingleVoxelOccupiedRegionCount"], 2)
+        self.assertEqual(metrics["occupiedVolumeRegionCount"], 1)
+        self.assertEqual(metrics["occupiedVolumeRegionSizes"], [100])
+        self.assertEqual(int(np.count_nonzero(filteredMask)), 100)
+
+        rankedLabels[100:] = 0
+        rankedLabels[100:104] = 2
+        retainedMask, retainedMetrics = filter_tiny_occupied_region_artifacts(
+            rankedLabels.reshape((5, 5, 5)),
+            [100, 4],
+            (0.3, 0.3, 0.3),
+        )
+        self.assertFalse(retainedMetrics["tinyOccupiedArtifactCleanupApplied"])
+        self.assertEqual(retainedMetrics["occupiedVolumeRegionCount"], 2)
+        self.assertEqual(int(np.count_nonzero(retainedMask)), 104)
 
     def test_DENTOWorkflowVisibleTemplateSupportSurface(self) -> None:
         """Select crown-like patches from separate full-tooth surfaces in RAS."""

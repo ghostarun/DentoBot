@@ -128,6 +128,12 @@ def run() -> None:
             raise RuntimeError(f"could not load operator scene: {source}")
         process_events(1.0)
         widget = slicer.util.getModuleWidget("DENTOWorkflow")
+        active_base = widget._parameterNode.robotBaseTransform
+        connected_save = source.name == "test1_6_FD14.mrb"
+        if connected_save:
+            if active_base is None:
+                raise RuntimeError("Step 6 operator scene has no robot base")
+            active_base.SetAttribute("DENTOBOT.Ros2MotionControlActive", "true")
         before = scene_geometry_signature()
         location_before = (
             slicer.mrmlScene.GetURL() or "",
@@ -135,6 +141,10 @@ def run() -> None:
         )
         bundle = Path(slicer.app.temporaryPath) / f"{source.stem}.dentocase"
         inspection = widget._createCaseBundle(bundle)
+        if connected_save and (
+            active_base.GetAttribute("DENTOBOT.Ros2MotionControlActive") != "true"
+        ):
+            raise RuntimeError("case save did not restore the live ROS-active flag")
         location_after_save = (
             slicer.mrmlScene.GetURL() or "",
             slicer.mrmlScene.GetRootDirectory() or "",
@@ -152,6 +162,12 @@ def run() -> None:
         assert_no_ros_runtime(widget)
         after = scene_geometry_signature()
         assert_signature_close(before, after)
+        if connected_save:
+            print(
+                "DENTOBOT_CONNECTED_CASE_SAVE_PASS "
+                f"{source.name} {inspection.path.stat().st_size}",
+                flush=True,
+            )
         freshness = widget.logic.step6PlanningContextFreshnessIssues(
             widget._parameterNode
         )

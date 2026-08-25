@@ -45,8 +45,11 @@ imports the external environment into Slicer's embedded Python.
 ```text
 MRML / .dentocase (persistent)                 ROS/MoveIt session (transient)
 case + world-RAS geometry                      live TF robot + goal robot
-base status/source/revision                    Motion Control parameter/probes
-optional provisional forehead proxy            publishers/subscribers
+6.0A case jaw landmarks/gap/hinge +            Motion Control parameter/probes
+  derived opened lower-jaw / mandibular        publishers/subscribers
+  display proxies (source CBCT/masks intact)
+base status/source/revision
+optional provisional forehead proxy
 Task Home + reviewed assisted limits    -->    strict joint-command guard
 immutable task snapshot                        phased task guard configuration
 display opacities                               approach/drilling plans + status
@@ -267,16 +270,24 @@ locked model also carries redundant support-ID provenance for narrowly scoped
 parameter repair after restore, but source/target mismatch, staleness,
 malformed data, or an unlocked state always fails closed.
 
-At every stage, one scene-wide **Views** palette presents the active step's
-recommended display, explicit upper/lower/all permanent-tooth mask shortcuts
-for 2D, 3D, or both, and a collapsed Advanced inventory. Segmentation records
-are classified from their existing review category plus valid permanent-tooth
-FDI number, then reduced into operator-facing anatomy groups rather than one
-flat row per segment. Routine jaw shortcuts and recommendations use only the
+At every stage, one scene-wide **Views** palette presents a compact composable
+surface: **Anatomy**, **Show in** (2D/3D/both), **CBCT**, and a checkable
+**Overlays** menu. `ViewComposition` is the UI-independent value contract;
+the UI resolves it into existing display-node visibility and never into new
+clinical geometry. The Anatomy selector covers target/support masks,
+upper/lower/all teeth, upper/lower/full segmented anatomy, jaw bones,
+pulp/root canals, neural canals, sinuses/airway, and restorations/implants.
+Metadata-first classification uses stored review category, valid FDI number,
+segment name, and jaw hints; ambiguous records stay in Other rather than being
+guessed from shape.
+
+A collapsed hierarchical **Advanced objects** tree exposes the same inventory
+as semantic groups (authoritative anatomy with upper/lower branches, planning,
+guide, robot, CBCT/rendering, and other scene data), with individual segments
+available only below their group. Routine recommendations use only the
 parameter node's authoritative teeth segmentation and input CBCT; unrelated
-scene segmentations/volumes remain Advanced objects and cannot leak into the
-routine recommended view. Workflow nodes remain grouped by semantic role.
-Both Legacy and the six-workspace shell open this same palette and controller.
+scene segmentations/volumes cannot leak into them. Both Legacy and the
+six-workspace shell open this same palette and controller.
 
 The recommendation table is explicit for every retained internal stage:
 
@@ -304,20 +315,34 @@ and nodes and fits existing views without generating geometry.
 
 A volume renderer is not a segmentation mask: it maps scalar CBCT intensities
 through a Slicer transfer function and may look like an outer skin/scan
-envelope. Opening or refreshing Views must not create a volume-rendering
-display node. If one already exists because the operator created it elsewhere
-or an MRB restored it, Advanced may list it as **Volume rendering — not a
-mask**. It is excluded from every recommended preset and is hidden by an
-isolation preset unless explicitly selected.
+envelope. Opening, refreshing, and applying a recommendation never create a
+volume-rendering display node. Choosing **CBCT: 3D intensity rendering** is the
+only DENTOBOT action that may lazily call Slicer's default volume-rendering
+creation. The session records ownership of the created display/property nodes;
+Restore, module exit, or scene close removes only those session-created nodes.
+An existing MRB/operator renderer is listed as **Volume rendering — not a
+mask**, is never claimed by DENTOBOT, and has its prior visibility restored.
 
-Viewport presets are deliberately transient presentation state. At MRB save
-start, DENTOWorkflow restores the snapshot so the scene stores the operator's
-underlying display state; after save it reapplies the active preset. Parameter
-replacement, module exit, scene close, or cleanup
-restores the snapshot. This avoids making a convenient target-only or
-shell-only inspection state an unexplained persistent scene contract. The old
-Step 5B-specific visibility group remains readable in compatibility code but
-is hidden from the active workflow UI.
+Viewport compositions are deliberately transient presentation state. The
+snapshot includes slice-composite assignments/opacities, segmentation global
+and per-segment state, owned-model visibility/opacity, and pre-existing
+renderer visibility. At MRB save start, DENTOWorkflow restores that snapshot;
+after save it reapplies the selected composition. Parameter replacement,
+module exit, scene close, or cleanup restores it. This avoids serializing a
+convenient target-only or shell-only inspection state as workflow truth. The
+old Step 5B-specific visibility group remains readable in compatibility code
+but is hidden from the active workflow UI.
+
+Step ownership is also an interaction contract, not merely a visibility
+recommendation. Every DENTOBOT markup has an owning internal stage. Outside
+that stage it is locked and non-selectable, with its exact prior lock/select
+state restored on return. Step 6 is stricter: case/phantom sources are XOR;
+MRML/ROS robot representations are XOR; earlier planning/guide markups are
+read-only; jaw landmarks are editable only while the selected mouth-opening
+source still requires preparation; and the mount plane is editable only while
+a robot exists, ROS control is inactive, and the base is unlocked. This keeps
+an accidental Step 6 drag of the Step 5A support-boundary control points from
+invalidating the patient shell.
 
 The generated `DentalNavPlanning` threshold example is not the product UI and
 is excluded from the extension build. Its useful experiments may be migrated
@@ -974,20 +999,32 @@ unregistered draft geometry, `base_link -> burr` remains a CAD chain rather
 than a calibrated TCP, and head/mouth/mount/cable/environment collision is
 absent.
 
-Step 6 additionally owns a disposable, optional open-mouth scene aid. Three
-aligned BodyParts3D STL nodes represent the fixed neurocranium/maxilla and the
-movable mandible. They parent under a disposable workspace linear transform that
-relocates native BodyParts3D coordinates to the research workspace center on first
-load. A four-point Markups node stores approximate left TMJ, right TMJ, upper-
-incisor, and lower-incisor inputs; placement is one landmark per button click.
-Pure rigid rotation about the left-to-right TMJ axis is solved by deterministic
-angular search in world RAS until the transformed lower-incisor point is
-approximately 40 mm from the fixed upper point; the result is stored as a jaw
-opening transform in workspace-parent local coordinates. A Markups line shows
-the achieved gap. Only one phantom set and one robot placement set are permitted.
-The model, landmarks, workspace transform, jaw transform, and measurement are
-deletable trial nodes and carry no patient, clinical-jaw, collision, or
-registration semantics.
+Step 6 owns two open-mouth paths that share the same four-landmark TMJ hinge
+solver (`solve_hinge_rotation_for_gap`):
+
+1. **Draft phantom (optional XOR scene aid).** Three aligned BodyParts3D STL
+   nodes represent the fixed neurocranium/maxilla and the movable mandible.
+   They parent under a disposable workspace linear transform that relocates
+   native BodyParts3D coordinates to the research workspace center on first
+   load. Placement is one landmark per button click. Pure rigid rotation about
+   the left-to-right TMJ axis is solved by deterministic angular search in
+   world RAS until the transformed lower-incisor point is approximately 40 mm
+   from the fixed upper point; the result is stored as a jaw opening transform
+   in workspace-parent local coordinates. A Markups line shows the achieved
+   gap. Phantom models, landmarks, workspace/jaw transforms, and measurement
+   are deletable trial nodes and carry no patient, clinical-jaw, collision, or
+   registration semantics.
+2. **Imported case (required 6.0A).** After package import, operators place the
+   same four landmarks on case anatomy and apply a non-destructive hinge. Source
+   CBCT and segmentation stay untransformed; a derived opened lower-jaw planning
+   surface and mandibular display proxies carry the opening. Freshness of that
+   opening gates 6.1+ load/place/ROS/planning-scene actions. Collision and
+   MoveIt sync consume the opened lower-jaw polydata when current. This is
+   research planning preparation only—not clinical jaw kinematics or
+   registration evidence.
+
+Only one phantom set and one robot placement set are permitted; case and
+phantom scenes remain mutually exclusive for Step 6.
 
 ## Robot architecture and ROS decision gate
 

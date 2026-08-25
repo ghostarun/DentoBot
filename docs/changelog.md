@@ -21,6 +21,47 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-25 03:55:00 IST (UTC+05:30) — Connected case-package save repair
+
+- Made programmatic package snapshots explicitly exclude SlicerROS2 nodes and
+  suspend the live ROS-active base flag, restoring runtime state only in the
+  current scene after save. The package audit remains fail-closed.
+- Added a connected-save round trip that verifies the live flag resumes,
+  package reload contains no ROS state, and geometry is unchanged at `1e-6`.
+  The focused run printed `DENTOBOT_CONNECTED_CASE_SAVE_PASS`; AST/static
+  checks and all 97 host tests passed.
+- The separate historical package fixture is currently missing; that
+  compatibility check was not claimed. Reload and operator save retry remain.
+
+## 2026-08-25 03:18:00 IST (UTC+05:30) — Step 5B voxel-island cleanup
+
+- Reproduced the representative `test1_5b2.mrb` fusion failure as one
+  85,852-voxel printable region plus regions of 3, 1, and 1 voxels.
+- Verified all four independent shell-contact branches were present; generalized
+  numerical-island cleanup from one voxel to a resolution-aware maximum
+  0.1 mm³ per extra region only when one printable region remains. Larger
+  disconnected geometry still fails closed, and raw/removed metrics persist.
+- The repaired case generated one watertight occupied volume with four branch
+  records. Focused and full synthetic Slicer regressions, AST parsing, and 97
+  host tests passed. Physical fit, strength, manufacturing, and clinical
+  acceptance remain open.
+
+## 2026-08-25 00:52:52 IST (UTC+05:30) — Ubuntu workflow launcher repair
+
+- Made the final Ubuntu `docker exec` request `-it` only from an interactive
+  terminal, allowing Cursor and other non-TTY callers to launch the attached
+  Slicer GUI without Docker rejecting stdin.
+- Closing the successful session exposed orphaned ROS/MoveIt children after
+  Slicer's known VTK-leak exit. The simulation launch now owns a separate
+  process group and cleanup performs bounded INT, TERM, then KILL escalation.
+- Added focused regression coverage and documented that the host Docker
+  service must be active. The incident's first failure was the absent daemon
+  socket; starting `docker.service` restored the existing runtime.
+- Bash syntax, five focused tests, the bounded process-group probe, the
+  97-test host suite, full launcher preflight, backend health, ROS-package
+  build, live Slicer/DENTOWorkflow startup, and the simulation `ready:true`
+  contract passed. No hardware execution or robot motion ran.
+
 ## 2026-08-24 20:53:23 IST (UTC+05:30) — Ubuntu native Step 6 simulation workflow
 
 - Rebuilt Step 6 as one gated DENTOWorkflow sequence with persistent

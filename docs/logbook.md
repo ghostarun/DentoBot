@@ -25,6 +25,83 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-08-25 13:34:00 IST (UTC+05:30) — Step 6.0A required case mouth opening
+
+- Request: require a case mouth-opening step at the start of Step 6 after
+  importing the Steps 0–5 package, reusing draft-phantom TMJ hinge logic, then
+  continue planning on opened-mouth anatomy.
+- Decision: non-destructive derived lower-jaw surface + mandibular display
+  proxies; source CBCT/masks untouched; gate 6.1+ until opening is current;
+  phantom remains alternate XOR scene.
+- Implementation landed in `DENTOWorkflow` UI/parameter node/logic, façade
+  `_scene_preparation_issue`, planning-scene/collision consumers, and
+  `test_DENTOWorkflowStep6CaseJawOpening`.
+- Verification before context-limit interruption:
+  `DENTOBOT_CASE_JAW_OPENING_PASS`, focused façade/env tests, host `Testing/`
+  suite. Docs completed after the limit recovery. Graphical acceptance after
+  reload remains open. Not clinical kinematics.
+
+## 2026-08-25 03:55:00 IST (UTC+05:30) — Connected case save repaired
+
+- Reproduced the reported package audit failure by setting the Step 6 robot
+  base's live ROS-active flag and invoking the real package snapshot path.
+- The archive audit was correct; programmatic MRB creation had relied only on
+  general scene-save observers. It now explicitly makes ROS nodes transient,
+  suspends active flags, saves, and restores the running scene's location and
+  active flag in `finally` blocks.
+- The connected-save smoke verified live-flag restoration, runtime-free package
+  reload, and unchanged geometry at `1e-6`, printing
+  `DENTOBOT_CONNECTED_CASE_SAVE_PASS`. Its separate historical-package check
+  remains unavailable because `dentobot-step6.dentocase` is absent. AST/static
+  checks and all 97 host tests passed.
+- The active graphical ROS session was not interrupted. Reload the module, then
+  retry package save; reconnect explicitly after reload if simulation is still
+  needed.
+
+## 2026-08-25 03:18:00 IST (UTC+05:30) — Step 5B representative fusion repaired
+
+- Loaded `test1_5b2.mrb` without saving changes. Its persisted shell and Step 4C
+  inputs were stale, so they were regenerated in memory before reproducing the
+  reported `[85852, 3, 1, 1]` disconnected occupied-region error.
+- All four independent 3.5 mm dock-to-shell branches existed, overlapped each
+  endpoint by 2.0 mm, and had only 0.003–0.310 mm shell gaps. The five voxels
+  outside the 85,852-voxel main region were numerical islands, not four
+  detached docks.
+- Final fusion now removes individually microscopic regions only beside one
+  printable component, using a resolution-aware 0.1 mm³ bound plus the
+  pre-existing one-voxel floor. It records raw and removed-region evidence and
+  continues to reject every larger second component.
+- The case rebuilt as one watertight occupied volume with four attachment
+  records. Focused and complete synthetic Slicer tests, AST parsing, and all 97
+  host tests passed. Operator visual/channel inspection and physical validation
+  remain open; no MRB, robot, drilling, or patient-facing operation ran.
+
+## 2026-08-25 00:52:52 IST (UTC+05:30) — DENTOWorkflow launch failure fixed
+
+- The launcher parsed successfully, but its first preflight found the host
+  Docker service/socket inactive and `/var/run/docker.sock` absent. Starting
+  `docker.service` restored Compose; the complete `--check-only` path then
+  passed backend health, package builds, render-node checks, and runtime
+  safeguards.
+- The subsequent full launch exposed a source defect: unconditional
+  `docker exec -it` rejected Cursor's non-terminal stdin. The launcher now
+  allocates a pseudo-TTY only when stdin and stdout are terminals; normal
+  interactive-terminal behavior and attached lifecycle cleanup are retained.
+- The successful session later closed with the pinned SlicerROS2 build's known
+  VTK-leak exit code. This exposed that signalling only the top-level
+  `ros2 launch` PID orphaned its five ROS/MoveIt children. Those exact
+  simulation processes were terminated and verified absent. The launcher now
+  starts the stack in a separate process group and performs bounded INT, TERM,
+  then KILL cleanup across the group.
+- Bash syntax, five focused tests, the bounded process-group probe, and the
+  97-test host suite passed. The repaired launch started Slicer/SlicerApp-real
+  with DENTOWorkflow selected on CRD `DISPLAY=:20.0`; ROS status reported
+  `ready:true`, planning ready, and one joint-state source. No hardware motion,
+  Execute, drilling, or patient-facing action ran.
+- Host window-title tools were unavailable, so process arguments and the ROS
+  readiness status are recorded as runtime evidence; operator visual
+  acceptance remains separate.
+
 ## 2026-08-24 20:53:23 IST (UTC+05:30) — Native Step 6 implementation
 
 - Implemented the requested placement→Task Home→workspace/review→native

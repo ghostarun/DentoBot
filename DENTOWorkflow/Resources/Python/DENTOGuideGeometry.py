@@ -22,6 +22,7 @@ from DENTOTemplateGeometry import create_hollow_sleeve, surface_topology
 
 
 MAX_SAMPLE_POINTS = 48_000_000
+MAX_DISCARDED_OCCUPIED_ARTIFACT_VOLUME_MM3 = 0.1
 
 
 def _vector(values, label: str) -> np.ndarray:
@@ -55,6 +56,77 @@ def _append_surfaces(surfaces: Sequence[vtk.vtkPolyData]) -> vtk.vtkPolyData:
         raise ValueError("At least one non-empty guide surface is required.")
     append.Update()
     return _triangulated_clean(append.GetOutput())
+
+
+def filter_tiny_occupied_region_artifacts(
+    ranked_labels: np.ndarray,
+    occupied_region_sizes: Sequence[int],
+    voxel_spacing_mm: Sequence[float],
+) -> tuple[np.ndarray, dict]:
+    """Retain one printable region when every other region is microscopic noise."""
+
+    labels = np.asarray(ranked_labels)
+    region_sizes = [int(size) for size in occupied_region_sizes]
+    spacing = np.asarray(voxel_spacing_mm, dtype=float)
+    if (
+        spacing.shape != (3,)
+        or not np.all(np.isfinite(spacing))
+        or np.any(spacing <= 0)
+    ):
+        raise ValueError(
+            "Occupied-region voxel spacing must contain three positive values."
+        )
+    voxel_volume_mm3 = float(np.prod(spacing))
+    maximum_artifact_sample_count = max(
+        1,
+        int(
+            math.floor(
+                MAX_DISCARDED_OCCUPIED_ARTIFACT_VOLUME_MM3
+                / voxel_volume_mm3
+                + 1e-12
+            )
+        ),
+    )
+    retained_region_sizes = [
+        size for size in region_sizes if size > maximum_artifact_sample_count
+    ]
+    cleanup_applied = (
+        len(region_sizes) > 1
+        and len(retained_region_sizes) == 1
+        and len(retained_region_sizes) < len(region_sizes)
+    )
+    removed_region_sizes = (
+        [size for size in region_sizes if size <= maximum_artifact_sample_count]
+        if cleanup_applied
+        else []
+    )
+    filtered_mask = labels == 1 if cleanup_applied else labels > 0
+    final_region_sizes = retained_region_sizes if cleanup_applied else region_sizes
+    return filtered_mask, {
+        "rawOccupiedVolumeRegionCount": len(region_sizes),
+        "rawOccupiedVolumeRegionSizes": region_sizes,
+        "occupiedVolumeRegionCount": len(final_region_sizes),
+        "occupiedVolumeRegionSizes": final_region_sizes,
+        "occupiedArtifactVoxelVolumeMm3": voxel_volume_mm3,
+        "maximumDiscardedOccupiedArtifactVolumeMm3": (
+            MAX_DISCARDED_OCCUPIED_ARTIFACT_VOLUME_MM3
+        ),
+        "maximumDiscardedOccupiedArtifactSampleCount": (
+            maximum_artifact_sample_count
+        ),
+        "removedTinyOccupiedRegionCount": len(removed_region_sizes),
+        "removedTinyOccupiedSampleCount": sum(removed_region_sizes),
+        "removedTinyOccupiedApproximateVolumeMm3": (
+            sum(removed_region_sizes) * voxel_volume_mm3
+        ),
+        "removedSingleVoxelOccupiedRegionCount": sum(
+            1 for size in removed_region_sizes if size == 1
+        ),
+        "removedSingleVoxelOccupiedSampleCount": sum(
+            size for size in removed_region_sizes if size == 1
+        ),
+        "tinyOccupiedArtifactCleanupApplied": cleanup_applied,
+    }
 
 
 def _unit(values, label: str) -> np.ndarray:
@@ -1287,30 +1359,23 @@ def fuse_shell_and_docking_voxel(
     occupied_connectivity.SetScalarRange(1.0, 1.0)
     occupied_connectivity.SetLabelModeToSizeRank()
     occupied_connectivity.Update()
-    occupied_volume_region_count = int(
-        occupied_connectivity.GetNumberOfExtractedRegions()
-    )
     occupied_region_sizes_array = occupied_connectivity.GetExtractedRegionSizes()
-    occupied_region_sizes = [
+    raw_occupied_region_sizes = [
         int(occupied_region_sizes_array.GetValue(index))
         for index in range(occupied_region_sizes_array.GetNumberOfValues())
     ]
-    removed_single_voxel_region_count = 0
-    removed_single_voxel_sample_count = 0
-    substantive_region_sizes = [size for size in occupied_region_sizes if size > 1]
-    if (
-        occupied_volume_region_count > 1
-        and len(substantive_region_sizes) == 1
-        and len(substantive_region_sizes) < len(occupied_region_sizes)
-    ):
-        ranked_labels = vtk_to_numpy(
-            occupied_connectivity.GetOutput().GetPointData().GetScalars()
-        ).reshape(dimensions[2], dimensions[1], dimensions[0])
-        removed_single_voxel_region_count = sum(
-            1 for size in occupied_region_sizes if size == 1
+    ranked_labels = vtk_to_numpy(
+        occupied_connectivity.GetOutput().GetPointData().GetScalars()
+    ).reshape(dimensions[2], dimensions[1], dimensions[0])
+    filtered_mask, occupied_artifact_metrics = (
+        filter_tiny_occupied_region_artifacts(
+            ranked_labels,
+            raw_occupied_region_sizes,
+            binary_image.GetSpacing(),
         )
-        removed_single_voxel_sample_count = removed_single_voxel_region_count
-        final_mask = ranked_labels == 1
+    )
+    if occupied_artifact_metrics["tinyOccupiedArtifactCleanupApplied"]:
+        final_mask = filtered_mask
         occupied_count = int(np.count_nonzero(final_mask))
         binary_scalars = numpy_to_vtk(
             np.ascontiguousarray(final_mask.astype(np.uint8).ravel()),
@@ -1319,8 +1384,12 @@ def fuse_shell_and_docking_voxel(
         )
         binary_scalars.SetName("DENTOBOT.FinalPrintableTemplateMask")
         binary_image.GetPointData().SetScalars(binary_scalars)
-        occupied_volume_region_count = 1
-        occupied_region_sizes = substantive_region_sizes
+    occupied_volume_region_count = int(
+        occupied_artifact_metrics["occupiedVolumeRegionCount"]
+    )
+    occupied_region_sizes = occupied_artifact_metrics[
+        "occupiedVolumeRegionSizes"
+    ]
     if occupied_volume_region_count != 1:
         raise RuntimeError(
             "Final shell/docking fusion contains "
@@ -1369,12 +1438,5 @@ def fuse_shell_and_docking_voxel(
         "channelSampleCount": int(np.count_nonzero(channel_mask)),
         "dockingSampleCount": int(np.count_nonzero(docking_mask)),
         "reinforcementSampleCount": int(np.count_nonzero(reinforcement_mask)),
-        "occupiedVolumeRegionCount": occupied_volume_region_count,
-        "occupiedVolumeRegionSizes": occupied_region_sizes,
-        "removedSingleVoxelOccupiedRegionCount": (
-            removed_single_voxel_region_count
-        ),
-        "removedSingleVoxelOccupiedSampleCount": (
-            removed_single_voxel_sample_count
-        ),
+        **occupied_artifact_metrics,
     }

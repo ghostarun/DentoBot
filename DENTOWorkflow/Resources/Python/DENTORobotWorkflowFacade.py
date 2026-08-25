@@ -166,6 +166,15 @@ class DENTORobotWorkflowFacade:
             return "phantom"
         return "none"
 
+    def _scene_preparation_issue(self, parameter_node) -> str:
+        if self._scene_kind(parameter_node) != "case":
+            return ""
+        checker = getattr(self._logic, "step6CaseJawOpeningFreshnessIssues", None)
+        if not callable(checker):
+            return ""
+        issues = checker(parameter_node)
+        return " ".join(str(issue) for issue in issues if issue)
+
     @staticmethod
     def _display_values(parameter_node) -> tuple[float, ...]:
         return tuple(float(getattr(parameter_node, name)) for name in JOINT_DISPLAY_FIELDS)
@@ -262,6 +271,13 @@ class DENTORobotWorkflowFacade:
                     "scene_required",
                     "Choose a Step 6 case or draft phantom before connecting.",
                 )
+            preparation_issue = self._scene_preparation_issue(parameter_node)
+            if preparation_issue:
+                return RobotActionResult(
+                    False,
+                    "case_jaw_opening_required",
+                    preparation_issue,
+                )
             if not self._logic.robotModelNodes():
                 return RobotActionResult(
                     False,
@@ -351,6 +367,13 @@ class DENTORobotWorkflowFacade:
                     False,
                     "scene_required",
                     "Choose a Step 6 case or draft phantom before loading the robot.",
+                )
+            preparation_issue = self._scene_preparation_issue(parameter_node)
+            if preparation_issue:
+                return RobotActionResult(
+                    False,
+                    "case_jaw_opening_required",
+                    preparation_issue,
                 )
             base, models = self._logic.createOrUpdateRobotPlacement(
                 parameter_node.robotBaseTransform,
@@ -480,6 +503,13 @@ class DENTORobotWorkflowFacade:
             parameter_node = self._require_context()
             if self._scene_kind(parameter_node) not in {"case", "phantom"}:
                 return RobotActionResult(False, "scene_required", "Choose a Step 6 scene before locking the base.")
+            preparation_issue = self._scene_preparation_issue(parameter_node)
+            if preparation_issue:
+                return RobotActionResult(
+                    False,
+                    "case_jaw_opening_required",
+                    preparation_issue,
+                )
             if not (self._logic.robotModelNodes() or self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform)):
                 return RobotActionResult(False, "robot_required", "Load the ROS robot or local fallback before locking the base.")
             self._logic.setRobotBaseMountLocked(parameter_node, True)
@@ -515,6 +545,13 @@ class DENTORobotWorkflowFacade:
     def syncPlanningScene(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
+            preparation_issue = self._scene_preparation_issue(parameter_node)
+            if preparation_issue:
+                return RobotActionResult(
+                    False,
+                    "case_jaw_opening_required",
+                    preparation_issue,
+                )
             if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
                 return RobotActionResult(False, "ros_required", "Connect ROS 2 Motion Control before syncing collision objects.")
             count = self._logic.syncStep6MoveItPlanningScene(parameter_node)

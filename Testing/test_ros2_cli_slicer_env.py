@@ -47,3 +47,46 @@ def test_normal_gui_launch_restarts_the_dedicated_container():
     assert "--force-recreate" not in reset
     assert "Existing DENTOBOT Slicer, ROS, MoveIt, and test processes" in reset
     assert "Save open Slicer scenes first" in reset
+
+
+def test_gui_launcher_allocates_a_tty_only_for_interactive_terminals():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
+    )
+    gui_block = launcher.split("Opening 3D Slicer directly", 1)[1]
+    assert "docker_exec_options=()" in gui_block
+    assert "if [[ -t 0 && -t 1 ]]" in gui_block
+    assert "docker_exec_options=(-it)" in gui_block
+    assert 'docker exec "${docker_exec_options[@]}"' in gui_block
+
+
+def test_gui_launcher_bounds_simulation_process_group_cleanup():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
+    )
+    gui_block = launcher.split("Opening 3D Slicer directly", 1)[1]
+    assert (
+        "setsid ros2 launch dentobot_moveit_config simulation.launch.py"
+        in gui_block
+    )
+    assert 'kill -INT -- "-${stack_pid}"' in gui_block
+    assert 'kill -TERM -- "-${stack_pid}"' in gui_block
+    assert 'kill -KILL -- "-${stack_pid}"' in gui_block
+
+
+def test_gui_launcher_ensures_docker_daemon_before_compose():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
+    )
+    ensure_idx = launcher.index("ensure_docker_daemon")
+    compose_idx = launcher.index('"${compose_command[@]}" config -q')
+    assert "docker_daemon_ready()" in launcher
+    assert "start_docker_daemon()" in launcher
+    assert "enable_docker_daemon_on_boot()" in launcher
+    assert "try_systemctl start docker.socket docker.service" in launcher
+    assert "try_systemctl enable docker.socket docker.service" in launcher
+    assert ensure_idx < compose_idx
+    assert launcher.index("ensure_docker_daemon\n") < compose_idx

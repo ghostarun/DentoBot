@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 ## Durable issue-capture keyword
 
@@ -17,6 +17,109 @@ interpretations, and validation gates are recorded in
 `PROJECT_CHECKPOINT_2026-08-12.md`. Use that checkpoint when converting the
 active list below into clinician, phantom, manufacturing, or robot acceptance
 work; an implemented or synthetic PASS is not a clinical claim.
+
+## Schema-v1 case-package restore compatibility — software fixed 2026-08-25
+
+- **Observed:** the newly saved `dentobot-case-step6.dentocase` passed archive,
+  ROS-separation, and save-time freshness checks but restore rejected
+  `targetToothBoundsRoi` as different.
+- **Cause:** the package's schema-v1 ROI record predates newly appended lineage
+  attributes. Restore compared expected and reconstructed dictionaries using
+  identical key sets, so valid new attributes looked like changed geometry.
+  The saved ROI center and embedded Markups JSON center agree exactly in
+  Slicer world-RAS millimetres; the archive is not corrupt.
+- **Fixed and host-verified:** schema-v1 validation now requires every saved
+  field/value to reconstruct at `1e-6`, permits only additional fields in a
+  newer reconstructed record, keeps list lengths exact, and reports the first
+  mismatching field path. Focused tests returned `8 passed`; all ordinary
+  Python `Testing/` tests returned `94 passed`; the exact saved ROI record
+  passed the corrected compatibility matcher.
+- **Operator follow-up:** after a clean Slicer restart, reopen the same package
+  and confirm the complete scene and Step 6 persistent state restore with ROS
+  disconnected. A Slicer process was not launched in this fix session because
+  explicit runtime authorization remains required.
+
+## Step 6 required case mouth opening (6.0A) — implemented 2026-08-25
+
+- **Request:** after importing a Steps 0–5 package, require a case mouth-opening
+  step that reuses the draft-phantom TMJ hinge / 4-landmark logic so Step 6
+  plans against opened-mouth anatomy.
+- **Design:** non-destructive. Source CBCT and segmentation stay untransformed;
+  derived opened lower-jaw surface and mandibular display proxies carry the
+  hinge. Phantom remains the alternate XOR scene and skips 6.0A.
+- **Implemented:** UI group `6.0A`, parameter-node persistence, freshness
+  gate folded into planning-context issues, façade blocks for connect / load /
+  lock / sync until opening is current, collision/planning consumers use opened
+  polydata where mandibular.
+- **Verified:** `test_DENTOWorkflowStep6CaseJawOpening` printed
+  `DENTOBOT_CASE_JAW_OPENING_PASS`; focused façade/env and host `Testing/`
+  suites passed in the session. Graphical operator acceptance after extension
+  reload remains separate.
+- **Operator follow-up:** reload DENTOWorkflow → Import package → place four
+  landmarks in 6.0A → Apply open-mouth → continue 6.1+.
+
+## Workflow launcher failure — fixed 2026-08-25
+
+- The first failure was environmental: `docker.service` and `docker.socket`
+  were inactive and `/var/run/docker.sock` was absent. Starting the host Docker
+  service restored Compose and the complete `--check-only` preflight.
+- The launcher now auto-starts Docker when the API is down and best-effort
+  enables boot persistence; if enable lacks rights it prints the one-time
+  `systemctl enable --now docker` command. A stopped-daemon `--check-only`
+  recovered and passed on 2026-08-25.
+- The reproduced non-TTY GUI failure was in the launcher: unconditional
+  `docker exec -it` rejected Cursor's non-terminal stdin. TTY allocation is now
+  conditional and has focused regression coverage.
+- The repaired launch reached DENTOWorkflow on CRD `DISPLAY=:20.0`; the
+  simulation status reported `ready:true`, one joint-state source, and planning
+  ready. Closing Slicer then exposed orphaned ROS/MoveIt children after the
+  known VTK-leak exit; the launcher now owns a separate simulation process
+  group and performs bounded signal escalation. Normal-window
+  representative-case acceptance remains a separate task.
+
+## Step 5B representative disconnected-fusion failure — fixed 2026-08-25
+
+- `test1_5b2.mrb` reproduced the reported final-fusion error after its saved
+  stale blockout/shell/Step 4C lineage was regenerated in memory:
+  `[85852, 3, 1, 1]` occupied voxels.
+- **Diagnosis:** all four independent shell-contact branches were present,
+  watertight, 3.5 mm in diameter, and overlapped both endpoints by 2.0 mm.
+  Their shell gaps were 0.003–0.310 mm. The three extra regions contained only
+  five sampled voxels; the old guard removed one-voxel noise but falsely
+  treated the three-voxel island as a detached printable part.
+- **Fixed and verified:** final fusion now removes only independently bounded
+  microscopic occupied artifacts (at most 0.1 mm³ each, with a one-voxel
+  compatibility floor) when exactly one printable region remains. Raw and
+  removed-region metrics are retained, while any larger second region still
+  fails closed. The representative case produced one 85,852-voxel watertight
+  occupied volume with all four branch records; focused and complete synthetic
+  Slicer regressions passed, and the host suite returned `97 passed`.
+- **Operator follow-up:** reload the module. Reopening this saved MRB requires
+  regenerating Step 4C, confirming its orientation, and rebuilding stale Step
+  5B prerequisites before the unified-template action. Visually inspect all
+  four attachments and channels; this software result is not manufacturing,
+  strength, fit, clinical, or robot-use acceptance.
+
+## Connected case-package save rejection — fixed 2026-08-25
+
+- **Observed:** Save Case Package failed while the live base carried
+  `DENTOBOT.Ros2MotionControlActive=true`; the MRB audit correctly refused to
+  package that process-only flag.
+- **Cause:** programmatic case-snapshot creation relied only on general MRML
+  save observers to suspend and resume the flag. That observer boundary did
+  not reliably sanitize this programmatic MRB snapshot.
+- **Fixed and focused verified:** package snapshots now explicitly mark ROS
+  runtime nodes transient, remove active flags, save, and restore both scene
+  location and live active flags in `finally` blocks. The connected-save smoke
+  confirmed that the live scene retained its flag, the restored package had no
+  ROS robot/active flag, and geometry matched at `1e-6`; it printed
+  `DENTOBOT_CONNECTED_CASE_SAVE_PASS`. AST/static checks and all 97 host tests
+  passed.
+- **Operator follow-up:** reload DENTOWorkflow and retry Save Case Package.
+  Reload releases transient Slicer-side ROS state; reconnect explicitly if
+  further simulation is needed. The separate historical package fixture
+  `dentobot-step6.dentocase` is currently missing, so that unrelated final
+  compatibility check remains unavailable.
 
 ## DENTO-NOTE: native Step 6 placement-to-task sequence — 2026-08-24
 
@@ -123,6 +226,32 @@ work; an implemented or synthetic PASS is not a clinical claim.
   readability. A segment without recognized permanent FDI metadata correctly
   remains outside the jaw shortcut and must be fixed at the metadata/import
   boundary rather than guessed from geometry.
+- **Composable redesign implemented and synthetically verified (2026-08-25):**
+  shared `ViewComposition`; compact Anatomy, Show-in, CBCT, and Overlay
+  selectors; metadata-first upper/lower/full anatomy scopes; a fresh
+  hierarchical Advanced tree; and explicit-only lazy CBCT intensity-renderer
+  ownership/restoration now replace the 3×3 tooth grid and flat list.
+- **Step 6 guarded view implemented:** a robot-workspace context card reports
+  case/phantom, MRML/ROS, TMJ-opening, and base-lock readiness. Recommended and
+  Advanced views enforce case/phantom XOR and MRML/ROS XOR. DENTOBOT markups
+  are locked/non-selectable outside their owner stage; Step 6 therefore cannot
+  accidentally drag the Step 5A patient-shell boundary, while returning to
+  Step 5A restores its prior interaction state.
+- **Verification:** 92 host tests passed; the focused Slicer smoke printed
+  `DENTOBOT_COMPOSABLE_VIEWS_PASS`, created and removed an explicit CBCT
+  renderer, separated upper/lower anatomy, exercised lock/restore, and wrote
+  both compact/Advanced screenshots. The application-shell smoke remains the
+  evidence for the shared six-workspace presentation.
+- **Active acceptance:** use a representative 54-label case in both themes and
+  GUI modes; verify every stage recommendation, save/reopen, close/reload,
+  case/phantom switching, MRML-to-ROS takeover, TMJ preparation, mount-plane
+  lock, TCP/current/goal display, and exact Restore. Synthetic Xvfb evidence is
+  not anatomical, clinician, mechanical, or clinical validation.
+- **Lifecycle follow-up:** the focused no-main-window viewer process exits 0
+  after its PASS marker but may emit late `_updateTemplateModeling` callbacks
+  against already destroyed labels during application teardown. Confirm and
+  eliminate the pending callback/observer in the module-reload cleanup pass;
+  it did not precede or invalidate the viewer assertions.
 
 ## DENTO-NOTE dispositions — 2026-08-22
 

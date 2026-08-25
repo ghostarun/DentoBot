@@ -21,6 +21,109 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-25 14:41:00 IST (UTC+05:30) — Composable Views and guarded Step 6 workspace
+
+- Replaced the routine 3×3 jaw-mask grid with compact Anatomy, Show-in, CBCT,
+  and Overlays controls backed by a pure `ViewComposition` contract. Added
+  metadata-first upper/lower/full anatomy scopes and a hierarchical Advanced
+  object tree shared by Legacy and the application shell.
+- Recommended views remain non-creating. An explicit CBCT 3D request may create
+  Slicer intensity-rendering nodes lazily; DENTOBOT owns/removes only those
+  view-session nodes and restores slice-composite plus pre-existing-renderer
+  state.
+- Step 6 now shows scene, robot, mouth-opening, and base-lock context; enforces
+  case/phantom and MRML/ROS XOR in routine and Advanced views; and locks every
+  non-owning workflow markup. This prevents accidental Step 6 editing of the
+  patient-shell boundary while restoring its prior state in Step 5A.
+- Verified with 92 host tests and the focused Slicer
+  `DENTOBOT_COMPOSABLE_VIEWS_PASS` smoke, including explicit renderer cleanup,
+  anatomy separation, lock/restore, and visual screenshot inspection. The
+  shell and focused widget regressions printed
+  `DENTOBOT_APPLICATION_SHELL_PASS`, `DENTOBOT_VIEW_WIDGET_PASS`, and
+  `DENTOBOT_ROBOT_WIDGET_PASS`. Real case/theme/reload/operator acceptance
+  remains pending. A teardown-only late destroyed-label callback remains logged
+  for the module-lifecycle cleanup pass. No hardware operation, commit, push,
+  or Drive sync occurred.
+
+## 2026-08-25 13:45:00 IST (UTC+05:30) — Launcher auto-starts Docker daemon
+
+- `launch-dentoworkflow.bash` now calls `ensure_docker_daemon` before Compose:
+  starts `docker.socket`/`docker.service` when the API is unreachable, waits for
+  `docker info`, and best-effort enables the units on boot (plain systemctl or
+  passwordless `sudo -n`).
+- On this host, start succeeds without a password; enable still needs an
+  interactive `systemctl enable --now docker` once.
+- Focused launcher tests: 6 passed. Stopped-daemon `--check-only` recovered
+  Docker and printed `DENTOBOT launcher check passed`.
+
+## 2026-08-25 13:34:00 IST (UTC+05:30) — Step 6.0A required case mouth opening
+
+- Inserted required **6.0A Open Case Mouth about the TMJ** for imported case
+  scenes before 6.1+ load/place/ROS/planning actions. Reuses the phantom
+  four-landmark TMJ hinge solver without resampling source CBCT or masks.
+- Persists landmarks, gap, hinge transform, gap line, and derived opened
+  lower-jaw / mandibular trajectory/target display proxies. Freshness issues
+  gate UI and `DENTORobotWorkflowFacade` connect/load/lock/sync. Phantom XOR
+  scenes skip 6.0A.
+- Collision and MoveIt planning-scene sync prefer opened lower-jaw polydata
+  and mandibular trajectory proxies when current.
+- Verification: Slicer `test_DENTOWorkflowStep6CaseJawOpening` →
+  `DENTOBOT_CASE_JAW_OPENING_PASS`; focused façade/env tests and host
+  `Testing/` suite passed in-session. Representative graphical acceptance
+  after module reload remains open. Not clinical jaw kinematics.
+
+## 2026-08-25 03:55:00 IST (UTC+05:30) — Connected case-save repair
+
+- Reproduced Save Case Package rejection when the persistent robot base carried
+  the live `Ros2MotionControlActive` flag. The archive audit correctly rejected
+  the contaminated programmatic MRB snapshot.
+- Package snapshots now explicitly mark SlicerROS2 nodes transient and suspend
+  active flags around save, restoring the live scene location and active flag
+  afterward even on failure. General scene-save observers remain in place.
+- Extended the Slicer smoke to begin connected, verify the live flag resumes,
+  reopen the package without ROS state, and compare geometry at `1e-6`.
+  `DENTOBOT_CONNECTED_CASE_SAVE_PASS` was recorded for `test1_6_FD14.mrb`.
+- Python AST parsing, static lifecycle coverage, `git diff --check`, and all 97
+  host tests passed.
+- The unrelated final historical-package check was unavailable because
+  `dentobot-step6.dentocase` is currently absent. The live graphical session
+  was not interrupted; source reload and operator save retry remain required.
+
+## 2026-08-25 03:18:00 IST (UTC+05:30) — Step 5B microscopic-island repair
+
+- Reproduced `test1_5b2.mrb` final fusion as occupied regions
+  `[85852, 3, 1, 1]` after regenerating its saved stale prerequisites in a
+  disposable Slicer process.
+- Confirmed all four watertight 3.5 mm shell-contact branches existed with
+  2.0 mm endpoint overlap and 0.003–0.310 mm shell gaps. The failure was the
+  former one-voxel-only numerical-artifact filter, not missing dock branches.
+- Replaced that narrow filter with a resolution-aware maximum 0.1 mm³
+  per-artifact bound, applied only beside exactly one printable region. Raw and
+  removed-region metrics are retained; larger disconnected parts still fail.
+- The representative fusion produced one 85,852-voxel occupied volume, 89,524
+  triangles, zero invalid edges, and four branch records. Focused and complete
+  synthetic Slicer regressions passed; AST parsing and the 97-test host suite
+  passed. Visual, fit, strength, manufacturing, and clinical acceptance remain
+  open.
+
+## 2026-08-25 00:52:52 IST (UTC+05:30) — Non-TTY workflow launch repair
+
+- Made the final Ubuntu `docker exec` allocate `-it` only for a real
+  interactive terminal. Cursor and automation can now keep an attached GUI
+  launch without Docker rejecting non-terminal stdin.
+- After Slicer closed with the pinned build's known VTK-leak exit code, the
+  first repaired run exposed orphaned ROS/MoveIt children. The simulation
+  launch now owns a separate process group and cleanup uses bounded INT, TERM,
+  then KILL escalation across that group.
+- Added a focused source regression and documented the active Docker-service
+  prerequisite. The initial incident also required starting the inactive host
+  Docker service; no dependency or container-image change was made.
+- Bash syntax, five focused tests, the bounded process-group probe, and the
+  97-test host suite passed. Full launcher preflight passed, then the repaired
+  CRD launch started Slicer with DENTOWorkflow and a `ready:true` simulation
+  stack containing one joint-state source. No hardware execution or robot
+  motion ran.
+
 ## 2026-08-24 20:53:23 IST (UTC+05:30) — Native Step 6 placement-to-task stack
 
 - **Workflow/UI:** rebuilt Legacy and New GUI Robot Simulation as the same

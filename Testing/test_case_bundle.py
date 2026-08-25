@@ -21,6 +21,8 @@ from DENTOCaseBundle import (  # noqa: E402
     build_robot_profile,
     create_case_bundle,
     extract_scene_mrb,
+    lineage_snapshot_matches,
+    lineage_snapshot_mismatch_path,
     validate_case_bundle,
 )
 
@@ -125,6 +127,57 @@ def test_robot_profile_is_portable_and_deterministic(tmp_path: Path) -> None:
     assert profile["components"]
     assert all(not record["path"].startswith("/") for record in profile["components"])
     assert str(tmp_path) not in str(profile)
+
+
+def test_lineage_snapshot_accepts_append_only_schema_v1_extensions() -> None:
+    saved = {
+        "field": "targetToothBoundsRoi",
+        "attributes": {"DENTOBOT.CoordinateSystem": "SlicerRASmm"},
+        "controlPointsWorldRasMm": [
+            [-72.97225952148438, -66.10609436035156, 61.54914855957031]
+        ],
+        "locked": True,
+    }
+    reconstructed = {
+        **saved,
+        "id": "vtkMRMLMarkupsROINode9",
+        "attributes": {
+            **saved["attributes"],
+            "DENTOBOT.TargetSegmentID": "target-14",
+            "DENTOBOT.TargetFdiNumber": "14",
+        },
+    }
+
+    assert lineage_snapshot_matches(saved, reconstructed)
+
+
+def test_lineage_snapshot_rejects_missing_or_changed_saved_values() -> None:
+    saved = {
+        "attributes": {
+            "DENTOBOT.CoordinateSystem": "SlicerRASmm",
+            "DENTOBOT.TargetSegmentID": "target-14",
+        },
+        "controlPointsWorldRasMm": [[1.0, 2.0, 3.0]],
+    }
+    missing = {
+        "attributes": {"DENTOBOT.CoordinateSystem": "SlicerRASmm"},
+        "controlPointsWorldRasMm": [[1.0, 2.0, 3.0]],
+    }
+    changed = {
+        **saved,
+        "controlPointsWorldRasMm": [[1.0, 2.0, 3.001]],
+    }
+
+    assert not lineage_snapshot_matches(saved, missing)
+    assert (
+        lineage_snapshot_mismatch_path(saved, missing)
+        == "attributes.DENTOBOT.TargetSegmentID"
+    )
+    assert not lineage_snapshot_matches(saved, changed)
+    assert (
+        lineage_snapshot_mismatch_path(saved, changed)
+        == "controlPointsWorldRasMm[0][2]"
+    )
 
 
 def test_case_bundle_ui_and_install_contract_are_present() -> None:
