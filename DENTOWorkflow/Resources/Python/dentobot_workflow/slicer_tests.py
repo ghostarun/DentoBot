@@ -195,7 +195,6 @@ from DENTOStep6State import (
 )
 
 
-
 from DENTOWorkflow import DENTOWorkflowLogic, DENTOWorkflowWidget
 
 
@@ -4091,7 +4090,7 @@ class DENTOWorkflowTestMixin:
         widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
         widget.initializeParameterNode()
         parameterNode = widget._parameterNode
-        widget._setWorkflowStage(9, ensureVisible=False)
+        widget._setWorkflowStage(10, ensureVisible=False)
 
         imageData = vtk.vtkImageData()
         imageData.SetDimensions(8, 8, 8)
@@ -4127,14 +4126,20 @@ class DENTOWorkflowTestMixin:
         )
         trajectory.AddControlPointWorld(vtk.vtkVector3d(45.0, 15.0, 5.0))
         trajectory.AddControlPointWorld(vtk.vtkVector3d(46.0, 15.0, 2.0))
+        trajectory.SetLocked(True)
+        trajectory.SetAttribute("DENTOBOT.CoordinateSystem", "SlicerRASmm")
         docks = self._addStep6CaseCubeModel(
             "Step6CaseDocks",
             (43.0, 47.0, 13.0, 17.0, 0.5, 4.0),
         )
+        docks.SetAttribute("DENTOBOT.GeometryState", "Current")
+        docks.SetAttribute("DENTOBOT.OrientationState", "Confirmed")
         template = self._addStep6CaseCubeModel(
             "Step6CaseTemplate",
             (40.0, 50.0, 10.0, 20.0, 0.0, 5.0),
         )
+        template.SetAttribute("DENTOBOT.GeometryState", "Current")
+        template.SetAttribute("DENTOBOT.VerificationState", "PASS")
         boundsRoi = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLMarkupsROINode",
             "Step6CaseBounds",
@@ -4160,7 +4165,7 @@ class DENTOWorkflowTestMixin:
         self.assertEqual(widget._step6SceneKind(), "case")
         self.assertIn("node:step6Volume", widget._workflowViewEntriesByKey)
         self.assertIn("node:step6Bounds", widget._workflowViewEntriesByKey)
-        recommended = widget._workflowViewRecommendedCategories(9)
+        recommended = widget._workflowViewRecommendedCategories(10)
         self.assertIn("case_volume", recommended)
         self.assertIn("bounds", recommended)
         self.assertNotIn("phantom", recommended)
@@ -6389,7 +6394,7 @@ class DENTOWorkflowTestMixin:
             logic.TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE,
             unrelatedSupportModel.GetID(),
         )
-        with self.assertRaisesRegex(ValueError, "different Step 5A"):
+        with self.assertRaisesRegex(ValueError, "different Step 4B"):
             logic.createOrResetTemplateShellRoi(supportModel, roiNode)
         with self.assertRaisesRegex(ValueError, "not associated"):
             logic.validateResearchTemplateInputs(
@@ -6810,7 +6815,7 @@ class DENTOWorkflowTestMixin:
             "vtkMRMLModelNode",
             "Unrelated User Model",
         )
-        with self.assertRaisesRegex(ValueError, "DENTOBOT Step 5A"):
+        with self.assertRaisesRegex(ValueError, "DENTOBOT Step 4B"):
             logic.deleteDraftTemplateSupportModel(unrelatedModel)
 
         trajectoryRemoval = logic.deleteTrajectoryNode(trajectoryNode)

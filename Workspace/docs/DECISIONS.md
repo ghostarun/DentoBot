@@ -1,5 +1,134 @@
 # Dentobot Technical Decisions
 
+## 2026-08-25 — Use one thin public entrypoint and context-bounded domain mixins
+
+Status: implemented and host/synthetic-Slicer verified
+
+Keep one authoritative `DENTOWorkflow` implementation and preserve its public
+Slicer class and method contracts. Compose focused widget and logic mixins from
+`dentobot_workflow/` behind a 117-line entrypoint. Cap routine implementation
+modules at 1,500 lines and route future edits through the package README and
+compact agent context. Keep the Slicer regression archive lazy and exempt from
+that routine context budget.
+
+Use direct in-process inheritance and the existing top-level `DENTO*.py`
+helpers/facade. Do not add IPC, services, worker threads, sockets, network
+requests, duplicated MRML state, or copied Legacy/New module trees for code
+organization. Preserve method signatures with a checked API manifest, install
+every internal module through CMake, and make the developer reload evict both
+helper and internal package modules.
+
+Reason: the previous 39,889-line script forced unrelated UI, geometry, case,
+and robotics code into every maintenance context. Exact method-boundary
+relocation reduces routine agent/code-review context without rewriting
+algorithms or changing runtime action latency/bandwidth. The remaining broad
+`runtime.py` import compatibility layer can be narrowed incrementally only
+after domain-specific parity tests.
+
+## 2026-08-25 — Preserve segment authority and derive transformed collision solids without STL
+
+Status: accepted decision-complete plan; not yet implemented or verified
+
+For imported-case Step 6.0A, keep the reviewed CBCT segmentation unchanged and
+derive two independently displayable segmentation nodes: fixed upper anatomy
+(upper jawbone plus every upper tooth) and moving lower anatomy (lower jawbone
+plus every lower tooth). Preserve each source segment's identity, FDI metadata,
+terminology, color, and fingerprint. Parent only the moving lower node and
+mandibular-attached workflow proxies under the accepted world-RAS hinge
+transform; do not harden or resample the source volume or masks.
+
+Generate robot collision geometry directly from Slicer's per-segment closed-
+surface representations. Validate and triangulate coordinate-preserving copies,
+apply the lower-jaw transform where applicable, convert world-RAS millimetres
+to robot-base metres, and publish one stable MoveIt collision object per
+jawbone/tooth. Do not insert an STL serialization/reload boundary. STL loses
+segment semantics and provenance without adding a geometric capability that
+VTK does not already provide. Optional STL output may be diagnostic only.
+
+Keep anatomy and collision margin separate. The reviewed surface is anatomical
+input; MoveIt padding is an explicit research safety margin. All anatomy is a
+solid obstacle for strict motion. Only the selected burr-to-target-tooth pair
+may use the existing fingerprinted terminal/drilling exception; non-target
+teeth, jawbones, other links, self-collision, and off-corridor contact remain
+rejected. ROS collision objects are transient and reconstruct after explicit
+Connect/base alignment.
+
+The accepted case solver target remains final incisor gap (20–60 mm, default
+40 mm). Anatomical surface intersection is Warning plus explicit review;
+missing/cropped anatomy, invalid provenance, ambiguous direction, and
+unreachable geometry are hard failures. Schema-v1 openings restore Legacy/
+Stale. The output remains `ProvisionalOpenProxy`, not measured jaw kinematics,
+registration evidence, clinical accuracy, or hardware authorization.
+
+Reason: a single segmentation node cannot carry two different rigid poses for
+upper and lower subsets, while a destructive labelmap resample would introduce
+boundary discretization and weaken restore evidence. Split derived
+segmentations retain sub-anatomical control and give the robot stack exact,
+traceable per-segment obstacle identities without changing source anatomy.
+
+## 2026-08-25 — CBCT rendering is not a jaw landmark surface or measured open-mouth pose
+
+Status: accepted planning boundary; redesign not yet implemented
+
+Do not snap case-jaw landmarks to Slicer CBCT volume rendering or use the
+renderer as collision geometry. Preserve CBCT voxels and IJK-to-RAS exactly.
+Prepare explicit jaw/tooth interaction surfaces from the reviewed segmentation
+when the required labels exist. Place left/right **condylar lateral-pole surface
+landmarks** on explicitly isolated `lower_jawbone` condylar regions with
+surface snapping, then confirm their side, homologous level, and location in
+orthogonal MPR. Place upper/lower incisal-edge landmarks on isolated central-
+incisor crown surfaces using the same source-specific snap and MPR-review rule.
+The line between the condylar surface landmarks is a reproducible provisional
+visual hinge, not an internal TMJ-centre measurement or a registered
+instantaneous axis.
+
+Treat the resulting pure-hinge pose as `ProvisionalOpenProxy`, not measured
+patient anatomy. Before solving, require evidence that both condylar regions
+are inside the CBCT field of view. If either is absent, fail closed for
+anatomical/collision planning; an optional manual clearance pose may remain
+visualization-only. A future registered open-mouth scan or measured jaw pose is
+the route to `RegisteredOpen`. Hardware execution remains blocked by the
+existing registration, calibration, and safety gates.
+
+Reason: the current numerical hinge solver operates on RAS points and derived
+polydata; it does not require STL input. The failure is the acquisition and
+truth model: volume rendering is not pickable geometry, the current landmark
+node does not configure case-specific surface snapping, and sampling both
+rotation signs can select a geometrically close but anatomically wrong opening.
+
+Generic `SnapModeToVisibleSurface` is necessary but not sufficient. During
+each placement, isolate the intended source surface, make other geometry
+non-pickable, and explicitly validate/project the result against that same
+surface. Persist its segment association and fingerprint. This prevents a
+point from silently snapping to whichever overlapping visible model happens to
+be nearest.
+
+## 2026-08-25 — Constrain assisted trajectory Entry to a reviewed target-crown surface
+
+Status: accepted planning requirement; not yet implemented
+
+Step 4A assisted Entry points must be placed on a transient, explicitly
+isolated `TargetCrownInteractionSurface` derived from the reviewed selected-
+tooth segment. Whole-tooth bounding-box inclusion is not surface membership and
+must not authorize trajectory generation. After 3D snap, validate or project
+the point to that exact crown surface within a defined residual tolerance and
+require orthogonal-MPR review. Persist the selected segment, interaction-
+surface fingerprint/revision, residual, and authoritative world-RAS point;
+reconstruct the derived surface after restore. A target, segmentation, or crown
+definition change invalidates Entries and every generated descendant.
+
+Crown extraction must be operator-reviewed. Existing directional crown-cap /
+visible-support geometry may be refactored as a candidate generator, but an
+unreviewed fixed percentage of a whole tooth must not be represented as the
+clinical crown. Surface snap constrains interaction; it does not by itself
+establish clinical anatomy.
+
+Reason: the current assisted-placement node has no surface snap mode and the
+generator checks only target-tooth bounds before inferring root targets from
+the whole closed surface. That contract can accept a point on the root, another
+visible structure, or empty space inside the bounds and propagate it into
+guides and Step 6 motion intent.
+
 ## 2026-08-25 — Validate schema-v1 lineage as saved requirements, not exact future dictionaries
 
 Status: software implemented and host verified; operator Slicer reopen pending

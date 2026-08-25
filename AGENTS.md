@@ -1,9 +1,10 @@
 # DENTOBOT repository agent entrypoint
 
-Read and follow `docs/AGENTS.md` before substantial work. The controlled
-project context is in `docs/PROJECT_CONTEXT.md`, `docs/ARCHITECTURE.md`,
-`docs/DEVELOPMENT_PLAN.md`, `docs/REPRODUCIBILITY_AND_TRACEABILITY.md`,
-`docs/UBUNTU_TRANSFER.md`, `docs/changelog.md`, and `docs/logbook.md`.
+For the active Ubuntu workspace, read and follow `Workspace/AGENTS.md` and use
+`Workspace/docs/AGENT_CONTEXT.md` as the compact routing entrypoint. The
+`Workspace/docs/` controlled files are authoritative for current Ubuntu/ROS 2
+work. The older top-level `docs/` set remains historical/cross-platform context
+and should be consulted when a routed task specifically touches it.
 
 ## Standing close-day trigger
 

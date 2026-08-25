@@ -4,12 +4,17 @@ This repository contains the IITM autonomous dental drilling robot development e
 
 For every substantial task:
 
-1. Read `docs/PROJECT_CONTEXT.md`, `docs/SETUP.md`, `docs/DECISIONS.md`,
-   `docs/DEVELOPMENT_PLAN.md`, and `docs/TASKS.md` before making changes.
-   When the user asks to resume, plan, reconcile notes, or update the daily
-   mental model, also read `docs/DENTOBOT_Daily_Compass.docx`. Treat its
-   unreconciled entries as editable working memory, not accepted requirements
-   or verification claims.
+1. Use `docs/AGENT_CONTEXT.md` as the compact routing entrypoint. For a narrow
+   routine change, also read today's logbook, the internal package routing map,
+   and only the controlled/domain files that `AGENT_CONTEXT.md` identifies for
+   that scope. Read `docs/PROJECT_CONTEXT.md`, `docs/SETUP.md`,
+   `docs/DECISIONS.md`, `docs/DEVELOPMENT_PLAN.md`, and `docs/TASKS.md`
+   together when resuming broad work, changing architecture/environment or
+   milestone policy, reconciling evidence, or preparing a documentation/release
+   checkpoint. When the user asks to resume, plan, reconcile notes, or update
+   the daily mental model, also read `docs/DENTOBOT_Daily_Compass.docx`. Treat
+   its unreconciled entries as editable working memory, not accepted
+   requirements or verification claims.
 2. Consult `docs/ARCHITECTURE.md` and
    `docs/REPRODUCIBILITY_AND_TRACEABILITY.md` when the task touches their
    scope.

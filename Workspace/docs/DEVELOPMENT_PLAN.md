@@ -35,6 +35,59 @@ The implementation must remain preview-only until all four gates are closed.
 Opacity/camera work is visualization state; it cannot be treated as coordinate,
 registration, or clearance evidence.
 
+## Approved deferred Step 6.0A anatomy-preserving hinge/collision redesign — 2026-08-25
+
+**Status:** decision-complete plan accepted; documentation only; implementation
+and verification deferred
+
+Goal: replace the imported-case reuse of the disposable phantom angular search
+with an anatomy-guided provisional hinge whose opened-mouth representation is
+usable as segmented physical obstacle geometry for the simulation-only robotic
+workflow.
+
+The reviewed source CBCT segmentation remains immutable and authoritative.
+Step 6 will derive independently transformable `FixedUpperAnatomy` and
+`MovingLowerAnatomy` segmentations while retaining each upper/lower jawbone and
+individual tooth segment, including stable IDs, FDI metadata, terminology,
+color, and source fingerprints. The accepted world-RAS hinge transform parents
+only the moving lower anatomy and mandibular-attached trajectory/guide/dock/
+template proxies. It is not hardened into, or used to resample, the source
+CBCT or source masks.
+
+Landmark placement will isolate the intended segmentation-derived surface:
+left/right condylar lateral-pole points on `lower_jawbone`, then upper/lower
+incisal points on their central-incisor crowns. Three-dimensional surface snap
+is followed by exact-source projection, residual recording, bilateral/FOV
+validation, and orthogonal-MPR review. These surface points define a
+reproducible provisional hinge, not internal TMJ centres or a registered
+instantaneous axis.
+
+The case-specific solver will canonicalize the hinge axis, infer the opening
+direction from fixed-upper versus moving-lower anatomy, reject a target already
+reached in the source pose, bracket only the anatomical opening direction, and
+bisect to an adjustable final incisor gap (20–60 mm, default 40 mm) within
+0.01 mm. Degenerate/cropped/ambiguous/unreachable inputs remain hard failures.
+Upper/lower surface intersections are reported as persistent warnings and need
+explicit `Accept with anatomy warning`; they do not silently become a PASS.
+Existing schema-v1 case openings restore Legacy/Stale and require new review.
+
+For robotic collision, Slicer will generate one coordinate-preserving,
+triangulated, closed VTK surface per retained jaw/tooth segment. After applying
+the accepted lower-jaw transform, the bridge converts world-RAS millimetres to
+robot-base metres and publishes stable per-segment MoveIt collision-object IDs.
+Reviewed anatomy and configurable collision padding remain separate: padding
+is a safety margin, never anatomy. STL conversion is not part of this path;
+STL would discard segment identity and provenance and is allowed only as
+optional debugging output. ROS collision objects remain transient and rebuild
+after explicit Connect/base alignment.
+
+Acceptance requires pure direction/order/rigidity/reachability tests; Slicer
+surface-snap, no-resampling, transform-scope, warning/review, save/restore, and
+duplicate-lifecycle tests; per-segment MoveIt object and phase-contact tests;
+and one normal-window trial of `dentobot-case-step6.dentocase`. The accepted
+result remains `ProvisionalOpenProxy`, simulation-preview only. Registration,
+calibrated TCP, hardware motion, drilling, and clinical accuracy are excluded.
+
 ## Immediate fast-track PoC closure order — 2026-08-13
 
 The implementation has crossed the point where feature count is the useful
@@ -1173,3 +1226,19 @@ normal graphical phantom/case trial: place and lock the forehead base, move all
 six joints, manipulate a TCP goal, solve through KDL/MoveIt, synchronize scene
 objects, plan and preview, reload/reconnect, then save/reopen. No controller,
 hardware execution, drilling, or patient-facing motion is authorized.
+
+### 2026-08-25 economical modularization checkpoint
+
+The shared implementation seam is now physically enforceable: the public
+Slicer entrypoint is 117 lines and focused domain modules hold the widget/logic
+implementation. No copied workflow version, alternate state store, transport,
+worker, or algorithm rewrite was introduced. A compact agent context and
+package routing map make narrow changes require only the relevant domain plus
+today's evidence. The public API manifest and 1,500-line test gate prevent the
+monolith from silently returning.
+
+This closes the code-organization foundation, not Milestone 3 operator
+acceptance. Legacy and Shell still share one backend and continue in parallel.
+The currently failing active-ROS New Case lifecycle smoke is a Track 1 defect
+and must be repaired before warm scene-replacement acceptance; UI shell,
+viewer, bounded Step 6 case view, and five-cycle source reload are verified.

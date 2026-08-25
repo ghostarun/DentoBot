@@ -21,6 +21,30 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-25 17:09:00 IST (UTC+05:30) — Context-bounded workflow modularization
+
+- Replaced the 39,889-line implementation entrypoint with a 117-line public
+  composition root and one `dentobot_workflow` package. Exact method-boundary
+  mixins now separate bootstrap/lifecycle, view composition, planning/docking,
+  guide/template, case/backend, robot scene/task, and logic domains. All
+  routine implementation modules are capped at 1,500 lines; public methods,
+  MRML/parameter state, algorithms, `.dentocase`, ROS/MoveIt, and preview-only
+  contracts were preserved.
+- Added an API manifest/ownership gate, CMake coverage, import-direction and
+  process/network-boundary tests, a reproducible AST extraction utility, a
+  compact agent routing document, and a package method-ownership map. The split
+  is direct in-process inheritance and adds no transport, worker, serialization,
+  bandwidth, or second state store.
+- Developer reload now evicts both top-level `DENTO*.py` helpers and all
+  internal package modules. `99` host tests, shell, composable-view, bounded
+  Step 6 case-view, and five consecutive helper/internal reload cycles passed.
+  A teardown-only destroyed-label callback was guarded and reran cleanly.
+- Current limitation: the ROS-backed lifecycle smoke reaches connect, module
+  reload, and reconnect, then native Slicer aborts at New Empty Case scene
+  clear. A default-node singleton experiment did not fix it and was reverted.
+  This remains a Track 1 lifecycle defect; no hardware or controller action was
+  run and no warm active-ROS scene-replacement claim is made.
+
 ## 2026-08-25 14:41:00 IST (UTC+05:30) — Composable Views and guarded Step 6 workspace
 
 - Replaced the routine 3×3 jaw-mask grid with compact Anatomy, Show-in, CBCT,

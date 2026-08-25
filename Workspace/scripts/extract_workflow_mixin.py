@@ -95,8 +95,14 @@ def create_runtime(source: str) -> None:
 
 
 def extract(args: argparse.Namespace) -> None:
-    source = WORKFLOW.read_text(encoding="utf-8")
-    create_runtime(source)
+    source_path = (
+        PACKAGE / f"{args.source_module}.py"
+        if args.source_module
+        else WORKFLOW
+    )
+    source = source_path.read_text(encoding="utf-8")
+    if source_path == WORKFLOW:
+        create_runtime(source)
     owner = class_node(source, args.owner)
     methods = method_nodes(owner)
     selected = selected_methods(methods, args.span)
@@ -129,25 +135,46 @@ def extract(args: argparse.Namespace) -> None:
         del lines[start:end]
     rewritten = "".join(lines)
 
-    class_marker = f"class {args.owner}("
-    replacement = f"class {args.owner}({args.mixin}, "
-    if class_marker not in rewritten:
+    rewritten_owner = class_node(rewritten, args.owner)
+    declaration_start = rewritten_owner.lineno - 1
+    declaration_line = rewritten.splitlines(keepends=True)[declaration_start]
+    bare_marker = f"class {args.owner}:"
+    inherited_marker = f"class {args.owner}("
+    if bare_marker in declaration_line:
+        replacement_line = declaration_line.replace(
+            bare_marker,
+            f"class {args.owner}({args.mixin}):",
+            1,
+        )
+    elif inherited_marker in declaration_line:
+        replacement_line = declaration_line.replace(
+            inherited_marker,
+            f"class {args.owner}({args.mixin}, ",
+            1,
+        )
+    else:
         raise RuntimeError(f"Class declaration changed: {args.owner}")
-    rewritten = rewritten.replace(class_marker, replacement, 1)
+    rewritten_lines = rewritten.splitlines(keepends=True)
+    rewritten_lines[declaration_start] = replacement_line
+    rewritten = "".join(rewritten_lines)
 
     import_line = (
         f"from dentobot_workflow.{args.module} import {args.mixin}\n\n\n"
     )
-    class_position = rewritten.index(replacement)
+    class_position = rewritten.index(replacement_line)
     rewritten = rewritten[:class_position] + import_line + rewritten[class_position:]
     ast.parse(rewritten)
     ast.parse(external)
-    WORKFLOW.write_text(rewritten, encoding="utf-8")
+    source_path.write_text(rewritten, encoding="utf-8")
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser()
     result.add_argument("--owner", required=True)
+    result.add_argument(
+        "--source-module",
+        help="Existing dentobot_workflow module to split instead of the entrypoint",
+    )
     result.add_argument("--mixin", required=True)
     result.add_argument("--module", required=True)
     result.add_argument("--domain", required=True)

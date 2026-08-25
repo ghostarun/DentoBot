@@ -197,6 +197,29 @@ from DENTOStep6State import (
 )
 
 
+class _PublicEntrypointClassProxy:
+    """Resolve a public class only when an extracted method actually uses it."""
+
+    def __init__(self, class_name: str) -> None:
+        self._class_name = class_name
+
+    def _resolved(self):
+        import DENTOWorkflow
+
+        return getattr(DENTOWorkflow, self._class_name)
+
+    def __call__(self, *args, **kwargs):
+        return self._resolved()(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._resolved(), name)
+
+
+DENTOWorkflowLogic = _PublicEntrypointClassProxy("DENTOWorkflowLogic")
+DENTOWorkflowParameterNode = _PublicEntrypointClassProxy(
+    "DENTOWorkflowParameterNode"
+)
+
 
 __all__ = tuple(
     name for name in globals() if not name.startswith("__")

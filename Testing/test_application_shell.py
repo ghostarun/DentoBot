@@ -59,19 +59,26 @@ def test_theme_resources_define_semantic_workspace_states():
 
 
 def test_workflow_owns_one_switchable_shell_and_restores_it_on_exit():
-    source = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(encoding="utf-8")
-    assert "self._applicationShell = DENTOApplicationShell(" in source
-    assert "DENTOApplicationShell.storedGuiMode()" in source
-    exit_handler = source.split("def exit(self)", 1)[1].split("def _addSceneObservers", 1)[0]
+    application = (
+        HELPERS / "dentobot_workflow/widget_application.py"
+    ).read_text(encoding="utf-8")
+    lifecycle = (
+        HELPERS / "dentobot_workflow/widget_lifecycle.py"
+    ).read_text(encoding="utf-8")
+    assert "self._applicationShell = DENTOApplicationShell(" in application
+    assert "DENTOApplicationShell.storedGuiMode()" in application
+    exit_handler = lifecycle.split("def exit(self)", 1)[1].split(
+        "def _addSceneObservers", 1
+    )[0]
     assert "self._applicationShell.deactivate()" in exit_handler
-    assert "DENTOWorkflow-v2" not in source
+    assert "DENTOWorkflow-v2" not in application + lifecycle
 
 
 def test_new_shell_exposes_the_shared_view_controls_palette():
     shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
-    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        HELPERS / "dentobot_workflow/widget_application.py"
+    ).read_text(encoding="utf-8")
     assert "DENTOBOTViewControlsButton" in shell
     assert "self._on_view_controls_requested()" in shell
     assert "on_view_controls_requested=self.onOpenViewControlsPalette" in workflow
@@ -79,9 +86,9 @@ def test_new_shell_exposes_the_shared_view_controls_palette():
 
 def test_shell_preferences_are_qsettings_not_parameter_node_fields():
     shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
-    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        HELPERS / "dentobot_workflow/parameter_state.py"
+    ).read_text(encoding="utf-8")
     parameter_block = workflow.split("class DENTOWorkflowParameterNode", 1)[1].split(
         "class DENTOWorkflow", 1
     )[0]
@@ -93,7 +100,7 @@ def test_shell_preferences_are_qsettings_not_parameter_node_fields():
 def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
     workflow = (
-        HELPERS / "dentobot_workflow/widget_robot.py"
+        HELPERS / "dentobot_workflow/widget_robot_shell.py"
     ).read_text(encoding="utf-8")
     assert "import DENTOROS2Bridge" not in panel
     assert "computeIK" not in panel

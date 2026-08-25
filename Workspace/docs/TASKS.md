@@ -18,16 +18,115 @@ interpretations, and validation gates are recorded in
 active list below into clinician, phantom, manufacturing, or robot acceptance
 work; an implemented or synthetic PASS is not a clinical claim.
 
-## Parallel modularization host regressions — active 2026-08-25
+## Step 6.0A CBCT jaw-context and landmark redesign — planned 2026-08-25
 
-- The custom-GUI/modularization workstream is actively extracting production
-  mixins after checkpoint `56f5c7f`. A concurrent full host rerun now returns
-  `97 passed`: the temporary static source-location assumptions were redirected
-  to the owning robot/view modules, and a baseline API manifest now protects
-  method signatures during further extraction.
-- Viewer and Step 6 widget/logic mixins pass the visible shell, composable-view,
-  robot-widget, and concurrent Step 4C binding-guard Slicer regressions. Continue
-  the remaining lifecycle/workflow-domain extraction in reversible commits.
+- **Observed:** the draft BodyParts3D STL workflow permits direct 3D surface
+  interaction, but the imported-case workflow presents CBCT volume rendering
+  as though it were an equivalent landmark surface. Volume rendering is an
+  intensity display, not an authoritative pickable surface; the four case
+  landmarks therefore do not reliably snap to the intended anatomy.
+- **Available case evidence:** `dentobot-case-step6.dentocase` contains reviewed
+  `lower_jawbone`, `upper_jawbone`, and individual upper/lower tooth segments.
+  These can supply explicit segmentation-derived closed surfaces without
+  resampling or modifying the source CBCT. The lower-jaw label spans about
+  `85.0 × 60.5 × 70.5 mm`; bilateral condyle coverage still requires an
+  operator/FOV gate and must not be inferred from bounds alone.
+- **Planned correction:** replace 6.0A with (1) reviewed jaw/tooth interaction-
+  surface preparation and a bilateral condyle/FOV gate, (2) left/right
+  **condylar lateral-pole surface landmarks** snapped to explicitly isolated
+  `lower_jawbone` condylar regions, (3) upper/lower incisal landmarks snapped
+  to explicitly isolated central-incisor crown surfaces, (4) orthogonal-MPR
+  confirmation of every point, and (5) guarded provisional hinge preview and
+  acceptance. The paired condylar surface points define a reproducible
+  provisional visual hinge; they are not claimed to be internal TMJ centres or
+  a measured instantaneous axis. Volume rendering remains optional visual
+  context only. If both condyles are not present, anatomical/collision use
+  fails closed; a manual clearance pose may be visualization-only and cannot
+  become collision or registration truth.
+- **State/evidence:** introduce `ClosedSource`, `ProvisionalOpenProxy`, and
+  future `RegisteredOpen` states; persist segment/landmark associations,
+  exact interaction-surface fingerprints, placement/projection residuals,
+  placement methods, angle/gap, and review state. Generic "nearest visible"
+  snapping is not sufficient: isolate the intended surface during placement,
+  validate the final point against that exact source, validate left/right side
+  and homologous condylar level, then restore the previous view state. Existing
+  schema-v1 mouth-opening state becomes legacy/unreviewed and must be repeated.
+- **Verification due:** pure direction/reachability/invalidation tests; Slicer
+  surface-creation, source-specific snap/projection, MPR review, side/ROI gates,
+  no-resampling, save/restore, and duplicate-lifecycle tests; then one
+  representative normal-window operator trial. No implementation is authorized
+  by this planning entry.
+- **Approved collision representation:** retain the reviewed source
+  segmentation untouched; derive fixed-upper and hinge-transformed moving-lower
+  segmentations while preserving every jawbone/tooth segment and its metadata.
+  Generate a validated VTK closed surface and stable MoveIt collision-object ID
+  per segment. Do not fuse anatomy by jaw or use STL as a restore/collision
+  authority. Apply configurable collision padding separately from anatomy.
+- **Chosen interaction policy:** final incisor gap remains 20–60 mm with a
+  40 mm default. Upper/lower anatomical intersections are Warning plus explicit
+  review/acceptance; missing/cropped anatomy, invalid surface provenance,
+  ambiguous direction, or unreachable target are non-overridable failures.
+  Existing schema-v1 openings restore Legacy/Stale.
+- **Robotic use boundary:** strict phases treat every jawbone and tooth as a
+  solid obstacle. Only the selected burr-to-target-tooth pair may use the
+  fingerprinted terminal/drilling exception; all other contacts remain
+  rejected. ROS collision objects are transient and reconstructed after
+  Connect/base alignment. This is a deferred implementation task, not current
+  runtime evidence or hardware authorization.
+
+## DENTO-NOTE: Step 4A assisted entries must snap to the selected tooth crown — active design 2026-08-25
+
+- **Affected workflow step:** Step 4A assisted trajectory entry placement and
+  downstream root-target inference.
+- **Observed behavior/evidence:** the UI asks for crown entry points, but
+  `createOrResetAssistedTrajectoryEntries` does not enable surface snapping and
+  `generateAssistedTrajectories` accepts any point inside the target tooth's
+  axis-aligned bounds. It does not prove that the point lies on the selected
+  tooth, much less on its crown; a root, neighbouring surface, or empty point
+  inside the bounds can therefore be accepted.
+- **Risk/impact:** an incorrect Entry point changes inferred root targets and
+  propagates into the trajectory, guide/template, Step 6 task snapshot, and
+  robot preview. A visually plausible but source-ambiguous point is not safe
+  lineage.
+- **Planned correction:** derive one transient, source-fingerprinted
+  `TargetCrownInteractionSurface` from the reviewed target-tooth segment; show
+  and make pickable only that surface during placement; snap in 3D; project and
+  validate every resulting point against that exact surface within a defined
+  tolerance; then require MPR review. Crown extent must be operator-reviewed
+  rather than silently equated with an arbitrary percentage of the whole
+  tooth. Persist the target segment, crown-surface revision/fingerprint,
+  projection residual, and RAS point; reconstruct derived interaction geometry
+  after restore. Target/crown changes invalidate entries and all descendants.
+- **Next verification action:** add pure crown-membership/fingerprint/
+  invalidation tests and Slicer tests for wrong-tooth, root-surface, hidden-
+  neighbour, two-entry, view-restoration, and save/restore cases, followed by a
+  normal-window representative-tooth placement trial.
+- **Triage:** active design, not implemented in this plan-review turn.
+
+## Economical DENTOWorkflow modularization — implemented 2026-08-25
+
+- **Completed:** reduced the public script from 39,889 to 117 lines; extracted
+  parameter state, the Slicer test archive, and all widget/logic domains into
+  one internal package without copying Legacy/New backends. All routine
+  implementation modules are at or below the enforced 1,500-line ceiling.
+- **Contracts:** public method signatures match the accepted API manifest;
+  duplicate ownership, entrypoint back-imports, missing CMake installation,
+  oversized routine modules, and new process/network imports fail host tests.
+  The reload action now evicts `DENTO*.py` and `dentobot_workflow.*` sources.
+- **Verified:** `99 passed` for `Testing/`; application shell, composable views,
+  Step 6 case view, and five consecutive internal/helper module reloads passed
+  in Slicer. The shutdown-only destroyed-label callback found by the viewer
+  smoke was guarded and the rerun was clean.
+- **Active Track 1 defect:** the ROS-backed lifecycle smoke reaches initial
+  connect, developer reload, and reconnect, then native Slicer aborts when New
+  Empty Case calls `mrmlScene.Clear(0)`. A singleton-lifetime experiment did
+  not change the failure and was reverted. Isolate the SlicerROS2 default-node
+  destruction path before claiming warm active-ROS scene replacement. This is
+  not hardware authorization and does not invalidate the non-ROS modular API
+  and reload evidence.
+- **Next maintenance task:** gradually replace broad `runtime.py` imports with
+  explicit domain imports only when focused Slicer tests cover that domain. Do
+  not perform a mass cleanup rewrite.
 
 ## Schema-v1 case-package restore compatibility — software fixed 2026-08-25
 

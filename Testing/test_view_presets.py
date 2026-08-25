@@ -159,7 +159,7 @@ def test_elements_inventory_does_not_create_volume_rendering_nodes():
         / "Resources"
         / "Python"
         / "dentobot_workflow"
-        / "widget_views.py"
+            / "widget_view_catalog.py"
     ).read_text(encoding="utf-8")
     inventory = source.split("def _workflowViewEntries", 1)[1].split(
         "def _step6WorkflowViewEntries", 1

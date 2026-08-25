@@ -6,6 +6,15 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "DENTOWorkflow" / "DENTOWorkflow.py"
+APPLICATION = (
+    ROOT
+    / "DENTOWorkflow"
+    / "Resources"
+    / "Python"
+    / "dentobot_workflow"
+    / "widget_application.py"
+)
+LIFECYCLE = APPLICATION.with_name("widget_lifecycle.py")
 UI = ROOT / "DENTOWorkflow" / "Resources" / "UI" / "DENTOWorkflow.ui"
 ROS_BRIDGE = (
     ROOT / "DENTOWorkflow" / "Resources" / "Python" / "DENTOROS2Bridge.py"
@@ -25,7 +34,7 @@ def test_reload_button_is_defined_in_the_persistent_workflow_ui() -> None:
 
 
 def test_reload_uses_slicer_api_and_resets_adapter_owned_ros_nodes() -> None:
-    source = WORKFLOW.read_text(encoding="utf-8")
+    source = APPLICATION.read_text(encoding="utf-8")
     handler = source.split("def onReloadDENTOWorkflowModule", 1)[1].split(
         "@staticmethod", 1
     )[0]
@@ -35,12 +44,13 @@ def test_reload_uses_slicer_api_and_resets_adapter_owned_ros_nodes() -> None:
     assert "disconnect_dentobot_motion_control" in handler
     assert "shutdown_slicer_adapter()" in handler
     assert 'glob("DENTO*.py")' in reload_function
+    assert 'module_name.startswith("dentobot_workflow.")' in reload_function
     assert 'reloadScriptedModule("DENTOWorkflow")' in reload_function
     assert "subprocess" not in handler
 
 
 def test_scene_close_releases_slicer_side_ros_state_before_scene_rebind() -> None:
-    source = WORKFLOW.read_text(encoding="utf-8")
+    source = LIFECYCLE.read_text(encoding="utf-8")
     handler = source.split("def onSceneStartClose", 1)[1].split(
         "def onSceneEndClose", 1
     )[0]
@@ -52,7 +62,7 @@ def test_scene_close_releases_slicer_side_ros_state_before_scene_rebind() -> Non
 
 
 def test_ros_adapter_nodes_are_transient_across_scene_save_and_clear() -> None:
-    workflow_source = WORKFLOW.read_text(encoding="utf-8")
+    workflow_source = LIFECYCLE.read_text(encoding="utf-8")
     end_close = workflow_source.split("def onSceneEndClose", 1)[1].split(
         "def onSceneEndImport", 1
     )[0]

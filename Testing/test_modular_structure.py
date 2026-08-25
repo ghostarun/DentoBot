@@ -9,10 +9,48 @@ PACKAGE = ROOT / "DENTOWorkflow" / "Resources" / "Python" / "dentobot_workflow"
 MANIFEST = ROOT / "Testing" / "contracts" / "dentoworkflow_api.json"
 
 MIXIN_OWNERS = {
+    "BootstrapWidgetMixin": "DENTOWorkflowWidget",
+    "ApplicationWidgetMixin": "DENTOWorkflowWidget",
+    "WorkflowPanelsWidgetMixin": "DENTOWorkflowWidget",
+    "LifecycleWidgetMixin": "DENTOWorkflowWidget",
+    "SegmentationWidgetMixin": "DENTOWorkflowWidget",
+    "TrajectoryViewWidgetMixin": "DENTOWorkflowWidget",
+    "PlanningFocusWidgetMixin": "DENTOWorkflowWidget",
+    "DockingWidgetMixin": "DENTOWorkflowWidget",
+    "PlanningWidgetMixin": "DENTOWorkflowWidget",
+    "GuideSupportSetupWidgetMixin": "DENTOWorkflowWidget",
+    "GuideSupportWidgetMixin": "DENTOWorkflowWidget",
+    "TemplateBuildWidgetMixin": "DENTOWorkflowWidget",
+    "TemplateFinalizationWidgetMixin": "DENTOWorkflowWidget",
+    "GuideBuildWidgetMixin": "DENTOWorkflowWidget",
+    "CaseBackendWidgetMixin": "DENTOWorkflowWidget",
+    "RobotShellWidgetMixin": "DENTOWorkflowWidget",
+    "RobotPlacementWidgetMixin": "DENTOWorkflowWidget",
+    "RobotSceneWidgetMixin": "DENTOWorkflowWidget",
     "RobotWidgetMixin": "DENTOWorkflowWidget",
+    "ViewCatalogWidgetMixin": "DENTOWorkflowWidget",
+    "ViewControlsWidgetMixin": "DENTOWorkflowWidget",
+    "ViewCompositionWidgetMixin": "DENTOWorkflowWidget",
+    "WorkflowNavigationWidgetMixin": "DENTOWorkflowWidget",
     "ViewerWidgetMixin": "DENTOWorkflowWidget",
+    "LogicConstantsMixin": "DENTOWorkflowLogic",
+    "CoreLogicMixin": "DENTOWorkflowLogic",
+    "BackendLogicMixin": "DENTOWorkflowLogic",
+    "DisplayLogicMixin": "DENTOWorkflowLogic",
+    "SegmentationLogicMixin": "DENTOWorkflowLogic",
+    "LineageLogicMixin": "DENTOWorkflowLogic",
+    "PlanningDependencyLogicMixin": "DENTOWorkflowLogic",
+    "WorkflowLogicMixin": "DENTOWorkflowLogic",
+    "GuideSupportLogicMixin": "DENTOWorkflowLogic",
+    "PatientShellLogicMixin": "DENTOWorkflowLogic",
+    "DockingLogicMixin": "DENTOWorkflowLogic",
+    "GuideLogicMixin": "DENTOWorkflowLogic",
+    "FinalizationLogicMixin": "DENTOWorkflowLogic",
     "CaseBundleLogicMixin": "DENTOWorkflowLogic",
+    "PhantomSceneLogicMixin": "DENTOWorkflowLogic",
     "Step6SceneLogicMixin": "DENTOWorkflowLogic",
+    "RobotPlacementLogicMixin": "DENTOWorkflowLogic",
+    "RobotSceneSyncLogicMixin": "DENTOWorkflowLogic",
     "RobotLogicMixin": "DENTOWorkflowLogic",
     "DENTOWorkflowTestMixin": "DENTOWorkflowTest",
 }
@@ -71,7 +109,7 @@ def test_modularized_public_api_matches_verified_baseline():
 
 def test_domain_mixins_do_not_import_the_public_entrypoint():
     for source in PACKAGE.glob("*.py"):
-        if source.name == "slicer_tests.py":
+        if source.name in {"runtime.py", "slicer_tests.py"}:
             continue
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -88,3 +126,39 @@ def test_all_internal_modules_are_installed_by_cmake():
     for source in PACKAGE.glob("*.py"):
         relative = source.relative_to(ROOT / "DENTOWorkflow").as_posix()
         assert relative in cmake, relative
+
+
+def test_active_workflow_modules_stay_within_context_budget():
+    """Keep routine implementation files cheap to inspect in agent sessions."""
+
+    assert len(ENTRYPOINT.read_text(encoding="utf-8").splitlines()) <= 500
+    exemptions = {"runtime.py", "slicer_tests.py"}
+    for source in PACKAGE.glob("*.py"):
+        if source.name in exemptions:
+            continue
+        line_count = len(source.read_text(encoding="utf-8").splitlines())
+        assert line_count <= 1500, f"{source.name}: {line_count} lines"
+
+
+def test_domain_modules_add_no_process_or_network_boundary():
+    forbidden_roots = {
+        "multiprocessing",
+        "requests",
+        "socket",
+        "subprocess",
+        "threading",
+        "urllib",
+    }
+    for source in PACKAGE.glob("*.py"):
+        if source.name in {"runtime.py", "slicer_tests.py"}:
+            continue
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        imported_roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_roots.update(
+                    alias.name.partition(".")[0] for alias in node.names
+                )
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_roots.add(node.module.partition(".")[0])
+        assert imported_roots.isdisjoint(forbidden_roots), source

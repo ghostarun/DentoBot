@@ -40,14 +40,52 @@ the external Linux interpreter owns dependency-heavy compute; the robot
 runtime owns hardware safety and real-time behavior. DENTOWorkflow never
 imports the external environment into Slicer's embedded Python.
 
+## Modular DENTOWorkflow application boundary
+
+`DENTOWorkflow.py` is a stable 117-line public composition root rather than an
+implementation store. It exports the same Slicer module, widget, logic,
+parameter-node, and test class names while composing focused mixins from
+`Resources/Python/dentobot_workflow/`. Routine domain modules are capped at
+1,500 lines; the lazy Slicer regression archive and shared compatibility-import
+module are explicit exceptions. `dentobot_workflow/README.md` is the method-
+ownership and change-routing map.
+
+```text
+Slicer public entrypoint (stable class names)
+        |
+        +-- Widget mixins: shell/lifecycle/views/workflow domains
+        +-- Logic mixins: MRML/case/geometry/robot domains
+        +-- typed parameter node + stable stage contract
+        |
+        +-- existing DENTO*.py algorithm/service seams
+                +-- external inference process adapter
+                `-- DENTORobotWorkflowFacade -> SlicerROS2 / MoveIt
+```
+
+The split is direct in-process Python inheritance. It introduces no RPC,
+serialization, process, thread, socket, polling worker, or second state store.
+Method bodies and the action path are unchanged after import. MRML and the
+typed parameter node remain authoritative; QSettings remains workstation-only
+presentation state. The public API manifest preserves method signatures and
+detects duplicate ownership. Static tests enforce import direction, CMake
+installation coverage, the context ceiling, and the absence of new process or
+network boundaries.
+
+The developer reload evicts both the stable `DENTO*.py` helpers and every
+`dentobot_workflow.*` module before invoking Slicer's supported scripted-module
+reload. The scene stays loaded, but live ROS state is deliberately disconnected
+and must be reconnected. Five-cycle reload acceptance checks helper/internal
+module replacement and scene preservation.
+
 ## Step 6 persistent-intent and transient-runtime boundary
 
 ```text
 MRML / .dentocase (persistent)                 ROS/MoveIt session (transient)
 case + world-RAS geometry                      live TF robot + goal robot
 6.0A case jaw landmarks/gap/hinge +            Motion Control parameter/probes
-  derived opened lower-jaw / mandibular        publishers/subscribers
-  display proxies (source CBCT/masks intact)
+  derived fixed-upper/moving-lower segmented   publishers/subscribers
+  anatomy + mandibular display proxies         per-segment anatomy collision objects
+  (source CBCT/masks intact)
 base status/source/revision
 optional provisional forehead proxy
 Task Home + reviewed assisted limits    -->    strict joint-command guard
@@ -1022,6 +1060,39 @@ solver (`solve_hinge_rotation_for_gap`):
    MoveIt sync consume the opened lower-jaw polydata when current. This is
    research planning preparation only—not clinical jaw kinematics or
    registration evidence.
+
+The preceding imported-case implementation is scheduled for replacement by
+the accepted schema-v2 anatomy-guided design. The draft phantom retains the
+legacy geometric solver. The imported case will instead use surface-bound
+condylar/incisal landmarks, a canonical anatomy-directed hinge solution, and
+two derived segmentation views: fixed upper jawbone/teeth and transformed lower
+jawbone/teeth. Every source segment remains individually identifiable; only the
+lower derived node and mandibular-attached workflow proxies parent under the
+world-RAS hinge transform. The reviewed source segmentation is never resampled
+or partially transformed.
+
+```text
+reviewed source segmentation (immutable)
+  |-- fixed upper jawbone + upper teeth --------> fixed world-RAS surfaces
+  `-- moving lower jawbone + lower teeth
+        `-- accepted hinge transform -----------> opened world-RAS surfaces
+
+opened per-segment VTK surfaces
+  -> topology/provenance validation
+  -> world RAS mm to robot-base metres
+  -> stable per-segment MoveIt collision objects
+```
+
+The collision mesh for each jawbone/tooth is a coordinate-preserving closed-
+surface representation generated directly from its segmentation segment. It
+is not an STL round trip and is not fused by jaw, because stable tooth/object
+identity is required for contact attribution and the target/non-target phase
+guard. Exact reviewed surfaces and configurable collision padding are separate
+records. All anatomy is solid for manual/home/workspace/approach motion; only
+the selected burr-to-target-tooth pair can be conditionally accepted during a
+matching terminal-contact or drilling-preview phase. Derived MRML segmentations
+may persist for immediate viewing but remain reconstructible proxies; ROS/
+MoveIt collision objects are always transient.
 
 Only one phantom set and one robot placement set are permitted; case and
 phantom scenes remain mutually exclusive for Step 6.

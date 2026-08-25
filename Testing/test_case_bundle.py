@@ -184,9 +184,10 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     ui = ET.parse(ROOT / "DENTOWorkflow/Resources/UI/DENTOWorkflow.ui")
     assert ui.find(".//widget[@name='saveCaseBundleButton']") is not None
     assert ui.find(".//widget[@name='openCaseBundleButton']") is not None
-    workflow_source = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(
-        encoding="utf-8"
-    )
+    workflow_source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
+    ).read_text(encoding="utf-8")
     assert "def _createCaseBundle" in workflow_source
     assert "def _openCaseBundle" in workflow_source
     assert 'loadScene(str(scenePath), {"clear": True})' in workflow_source

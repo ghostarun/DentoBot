@@ -22,6 +22,46 @@ inference environment, checking its identity, and retaining sufficient
 evidence to trace a DENTOBOT inference run. It does not establish anatomical
 accuracy, clinical safety, or regulatory compliance.
 
+## Planned Step 6.0A anatomy/collision trace contract — accepted 2026-08-25
+
+Status: documentation baseline only; no implementation or PASS evidence yet
+
+The future imported-case open-mouth record must preserve enough information to
+reconstruct the displayed anatomy and every simulation collision object without
+using STL as a second geometry authority. Required persistent evidence is:
+
+- source CBCT ID/geometry and reviewed segmentation ID/revision/fingerprint;
+- fixed-upper and moving-lower source segment membership with segment IDs, FDI
+  metadata, names, terminology, colors, point/cell counts, and bounds;
+- four world-RAS landmarks, their intended source segments, placement method,
+  exact-source projection residual, FOV margin, and MPR review state;
+- solver/schema version, canonical hinge axis, source/target/achieved gap,
+  angle, reachability result, direction evidence, and world-RAS rigid matrix;
+- source/final upper-lower contact metrics plus warning acceptance and UTC
+  review timestamp when applicable;
+- per-segment collision manifest: stable object ID, source fingerprint,
+  applied anatomy transform, world-to-robot-base transform, unit conversion,
+  topology result, and explicit collision padding; and
+- invalidation reason/state for any changed source segment, landmark, gap,
+  hinge, base, target, attachment, or margin.
+
+Geometry assertions must prove that source CBCT IJK-to-RAS and source segment
+voxel/count/bounds evidence are unchanged; fixed upper surfaces are unchanged;
+and every lower surface equals its source world-RAS surface transformed by the
+accepted hinge matrix to `1e-6`. Displayed MRML surfaces and MoveIt inputs must
+agree after the recorded millimetre-to-metre/base-frame conversion. Collision
+surfaces must be finite, non-empty, triangulated, and closed/watertight before
+sync. An implementation must reject a missing/stale/invalid required surface.
+
+Schema-v1 jaw openings are compatibility evidence only and restore Legacy/
+Stale. Derived MRML anatomy may be saved for immediate display but is validated
+or reconstructed from the authoritative segmentation. ROS/MoveIt collision
+objects, publishers, and connection flags are not saved. Required evidence
+levels are pure/Slicer synthetic tests followed by a governed representative-
+anatomy normal-window trial of `dentobot-case-step6.dentocase`; neither level
+establishes clinical jaw motion, registration, calibrated TCP, or hardware
+safety.
+
 ## Ubuntu synthetic Bridge B evidence
 
 On 2026-07-31, the Ubuntu workstation completed a software-only synthetic
@@ -849,3 +889,31 @@ scene-lifecycle probe reconnected after developer reload and New Empty Case,
 then restored a saved locked-base scene and printed
 `DENTOBOT_SCENE_LIFECYCLE_PASS`. Each functional result preceded the known
 nonzero pinned SlicerROS2 teardown leak; no clean-shutdown claim is made.
+
+## 19. Modular source/API checkpoint — 2026-08-25
+
+`Testing/contracts/dentoworkflow_api.json` records the accepted public class,
+method-signature, annotation, return, decorator, and parameter-field surface.
+`Testing/test_modular_structure.py` reconstructs that surface across the public
+entrypoint and internal mixins, rejects duplicates, checks import direction and
+CMake installation, enforces the 1,500-line routine-module ceiling, and rejects
+new process/network imports. The manifest proves API relocation parity; it does
+not prove behavioral, clinical, or hardware equivalence by itself.
+
+Recorded modular checkpoint evidence:
+
+- `pytest -q Testing`: `99 passed`;
+- `git diff --check`: pass;
+- application shell: `DENTOBOT_APPLICATION_SHELL_PASS`;
+- composable viewer: `DENTOBOT_COMPOSABLE_VIEWS_PASS` with no shutdown
+  traceback after the cleanup guard;
+- bounded Step 6 case import/view: `DENTOBOT_MODULAR_STEP6_CASE_VIEW_PASS`;
+- five consecutive developer reloads:
+  `DENTOBOT_FIVE_RELOAD_CYCLES_PASS`, with both helper and internal-module
+  identities replaced on every cycle.
+
+A current ROS-backed lifecycle rerun does not reproduce the older functional
+PASS: after initial connect, module reload, and reconnect, Slicer aborts while
+clearing the MRML scene. Record the earlier PASS as historical evidence and
+the 2026-08-25 abort as the current unresolved Track 1 result. No warm
+active-ROS scene-replacement claim is permitted until a later rerun passes.
