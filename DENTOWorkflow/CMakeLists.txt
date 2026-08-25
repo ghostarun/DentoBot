@@ -17,6 +17,8 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/DENTOStep6State.py
   Resources/Python/DENTOTemplateGeometry.py
   Resources/Python/DENTOTrajectoryGeometry.py
+  Resources/Python/dentobot_workflow/__init__.py
+  Resources/Python/dentobot_workflow/slicer_tests.py
   )
 
 set(MODULE_PYTHON_RESOURCES
