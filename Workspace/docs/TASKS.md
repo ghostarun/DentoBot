@@ -128,6 +128,31 @@ work; an implemented or synthetic PASS is not a clinical claim.
   explicit domain imports only when focused Slicer tests cover that domain. Do
   not perform a mass cleanup rewrite.
 
+## DENTO-NOTE: Active-ROS New Case abort after robot reconnect — active investigation 2026-08-25
+
+- **Affected workflow step:** shared module/scene lifecycle and Step 6 ROS 2 /
+  MoveIt reconnect, specifically New Empty Case after a live reconnect.
+- **Observed behavior/evidence:** the bounded SlicerROS2 lifecycle smoke passes
+  initial simulation-stack readiness, robot connect, developer module reload,
+  and robot reconnect. Calling `slicer.mrmlScene.Clear(0)` then emits a native
+  `vtkMRMLROS2NodeNode` destruction warning and aborts `SlicerApp-real` before
+  the post-clear reconnect/save-reopen assertions. The failure reproduced
+  twice. A narrow experiment retaining the SlicerROS2 default-node singleton
+  across DENTOWorkflow widget cleanup did not change the abort and was reverted.
+- **Risk/impact:** the operator must not rely on warm New Case or scene
+  replacement while a reconnected ROS graph is active. A native abort can lose
+  unsaved scene work and prevents clean lifecycle acceptance. This does not
+  authorize hardware execution and does not weaken collision or task gates.
+- **Triage:** active investigation. The modular API/shell/view/reload work is
+  accepted separately; warm active-ROS scene replacement remains unaccepted.
+- **Next verification action:** isolate whether the stale native owner is the
+  SlicerROS2 default node, robot, subscriber/publisher reference, Motion Control
+  parameter node, or a delayed Qt/native callback. Add pre-clear reference and
+  owner diagnostics, reproduce without module reload, then with reload but no
+  reconnect, and upstream-report the smallest SlicerROS2 reproducer if the
+  application adapter is fully quiesced. Require a bounded lifecycle PASS and
+  clean process exit before closing this note.
+
 ## Schema-v1 case-package restore compatibility — software fixed 2026-08-25
 
 - **Observed:** the newly saved `dentobot-case-step6.dentocase` passed archive,
