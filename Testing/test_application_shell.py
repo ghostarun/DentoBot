@@ -79,7 +79,9 @@ def test_new_shell_exposes_the_shared_view_controls_palette():
 
 def test_shell_preferences_are_qsettings_not_parameter_node_fields():
     shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
-    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(encoding="utf-8")
+    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(
+        encoding="utf-8"
+    )
     parameter_block = workflow.split("class DENTOWorkflowParameterNode", 1)[1].split(
         "class DENTOWorkflow", 1
     )[0]
@@ -90,7 +92,9 @@ def test_shell_preferences_are_qsettings_not_parameter_node_fields():
 
 def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
-    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(encoding="utf-8")
+    workflow = (
+        HELPERS / "dentobot_workflow/widget_robot.py"
+    ).read_text(encoding="utf-8")
     assert "import DENTOROS2Bridge" not in panel
     assert "computeIK" not in panel
     assert '"solve_ik": self._onShellSolveIk' in workflow

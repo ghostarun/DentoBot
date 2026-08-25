@@ -18,6 +18,13 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/DENTOTemplateGeometry.py
   Resources/Python/DENTOTrajectoryGeometry.py
   Resources/Python/dentobot_workflow/__init__.py
+  Resources/Python/dentobot_workflow/contracts.py
+  Resources/Python/dentobot_workflow/runtime.py
+  Resources/Python/dentobot_workflow/widget_robot.py
+  Resources/Python/dentobot_workflow/widget_views.py
+  Resources/Python/dentobot_workflow/logic_case_bundle.py
+  Resources/Python/dentobot_workflow/logic_step6_scene.py
+  Resources/Python/dentobot_workflow/logic_robot.py
   Resources/Python/dentobot_workflow/slicer_tests.py
   )
 

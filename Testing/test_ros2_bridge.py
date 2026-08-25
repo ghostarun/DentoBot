@@ -205,7 +205,10 @@ def test_slicer_adapter_contains_no_process_or_ros_cli_orchestration():
 
 
 def test_step6_joint_controls_publish_when_ros_robot_is_active():
-    workflow = (ROOT / "DENTOWorkflow/DENTOWorkflow.py").read_text(encoding="utf-8")
+    workflow = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_robot.py"
+    ).read_text(encoding="utf-8")
     handler = workflow.split("def onRobotJointValueChanged", 1)[1].split(
         "def onRobotBaseTransformSelectionChanged", 1
     )[0]

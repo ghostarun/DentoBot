@@ -45,7 +45,7 @@ from slicer.ScriptedLoadableModule import (
 from slicer.util import VTKObservationMixin
 from vtk.util.numpy_support import vtk_to_numpy
 
-_helperDirectory = Path(__file__).resolve().parent / "Resources" / "Python"
+_helperDirectory = Path(__file__).resolve().parents[1]
 if str(_helperDirectory) not in sys.path:
     sys.path.insert(0, str(_helperDirectory))
 
@@ -217,6 +217,7 @@ class DENTOWorkflowTestMixin:
             "test_DENTOWorkflowTemplateSupportBoundaryFocusDisplay",
             "test_DENTOWorkflowDirectionalSupportSideSelection",
             "test_DENTOWorkflowPatientContactShellVoxelFallback",
+            "test_DENTOWorkflowTargetDockingBindingPreservesConfirmation",
             "test_DENTOWorkflowTargetDockingYawMath",
             "test_DENTOWorkflowTinyFusionArtifactFiltering",
             "test_DENTOWorkflowVisibleTemplateSupportSurface",
@@ -5186,6 +5187,87 @@ class DENTOWorkflowTestMixin:
         self.delayDisplay(
             "DENTOWorkflow invalid-Hollow fallback and boundary-bridge tests passed"
         )
+
+    def test_DENTOWorkflowTargetDockingBindingPreservesConfirmation(self) -> None:
+        """GUI binding must not turn a restored confirmed dock back to Draft."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.setParameterNode(None)
+        logic = widget.logic
+        parameterNode = logic.getParameterNode()
+        parameterNode.targetDockingPatternRadiusMm = 12.0
+        parameterNode.targetDockingOuterDiameterMm = 3.0
+        parameterNode.targetDockingBoreDiameterMm = 1.0
+        parameterNode.targetDockingConnectorDiameterMm = 3.5
+        parameterNode.targetDockingConnectorThicknessMm = 2.0
+        parameterNode.targetDockingSharedDepthMm = 5.0
+        parameterNode.targetDockingIndividualDepthsEnabled = False
+        parameterNode.targetDockingDepth1Mm = 5.0
+        parameterNode.targetDockingDepth2Mm = 5.0
+        parameterNode.targetDockingDepth3Mm = 5.0
+        parameterNode.targetDockingDepth4Mm = 5.0
+        parameterNode.targetDockingCollisionClearanceMm = 0.5
+        parameterNode.templateDockingClearanceMm = 0.3
+        parameterNode.templateReinforcementRadialMm = 1.0
+        parameterNode.templateSamplingSpacingMm = 0.3
+        parameterNode.targetDockingYawDeg = -35.0
+        parameterNode.targetDockingYawConfirmed = True
+
+        planeNode = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsPlaneNode",
+            "BindingGuardDockPlane",
+        )
+        planeNode.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TargetDockingReferencePlane",
+        )
+        assemblyModel = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode",
+            "BindingGuardDockAssembly",
+        )
+        assemblyModel.SetAttribute(
+            "DENTOBOT.ModelRole",
+            "TargetDockingAssembly",
+        )
+        storedParameters = normalize_target_docking_parameters(
+            pattern_radius_mm=12.0,
+            outer_diameter_mm=3.0,
+            bore_diameter_mm=1.0,
+            connector_diameter_mm=3.5,
+            connector_thickness_mm=2.0,
+            shared_depth_mm=5.0,
+            individual_depths_mm=(5.0, 5.0, 5.0, 5.0),
+            individual_depths_enabled=False,
+            yaw_deg=-35.0,
+            collision_clearance_mm=0.5,
+            clearance_mm=0.3,
+            reinforcement_radial_mm=1.0,
+            processing_resolution_mm=0.3,
+        )
+        assemblyModel.SetAttribute(
+            "DENTOBOT.ParametersJson",
+            json.dumps(storedParameters, sort_keys=True, separators=(",", ":")),
+        )
+        confirmedUtc = "2026-08-25T00:00:00+00:00"
+        for node in (assemblyModel, planeNode):
+            node.SetAttribute("DENTOBOT.OrientationState", "Confirmed")
+            node.SetAttribute("DENTOBOT.OrientationConfirmedUtc", confirmedUtc)
+        parameterNode.targetDockingReferencePlane = planeNode
+        parameterNode.targetDockingAssemblyModel = assemblyModel
+
+        widget.setParameterNode(parameterNode)
+        slicer.app.processEvents()
+
+        for node in (assemblyModel, planeNode):
+            self.assertEqual(
+                node.GetAttribute("DENTOBOT.OrientationState"),
+                "Confirmed",
+            )
+            self.assertEqual(
+                node.GetAttribute("DENTOBOT.OrientationConfirmedUtc"),
+                confirmedUtc,
+            )
+        widget.setParameterNode(None)
 
     def test_DENTOWorkflowTargetDockingYawMath(self) -> None:
         frame = {

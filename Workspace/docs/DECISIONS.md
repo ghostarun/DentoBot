@@ -18,6 +18,15 @@ otherwise internally consistent Step 6 package fail at
 fail-closed validation of all evidence the package did record without forcing
 a schema bump for every append-only metadata field.
 
+Parameter-node-to-GUI binding is read-only synchronization. Step 4C docking
+input and yaw callbacks must not invalidate geometry or orientation while
+`setParameterNode` connects/restores widgets. A delayed yaw signal is also a
+no-op only when its value agrees with both the restored parameter and the
+docking assembly's persisted `ParametersJson`; a genuine operator change still
+sets orientation to Draft and cascades staleness normally. Package validation
+therefore observes persistent MRML meaning rather than a widget-binding side
+effect.
+
 ## 2026-08-25 — Compose views from anatomy/dimension/CBCT/overlays and enforce stage-owned interaction
 
 Status: implementation and synthetic Slicer verification complete;

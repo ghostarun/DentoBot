@@ -18,6 +18,17 @@ interpretations, and validation gates are recorded in
 active list below into clinician, phantom, manufacturing, or robot acceptance
 work; an implemented or synthetic PASS is not a clinical claim.
 
+## Parallel modularization host regressions — active 2026-08-25
+
+- The custom-GUI/modularization workstream is actively extracting production
+  mixins after checkpoint `56f5c7f`. A concurrent full host rerun now returns
+  `97 passed`: the temporary static source-location assumptions were redirected
+  to the owning robot/view modules, and a baseline API manifest now protects
+  method signatures during further extraction.
+- Viewer and Step 6 widget/logic mixins pass the visible shell, composable-view,
+  robot-widget, and concurrent Step 4C binding-guard Slicer regressions. Continue
+  the remaining lifecycle/workflow-domain extraction in reversible commits.
+
 ## Schema-v1 case-package restore compatibility — software fixed 2026-08-25
 
 - **Observed:** the newly saved `dentobot-case-step6.dentocase` passed archive,
@@ -34,6 +45,17 @@ work; an implemented or synthetic PASS is not a clinical claim.
   mismatching field path. Focused tests returned `8 passed`; all ordinary
   Python `Testing/` tests returned `94 passed`; the exact saved ROI record
   passed the corrected compatibility matcher.
+- **Second restore defect exposed and software-fixed:** after restart, the
+  precise diagnostic advanced to
+  `targetDockingReferencePlane.attributes.DENTOBOT.OrientationState`. Both the
+  package lineage and embedded MRML store `Confirmed`; GUI parameter binding
+  was replaying the unchanged `-35°` yaw signal and changing the restored plane
+  and docking assembly to `Draft` before validation. Step 4C input/yaw handlers
+  now ignore parameter-binding synchronization, and a delayed unchanged-yaw
+  signal is accepted only when it agrees with both the parameter node and
+  persisted docking provenance. Its focused Slicer regression printed
+  `DENTOBOT_DOCKING_BINDING_GUARD_PASS`; `git diff --check` and all `97` host
+  tests pass.
 - **Operator follow-up:** after a clean Slicer restart, reopen the same package
   and confirm the complete scene and Step 6 persistent state restore with ROS
   disconnected. A Slicer process was not launched in this fix session because
