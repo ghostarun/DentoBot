@@ -14,33 +14,139 @@
 - Advance only after acceptance evidence and a short milestone review.
 - Future milestones are a blueprint, not authorization to implement them.
 
-## Priority 0 Step 6 exact-case motion closure — active 2026-08-28
+## Priority 0 Step 6 simulation stabilization — strategy reset 2026-08-28
 
-The motion stack now distinguishes a strict approach from exploratory
-tool-contact phases. New cases default to a 2 mm pre-entry standoff, the live
-guard uses a 1 mm research margin, and terminal/drilling preview may suppress
-only configured burr-to-task-anatomy/guide contact. Every other collision,
-self-collision, joint bound, stale session, corridor escape, backtrack, and
-overshoot remains fail-closed. The contact phases retain 0.25 mm Cartesian
-samples, report every use of the suppression, and remain simulation-only.
+**Status:** planning accepted; implementation and automated verification are
+paused at the operator-directed checkpoint. The next objective is diagnosis,
+not making one retained case pass through planner tuning.
 
-Before offering Goal 1 preview, the workflow now preflights the complete
-Entry-to-Target line across bounded cylindrical-burr axial roll. The retained
-`dentobot-case-step6x4.dentocase` is not a passing motion fixture: exact live
-MoveIt evidence reaches only `44.44–45.34%` of the 15.77 mm line for all eight
-roll candidates even when solver collision avoidance is disabled. The next
-operator action is therefore to reposition and provisionally re-lock the robot
-base, regenerate/review Task Home and assisted limits, reconfirm the immutable
-task, and rerun both phases. Do not lower the `0.99` full-line requirement or
-preview the partial result.
+The current implementation remains a fail-closed baseline: new cases default
+to a 2 mm pre-entry standoff; the research guard uses 1 mm clearance; dense
+Cartesian samples are retained; and only configured burr-to-task-object contact
+may be suppressed in exploratory terminal/drilling phases. Every other world or
+self collision, joint bound, task/session mismatch, corridor escape,
+backtracking, and overshoot remains rejected. Execute stays hidden.
 
-In parallel, reconcile the saved 2.0 mm burr envelope with the 1.5 mm guide
-bore in Step 5C. Tool-contact suppression permits exploratory robot-state
-inspection only; a guide that is narrower than the tool cannot become physical
-fit or safety evidence. Closure requires an exact package with full-line
-reachability, successful guarded Goal 1 and Goal 2 previews, no non-tool
-suppression, and recorded normal-window observations. Hardware execution,
-clinical use, and drilling remain disabled.
+The retained `dentobot-case-step6x4.dentocase` reaches only
+`44.44–45.34%` of its 15.77 mm Entry-to-Target line for all bounded roll
+candidates with Cartesian collision avoidance disabled. This is a negative
+diagnostic fixture, not yet proof of a mechanical workspace deficiency. The
+current request returns only a fraction and discards the partial trajectory;
+it does not expose the last valid state, first invalid state, joint margin,
+collision pair, IK error, continuity failure, or manipulability. In addition,
+the current mount-plane snap copies a base-derived plane directly back into
+`base_link`, so its forehead relationship is not a trustworthy placement
+datum.
+
+### Priority-0 dependency containment
+
+Before interpreting another reachability percentage:
+
+1. disable or clearly quarantine the circular **Snap Base to Mount Plane** path
+   from any workflow that claims a reviewed placement;
+2. permit an explicitly labelled `ManualSimulationBasePose` for bounded
+   operator trials, independent of the forehead proxy; and
+3. define only the minimal transform contracts needed now: source/opened
+   anatomy in world RAS millimetres, one explicit world-to-`base_link`
+   transform, and one provisional tool/TCP transform. Each direction, unit,
+   revision, and application count must be visible.
+
+This containment is a prerequisite of the Priority-0 motion work; it does not
+assign a numeric priority to the separate unprioritized forehead-mount
+DENTO-NOTE or authorize the full physical frame/registration redesign.
+
+### Track B — collision-geometry audit
+
+Keep the reviewed Slicer segmentation as geometry authority. Generate the
+per-segment VTK closed surface that is actually supplied to MoveIt without an
+STL round trip. For every object record source segment/revision/fingerprint,
+fixed-or-moving classification, applied jaw/world/base transforms, unit
+conversion, point/cell counts, bounds, connected components, topology status,
+padding, outgoing collision ID, and runtime planning-scene acknowledgement.
+
+The operator-facing audit overlays the authoritative Slicer surface and an
+exact display copy of the outgoing MoveIt payload, with independent opacity.
+It reports quantitative surface agreement and distinguishes prepared payload
+evidence from what the runtime planning scene acknowledges; it must not claim
+to visualize FCL's internal acceleration structure. A moved lower-jaw object
+must receive the accepted hinge exactly once, upper anatomy must remain
+unchanged, and padding must remain separate from anatomy. Mismatch, stale
+fingerprint, invalid transform/scale, missing object, or invalid required
+surface fails planning closed.
+
+Track B transport correctness may proceed with the existing provisional
+opening. Representative anatomical acceptance remains explicitly provisional
+until the Priority-1 condylar/crown and MPR safeguards are completed; do not
+conflate a correct mesh transfer with a clinically meaningful jaw pose.
+
+### Track C — structured motion diagnosis and operator trial loop
+
+Every planning attempt must produce a versioned diagnostic session rather than
+a generic percentage. Record case/task, robot/resource, base, tool/TCP,
+trajectory, collision-scene, planner, sampling, and axial-roll fingerprints.
+For each candidate and each stage retain success/error code, path size/time,
+joint vector and limit margins, Cartesian completion distance/fraction,
+collision/self-collision information, manipulability or Jacobian condition,
+and the last-valid/first-invalid adjacent samples.
+
+Use diagnostic-only shadow queries to classify collision-induced IK failure,
+pure kinematic failure, joint exhaustion, IK branch/continuity failure,
+singularity/low manipulability, interpolation failure, frame/transform failure,
+invalid collision scene, and unknown MoveIt failure. Removing a constraint in
+a shadow query never relaxes the accepted plan or authorizes preview.
+
+Expose this through a Step 6 Motion Diagnostics dock/popup with a candidate
+table, sample scrubber, ghost robot, exact TCP/depth/joint-margin readout,
+collision-pair highlighting, outgoing/anatomy surface overlay, and explicit
+strict/tool-contact-relaxed/kinematics-only diagnostic labels. Base changes are
+numeric/coarse-fine or deliberate 3D edits, followed by explicit Apply, stale
+invalidation, and re-run; selecting a diagnostic sample is display-only.
+
+Persist a bounded, schema-versioned diagnostic evidence record inside MRML and
+`.dentocase`: summaries, candidate outcomes, selected candidate, important
+samples, last-valid/first-invalid evidence, review state, and fingerprints.
+Do not serialize ROS nodes, services, publishers/subscribers, goal robots,
+MoveIt trajectories, guard sessions, or active flags. Reopen reconstructs the
+diagnostic view and marks evidence Stale after any relevant anatomy, base,
+trajectory, tool, robot-resource, collision, or planning-parameter change.
+
+### Track D — explicit three-stage simulation planner
+
+1. **Stage 1 — Task Home/current to PreEntry:** ordinary collision-aware
+   free-space MoveIt planning; aligned tool axis; bounded axial-roll search;
+   complete success only.
+2. **Stage 2 — PreEntry to Entry:** straight Cartesian motion on the approved
+   axis. All ordinary collisions remain prohibited. Plan strictly to an
+   explicit pre-contact epsilon and evaluate only the final Entry sample under
+   a narrow, reported tip-on-target terminal tolerance; do not enable a broad
+   burr-target exemption or anatomical penetration.
+3. **Stage 3 — Entry to Target:** the approved Cartesian centreline is the
+   task. Only the configured burr-to-selected-target pair may be accepted, and
+   only for the current task fingerprint inside the corridor. Every non-target,
+   other-link, jawbone, self, bounds, backtrack, and overshoot failure remains
+   rejected. Partial completion is diagnostic evidence, never success.
+
+Stage 2 is unavailable until Stage 1 succeeds; Stage 3 is unavailable until
+Stages 1 and 2 succeed. The existing two-phase façade is refactored only after
+Tracks B and the minimum Track C result schema are usable, so each stage can
+explain its own failure.
+
+### Verification policy and later work
+
+Do not add another broad smoke/diagnostic script campaign. The first acceptance
+loop is operator-led in the normal DENTOWorkflow window: audit collision
+surfaces, move one explicit simulation base, run one candidate/stage at a time,
+scrub to the failure boundary, and save/reopen the diagnostic evidence. Minimal
+static or focused checks may be proposed after implementation, but no automated
+run resumes without renewed operator authorization.
+
+After B/C/D are trustworthy, implement the stable reviewed virtual mount/base
+contract (Track E), then multi-tooth/base task-space studies (Track F). A broad
+canonical frame architecture (Track A) and physical robot/patient registration
+(Track G) remain later work. The minimal transform declarations above are a
+correctness exception, not permission for either broad refactor. Separately,
+the saved 2.0 mm burr versus 1.5 mm guide bore remains an upstream Step 5C
+physical-fit defect and cannot be solved by collision suppression.
 
 ## Modular saved-case continuation acceptance — active 2026-08-27
 

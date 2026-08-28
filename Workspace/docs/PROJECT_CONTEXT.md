@@ -65,6 +65,25 @@ other contact, wrong/stale task, corridor escape, overshoot, self-collision, or
 joint-bound violation remains rejected. Hardware homing, controller ownership,
 force/stop behavior, powered motion, drilling, and Execute remain unavailable.
 
+## 2026-08-28 Step 6 stabilization direction
+
+The immediate robotics objective is now trustworthy diagnosis rather than
+planner success on one retained case. In order, DENTOBOT will audit the exact
+per-segment collision geometry and transforms supplied to MoveIt, expose
+structured last-valid/first-invalid candidate diagnostics, and implement three
+explicit simulation stages: strict free-space motion to PreEntry, strict axial
+approach to Entry with a narrow terminal contact tolerance, and guarded
+Entry-to-Target drilling. Diagnostic evidence is persistent; active ROS/MoveIt
+objects remain transient.
+
+The existing base-derived mount plane cannot be interpreted as forehead truth
+or a robot mount interface. Its snap path is quarantined for this work and
+immediate trials use a clearly labelled manual simulation-base pose. Full
+mount-frame design, automatic base optimization, system-wide frame
+formalization, and physical registration remain separate later work. The
+retained partial Cartesian result is therefore a negative diagnostic fixture,
+not yet evidence of collision, mechanical workspace, or placement failure.
+
 ## Developer context
 
 The developer has prior experience with standalone Python/C++, Qt, ITK, VTK,

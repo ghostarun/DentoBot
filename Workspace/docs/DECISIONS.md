@@ -1,5 +1,50 @@
 # Dentobot Technical Decisions
 
+## 2026-08-28 — Diagnose Step 6 before planner tuning or base optimization
+
+Status: accepted planning direction; implementation not started
+
+Treat the retained 44.44–45.34% Entry-to-Target result as a negative
+diagnostic fixture, not proof of collision, robot-workspace insufficiency, or
+base-placement failure. Preserve the current fail-closed threshold and safety
+guard. Do not reduce Cartesian step indefinitely, expand tolerances, weaken
+joint bounds, or disable ordinary collision rules merely to make the example
+pass.
+
+Implement the next Step 6 increment in this order: (B) independently audit the
+per-segment anatomy collision payload and runtime planning-scene identity;
+(C) return structured candidate/stage diagnostics with last-valid and first-
+invalid samples plus diagnostic-only shadow checks; and (D) replace the two-
+phase façade with explicit free-space-to-PreEntry, axis-to-Entry, and
+Entry-to-Target stages. Stage 2 remains strict except for a narrowly defined,
+reported terminal tip-on-target tolerance. Only Stage 3 may apply the existing
+task-, phase-, corridor-, tool-, and target-scoped contact exception. Partial
+Stage 3 traversal remains evidence, never a previewable success.
+
+Persist versioned diagnostic evidence in MRML/`.dentocase`, including context
+fingerprints, candidate/stage summaries, selected important samples, failure
+classification, and operator review/stale state. Do not persist live ROS nodes,
+services, messages, goal robots, MoveIt plans, phase sessions, connection flags,
+or publishers/subscribers. Diagnostic visualization uses a ghost robot and
+display copies and must not mutate authoritative task geometry.
+
+The circular Step 6.1 mount-plane snap must be quarantined before another base
+trial is interpreted. A clearly labelled manual simulation-base pose may be
+used in the immediate operator loop. This dependency does not assign a numeric
+priority to the unprioritized forehead-mount DENTO-NOTE. Full automatic base
+optimization, canonical system-wide frame refactoring, and physical
+registration remain deferred. The narrow world-RAS-to-base, opened-anatomy,
+and provisional TCP transforms required to audit B/C/D are the only immediate
+frame-contract exception.
+
+Reason: the generic Cartesian API exposes a completion fraction but not the
+adjacent state transition that caused it, while the present forehead plane is
+derived from `base_link` and copied back into `base_link`. More planner tuning
+or repeated base dragging would create results without a trustworthy causal or
+placement record. The next evidence must therefore be operator-visible,
+stage-specific, collision-auditable, and restorable before optimization or
+hardware-adjacent work continues.
+
 ## 2026-08-28 — Separate exploratory tool contact from robot/environment safety and preflight the full drilling line
 
 Status: implemented and pure/live-guard verified; the retained x4 base is

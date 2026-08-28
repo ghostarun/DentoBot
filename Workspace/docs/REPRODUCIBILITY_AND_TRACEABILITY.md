@@ -22,6 +22,48 @@ inference environment, checking its identity, and retaining sufficient
 evidence to trace a DENTOBOT inference run. It does not establish anatomical
 accuracy, clinical safety, or regulatory compliance.
 
+## Planned Step 6 collision/motion diagnostic evidence contract — 2026-08-28
+
+Status: accepted planning scope; no implementation or verification claim
+
+The next Priority-0 increment stores diagnostic evidence rather than only a
+generic Cartesian fraction or console text. The persistent record must include
+a schema version and timestamp; case/target/trajectory/base/tool/robot-resource/
+collision-scene/planning fingerprints; every bounded axial-roll candidate;
+Stage 1/2/3 result and MoveIt error code; completion fraction and physical
+distance; joint vectors/margins; collision/self-collision evidence;
+manipulability or Jacobian condition where available; and the adjacent last-
+valid/first-invalid samples and failure classification. Retain only bounded
+important samples and summaries needed to reproduce the operator diagnosis,
+not an unbounded log stream.
+
+The collision audit record must identify the authoritative source segment and
+revision; source and outgoing mesh fingerprints/counts/bounds/components/
+topology; fixed/moving classification; accepted jaw transform; world-to-base
+transform; transform application count; millimetre-to-metre conversion;
+padding; outgoing collision-object ID; and the planning scene's acknowledged
+ID/pose/bounds. The display copy of the outgoing payload is transient and is
+reconstructed from the authoritative surface plus recorded transform manifest;
+it is not persisted as a second anatomy authority or presented as evidence of
+FCL's internal BVH.
+
+Diagnostic-only shadow checks may remove one selected constraint to classify a
+failure, but their outcome must be labelled non-authorizing and cannot populate
+an accepted motion plan. On restore, any changed anatomy/collision fingerprint,
+base, trajectory, task, tool/TCP, robot resource, solver/planning parameter, or
+schema marks the diagnostic session Stale. Opacity and camera changes do not.
+Live ROS nodes, services, messages, goal robots, trajectories, guard sessions,
+connection flags, and publishers/subscribers remain excluded from MRML and
+`.dentocase` persistence.
+
+The initial evidence loop is operator-led inside the normal DENTOWorkflow UI:
+audit the two visible surface layers, run one stage/candidate, scrub the ghost
+robot from last valid to first invalid, inspect collision/joint/IK information,
+apply a deliberate manual simulation-base change, rerun, and save/reopen the
+diagnostic record. No new broad automated diagnostic campaign is authorized at
+this checkpoint. Hardware execution and physical/clinical claims remain out of
+scope.
+
 ## Step 6 phased-motion trace contract — updated 2026-08-28
 
 The current simulation-only contract uses `dentobot.task_guard_config.v2` and

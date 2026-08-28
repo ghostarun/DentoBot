@@ -2,11 +2,109 @@
 
 Last updated: 2026-08-28
 
+## Current project tracker — authoritative work order
+
+Use this dashboard for current sequencing. The detailed DENTO-NOTEs, active
+register, historical next lists, completed evidence, and unresolved items below
+retain provenance but are not a second priority order.
+
+### Now — active or prerequisite work
+
+| Workstream | Priority | Current state | Next bounded outcome |
+|---|---:|---|---|
+| Step 6 collision geometry audit | 0 | Planned; current Slicer anatomy is authoritative, but the exact outgoing MoveIt payload and runtime acknowledgement are not operator-auditable | Overlay authoritative and outgoing surfaces, record per-object transform/unit/fingerprint/topology/padding evidence, and fail closed on mismatch |
+| Step 6 motion diagnostics | 0 | Planned; x4 returns only `44.44–45.34%` and the current API hides the failure boundary | Preserve the partial result and expose last-valid/first-invalid pose, joints, limits, collision/IK/continuity classification, and candidate comparison in DENTOWorkflow |
+| Step 6 three-stage planner | 0 | Planned after the minimum collision/diagnostic schema exists | Separate strict Home/current→PreEntry, strict PreEntry→Entry with terminal tip tolerance, and guarded Entry→Target drilling; partial drilling remains failure evidence |
+| Step 6.1 base-placement containment | Unprioritized dependency | Active investigation; current plane is derived from `base_link` and copied back into it | Quarantine the circular snap and allow only an explicitly labelled manual simulation-base datum for Priority-0 trials; full mount design still waits for CAD/contact evidence |
+| Step 6A landmark/anatomy safeguards | 1 | Partially implemented; laterality and inferior opening are corrected, but condylar/crown subregions and enforced MPR review are missing | Add source-fingerprinted bilateral condylar and incisal/crown interaction surfaces, contralateral guide, and representative operator review |
+| Saved-case modular continuation | Unprioritized active | Atomic restore plus free navigation are implemented; checkpoint matrix and normal-window acceptance remain open | Reopen de-identified Step 1–6 checkpoints, inspect every stage without ROS restoration, and confirm Current/Stale dependency explanations |
+| Active-ROS scene lifecycle | Unprioritized active | New Case after reconnect can still abort native Slicer during scene clear | Isolate SlicerROS2 default-node destruction before claiming warm active-ROS New Case/save-reopen acceptance |
+
+### Next — queued after current dependencies
+
+| Workstream | Priority | Entry condition | Intended result |
+|---|---:|---|---|
+| Restored Case Review dashboard | 2 | Modular checkpoint matrix is understood | Step-by-step visual integrity/freshness review with Current, Needs attention, Stale, Blocked upstream, and hard-failure states |
+| Interactive Step 6A incisor-gap preview | 2 | Priority-1 TMJ/crown/MPR safeguards pass | Smooth transient slider preview; only **Lock / Accept Opening** commits geometry and invalidates descendants once |
+| Assisted Step 4A crown Entry snapping | Unprioritized design | Reviewed crown-region contract and MPR acceptance are available | Entry points validate against the selected tooth's source-fingerprinted crown surface rather than whole-tooth bounds |
+| Step 5C export-artifact evidence | Unprioritized backlog | Manufacturing traceability policy is agreed | Optional STL checksum/revision manifest that never replaces MRML geometry or gates Step 6 simulation |
+| Template V0 representative/physical closure | Strategic parallel lane | Procedure and clinical parameters are frozen | One representative software case, one printed template, seating/reseating/dimensional evidence, and measured rather than assumed fit |
+
+### Future track — important, not authorized to distract current work
+
+| Horizon | Workstream | Purpose / gate |
+|---|---|---|
+| Priority 3 | New GUI aesthetics and performance | Begin only after higher-priority correctness work; retain Legacy parity, viewport-first layout, and no MRML/ROS side effects |
+| Track E | Stable reviewed virtual mount/base | Define independent patient/contact and robot mount-face frames, numeric placement, persistence, review, and invalidation; proxy-only placement remains provisional |
+| Track F | Multi-tooth/base task-space study | Run only after collision audit, diagnostics, three-stage planning, and stable base placement are trustworthy |
+| Track A | Full canonical coordinate contract | Formalize all frame edges, units, handedness, provenance, revision, and round-trip evidence; only the narrow transforms required by current diagnosis are in scope now |
+| Track G | Physical registration and robot integration | CBCT/patient/dock/robot/TCP registration, TRE, calibration, controller ownership, force/stop logic, and verified safety procedure before hardware execution |
+| Research validation | Error budget, metrology, sensing, and clinical review | Replace assumptions with representative anatomy, printed-phantom, registration, robot/tool, and stop-system measurements |
+
+### Current guardrails
+
+- Do not tune MoveIt merely to make x4 pass or interpret its partial fraction as
+  proof of collision, workspace, or base failure.
+- Do not resume broad automated diagnostic-script work until the operator-led
+  in-application audit/diagnostic loop is ready for review.
+- Do not persist live ROS nodes, MoveIt plans, publishers/subscribers, goal
+  robots, guard sessions, or connection flags in `.dentocase`.
+- No hardware motion, drilling, patient-facing action, or clinical/safety claim
+  is authorized by this tracker.
+
+## DENTO-NOTE: Step 6.1 forehead mounting-plane frame is physically incorrect — Unprioritized active investigation
+
+- **Priority:** `Unprioritized`; no priority was assigned, so this note must not
+  be silently promoted ahead of numbered DENTO-NOTEs.
+- **Observed behavior:** the displayed mounting plane appears attached to robot
+  link/base geometry and perpendicular to the intended forehead contact
+  orientation. It does not represent a reviewed patient forehead estimate or
+  the robot's actual mechanical mounting interface.
+- **Confirmed root cause:** `createOrResetRobotMountPlane()` initializes the
+  plane at the current robot-base origin using the robot-base Z axis.
+  `snapRobotBaseToPlane()` then copies that plane pose directly into the
+  `base_link` transform. This is circular. The implementation has neither an
+  anatomy/proxy-derived world contact frame nor a calibrated/CAD-derived rigid
+  transform from `base_link` to the physical mount face. The optional curved
+  forehead envelope is generated tangent to this already incorrect plane and
+  is explicitly unregistered/visualization-only.
+- **Impact:** robot placement, workspace reachability, and the apparent
+  forehead relationship can be grossly misleading even when the base is
+  labelled `ProvisionalLocked`. This may contribute directly to the current
+  Step 6 trajectory-reachability problem. It is not registration, fit, or
+  safety evidence.
+- **Sequencing effect:** this note remains numerically unprioritized, but the
+  circular snap action must be quarantined and replaced by an explicitly
+  labelled manual simulation-base datum before the Priority-0 motion result is
+  interpreted. That containment is a dependency, not a priority promotion.
+- **Required replanning contract:** separate (1) a patient/world forehead-
+  contact frame derived from an explicit reviewed proxy, external surface, or
+  future registration and (2) a robot mechanical mount-face frame defined in
+  URDF/CAD relative to `base_link`. Solve
+  `T_world_base = T_world_contact * inverse(T_base_mount_face)` with an explicit
+  normal direction, contact offset, handedness, and residual display. Never
+  infer the mount face from the visual orientation of link 1. Because the CBCT
+  does not include the forehead, any proxy-only result remains provisional.
+- **Next evidence before implementation:** identify the real mounting plate/
+  contact-face CAD and its intended forehead-facing normal; confirm which side
+  of the plate contacts the patient/proxy; define allowable offset/tilt and
+  visual review controls; then specify persistence/invalidation fingerprints
+  and an operator trial. No automated verification or code change is started
+  under this note.
+
 ## DENTO-NOTE: Step 6 approach-to-drilling simulation — Priority 0 active
 
-- **Triage:** core planning/guard defects fixed and verified; exact-case
-  completion is blocked by the currently saved robot-base placement, not by a
-  planner threshold.
+- **Operator direction — 2026-08-28:** stop automated verification and do not
+  add further diagnostic scripts. Preserve the current implementation as a
+  fail-closed checkpoint. The next increment will be replanned with the
+  operator actively controlling robot/base/trajectory trials and inspecting
+  collision surfaces and the precise stopping point; do not continue the
+  current automated acceptance campaign before that discussion.
+
+- **Triage:** active Priority-0 replanning. Core coordinate/guard defects are
+  fixed at the previous checkpoint, but the retained-case failure cause is not
+  yet classified. Do not call it a base/workspace failure from the partial
+  fraction alone.
 - **Implemented:** one-time world-RAS/mm to placed-base/metres conversion;
   strict OMPL approach plus dense terminal contact; 2 mm new-case standoff;
   1 mm live research clearance; bounded planning-scene settle/retry; schema-v2
@@ -17,20 +115,32 @@ Last updated: 2026-08-28
 - **Current exact evidence:** `dentobot-case-step6x4.dentocase` reaches only
   `44.44–45.34%` of its 15.77 mm Entry-to-Target line for rolls
   `0, ±45, ±90, ±135, 180` degrees with Cartesian collision avoidance off.
-  The workflow must report **Reposition the robot base** and must not promote
-  that partial path. The same saved geometry records a 2.0 mm burr envelope
-  and 1.5 mm guide bore.
+  The workflow must not promote that partial path. Its current **Reposition the
+  robot base** conclusion is too strong until last-valid/first-invalid IK,
+  joint-margin, continuity, transform, and collision evidence are available.
+  The same saved geometry records a 2.0 mm burr envelope and 1.5 mm guide bore.
 - **Verified:** `123 passed`; `dentobot_moveit_config` builds; the live guard
   matrix passes strict-target rejection, configured-tool suppression/reporting,
   unconfigured/non-tool rejection, 1 mm margin, bounds, task/session sequence,
   corridor, backtrack/overshoot cases. The exact roll diagnostic completed all
   candidates and reported `fullPathFound=false`; Slicer's known ROS/plugin VTK
   teardown leaks still cause a nonzero process exit after the report.
-- **Next Priority-0 action:** in a normal window, reposition and provisionally
-  re-lock the base so the complete line is reachable; then re-save Task Home,
-  regenerate/review limits, reconfirm the task, and run guarded Goal 1 and
-  Goal 2 previews. Separately correct/regenerate the Step 5C guide/tool
-  dimensions. Keep Execute hidden and disabled.
+- **Accepted next strategy, in dependency order:**
+  1. quarantine the circular forehead-plane/base snap and use only an explicit
+     manual simulation base for trials;
+  2. implement Track B collision-payload/runtime audit from per-segment Slicer
+     surfaces, including exact transform/unit accounting and overlay;
+  3. implement Track C versioned per-candidate/per-stage diagnostics with
+     last-valid/first-invalid states and causal shadow queries;
+  4. refactor Track D into Stage 1 strict free-space approach, Stage 2 strict
+     axis approach with a narrow terminal Entry tolerance, and Stage 3 guarded
+     Entry-to-Target drilling; and
+  5. add one in-application operator trial dock with sample scrubbing, ghost
+     robot, collision highlighting, explicit base edits, and `.dentocase`
+     diagnostic restore/staleness.
+- **Verification direction:** no new broad scripts or automated campaign.
+  Resume with the operator in the normal window after the in-app audit and
+  diagnostic loop exist. Keep Execute hidden and disabled.
 
 ## Codex Graphify integration — completed 2026-08-28
 

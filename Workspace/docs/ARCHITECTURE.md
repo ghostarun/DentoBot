@@ -91,6 +91,7 @@ optional provisional forehead proxy
 Task Home + reviewed assisted limits    -->    strict joint-command guard
 immutable task snapshot                        phased task guard configuration
 display opacities                               approach/drilling plans + status
+planned versioned diagnostic evidence records
 ```
 
 `DENTORobotWorkflowFacade` is the shared Legacy/New-GUI application seam. It
@@ -117,6 +118,62 @@ messages tied to the immutable fingerprint. Terminal contact and drilling may
 accept only the burr-to-selected-target pair inside the confirmed corridor.
 All other robot/world/self contacts and joint violations remain fail-closed.
 No controller or hardware execution path is exposed.
+
+### Planned Priority-0 collision and motion-diagnostic boundary
+
+The next Step 6 increment adds evidence without turning ROS runtime state into
+case state:
+
+```text
+reviewed per-segment Slicer surface
+        |
+        +-- exact outgoing collision payload + transform/unit manifest
+        |       `-- MoveIt PlanningScene acknowledgement
+        |
+        `-- transient display-only audit copy in world RAS
+
+MoveIt attempt -> candidate/stage diagnostic -> selected evidence samples
+        |                                       |
+        `-- transient services/plans            `-- versioned MRML/.dentocase record
+```
+
+The audit must distinguish (1) the authoritative Slicer surface, (2) the exact
+mesh/pose payload prepared for MoveIt, and (3) the runtime object's acknowledged
+ID/pose/bounds. It must not claim that an overlay visualizes FCL's private BVH.
+Surface fingerprints, transform direction/application count, millimetre-to-
+metre conversion, fixed/moving jaw classification, collision padding, topology,
+and bounds are explicit evidence. The audit copy is reconstructed from the
+authoritative surface and recorded transform manifest and is not saved as a
+second anatomy mesh.
+
+The diagnostic layer is read-only with respect to authoritative task geometry.
+It uses ordinary MoveIt planning, IK, state-validity, and collision/distance
+queries plus diagnostic-only shadow queries to separate collision, self-
+collision, joint bound, IK/workspace, continuity/branch, singularity,
+interpolation, frame/transform, and internal/unknown failures. A shadow result
+can explain a rejection but cannot relax or authorize the accepted plan.
+
+Persistent diagnostic records contain bounded summaries, fingerprints,
+important samples, last-valid/first-invalid states, and operator review/stale
+state. Full ROS messages, service clients, MoveIt trajectories, goal robots,
+guard sessions, and active connection state remain transient. Selecting a
+candidate/sample drives a display-only ghost robot and overlays; applying a
+base edit is a separate explicit state mutation that invalidates dependent
+evidence.
+
+The planned motion façade has three gates: collision-aware free-space motion to
+PreEntry; straight strict approach to Entry with only a narrow terminal
+tip-on-target tolerance; and guarded prescribed Entry-to-Target drilling with
+the existing scoped tool/target exception. A partial path is retained for
+diagnosis but never promoted to a successful preview.
+
+Immediate base trials use an explicitly labelled manual simulation base pose.
+The existing plane-to-base snap is quarantined because the plane is derived
+from `base_link` and copied back to it. A future reviewed contact frame and
+CAD/URDF mount-face frame will solve
+`T_world_base = T_world_contact * inverse(T_base_mount_face)`. This local
+containment does not implement physical registration or a broad canonical-frame
+refactor.
 
 ## PoC closure and evidence architecture
 

@@ -20,12 +20,24 @@ reproducibility, or dated evidence documents.
   terminal/drilling exploration may suppress only configured burr-to-task-
   anatomy/guide contact and must report it. All non-tool/self/bounds/session/
   corridor/backtrack/overshoot checks remain fail-closed.
-- Goal 1 now preflights complete Entry-to-Target reachability at 0.25 mm
+- Goal 1 currently preflights complete Entry-to-Target reachability at 0.25 mm
   Cartesian sampling across bounded cylindrical-burr axial roll. The retained
-  `dentobot-case-step6x4.dentocase` reaches only `44.44–45.34%`; its current
-  base must be repositioned. Never treat that partial result as a drilling
-  plan. The saved 2.0 mm burr versus 1.5 mm guide bore is a separate upstream
-  physical-fit defect.
+  `dentobot-case-step6x4.dentocase` reaches only `44.44–45.34%`, but that
+  percentage alone does not prove collision, kinematic reach, or a mechanical
+  base-placement deficiency. The current API discards the partial trajectory,
+  and the Step 6.1 plane/base snap is circular rather than a patient-contact to
+  robot-mount transform. Preserve x4 as a negative diagnostic fixture; do not
+  treat its partial result as a drilling plan or tune the planner to make it
+  pass. The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate
+  upstream physical-fit defect.
+- The active Priority-0 strategy is now: audit the exact anatomy meshes sent to
+  MoveIt, add structured last-valid/first-invalid motion diagnosis, then expose
+  an explicit three-stage simulation planner (strict free-space approach,
+  strict axis approach to Entry with a narrow terminal contact tolerance, and
+  guarded Entry-to-Target drilling). Persist diagnostic evidence, not live ROS
+  objects, in `.dentocase`. Broad automated verification and new diagnostic
+  scripts remain paused; the next verification loop is operator-visible and
+  in-application.
 - Source CBCT geometry remains authoritative and unchanged. Volume rendering
   is display-only, not a segmentation surface or collision mesh.
 - Step 6 uses seven shared one-card substeps in both presentations. A current
