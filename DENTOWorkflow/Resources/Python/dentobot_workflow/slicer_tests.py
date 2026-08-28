@@ -217,6 +217,8 @@ class DENTOWorkflowTestMixin:
             "test_DENTOWorkflowDirectionalSupportSideSelection",
             "test_DENTOWorkflowPatientContactShellVoxelFallback",
             "test_DENTOWorkflowTargetDockingBindingPreservesConfirmation",
+            "test_DENTOWorkflowTrajectoryMetadataDoesNotInvalidateGeometry",
+            "test_DENTOWorkflowInsertionMetadataDoesNotInvalidateTemplate",
             "test_DENTOWorkflowTargetDockingYawMath",
             "test_DENTOWorkflowTinyFusionArtifactFiltering",
             "test_DENTOWorkflowVisibleTemplateSupportSurface",
@@ -232,6 +234,8 @@ class DENTOWorkflowTestMixin:
             "test_DENTOWorkflowRobotPlacementWidget",
             "test_DENTOWorkflowStep6CaseViewWidget",
             "test_DENTOWorkflowStep6CaseJawOpening",
+            "test_DENTOWorkflowRestoredCaseJawGateDoesNotDeactivateImport",
+            "test_DENTOWorkflowStep6SubstepNavigator",
             "test_DENTOWorkflowStep6NativePlacementPersistence",
             "test_DENTOWorkflowStep6JointLimitSpinboxes",
             "test_DENTOWorkflowViewControlsPaletteWidget",
@@ -3617,6 +3621,7 @@ class DENTOWorkflowTestMixin:
         self.assertFalse(widget.ui.draftOpenMouthPhantomGroupBox.isHidden())
         self.assertFalse(widget.ui.step6CaseJawOpeningGroupBox.isHidden())
         self.assertFalse(widget.ui.step6CaseJawOpeningGroupBox.enabled)
+        self.assertFalse(widget.ui.useStep6TargetJawFallbackButton.enabled)
         self.assertAlmostEqual(widget.ui.draftJawTargetGapSpinBox.value, 40.0)
         self.assertAlmostEqual(widget.ui.step6CaseJawTargetGapSpinBox.value, 40.0)
         self.assertFalse(widget.ui.robotPlacementCollapsibleButton.isHidden())
@@ -3725,6 +3730,17 @@ class DENTOWorkflowTestMixin:
         """Case opening preserves source data and drives mandibular Step 6 world geometry."""
         logic = DENTOWorkflowLogic()
         parameterNode = logic.getParameterNode()
+        volume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode",
+            "Step6CaseCBCT",
+        )
+        image = vtk.vtkImageData()
+        image.SetDimensions(100, 100, 100)
+        image.AllocateScalars(vtk.VTK_SHORT, 1)
+        volume.SetAndObserveImageData(image)
+        volume.SetSpacing(2.0, 2.0, 2.0)
+        volume.SetOrigin(-100.0, -150.0, -100.0)
+        parameterNode.inputVolume = volume
         segmentation = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLSegmentationNode",
             "Step6CaseJawMasks",
@@ -3757,6 +3773,16 @@ class DENTOWorkflowTestMixin:
             (-5.0, 5.0, -93.0, -87.0, -15.0, -9.0),
         )
         addCubeSegment(
+            "upper-tooth-21",
+            "upper_left_central_incisor_fdi21",
+            (-2.0, 2.0, -92.0, -88.0, -12.0, -8.0),
+        )
+        addCubeSegment(
+            "lower-tooth-31",
+            "lower_left_central_incisor_fdi31",
+            (-2.0, 2.0, -92.0, -88.0, -14.0, -10.0),
+        )
+        addCubeSegment(
             "maxilla",
             "maxilla",
             (-45.0, 45.0, -100.0, -50.0, -25.0, 5.0),
@@ -3764,7 +3790,7 @@ class DENTOWorkflowTestMixin:
         addCubeSegment(
             "mandible",
             "mandible",
-            (-45.0, 45.0, -100.0, -45.0, -30.0, -5.0),
+            (-50.0, 50.0, -100.0, -45.0, -30.0, -5.0),
         )
         segmentation.GetDisplayNode().SetAllSegmentsVisibility(True)
         parameterNode.teethSegmentation = segmentation
@@ -3799,14 +3825,38 @@ class DENTOWorkflowTestMixin:
         parameterNode.step6PlanningContextImported = True
 
         landmarks = logic.ensureStep6CaseJawLandmarksNode(None)
-        for point in (
-            (-50.0, 0.0, 0.0),
-            (50.0, 0.0, 0.0),
+        landmarkPoints = (
+            (-50.0, -45.0, -5.0),
+            (50.0, -45.0, -5.0),
             (0.0, -90.0, -10.0),
             (0.0, -90.0, -12.0),
-        ):
+        )
+        associations = logic.step6CaseJawLandmarkSegmentAssociations(parameterNode)
+        for index, point in enumerate(landmarkPoints):
+            self.assertEqual(
+                logic.prepareStep6CaseJawLandmarkPlacement(
+                    parameterNode,
+                    landmarks,
+                    index,
+                ),
+                associations[index],
+            )
             landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))
+            evidence = logic.finalizeStep6CaseJawLandmarkPlacement(
+                parameterNode,
+                landmarks,
+            )
+            self.assertIsNotNone(evidence)
+            self.assertEqual(evidence["sourceSegmentId"], associations[index])
+            self.assertLessEqual(float(evidence["projectionResidualMm"]), 5.0)
+        logic.stopTrajectoryPlacement()
         parameterNode.step6CaseJawLandmarks = landmarks
+        self.assertFalse(logic.step6CaseJawSurfaceEvidenceIssues(parameterNode))
+        anatomyReview = logic.validateStep6CaseJawLandmarkAnatomy(parameterNode)
+        self.assertLess(
+            anatomyReview["condylarReview"]["leftRasXmm"],
+            anatomyReview["condylarReview"]["rightRasXmm"],
+        )
         sourceLowerBounds = logic.getSegmentationSegmentBoundsWorld(
             segmentation,
             "lower-tooth-36",
@@ -3818,6 +3868,23 @@ class DENTOWorkflowTestMixin:
 
         self.assertAlmostEqual(opening["gapMm"], 40.0, delta=0.1)
         self.assertTrue(logic.isStep6CaseJawTransformNode(transform))
+        self.assertEqual(parameterNode.step6CaseJawPreparationMode, "ProvisionalOpenProxy")
+        self.assertTrue(
+            logic.isStep6DerivedAnatomyNode(
+                parameterNode.step6FixedUpperAnatomy,
+                logic.STEP6_FIXED_UPPER_ANATOMY_ROLE,
+            )
+        )
+        self.assertTrue(
+            logic.isStep6DerivedAnatomyNode(
+                parameterNode.step6MovingLowerAnatomy,
+                logic.STEP6_MOVING_LOWER_ANATOMY_ROLE,
+            )
+        )
+        self.assertIs(
+            parameterNode.step6MovingLowerAnatomy.GetParentTransformNode(),
+            transform,
+        )
         self.assertIs(openedJaw.GetParentTransformNode(), transform)
         self.assertEqual(gapLine.GetNumberOfDefinedControlPoints(), 2)
         self.assertFalse(
@@ -3877,18 +3944,214 @@ class DENTOWorkflowTestMixin:
                     reloaded.step6OpenedLowerJawModel
                 )
             )
+            self.assertEqual(
+                reloaded.step6CaseJawPreparationMode,
+                "ProvisionalOpenProxy",
+            )
             reloadedLogic.resetStep6CaseJawOpening(reloaded)
             self.assertIsNone(reloaded.step6CaseJawTransform)
             self.assertIsNone(reloaded.step6OpenedLowerJawModel)
+            self.assertIsNone(reloaded.step6FixedUpperAnatomy)
+            self.assertIsNone(reloaded.step6MovingLowerAnatomy)
             self.assertTrue(
                 reloaded.teethSegmentation.GetDisplayNode().GetSegmentVisibility3D(
                     "lower-tooth-36"
                 )
             )
+            self.assertTrue(
+                reloadedLogic.recordStep6CaseJawPreparationFailure(
+                    reloaded,
+                    "The requested case opening is unreachable for this anatomy.",
+                )
+            )
+            fallback = reloadedLogic.createStep6TargetJawFallback(reloaded)
+            self.assertEqual(fallback["mode"], "TargetJawFallback")
+            self.assertEqual(fallback["targetJaw"], "lower")
+            self.assertFalse(fallback["transformApplied"])
+            self.assertIsNone(
+                reloaded.step6TargetJawFallbackAnatomy.GetParentTransformNode()
+            )
+            self.assertFalse(
+                reloadedLogic.step6CaseJawPlacementFreshnessIssues(reloaded)
+            )
+            self.assertTrue(
+                reloadedLogic.step6CaseJawOpeningFreshnessIssues(reloaded)
+            )
+            self.assertIn(
+                "placement-testing anatomy",
+                " ".join(
+                    reloadedLogic.step6CaseJawOpeningFreshnessIssues(reloaded)
+                ),
+            )
+            fallbackScenePath = Path(slicer.app.temporaryPath) / (
+                f"dentobot-case-jaw-fallback-{uuid.uuid4().hex}.mrb"
+            )
+            try:
+                self.assertTrue(slicer.util.saveScene(str(fallbackScenePath)))
+                slicer.mrmlScene.Clear(0)
+                self.assertTrue(slicer.util.loadScene(str(fallbackScenePath)))
+                fallbackLogic = DENTOWorkflowLogic()
+                fallbackReloaded = fallbackLogic.getParameterNode()
+                self.assertEqual(
+                    fallbackReloaded.step6CaseJawPreparationMode,
+                    "TargetJawFallback",
+                )
+                self.assertFalse(
+                    fallbackLogic.step6CaseJawPlacementFreshnessIssues(
+                        fallbackReloaded
+                    )
+                )
+                self.assertTrue(
+                    fallbackLogic.step6CaseJawOpeningFreshnessIssues(
+                        fallbackReloaded
+                    )
+                )
+                fallbackLogic.resetStep6CaseJawOpening(fallbackReloaded)
+                self.assertEqual(
+                    fallbackReloaded.step6CaseJawPreparationMode,
+                    "ClosedSource",
+                )
+            finally:
+                fallbackScenePath.unlink(missing_ok=True)
         finally:
             scenePath.unlink(missing_ok=True)
 
         self.delayDisplay("DENTOWorkflow Step 6 case jaw-opening test passed")
+
+    def test_DENTOWorkflowRestoredCaseJawGateDoesNotDeactivateImport(self) -> None:
+        """A schema-v1 pre-opening base must not deadlock Step 6 restore."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.initializeParameterNode()
+        widget._setWorkflowStage(10, ensureVisible=False)
+        logic = widget.logic
+        parameterNode = widget._parameterNode
+
+        inputVolume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode", "RestoredStep6CBCT"
+        )
+        image = vtk.vtkImageData()
+        image.SetDimensions(2, 2, 2)
+        image.AllocateScalars(vtk.VTK_SHORT, 1)
+        inputVolume.SetAndObserveImageData(image)
+        parameterNode.inputVolume = inputVolume
+        parameterNode.teethSegmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode", "RestoredStep6Masks"
+        )
+        trajectory = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode", "RestoredStep6Trajectory"
+        )
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(0.0, 0.0, 5.0))
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(0.0, 0.0, 0.0))
+        trajectory.SetLocked(True)
+        trajectory.SetAttribute("DENTOBOT.CoordinateSystem", "SlicerRASmm")
+        parameterNode.trajectoryLine = trajectory
+
+        docking = self._addStep6CaseCubeModel(
+            "RestoredStep6Docking", (-2.0, 2.0, -2.0, 2.0, -2.0, 2.0)
+        )
+        docking.SetAttribute("DENTOBOT.GeometryState", "Current")
+        docking.SetAttribute("DENTOBOT.OrientationState", "Confirmed")
+        parameterNode.targetDockingAssemblyModel = docking
+        finalTemplate = self._addStep6CaseCubeModel(
+            "RestoredStep6Template", (-3.0, 3.0, -3.0, 3.0, -3.0, 3.0)
+        )
+        finalTemplate.SetAttribute("DENTOBOT.GeometryState", "Current")
+        finalTemplate.SetAttribute("DENTOBOT.VerificationState", "WARNING")
+        parameterNode.finalPrintableTemplateModel = finalTemplate
+
+        base = logic.ensureRobotBaseTransform(None)
+        parameterNode.robotBaseTransform = base
+        parameterNode.robotMountPlane = logic.createOrResetRobotMountPlane(
+            None, base
+        )
+        parameterNode.step6PlanningContextImported = True
+        logic.setRobotBaseMountLocked(parameterNode, True)
+        revisionBefore = int(parameterNode.step6BasePlacementRevision)
+
+        self.assertFalse(logic.step6PlanningPackageFreshnessIssues(parameterNode))
+        self.assertTrue(logic.step6CaseJawOpeningFreshnessIssues(parameterNode))
+        widget._revalidateImportedStep6ContextAfterLoad()
+
+        self.assertTrue(parameterNode.step6PlanningContextImported)
+        self.assertEqual(widget._step6SceneKind(), "case")
+        self.assertFalse(parameterNode.robotBaseMountLocked)
+        self.assertEqual(
+            parameterNode.step6BasePlacementStatus,
+            BasePlacementStatus.STALE.value,
+        )
+        self.assertEqual(
+            int(parameterNode.step6BasePlacementRevision),
+            revisionBefore + 1,
+        )
+        self.assertEqual(
+            base.GetAttribute("DENTOBOT.RobotBaseMountLocked"),
+            "false",
+        )
+        self.assertTrue(widget.ui.step6CaseJawOpeningGroupBox.enabled)
+        self.assertTrue(widget.ui.createStep6CaseJawLandmarksButton.enabled)
+        self.assertTrue(widget.ui.importStep6PlanningContextButton.enabled)
+        self.assertFalse(widget.ui.step6MountLockGroupBox.enabled)
+        self.assertIn(
+            "Complete 6.0A",
+            widget.ui.step6PlanningContextStatusLabel.text,
+        )
+        self.assertEqual(finalTemplate.GetAttribute("DENTOBOT.GeometryState"), "Current")
+
+        self.delayDisplay("DENTOWorkflow restored Step 6 jaw gate test passed")
+
+    def test_DENTOWorkflowStep6SubstepNavigator(self) -> None:
+        """Legacy and shell presentations expose one shared Step 6 card."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget._applyDENTOBOTGuiMode(GUI_MODE_LEGACY, persist=False)
+        widget.initializeParameterNode()
+        widget._setWorkflowStage(10, ensureVisible=False)
+        parameterNode = widget._parameterNode
+        importedBefore = bool(parameterNode.step6PlanningContextImported)
+        rosNodeCountBefore = len(
+            slicer.util.getNodesByClass("vtkMRMLROS2RobotNode")
+        )
+
+        self.assertTrue(widget._step6SubstepNavigator.visible)
+        self.assertEqual(widget._step6SubstepComboBox.count, 7)
+        self.assertEqual(widget._step6SubstepComboBox.currentIndex, 0)
+        self.assertTrue(widget.ui.step6PlanningContextGroupBox.visible)
+        self.assertFalse(widget.ui.step6MountLockGroupBox.visible)
+        self.assertFalse(widget._robotSimulationPanel.visualizationGroup.visible)
+        self.assertFalse(widget._step6PreviousSubstepButton.enabled)
+        self.assertTrue(widget._step6NextSubstepButton.enabled)
+
+        widget._step6SubstepComboBox.currentIndex = 1
+        slicer.app.processEvents()
+        self.assertFalse(widget.ui.step6PlanningContextGroupBox.visible)
+        self.assertTrue(widget._robotSimulationPanel.visualizationGroup.visible)
+        self.assertTrue(widget.ui.step6MountLockGroupBox.visible)
+        self.assertFalse(widget.ui.step6TaskJointLimitsGroupBox.visible)
+
+        widget._onNextStep6Substep()
+        self.assertEqual(widget._step6SubstepComboBox.currentIndex, 2)
+        self.assertTrue(widget.ui.step6TaskJointLimitsGroupBox.visible)
+        self.assertTrue(widget._robotSimulationPanel.homeGroup.visible)
+        self.assertFalse(widget.ui.step6MountLockGroupBox.visible)
+
+        widget._onApplicationShellSubstepSelected("robot_simulation", 4)
+        self.assertTrue(widget._robotSimulationPanel.runtimeGroup.visible)
+        self.assertTrue(widget._robotSimulationPanel.collisionGroup.visible)
+        self.assertFalse(widget._robotSimulationPanel.approachGroup.visible)
+        widget._onApplicationShellSubstepSelected("robot_simulation", 6)
+        self.assertTrue(widget._robotSimulationPanel.drillingGroup.visible)
+        self.assertFalse(widget._step6NextSubstepButton.enabled)
+
+        self.assertEqual(
+            bool(parameterNode.step6PlanningContextImported),
+            importedBefore,
+        )
+        self.assertEqual(
+            len(slicer.util.getNodesByClass("vtkMRMLROS2RobotNode")),
+            rosNodeCountBefore,
+        )
+        self.delayDisplay("DENTOWorkflow Step 6 substep navigator test passed")
 
     def _addStep6CaseCubeModel(self, name: str, bounds) -> vtkMRMLModelNode:
         cube = vtk.vtkCubeSource()
@@ -5273,6 +5536,111 @@ class DENTOWorkflowTestMixin:
                 confirmedUtc,
             )
         widget.setParameterNode(None)
+
+    def test_DENTOWorkflowTrajectoryMetadataDoesNotInvalidateGeometry(self) -> None:
+        """Only Entry/Target state changes may invalidate descendants."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.setParameterNode(None)
+        logic = widget.logic
+        parameterNode = logic.getParameterNode()
+        trajectory = logic.createTrajectoryNode("GeometryEventTrajectory")
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(1.0, 2.0, 3.0))
+        trajectory.AddControlPointWorld(vtk.vtkVector3d(4.0, 5.0, 6.0))
+        parameterNode.trajectoryLine = trajectory
+        widget.setParameterNode(parameterNode)
+        widget._bindPlanningTrajectoryNode(trajectory)
+
+        invalidations = []
+        originalInvalidate = logic.invalidateStep6TaskConfirmation
+        logic.invalidateStep6TaskConfirmation = (
+            lambda _parameterNode, reason: invalidations.append(str(reason))
+        )
+        try:
+            baseline = widget._trajectoryGeometrySnapshot(trajectory)
+            trajectory.SetAttribute("DENTOBOT.TestPresentationMetadata", "one")
+            trajectory.SetSelectable(not trajectory.GetSelectable())
+            slicer.app.processEvents()
+            self.assertEqual(invalidations, [])
+            self.assertTrue(
+                widget._trajectoryGeometrySnapshotsMatch(
+                    baseline,
+                    widget._trajectoryGeometrySnapshot(trajectory),
+                )
+            )
+
+            trajectory.SetNthControlPointPositionWorld(
+                1,
+                vtk.vtkVector3d(4.0, 5.0, 6.01),
+            )
+            slicer.app.processEvents()
+            self.assertEqual(len(invalidations), 1)
+            self.assertIn("trajectory geometry changed", invalidations[0])
+        finally:
+            logic.invalidateStep6TaskConfirmation = originalInvalidate
+            widget.setParameterNode(None)
+
+        self.delayDisplay(
+            "DENTOWorkflow trajectory geometry-event discrimination passed"
+        )
+
+    def test_DENTOWorkflowInsertionMetadataDoesNotInvalidateTemplate(self) -> None:
+        """Only Approach/Seat geometry changes may stale Step 5B/5C."""
+
+        widget = slicer.modules.dentoworkflow.widgetRepresentation().self()
+        widget.setParameterNode(None)
+        logic = widget.logic
+        parameterNode = logic.getParameterNode()
+        insertion = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode",
+            "InsertionGeometryEvent",
+        )
+        insertion.SetAttribute(
+            "DENTOBOT.MarkupsRole",
+            "TemplateInsertionDirection",
+        )
+        insertion.AddControlPointWorld(vtk.vtkVector3d(1.0, 2.0, 3.0))
+        insertion.AddControlPointWorld(vtk.vtkVector3d(1.0, 2.0, 9.0))
+        insertion.SetLocked(True)
+        insertion.SetSelectable(False)
+        parameterNode.templateInsertionDirection = insertion
+        widget.setParameterNode(parameterNode)
+        widget._bindTemplateInsertionDirectionNode(insertion)
+
+        invalidations = []
+        originalInvalidate = widget._invalidateTemplateUndercutDownstream
+        widget._invalidateTemplateUndercutDownstream = (
+            lambda reason: invalidations.append(str(reason)) or True
+        )
+        try:
+            baseline = widget._trajectoryGeometrySnapshot(insertion)
+            insertion.SetAttribute("DENTOBOT.TestPresentationMetadata", "one")
+            insertion.SetLocked(False)
+            insertion.SetSelectable(True)
+            insertion.SetNthControlPointLabel(0, "Approach")
+            slicer.app.processEvents()
+            self.assertEqual(invalidations, [])
+            self.assertTrue(
+                widget._trajectoryGeometrySnapshotsMatch(
+                    baseline,
+                    widget._trajectoryGeometrySnapshot(insertion),
+                )
+            )
+
+            insertion.SetNthControlPointPositionWorld(
+                1,
+                vtk.vtkVector3d(1.0, 2.0, 9.01),
+            )
+            slicer.app.processEvents()
+            self.assertEqual(len(invalidations), 1)
+            self.assertIn("insertion direction changed", invalidations[0])
+        finally:
+            widget._invalidateTemplateUndercutDownstream = originalInvalidate
+            widget.setParameterNode(None)
+
+        self.delayDisplay(
+            "DENTOWorkflow insertion geometry-event discrimination passed"
+        )
 
     def test_DENTOWorkflowTargetDockingYawMath(self) -> None:
         frame = {

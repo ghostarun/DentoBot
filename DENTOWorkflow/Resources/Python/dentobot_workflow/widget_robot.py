@@ -183,9 +183,24 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if self.logic and scene_kind == "case"
             else []
         )
+        case_placement_issues = (
+            self.logic.step6CaseJawPlacementFreshnessIssues(self._parameterNode)
+            if self.logic and scene_kind == "case"
+            else []
+        )
         scene_prepared = bool(
             scene_kind == "phantom"
+            or (scene_kind == "case" and not case_placement_issues)
+        )
+        planning_anatomy_ready = bool(
+            scene_kind == "phantom"
             or (scene_kind == "case" and not case_jaw_issues)
+        )
+        placement_only_fallback = bool(
+            scene_kind == "case"
+            and str(self._parameterNode.step6CaseJawPreparationMode)
+            == "TargetJawFallback"
+            and scene_prepared
         )
         robot_present = self._step6RobotPresent()
         local_robot_present = bool(self.logic.robotModelNodes()) if self.logic else False
@@ -209,6 +224,12 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         if message:
             context_status = message
+        elif placement_only_fallback:
+            context_status = _(
+                "Target-jaw-only fallback is active in unchanged source RAS. "
+                "Placement, Task Home, and workspace exploration are enabled; "
+                "ROS/collision/task planning remain blocked."
+            )
         elif scene_kind == "case" and case_jaw_issues:
             context_status = _(
                 "Case package imported. Complete 6.0A before loading or placing "
@@ -238,6 +259,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             mount_status = _("Choose a scene before loading the robot.")
         elif not scene_prepared:
             mount_status = _("Complete the required case mouth opening in 6.0A.")
+        elif placement_only_fallback and not robot_present:
+            mount_status = _("Load the robot for target-jaw placement testing.")
         elif not robot_present:
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
@@ -283,7 +306,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         )
         self.ui.step6WorkspaceGroupBox.enabled = robot_present and scene_prepared
         self.ui.step6TrajectoryPlanningGroupBox.enabled = (
-            locked and imported and scene_prepared
+            locked and imported and planning_anatomy_ready
         )
 
         place_enabled = scene_prepared and robot_present and not locked
@@ -292,7 +315,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         )
         self.ui.unlockRobotBaseMountButton.enabled = locked
         self.ui.planTrajectoryMotionButton.enabled = (
-            imported and locked and scene_prepared
+            imported and locked and planning_anatomy_ready
         )
         self.ui.previewTrajectoryMotionButton.enabled = has_plan
         self.ui.stopTrajectoryMotionButton.enabled = (
@@ -304,7 +327,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         )
 
         self.ui.connectRos2MotionButton.enabled = bool(
-            scene_prepared
+            planning_anatomy_ready
             and local_robot_present
             and locked
             and home_ready
@@ -395,7 +418,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 else _("Generate the FK workspace, then review its proposed limits.")
             )
             runtime_ready = bool(
-                scene_prepared
+                planning_anatomy_ready
                 and local_robot_present
                 and locked
                 and home_ready
@@ -405,7 +428,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             panel.disconnectButton.enabled = ros2_active
             panel.confirmTaskButton.enabled = bool(
                 imported
-                and scene_prepared
+                and planning_anatomy_ready
                 and ros2_active
                 and facade_capabilities
                 and facade_capabilities.planning_scene_synchronized
@@ -415,7 +438,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 if task_ready
                 else " ".join(task_issues)
             )
-            panel.planApproachButton.enabled = bool(task_ready and ros2_active)
+            panel.planApproachButton.enabled = bool(
+                planning_anatomy_ready and task_ready and ros2_active
+            )
             panel.previewApproachButton.enabled = bool(
                 isinstance(facade_plan, PhasePlan)
                 and facade_plan.success
@@ -426,7 +451,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and self._robotWorkflowFacade.completedPhase == MotionPhase.APPROACH.value
             )
             panel.planDrillingButton.enabled = bool(
-                task_ready and ros2_active and approach_complete
+                planning_anatomy_ready
+                and task_ready
+                and ros2_active
+                and approach_complete
             )
             panel.previewDrillingButton.enabled = bool(
                 approach_complete

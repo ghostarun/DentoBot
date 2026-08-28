@@ -37,6 +37,7 @@ class RobotShellWidgetMixin:
                 "preview_drilling": self._onStep6PreviewDrilling,
             },
         )
+        self._setupStep6SubstepNavigator()
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.visualizationGroup
         )
@@ -75,6 +76,73 @@ class RobotShellWidgetMixin:
         self.ui.step6TrajectoryPlanningGroupBox.visible = False
         self.ui.ros2MotionControlGroupBox.visible = False
 
+    def _setupStep6SubstepNavigator(self) -> None:
+        """Add one shared 6.0–6.6 navigator to the normal module panel."""
+        if self._step6SubstepNavigator is not None:
+            return
+        navigator = qt.QGroupBox(
+            _("Step 6 workflow — one task at a time"),
+            self.ui.robotPlacementCollapsibleButton,
+        )
+        navigator.objectName = "DENTOBOTStep6SubstepNavigator"
+        layout = qt.QGridLayout(navigator)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(4)
+        previousButton = qt.QPushButton(_("‹ Back"), navigator)
+        previousButton.objectName = "DENTOBOTStep6PreviousSubstepButton"
+        comboBox = qt.QComboBox(navigator)
+        comboBox.objectName = "DENTOBOTStep6SubstepComboBox"
+        for title in workspace_for_stage(10).substep_titles:
+            comboBox.addItem(_(title))
+        nextButton = qt.QPushButton(_("Next ›"), navigator)
+        nextButton.objectName = "DENTOBOTStep6NextSubstepButton"
+        hint = qt.QLabel(
+            _(
+                "Only the selected substep is shown. Earlier state stays in "
+                "MRML; later actions remain gated until their prerequisites are current."
+            ),
+            navigator,
+        )
+        hint.wordWrap = True
+        hint.styleSheet = "color: #5f6368;"
+        layout.addWidget(previousButton, 0, 0)
+        layout.addWidget(comboBox, 0, 1)
+        layout.addWidget(nextButton, 0, 2)
+        layout.addWidget(hint, 1, 0, 1, 3)
+        layout.setColumnStretch(1, 1)
+        self.ui.robotPlacementVerticalLayout.insertWidget(1, navigator)
+        comboBox.connect(
+            "currentIndexChanged(int)",
+            self._onStep6SubstepChanged,
+        )
+        previousButton.connect(
+            "clicked(bool)",
+            self._onPreviousStep6Substep,
+        )
+        nextButton.connect(
+            "clicked(bool)",
+            self._onNextStep6Substep,
+        )
+        self._step6SubstepNavigator = navigator
+        self._step6SubstepComboBox = comboBox
+        self._step6PreviousSubstepButton = previousButton
+        self._step6NextSubstepButton = nextButton
+        self._configureRobotSimulationShellSubstep(0)
+
+    def _onStep6SubstepChanged(self, substep_index: int) -> None:
+        if self._updatingStep6SubstepNavigation:
+            return
+        self._configureRobotSimulationShellSubstep(substep_index)
+
+    def _onPreviousStep6Substep(self, checked: bool = False) -> None:
+        del checked
+        self._configureRobotSimulationShellSubstep(self._step6SubstepIndex - 1)
+
+    def _onNextStep6Substep(self, checked: bool = False) -> None:
+        del checked
+        self._configureRobotSimulationShellSubstep(self._step6SubstepIndex + 1)
+
     def _refreshShellRobotCapabilities(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
@@ -86,13 +154,20 @@ class RobotShellWidgetMixin:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
         result = self._robotWorkflowFacade.connect(open_motion_module=False)
-        self._robotSimulationPanel.showRuntimeResult(result)
-        if result.success:
+        remediationConnected = bool(result.details.get("runtimeConnected", False))
+        if result.success or remediationConnected:
             self._updateRobotPlacement()
             self._applyStep6RecommendedView()
+        if remediationConnected:
+            slicer.util.warningDisplay(result.message)
         else:
-            slicer.util.errorDisplay(result.message)
+            if not result.success:
+                slicer.util.errorDisplay(result.message)
         self._refreshShellRobotCapabilities()
+        # Capability refresh writes a generic runtime summary.  Restore the
+        # action-specific result afterwards so Task Home/base remediation is
+        # not immediately hidden from the operator.
+        self._robotSimulationPanel.showRuntimeResult(result)
 
     def _onShellDisconnectRobot(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
@@ -387,6 +462,17 @@ class RobotShellWidgetMixin:
         if not self._robotSimulationPanel:
             return
         index = max(0, min(int(substep_index), 6))
+        self._step6SubstepIndex = index
+        self._updatingStep6SubstepNavigation = True
+        try:
+            if self._step6SubstepComboBox is not None:
+                self._step6SubstepComboBox.currentIndex = index
+            if self._step6PreviousSubstepButton is not None:
+                self._step6PreviousSubstepButton.enabled = index > 0
+            if self._step6NextSubstepButton is not None:
+                self._step6NextSubstepButton.enabled = index < 6
+        finally:
+            self._updatingStep6SubstepNavigation = False
         groups = (
             self.ui.step6PlanningContextGroupBox,
             self.ui.step6MountLockGroupBox,
@@ -429,27 +515,27 @@ class RobotShellWidgetMixin:
             group.visible = True
         self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.robotPlacementDescriptionLabel.visible = index == 0
+        shellActive = bool(self._applicationShell and self._applicationShell.active)
+        if self._step6SubstepNavigator is not None:
+            self._step6SubstepNavigator.visible = not shellActive
         if index in {4, 5, 6}:
             self._refreshShellRobotCapabilities()
+        if (
+            not shellActive
+            and self._workflowContentScrollArea is not None
+            and int(self.ui.workflowStageComboBox.currentIndex)
+            == len(self._workflowStageEntries()) - 1
+        ):
+            qt.QTimer.singleShot(
+                0,
+                lambda: self._workflowContentScrollArea.ensureWidgetVisible(
+                    self._step6SubstepNavigator,
+                    0,
+                    20,
+                ),
+            )
 
     def _restoreLegacyRobotSimulationGroups(self) -> None:
         if not self._robotSimulationPanel:
             return
-        for group in (
-            self.ui.step6PlanningContextGroupBox,
-            self.ui.step6MountLockGroupBox,
-            self.ui.step6TaskJointLimitsGroupBox,
-            self.ui.step6WorkspaceGroupBox,
-            self._robotSimulationPanel.visualizationGroup,
-            self._robotSimulationPanel.homeGroup,
-            self._robotSimulationPanel.workspaceReviewGroup,
-            self._robotSimulationPanel.runtimeGroup,
-            self._robotSimulationPanel.collisionGroup,
-            self._robotSimulationPanel.approachGroup,
-            self._robotSimulationPanel.drillingGroup,
-        ):
-            group.visible = True
-        self.ui.step6TrajectoryPlanningGroupBox.visible = False
-        self.ui.ros2MotionControlGroupBox.visible = False
-        self.ui.robotPlacementDescriptionLabel.visible = True
-        self._robotSimulationPanel.goalGroup.visible = False
+        self._configureRobotSimulationShellSubstep(self._step6SubstepIndex)

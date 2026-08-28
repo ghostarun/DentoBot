@@ -15,6 +15,7 @@ APPLICATION = (
     / "widget_application.py"
 )
 LIFECYCLE = APPLICATION.with_name("widget_lifecycle.py")
+VIEW_CONTROLS = APPLICATION.with_name("widget_view_controls.py")
 UI = ROOT / "DENTOWorkflow" / "Resources" / "UI" / "DENTOWorkflow.ui"
 ROS_BRIDGE = (
     ROOT / "DENTOWorkflow" / "Resources" / "Python" / "DENTOROS2Bridge.py"
@@ -59,6 +60,23 @@ def test_scene_close_releases_slicer_side_ros_state_before_scene_rebind() -> Non
     adapter_shutdown = handler.index("shutdown_slicer_adapter()")
     assert parameter_release < robot_disconnect < adapter_shutdown
     assert "self._step6MotionPreviewTimer.stop()" in handler
+
+
+def test_viewer_item_change_defers_tree_rebuild_and_cleanup_blocks_flush() -> None:
+    controls = VIEW_CONTROLS.read_text(encoding="utf-8")
+    handler = controls.split("def onWorkflowViewTreeItemChanged", 1)[1].split(
+        "def _updateWorkflowViewControls", 1
+    )[0]
+    assert "qt.Qt.PartiallyChecked" in handler
+    assert "self._scheduleWorkflowViewControlsRefresh()" in handler
+    assert "self._updateWorkflowViewControls()" not in handler
+    flush = controls.split("def _flushWorkflowViewControlsRefresh", 1)[1].split(
+        "def onWorkflowViewTreeItemChanged", 1
+    )[0]
+    assert "self._isCleaningUp" in flush
+    lifecycle = LIFECYCLE.read_text(encoding="utf-8")
+    cleanup = lifecycle.split("def cleanup", 1)[1].split("def enter", 1)[0]
+    assert "self._workflowViewRefreshScheduled = False" in cleanup
 
 
 def test_ros_adapter_nodes_are_transient_across_scene_save_and_clear() -> None:

@@ -298,6 +298,7 @@ class DockingWidgetMixin:
         if (
             self._updatingTargetDockingUI
             or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
             or not self._parameterNode
             or not self.logic
         ):
@@ -342,6 +343,7 @@ class DockingWidgetMixin:
         if (
             self._updatingTargetDockingUI
             or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
             or not self._parameterNode
             or not self.logic
         ):

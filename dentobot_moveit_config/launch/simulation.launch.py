@@ -54,7 +54,9 @@ def generate_launch_description() -> LaunchDescription:
                     moveit_config.to_dict(),
                     {
                         "allow_trajectory_execution": False,
-                        "default_robot_padding": 0.005,
+                        # Research simulation margin only. This is not a
+                        # clinically validated patient or hardware clearance.
+                        "default_robot_padding": 0.001,
                         "publish_robot_description": True,
                         "publish_robot_description_semantic": True,
                         "publish_planning_scene": True,
@@ -76,7 +78,7 @@ def generate_launch_description() -> LaunchDescription:
                         "task_config_topic": "/dentobot/task_guard_config",
                         "task_command_topic": "/dentobot/task_joint_command",
                         "task_status_topic": "/dentobot/task_joint_status",
-                        "minimum_clearance_m": 0.005,
+                        "minimum_clearance_m": 0.001,
                         "maximum_revolute_step_rad": 0.017453292519943295,
                         "maximum_prismatic_step_m": 0.0005,
                         "maximum_interpolation_samples": 1000,

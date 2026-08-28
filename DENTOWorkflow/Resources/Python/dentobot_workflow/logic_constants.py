@@ -83,7 +83,13 @@ class LogicConstantsMixin:
 
     STEP6_OPENED_TRAJECTORY_ROLE = "Step6OpenedTrajectory"
 
-    STEP6_CASE_JAW_SCHEMA_VERSION = "1.0"
+    STEP6_FIXED_UPPER_ANATOMY_ROLE = "Step6FixedUpperAnatomy"
+
+    STEP6_MOVING_LOWER_ANATOMY_ROLE = "Step6MovingLowerAnatomy"
+
+    STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE = "Step6TargetJawFallbackAnatomy"
+
+    STEP6_CASE_JAW_SCHEMA_VERSION = "2.0"
 
     REVIEW_STATES = ("Unreviewed", "Needs Correction", "Reviewed")
 

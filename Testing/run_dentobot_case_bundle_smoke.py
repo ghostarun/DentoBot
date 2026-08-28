@@ -25,7 +25,7 @@ SOURCES = (
     Path("/workspace/data/Slicer_Saved/SampleStudy1/test1_6_FD14.mrb"),
 )
 EXISTING_PACKAGE = Path(
-    "/workspace/data/Slicer_Saved/SampleStudy1/dentobot-step6.dentocase"
+    "/workspace/data/Slicer_Saved/SampleStudy1/dentobot-case-step6.dentocase"
 )
 
 
@@ -141,6 +141,31 @@ def run() -> None:
         )
         bundle = Path(slicer.app.temporaryPath) / f"{source.stem}.dentocase"
         inspection = widget._createCaseBundle(bundle)
+        records_by_field = {
+            record["field"]: record
+            for record in inspection.workflow["nodes"]
+        }
+        for field_name, record in records_by_field.items():
+            node = getattr(widget._parameterNode, field_name, None)
+            if node is None or not node.IsA("vtkMRMLMarkupsNode"):
+                continue
+            prior = widget._stageExclusiveInteractionPriorState.get(
+                node.GetID(),
+                {},
+            )
+            intrinsic_locked = bool(prior.get("locked", node.GetLocked()))
+            intrinsic_selectable = bool(
+                prior.get("selectable", node.GetSelectable())
+            )
+            if record.get("locked") != intrinsic_locked:
+                raise RuntimeError(
+                    f"package lineage captured transient lock for {field_name}"
+                )
+            if record.get("selectable") != intrinsic_selectable:
+                raise RuntimeError(
+                    "package lineage captured transient selectability for "
+                    f"{field_name}"
+                )
         if connected_save and (
             active_base.GetAttribute("DENTOBOT.Ros2MotionControlActive") != "true"
         ):
@@ -188,13 +213,100 @@ def run() -> None:
     if not EXISTING_PACKAGE.is_file():
         raise RuntimeError(f"operator package is missing: {EXISTING_PACKAGE}")
     inspection = validate_case_bundle(EXISTING_PACKAGE)
-    widget._openCaseBundle(inspection.path)
-    process_events(1.0)
-    widget = slicer.util.getModuleWidget("DENTOWorkflow")
-    # This package predates the provisional drill-tip URDF revision.  Its case
-    # geometry must still restore exactly, while Step 6 remains review-gated by
-    # the intentionally mismatched robot-resource fingerprint.
-    assert_no_ros_runtime(widget, require_current_robot_profile=False)
+    expected_plane = next(
+        record
+        for record in inspection.workflow["nodes"]
+        if record["field"] == "targetDockingReferencePlane"
+    )
+    expected_trajectory = next(
+        record
+        for record in inspection.workflow["nodes"]
+        if record["field"] == "trajectoryLine"
+    )
+    expected_insertion = next(
+        record
+        for record in inspection.workflow["nodes"]
+        if record["field"] == "templateInsertionDirection"
+    )
+    expected_shell = next(
+        record
+        for record in inspection.workflow["nodes"]
+        if record["field"] == "patientContactShellModel"
+    )
+    expected_final = next(
+        record
+        for record in inspection.workflow["nodes"]
+        if record["field"] == "finalPrintableTemplateModel"
+    )
+    for restore_attempt in range(2):
+        widget._openCaseBundle(inspection.path)
+        process_events(1.0)
+        widget = slicer.util.getModuleWidget("DENTOWorkflow")
+        assert_no_ros_runtime(widget, require_current_robot_profile=False)
+        if widget._caseBundleRestoreDepth != 0:
+            raise RuntimeError("successful load left the restore barrier active")
+        plane = widget._parameterNode.targetDockingReferencePlane
+        assembly = widget._parameterNode.targetDockingAssemblyModel
+        if (
+            plane.GetAttribute("DENTOBOT.OrientationState")
+            != expected_plane["attributes"]["DENTOBOT.OrientationState"]
+        ):
+            raise RuntimeError("restore changed the Step 4C plane orientation")
+        if assembly.GetAttribute("DENTOBOT.GeometryState") != "Current":
+            raise RuntimeError(
+                "restore falsely marked Step 4C stale: "
+                f"{assembly.GetAttribute('DENTOBOT.StaleReason')}"
+            )
+        trajectory = widget._parameterNode.trajectoryLine
+        actual_points = []
+        for index in range(trajectory.GetNumberOfDefinedControlPoints()):
+            point = [0.0, 0.0, 0.0]
+            trajectory.GetNthControlPointPositionWorld(index, point)
+            actual_points.append(point)
+        assert_signature_close(
+            expected_trajectory["controlPointsWorldRasMm"],
+            actual_points,
+            f"retainedPackageAttempt{restore_attempt}.trajectory",
+        )
+        insertion = widget._parameterNode.templateInsertionDirection
+        insertion_points = []
+        for index in range(insertion.GetNumberOfDefinedControlPoints()):
+            point = [0.0, 0.0, 0.0]
+            insertion.GetNthControlPointPositionWorld(index, point)
+            insertion_points.append(point)
+        assert_signature_close(
+            expected_insertion["controlPointsWorldRasMm"],
+            insertion_points,
+            f"retainedPackageAttempt{restore_attempt}.insertionDirection",
+        )
+        direction_summary = widget.logic.getTemplateInsertionDirectionSummary(
+            insertion
+        )
+        shell = widget._parameterNode.patientContactShellModel
+        shell_summary = widget.logic.getPatientContactShellSummary(shell)
+        process_events(0.25)
+        if direction_summary["geometryJson"] != shell_summary["insertionGeometryJson"]:
+            raise RuntimeError("loaded insertion geometry differs from shell provenance")
+        if (
+            shell.GetAttribute("DENTOBOT.GeometryState")
+            != expected_shell["attributes"]["DENTOBOT.GeometryState"]
+        ):
+            raise RuntimeError(
+                "restore falsely marked the patient shell stale: "
+                f"{shell.GetAttribute('DENTOBOT.StaleReason')}"
+            )
+        final_template = widget._parameterNode.finalPrintableTemplateModel
+        if (
+            final_template.GetAttribute("DENTOBOT.GeometryState")
+            != expected_final["attributes"]["DENTOBOT.GeometryState"]
+        ):
+            raise RuntimeError(
+                "restore falsely marked the final template stale: "
+                f"{final_template.GetAttribute('DENTOBOT.StaleReason')}"
+            )
+        verification = widget.logic.verifyFinalPrintableTemplate(final_template)
+        if any(check["result"] == "FAIL" for check in verification["checks"]):
+            raise RuntimeError("final geometry verification contains a failure")
     existing_signature = scene_geometry_signature()
     if not existing_signature["trajectories"]:
         raise RuntimeError("existing operator package restored no trajectory")

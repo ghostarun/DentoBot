@@ -152,6 +152,53 @@ class ViewCompositionWidgetMixin:
                     overlay_groups=frozenset({"phantom", "robot"}),
                     anatomy_opacity=0.35,
                 )
+            elif (
+                sceneKind == "case"
+                and str(self._parameterNode.step6CaseJawPreparationMode)
+                == "TargetJawFallback"
+                and not self.logic.step6TargetJawFallbackFreshnessIssues(
+                    self._parameterNode
+                )
+            ):
+                # The placement-only fallback is already a complete derived
+                # jaw-and-teeth segmentation.  Selecting source "full anatomy"
+                # here duplicates the closed jaw and leaves pulp/root-canal
+                # groups floating inside the fallback teeth.
+                composition = ViewComposition(
+                    anatomy_scope="none",
+                    anatomy_dimension="3d",
+                    cbct_mode="slices",
+                    overlay_groups=frozenset(
+                        {"trajectories", "jaw_opening", "robot"}
+                    ),
+                    anatomy_opacity=0.35,
+                )
+            elif (
+                sceneKind == "case"
+                and not self.logic.step6CaseJawOpeningFreshnessIssues(
+                    self._parameterNode
+                )
+            ):
+                # Current opened anatomy is represented by the derived fixed
+                # upper and transformed lower jaw-and-teeth segmentations.
+                # Re-enabling source full-anatomy groups here leaves pulp and
+                # other closed-pose internals floating inside that proxy.
+                composition = ViewComposition(
+                    anatomy_scope="none",
+                    anatomy_dimension="3d",
+                    cbct_mode="slices",
+                    overlay_groups=frozenset(
+                        {
+                            "target_bounds",
+                            "trajectories",
+                            "docks",
+                            "final_template",
+                            "jaw_opening",
+                            "robot",
+                        }
+                    ),
+                    anatomy_opacity=0.35,
+                )
             elif sceneKind == "none":
                 composition = ViewComposition()
         return composition

@@ -266,6 +266,12 @@ class DENTOApplicationShell:
             button = qt.QPushButton(f"{workspace_index + 1}   {spec.title}", nav)
             button.objectName = f"DENTOBOTWorkspace_{spec.workspace_id}"
             button.checkable = True
+            button.enabled = True
+            button.toolTip = (
+                f"Open {spec.title} for inspection or continuation. Restored "
+                "cases keep every workspace selectable; task actions validate "
+                "their own saved prerequisites."
+            )
             button.setProperty("dentobotRole", "workspace")
             button.setMinimumHeight(42)
             button.clicked.connect(
@@ -325,6 +331,10 @@ class DENTOApplicationShell:
         controls_layout.setSpacing(5)
         self._substep_combo = qt.QComboBox(controls)
         self._substep_combo.objectName = "DENTOBOTSubstepComboBox"
+        self._substep_combo.toolTip = (
+            "Open any substep in this workspace. Navigation does not change "
+            "case lineage; unavailable actions explain their own prerequisites."
+        )
         self._substep_combo.currentIndexChanged.connect(self._on_substep_changed)
         controls_layout.addWidget(self._substep_combo, 1)
         self._view_button = qt.QPushButton("Views", controls)
@@ -421,7 +431,8 @@ class DENTOApplicationShell:
             self._substep_combo.visible = len(spec.substep_titles) > 1
             recommended = workspace_for_stage(self._recommended_stage)
             self._recommendation_label.text = (
-                f"Recommended next\n{recommended.title}"
+                f"Recommended next\n{recommended.title}\n"
+                "All workspaces remain selectable"
             )
             for index, button in enumerate(self._workspace_buttons):
                 button.setProperty(

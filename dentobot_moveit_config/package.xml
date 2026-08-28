@@ -7,6 +7,7 @@
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>jsoncpp</build_depend>
 
   <exec_depend>dentobot_description</exec_depend>
   <exec_depend>launch</exec_depend>

@@ -33,8 +33,20 @@ class WorkflowNavigationWidgetMixin:
         self._updatingWorkflowNavigationUI = True
         try:
             self.ui.workflowStageComboBox.clear()
-            for stageLabel, _section in self._workflowStageEntries():
+            for stageIndex, (stageLabel, _section) in enumerate(
+                self._workflowStageEntries()
+            ):
                 self.ui.workflowStageComboBox.addItem(stageLabel)
+                self.ui.workflowStageComboBox.setItemData(
+                    stageIndex,
+                    _(
+                        "Open this workflow stage for inspection or continuation. "
+                        "Restored cases are not forced through a linear stage lock; "
+                        "the stage's own actions still validate saved prerequisites."
+                    ),
+                    qt.Qt.ToolTipRole,
+                )
+            self.ui.workflowStageComboBox.enabled = True
             self.ui.workflowStageComboBox.currentIndex = 0
             entries = self._workflowStageEntries()
             for section in {entry[1] for entry in entries}:
@@ -278,6 +290,11 @@ class WorkflowNavigationWidgetMixin:
     def _updateStageExclusiveInteractionLocks(self, stageIndex: int) -> None:
         """Make non-owning workflow markups non-selectable and non-draggable."""
 
+        if self._caseBundleRestoreDepth > 0:
+            # Package lineage is validated against intrinsic MRML lock state.
+            # Stage-exclusive locks are process-local interaction policy and
+            # are reapplied only after the restore transaction completes.
+            return
         ownedStages = self._workflowOwnedMarkupStages()
         restrictedIds = set()
         for node, ownerStage in ownedStages.items():
@@ -591,7 +608,8 @@ class WorkflowNavigationWidgetMixin:
             f"color: {indicatorColor}; font-size: 15px;"
         )
         self.ui.workflowStageComboBox.toolTip = _(
-            "Jump to one workflow stage. %1"
+            "Open any workflow stage for inspection or continuation; saved "
+            "prerequisites gate actions, not navigation. %1"
         ).replace("%1", recommendation)
         if not self._workflowNavigationInitializedFromScene:
             self._workflowNavigationInitializedFromScene = True

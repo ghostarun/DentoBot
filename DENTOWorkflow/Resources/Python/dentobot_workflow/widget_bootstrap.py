@@ -88,6 +88,9 @@ class BootstrapWidgetMixin:
         self._restoringTrajectoryAssociation = False
         self._planningConstraintWarning = ""
         self._validTrajectoryPointsByNodeId: dict[str, list[list[float]]] = {}
+        self._planningTrajectoryGeometryByNodeId: dict[str, dict] = {}
+        self._caseBundleRestoreDepth = 0
+        self._caseBundleRestoreGeneration = 0
         self._trajectoryVerificationEnabled = False
         self._trajectoryVerificationAngleDeg = 0.0
         self._trajectoryVerificationPriorSliceState: dict | None = None
@@ -119,12 +122,14 @@ class BootstrapWidgetMixin:
         self._templateSupportBoundaryFocusState: dict | None = None
         self._resumeTemplateSupportBoundaryFocusAfterSave = False
         self._templateInsertionDirectionNode = None
+        self._templateInsertionDirectionGeometryByNodeId: dict[str, dict] = {}
         self._restoringTemplateInsertionDirection = False
         self._updatingTemplateGuideUI = False
         self._updatingGuideTrajectorySelectionUI = False
         self._guideTrajectoryObserverNodes: list[vtkMRMLMarkupsLineNode] = []
         self._updatingTemplateGuideVisibilityUI = False
         self._updatingWorkflowViewUI = False
+        self._workflowViewRefreshScheduled = False
         self._workflowViewEntriesByKey: dict[str, dict] = {}
         self._workflowViewPriorState: dict | None = None
         self._workflowViewActivePresetKey = ""
@@ -153,6 +158,12 @@ class BootstrapWidgetMixin:
         self._lastRobotBasePoseFingerprint = ""
         self._robotWorkflowFacade: DENTORobotWorkflowFacade | None = None
         self._robotSimulationPanel: DENTORobotSimulationPanel | None = None
+        self._step6SubstepNavigator = None
+        self._step6SubstepComboBox = None
+        self._step6PreviousSubstepButton = None
+        self._step6NextSubstepButton = None
+        self._step6SubstepIndex = 0
+        self._updatingStep6SubstepNavigation = False
         self._step6ExpertDiagnosticHandoffActive = False
         self._step6ExpertReturnToolbar = None
         self._step6MotionPlan: MotionPlanResult | None = None
@@ -906,6 +917,10 @@ class BootstrapWidgetMixin:
         self.ui.applyStep6CaseJawOpeningButton.connect(
             "clicked(bool)",
             self.onApplyStep6CaseJawOpening,
+        )
+        self.ui.useStep6TargetJawFallbackButton.connect(
+            "clicked(bool)",
+            self.onUseStep6TargetJawFallback,
         )
         self.ui.resetStep6CaseJawOpeningButton.connect(
             "clicked(bool)",

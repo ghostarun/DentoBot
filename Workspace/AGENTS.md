@@ -47,3 +47,28 @@ For every substantial task:
     with the affected workflow step, observed behavior, evidence available,
     risk/impact, and next verification action. Record the triage outcome in
     today's logbook. Never silently discard a `DENTO-NOTE:` item.
+14. Apply explicit DENTO-NOTE priorities as backlog work-order metadata. The
+    scale is numeric and ascending: `Priority 0` is highest/immediate, then
+    `Priority 1`, `Priority 2`, and so on. Within the same authorized and safe
+    scope, address the lowest-numbered actionable backlog before higher-numbered
+    items. Preserve dependency order: a prerequisite may run before its
+    dependent item even when separately prioritized, and the dependency must be
+    recorded. Priority does not override safety gates, verification, user scope,
+    external-write approvals, or the prohibition on unauthorized robot/hardware
+    action. Do not invent a priority for an unprioritized note; retain it as
+    `Unprioritized` until the user assigns one. When a priority changes, update
+    both `docs/TASKS.md` and today's logbook, including any sequencing effect.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user invokes `$graphify` or types `/graphify`, use the installed
+Graphify skill before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

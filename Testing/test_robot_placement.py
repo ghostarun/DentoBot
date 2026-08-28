@@ -18,6 +18,8 @@ from DENTORobotPlacement import (
     orthonormal_plane_pose,
     robot_link_mesh_poses_mm,
     solve_hinge_rotation_for_gap,
+    solve_anatomy_directed_hinge_rotation_for_gap,
+    validate_patient_ras_condylar_landmarks,
     world_transform_to_parent_local,
 )
 
@@ -116,6 +118,86 @@ def test_draft_jaw_opening_rejects_degenerate_hinge() -> None:
             point,
             np.asarray((0.0, 0.0, 0.0)),
             np.asarray((0.0, 0.0, -2.0)),
+        )
+
+
+def test_case_jaw_opening_uses_only_gap_increasing_direction() -> None:
+    left_tmj = np.asarray((-50.0, 0.0, 0.0))
+    right_tmj = np.asarray((50.0, 0.0, 0.0))
+    upper = np.asarray((0.0, -90.0, -10.0))
+    lower = np.asarray((0.0, -90.0, -12.0))
+
+    angle, matrix, opened, gap = solve_anatomy_directed_hinge_rotation_for_gap(
+        left_tmj,
+        right_tmj,
+        upper,
+        lower,
+        40.0,
+    )
+
+    assert abs(gap - 40.0) <= 0.01
+    assert angle != 0.0
+    assert opened[2] < lower[2]
+    assert np.linalg.norm(opened - upper) > np.linalg.norm(lower - upper)
+    for hinge_point in (left_tmj, right_tmj):
+        transformed = (matrix @ np.append(hinge_point, 1.0))[:3]
+        assert np.allclose(transformed, hinge_point, atol=1e-9)
+
+
+def test_case_jaw_opening_uses_inferior_branch_for_representative_ras_geometry() -> None:
+    left_tmj = np.asarray((-132.735245, -96.085297, 73.430153))
+    right_tmj = np.asarray((-47.763081, -95.850441, 76.087006))
+    upper = np.asarray((-86.294014, -49.384068, 50.155613))
+    lower = np.asarray((-87.795975, -45.079147, 51.003372))
+
+    angle, _matrix, opened, gap = solve_anatomy_directed_hinge_rotation_for_gap(
+        left_tmj,
+        right_tmj,
+        upper,
+        lower,
+        40.0,
+    )
+
+    assert angle < 0.0
+    assert opened[2] < lower[2]
+    assert abs(gap - 40.0) <= 0.01
+
+
+def test_patient_ras_condylar_laterality_uses_positive_x_as_patient_right() -> None:
+    review = validate_patient_ras_condylar_landmarks(
+        np.asarray((-48.0, -32.0, 20.0)),
+        np.asarray((51.0, -31.0, 21.0)),
+    )
+    assert review["leftRasXmm"] < review["rightRasXmm"]
+    assert review["separationMm"] > 90.0
+    with np.testing.assert_raises_regex(ValueError, "side-swapped"):
+        validate_patient_ras_condylar_landmarks(
+            np.asarray((48.0, -32.0, 20.0)),
+            np.asarray((-51.0, -31.0, 21.0)),
+        )
+
+
+def test_case_jaw_opening_rejects_already_open_and_unreachable_targets() -> None:
+    left_tmj = np.asarray((-50.0, 0.0, 0.0))
+    right_tmj = np.asarray((50.0, 0.0, 0.0))
+    upper = np.asarray((0.0, -90.0, -10.0))
+    lower = np.asarray((0.0, -90.0, -50.0))
+    with np.testing.assert_raises_regex(ValueError, "already reaches"):
+        solve_anatomy_directed_hinge_rotation_for_gap(
+            left_tmj,
+            right_tmj,
+            upper,
+            lower,
+            40.0,
+        )
+    with np.testing.assert_raises_regex(ValueError, "unreachable"):
+        solve_anatomy_directed_hinge_rotation_for_gap(
+            left_tmj,
+            right_tmj,
+            np.asarray((0.0, -1.0, -10.0)),
+            np.asarray((0.0, -1.0, -12.0)),
+            40.0,
+            maximum_angle_deg=1.0,
         )
 
 

@@ -150,3 +150,9 @@ def test_approach_uses_five_mm_pre_entry_standoff_without_changing_entry():
     pre_entry, entry = approach_points((0, 0, 0), (0, 0, -10), 5.0)
     assert pre_entry == pytest.approx((0, 0, 5))
     assert entry == (0.0, 0.0, 0.0)
+
+
+def test_approach_uses_two_mm_research_default_for_new_cases():
+    pre_entry, entry = approach_points((0, 0, 0), (0, 0, -10))
+    assert pre_entry == pytest.approx((0, 0, 2))
+    assert entry == (0.0, 0.0, 0.0)

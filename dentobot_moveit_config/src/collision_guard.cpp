@@ -6,7 +6,6 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
-#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -18,6 +17,7 @@
 #include <moveit/robot_model_loader/robot_model_loader.hpp>
 #include <moveit/robot_model/joint_model.hpp>
 #include <moveit/robot_state/robot_state.hpp>
+#include <json/json.h>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -25,12 +25,15 @@
 namespace
 {
 constexpr char STATUS_SCHEMA[] = "dentobot.joint_command_status.v1";
-constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v1";
-constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v1";
-constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v1";
+constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v2";
+constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v2";
+constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v2";
 constexpr double CLEARANCE_COMPARISON_EPSILON_M = 1e-9;
 constexpr double CORRIDOR_ENDPOINT_EPSILON_M = 0.00025;
-constexpr double CORRIDOR_MONOTONIC_EPSILON_M = 0.00005;
+// Match the Step 6 provisional-TCP/FK acceptance tolerance. Smaller values
+// reject harmless KDL/trajectory-parameterization jitter below the 0.3 mm case
+// surface resolution; larger reversals remain blocked.
+constexpr double CORRIDOR_MONOTONIC_EPSILON_M = 0.00025;
 
 std::string json_escape(const std::string& value)
 {
@@ -89,33 +92,26 @@ std::string json_array(const std::vector<double>& values)
 }
 
 bool json_string_field(
-  const std::string& payload, const std::string& key, std::string& value)
+  const Json::Value& payload, const std::string& key, std::string& value)
 {
-  const std::regex expression(
-    "\\\"" + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
-  std::smatch match;
-  if (!std::regex_search(payload, match, expression) || match.size() != 2)
+  if (!payload.isMember(key) || !payload[key].isString())
   {
     return false;
   }
-  value = match[1].str();
+  value = payload[key].asString();
   return true;
 }
 
 bool json_number_field(
-  const std::string& payload, const std::string& key, double& value)
+  const Json::Value& payload, const std::string& key, double& value)
 {
-  const std::regex expression(
-    "\\\"" + key + "\\\"\\s*:\\s*"
-    "([-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)");
-  std::smatch match;
-  if (!std::regex_search(payload, match, expression) || match.size() != 2)
+  if (!payload.isMember(key) || !payload[key].isNumeric())
   {
     return false;
   }
   try
   {
-    value = std::stod(match[1].str());
+    value = payload[key].asDouble();
   }
   catch (const std::exception&)
   {
@@ -125,18 +121,16 @@ bool json_number_field(
 }
 
 bool json_integer_field(
-  const std::string& payload, const std::string& key, std::int64_t& value)
+  const Json::Value& payload, const std::string& key, std::int64_t& value)
 {
-  const std::regex expression(
-    "\\\"" + key + "\\\"\\s*:\\s*(-?[0-9]+)");
-  std::smatch match;
-  if (!std::regex_search(payload, match, expression) || match.size() != 2)
+  if (!payload.isMember(key) ||
+      (!payload[key].isInt64() && !payload[key].isUInt64()))
   {
     return false;
   }
   try
   {
-    value = std::stoll(match[1].str());
+    value = payload[key].asInt64();
   }
   catch (const std::exception&)
   {
@@ -146,23 +140,22 @@ bool json_integer_field(
 }
 
 bool json_number_array_field(
-  const std::string& payload, const std::string& key, std::vector<double>& values)
+  const Json::Value& payload, const std::string& key, std::vector<double>& values)
 {
-  const std::regex expression(
-    "\\\"" + key + "\\\"\\s*:\\s*\\[([^\\]]*)\\]");
-  std::smatch match;
-  if (!std::regex_search(payload, match, expression) || match.size() != 2)
+  if (!payload.isMember(key) || !payload[key].isArray())
   {
     return false;
   }
   values.clear();
-  std::stringstream input(match[1].str());
-  std::string item;
-  while (std::getline(input, item, ','))
+  for (const auto& item : payload[key])
   {
+    if (!item.isNumeric())
+    {
+      return false;
+    }
     try
     {
-      const double value = std::stod(item);
+      const double value = item.asDouble();
       if (!std::isfinite(value))
       {
         return false;
@@ -174,15 +167,57 @@ bool json_number_array_field(
       return false;
     }
   }
-  return !values.empty();
+  return true;
+}
+
+bool json_string_array_field(
+  const Json::Value& payload, const std::string& key, std::vector<std::string>& values)
+{
+  if (!payload.isMember(key) || !payload[key].isArray())
+  {
+    return false;
+  }
+  values.clear();
+  for (const auto& item : payload[key])
+  {
+    if (!item.isString())
+    {
+      return false;
+    }
+    values.push_back(item.asString());
+  }
+  return true;
+}
+
+bool parse_json_object(
+  const std::string& payload, Json::Value& document, std::string& reason)
+{
+  Json::CharReaderBuilder builder;
+  builder["collectComments"] = false;
+  std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+  std::string errors;
+  if (!reader->parse(
+        payload.data(), payload.data() + payload.size(), &document, &errors))
+  {
+    reason = "Malformed JSON: " + errors;
+    return false;
+  }
+  if (!document.isObject())
+  {
+    reason = "Payload must be a JSON object.";
+    return false;
+  }
+  return true;
 }
 
 struct TaskGuardConfig
 {
   bool valid{ false };
   std::string task_fingerprint;
+  std::string guard_session_id;
   std::string target_object_id;
   std::string allowed_robot_link;
+  std::vector<std::string> clearance_exempt_object_ids;
   std::string tool_tip_frame;
   Eigen::Vector3d entry_base_m{ Eigen::Vector3d::Zero() };
   Eigen::Vector3d target_base_m{ Eigen::Vector3d::Zero() };
@@ -193,6 +228,7 @@ struct TaskGuardConfig
 struct TaskJointCommand
 {
   std::string task_fingerprint;
+  std::string guard_session_id;
   std::string phase;
   std::int64_t sequence{ -1 };
   std::vector<double> joint_positions;
@@ -211,6 +247,8 @@ struct GuardResult
   bool corridor_ok{ false };
   double corridor_progress{ std::numeric_limits<double>::quiet_NaN() };
   double corridor_distance_m{ std::numeric_limits<double>::quiet_NaN() };
+  bool exploratory_tool_contact_suppressed{ false };
+  std::size_t suppressed_tool_contact_sample_count{ 0 };
 };
 }  // namespace
 
@@ -233,7 +271,7 @@ public:
       "task_command_topic", "/dentobot/task_joint_command");
     task_status_topic_ = declare_parameter<std::string>(
       "task_status_topic", "/dentobot/task_joint_status");
-    minimum_clearance_m_ = declare_parameter<double>("minimum_clearance_m", 0.005);
+    minimum_clearance_m_ = declare_parameter<double>("minimum_clearance_m", 0.001);
     maximum_revolute_step_rad_ = declare_parameter<double>(
       "maximum_revolute_step_rad", 0.017453292519943295);
     maximum_prismatic_step_m_ = declare_parameter<double>(
@@ -368,25 +406,47 @@ private:
 
   bool parse_task_config(const std::string& payload, TaskGuardConfig& config, std::string& reason)
   {
+    Json::Value document;
+    if (!parse_json_object(payload, document, reason))
+    {
+      reason = "Malformed task-guard configuration: " + reason;
+      return false;
+    }
     std::string schema;
     std::string mode;
     std::vector<double> entry;
     std::vector<double> target;
-    if (!json_string_field(payload, "schema", schema) || schema != TASK_CONFIG_SCHEMA ||
-        !json_string_field(payload, "mode", mode) || mode != "simulation_only" ||
-        !json_string_field(payload, "task_fingerprint", config.task_fingerprint) ||
-        !json_string_field(payload, "target_object_id", config.target_object_id) ||
-        !json_string_field(payload, "allowed_robot_link", config.allowed_robot_link) ||
-        !json_string_field(payload, "tool_tip_frame", config.tool_tip_frame) ||
-        !json_number_array_field(payload, "entry_base_m", entry) || entry.size() != 3 ||
-        !json_number_array_field(payload, "target_base_m", target) || target.size() != 3 ||
-        !json_number_field(payload, "corridor_radius_m", config.corridor_radius_m) ||
-        !json_number_field(payload, "approach_standoff_m", config.approach_standoff_m))
-    {
-      reason = "Malformed or unsupported task-guard configuration.";
+    const auto malformed = [&reason](const std::string& field) {
+      reason = "Malformed or unsupported task-guard field: " + field + ".";
       return false;
-    }
-    if (config.task_fingerprint.empty() || config.target_object_id.empty() ||
+    };
+    if (!json_string_field(document, "schema", schema) || schema != TASK_CONFIG_SCHEMA)
+      return malformed("schema");
+    if (!json_string_field(document, "mode", mode) || mode != "simulation_only")
+      return malformed("mode");
+    if (!json_string_field(document, "task_fingerprint", config.task_fingerprint))
+      return malformed("task_fingerprint");
+    if (!json_string_field(document, "guard_session_id", config.guard_session_id))
+      return malformed("guard_session_id");
+    if (!json_string_field(document, "target_object_id", config.target_object_id))
+      return malformed("target_object_id");
+    if (!json_string_field(document, "allowed_robot_link", config.allowed_robot_link))
+      return malformed("allowed_robot_link");
+    if (!json_string_array_field(
+          document, "clearance_exempt_object_ids", config.clearance_exempt_object_ids))
+      return malformed("clearance_exempt_object_ids");
+    if (!json_string_field(document, "tool_tip_frame", config.tool_tip_frame))
+      return malformed("tool_tip_frame");
+    if (!json_number_array_field(document, "entry_base_m", entry) || entry.size() != 3)
+      return malformed("entry_base_m");
+    if (!json_number_array_field(document, "target_base_m", target) || target.size() != 3)
+      return malformed("target_base_m");
+    if (!json_number_field(document, "corridor_radius_m", config.corridor_radius_m))
+      return malformed("corridor_radius_m");
+    if (!json_number_field(document, "approach_standoff_m", config.approach_standoff_m))
+      return malformed("approach_standoff_m");
+    if (config.task_fingerprint.empty() || config.guard_session_id.empty() ||
+        config.target_object_id.empty() ||
         config.allowed_robot_link.empty() || config.tool_tip_frame.empty() ||
         config.corridor_radius_m <= 0.0 || config.approach_standoff_m <= 0.0)
     {
@@ -399,6 +459,22 @@ private:
       reason = "Task-guard robot link or provisional drill-tip frame does not exist.";
       return false;
     }
+    if (std::any_of(
+          config.clearance_exempt_object_ids.begin(),
+          config.clearance_exempt_object_ids.end(),
+          [](const std::string& value) { return value.empty(); }))
+    {
+      reason = "Task-guard clearance-exempt object identities must be non-empty.";
+      return false;
+    }
+    std::sort(
+      config.clearance_exempt_object_ids.begin(),
+      config.clearance_exempt_object_ids.end());
+    config.clearance_exempt_object_ids.erase(
+      std::unique(
+        config.clearance_exempt_object_ids.begin(),
+        config.clearance_exempt_object_ids.end()),
+      config.clearance_exempt_object_ids.end());
     config.entry_base_m = Eigen::Vector3d(entry[0], entry[1], entry[2]);
     config.target_base_m = Eigen::Vector3d(target[0], target[1], target[2]);
     if ((config.target_base_m - config.entry_base_m).norm() <= 1e-9)
@@ -412,19 +488,27 @@ private:
 
   bool parse_task_command(const std::string& payload, TaskJointCommand& command, std::string& reason)
   {
+    Json::Value document;
+    if (!parse_json_object(payload, document, reason))
+    {
+      reason = "Malformed phased command: " + reason;
+      return false;
+    }
     std::string schema;
     std::string mode;
-    if (!json_string_field(payload, "schema", schema) || schema != TASK_COMMAND_SCHEMA ||
-        !json_string_field(payload, "mode", mode) || mode != "simulation_only" ||
-        !json_string_field(payload, "task_fingerprint", command.task_fingerprint) ||
-        !json_string_field(payload, "phase", command.phase) ||
-        !json_integer_field(payload, "sequence", command.sequence) ||
-        !json_number_array_field(payload, "joint_positions", command.joint_positions))
+    if (!json_string_field(document, "schema", schema) || schema != TASK_COMMAND_SCHEMA ||
+        !json_string_field(document, "mode", mode) || mode != "simulation_only" ||
+        !json_string_field(document, "task_fingerprint", command.task_fingerprint) ||
+        !json_string_field(document, "guard_session_id", command.guard_session_id) ||
+        !json_string_field(document, "phase", command.phase) ||
+        !json_integer_field(document, "sequence", command.sequence) ||
+        !json_number_array_field(document, "joint_positions", command.joint_positions))
     {
       reason = "Malformed or unsupported phased joint command.";
       return false;
     }
-    if (command.task_fingerprint.empty() || command.sequence < 0 ||
+    if (command.task_fingerprint.empty() || command.guard_session_id.empty() ||
+        command.sequence < 0 ||
         (command.phase != "approach" && command.phase != "terminal_contact" &&
          command.phase != "drilling"))
     {
@@ -448,16 +532,38 @@ private:
     if (!parse_task_config(message->data, candidate, reason))
     {
       task_config_ = TaskGuardConfig{};
+      active_task_config_payload_.clear();
       last_task_sequence_ = -1;
       RCLCPP_WARN(get_logger(), "%s", reason.c_str());
       return;
     }
+    if (task_config_.valid &&
+        candidate.guard_session_id == task_config_.guard_session_id)
+    {
+      if (message->data == active_task_config_payload_)
+      {
+        // The Python side retries configuration until its sequence-zero
+        // handshake is acknowledged. Repeated delivery of the exact same
+        // session must not reset sequence or corridor history.
+        return;
+      }
+      task_config_ = TaskGuardConfig{};
+      active_task_config_payload_.clear();
+      last_task_sequence_ = -1;
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejected changed task-guard data that reused guard session %s.",
+        candidate.guard_session_id.c_str());
+      return;
+    }
     task_config_ = candidate;
+    active_task_config_payload_ = message->data;
     last_task_sequence_ = -1;
     last_corridor_progress_m_ = -candidate.approach_standoff_m;
     RCLCPP_INFO(
-      get_logger(), "Accepted simulation task guard %s for target %s.",
-      candidate.task_fingerprint.c_str(), candidate.target_object_id.c_str());
+      get_logger(), "Accepted simulation task guard %s session %s for target %s.",
+      candidate.task_fingerprint.c_str(), candidate.guard_session_id.c_str(),
+      candidate.target_object_id.c_str());
   }
 
   void on_task_command(const std_msgs::msg::String::SharedPtr message)
@@ -476,6 +582,10 @@ private:
     else if (command.task_fingerprint != task_config_.task_fingerprint)
     {
       result.reason = "Command task fingerprint does not match the active immutable task.";
+    }
+    else if (command.guard_session_id != task_config_.guard_session_id)
+    {
+      result.reason = "Command guard session does not match the active preview session.";
     }
     else if (command.sequence <= last_task_sequence_)
     {
@@ -548,16 +658,55 @@ private:
       result.reason = "The configured selected target-tooth collision object is missing.";
       return result;
     }
+    if (task_config != nullptr)
+    {
+      for (const std::string& object_id : task_config->clearance_exempt_object_ids)
+      {
+        if (!scene->getWorld()->hasObject(object_id))
+        {
+          result.reason = "A configured task-proximity collision object is missing.";
+          result.second_body = object_id;
+          return result;
+        }
+      }
+    }
     const auto& allowed_collision_matrix = scene->getAllowedCollisionMatrix();
     collision_detection::AllowedCollisionMatrix clearance_collision_matrix(
       allowed_collision_matrix);
+    collision_detection::AllowedCollisionMatrix phase_collision_matrix(
+      allowed_collision_matrix);
+    if (task_config != nullptr)
+    {
+      for (const std::string& object_id : task_config->clearance_exempt_object_ids)
+      {
+        // Every phased state omits only the configured burr-to-task-object
+        // pair from the research clearance-distance query. Collision remains
+        // strict during approach. Terminal-contact and drilling additionally
+        // use phase_collision_matrix below to suppress that same tool-only
+        // pair for exploratory simulation.
+        clearance_collision_matrix.setEntry(
+          task_config->allowed_robot_link, object_id, true);
+        if (contact_phase)
+        {
+          phase_collision_matrix.setEntry(
+            task_config->allowed_robot_link, object_id, true);
+        }
+      }
+    }
     if (contact_phase)
     {
       clearance_collision_matrix.setEntry(
         task_config->allowed_robot_link, task_config->target_object_id, true);
+      phase_collision_matrix.setEntry(
+        task_config->allowed_robot_link, task_config->target_object_id, true);
     }
+    // Every phased task state may place the burr near task anatomy or inside
+    // the approved guide bore, including the collision-free approach to
+    // pre-entry. Exempt only configured burr-to-object pairs from the research
+    // *distance* test. Ordinary/manual commands remain globally strict;
+    // collision queries below always use the original ACM.
     const auto& clearance_acm =
-      contact_phase ? clearance_collision_matrix : allowed_collision_matrix;
+      task_config != nullptr ? clearance_collision_matrix : allowed_collision_matrix;
     const auto& collision_environment = scene->getCollisionEnvUnpadded();
     moveit::core::RobotState sample(start);
 
@@ -598,31 +747,40 @@ private:
           }
           return result;
         }
-        bool only_allowed_target_contact = contact_phase && !collision_result.contacts.empty();
-        for (const auto& contact : collision_result.contacts)
+        // The exploratory terminal/drilling policy suppresses only collisions
+        // between the configured burr link and explicitly configured task
+        // anatomy/guide objects. Re-run MoveIt's complete collision predicate
+        // with those exact pairs allowed. This is safer than accepting based on
+        // the truncated diagnostic contact list: any self collision, other
+        // robot-link/world collision, or unconfigured world collision remains.
+        collision_detection::CollisionRequest phase_request;
+        phase_request.group_name = group_name_;
+        phase_request.contacts = true;
+        phase_request.max_contacts = 20;
+        phase_request.max_contacts_per_pair = 1;
+        phase_request.pad_environment_collisions = false;
+        phase_request.pad_self_collisions = false;
+        collision_detection::CollisionResult phase_result;
+        scene->checkCollision(
+          phase_request, phase_result, sample, phase_collision_matrix);
+        if (phase_result.collision)
         {
-          const std::string& first = contact.first.first;
-          const std::string& second = contact.first.second;
-          const bool allowed_pair =
-            (first == task_config->allowed_robot_link &&
-             second == task_config->target_object_id) ||
-            (second == task_config->allowed_robot_link &&
-             first == task_config->target_object_id);
-          if (!allowed_pair)
+          result.reason =
+            "MoveIt detected a non-tool or unconfigured collision at interpolated sample " +
+            std::to_string(index) + "/" + std::to_string(sample_count) + ".";
+          if (!phase_result.contacts.empty())
           {
-            only_allowed_target_contact = false;
-            result.first_body = first;
-            result.second_body = second;
-            break;
+            result.first_body = phase_result.contacts.begin()->first.first;
+            result.second_body = phase_result.contacts.begin()->first.second;
           }
-          result.first_body = first;
-          result.second_body = second;
-        }
-        if (!only_allowed_target_contact)
-        {
-          result.reason = "MoveIt detected a disallowed collision at interpolated sample " +
-                          std::to_string(index) + "/" + std::to_string(sample_count) + ".";
           return result;
+        }
+        result.exploratory_tool_contact_suppressed = true;
+        ++result.suppressed_tool_contact_sample_count;
+        if (!collision_result.contacts.empty())
+        {
+          result.first_body = collision_result.contacts.begin()->first.first;
+          result.second_body = collision_result.contacts.begin()->first.second;
         }
       }
 
@@ -705,7 +863,10 @@ private:
         }
         if (progress_m + CORRIDOR_MONOTONIC_EPSILON_M < prior_corridor_progress_m)
         {
-          result.reason = "The provisional drill tip moved backwards along the approved corridor.";
+          result.reason =
+            "The provisional drill tip moved backwards along the approved corridor "
+            "(current " + distance_mm_text(progress_m) + " mm, prior " +
+            distance_mm_text(prior_corridor_progress_m) + " mm).";
           return result;
         }
         prior_corridor_progress_m = progress_m;
@@ -714,9 +875,19 @@ private:
     }
 
     result.accepted = true;
-    result.reason = contact_phase ?
-      "Accepted by the simulation phase guard: bounds, selective contact, clearance, and corridor checks passed." :
-      "Accepted: bounds, interpolated collision, and 5 mm clearance checks passed.";
+    if (result.exploratory_tool_contact_suppressed)
+    {
+      result.reason =
+        "Accepted for exploratory simulation only: configured burr-to-task-object "
+        "contact was suppressed; bounds, non-tool collision, research clearance, "
+        "and corridor checks passed. This is not a collision-safe result.";
+    }
+    else
+    {
+      result.reason = contact_phase ?
+        "Accepted by the simulation phase guard: bounds, non-tool collision, research clearance, and corridor checks passed." :
+        "Accepted: bounds, interpolated collision, and research clearance checks passed.";
+    }
     return result;
   }
 
@@ -785,6 +956,8 @@ private:
            << "\"reason\":\"" << json_escape(result.reason) << "\","
            << "\"task_fingerprint\":\""
            << json_escape(command.task_fingerprint) << "\","
+           << "\"guard_session_id\":\""
+           << json_escape(command.guard_session_id) << "\","
            << "\"phase\":\"" << json_escape(command.phase) << "\","
            << "\"sequence\":" << command.sequence << ','
            << "\"requested_positions\":"
@@ -797,12 +970,19 @@ private:
            << json_number(result.corridor_progress) << ','
            << "\"corridor_distance_m\":"
            << json_number(result.corridor_distance_m) << ','
+           << "\"exploratory_tool_contact_suppressed\":"
+           << (result.exploratory_tool_contact_suppressed ? "true" : "false") << ','
+           << "\"suppressed_tool_contact_sample_count\":"
+           << result.suppressed_tool_contact_sample_count << ','
+           << "\"minimum_clearance_m\":"
+           << json_number(minimum_clearance_m_) << ','
            << "\"minimum_self_distance_m\":"
            << json_number(result.minimum_self_distance_m) << ','
            << "\"minimum_world_distance_m\":"
            << json_number(result.minimum_world_distance_m) << ','
            << "\"first_body\":\"" << json_escape(result.first_body) << "\","
-           << "\"second_body\":\"" << json_escape(result.second_body) << "\""
+           << "\"second_body\":\"" << json_escape(result.second_body) << "\","
+           << "\"world_object_count\":" << result.world_object_count
            << '}';
     std_msgs::msg::String message;
     message.data = output.str();
@@ -834,7 +1014,7 @@ private:
   std::string task_config_topic_;
   std::string task_command_topic_;
   std::string task_status_topic_;
-  double minimum_clearance_m_{ 0.005 };
+  double minimum_clearance_m_{ 0.001 };
   double maximum_revolute_step_rad_{ 0.017453292519943295 };
   double maximum_prismatic_step_m_{ 0.0005 };
   int maximum_interpolation_samples_{ 1000 };
@@ -845,6 +1025,7 @@ private:
   std::vector<std::string> joint_names_;
   std::vector<double> last_accepted_positions_;
   TaskGuardConfig task_config_;
+  std::string active_task_config_payload_;
   std::int64_t last_task_sequence_{ -1 };
   double last_corridor_progress_m_{ 0.0 };
   std::string last_status_json_;

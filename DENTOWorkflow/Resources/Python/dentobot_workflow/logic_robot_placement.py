@@ -209,6 +209,7 @@ class RobotPlacementLogicMixin:
             )
             linkTransform.SetAttribute("DENTOBOT.RobotLinkName", pose.link_name)
             linkTransform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+            linkTransform.SetSaveWithScene(False)
             linkTransform.SetMatrixTransformToParent(
                 self._vtkFromNumpyMatrix(pose.matrix_base_from_mesh_mm)
             )
@@ -220,14 +221,32 @@ class RobotPlacementLogicMixin:
             model.SetAttribute("DENTOBOT.Status", "SimulationOnly")
             model.SetAttribute("DENTOBOT.SourceMeshPath", str(pose.mesh_path))
             model.SetAndObserveTransformNodeID(linkTransform.GetID())
+            model.SetSaveWithScene(False)
             model.CreateDefaultDisplayNodes()
+            modelStorage = model.GetStorageNode()
+            if modelStorage:
+                modelStorage.SetSaveWithScene(False)
             modelDisplay = model.GetDisplayNode()
             if modelDisplay:
+                modelDisplay.SetSaveWithScene(False)
                 modelDisplay.SetVisibility(True)
                 modelDisplay.SetOpacity(1.0)
                 modelDisplay.SetColor(*displayColors[index % len(displayColors)])
             resolvedModels.append(model)
         return baseTransform, resolvedModels
+
+    def deleteTransientRobotRuntimeNodes(self) -> list[str]:
+        """Remove reconstructible local robot meshes/poses from a restored scene."""
+        nodes = [*self.robotModelNodes(), *self.robotLinkTransformNodes()]
+        workspace = self.robotWorkspaceModelNode()
+        if workspace:
+            nodes.append(workspace)
+        removed = []
+        for node in dict.fromkeys(nodes):
+            if slicer.mrmlScene.IsNodePresent(node):
+                removed.append(node.GetName())
+                slicer.mrmlScene.RemoveNode(node)
+        return removed
 
     def updateRobotJointPoses(self, jointPositionsSi: dict[str, float]) -> int:
         """Update link-local transforms while preserving the world base pose."""
@@ -553,14 +572,20 @@ class RobotPlacementLogicMixin:
                 display.SetVisibility(bool(visible))
                 self._applyStep6CbctOpacity(display, opacity)
                 return
-        elif key == "masks" and parameterNode.teethSegmentation:
-            display = parameterNode.teethSegmentation.GetDisplayNode()
-            if display:
-                display.SetVisibility(bool(visible))
-                set_opacity = getattr(display, "SetOpacity3D", None)
-                if set_opacity:
-                    set_opacity(opacity)
-                return
+        elif key == "masks":
+            for segmentation in (
+                parameterNode.teethSegmentation,
+                parameterNode.step6FixedUpperAnatomy,
+                parameterNode.step6MovingLowerAnatomy,
+                parameterNode.step6TargetJawFallbackAnatomy,
+            ):
+                display = segmentation.GetDisplayNode() if segmentation else None
+                if display:
+                    display.SetVisibility(bool(visible))
+                    set_opacity = getattr(display, "SetOpacity3D", None)
+                    if set_opacity:
+                        set_opacity(opacity)
+            return
         elif key == "robot":
             displays.extend(
                 node.GetDisplayNode() for node in self.robotModelNodes() if node.GetDisplayNode()

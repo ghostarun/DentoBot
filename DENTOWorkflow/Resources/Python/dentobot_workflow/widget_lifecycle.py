@@ -8,6 +8,7 @@ from .runtime import *
 class LifecycleWidgetMixin:
     def cleanup(self) -> None:
         self._isCleaningUp = True
+        self._workflowViewRefreshScheduled = False
         self._step6ExpertDiagnosticHandoffActive = False
         if self._step6ExpertReturnToolbar:
             self._step6ExpertReturnToolbar.hide()
@@ -152,7 +153,7 @@ class LifecycleWidgetMixin:
         qt.QTimer.singleShot(0, self._initializeAfterSceneClose)
 
     def _initializeAfterSceneClose(self) -> None:
-        if self._isCleaningUp:
+        if self._isCleaningUp or self._caseBundleRestoreDepth > 0:
             return
         try:
             is_entered = bool(self.parent and self.parent.isEntered)
@@ -180,6 +181,12 @@ class LifecycleWidgetMixin:
                 "source model(s)",
                 cleared,
             )
+        if self._caseBundleRestoreDepth > 0:
+            # The package loader owns parameter discovery, pre-bind
+            # validation, GUI hydration, and post-bind validation.  Ordinary
+            # EndImport refresh would otherwise mutate the scene before its
+            # integrity snapshot is checked.
+            return
         if self.parent.isEntered:
             self.initializeParameterNode()
             if clearedActive:
@@ -193,6 +200,27 @@ class LifecycleWidgetMixin:
     def _revalidateImportedStep6ContextAfterLoad(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        cancelledPlacement = (
+            self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
+                self._parameterNode
+            )
+        )
+        if cancelledPlacement.get("cancelled"):
+            logging.warning(
+                "Cancelled restored transient Step 6A placement state at index "
+                "%s; %d defined point(s) were retained for explicit review",
+                cancelledPlacement.get("pendingLandmarkIndex") or "unknown",
+                int(cancelledPlacement.get("definedPointCount") or 0),
+            )
+        removedRobotNodes = self.logic.deleteTransientRobotRuntimeNodes()
+        if removedRobotNodes:
+            logging.warning(
+                "Removed %d reconstructible local Step 6 robot node(s) from "
+                "the restored scene; use Load / Refresh Robot after jaw review",
+                len(removedRobotNodes),
+            )
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
         if (
             self._parameterNode.robotBaseMountLocked
             and normalize_base_status(self._parameterNode.step6BasePlacementStatus)
@@ -212,18 +240,57 @@ class LifecycleWidgetMixin:
             )
         if not self._parameterNode.step6PlanningContextImported:
             return
-        issues = self.logic.step6PlanningContextFreshnessIssues(
+        packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
         )
-        if not issues:
+        if packageIssues:
+            self.logic.invalidateStep6TaskConfirmation(
+                self._parameterNode,
+                _("The restored Steps 0–5 planning package is stale."),
+                makeBaseStale=True,
+            )
+            self._parameterNode.step6PlanningContextImported = False
+            message = _(
+                "Saved Step 6 context is stale and was deactivated: %1 Return to "
+                "the indicated upstream step, regenerate, verify, and import again."
+            ).replace("%1", " ".join(packageIssues))
+            logging.error(message)
+            self._updateStep6CaseJawOpeningControls()
+            self._updateStep6CaseJawOpeningStatus()
+            self._updateStep6PlanningUi(message, error=True)
             return
-        self._parameterNode.step6PlanningContextImported = False
+
+        jawIssues = self.logic.step6CaseJawOpeningFreshnessIssues(
+            self._parameterNode
+        )
+        if not jawIssues:
+            return
+        hadReviewedBase = bool(
+            self._parameterNode.robotBaseMountLocked
+            or normalize_base_status(self._parameterNode.step6BasePlacementStatus)
+            in {
+                BasePlacementStatus.PROVISIONAL_LOCKED,
+                BasePlacementStatus.REGISTERED_LOCKED,
+                BasePlacementStatus.STALE,
+            }
+        )
+        self.logic.invalidateStep6TaskConfirmation(
+            self._parameterNode,
+            _("The restored case mouth-opening context requires review."),
+            makeBaseStale=True,
+        )
         message = _(
-            "Saved Step 6 context is stale and was deactivated: %1 Return to "
-            "the indicated upstream step, regenerate, verify, and import again."
-        ).replace("%1", " ".join(issues))
-        logging.error(message)
-        self._updateStep6PlanningUi(message, error=True)
+            "Steps 0–5 package restored and remains active. Complete 6.0A: %1"
+        ).replace("%1", " ".join(jawIssues))
+        if hadReviewedBase:
+            message += _(
+                " The saved base pose was retained as Stale and unlocked; "
+                "review and provisionally lock it again after opening the jaw."
+            )
+        logging.warning(message)
+        self._updateStep6CaseJawOpeningControls()
+        self._updateStep6CaseJawOpeningStatus()
+        self._updateStep6PlanningUi(message)
 
     @staticmethod
     def _suspendRos2MotionActiveAttributesForSave() -> list[str]:

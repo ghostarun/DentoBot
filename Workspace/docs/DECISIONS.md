@@ -1,5 +1,253 @@
 # Dentobot Technical Decisions
 
+## 2026-08-28 — Separate exploratory tool contact from robot/environment safety and preflight the full drilling line
+
+Status: implemented and pure/live-guard verified; the retained x4 base is
+correctly rejected as unreachable
+
+Supersede the current-policy parts of the 2026-08-24 native Step 6 decision
+that used a fixed 5 mm pre-entry standoff and allowed contact only with one
+target object. New cases use a 2 mm pre-entry standoff; a restored case retains
+its recorded value. The simulation guard uses a 1 mm research clearance. The
+strict current-to-pre-entry phase remains fully collision checked.
+
+For terminal contact and Entry-to-Target drilling exploration, collision
+avoidance may be disabled in MoveIt's Cartesian solver only while an
+independent guard remains authoritative. That guard may suppress collision
+only for the configured cylindrical burr link against the fingerprinted task
+anatomy and approved guide/template objects. It must still reject all other
+robot/world contacts, self-collision, joint-bound violations, wrong or stale
+task/session identity, lateral corridor escape, backtracking beyond the
+0.25 mm numerical tolerance, and overshoot. Status and UI messages must report
+whether tool contact was suppressed and how many samples used the exemption;
+such a preview is explicitly exploratory and must never be labelled
+collision-safe.
+
+Convert world-RAS millimetres into the placed `base_link` frame exactly once.
+Retain every 0.25 mm Cartesian contact/drilling sample rather than replacing a
+curved IK sequence with a sparse joint-space chord. After synchronizing the
+planning scene, wait a bounded settle interval and retry strict OMPL planning
+at most three times to avoid accepting a plan computed before collision
+objects arrive.
+
+Before Goal 1 is exposed for preview, require complete Entry-to-Target IK
+reachability. Preserve the approved centreline/tool axis and probe only the
+cylindrical burr's otherwise irrelevant axial roll at
+`0, ±45, ±90, ±135, 180` degrees. If no candidate reaches at least 0.99, fail
+before motion preview and direct the operator to reposition and re-lock the
+base; a partial Cartesian fraction is diagnostic evidence, not a drilling
+trajectory.
+
+Reason: the retained `dentobot-case-step6x4.dentocase` can complete the strict
+approach and Entry contact but reaches only `44.44–45.34%` of its 15.77 mm
+drilling line for every bounded roll at 0.25 mm sampling, even with Cartesian
+collision avoidance disabled. This proves a base/kinematic reachability
+problem, not a collision-threshold problem. The same package also has a
+2.0 mm burr envelope and a 1.5 mm saved guide bore, so physical guide/tool fit
+must be corrected upstream; suppressing that tool contact is limited to
+research visualization of robot states and cannot establish fit or safety.
+
+## 2026-08-27 — Constrain case jaw opening to the inferior patient-RAS branch
+
+Status: implemented and exact-package Slicer verified
+
+For imported-case Step 6A, choose the hinge-rotation sign by anatomical motion,
+not by whichever sign increases straight-line incisor distance most rapidly.
+The accepted branch must move the lower-incisor landmark inferiorly in patient
+RAS (`opened Z < closed Z`), and the final solution must preserve that sign.
+Sample that branch until the first target-gap crossing, then bisect the crossing
+to tolerance. Do not assume gap distance is monotonic from zero rotation: a
+valid inferior hinge arc may first move nearly touching incisors slightly
+closer before separating them.
+
+Reason: the x1 landmarks reached the requested 40 mm on the old `+40.0488°`
+branch, but that branch moved the lower incisor `+38.3076 mm` superiorly. The
+corrected branch reaches `39.9964 mm` at `-45.7813°` and moves the lower incisor
+`-29.2424 mm` in RAS Z. Numerical gap convergence alone is not an anatomical
+opening-direction criterion.
+
+## 2026-08-27 — Make Step 6 derived anatomy one Viewer authority and defer tree rebuilds
+
+Status: implemented and exact-package Slicer verified; operator confirmation pending
+
+When Step 6 has a current fixed-upper/moving-lower preparation or a current
+placement-only target-jaw fallback, classify those derived segmentations as
+Step 6 jaw-opening objects. Recommended selects the complete derived jaw-and-
+teeth anatomy and does not simultaneously select the source closed-pose
+segmentation. Source internal anatomy remains available as an explicit custom
+inspection choice, but applying Recommended must clear it again. Showing a
+derived segmentation as one object restores all of its
+per-segment visibility flags; hiding/showing a group updates general, 2D, and
+3D segment flags consistently.
+
+Never clear or reconstruct the Viewer `QTreeWidget` synchronously from its
+`itemChanged` callback. Apply the display request in the callback, coalesce a
+zero-delay refresh after the signal returns, and ignore Qt-generated
+`PartiallyChecked` ancestor changes because they summarize child state rather
+than express an operator command.
+
+Reason: `dentobot-case-step6x1.dentocase` demonstrated two independent
+failures. The old `full_anatomy + fallback` composition left pulp/root-canal
+surfaces floating inside otherwise hidden source teeth. The advanced tree then
+invalidated a live C++ item by rebuilding itself from that item's callback,
+which could terminate Slicer without a Python traceback. Presentation
+ownership and callback lifetime must be explicit; neither fix changes case
+geometry, segmentation content, coordinates, lineage, or ROS state.
+
+## 2026-08-27 — Treat Step 6A placement mode as transient and stale only on coordinate changes
+
+Status: implemented and exact-package Slicer verified
+
+`PendingLandmarkIndex`, its pending source ID, active Place mode, and the
+temporary isolation-visibility snapshot are interaction state, not persistent
+case evidence. Cancel them before `.dentocase` save and after validated scene
+restore. Restore the pre-placement source visibility, retain any defined
+points, and do not invent source evidence. A complete raw four-point set must
+therefore expose an explicit **Review / re-snap existing landmarks** action.
+That operator-confirmed action computes all four current-surface projections
+first, accepts only residuals at or below 5 mm, validates laterality/anatomy,
+and commits fresh evidence atomically; failure leaves original points and
+evidence unchanged.
+
+Do not stale an accepted hinge merely because `vtkMRMLMarkupsNode` emits a
+generic `ModifiedEvent` for lock, selectability, or workflow interaction
+policy. Compare the current four-point coordinate fingerprint to the transform's
+recorded fingerprint and invalidate only when coordinates differ.
+
+Reason: the current x1 package retained four valid points plus pending index 3,
+which isolated the lower-incisor source and disabled review after restore.
+After applying the opening, stage lock/selectability refresh emitted a generic
+Markups modification and immediately marked the unchanged transform stale.
+Both are stale interaction-state defects, not anatomy changes.
+
+## 2026-08-27 — Correct landmark anatomy before adding an interactive jaw-opening preview
+
+Status: patient-RAS correction implemented; anatomical subregions, MPR, guide,
+and operator verification pending
+
+Correct Step 6A landmark acquisition before implementing the live incisor-gap
+slider. Slicer world coordinates are RAS (`+X` patient Right), so an anatomical
+Left-TMJ point normally has a lower RAS X value than the Right-TMJ point. The
+comparison and synthetic fixtures now enforce this convention; never ask an
+operator to swap anatomical labels to satisfy software. Add explicit left and
+right condylar candidate surfaces instead of treating the complete lower-jaw
+surface as equivalent condylar evidence. Likewise add crown/incisal candidate
+regions instead of treating any point on a whole central-incisor segment as an
+incisal-edge point. Apply must require completed orthogonal-MPR review.
+
+After Left TMJ placement, show a transient contralateral guide toward the
+patient-right condylar candidate region, a live provisional hinge-axis line,
+and laterality/separation/superior and anterior-posterior offset feedback. The
+guide is an operator aid, not anatomical truth: the Right-TMJ point must still
+snap to and validate against its own source-fingerprinted condylar surface.
+Where a reviewed midsagittal reference is available, a mirrored candidate may
+be suggested, but the software must not force artificial symmetry over visible
+patient anatomy.
+
+Once those safeguards pass, add a linear-in-millimetres incisor-gap slider.
+Dragging creates only a non-authoritative, `SaveWithSceneOff` preview transform
+or equivalent display-pipeline projection, updates the preview gap line, and
+does not rebuild persistent anatomy, invalidate downstream state repeatedly,
+or publish collision objects. A dedicated `Lock / Accept Opening` action runs
+the full solver/geometry/contact validation once, creates or commits the
+persistent jaw transform and derived positions, records lineage, and
+invalidates the base/task once. It prepares collision-validated per-segment
+MRML surfaces; transient MoveIt collision objects still reconstruct only after
+the later explicit Connect/Sync operation.
+
+Reason: exact segment projection currently proves source membership but not
+condylar-lateral-pole or incisal-edge membership. The corrected RAS comparison
+removes one false rejection but does not establish anatomical validity. A smooth slider would make an incorrect
+axis easier to manipulate without making it anatomically sound. Preview/commit
+separation preserves responsive UX without turning every drag event into
+authoritative case or ROS state.
+
+## 2026-08-27 — Require current snap evidence and make Step 6A fallback retryable
+
+Status: implemented and exact-package Slicer verified; operator anatomy trial pending
+
+Treat four Markups control points as insufficient Step 6A evidence by
+themselves. Every point must retain the intended source segment, current source
+geometry fingerprint, projection/review record, and exact snapped world-RAS
+position. Reject a point that was loaded from a legacy scene, manually moved
+after review, or detached from its source evidence. Such prerequisite failures
+must not authorize the target-jaw-only fallback; that fallback is reserved for
+a reviewed, current landmark set followed by a genuine anatomy preparation or
+solver failure.
+
+When a fallback is restored or used for placement, expose one explicit `Exit
+Fallback and Retry Primary 6A` transition even if a base was subsequently
+locked. The transition invalidates the base to unlocked `Stale`, clears the
+fallback/failure/landmark evidence and downstream task state, and restarts
+guided Left-TMJ placement. Continue to block ROS, collision sync, confirmation,
+and motion planning throughout fallback mode.
+
+Treat the local seven-link MRML robot as reconstructible runtime visualization,
+not case state. New robot model/display/storage/link-transform nodes use
+`SaveWithSceneOff`; old packages containing them are sanitized on load and the
+operator explicitly reconstructs them with `Load / Refresh Robot`. Persistent
+base/mount intent remains separate.
+
+Reason: `dentobot-case-step6x1.dentocase` proves that the earlier string-based
+failure classifier accepted missing surface provenance as an anatomy failure,
+then saved a fallback and locked base that made primary retry unreachable.
+Exact evidence validation plus a defined retry transition removes that state
+ambiguity. Excluding reconstructible robot nodes prevents archive restore from
+silently recreating a robot before Step 6 requests one.
+
+## 2026-08-27 — Restore atomically, then allow modular continuation at any stage
+
+Status: navigation contract and retained-package regression implemented;
+six-checkpoint acceptance active
+
+Keep `.dentocase` loading as one transactional restore of the complete saved
+MRML scene and lineage record. Do not offer partial archive hydration,
+stage-specific node cherry-picking, or a second per-step geometry store. After
+the integrity transaction commits, keep every Legacy stage and all six
+application workspaces selectable for inspection and continuation. The
+recommended-next indicator is guidance only and must never disable navigation
+or move the operator again after initial scene binding.
+
+Action readiness remains local to the selected stage. Existing node presence,
+review state, Current/Stale lineage, geometry provenance, and Step 6 runtime
+gates enable or disable operations and explain missing prerequisites. Opening a
+stage neither promotes stale data nor imports a robot/ROS runtime. The chosen
+presentation stage is not new case geometry and is not added as another
+`.dentocase` authority.
+
+Reason: users need to resume a complete saved case at any earlier or later
+workflow stage, but partially loading only one stage's nodes could detach
+children from their source anatomy, transforms, or provenance. Atomic restore
+plus freely selectable, independently gated stages provides modular workflow
+continuation without weakening coordinate or dependency integrity.
+
+## 2026-08-27 — Separate Step 6 package import, jaw preparation, and substep presentation
+
+Status: implemented and focused Slicer verified; visible operator acceptance pending
+
+Treat Steps 0–5 package freshness and Step 6.0A mouth-opening readiness as two
+different gates. A current package with no current jaw opening remains the
+active Step 6 case so the operator can place the required landmarks. If that
+package restores a reviewed/locked base from a pre-opening context, retain its
+pose as `Stale` but atomically set typed lock state, MRML lock evidence, and
+interaction handles to unlocked. Invalidate task confirmation/workspace state
+and require base review/relock after 6.0A. Only a real upstream package failure
+deactivates the Step 6 context.
+
+Present the shared 6.0–6.6 sequence as seven one-card-at-a-time substeps in
+both the normal module and application shell. The normal module adds a compact
+selector plus Back/Next controls; the shell retains its workspace selector.
+Both routes call one visibility controller and neither writes MRML, creates ROS
+objects, or duplicates task state. Later cards may be inspected but their
+existing functional gates remain authoritative.
+
+Reason: deactivating the package because a post-import landmark task was
+incomplete made the task needed to satisfy that gate unreachable. Separately,
+rendering every robotics control at once obscured the intended safety sequence
+and forced excessive scrolling. The nested-gate and one-card presentation
+preserve measurement/state authority while making the required next action
+explicit.
+
 ## 2026-08-25 — Use one thin public entrypoint and context-bounded domain mixins
 
 Status: implemented and host/synthetic-Slicer verified
@@ -27,7 +275,8 @@ after domain-specific parity tests.
 
 ## 2026-08-25 — Preserve segment authority and derive transformed collision solids without STL
 
-Status: accepted decision-complete plan; not yet implemented or verified
+Status: schema-v2 implementation and focused verification complete 2026-08-27;
+representative operator anatomy review remains pending
 
 For imported-case Step 6.0A, keep the reviewed CBCT segmentation unchanged and
 derive two independently displayable segmentation nodes: fixed upper anatomy
@@ -66,9 +315,21 @@ boundary discretization and weaken restore evidence. Split derived
 segmentations retain sub-anatomical control and give the robot stack exact,
 traceable per-segment obstacle identities without changing source anatomy.
 
+The implemented failure branch is deliberately narrower than the accepted
+open-mouth path. After a current imported case records a valid anatomy/solver
+failure, the operator may create one untransformed world-RAS segmentation that
+retains only the target-side jawbone and every same-jaw tooth as separate
+segments. This `PlacementTestingOnly` state may unlock local robot placement,
+Task Home, assisted-limit review, and coarse workspace exploration. It never
+claims open-mouth validity and cannot unlock ROS connection, planning-scene
+sync, task confirmation, approach planning, or drilling preview. Missing
+operator landmarks, an inactive package, a locked/ROS-active scene, or invalid
+target anatomy do not authorize the fallback.
+
 ## 2026-08-25 — CBCT rendering is not a jaw landmark surface or measured open-mouth pose
 
-Status: accepted planning boundary; redesign not yet implemented
+Status: schema-v2 acquisition/solver boundary implemented 2026-08-27;
+representative operator MPR/anatomy review remains pending
 
 Do not snap case-jaw landmarks to Slicer CBCT volume rendering or use the
 renderer as collision geometry. Preserve CBCT voxels and IJK-to-RAS exactly.
@@ -155,6 +416,47 @@ docking assembly's persisted `ParametersJson`; a genuine operator change still
 sets orientation to Draft and cascades staleness normally. Package validation
 therefore observes persistent MRML meaning rather than a widget-binding side
 effect.
+
+## 2026-08-26 — Restore case packages behind a two-audit mutation barrier
+
+Status: implemented; retained-package and rollback Slicer regressions pass
+
+Treat `.dentocase` restore as an application transaction, not an ordinary
+observed scene import. After archive/checksum preflight, capture a recovery MRB,
+activate a restore-depth barrier, load the embedded MRB, validate persistent
+lineage before parameter-node binding, hydrate the GUI and queued zero-delay
+events under the same barrier, then validate again. Only after both audits may
+current-version Step 6 freshness migration run. Any failure restores the prior
+scene and scene location before releasing the barrier.
+
+Generic MRML modification is not geometric evidence. Planning trajectory
+dependency invalidation compares control-point count/status and defined
+world-RAS coordinates with absolute tolerance `1e-6 mm`; metadata, references,
+labels, display, lock, and selectability events are no-ops for downstream
+freshness. The same rule applies to the two-point Step 5B insertion-direction
+line: only Approach/Seat geometry or point-status changes may stale undercut,
+patient-shell, and final-template descendants. A real point edit retains the
+existing invalidation cascade.
+
+Separate integrity state from application interaction and policy evidence.
+Stage-exclusive Markups lock/selectability is suspended around snapshots,
+restored from the saved record during hydration, and reapplied after commit; it
+is excluded from geometry equivalence. `freshnessIssuesAtSave` and derived
+jaw-opening readiness describe the policy at save/read time and are also
+excluded from immutable equivalence. Current prerequisites are re-evaluated
+after load. Upstream planning-package failures may fail closed by deactivating
+Step 6; the post-import jaw-opening gate keeps the current package active,
+stales/unlocks any reviewed base, and exposes 6.0A. Saved geometry, provenance,
+transforms, coordinates, base/home/limits/task records, and every other
+recorded lineage value continue to match exactly.
+
+Reason: the retained package contained identical outer lineage and embedded
+MRML geometry, but ordinary restore-time lock/reference events falsely emitted
+“A Step 4A source trajectory changed,” and a later software version legitimately
+added a four-landmark jaw-opening prerequisite. Treating either as coordinate
+corruption prevented compatible cases from opening; ignoring all lineage would
+have hidden real measurement drift. The split above preserves both compatibility
+and fail-closed geometry validation.
 
 ## 2026-08-25 — Compose views from anatomy/dimension/CBCT/overlays and enforce stage-owned interaction
 

@@ -6,7 +6,7 @@ workspace exploration.
 """
 
 from dataclasses import dataclass
-from math import cos, isfinite, radians, sin, sqrt
+from math import ceil, cos, isfinite, radians, sin, sqrt
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -430,6 +430,175 @@ def solve_hinge_rotation_for_gap(
     assert best is not None
     _error, _absolute_angle, angle, matrix, opened, gap = best
     return angle, matrix, opened, gap
+
+
+def validate_patient_ras_condylar_landmarks(
+    left_tmj_mm: np.ndarray,
+    right_tmj_mm: np.ndarray,
+    minimum_separation_mm: float = 20.0,
+    maximum_superior_offset_mm: float = 15.0,
+) -> dict[str, float]:
+    """Validate bilateral TMJ ordering in Slicer's patient-RAS coordinates.
+
+    RAS +X points toward the patient's Right.  Therefore an anatomical Left
+    TMJ must have a lower X coordinate than the anatomical Right TMJ.  Screen
+    left/right is view-dependent and must never be used for this decision.
+    """
+
+    left = np.asarray(left_tmj_mm, dtype=float)
+    right = np.asarray(right_tmj_mm, dtype=float)
+    if left.shape != (3,) or right.shape != (3,):
+        raise ValueError("TMJ landmarks must each contain three values.")
+    if not np.all(np.isfinite(left)) or not np.all(np.isfinite(right)):
+        raise ValueError("TMJ landmarks must be finite.")
+    separation = float(np.linalg.norm(left - right))
+    superior_offset = abs(float(left[2] - right[2]))
+    if float(left[0]) >= float(right[0]):
+        raise ValueError(
+            "Left and right condylar landmarks appear side-swapped in patient RAS."
+        )
+    if separation < float(minimum_separation_mm):
+        raise ValueError("The bilateral condylar landmarks are implausibly close.")
+    if superior_offset > float(maximum_superior_offset_mm):
+        raise ValueError(
+            "The condylar landmarks are not at homologous superior levels."
+        )
+    return {
+        "separationMm": separation,
+        "superiorOffsetMm": superior_offset,
+        "leftRasXmm": float(left[0]),
+        "rightRasXmm": float(right[0]),
+    }
+
+
+def solve_anatomy_directed_hinge_rotation_for_gap(
+    hinge_left_mm: np.ndarray,
+    hinge_right_mm: np.ndarray,
+    upper_incisor_mm: np.ndarray,
+    lower_incisor_closed_mm: np.ndarray,
+    target_gap_mm: float = 40.0,
+    maximum_angle_deg: float = 60.0,
+    tolerance_mm: float = 0.01,
+) -> tuple[float, np.ndarray, np.ndarray, float]:
+    """Solve one anatomically directed pure-hinge opening.
+
+    The opening sign is selected by the infinitesimal rotation that moves the
+    lower incisor inferiorly (negative patient-RAS Z). The selected branch may
+    initially reduce straight-line incisor distance, so it is sampled until
+    the first target-gap crossing and only then bisected. This intentionally
+    differs from the draft phantom solver, which searches both signs and may
+    choose a superior but numerically gap-increasing rotation.
+    """
+
+    upper = np.asarray(upper_incisor_mm, dtype=float)
+    lower = np.asarray(lower_incisor_closed_mm, dtype=float)
+    if upper.shape != (3,) or lower.shape != (3,):
+        raise ValueError("Incisor landmarks must each contain three values.")
+    if not np.all(np.isfinite(upper)) or not np.all(np.isfinite(lower)):
+        raise ValueError("Incisor landmarks must be finite.")
+    target = float(target_gap_mm)
+    maximum = float(maximum_angle_deg)
+    tolerance = float(tolerance_mm)
+    if not isfinite(target) or target <= 0.0:
+        raise ValueError("Target incisor gap must be positive and finite.")
+    if not isfinite(maximum) or maximum <= 0.0 or maximum > 90.0:
+        raise ValueError("Maximum case jaw angle must be within 0–90 degrees.")
+    if not isfinite(tolerance) or tolerance <= 0.0:
+        raise ValueError("Jaw-opening tolerance must be positive and finite.")
+
+    closed_gap = float(np.linalg.norm(lower - upper))
+    if closed_gap >= target - tolerance:
+        raise ValueError(
+            "The source incisor gap already reaches the requested opening; "
+            "a new hinge transform would not represent an opening."
+        )
+
+    lower_h = np.append(lower, 1.0)
+
+    def candidate(angle_deg: float) -> tuple[np.ndarray, np.ndarray, float]:
+        matrix = hinge_rotation_matrix(hinge_left_mm, hinge_right_mm, angle_deg)
+        opened = (matrix @ lower_h)[:3]
+        return matrix, opened, float(np.linalg.norm(opened - upper))
+
+    probe_degrees = min(0.25, maximum)
+    positive = candidate(probe_degrees)
+    negative = candidate(-probe_degrees)
+    direction_epsilon_mm = max(1e-6, tolerance * 0.01)
+    positive_delta_z = float(positive[1][2] - lower[2])
+    negative_delta_z = float(negative[1][2] - lower[2])
+    positive_is_inferior = positive_delta_z < -direction_epsilon_mm
+    negative_is_inferior = negative_delta_z < -direction_epsilon_mm
+    if positive_is_inferior == negative_is_inferior:
+        raise ValueError(
+            "The case anatomy does not define one unambiguous inferior opening "
+            "direction at the selected hinge and incisor landmarks."
+        )
+    sign = 1.0 if positive_is_inferior else -1.0
+
+    # Find the first crossing on the inferior branch. A pure hinge can bring
+    # nearly touching incisors slightly closer before their distance grows, so
+    # assuming monotonicity from zero selects the wrong (superior) branch for
+    # representative CBCT geometry.
+    sample_count = max(120, int(ceil(maximum / 0.25)))
+    low_angle = 0.0
+    high_angle = None
+    high_matrix = None
+    high_opened = None
+    high_gap = None
+    best = None
+    for sample_index in range(1, sample_count + 1):
+        angle_magnitude = maximum * float(sample_index) / float(sample_count)
+        matrix, opened, gap = candidate(sign * angle_magnitude)
+        error = abs(gap - target)
+        current = (error, angle_magnitude, matrix, opened, gap)
+        if best is None or error < best[0]:
+            best = current
+        if gap >= target:
+            high_angle = angle_magnitude
+            high_matrix = matrix
+            high_opened = opened
+            high_gap = gap
+            break
+        low_angle = angle_magnitude
+    if high_angle is None:
+        raise ValueError(
+            "The requested incisor gap is unreachable along the inferior "
+            "opening branch within the maximum provisional hinge angle."
+        )
+
+    assert (
+        high_matrix is not None
+        and high_opened is not None
+        and high_gap is not None
+    )
+    crossing = (abs(high_gap - target), high_angle, high_matrix, high_opened, high_gap)
+    if best is None or crossing[0] < best[0]:
+        best = crossing
+    for _iteration in range(64):
+        mid_angle = (low_angle + high_angle) * 0.5
+        matrix, opened, gap = candidate(sign * mid_angle)
+        current = (abs(gap - target), mid_angle, matrix, opened, gap)
+        if current[0] < best[0]:
+            best = current
+        if abs(gap - target) <= tolerance:
+            best = current
+            break
+        if gap < target:
+            low_angle = mid_angle
+        else:
+            high_angle = mid_angle
+
+    assert best is not None
+    error, angle_magnitude, matrix, opened, gap = best
+    if error > tolerance:
+        raise ValueError(
+            "The case hinge solver did not converge to the requested incisor gap."
+        )
+    if float(opened[2]) >= float(lower[2]) - direction_epsilon_mm:
+        raise ValueError(
+            "The solved case jaw pose does not move the lower incisor inferiorly."
+        )
+    return sign * angle_magnitude, matrix, opened, gap
 
 
 def vtk_matrix_elements(matrix: np.ndarray) -> tuple[tuple[float, ...], ...]:

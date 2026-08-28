@@ -95,6 +95,7 @@ from DENTOApplicationShell import (
     DENTOApplicationShell,
     GUI_MODE_LEGACY,
     GUI_MODE_SHELL,
+    workspace_for_stage,
 )
 from DENTOViewPresets import (
     ANATOMY_DIMENSION_LABELS,
@@ -114,6 +115,8 @@ from DENTOViewPresets import (
 )
 from DENTOTrajectoryGeometry import infer_root_targets
 from DENTORobotPlacement import (
+    solve_anatomy_directed_hinge_rotation_for_gap,
+    validate_patient_ras_condylar_landmarks,
     joint_positions_si_from_display,
     local_nudge_matrix,
     orthonormal_plane_pose,

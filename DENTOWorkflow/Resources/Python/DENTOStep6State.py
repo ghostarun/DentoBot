@@ -423,7 +423,7 @@ def build_phase_joint_command(
 def approach_points(
     entry_ras_mm: Sequence[float],
     target_ras_mm: Sequence[float],
-    standoff_mm: float = 5.0,
+    standoff_mm: float = 2.0,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     entry = _finite_tuple(entry_ras_mm, 3, "Entry RAS")
     target = _finite_tuple(target_ras_mm, 3, "Target RAS")

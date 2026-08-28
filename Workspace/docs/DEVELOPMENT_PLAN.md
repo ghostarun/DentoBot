@@ -14,6 +14,93 @@
 - Advance only after acceptance evidence and a short milestone review.
 - Future milestones are a blueprint, not authorization to implement them.
 
+## Priority 0 Step 6 exact-case motion closure — active 2026-08-28
+
+The motion stack now distinguishes a strict approach from exploratory
+tool-contact phases. New cases default to a 2 mm pre-entry standoff, the live
+guard uses a 1 mm research margin, and terminal/drilling preview may suppress
+only configured burr-to-task-anatomy/guide contact. Every other collision,
+self-collision, joint bound, stale session, corridor escape, backtrack, and
+overshoot remains fail-closed. The contact phases retain 0.25 mm Cartesian
+samples, report every use of the suppression, and remain simulation-only.
+
+Before offering Goal 1 preview, the workflow now preflights the complete
+Entry-to-Target line across bounded cylindrical-burr axial roll. The retained
+`dentobot-case-step6x4.dentocase` is not a passing motion fixture: exact live
+MoveIt evidence reaches only `44.44–45.34%` of the 15.77 mm line for all eight
+roll candidates even when solver collision avoidance is disabled. The next
+operator action is therefore to reposition and provisionally re-lock the robot
+base, regenerate/review Task Home and assisted limits, reconfirm the immutable
+task, and rerun both phases. Do not lower the `0.99` full-line requirement or
+preview the partial result.
+
+In parallel, reconcile the saved 2.0 mm burr envelope with the 1.5 mm guide
+bore in Step 5C. Tool-contact suppression permits exploratory robot-state
+inspection only; a guide that is narrower than the tool cannot become physical
+fit or safety evidence. Closure requires an exact package with full-line
+reachability, successful guarded Goal 1 and Goal 2 previews, no non-tool
+suppression, and recorded normal-window observations. Hardware execution,
+clinical use, and drilling remain disabled.
+
+## Modular saved-case continuation acceptance — active 2026-08-27
+
+`.dentocase` restore remains a whole-case integrity transaction; modularity is
+provided after commit by keeping every Step 1–6 workspace selectable. The
+recommended-next stage is advisory. A selected stage may be inspected at any
+time, while its mutation/generation actions remain disabled until that stage's
+saved prerequisites and lineage are Current. No per-step node extraction,
+coordinate conversion, or duplicate geometry package is introduced.
+
+The immediate software check reuses the retained Step 6 package, opens it
+twice, walks every internal Legacy stage and all six New GUI workspaces,
+confirms exactly one card/workspace is active, and rejects a restored/created
+live ROS robot. Closure additionally requires a
+de-identified package saved at each coarse Step 1–6 checkpoint and a matrix
+test proving: all workspaces remain selectable; the last completed checkpoint
+is Current; downstream actions explain missing/stale inputs; upstream
+backtracking retains normal dependency invalidation; geometry matches to
+`1e-6`; and ROS stays disconnected until explicit Step 6 initialization. Run
+the same acceptance in both Legacy and New GUI normal-window presentations.
+
+## Priority 3 New GUI aesthetic and interaction optimization — planned 2026-08-27
+
+**Status:** planning accepted; implementation deferred. Priority 3 follows the
+actionable Priority 1 TMJ logic/rigidity work and Priority 2 interaction/restore
+review items unless the user explicitly reprioritizes it.
+
+The increment will improve the opt-in six-workspace application shell without
+forking workflow logic or changing MRML truth. Legacy remains the functional
+comparison and fallback until normal-window parity is demonstrated. The work is
+sequenced as follows:
+
+1. **Baseline:** capture every workspace and substep at representative window
+   sizes, light/dark themes, and display scaling; record clipping, scrolling,
+   focus order, status comprehension, viewport allocation, widget counts,
+   callback counts, and measured navigation/refresh behavior.
+2. **Visual system:** define shared tokens and reusable shell components for
+   typography, spacing, color/contrast, status badges, cards, warnings,
+   disabled/hover/focus states, and primary/secondary/destructive actions.
+   Preserve the research-prototype warning and full hard-error visibility.
+3. **Information architecture:** keep one primary task visible, use progressive
+   disclosure for expert detail, stabilize workspace/substep headers and
+   Back/Next behavior, keep Views reachable, and prioritize anatomy/robot
+   viewport space over repeated explanatory text.
+4. **Presentation optimization:** lazily update hidden workspaces, coalesce
+   repeated parameter/MRML notifications, reuse item models/controllers, and
+   eliminate duplicate signal connections or widget reconstruction. No
+   optimization may cache stale workflow state or create renderers/ROS nodes
+   during navigation.
+5. **Acceptance:** compare every Legacy/New action and state; test keyboard and
+   focus navigation, contrast and scaling, normal-window screenshots,
+   package/scene restore, repeated workspace switching, developer reload, New
+   Case, bounded memory/widget/callback behavior, and absence of coordinate,
+   lineage, renderer, or ROS side effects.
+
+Implementation must be split into small visual or performance increments with
+before/after evidence. Aesthetic approval alone cannot establish functional,
+coordinate, safety, or clinical acceptance, and the New GUI does not become the
+default until the complete parity gate passes.
+
 ## Active Step 6 closure gate — 2026-08-24
 
 The native placement-to-task implementation is complete through guarded
@@ -35,10 +122,15 @@ The implementation must remain preview-only until all four gates are closed.
 Opacity/camera work is visualization state; it cannot be treated as coordinate,
 registration, or clearance evidence.
 
-## Approved deferred Step 6.0A anatomy-preserving hinge/collision redesign — 2026-08-25
+## Step 6.0A anatomy-preserving hinge/collision redesign — partial; high-priority safeguard correction required
 
-**Status:** decision-complete plan accepted; documentation only; implementation
-and verification deferred
+**Status:** schema-v2 primary path and placement-only fallback implemented;
+host, synthetic Slicer save/restore, and retained-package gate verification
+pass. Patient-RAS laterality and explicit review of restored raw landmarks are
+now corrected and exact-package verified. Dedicated condylar/crown interaction
+regions and enforced MPR review are not yet implemented. These remain high-
+priority prerequisites to a normal-window operator anatomy trial and
+interactive gap slider.
 
 Goal: replace the imported-case reuse of the disposable phantom angular search
 with an anatomy-guided provisional hinge whose opened-mouth representation is
@@ -46,7 +138,7 @@ usable as segmented physical obstacle geometry for the simulation-only robotic
 workflow.
 
 The reviewed source CBCT segmentation remains immutable and authoritative.
-Step 6 will derive independently transformable `FixedUpperAnatomy` and
+Step 6 derives independently transformable `FixedUpperAnatomy` and
 `MovingLowerAnatomy` segmentations while retaining each upper/lower jawbone and
 individual tooth segment, including stable IDs, FDI metadata, terminology,
 color, and source fingerprints. The accepted world-RAS hinge transform parents
@@ -54,24 +146,30 @@ only the moving lower anatomy and mandibular-attached trajectory/guide/dock/
 template proxies. It is not hardened into, or used to resample, the source
 CBCT or source masks.
 
-Landmark placement will isolate the intended segmentation-derived surface:
-left/right condylar lateral-pole points on `lower_jawbone`, then upper/lower
-incisal points on their central-incisor crowns. Three-dimensional surface snap
-is followed by exact-source projection, residual recording, bilateral/FOV
-validation, and orthogonal-MPR review. These surface points define a
+The implemented foundation isolates the complete intended source segment:
+`lower_jawbone` for both TMJ points and one target-side whole central-incisor
+segment for each incisal point. Three-dimensional snap is followed by exact-
+source projection, residual recording, and coarse bilateral/FOV validation.
+That is source-provenance evidence, not yet condylar-lateral-pole or incisal-
+edge evidence. The next increment must derive separate left/right condylar
+candidate surfaces and crown/incisal candidate regions and require orthogonal-
+MPR review. Patient-RAS laterality now requires anatomical `Left X < Right X`.
+These points will still define only a
 reproducible provisional hinge, not internal TMJ centres or a registered
 instantaneous axis.
 
-The case-specific solver will canonicalize the hinge axis, infer the opening
-direction from fixed-upper versus moving-lower anatomy, reject a target already
-reached in the source pose, bracket only the anatomical opening direction, and
-bisect to an adjustable final incisor gap (20–60 mm, default 40 mm) within
-0.01 mm. Degenerate/cropped/ambiguous/unreachable inputs remain hard failures.
+The case-specific solver canonicalizes the hinge axis and selects only the
+branch that moves the lower incisor inferiorly in patient RAS (`delta Z < 0`).
+Because straight-line incisor distance may initially decrease on that branch,
+the solver samples to the first target-gap crossing and then bisects it. It
+rejects a target already reached in the source pose and solves an adjustable
+final incisor gap (20–60 mm, default 40 mm) within 0.01 mm.
+Degenerate/cropped/ambiguous/unreachable inputs remain hard failures.
 Upper/lower surface intersections are reported as persistent warnings and need
 explicit `Accept with anatomy warning`; they do not silently become a PASS.
 Existing schema-v1 case openings restore Legacy/Stale and require new review.
 
-For robotic collision, Slicer will generate one coordinate-preserving,
+For robotic collision, Slicer generates one coordinate-preserving,
 triangulated, closed VTK surface per retained jaw/tooth segment. After applying
 the accepted lower-jaw transform, the bridge converts world-RAS millimetres to
 robot-base metres and publishes stable per-segment MoveIt collision-object IDs.
@@ -87,6 +185,39 @@ duplicate-lifecycle tests; per-segment MoveIt object and phase-contact tests;
 and one normal-window trial of `dentobot-case-step6.dentocase`. The accepted
 result remains `ProvisionalOpenProxy`, simulation-preview only. Registration,
 calibrated TCP, hardware motion, drilling, and clinical accuracy are excluded.
+
+The implemented backup is a governed placement-testing branch, not a second
+open-mouth solver. It becomes available only after the primary path records a
+valid case-anatomy/solver failure. It derives the target jawbone and every
+same-jaw tooth as separate world-RAS segments without applying a transform.
+This permits local robot/base placement, Task Home, assisted-limit review, and
+coarse workspace exploration for early simulation setup. ROS connection,
+collision-scene synchronization, task confirmation, approach planning, and
+drilling preview remain blocked because opposing-jaw clearance is unavailable.
+
+Completed verification on 2026-08-27 includes the pure solver suite, schema-v2
+primary/fallback MRB round trips, exact-source snap-state checks, immutable
+source-geometry checks, duplicate/reset lifecycle checks, and an exact retained
+`dentobot-case-step6.dentocase` import/gate smoke. The current x1 package also
+passes explicit four-point review, a `39.9964 mm` inferior opening at
+`-45.7813°`, reset/package switch,
+and a 31-derived/54-source Viewer stress. Per-segment live MoveIt
+contact behavior and the representative operator landmark/MPR review remain
+separate acceptance work and must not be inferred from these PASS results.
+
+High-priority next increment, in dependency order:
+
+1. retain the corrected RAS validator/fixtures and confirm the exact reviewed
+   points in a normal operator view;
+2. create source-fingerprinted left/right condylar candidate surfaces; after
+   Left TMJ placement show a contralateral guide ray/axis and live symmetry
+   metrics without overriding asymmetric anatomy;
+3. create upper/lower crown/incisal candidate surfaces and enforce MPR review;
+4. verify these safeguards on representative CBCT anatomy; and only then
+5. add a live, linear-in-gap preview slider backed by a transient display
+   transform. `Lock / Accept Opening` alone commits the persistent transform,
+   derived positions/lineage, and collision-ready MRML geometry. MoveIt objects
+   remain deferred to explicit runtime Connect/Sync.
 
 ## Immediate fast-track PoC closure order — 2026-08-13
 

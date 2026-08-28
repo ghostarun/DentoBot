@@ -234,52 +234,26 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             return
         self._ensureWorkflowViewSnapshot()
         visible = item.checkState() == qt.Qt.Checked
-        if entry["kind"] == "node":
-            displayNode = entry["node"].GetDisplayNode()
-            if displayNode:
-                displayNode.SetVisibility(visible)
-        elif entry["kind"] == "nodes":
-            for node in entry["nodes"]:
-                displayNode = node.GetDisplayNode() if node else None
-                if displayNode:
-                    displayNode.SetVisibility(visible)
-        elif entry["kind"] == "volume_rendering":
-            entry["displayNode"].SetVisibility(visible)
-        else:
-            segmentationNode = entry.get("segmentationNode") or self._parameterNode.teethSegmentation
-            displayNode = segmentationNode.GetDisplayNode() if segmentationNode else None
-            if displayNode:
-                wasModifying = displayNode.StartModify()
-                try:
-                    for segmentId in entry["segmentIds"]:
-                        displayNode.SetSegmentVisibility(segmentId, visible)
-                    segmentation = segmentationNode.GetSegmentation()
-                    segmentIds = vtk.vtkStringArray()
-                    segmentation.GetSegmentIDs(segmentIds)
-                    hasVisibleSegment = any(
-                        displayNode.GetSegmentVisibility(
-                            segmentIds.GetValue(segmentIndex)
-                        )
-                        for segmentIndex in range(segmentIds.GetNumberOfValues())
-                    )
-                    displayNode.SetVisibility(hasVisibleSegment)
-                    displayNode.SetVisibility2D(hasVisibleSegment)
-                    displayNode.SetVisibility3D(hasVisibleSegment)
-                finally:
-                    displayNode.EndModify(wasModifying)
+        restriction = self._setWorkflowViewEntryVisible(entry, visible)
         if visible:
             self._workflowViewVisibleKeys.add(key)
         else:
             self._workflowViewVisibleKeys.discard(key)
         self._workflowViewActivePresetKey = "custom"
         self._workflowViewComposition = None
-        self.ui.workflowViewStatusLabel.text = _(
-            "Custom display selection; geometry and masks are unchanged."
-        )
-        self.ui.workflowViewStatusLabel.styleSheet = "color: #1f5f99;"
-        self._enforceStep6OpenedJawDisplaySeparation()
-        self._updateWorkflowViewControls()
-        self._updateTemplateGuideVisibilityControls()
+        if restriction:
+            self.ui.workflowViewStatusLabel.text = restriction
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #b06a00;"
+        else:
+            self.ui.workflowViewStatusLabel.text = _(
+                "Custom display selection; geometry and masks are unchanged."
+            )
+            self.ui.workflowViewStatusLabel.styleSheet = "color: #1f5f99;"
+        # A manual element toggle is authoritative custom presentation.  The
+        # Step 6 recommended preset prevents duplicate closed/open anatomy, but
+        # it must not immediately undo the operator's explicit visibility
+        # choice (including hiding the placement-only fallback).
+        self._scheduleWorkflowViewControlsRefresh()
 
     def _removeWorkflowCreatedVolumeRenderingNodes(self) -> None:
         for nodeId in list(self._workflowViewCreatedRendererNodeIds):
@@ -333,7 +307,6 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             ).values():
                 self.logic.restoreWorkflowDisplayState(segmentationState)
             self.logic.restoreWorkflowDisplayState(state)
-            self._enforceStep6OpenedJawDisplaySeparation()
         if updateUi and hasattr(self, "ui"):
             self.ui.restorePlanningViewButton.enabled = False
             self.ui.workflowViewStatusLabel.text = _(
@@ -349,15 +322,42 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             not self._parameterNode
             or not self.logic
             or self._step6SceneKind() != "case"
-            or self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
         ):
+            return
+        mode = str(self._parameterNode.step6CaseJawPreparationMode)
+        if mode == "TargetJawFallback":
+            if self.logic.step6TargetJawFallbackFreshnessIssues(self._parameterNode):
+                return
+            segmentation = self._parameterNode.teethSegmentation
+            display = segmentation.GetDisplayNode() if segmentation else None
+            if display:
+                groups = self.logic.step6CaseJawSegmentIds(segmentation)
+                for segmentId in groups["upper"] + groups["lower"]:
+                    display.SetSegmentVisibility3D(segmentId, False)
+            fallbackDisplay = (
+                self._parameterNode.step6TargetJawFallbackAnatomy.GetDisplayNode()
+                if self._parameterNode.step6TargetJawFallbackAnatomy
+                else None
+            )
+            if fallbackDisplay:
+                fallbackDisplay.SetVisibility3D(True)
+            return
+        if self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode):
             return
         segmentation = self._parameterNode.teethSegmentation
         display = segmentation.GetDisplayNode() if segmentation else None
         if not display:
             return
-        for segmentId in self.logic.step6CaseJawSegmentIds(segmentation)["lower"]:
+        jawGroups = self.logic.step6CaseJawSegmentIds(segmentation)
+        for segmentId in jawGroups["upper"] + jawGroups["lower"]:
             display.SetSegmentVisibility3D(segmentId, False)
+        for derived in (
+            self._parameterNode.step6FixedUpperAnatomy,
+            self._parameterNode.step6MovingLowerAnatomy,
+        ):
+            derivedDisplay = derived.GetDisplayNode() if derived else None
+            if derivedDisplay:
+                derivedDisplay.SetVisibility3D(True)
         model = self._parameterNode.step6OpenedLowerJawModel
         modelDisplay = model.GetDisplayNode() if model else None
         if modelDisplay:

@@ -107,3 +107,27 @@ def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     assert '"solve_ik": self._onShellSolveIk' in workflow
     assert "self._robotWorkflowFacade.solveIk()" in workflow
     assert "self._robotWorkflowFacade.syncPlanningScene()" in workflow
+
+
+def test_step6_legacy_and_shell_use_the_same_seven_substep_cards():
+    workflow = (
+        HELPERS / "dentobot_workflow/widget_robot_shell.py"
+    ).read_text(encoding="utf-8")
+    assert "DENTOBOTStep6SubstepNavigator" in workflow
+    assert "workspace_for_stage(10).substep_titles" in workflow
+    assert "self._configureRobotSimulationShellSubstep(substep_index)" in workflow
+    assert "def _restoreLegacyRobotSimulationGroups" in workflow
+
+
+def test_saved_case_navigation_keeps_every_workspace_selectable():
+    shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
+    navigation = (
+        HELPERS / "dentobot_workflow/widget_navigation.py"
+    ).read_text(encoding="utf-8")
+    case_backend = (
+        HELPERS / "dentobot_workflow/widget_case_backend.py"
+    ).read_text(encoding="utf-8")
+    assert "button.enabled = True" in shell
+    assert "All workspaces remain selectable" in shell
+    assert "workflowStageComboBox.enabled = True" in navigation
+    assert "All Steps 1–6 remain selectable" in case_backend

@@ -343,6 +343,24 @@ The recommendation table is explicit for every retained internal stage:
 | Step 5C | Final template, or current shell and docks |
 | Step 6 | Active case or phantom with robot and mount context |
 
+Step 6 gives its current derived jaw-opening segmentations explicit
+presentation ownership. A fixed-upper/moving-lower pair or placement-only
+target-jaw fallback is grouped under **Robot simulation objects / Step 6
+scene**, not as unrelated scene masks. In fallback mode, Recommended selects
+the complete derived jaw-and-teeth object and excludes the source closed-jaw
+segmentation; source pulp/root-canal or other anatomy may be added only as an
+explicit custom comparison. Global segmentation visibility and every segment's
+general/2D/3D flags are kept consistent, and re-enabling a derived object
+restores all of its jaw/tooth segments.
+
+The Viewer tree is a projection of MRML display state, not an independent
+state store. An operator change is applied while `itemChanged` is active, but
+the tree/list refresh is coalesced onto the next Qt event-loop turn so no live
+`QTreeWidgetItem` is deleted from its own callback. Auto-tristate
+`PartiallyChecked` ancestor notifications are summaries and do not dispatch
+visibility changes. This lifecycle rule applies to both Legacy and Shell
+presentations because they share the same palette/controller.
+
 Presets and per-group toggles alter display-node visibility only; they never
 edit mask voxels, polydata, MRML references, or workflow validity. Before the
 first filter the controller snapshots global segmentation 2D/3D visibility
@@ -1052,24 +1070,60 @@ solver (`solve_hinge_rotation_for_gap`):
    gap. Phantom models, landmarks, workspace/jaw transforms, and measurement
    are deletable trial nodes and carry no patient, clinical-jaw, collision, or
    registration semantics.
-2. **Imported case (required 6.0A).** After package import, operators place the
-   same four landmarks on case anatomy and apply a non-destructive hinge. Source
-   CBCT and segmentation stay untransformed; a derived opened lower-jaw planning
-   surface and mandibular display proxies carry the opening. Freshness of that
-   opening gates 6.1+ load/place/ROS/planning-scene actions. Collision and
-   MoveIt sync consume the opened lower-jaw polydata when current. This is
-   research planning preparation only—not clinical jaw kinematics or
-   registration evidence.
+2. **Imported case (required 6.0A).** After package import, operators place four
+   source-associated landmarks on explicitly isolated reviewed case surfaces.
+   Source CBCT and segmentation remain untransformed. The schema-v2 anatomy-
+   directed solver creates fixed-upper and moving-lower derived segmentations;
+   only the lower derived node and mandibular-attached proxies carry the rigid
+   hinge transform. Full open-mouth freshness gates ROS, planning-scene sync,
+   task confirmation, and both phases. This is research planning preparation
+   only—not clinical jaw kinematics or registration evidence.
 
-The preceding imported-case implementation is scheduled for replacement by
-the accepted schema-v2 anatomy-guided design. The draft phantom retains the
-legacy geometric solver. The imported case will instead use surface-bound
+The imported-case solver accepts only the hinge sign that moves the lower
+incisor inferiorly in patient RAS (`delta Z < 0`). It samples this branch to the
+first requested-gap crossing before bisection because incisor distance need not
+increase monotonically from the closed pose. A superiorly moving branch is
+rejected even if it reaches the requested scalar gap exactly.
+
+The draft phantom retains the legacy geometric solver. The imported case uses
+surface-bound
 condylar/incisal landmarks, a canonical anatomy-directed hinge solution, and
 two derived segmentation views: fixed upper jawbone/teeth and transformed lower
 jawbone/teeth. Every source segment remains individually identifiable; only the
 lower derived node and mandibular-attached workflow proxies parent under the
 world-RAS hinge transform. The reviewed source segmentation is never resampled
 or partially transformed.
+
+The current whole-segment projection is an implemented provenance foundation,
+not the final landmark-acceptance boundary. A high-priority refinement must
+derive source-fingerprinted left/right condylar candidate surfaces and upper/
+lower crown-incisal candidate surfaces, enforce reviewed MPR evidence, and
+provide a transient contralateral guide/hinge axis after Left TMJ placement.
+Patient-RAS laterality is already enforced as anatomical `Left X < Right X`.
+The guide reports symmetry and axis obliquity but does not replace right-
+condyle surface evidence or force an anatomically perfect mirror.
+
+Step 6A placement mode is transient. Active Place mode, pending landmark/source
+IDs, and the temporary isolated-surface visibility snapshot are canceled before
+case save and after validated restore. Existing defined points remain raw until
+an explicit review projects all four to their current intended surfaces and
+commits source evidence atomically. Generic Markups lock/selectability changes
+do not stale a current opening; only a changed four-point coordinate
+fingerprint does.
+
+For a current opened case, Recommended Views shows the derived fixed-upper and
+moving-lower jaw-and-teeth segmentations and suppresses all source closed-pose
+segments. Source internal masks remain available only as explicit custom
+inspection choices and are cleared again by Recommended.
+
+After those safeguards pass, interactive gap adjustment uses a non-persistent
+preview transform or display-pipeline projection. Slider motion updates only
+the displayed moving anatomy and gap/angle annotations. `Lock / Accept Opening`
+is the sole transition that creates or commits the persistent hinge transform,
+derived world-RAS positions and lineage, validates collision-ready MRML
+surfaces, and invalidates downstream state once. MoveIt collision objects are
+still transient runtime objects and are not created until explicit Connect/
+Sync after the accepted opening.
 
 ```text
 reviewed source segmentation (immutable)
@@ -1093,6 +1147,23 @@ the selected burr-to-target-tooth pair can be conditionally accepted during a
 matching terminal-contact or drilling-preview phase. Derived MRML segmentations
 may persist for immediate viewing but remain reconstructible proxies; ROS/
 MoveIt collision objects are always transient.
+
+If the current imported case records a valid primary anatomy/solver failure,
+one governed fallback may derive only the target jawbone and all same-jaw teeth
+as separate untransformed world-RAS segments. This branch is explicitly
+`PlacementTestingOnly`: it can satisfy a separate local-placement gate for
+robot/base placement, Task Home, assisted limits, and coarse workspace
+exploration, but it never satisfies the open-mouth gate. ROS connection,
+collision synchronization, task confirmation, approach planning, and drilling
+preview therefore remain disabled. The fallback cannot be selected merely to
+bypass missing landmark work, legacy/unreviewed points, moved points, stale
+source-surface evidence, or a live-ROS scene. Each reviewed landmark record
+contains the snapped world-RAS point as well as its source segment and geometry
+fingerprint; the current point must still match that record before solving or
+authorizing a fallback. A restored fallback exposes an explicit destructive
+`Exit Fallback and Retry Primary 6A` transition. That transition clears the
+fallback, failure authorization, old landmarks/evidence, and downstream task
+state while retaining the base pose as unlocked `Stale` for later review.
 
 Only one phantom set and one robot placement set are permitted; case and
 phantom scenes remain mutually exclusive for Step 6.
@@ -1163,7 +1234,7 @@ low-level motion must remain outside Slicer.
 launch-dentoworkflow.bash
   ├─ dentobot_moveit_config/simulation.launch.py
   │    ├─ robot_state_publisher (URDF + TF)
-  │    ├─ collision_guard (bounds + swept 5 mm self/world clearance)
+  │    ├─ collision_guard (bounds + swept 1 mm research clearance)
   │    ├─ slicer_joint_state_publisher (accepted states; only /joint_states publisher)
   │    ├─ move_group (KDL + OMPL; plan only)
   │    └─ simulation_status_publisher (versioned readiness JSON)
@@ -1199,8 +1270,10 @@ Ownership and failure rules:
   one `/joint_states` publisher. The JSON schema and `simulation_only` mode
   must match; stale or malformed status fails closed.
 - `base_link` is parented under the Step 6 base transform for visualization.
-  Entry/Target Markups remain world RAS millimetres; SlicerROS2 converts
-  base-relative pose matrices to ROS coordinates/metres.
+  Entry/Target Markups remain world RAS millimetres. The DENTOBOT bridge
+  applies the inverse placed-base transform and millimetres-to-metres
+  conversion exactly once before passing a base-frame pose to SlicerROS2 or
+  MoveIt; callers must not pre-convert the same world point.
 - `dentobot_drill_tip_provisional` is a provisional CAD-derived fixed frame
   7 mm distal to the former burr-origin frame. Its +Z axis follows the spindle
   axis. A Cartesian pose basis is built by setting
@@ -1218,7 +1291,14 @@ Ownership and failure rules:
   The external guard samples the transition at no more than 1 degree per
   revolute step or 0.5 mm per prismatic step, checks bounds, exact mesh contact,
   FCL/PlanningScene self distance, and robot-world distance at every sample,
-  and requires at least 5 mm. Only an accepted vector is republished on
+  and requires the current 1 mm research clearance. Strict approach, Task Home,
+  and ordinary manual commands use the unmodified collision matrix. Terminal
+  and drilling commands use schema-v2 task/session identity and may suppress
+  only configured `burr` contacts with fingerprinted task anatomy and approved
+  guide/template objects. Non-tool world contact, self-collision, bounds,
+  corridor escape, backtracking, and overshoot remain rejection conditions.
+  Suppression state and sample count are reported and never constitute a
+  collision-safe claim. Only an accepted vector is republished on
   `/dentobot/validated_joint_positions`; rejection retains the previous
   accepted state and returns the body pair/reason to the UI. The SRDF Allowed
   Collision Matrix excludes adjacent mechanical pairs only.
@@ -1226,9 +1306,17 @@ Ownership and failure rules:
   published as hidden collision-object proxies. Locking the placed base
   refreshes them; disconnect removes them. The original AABB checker is only a
   coarse MRML fallback and is not part of the ROS-active acceptance gate.
-- Planning returns named joint vectors and timing. Step 6 preview streams those
-  vectors through the single simulation publisher; any failed publish stops the
-  preview and reports an error. No trajectory execution call is exposed.
+- Planning returns named joint vectors and timing. Collision-object sync is
+  followed by a bounded settle interval; strict OMPL planning may retry at most
+  three times so a plan cannot race ahead of newly published world geometry.
+  The strict approach may be compacted within guard sampling bounds, but every
+  0.25 mm Cartesian terminal/drilling sample is retained. Before Goal 1 preview,
+  Step 6 proves the complete Entry-to-Target line at fraction `>=0.99`, probing
+  only bounded cylindrical-burr axial roll while preserving the approved tool
+  axis and centreline. Failure reports the best fraction and requires base
+  repositioning. Step 6 preview streams accepted vectors through the single
+  simulation publisher; any failed publish stops the preview and reports an
+  error. No trajectory execution call is exposed.
 
 ### Case/runtime persistence boundary
 
@@ -1241,9 +1329,12 @@ Ownership and failure rules:
   slot are synchronously cleared before robot deletion. DENTOBOT uses immediate
   obstacle publish/remove operations so no Qt callback holds a native ROS
   wrapper across reload or New Case.
-- The persistent Step 6 base and optional seven-link MRML fallback robot are
-  distinct from the live ROS graph. A restored base never implies an active
-  ROS connection.
+- The Step 6 base/mount state is persistent. The seven-link local MRML robot is
+  a reconstructible simulation resource: its link models, display/storage
+  nodes, link transforms, and workspace proxy are `SaveWithSceneOff` and are
+  deleted if found in an older restored archive. `Load / Refresh Robot`
+  reconstructs them explicitly. Neither a restored base nor restored case
+  geometry implies an active ROS connection or a loaded robot.
 - Step 6 revalidates upstream lineage on import, restore, and motion planning;
   stale Step 4C docking or unverified Step 5C template state is fail-closed.
 
@@ -1266,11 +1357,42 @@ and modified-since-read state.
 
 Open validates archive paths, member count/size, schema, coordinate contract,
 file inventory, and all hashes before scene mutation. It then creates a
-sanitized recovery MRB, extracts the embedded scene, loads it with clear
-semantics, and cross-checks manifest node roles, classes, names, selected
-DENTOBOT attributes, world-RAS Markups points, transform matrices, model
-bounds/counts, volume IJK-to-RAS geometry, and segmentation count to `1e-6`.
-Any post-load mismatch replaces the partial scene with the recovery MRB.
+sanitized recovery MRB and enters an application-local restore barrier before
+extracting and loading the embedded scene with clear semantics. During that
+barrier, EndImport may sanitize forbidden ROS runtime state but ordinary GUI
+refresh, docking callbacks, dependency invalidation, and stage-interaction
+locking cannot mutate persistent case meaning. The loader cross-checks
+manifest node roles, classes, names, selected DENTOBOT attributes, world-RAS
+Markups points, transform matrices, model bounds/counts, volume IJK-to-RAS
+geometry, and segmentation count to `1e-6` before binding the parameter node,
+hydrates the GUI, drains queued events while the barrier is still active, and
+performs the same cross-check again. Any pre-bind or post-bind mismatch replaces
+the partial scene with the recovery MRB and releases the barrier.
+
+The archive transaction is intentionally whole-case, while post-load use is
+modular. Once validation commits, every internal Legacy stage and each of the
+six application workspaces remains selectable; the recommended-next stage is
+guidance rather than an access gate. Stage-local buttons still derive readiness
+from their saved inputs and Current/Stale lineage. This permits continuation
+from any saved workflow checkpoint without partially hydrating nodes, copying
+geometry, changing coordinate frames, or treating presentation selection as a
+second persistence authority.
+
+Markups lock/selectability and stage-exclusive restrictions are interaction
+presentation, not geometry-integrity evidence. Their intrinsic saved state is
+restored before GUI hydration; temporary stage restrictions are suspended
+around package/recovery snapshots and rebuilt only after transaction commit.
+Likewise `freshnessIssuesAtSave` and the derived jaw-opening `current` value are
+historical/readiness evidence, not immutable state. Current software
+re-evaluates those prerequisites after successful integrity validation.
+Upstream Steps 4A/4C/5C failures may deactivate Step 6 without rejecting the
+package. A missing or stale case mouth opening is different: it is a
+post-import 6.0A gate, so the case remains the active Step 6 scene and its
+landmark controls remain reachable. Any previously reviewed base is retained
+as `Stale`, atomically unlocked in both typed and MRML interaction state, and
+must be reviewed/relocked after the jaw context is current. Actual saved
+geometry, provenance, base/home/task values, matrices, and coordinates remain
+fail-closed.
 After success, Slicer's scene URL is cleared and its root is set to the package
 directory so the deleted extraction path cannot become a later save target and
 Ctrl+S cannot overwrite the outer package as an MRML file. Rollback restores
@@ -1282,6 +1404,16 @@ does not override Current/Stale state: Step 4C and Step 5C freshness checks run
 after import and the ROS connection remains off until an explicit Step 6
 action. Legacy MRML/MRB loading remains available as a clearly labelled
 compatibility path.
+
+Editable planning trajectories are observed using a cached control-point
+geometry snapshot: point count, point status, and defined world-RAS coordinates
+at `1e-6 mm`. Generic MRML `ModifiedEvent` from labels, references, display,
+lock, or selectability changes does not invalidate Step 4C/5C/6. A genuine
+Entry/Target edit still invalidates descendants through the normal dependency
+chain. The Step 5B `TemplateInsertionDirection` uses the same geometry-only
+event contract for its Approach/Seat points. Stage-lock, label, reference, and
+display changes cannot stale the undercut, patient shell, or final template;
+an actual point/status change still invalidates Step 5B/5C normally.
 
 ### Motion Control adapter and draft workspace explorer (2026-08-22)
 
@@ -1347,11 +1479,13 @@ Robot Simulation page both call this same object.
 The shell reparents the authoritative existing module widget into its task
 dock. Therefore the Case workspace and not-yet-visually-migrated workspaces
 retain their exact MRML bindings and callbacks while the new navigation maps
-six workspaces onto stable internal stage indices 0–10. Robot Simulation adds
-six operator substeps—Scene and Runtime, Base Placement, Manual Joints, Goal
-and IK, Scene and Collision, and Plan and Preview—while reusing the existing
-base, joint, workspace, and trajectory widgets where they already satisfy the
-contract.
+six workspaces onto stable internal stage indices 0–10. Robot Simulation uses
+seven operator substeps—6.0 Case and Task, 6.1 Robot and Base, 6.2 Task Home,
+6.3 Workspace and Limits, 6.4 Runtime and Confirmation, 6.5 Goal 1 Approach,
+and 6.6 Goal 2 Drilling Preview. Both the normal module and application shell
+show exactly one substep card at a time and call the same visibility controller;
+Back/Next or either presentation's selector changes presentation only. Existing
+base, joint, workspace, task, and phase state remains authoritative in MRML.
 
 Presentation mode, light/dark theme, Expert mode, and dock geometry are local
 `QSettings`. MRML nodes and the parameter node remain authoritative case state;

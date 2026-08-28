@@ -190,7 +190,10 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     ).read_text(encoding="utf-8")
     assert "def _createCaseBundle" in workflow_source
     assert "def _openCaseBundle" in workflow_source
-    assert 'loadScene(str(scenePath), {"clear": True})' in workflow_source
+    assert "str(scenePath), {\"clear\": True}" in workflow_source
+    assert "_beginCaseBundleRestore" in workflow_source
+    assert "_bindAndValidateRestoredCase" in workflow_source
+    assert workflow_source.count("validateLoadedCaseBundleWorkflow") >= 2
     assert "validateLoadedCaseBundleWorkflow" in workflow_source
     cmake = (ROOT / "DENTOWorkflow/CMakeLists.txt").read_text(encoding="utf-8")
     assert "Resources/Python/DENTOCaseBundle.py" in cmake

@@ -22,19 +22,76 @@ inference environment, checking its identity, and retaining sufficient
 evidence to trace a DENTOBOT inference run. It does not establish anatomical
 accuracy, clinical safety, or regulatory compliance.
 
-## Planned Step 6.0A anatomy/collision trace contract — accepted 2026-08-25
+## Step 6 phased-motion trace contract — updated 2026-08-28
 
-Status: documentation baseline only; no implementation or PASS evidence yet
+The current simulation-only contract uses `dentobot.task_guard_config.v2` and
+`dentobot.task_joint_command.v2`. Each command carries an immutable task
+fingerprint, a transient guard-session ID, a monotonic sequence, phase, and
+joint vector. Status records phase/acceptance, contact bodies, minimum
+self/world clearance, corridor result, world-object count, whether configured
+tool contact was suppressed, and the suppression sample count. No configuration,
+command, status, publisher/subscriber, active flag, goal robot, or MoveIt plan
+is case-persistent.
 
-The future imported-case open-mouth record must preserve enough information to
+World Entry/Target coordinates remain RAS millimetres in MRML and are converted
+exactly once into placed `base_link` metres. Strict current-to-pre-entry motion
+uses normal MoveIt/FCL collision checking. Terminal/drilling exploration may
+disable collision avoidance in the Cartesian solver, but the independent guard
+may suppress only the configured `burr` link against fingerprinted task
+anatomy/guide objects. The 1 mm research margin, non-tool world contact,
+self-collision, bounds, task/session identity, 0.25 mm monotonic tolerance,
+corridor escape, and overshoot remain authoritative rejection conditions.
+Suppressed contact is reported as exploratory and is not collision-safe,
+clinical, physical-fit, metrology, or hardware-execution evidence.
+
+Verification recorded on 2026-08-28:
+
+- container pure/static suite: `python3 -m pytest -q -p no:cacheprovider
+  Testing` returned `123 passed`;
+- `colcon build --base-paths src/DentoBot/dentobot_moveit_config
+  --packages-select dentobot_moveit_config --symlink-install` completed one
+  package successfully;
+- isolated-domain `Testing/run_dentobot_phase_guard_smoke.py` passed all 13
+  assertions: strict target contact, unconfigured tool contact, non-tool world
+  contact, wrong task, duplicate sequence, joint bounds, lateral escape, and
+  overshoot were rejected; configured tool contact was accepted only in the
+  exploratory phases and reported; and a state between the new 1 mm and old
+  5 mm margins was accepted;
+- `Testing/run_dentobot_step66_roll_diagnostic.py` restored
+  `dentobot-case-step6x4.dentocase`, rebuilt the transient robot/MoveIt state,
+  completed strict approach and terminal planning, and probed the full
+  15.77 mm drilling line at 0.25 mm maximum step with Cartesian collision
+  avoidance disabled. Fractions were `0.444444` at 0 degrees,
+  `0.453252` at `±45/±90`, `0.453401` at `±135`, and `0.453364` at 180;
+  `fullPathFound=false` and hardware execution remained false.
+
+The exact diagnostic result is an accepted fail-closed finding: Goal 1 must
+refuse preview and request base repositioning because no complete drilling line
+exists from the saved x4 base. The marker/report completed before Slicer's
+known SlicerROS2/class-loader/VTK teardown leak produced process exit 1. An
+earlier contaminated rerun found two `/joint_states` publishers and correctly
+refused connection; all resolved test-only processes were terminated before
+the isolated final probe. No partial path is promoted to a phase plan.
+
+## Step 6.0A anatomy/collision trace contract — implemented 2026-08-27
+
+Status: schema-v2 MRML persistence and retained-package gating verified;
+patient-RAS laterality and explicit restored-point review are implemented.
+Anatomical landmark acceptance remains pending dedicated condylar/crown
+candidate surfaces, enforced MPR review, and representative normal-window
+testing. Live per-segment MoveIt acceptance also remains pending.
+
+The imported-case open-mouth record preserves enough information to
 reconstruct the displayed anatomy and every simulation collision object without
 using STL as a second geometry authority. Required persistent evidence is:
 
 - source CBCT ID/geometry and reviewed segmentation ID/revision/fingerprint;
 - fixed-upper and moving-lower source segment membership with segment IDs, FDI
   metadata, names, terminology, colors, point/cell counts, and bounds;
-- four world-RAS landmarks, their intended source segments, placement method,
-  exact-source projection residual, FOV margin, and MPR review state;
+- four world-RAS landmarks, the exact snapped point recorded in each evidence
+  item, their intended source segments, placement method, exact-source
+  projection residual, FOV margin, and MPR review state; current Markups
+  positions must still match those recorded points to `1e-6`;
 - solver/schema version, canonical hinge axis, source/target/achieved gap,
   angle, reachability result, direction evidence, and world-RAS rigid matrix;
 - source/final upper-lower contact metrics plus warning acceptance and UTC
@@ -61,6 +118,57 @@ levels are pure/Slicer synthetic tests followed by a governed representative-
 anatomy normal-window trial of `dentobot-case-step6.dentocase`; neither level
 establishes clinical jaw motion, registration, calibrated TCP, or hardware
 safety.
+
+The schema-v2 implementation also persists an explicit preparation mode. A
+`PlacementTestingOnly` fallback record includes the source segmentation and
+target fingerprints, target jaw, retained segment IDs, initiating failure
+record, derived-node fingerprint, allowed activities, and blocked activities.
+It contains no hinge matrix and must fail the full open-mouth freshness gate.
+It may satisfy only the separate local-placement readiness gate. Consequently,
+restoring the fallback cannot silently enable ROS, collision sync, task
+confirmation, or either motion phase.
+
+Verification recorded on 2026-08-27:
+
+- `pytest -q Testing` returned `105 passed` at the current checkpoint;
+- focused Slicer primary/fallback creation, reset, and MRB round-trip checks
+  printed `DENTOBOT_STEP6A_SAVE_RESTORE_PASS` with exit 0;
+- the exact retained `dentobot-case-step6.dentocase` import/gate smoke printed
+  `DENTOBOT_STEP6A_PACKAGE_GATE_PASS ... upper 0` with exit 0. It proved that
+  the saved package imports into Step 6A, source-specific visible-surface
+  placement starts on the intended segment, 6.1 remains gated before
+  preparation, missing snap evidence cannot authorize fallback, and no local
+  or ROS robot restores; and
+- the current exact `dentobot-case-step6x1.dentocase` restore/review regression
+  printed `DENTOBOT_STEP6A_RETRY_RESTORE_PASS` with exit 0. It proved that a
+  restored pending-placement flag is canceled and its isolation visibility is
+  restored without deleting/promoting the four raw points; explicit operator
+  review established current evidence with maximum residual
+  `0.000882611 mm`; anatomical Left X (`-132.735245 mm`) remained lower than
+  Right X (`-47.763081 mm`), with `85.013973 mm` separation and `2.656853 mm`
+  superior offset; the corrected inferior branch achieved `39.996424 mm` at
+  `-45.781250°` and moved the lower incisor `-29.242411 mm` in RAS Z; reset
+  returned to closed source; and switching packages in one process did not
+  leak state; and
+- the current exact-package Views regression printed
+  `DENTOBOT_STEP6_VIEW_INTEGRITY_PASS 31 54` with exit 0 after repeatedly
+  toggling both derived jaw-and-teeth groups through the real tree and proving
+  Recommended suppressed all 54 source closed-pose segments; and
+- the existing twice-open package regression printed
+  `DENTOBOT_EXISTING_CASE_RESTORE_PASS` with exit 0 and restored no ROS robot.
+
+These are software and coordinate-preservation checks. The package smoke uses
+missing-evidence rejection rather than inventing an anatomy failure. It does
+not assert that the representative patient's anatomy failed the real solver.
+It also does not establish that a projected point lies on the condylar lateral
+pole or incisal edge: the current implementation projects to complete jaw/tooth
+segments. Future acceptance must record separately fingerprinted left/right
+  condylar and crown/incisal candidate surfaces, completed MPR review,
+  contralateral-guide metrics, and rejection evidence for
+wrong anatomical subregions. Interactive slider preview evidence must prove
+that drag state is transient and non-serialized, that only explicit lock
+commits the hinge/derived positions, and that no MoveIt object exists before
+explicit runtime Connect/Sync.
 
 ## Ubuntu synthetic Bridge B evidence
 
@@ -750,6 +858,26 @@ an older package could not record. Lists remain exact, MRML IDs are ignored for
 semantic equivalence, and a missing or changed saved value fails with its
 first nested field path. This rule prevents new provenance metadata from being
 misreported as geometry drift without weakening validation of saved evidence.
+Two explicitly non-geometric categories are handled outside equivalence:
+application-owned Markups lock/selectability is restored and then restricted by
+the active workflow stage, while historical `freshnessIssuesAtSave` and derived
+jaw-opening readiness are re-evaluated under the installed workflow policy.
+That policy separates upstream package validity from the post-import 6.0A jaw
+gate: an otherwise current retained package remains active, exposes the four-
+landmark action, and converts any reviewed pre-opening base to atomically
+unlocked `Stale` state. This compatibility migration changes no saved
+coordinate, matrix, model, volume, or segmentation evidence.
+
+Restore granularity and continuation granularity are deliberately different.
+The loader always validates and hydrates the complete MRB/lineage snapshot;
+after commit, every Step 1–6 workspace remains selectable and only the chosen
+stage's operations are gated by their own prerequisites. The presentation
+selection is not persisted as geometry and may not make a missing or stale
+artifact Current. The retained-package regression walks every internal Legacy
+stage and all six New GUI workspaces after load and requires no live ROS robot
+to appear. Full acceptance still requires packages captured at each coarse
+Step 1–6 checkpoint, reopened twice, with world-RAS and IJK-to-RAS evidence
+preserved to `1e-6`.
 
 Host contract verification:
 
@@ -783,6 +911,30 @@ software persistence results on representative saved research scenes; they do
 not validate anatomy, registration, robot accuracy, hardware safety, or
 clinical use. Normal-window operator acceptance and a regenerated current
 Step 5C package remain required.
+
+2026-08-26 retained-package regression: the loader opened
+`dentobot-case-step6.dentocase` twice after first round-tripping both operator
+MRBs in the same process. `DENTOBOT_CASE_BUNDLE_PASS` reported one trajectory,
+two relevant models, robot-profile compatibility, and lineage comparison at
+`1e-6`; the Step 4C assembly remained `Current` and the saved trajectory points
+were unchanged. `DENTOBOT_CASE_BUNDLE_TRANSACTION_PASS` confirmed recovery from
+a deliberately invalid lineage package, and
+`DENTOBOT_TRAJECTORY_EVENT_FILTER_PASS` confirmed that metadata/selectability
+events cause no invalidation while a `0.01 mm` point edit does. Host
+`pytest -q Testing` returned `99 passed`. As above, the two Slicer package
+scripts emitted their PASS evidence before the known VTK leak made scripted
+shutdown return 1; this is not recorded as a clean process shutdown.
+
+Downstream observer amendment: static inspection of the exact retained package
+proved that its saved two-point `TemplateInsertionDirection` equals the patient
+shell `InsertionGeometryJson`, while the patient shell and final template are
+both `Current` and the saved final verification contains no `FAIL`.
+`DENTOBOT_INSERTION_EVENT_FILTER_PASS` then proved that attribute, label, lock,
+and selectability events do not invalidate Step 5B/5C, while a `0.01 mm` Seat
+edit does. The enhanced exact-package smoke opened the package twice, invoked
+final geometry verification after each load, and printed
+`DENTOBOT_EXISTING_CASE_RESTORE_PASS` with the insertion provenance, shell, and
+final template still current.
 
 ## 17. Application-shell and robot-façade evidence — 2026-08-24
 
@@ -848,6 +1000,15 @@ limit suggestions, phase/config schemas, seven shell substeps, provisional TCP
 resources, façade/bridge contracts, and static phase-guard policy.
 
 Focused Slicer tests recorded:
+
+- `run_dentobot_step6_view_integrity_smoke.py` opened the retained
+  `dentobot-case-step6x1.dentocase` in a normal Xvfb Slicer window, explicitly
+  reviewed its four restored raw landmarks, applied the mouth opening and real
+  Step 6 palette recommendation, required all 31 derived upper/lower jaw-and-
+  tooth segments visible and all 54 source segments hidden, then exercised 12
+  hide/show cycles per derived group plus source-internal toggles through the
+  actual `QTreeWidget.itemChanged` signal path. It printed
+  `DENTOBOT_STEP6_VIEW_INTEGRITY_PASS 31 54` and exited zero.
 
 - `test_DENTOWorkflowStep6NativePlacementPersistence` passed after proving that
   Views refresh creates no renderer; explicit enable creates exactly one;

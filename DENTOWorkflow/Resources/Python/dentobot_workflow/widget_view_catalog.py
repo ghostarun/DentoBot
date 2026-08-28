@@ -394,6 +394,14 @@ class ViewCatalogWidgetMixin:
         for segmentationNode in slicer.util.getNodesByClass(
             "vtkMRMLSegmentationNode"
         ):
+            segmentationRole = str(
+                segmentationNode.GetAttribute("DENTOBOT.SegmentationRole") or ""
+            )
+            step6DerivedAnatomy = segmentationRole in {
+                self.logic.STEP6_FIXED_UPPER_ANATOMY_ROLE,
+                self.logic.STEP6_MOVING_LOWER_ANATOMY_ROLE,
+                self.logic.STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE,
+            }
             segmentation = segmentationNode.GetSegmentation()
             if not segmentation:
                 continue
@@ -431,6 +439,8 @@ class ViewCatalogWidgetMixin:
                             "%1",
                             _("Dental mask group")
                             if authoritative
+                            else _("Step 6 derived anatomy")
+                            if step6DerivedAnatomy
                             else _("Other scene mask group"),
                         )
                         .replace(
@@ -448,6 +458,8 @@ class ViewCatalogWidgetMixin:
                         "category": (
                             DETAILED_ANATOMY_GROUP_CATEGORY[groupKey]
                             if authoritative
+                            else "case_jaw_opening"
+                            if step6DerivedAnatomy
                             else "scene_mask"
                         ),
                         "anatomyGroup": groupKey,
@@ -651,6 +663,24 @@ class ViewCatalogWidgetMixin:
             "case_jaw_opening",
         )
         addNode(
+            "node:step6FixedUpperAnatomy",
+            _("[Step 6.0A] Fixed upper jaw + teeth"),
+            parameterNode.step6FixedUpperAnatomy,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6MovingLowerAnatomy",
+            _("[Step 6.0A] Moving lower jaw + teeth"),
+            parameterNode.step6MovingLowerAnatomy,
+            "case_jaw_opening",
+        )
+        addNode(
+            "node:step6TargetJawFallbackAnatomy",
+            _("[Step 6.0A fallback] Unopened target jaw + teeth (placement only)"),
+            parameterNode.step6TargetJawFallbackAnatomy,
+            "case_jaw_opening",
+        )
+        addNode(
             "node:step6CaseOpenedTargetGeometry",
             _("[Step 6.0A] Opened target-attached geometry"),
             parameterNode.step6OpenedTargetGeometryModel,
@@ -829,6 +859,25 @@ class ViewCatalogWidgetMixin:
                 if landmarks is None or landmarks.GetNumberOfDefinedControlPoints() < 4:
                     categories.add("phantom_landmarks")
                 return categories
+            if (
+                str(self._parameterNode.step6CaseJawPreparationMode)
+                == "TargetJawFallback"
+                and not self.logic.step6TargetJawFallbackFreshnessIssues(
+                    self._parameterNode
+                )
+            ):
+                # Placement-only review needs a legible jaw/robot composition,
+                # not the template, docks, ROI, and every historical planning
+                # overlay.  Operators can still add any of those through Views.
+                return {
+                    "case_volume",
+                    "case_volume_3d",
+                    "case_jaw_opening",
+                    "trajectory",
+                    "robot_mount",
+                    "forehead_proxy",
+                    *robot_category,
+                }
             return {
                 "case_volume",
                 "case_volume_3d",

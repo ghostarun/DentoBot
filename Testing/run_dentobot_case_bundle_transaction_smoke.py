@@ -88,6 +88,8 @@ def run() -> None:
         raise RuntimeError("transaction recovery did not restore the prior scene location")
     if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
         raise RuntimeError("transaction recovery restored a ROS robot")
+    if widget._caseBundleRestoreDepth != 0:
+        raise RuntimeError("transaction recovery left the restore barrier active")
 
     valid_bundle.unlink(missing_ok=True)
     invalid_bundle.unlink(missing_ok=True)

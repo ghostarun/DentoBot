@@ -98,9 +98,15 @@ class DENTOWorkflowParameterNode:
     step6CaseJawTransform: vtkMRMLLinearTransformNode
     step6CaseJawGapLine: vtkMRMLMarkupsLineNode
     step6OpenedLowerJawModel: vtkMRMLModelNode
+    step6FixedUpperAnatomy: vtkMRMLSegmentationNode
+    step6MovingLowerAnatomy: vtkMRMLSegmentationNode
+    step6TargetJawFallbackAnatomy: vtkMRMLSegmentationNode
     step6OpenedTargetGeometryModel: vtkMRMLModelNode
     step6OpenedTrajectoryLine: vtkMRMLMarkupsLineNode
     step6CaseJawTargetGapMm: float = 40.0
+    step6CaseJawPreparationMode: str = "ClosedSource"
+    step6CaseJawPreparationJson: str = ""
+    step6CaseJawLastFailureJson: str = ""
     robotJoint1Deg: float = 0.0
     robotJoint2Mm: float = 0.0
     robotJoint3Deg: float = 0.0
@@ -121,7 +127,7 @@ class DENTOWorkflowParameterNode:
     step6TaskHomeJson: str = ""
     step6AssistedLimitProposalJson: str = ""
     step6ConfirmedTaskJson: str = ""
-    step6ApproachStandoffMm: float = 5.0
+    step6ApproachStandoffMm: float = 2.0
     step6TrajectoryCorridorRadiusMm: float = 0.75
     step6ToolFrame: str = "dentobot_drill_tip_provisional"
     step6CbctVolumeRenderingNodeId: str = ""

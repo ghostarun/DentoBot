@@ -74,6 +74,10 @@ class CaseBackendWidgetMixin:
         """Save a sanitized MRB without retaining the temporary scene location."""
 
         locationState = self._sceneLocationState()
+        # Stage-exclusive lock/selectability changes are application-local UI
+        # policy.  Persist the intrinsic node state and rebuild the temporary
+        # restrictions after saving (or after the enclosing restore).
+        self._restoreStageExclusiveInteractionLocks()
         mark_slicer_ros2_runtime_nodes_transient()
         resumeRos2ActiveNodeIds = (
             self._suspendRos2MotionActiveAttributesForSave()
@@ -88,32 +92,56 @@ class CaseBackendWidgetMixin:
                 self._restoreRos2MotionActiveAttributesAfterSave(
                     resumeRos2ActiveNodeIds
                 )
+                if self._caseBundleRestoreDepth == 0 and self._parameterNode:
+                    self._updateStageExclusiveInteractionLocks(
+                        int(self.ui.workflowStageComboBox.currentIndex)
+                    )
 
     def _createCaseBundle(self, destination: str | Path):
         if not self._parameterNode or not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow state is unavailable."))
-        with tempfile.TemporaryDirectory(
-            prefix="dentobot-case-save-",
-            dir=slicer.app.temporaryPath,
-        ) as temporaryDirectory:
-            scenePath = Path(temporaryDirectory) / "case.mrb"
-            self._saveSceneSnapshotToMrb(scenePath)
-            return create_case_bundle(
-                destination,
-                scenePath,
-                case_label=self._parameterNode.caseName,
-                workflow=self.logic.caseBundleWorkflowSummary(
-                    self._parameterNode
-                ),
-                robot_profile=self.logic.caseBundleRobotProfile(),
-                application={
-                    "name": "DENTOBOT",
-                    "module": "DENTOWorkflow",
-                    "slicerVersion": str(
-                        getattr(slicer.app, "applicationVersion", "unknown")
-                    ),
-                },
+        cancelledPlacement = (
+            self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
+                self._parameterNode
             )
+        )
+        if cancelledPlacement.get("cancelled"):
+            logging.warning(
+                "Cancelled transient Step 6A landmark placement before case save; "
+                "defined points were retained without silent provenance promotion"
+            )
+        self._restoreStageExclusiveInteractionLocks()
+        try:
+            # Capture lineage while Markups carry the same intrinsic
+            # interaction state that will be serialized into the MRB.
+            workflowSummary = self.logic.caseBundleWorkflowSummary(
+                self._parameterNode
+            )
+            with tempfile.TemporaryDirectory(
+                prefix="dentobot-case-save-",
+                dir=slicer.app.temporaryPath,
+            ) as temporaryDirectory:
+                scenePath = Path(temporaryDirectory) / "case.mrb"
+                self._saveSceneSnapshotToMrb(scenePath)
+                return create_case_bundle(
+                    destination,
+                    scenePath,
+                    case_label=self._parameterNode.caseName,
+                    workflow=workflowSummary,
+                    robot_profile=self.logic.caseBundleRobotProfile(),
+                    application={
+                        "name": "DENTOBOT",
+                        "module": "DENTOWorkflow",
+                        "slicerVersion": str(
+                            getattr(slicer.app, "applicationVersion", "unknown")
+                        ),
+                    },
+                )
+        finally:
+            if self._caseBundleRestoreDepth == 0 and self._parameterNode:
+                self._updateStageExclusiveInteractionLocks(
+                    int(self.ui.workflowStageComboBox.currentIndex)
+                )
 
     @staticmethod
     def _caseBundleSuggestedStem(caseName: str) -> str:
@@ -145,15 +173,28 @@ class CaseBackendWidgetMixin:
             return
         self._loadedCaseBundlePath = str(inspection.path)
         self._caseBundleRobotProfileCompatible = True
-        freshnessIssues = self.logic.step6PlanningContextFreshnessIssues(
+        packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
         )
-        if freshnessIssues:
+        jawIssues = (
+            self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
+            if self._parameterNode.step6PlanningContextImported
+            else []
+        )
+        if packageIssues:
             self.ui.caseBundleStatusLabel.text = _(
                 "Saved and integrity-checked %1 with ROS excluded. Step 6 is "
-                "not ready: %2"
+                "blocked by upstream package state: %2"
             ).replace("%1", inspection.path.name).replace(
-                "%2", " ".join(freshnessIssues)
+                "%2", " ".join(packageIssues)
+            )
+            self.ui.caseBundleStatusLabel.styleSheet = "color: #9a6500;"
+        elif jawIssues:
+            self.ui.caseBundleStatusLabel.text = _(
+                "Saved and integrity-checked %1 with ROS excluded. The Steps "
+                "0–5 package is current; complete Step 6.0A after restore: %2"
+            ).replace("%1", inspection.path.name).replace(
+                "%2", " ".join(jawIssues)
             )
             self.ui.caseBundleStatusLabel.styleSheet = "color: #9a6500;"
         else:
@@ -162,51 +203,148 @@ class CaseBackendWidgetMixin:
             ).replace("%1", inspection.path.name)
             self.ui.caseBundleStatusLabel.styleSheet = "color: #207227;"
 
+    def _beginCaseBundleRestore(self) -> int:
+        self._restoreStageExclusiveInteractionLocks()
+        self._caseBundleRestoreDepth += 1
+        self._caseBundleRestoreGeneration += 1
+        return self._caseBundleRestoreGeneration
+
+    def _endCaseBundleRestore(self, generation: int) -> None:
+        if generation != self._caseBundleRestoreGeneration:
+            logging.warning(
+                "Ignored an obsolete DENTOBOT case-restore generation %d",
+                generation,
+            )
+            return
+        self._caseBundleRestoreDepth = max(
+            0,
+            self._caseBundleRestoreDepth - 1,
+        )
+        if self._caseBundleRestoreDepth == 0 and self._parameterNode:
+            self._updateStageExclusiveInteractionLocks(
+                int(self.ui.workflowStageComboBox.currentIndex)
+            )
+
+    def _bindAndValidateRestoredCase(
+        self,
+        expectedWorkflow: dict[str, object],
+    ) -> None:
+        """Validate loaded MRML before and after read-only GUI hydration."""
+
+        parameterNode = self.logic.getParameterNode()
+        try:
+            self.logic.validateLoadedCaseBundleWorkflow(
+                parameterNode,
+                expectedWorkflow,
+            )
+        except CaseBundleError as exc:
+            raise CaseBundleError(
+                _("Pre-bind package validation failed: %1").replace(
+                    "%1", str(exc)
+                )
+            ) from exc
+        self._restoreCaseBundleMarkupInteractionState(
+            parameterNode,
+            expectedWorkflow,
+        )
+        self.setParameterNode(parameterNode)
+        slicer.app.processEvents()
+        try:
+            self.logic.validateLoadedCaseBundleWorkflow(
+                parameterNode,
+                expectedWorkflow,
+            )
+        except CaseBundleError as exc:
+            raise CaseBundleError(
+                _("Post-bind package validation failed: %1").replace(
+                    "%1", str(exc)
+                )
+            ) from exc
+
+    @staticmethod
+    def _restoreCaseBundleMarkupInteractionState(
+        parameterNode,
+        expectedWorkflow: dict[str, object],
+    ) -> None:
+        """Restore intrinsic Markups edit state before stage policy is applied."""
+
+        for record in expectedWorkflow.get("nodes", []):
+            if not isinstance(record, dict):
+                continue
+            fieldName = str(record.get("field") or "")
+            node = getattr(parameterNode, fieldName, None)
+            if node is None or not node.IsA("vtkMRMLMarkupsNode"):
+                continue
+            if "locked" in record:
+                node.SetLocked(bool(record["locked"]))
+            # Schema-V1 packages before this field was introduced contain
+            # ordinary selectable workflow Markups. Stage ownership may then
+            # temporarily make them non-selectable after validation.
+            if "selectable" in record:
+                node.SetSelectable(bool(record["selectable"]))
+            elif (
+                node.GetAttribute("DENTOBOT.MarkupsRole")
+                == "TemplateInsertionDirection"
+            ):
+                # Older schema-V1 lineage omitted selectability, but this
+                # generated construction axis is intrinsically read-only.
+                node.SetSelectable(False)
+            else:
+                node.SetSelectable(True)
+
     def _openCaseBundle(self, bundlePath: str | Path):
         if not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow logic is unavailable."))
         inspection = validate_case_bundle(bundlePath)
         recoveryLocationState = self._sceneLocationState()
-        with tempfile.TemporaryDirectory(
-            prefix="dentobot-case-open-",
-            dir=slicer.app.temporaryPath,
-        ) as temporaryDirectory:
-            temporaryRoot = Path(temporaryDirectory)
-            scenePath, inspection = extract_scene_mrb(
-                inspection.path,
-                temporaryRoot / "incoming",
-            )
-            recoveryPath = temporaryRoot / "recovery.mrb"
-            self._saveSceneSnapshotToMrb(recoveryPath)
-            try:
-                if not slicer.util.loadScene(str(scenePath), {"clear": True}):
-                    raise CaseBundleError(
-                        _("Slicer could not replace the scene from the package.")
-                    )
-                slicer.app.processEvents()
-                if self._parameterNode is None:
-                    self.initializeParameterNode()
-                self.logic.validateLoadedCaseBundleWorkflow(
-                    self._parameterNode,
-                    inspection.workflow,
+        restoreGeneration = self._beginCaseBundleRestore()
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="dentobot-case-open-",
+                dir=slicer.app.temporaryPath,
+            ) as temporaryDirectory:
+                temporaryRoot = Path(temporaryDirectory)
+                scenePath, inspection = extract_scene_mrb(
+                    inspection.path,
+                    temporaryRoot / "incoming",
                 )
-            except Exception as loadError:
-                logging.exception(
-                    "DENTOBOT case-package load failed; restoring recovery scene"
-                )
-                recoveryError = ""
+                recoveryPath = temporaryRoot / "recovery.mrb"
+                self._saveSceneSnapshotToMrb(recoveryPath)
                 try:
                     if not slicer.util.loadScene(
-                        str(recoveryPath), {"clear": True}
+                        str(scenePath), {"clear": True}
                     ):
-                        recoveryError = _(" Recovery scene restoration failed.")
-                    slicer.app.processEvents()
-                    self._restoreSceneLocationState(recoveryLocationState)
-                except Exception as exc:
-                    recoveryError = _(" Recovery scene restoration failed: %1").replace(
-                        "%1", str(exc)
+                        raise CaseBundleError(
+                            _("Slicer could not replace the scene from the package.")
+                        )
+                    self._bindAndValidateRestoredCase(inspection.workflow)
+                except Exception as loadError:
+                    logging.exception(
+                        "DENTOBOT case-package load failed; restoring recovery scene"
                     )
-                raise CaseBundleError(f"{loadError}{recoveryError}") from loadError
+                    recoveryError = ""
+                    try:
+                        if not slicer.util.loadScene(
+                            str(recoveryPath), {"clear": True}
+                        ):
+                            recoveryError = _(" Recovery scene restoration failed.")
+                        recoveredParameterNode = self.logic.getParameterNode()
+                        self.setParameterNode(recoveredParameterNode)
+                        slicer.app.processEvents()
+                        self._restoreSceneLocationState(recoveryLocationState)
+                    except Exception as exc:
+                        recoveryError = _(
+                            " Recovery scene restoration failed: %1"
+                        ).replace("%1", str(exc))
+                    raise CaseBundleError(
+                        f"{loadError}{recoveryError}"
+                    ) from loadError
+        finally:
+            self._endCaseBundleRestore(restoreGeneration)
+
+        # Compatibility migrations and Step 6 freshness review are allowed
+        # only after both package-integrity comparisons have succeeded.
+        self._revalidateImportedStep6ContextAfterLoad()
 
         # The extracted MRB is deleted with the temporary directory. Do not
         # leave it as Slicer's apparent save target, and do not use the outer
@@ -247,8 +385,13 @@ class CaseBackendWidgetMixin:
             inspection = self._openCaseBundle(bundlePath)
         if inspection is None:
             return
-        freshnessIssues = self.logic.step6PlanningContextFreshnessIssues(
+        packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
+        )
+        jawIssues = (
+            self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
+            if self._parameterNode.step6PlanningContextImported
+            else []
         )
         if not self._caseBundleRobotProfileCompatible:
             message = _(
@@ -256,12 +399,20 @@ class CaseBackendWidgetMixin:
                 "saved fingerprint. Step 6 import is blocked until reconciled."
             ).replace("%1", inspection.path.name)
             color = "#9a6500"
-        elif freshnessIssues:
+        elif packageIssues:
             message = _(
                 "Loaded and integrity-checked %1 with ROS disconnected. Step 6 "
-                "remains blocked by saved lineage: %2"
+                "is blocked by upstream package state: %2"
             ).replace("%1", inspection.path.name).replace(
-                "%2", " ".join(freshnessIssues)
+                "%2", " ".join(packageIssues)
+            )
+            color = "#9a6500"
+        elif jawIssues:
+            message = _(
+                "Loaded and integrity-checked %1 with ROS disconnected. The "
+                "Steps 0–5 package is active; complete Step 6.0A: %2"
+            ).replace("%1", inspection.path.name).replace(
+                "%2", " ".join(jawIssues)
             )
             color = "#9a6500"
         else:
@@ -269,8 +420,15 @@ class CaseBackendWidgetMixin:
                 "Loaded and verified %1. ROS remains disconnected until Step 6."
             ).replace("%1", inspection.path.name)
             color = "#207227"
+        message += _(
+            " All Steps 1–6 remain selectable; use the stage/workspace picker "
+            "to inspect or continue from any saved checkpoint. Each step's "
+            "actions still validate their own prerequisites."
+        )
         self.ui.caseBundleStatusLabel.text = message
         self.ui.caseBundleStatusLabel.styleSheet = f"color: {color};"
+        self.ui.workflowStageComboBox.enabled = True
+        self._updateWorkflowNavigationButtons()
 
     def onOpenScene(self) -> None:
         scenePath = qt.QFileDialog.getOpenFileName(

@@ -328,8 +328,12 @@ def run() -> dict[str, object]:
     pose_root = vtk.vtkMatrix4x4()
     if robot.ComputeKDLFK(list(observed), pose_root, "dentobot_drill_tip_provisional") is None:
         raise RuntimeError("SlicerROS2 KDL FK failed for dentobot_drill_tip_provisional")
-    entry = [pose_root.GetElement(row, 3) for row in range(3)]
-    tool_z = [pose_root.GetElement(row, 2) for row in range(3)]
+    base_world = vtk.vtkMatrix4x4()
+    base.GetMatrixTransformToWorld(base_world)
+    pose_world = vtk.vtkMatrix4x4()
+    vtk.vtkMatrix4x4.Multiply4x4(base_world, pose_root, pose_world)
+    entry = [pose_world.GetElement(row, 3) for row in range(3)]
+    tool_z = [pose_world.GetElement(row, 2) for row in range(3)]
     target = [entry[index] + tool_z[index] for index in range(3)]
     plan = None
     if placement_nudge_mm is not None:
@@ -340,6 +344,7 @@ def run() -> dict[str, object]:
             base_transform=base,
             avoid_collisions=True,
             minimum_fraction=0.99,
+            start_joint_positions_si=dict(zip(ROS2_JOINT_SI_ORDER, observed)),
         )
         if not plan.success:
             raise RuntimeError(plan.message)

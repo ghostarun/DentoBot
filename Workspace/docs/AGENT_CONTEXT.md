@@ -4,7 +4,7 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-08-25
+## Current engineering state — 2026-08-28
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
 - Active integration branch: `integration/gui-step6`.
@@ -15,8 +15,41 @@ reproducibility, or dated evidence documents.
 - Step 6 is simulation/preview only. MoveIt provides configured IK, planning,
   FCL self/world collision, and planning-scene services. DENTOBOT does not
   expose controller/hardware execution.
+- Current Step 6 motion policy uses a 2 mm new-case pre-entry standoff and
+  1 mm research guard margin. Strict approach remains collision checked;
+  terminal/drilling exploration may suppress only configured burr-to-task-
+  anatomy/guide contact and must report it. All non-tool/self/bounds/session/
+  corridor/backtrack/overshoot checks remain fail-closed.
+- Goal 1 now preflights complete Entry-to-Target reachability at 0.25 mm
+  Cartesian sampling across bounded cylindrical-burr axial roll. The retained
+  `dentobot-case-step6x4.dentocase` reaches only `44.44–45.34%`; its current
+  base must be repositioned. Never treat that partial result as a drilling
+  plan. The saved 2.0 mm burr versus 1.5 mm guide bore is a separate upstream
+  physical-fit defect.
 - Source CBCT geometry remains authoritative and unchanged. Volume rendering
   is display-only, not a segmentation surface or collision mesh.
+- Step 6 uses seven shared one-card substeps in both presentations. A current
+  Steps 0–5 package remains active when the post-import 6.0A jaw opening is
+  missing; a reviewed pre-opening base restores as atomically unlocked
+  `Stale`, never as a circular package/import lockout.
+- `.dentocase` hydration is atomic, but continuation is modular: every Legacy
+  stage and all six application workspaces stay selectable after restore;
+  stage-local prerequisites gate actions, not navigation.
+- High-priority Step 6A order is: retain the now-correct patient-RAS TMJ
+  laterality (`Left X < Right X`) and inferior opening direction (`delta Z <
+  0`), add source-fingerprinted left/right
+  condylar and crown/incisal candidate surfaces plus enforced MPR review and
+  contralateral guide, verify them on a representative case, then implement
+  the transient realtime gap preview.
+  Slider motion is display-only; `Lock / Accept Opening` alone commits the
+  persistent transform/derived geometry, while MoveIt objects wait for
+  explicit Connect/Sync.
+- The Priority-0 Step 6 Viewer defect is code-fixed and exact-package verified:
+  the current x1 package is explicitly reviewed/opened, Recommended shows 31
+  derived upper/lower jaw-and-teeth segments, suppresses all 54 source
+  closed-pose segments, and deferred tree refresh survives repeated real-item
+  toggles. Restored placement flags are canceled because they are transient.
+  Normal-window operator confirmation is still requested.
 - The strongest automated evidence in this checkpoint is host-static or
   synthetic Slicer. It is not anatomical, clinical, registration, metrology,
   physical-fit, or hardware-safety evidence.

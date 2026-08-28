@@ -242,6 +242,11 @@ class DisplayLogicMixin:
                     segmentId = segmentIds.GetValue(index)
                     visible = segmentId in existingVisibleSegmentIds
                     displayNode.SetSegmentVisibility(segmentId, visible)
+                    displayNode.SetSegmentVisibility3D(segmentId, visible)
+                    if hasattr(displayNode, "SetSegmentVisibility2DFill"):
+                        displayNode.SetSegmentVisibility2DFill(segmentId, visible)
+                    if hasattr(displayNode, "SetSegmentVisibility2DOutline"):
+                        displayNode.SetSegmentVisibility2DOutline(segmentId, visible)
                     if visible:
                         displayNode.SetSegmentOpacity3D(segmentId, 1.0)
                         displayNode.SetSegmentOpacity2DFill(segmentId, 1.0)

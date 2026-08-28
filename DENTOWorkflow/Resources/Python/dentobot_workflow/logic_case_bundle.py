@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 from .runtime import *
 
 
@@ -92,6 +94,7 @@ class CaseBundleLogicMixin:
                 points.append([float(value) for value in point])
             record["controlPointsWorldRasMm"] = points
             record["locked"] = bool(node.GetLocked())
+            record["selectable"] = bool(node.GetSelectable())
         if node.IsA("vtkMRMLLinearTransformNode"):
             matrix = vtk.vtkMatrix4x4()
             node.GetMatrixTransformToWorld(matrix)
@@ -144,6 +147,9 @@ class CaseBundleLogicMixin:
             "step6CaseJawTransform",
             "step6CaseJawGapLine",
             "step6OpenedLowerJawModel",
+            "step6FixedUpperAnatomy",
+            "step6MovingLowerAnatomy",
+            "step6TargetJawFallbackAnatomy",
             "step6OpenedTargetGeometryModel",
             "step6OpenedTrajectoryLine",
         )
@@ -182,6 +188,15 @@ class CaseBundleLogicMixin:
                 },
                 "jawOpening": {
                     "requiredForImportedCase": True,
+                    "preparationMode": str(
+                        parameterNode.step6CaseJawPreparationMode
+                        or "ClosedSource"
+                    ),
+                    "placementReady": not bool(
+                        self.step6CaseJawPlacementFreshnessIssues(parameterNode)
+                    )
+                    if parameterNode.step6PlanningContextImported
+                    else False,
                     "targetGapMm": float(parameterNode.step6CaseJawTargetGapMm),
                     "current": not bool(
                         self.step6CaseJawOpeningFreshnessIssues(parameterNode)
@@ -278,6 +293,15 @@ class CaseBundleLogicMixin:
             actualComparable = dict(actualRecord)
             expectedComparable.pop("id", None)
             actualComparable.pop("id", None)
+            if node.IsA("vtkMRMLMarkupsNode"):
+                # Lock/selectability are interaction presentation. The
+                # application temporarily changes them to enforce ownership
+                # by workflow stage, so they are restored separately and are
+                # not geometry-integrity evidence.
+                expectedComparable.pop("locked", None)
+                actualComparable.pop("locked", None)
+                expectedComparable.pop("selectable", None)
+                actualComparable.pop("selectable", None)
             if not self._caseBundleValuesMatch(expectedComparable, actualComparable):
                 mismatchPath = lineage_snapshot_mismatch_path(
                     expectedComparable,
@@ -297,12 +321,37 @@ class CaseBundleLogicMixin:
         currentStep6 = self.caseBundleWorkflowSummary(parameterNode)["step6"]
         # Step 6 lineage extensions are optional for schema-V1 compatibility.
         # Compare every field that the package actually records, without making
-        # old bundles invent the new placement/home/task records.
-        actualStep6 = {
+        # old bundles invent the new placement/home/task records. Historical
+        # readiness evidence is not persistent state: current software may add
+        # prerequisites, so it is re-evaluated after integrity validation.
+        expectedComparableStep6 = copy.deepcopy(expectedStep6)
+        expectedComparableStep6.pop("freshnessIssuesAtSave", None)
+        expectedJawOpening = expectedComparableStep6.get("jawOpening")
+        if isinstance(expectedJawOpening, dict):
+            expectedJawOpening.pop("current", None)
+        actualComparableStep6 = {
             key: currentStep6.get(key)
-            for key in expectedStep6
+            for key in expectedComparableStep6
         }
-        if not self._caseBundleValuesMatch(expectedStep6, actualStep6):
+        currentJawOpening = actualComparableStep6.get("jawOpening")
+        if isinstance(currentJawOpening, dict):
+            currentJawOpening = dict(currentJawOpening)
+            currentJawOpening.pop("current", None)
+            actualComparableStep6["jawOpening"] = currentJawOpening
+        if not self._caseBundleValuesMatch(
+            expectedComparableStep6,
+            actualComparableStep6,
+        ):
+            mismatchPath = lineage_snapshot_mismatch_path(
+                expectedComparableStep6,
+                actualComparableStep6,
+            )
+            mismatchSuffix = (
+                f": step6.{mismatchPath}"
+                if mismatchPath and not mismatchPath.startswith("<")
+                else ""
+            )
             raise CaseBundleError(
-                _("Loaded Step 6 state differs from the package lineage record.")
+                _("Loaded Step 6 state differs from the package lineage record")
+                + mismatchSuffix
             )

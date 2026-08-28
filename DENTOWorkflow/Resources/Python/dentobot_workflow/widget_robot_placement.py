@@ -314,7 +314,14 @@ class RobotPlacementWidgetMixin:
         )
         if message:
             status = message
-            style = "color: #c62828;" if "failed" in message.lower() else "color: #207227;"
+            lowered = message.lower()
+            style = (
+                "color: #c62828;"
+                if "failed" in lowered
+                else "color: #b36b00;"
+                if "remediation" in lowered
+                else "color: #207227;"
+            )
         elif not ros2_active and not step6_stage_active:
             status = _(
                 "ROS 2 / MoveIt is inactive for this workflow stage. It is "
@@ -377,6 +384,16 @@ class RobotPlacementWidgetMixin:
             return
         result = self._robotWorkflowFacade.connect(open_motion_module=False)
         if not result.success:
+            if result.details.get("runtimeConnected", False):
+                self._updateRobotPlacement()
+                self._applyStep6RecommendedView()
+                self._updateRos2MotionControlStatus(
+                    _("ROS 2 connected for Task Home remediation: %1").replace(
+                        "%1", result.message
+                    )
+                )
+                slicer.util.warningDisplay(result.message)
+                return
             self._updateRos2MotionControlStatus(
                 _("ROS 2 connect failed: %1").replace("%1", result.message)
             )

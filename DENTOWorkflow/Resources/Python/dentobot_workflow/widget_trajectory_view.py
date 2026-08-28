@@ -6,6 +6,68 @@ from .runtime import *
 
 
 class TrajectoryViewWidgetMixin:
+    @staticmethod
+    def _trajectoryGeometrySnapshot(trajectoryNode) -> dict:
+        """Capture only point state that can change trajectory geometry."""
+
+        if not trajectoryNode or not trajectoryNode.IsA(
+            "vtkMRMLMarkupsLineNode"
+        ):
+            return {"controlPointCount": 0, "points": ()}
+        points = []
+        for index in range(trajectoryNode.GetNumberOfControlPoints()):
+            status = int(
+                trajectoryNode.GetNthControlPointPositionStatus(index)
+            )
+            pointRas = None
+            if status == int(slicer.vtkMRMLMarkupsNode.PositionDefined):
+                point = [0.0, 0.0, 0.0]
+                trajectoryNode.GetNthControlPointPositionWorld(index, point)
+                pointRas = tuple(float(value) for value in point)
+            points.append((status, pointRas))
+        return {
+            "controlPointCount": int(
+                trajectoryNode.GetNumberOfControlPoints()
+            ),
+            "points": tuple(points),
+        }
+
+    @staticmethod
+    def _trajectoryGeometrySnapshotsMatch(
+        left: dict | None,
+        right: dict | None,
+        toleranceMm: float = 1e-6,
+    ) -> bool:
+        """Compare point count/status and world-RAS positions with tolerance."""
+
+        if left is None or right is None:
+            return left is right
+        if left.get("controlPointCount") != right.get("controlPointCount"):
+            return False
+        leftPoints = left.get("points") or ()
+        rightPoints = right.get("points") or ()
+        if len(leftPoints) != len(rightPoints):
+            return False
+        for (leftStatus, leftRas), (rightStatus, rightRas) in zip(
+            leftPoints,
+            rightPoints,
+        ):
+            if leftStatus != rightStatus or (leftRas is None) != (rightRas is None):
+                return False
+            if leftRas is None:
+                continue
+            if any(
+                not math.isclose(
+                    float(leftValue),
+                    float(rightValue),
+                    rel_tol=0.0,
+                    abs_tol=float(toleranceMm),
+                )
+                for leftValue, rightValue in zip(leftRas, rightRas)
+            ):
+                return False
+        return True
+
     def _bindPlanningTrajectoryNode(self, trajectoryNode) -> None:
         """Observe the selected trajectory once so measurements stay current."""
 
@@ -47,11 +109,23 @@ class TrajectoryViewWidgetMixin:
                 self._onPlanningTrajectoryInteractionEnded,
             )
         self._trajectoryVerificationPointInteractionActive = False
+        previousNode = self._planningTrajectoryNode
         self._planningTrajectoryNode = trajectoryNode
+        if previousNode and previousNode is not trajectoryNode:
+            previousNodeId = previousNode.GetID()
+            if previousNodeId:
+                self._planningTrajectoryGeometryByNodeId.pop(
+                    previousNodeId,
+                    None,
+                )
         if trajectoryNode:
             trajectoryNode.SetSelectable(True)
             trajectoryNode.CreateDefaultDisplayNodes()
             self._planningTrajectoryDisplayNode = trajectoryNode.GetDisplayNode()
+            if trajectoryNode.GetID():
+                self._planningTrajectoryGeometryByNodeId[
+                    trajectoryNode.GetID()
+                ] = self._trajectoryGeometrySnapshot(trajectoryNode)
             for trajectoryEvent in (
                 vtk.vtkCommand.ModifiedEvent,
                 slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent,
@@ -181,21 +255,59 @@ class TrajectoryViewWidgetMixin:
         if (
             self._updatingPlanningUI
             or self._restoringTrajectoryAssociation
+            or self._caseBundleRestoreDepth > 0
             or not self.logic
         ):
             return
+        trajectoryNode = (
+            caller
+            if caller and caller.IsA("vtkMRMLMarkupsLineNode")
+            else self._planningTrajectoryNode
+        )
+        trajectoryNodeId = trajectoryNode.GetID() if trajectoryNode else None
+        currentGeometry = self._trajectoryGeometrySnapshot(trajectoryNode)
+        previousGeometry = (
+            self._planningTrajectoryGeometryByNodeId.get(trajectoryNodeId)
+            if trajectoryNodeId
+            else None
+        )
+        if previousGeometry is None:
+            if trajectoryNodeId:
+                self._planningTrajectoryGeometryByNodeId[
+                    trajectoryNodeId
+                ] = currentGeometry
+            return
+        if self._trajectoryGeometrySnapshotsMatch(
+            previousGeometry,
+            currentGeometry,
+        ):
+            # MRML ModifiedEvent also reports labels, references, lock state,
+            # selectability, and display synchronization.  Those are not
+            # trajectory edits and must not invalidate Step 4C/5C/6.
+            return
         self._updatingPlanningUI = True
         try:
-            if self._planningTrajectoryNode:
+            if trajectoryNode:
                 self.logic.labelTrajectoryControlPoints(
-                    self._planningTrajectoryNode
+                    trajectoryNode
                 )
                 self._enforceTrajectoryBounds(
-                    self._planningTrajectoryNode
+                    trajectoryNode
                 )
         finally:
             self._updatingPlanningUI = False
-        if self._parameterNode and caller:
+        finalGeometry = self._trajectoryGeometrySnapshot(trajectoryNode)
+        if trajectoryNodeId:
+            self._planningTrajectoryGeometryByNodeId[
+                trajectoryNodeId
+            ] = finalGeometry
+        if self._trajectoryGeometrySnapshotsMatch(
+            previousGeometry,
+            finalGeometry,
+        ):
+            self._updatePlanning()
+            return
+        if self._parameterNode and trajectoryNode:
             self.logic.invalidateStep6TaskConfirmation(
                 self._parameterNode,
                 _("Approved trajectory geometry changed."),
@@ -207,7 +319,7 @@ class TrajectoryViewWidgetMixin:
                 dockingSummary = self.logic.getTargetDockingAssemblySummary(
                     self._parameterNode.targetDockingAssemblyModel
                 )
-                if caller in dockingSummary["trajectories"]:
+                if trajectoryNode in dockingSummary["trajectories"]:
                     reason = _("A Step 4A source trajectory changed.")
                     self.logic.markTargetDockingAssemblyStale(
                         self._parameterNode.targetDockingAssemblyModel,

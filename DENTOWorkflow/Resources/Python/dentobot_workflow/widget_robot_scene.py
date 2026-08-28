@@ -110,7 +110,7 @@ class RobotSceneWidgetMixin:
             self._robotWorkflowFacade.clearTransientState()
 
     def _onStep6CaseJawLandmarksModified(self, caller=None, event=None) -> None:
-        del caller, event
+        del caller
         if (
             self._updatingStep6CaseJawLandmarks
             or not self._parameterNode
@@ -120,35 +120,75 @@ class RobotSceneWidgetMixin:
         node = self._step6CaseJawLandmarksNode
         if not node or not self.logic.isStep6CaseJawLandmarksNode(node):
             return
+        acceptedEvidence = None
         self._updatingStep6CaseJawLandmarks = True
         try:
+            if event == slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent:
+                acceptedEvidence = self.logic.finalizeStep6CaseJawLandmarkPlacement(
+                    self._parameterNode,
+                    node,
+                )
             summary = self.logic.getStep6CaseJawLandmarkSummary(node)
-        except ValueError:
+        except ValueError as exc:
+            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
             return
         finally:
             self._updatingStep6CaseJawLandmarks = False
-        if self.logic.isStep6CaseJawTransformNode(
-            self._parameterNode.step6CaseJawTransform
-        ):
+        transform = self._parameterNode.step6CaseJawTransform
+        coordinatesChanged = not summary["isComplete"]
+        if not coordinatesChanged:
+            coordinatesChanged = (
+                transform.GetAttribute("DENTOBOT.LandmarksFingerprint")
+                != self.logic._step6CaseJawLandmarksFingerprint(node)
+            ) if self.logic.isStep6CaseJawTransformNode(transform) else False
+        if self.logic.isStep6CaseJawTransformNode(transform) and coordinatesChanged:
+            # vtkMRMLMarkupsNode emits ModifiedEvent for interaction-policy
+            # changes such as lock/selectability. Only coordinate changes may
+            # invalidate the anatomical transform.
             self._markStep6CaseJawOpeningStale(
                 _("Case jaw landmarks changed; apply the mouth opening again.")
             )
         if summary["isComplete"]:
             self.logic.stopTrajectoryPlacement()
         self._updateStep6CaseJawOpeningControls()
-        self._updateStep6CaseJawOpeningStatus()
+        if acceptedEvidence and summary["isComplete"]:
+            self._updateStep6CaseJawOpeningStatus(
+                _(
+                    "All four landmarks were projected to their intended source "
+                    "surfaces. Review the labels and select Apply Open-Mouth "
+                    "Transform."
+                )
+            )
+        elif acceptedEvidence:
+            nextIndex = int(summary["definedPointCount"])
+            self._updateStep6CaseJawOpeningStatus(
+                _(
+                    "Accepted %1 on %2. Placement has stopped. Select %3 to arm "
+                    "the next source surface."
+                )
+                .replace("%1", str(acceptedEvidence.get("label") or "landmark"))
+                .replace(
+                    "%2", str(acceptedEvidence.get("sourceSegmentId") or "surface")
+                )
+                .replace(
+                    "%3", self.logic.draftJawLandmarkButtonLabels()[nextIndex]
+                )
+            )
+        else:
+            self._updateStep6CaseJawOpeningStatus()
         self._updateStep6PlanningUi()
 
     def _updateStep6CaseJawOpeningControls(self) -> None:
         if not hasattr(self, "ui") or not self._parameterNode or not self.logic:
             return
         imported = bool(self._parameterNode.step6PlanningContextImported)
-        blocked = bool(
-            self._parameterNode.robotBaseMountLocked
-            or self.logic.isRos2MotionControlActive(
+        rosActive = bool(
+            self.logic.isRos2MotionControlActive(
                 self._parameterNode.robotBaseTransform
             )
         )
+        blocked = bool(self._parameterNode.robotBaseMountLocked or rosActive)
         node = self._parameterNode.step6CaseJawLandmarks
         summary = None
         if node and self.logic.isStep6CaseJawLandmarksNode(node):
@@ -158,27 +198,68 @@ class RobotSceneWidgetMixin:
                 summary = None
         pointCount = summary["definedPointCount"] if summary else 0
         complete = bool(summary and summary["isComplete"])
+        pendingIndexText = (
+            str(node.GetAttribute("DENTOBOT.PendingLandmarkIndex") or "")
+            if node
+            else ""
+        )
+        placementPending = pendingIndexText.isdigit()
+        pendingIndex = int(pendingIndexText) if placementPending else -1
+        inFallback = (
+            str(self._parameterNode.step6CaseJawPreparationMode)
+            == "TargetJawFallback"
+        )
+        evidenceIssues = (
+            self.logic.step6CaseJawSurfaceEvidenceIssues(self._parameterNode)
+            if complete
+            else []
+        )
+        reviewedComplete = bool(complete and not evidenceIssues)
         labels = self.logic.draftJawLandmarkButtonLabels()
         self._updatingRobotPlacementUI = True
         try:
             self.ui.step6CaseJawOpeningGroupBox.enabled = imported
             self.ui.createStep6CaseJawLandmarksButton.enabled = bool(
-                imported and not blocked and not complete
+                imported
+                and not blocked
+                and not inFallback
+                and not placementPending
+                and (not complete or evidenceIssues)
             )
             self.ui.createStep6CaseJawLandmarksButton.text = (
-                labels[pointCount]
-                if pointCount < len(labels)
-                else _("All landmarks placed")
+                _("Placement active — click %1 surface")
+                .replace(
+                    "%1",
+                    self.logic.draftJawLandmarkPlacementHints()[pendingIndex],
+                )
+                if placementPending
+                else _("Review / re-snap existing landmarks…")
+                if complete and evidenceIssues
+                else (
+                    labels[pointCount]
+                    if pointCount < len(labels)
+                    else _("All landmarks reviewed")
+                )
             )
             self.ui.clearStep6CaseJawLandmarksButton.enabled = bool(
-                imported and not blocked and pointCount > 0
+                imported
+                and not blocked
+                and not inFallback
+                and (pointCount > 0 or placementPending)
             )
             self.ui.applyStep6CaseJawOpeningButton.enabled = bool(
-                imported and not blocked and complete
+                imported and not blocked and not inFallback and reviewedComplete
+            )
+            self.ui.useStep6TargetJawFallbackButton.enabled = bool(
+                imported
+                and not blocked
+                and reviewedComplete
+                and str(self._parameterNode.step6CaseJawLastFailureJson or "").strip()
+                and not inFallback
             )
             self.ui.resetStep6CaseJawOpeningButton.enabled = bool(
                 imported
-                and not blocked
+                and not rosActive
                 and (
                     self.logic.isStep6CaseJawTransformNode(
                         self._parameterNode.step6CaseJawTransform
@@ -186,7 +267,16 @@ class RobotSceneWidgetMixin:
                     or self.logic.isStep6OpenedLowerJawModelNode(
                         self._parameterNode.step6OpenedLowerJawModel
                     )
+                    or self.logic.isStep6DerivedAnatomyNode(
+                        self._parameterNode.step6TargetJawFallbackAnatomy,
+                        self.logic.STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE,
+                    )
                 )
+            )
+            self.ui.resetStep6CaseJawOpeningButton.text = (
+                _("Exit Fallback and Retry Primary 6A…")
+                if inFallback
+                else _("Reset Case Jaw Closed")
             )
         finally:
             self._updatingRobotPlacementUI = False
@@ -207,6 +297,24 @@ class RobotSceneWidgetMixin:
         if not self._parameterNode.step6PlanningContextImported:
             text = _("Import the Steps 0–5 planning package first.")
             style = "color: #b36b00;"
+        elif (
+            str(self._parameterNode.step6CaseJawPreparationMode)
+            == "TargetJawFallback"
+            and not self.logic.step6TargetJawFallbackFreshnessIssues(
+                self._parameterNode
+            )
+        ):
+            record = self.logic._step6CaseJawPreparationRecord(self._parameterNode)
+            text = _(
+                "PLACEMENT-ONLY FALLBACK: showing the unopened %1 jaw and its "
+                "teeth in unchanged source RAS. Robot placement, Task Home, and "
+                "workspace exploration are available; ROS connect, collision "
+                "sync, task confirmation, motion planning, and drilling remain "
+                "blocked. Primary failure: %2"
+            ).replace("%1", str(record.get("targetJaw") or "target")).replace(
+                "%2", str(record.get("primaryFailure") or "not recorded")
+            )
+            style = "color: #b36b00; font-weight: bold;"
         else:
             issues = self.logic.step6CaseJawOpeningFreshnessIssues(
                 self._parameterNode
@@ -218,11 +326,29 @@ class RobotSceneWidgetMixin:
                     if self.logic.isStep6CaseJawLandmarksNode(node)
                     else 0
                 )
-                text = (
-                    _("Case jaw landmarks placed: %1/4. %2")
-                    .replace("%1", str(pointCount))
-                    .replace("%2", " ".join(issues))
+                evidenceIssues = (
+                    self.logic.step6CaseJawSurfaceEvidenceIssues(
+                        self._parameterNode
+                    )
+                    if pointCount == 4
+                    else []
                 )
+                if pointCount == 4 and evidenceIssues:
+                    text = _(
+                        "The four visible landmark points have not passed the "
+                        "guided Step 6A surface workflow; their anatomical "
+                        "positions have not been evaluated by the hinge solver. "
+                        "Use Review / re-snap existing landmarks for an explicit "
+                        "current-surface check, or Clear and arm each labelled "
+                        "surface in sequence. Fallback is not authorized by this "
+                        "operator-review prerequisite. %1"
+                    ).replace("%1", " ".join(evidenceIssues))
+                else:
+                    text = (
+                        _("Case jaw landmarks placed: %1/4. %2")
+                        .replace("%1", str(pointCount))
+                        .replace("%2", " ".join(issues))
+                    )
                 style = "color: #b36b00;"
             else:
                 transform = self._parameterNode.step6CaseJawTransform
@@ -261,19 +387,98 @@ class RobotSceneWidgetMixin:
             self._bindStep6CaseJawLandmarksNode(node)
             summary = self.logic.getStep6CaseJawLandmarkSummary(node)
             if summary["isComplete"]:
+                evidenceIssues = self.logic.step6CaseJawSurfaceEvidenceIssues(
+                    self._parameterNode
+                )
+                if not evidenceIssues:
+                    return
+                if not slicer.util.confirmYesNoDisplay(
+                    _(
+                        "The four existing points do not have current Step 6A "
+                        "source-surface evidence. Review them against the four "
+                        "current intended surfaces and project each point "
+                        "exactly when it is within 5 mm? Nothing is accepted "
+                        "automatically; a failed review leaves the points "
+                        "unchanged."
+                    ),
+                    windowTitle=_("Review existing Step 6A landmarks"),
+                ):
+                    return
+                self.logic.stopTrajectoryPlacement()
+                self.logic._restoreStep6CaseJawLandmarkPlacementVisibility(
+                    self._parameterNode,
+                    node,
+                )
+                self._updatingStep6CaseJawLandmarks = True
+                try:
+                    review = self.logic.reviewAndProjectExistingStep6CaseJawLandmarks(
+                        self._parameterNode,
+                        node,
+                    )
+                finally:
+                    self._updatingStep6CaseJawLandmarks = False
+                self._updateStep6CaseJawOpeningControls()
+                self._updateStep6CaseJawOpeningStatus(
+                    _(
+                        "Reviewed all four existing points against their current "
+                        "source surfaces; maximum exact-projection residual %1 "
+                        "mm. Select Apply Open-Mouth Transform."
+                    ).replace("%1", f"{review['maximumResidualMm']:.3f}")
+                )
+                self._updateStep6PlanningUi()
                 return
-            self.logic.startStep6CaseJawLandmarkPlacement(node)
             landmarkIndex = summary["definedPointCount"]
+            segmentId = self.logic.prepareStep6CaseJawLandmarkPlacement(
+                self._parameterNode,
+                node,
+                landmarkIndex,
+            )
             self._updateStep6CaseJawOpeningStatus(
                 _(
-                    "Click one point in a 2D or 3D view for %1, then press the "
-                    "placement button for the next landmark."
+                    "Only source segment %2 is exposed for %1. Click its visible "
+                    "surface in 3D (or place in MPR); the point is projected back "
+                    "to that exact source surface before the next landmark."
                 ).replace(
                     "%1",
                     self.logic.draftJawLandmarkPlacementHints()[landmarkIndex],
-                )
+                ).replace("%2", segmentId)
             )
             self._updateStep6CaseJawOpeningControls()
+        except (RuntimeError, ValueError) as exc:
+            fallbackAvailable = self.logic.recordStep6CaseJawPreparationFailure(
+                self._parameterNode,
+                str(exc),
+            )
+            self._updateStep6CaseJawOpeningControls()
+            suffix = (
+                _(
+                    " The target-jaw-only placement fallback is now available; "
+                    "it will not unlock ROS or task planning."
+                )
+                if fallbackAvailable
+                else ""
+            )
+            self._updateStep6CaseJawOpeningStatus(str(exc) + suffix, error=True)
+            slicer.util.errorDisplay(str(exc))
+
+    def onUseStep6TargetJawFallback(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            return
+        try:
+            record = self.logic.createStep6TargetJawFallback(self._parameterNode)
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.clearTransientState()
+            self._updateStep6CaseJawOpeningControls()
+            self._updateStep6CaseJawOpeningStatus()
+            self._applyStep6RecommendedView()
+            self.onFrameStep6CaseScene()
+            self._updateStep6PlanningUi(
+                _(
+                    "Target %1 jaw prepared in unchanged RAS for placement testing "
+                    "only; ROS and motion planning remain blocked."
+                ).replace("%1", str(record.get("targetJaw") or ""))
+            )
         except (RuntimeError, ValueError) as exc:
             self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
@@ -287,13 +492,21 @@ class RobotSceneWidgetMixin:
             return
         try:
             self.logic.stopTrajectoryPlacement()
+            self.logic._restoreStep6CaseJawLandmarkPlacementVisibility(
+                self._parameterNode,
+                node,
+            )
             if (
                 self._parameterNode.step6CaseJawTransform
                 or self._parameterNode.step6OpenedLowerJawModel
+                or self._parameterNode.step6TargetJawFallbackAnatomy
             ):
                 self.logic.resetStep6CaseJawOpening(self._parameterNode)
             self._updatingStep6CaseJawLandmarks = True
             node.RemoveAllControlPoints()
+            node.SetAttribute("DENTOBOT.SurfaceEvidenceJson", None)
+            node.SetAttribute("DENTOBOT.PendingLandmarkIndex", None)
+            node.SetAttribute("DENTOBOT.PendingSourceSegmentID", None)
             self._updatingStep6CaseJawLandmarks = False
             self._updateStep6CaseJawOpeningControls()
             self._updateStep6CaseJawOpeningStatus(
@@ -327,7 +540,20 @@ class RobotSceneWidgetMixin:
             self._applyStep6RecommendedView()
             self._updateStep6PlanningUi()
         except (RuntimeError, ValueError) as exc:
-            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
+            fallbackAvailable = self.logic.recordStep6CaseJawPreparationFailure(
+                self._parameterNode,
+                str(exc),
+            )
+            self._updateStep6CaseJawOpeningControls()
+            suffix = (
+                _(
+                    " The target-jaw-only placement fallback is now available; "
+                    "it will not unlock ROS or task planning."
+                )
+                if fallbackAvailable
+                else ""
+            )
+            self._updateStep6CaseJawOpeningStatus(str(exc) + suffix, error=True)
             slicer.util.errorDisplay(str(exc))
 
     def onResetStep6CaseJawOpening(self, checked: bool = False) -> None:
@@ -335,13 +561,49 @@ class RobotSceneWidgetMixin:
         if not self._parameterNode or not self.logic:
             return
         try:
+            wasFallback = (
+                str(self._parameterNode.step6CaseJawPreparationMode)
+                == "TargetJawFallback"
+            )
+            if wasFallback and not slicer.util.confirmYesNoDisplay(
+                _(
+                    "Exit placement-only fallback, unlock/stale the saved robot "
+                    "base, invalidate dependent Step 6 state, and clear all four "
+                    "landmarks so primary Step 6A can be repeated?"
+                ),
+                windowTitle=_("Retry primary Step 6A"),
+            ):
+                return
             self.logic.resetStep6CaseJawOpening(self._parameterNode)
+            if wasFallback:
+                node = self._parameterNode.step6CaseJawLandmarks
+                if self.logic.isStep6CaseJawLandmarksNode(node):
+                    self.logic.stopTrajectoryPlacement()
+                    self.logic._restoreStep6CaseJawLandmarkPlacementVisibility(
+                        self._parameterNode,
+                        node,
+                    )
+                    self._updatingStep6CaseJawLandmarks = True
+                    try:
+                        node.RemoveAllControlPoints()
+                        node.SetAttribute("DENTOBOT.SurfaceEvidenceJson", None)
+                        node.SetAttribute("DENTOBOT.PendingLandmarkIndex", None)
+                        node.SetAttribute("DENTOBOT.PendingSourceSegmentID", None)
+                    finally:
+                        self._updatingStep6CaseJawLandmarks = False
             if self._robotWorkflowFacade:
                 self._robotWorkflowFacade.clearTransientState()
             self._updateStep6CaseJawOpeningControls()
             self._updateStep6CaseJawOpeningStatus(
-                _("Case jaw reset to the closed source pose; Step 6 is blocked.")
+                _(
+                    "Exited placement-only fallback. The saved base pose is Stale "
+                    "and unlocked; place Left TMJ to retry primary Step 6A."
+                )
+                if wasFallback
+                else _("Case jaw reset to the closed source pose; Step 6 is blocked.")
             )
+            self._applyStep6RecommendedView()
+            self.onFrameStep6CaseScene()
             self._updateStep6PlanningUi()
         except (RuntimeError, ValueError) as exc:
             self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
@@ -702,9 +964,11 @@ class RobotSceneWidgetMixin:
         del value
         if (
             self._updatingRobotPlacementUI
+            or self._updatingFromParameterNode
             or not self._parameterNode
             or not self.logic
             or not self._robotWorkflowFacade
+            or self._robotWorkflowFacade.displaySyncActive
         ):
             return
         result = self._robotWorkflowFacade.requestCurrentJointState()

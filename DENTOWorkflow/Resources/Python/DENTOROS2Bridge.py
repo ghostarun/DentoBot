@@ -11,8 +11,9 @@ import json
 import time
 from dataclasses import dataclass
 from enum import Enum
-from math import isfinite
+from math import acos, cos, degrees, isfinite, radians, sin, sqrt
 from typing import Mapping, Optional, Sequence, Tuple
+from uuid import uuid4
 
 ROS2_ROBOT_NAME = "dentobot"
 ROS2_URDF_PARAM_NODE = "/dentobot_robot_state_publisher"
@@ -28,13 +29,24 @@ ROS2_JOINT_COMMAND_STATUS_SCHEMA = "dentobot.joint_command_status.v1"
 ROS2_TASK_GUARD_CONFIG_TOPIC = "/dentobot/task_guard_config"
 ROS2_TASK_JOINT_COMMAND_TOPIC = "/dentobot/task_joint_command"
 ROS2_TASK_JOINT_STATUS_TOPIC = "/dentobot/task_joint_status"
-ROS2_TASK_GUARD_CONFIG_SCHEMA = "dentobot.task_guard_config.v1"
-ROS2_TASK_JOINT_COMMAND_SCHEMA = "dentobot.task_joint_command.v1"
-ROS2_TASK_JOINT_STATUS_SCHEMA = "dentobot.task_joint_status.v1"
+ROS2_TASK_GUARD_CONFIG_SCHEMA = "dentobot.task_guard_config.v2"
+ROS2_TASK_JOINT_COMMAND_SCHEMA = "dentobot.task_joint_command.v2"
+ROS2_TASK_JOINT_STATUS_SCHEMA = "dentobot.task_joint_status.v2"
 ROS2_SIMULATION_STATUS_TOPIC = "/dentobot/simulation_status"
 ROS2_SIMULATION_STATUS_SCHEMA = "dentobot.simulation_status.v1"
 ROS2_DEFAULT_SLICER_NODE = "slicer"
 ROS2_SLICER_JOINT_PUBLISH_INTERVAL_MS = 50
+ROS2_TASK_GUARD_INITIAL_SEQUENCE = 1
+ROS2_GUARD_MAX_REVOLUTE_STEP_RAD = 0.017453292519943295
+ROS2_GUARD_MAX_PRISMATIC_STEP_M = 0.0005
+ROS2_GUARD_PREVIEW_MAX_INTERPOLATION_SAMPLES = 4
+ROS2_RESEARCH_MINIMUM_CLEARANCE_M = 0.001
+ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC = 0.75
+ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS = 3
+ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC = 8.0
+ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M = (0.001, 0.0005, 0.00025)
+CARTESIAN_START_POSITION_TOLERANCE_MM = 0.25
+CARTESIAN_START_ORIENTATION_TOLERANCE_DEG = 0.5
 
 ROS2_ROBOT_NODE_ATTRIBUTE = "DENTOBOT.Ros2RobotName"
 ROS2_MOTION_ACTIVE_ATTRIBUTE = "DENTOBOT.Ros2MotionControlActive"
@@ -95,6 +107,10 @@ class MoveItCartesianResult:
     fraction: float = 0.0
     waypoint_joint_vectors_si: tuple[dict[str, float], ...] = ()
     waypoint_times_sec: tuple[float, ...] = ()
+    coordinate_frame: str = ROS2_FIXED_FRAME
+    start_position_error_mm: Optional[float] = None
+    start_orientation_error_deg: Optional[float] = None
+    axial_roll_deg: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -104,7 +120,7 @@ class JointCommandStatus:
     requested_positions: tuple[float, ...] = ()
     accepted_positions: tuple[float, ...] = ()
     checked_samples: int = 0
-    minimum_clearance_m: float = 0.005
+    minimum_clearance_m: float = ROS2_RESEARCH_MINIMUM_CLEARANCE_M
     minimum_self_distance_m: Optional[float] = None
     minimum_world_distance_m: Optional[float] = None
     first_body: str = ""
@@ -117,6 +133,7 @@ class TaskJointStatus:
     accepted: bool
     reason: str
     task_fingerprint: str = ""
+    guard_session_id: str = ""
     phase: str = ""
     sequence: int = -1
     requested_positions: tuple[float, ...] = ()
@@ -125,8 +142,14 @@ class TaskJointStatus:
     corridor_ok: bool = False
     corridor_progress: Optional[float] = None
     corridor_distance_m: Optional[float] = None
+    minimum_clearance_m: float = ROS2_RESEARCH_MINIMUM_CLEARANCE_M
+    minimum_self_distance_m: Optional[float] = None
+    minimum_world_distance_m: Optional[float] = None
     first_body: str = ""
     second_body: str = ""
+    world_object_count: int = 0
+    exploratory_tool_contact_suppressed: bool = False
+    suppressed_tool_contact_sample_count: int = 0
 
 
 _status_subscriber = None
@@ -219,7 +242,9 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
 
     if not isinstance(data.get("accepted"), bool):
         raise ValueError("accepted must be a boolean.")
-    minimum_clearance_m = float(data.get("minimum_clearance_m", 0.005))
+    minimum_clearance_m = float(
+        data.get("minimum_clearance_m", ROS2_RESEARCH_MINIMUM_CLEARANCE_M)
+    )
     if not isfinite(minimum_clearance_m) or minimum_clearance_m < 0.0:
         raise ValueError("minimum_clearance_m must be finite and non-negative.")
     return JointCommandStatus(
@@ -264,10 +289,22 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
 
     if not isinstance(data.get("accepted"), bool):
         raise ValueError("accepted must be a boolean.")
+    task_fingerprint = str(data.get("task_fingerprint") or "")
+    guard_session_id = str(data.get("guard_session_id") or "")
+    if not task_fingerprint or not guard_session_id:
+        raise ValueError("Task status must identify its task and guard session.")
+    exploratory_suppressed = data.get(
+        "exploratory_tool_contact_suppressed", False
+    )
+    if not isinstance(exploratory_suppressed, bool):
+        raise ValueError(
+            "exploratory_tool_contact_suppressed must be a boolean."
+        )
     return TaskJointStatus(
         accepted=bool(data["accepted"]),
         reason=str(data.get("reason") or ""),
-        task_fingerprint=str(data.get("task_fingerprint") or ""),
+        task_fingerprint=task_fingerprint,
+        guard_session_id=guard_session_id,
         phase=str(data.get("phase") or ""),
         sequence=int(data.get("sequence", -1)),
         requested_positions=positions("requested_positions"),
@@ -276,8 +313,18 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         corridor_ok=bool(data.get("corridor_ok", False)),
         corridor_progress=optional_number("corridor_progress"),
         corridor_distance_m=optional_number("corridor_distance_m"),
+        minimum_clearance_m=float(
+            data.get("minimum_clearance_m", ROS2_RESEARCH_MINIMUM_CLEARANCE_M)
+        ),
+        minimum_self_distance_m=optional_number("minimum_self_distance_m"),
+        minimum_world_distance_m=optional_number("minimum_world_distance_m"),
         first_body=str(data.get("first_body") or ""),
         second_body=str(data.get("second_body") or ""),
+        world_object_count=max(0, int(data.get("world_object_count", 0))),
+        exploratory_tool_contact_suppressed=exploratory_suppressed,
+        suppressed_tool_contact_sample_count=max(
+            0, int(data.get("suppressed_tool_contact_sample_count", 0))
+        ),
     )
 
 
@@ -571,12 +618,71 @@ def joint_command_status(max_age_sec: float = 2.5) -> Optional[JointCommandStatu
     return _last_joint_status
 
 
+def wait_for_collision_guard_world(
+    minimum_object_count: int,
+    *,
+    timeout_sec: float = 8.0,
+) -> Tuple[bool, str]:
+    """Wait until the guard reports the synchronized MoveIt world snapshot."""
+
+    expected = max(0, int(minimum_object_count))
+    if expected == 0:
+        return True, "No case collision objects were requested."
+    deadline = time.monotonic() + float(timeout_sec)
+    observed = 0
+    while time.monotonic() < deadline:
+        status = joint_command_status(max_age_sec=1.0)
+        if status is not None:
+            observed = max(observed, int(status.world_object_count))
+            if status.world_object_count >= expected:
+                return (
+                    True,
+                    f"Collision guard acknowledged {status.world_object_count} world object(s).",
+                )
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        time.sleep(0.02)
+    return (
+        False,
+        f"Collision guard saw only {observed}/{expected} synchronized world object(s).",
+    )
+
+
 def last_accepted_joint_positions_si() -> dict[str, float]:
-    """Return the collision guard's most recent accepted six-joint state."""
-    status = joint_command_status()
-    if status is None or len(status.accepted_positions) != len(ROS2_JOINT_SI_ORDER):
+    """Return the latest accepted ordinary or phased simulation state."""
+
+    joint_command_status()
+    candidates = []
+    if (
+        _last_task_status is not None
+        and len(_last_task_status.accepted_positions) == len(ROS2_JOINT_SI_ORDER)
+    ):
+        candidates.append(
+            (_last_task_status_at, tuple(_last_task_status.accepted_positions))
+        )
+    if (
+        _last_joint_status is not None
+        and len(_last_joint_status.accepted_positions) == len(ROS2_JOINT_SI_ORDER)
+    ):
+        candidates.append(
+            (_last_joint_status_at, tuple(_last_joint_status.accepted_positions))
+        )
+    if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
+        candidates.append((-1.0, tuple(float(value) for value in _native_joint_positions)))
+    if not candidates:
         return {}
-    return dict(zip(ROS2_JOINT_SI_ORDER, status.accepted_positions))
+    _timestamp, values = max(candidates, key=lambda item: item[0])
+    return dict(zip(ROS2_JOINT_SI_ORDER, values))
+
+
+def last_task_joint_status() -> Optional[TaskJointStatus]:
+    """Return the latest transient phase-guard result for reporting."""
+
+    return _last_task_status
 
 
 def _on_task_status_modified(caller=None, event=None) -> None:
@@ -643,6 +749,43 @@ def _ensure_task_publishers() -> tuple[object | None, object | None]:
     return _task_config_publisher, _task_command_publisher
 
 
+def _wait_for_task_command_result(
+    *,
+    task_fingerprint: str,
+    guard_session_id: str,
+    phase: str,
+    sequence: int,
+    after_monotonic: float,
+    timeout_sec: float,
+) -> Optional[TaskJointStatus]:
+    deadline = time.monotonic() + float(timeout_sec)
+    while time.monotonic() < deadline:
+        ros_logic = get_ros2_logic()
+        if ros_logic is not None:
+            try:
+                ros_logic.Spin()
+            except Exception:
+                pass
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        status = _last_task_status
+        if (
+            status is not None
+            and _last_task_status_at > float(after_monotonic)
+            and status.task_fingerprint == str(task_fingerprint)
+            and status.guard_session_id == str(guard_session_id)
+            and status.phase == str(phase)
+            and status.sequence == int(sequence)
+        ):
+            return status
+        time.sleep(0.01)
+    return None
+
+
 def world_ras_mm_to_base_m(point_ras_mm: Sequence[float], base_transform) -> list[float]:
     import numpy as np
     import vtk
@@ -664,22 +807,41 @@ def configure_task_phase_guard(
     *,
     task_fingerprint: str,
     target_object_id: str,
+    clearance_exempt_object_ids: Sequence[str],
     base_transform,
     entry_ras_mm: Sequence[float],
     target_ras_mm: Sequence[float],
     corridor_radius_mm: float,
     approach_standoff_mm: float,
 ) -> Tuple[bool, str]:
-    global _last_task_config_json
-    config_publisher, _command_publisher = _ensure_task_publishers()
-    if config_publisher is None or _ensure_task_status_subscriber() is None:
+    global _last_task_config_json, _native_joint_positions
+    config_publisher, command_publisher = _ensure_task_publishers()
+    if (
+        config_publisher is None
+        or command_publisher is None
+        or _ensure_task_status_subscriber() is None
+    ):
         return False, "Could not create the transient task-guard ROS interface."
     payload = {
         "schema": ROS2_TASK_GUARD_CONFIG_SCHEMA,
         "mode": "simulation_only",
         "task_fingerprint": str(task_fingerprint),
+        # A task may be re-planned without changing its immutable fingerprint.
+        # This transient nonce identifies exactly one ordered preview session.
+        # Re-publishing the same configuration is idempotent at the C++ guard,
+        # while a new plan gets a clean sequence/corridor history.
+        "guard_session_id": uuid4().hex,
         "target_object_id": str(target_object_id),
         "allowed_robot_link": "burr",
+        # Approved task anatomy and guide objects omit only their burr-to-object
+        # *distance* pairs in all phased states. Approach collision remains
+        # strict. During terminal-contact/drilling preview, the C++ phase guard
+        # suppresses only these configured burr pairs and reports every such
+        # sample explicitly. Other robot links retain the 1 mm research margin
+        # and strict collision checking.
+        "clearance_exempt_object_ids": [
+            str(value) for value in clearance_exempt_object_ids if str(value)
+        ],
         "tool_tip_frame": ROS2_TOOL_TCP_LINK,
         "entry_base_m": world_ras_mm_to_base_m(entry_ras_mm, base_transform),
         "target_base_m": world_ras_mm_to_base_m(target_ras_mm, base_transform),
@@ -689,8 +851,79 @@ def configure_task_phase_guard(
     if not payload["task_fingerprint"] or not payload["target_object_id"]:
         return False, "Task-guard configuration is missing its task or target identity."
     _last_task_config_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    config_publisher.Publish(_last_task_config_json)
-    return True, "Published the versioned simulation-only task-guard configuration."
+    if len(_native_joint_positions) != len(ROS2_JOINT_SI_ORDER):
+        _last_task_config_json = ""
+        return False, "The current six-joint state is unavailable for task-guard initialization."
+    # Configuration and command use separate ROS topics, so DDS does not
+    # guarantee cross-topic arrival order.  Sequence zero is a strict no-op
+    # handshake at the already accepted state.  Only after the guard accepts
+    # it may the façade begin Goal 1 at sequence one.
+    handshake = {
+        "schema": ROS2_TASK_JOINT_COMMAND_SCHEMA,
+        "mode": "simulation_only",
+        "task_fingerprint": str(task_fingerprint),
+        "guard_session_id": payload["guard_session_id"],
+        "phase": "approach",
+        "sequence": 0,
+        "joint_positions": [float(value) for value in _native_joint_positions],
+    }
+    handshake_json = json.dumps(handshake, sort_keys=True, separators=(",", ":"))
+    status_after = _last_task_status_at
+    deadline = time.monotonic() + ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        config_publisher.Publish(_last_task_config_json)
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        time.sleep(0.05)
+        command_publisher.Publish(handshake_json)
+        status = _wait_for_task_command_result(
+            task_fingerprint=str(task_fingerprint),
+            guard_session_id=payload["guard_session_id"],
+            phase="approach",
+            sequence=0,
+            after_monotonic=status_after,
+            timeout_sec=0.4,
+        )
+        if status is None:
+            continue
+        status_after = _last_task_status_at
+        if status.accepted:
+            _native_joint_positions = list(status.accepted_positions)
+            return (
+                True,
+                "Task guard acknowledged the immutable configuration and strict current state.",
+            )
+        if (
+            "No valid simulation task-guard configuration" in status.reason
+            or "guard session does not match" in status.reason
+            or "configured task-proximity collision object is missing"
+            in status.reason
+            or "selected target-tooth collision object is missing"
+            in status.reason
+        ):
+            continue
+        pair = (
+            f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
+            if status.first_body or status.second_body
+            else ""
+        )
+        _last_task_config_json = ""
+        return (
+            False,
+            "Task-guard initialization rejected the current state: "
+            + status.reason
+            + pair,
+        )
+    _last_task_config_json = ""
+    return (
+        False,
+        "Task guard did not acknowledge the immutable configuration with its "
+        "complete planning-scene object set.",
+    )
 
 
 def apply_task_phase_joint_positions(
@@ -699,7 +932,7 @@ def apply_task_phase_joint_positions(
     task_fingerprint: str,
     phase: str,
     sequence: int,
-    timeout_sec: float = 1.5,
+    timeout_sec: float = 6.0,
 ) -> Tuple[bool, str]:
     global _native_joint_positions
     config_publisher, command_publisher = _ensure_task_publishers()
@@ -716,50 +949,56 @@ def apply_task_phase_joint_positions(
         "schema": ROS2_TASK_JOINT_COMMAND_SCHEMA,
         "mode": "simulation_only",
         "task_fingerprint": str(task_fingerprint),
-        "phase": str(phase),
-        "sequence": int(sequence),
-        "joint_positions": values,
     }
-    if _last_task_config_json:
-        config_publisher.Publish(_last_task_config_json)
-        try:
-            import slicer
-
-            slicer.app.processEvents()
-        except Exception:
-            pass
+    if not _last_task_config_json:
+        return False, "No simulation task-guard configuration is active. Re-plan Goal 1."
+    try:
+        active_config = json.loads(_last_task_config_json)
+        active_fingerprint = str(active_config.get("task_fingerprint") or "")
+        active_session_id = str(active_config.get("guard_session_id") or "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        active_fingerprint = ""
+        active_session_id = ""
+    if active_fingerprint != str(task_fingerprint):
+        return (
+            False,
+            "The active simulation task guard belongs to another task. Re-plan Goal 1.",
+        )
+    if not active_session_id:
+        return False, "The active simulation task-guard session is invalid. Re-plan Goal 1."
+    command.update(
+        {
+            "guard_session_id": active_session_id,
+            "phase": str(phase),
+            "sequence": int(sequence),
+            "joint_positions": values,
+        }
+    )
     command_publisher.Publish(json.dumps(command, sort_keys=True, separators=(",", ":")))
-    deadline = time.monotonic() + float(timeout_sec)
-    while time.monotonic() < deadline:
-        ros_logic = get_ros2_logic()
-        if ros_logic is not None:
-            ros_logic.Spin()
-        try:
-            import slicer
-
-            slicer.app.processEvents()
-        except Exception:
-            pass
-        status = _last_task_status
-        if (
-            status is not None
-            and _last_task_status_at > status_before
-            and status.task_fingerprint == str(task_fingerprint)
-            and status.phase == str(phase)
-            and status.sequence == int(sequence)
-        ):
-            if status.accepted:
-                _native_joint_positions = values
-                return True, status.reason
-            _native_joint_positions = prior
-            pair = (
-                f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
-                if status.first_body or status.second_body
-                else ""
-            )
-            return False, f"Task guard rejected the waypoint: {status.reason}{pair}"
-        time.sleep(0.01)
-    return False, "Task guard did not answer the phased simulation command."
+    status = _wait_for_task_command_result(
+        task_fingerprint=str(task_fingerprint),
+        guard_session_id=active_session_id,
+        phase=str(phase),
+        sequence=int(sequence),
+        after_monotonic=status_before,
+        timeout_sec=float(timeout_sec),
+    )
+    if status is None:
+        return False, "Task guard did not answer the phased simulation command."
+    if status.accepted:
+        _native_joint_positions = values
+        return True, status.reason
+    _native_joint_positions = prior
+    pair = (
+        f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
+        if status.first_body or status.second_body
+        else ""
+    )
+    return (
+        False,
+        f"Task guard rejected {phase} sequence {int(sequence)}: "
+        f"{status.reason}{pair}",
+    )
 
 
 def _wait_for_joint_command_result(
@@ -1346,6 +1585,7 @@ def apply_joint_positions_si_to_motion_control(
     status_before = _last_joint_status_at
     try:
         if not _publish_slicer_joint_command():
+            _native_joint_positions = prior_native
             return False, "Failed to publish the simulated joint vector."
         result = _wait_for_joint_command_result(
             values,
@@ -1476,10 +1716,194 @@ def _trajectory_time_seconds(point) -> float:
     return 0.0
 
 
+def _matrix4_rows(matrix) -> tuple[tuple[float, ...], ...]:
+    """Return one finite homogeneous matrix without importing VTK."""
+
+    try:
+        if hasattr(matrix, "GetElement"):
+            rows = tuple(
+                tuple(float(matrix.GetElement(row, column)) for column in range(4))
+                for row in range(4)
+            )
+        else:
+            rows = tuple(
+                tuple(float(matrix[row][column]) for column in range(4))
+                for row in range(4)
+            )
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError(f"Pose matrix must contain 16 finite values: {exc}") from exc
+    if len(rows) != 4 or any(len(row) != 4 for row in rows):
+        raise ValueError("Pose matrix must be 4 by 4.")
+    if not all(isfinite(value) for row in rows for value in row):
+        raise ValueError("Pose matrix must contain only finite values.")
+    return rows
+
+
+def _validate_rigid_pose_rows(
+    rows: Sequence[Sequence[float]],
+    *,
+    label: str,
+    tolerance: float = 1e-4,
+) -> None:
+    """Fail closed on scale, shear, reflection, or a non-homogeneous pose."""
+
+    matrix = _matrix4_rows(rows)
+    if any(abs(matrix[3][index]) > tolerance for index in range(3)) or abs(
+        matrix[3][3] - 1.0
+    ) > tolerance:
+        raise ValueError(f"{label} is not a homogeneous rigid transform.")
+    columns = tuple(
+        tuple(matrix[row][column] for row in range(3)) for column in range(3)
+    )
+    for index, column in enumerate(columns):
+        norm = sqrt(sum(value * value for value in column))
+        if abs(norm - 1.0) > tolerance:
+            raise ValueError(f"{label} rotation column {index} is not unit length.")
+    for first in range(3):
+        for second in range(first + 1, 3):
+            dot = sum(
+                columns[first][index] * columns[second][index]
+                for index in range(3)
+            )
+            if abs(dot) > tolerance:
+                raise ValueError(f"{label} rotation contains scale or shear.")
+    determinant = (
+        matrix[0][0]
+        * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+        - matrix[0][1]
+        * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+        + matrix[0][2]
+        * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0])
+    )
+    if determinant <= 0.0 or abs(determinant - 1.0) > 5.0 * tolerance:
+        raise ValueError(f"{label} rotation must be right-handed and orthonormal.")
+
+
+def _rigid_pose_world_to_reference_rows(
+    pose_world,
+    reference_to_world,
+) -> tuple[tuple[float, ...], ...]:
+    """Express a rigid world pose in a rigid reference frame, preserving mm."""
+
+    world = _matrix4_rows(pose_world)
+    reference = _matrix4_rows(reference_to_world)
+    _validate_rigid_pose_rows(world, label="Cartesian world pose")
+    _validate_rigid_pose_rows(reference, label="Robot base pose")
+    reference_rotation = tuple(
+        tuple(reference[row][column] for column in range(3)) for row in range(3)
+    )
+    world_rotation = tuple(
+        tuple(world[row][column] for column in range(3)) for row in range(3)
+    )
+    relative_rotation = tuple(
+        tuple(
+            sum(
+                reference_rotation[index][row] * world_rotation[index][column]
+                for index in range(3)
+            )
+            for column in range(3)
+        )
+        for row in range(3)
+    )
+    world_offset = tuple(world[row][3] - reference[row][3] for row in range(3))
+    relative_translation = tuple(
+        sum(reference_rotation[index][row] * world_offset[index] for index in range(3))
+        for row in range(3)
+    )
+    return tuple(
+        tuple(relative_rotation[row][column] for column in range(3))
+        + (relative_translation[row],)
+        for row in range(3)
+    ) + ((0.0, 0.0, 0.0, 1.0),)
+
+
+def _pose_residual_mm_degrees(
+    actual,
+    expected,
+) -> tuple[float, float]:
+    """Return translation and shortest rotation residual between rigid poses."""
+
+    actual_rows = _matrix4_rows(actual)
+    expected_rows = _matrix4_rows(expected)
+    _validate_rigid_pose_rows(actual_rows, label="Actual TCP pose")
+    _validate_rigid_pose_rows(expected_rows, label="Requested TCP pose")
+    position_error = sqrt(
+        sum(
+            (actual_rows[row][3] - expected_rows[row][3]) ** 2
+            for row in range(3)
+        )
+    )
+    # Normalize corresponding rotation columns before taking trace(Ra^T Re).
+    # MRML matrices may contain harmless floating-point drift from a chain of
+    # rigid transforms; without this normalization even comparing a matrix to
+    # itself can report a small, fictitious angular error.
+    relative_trace = 0.0
+    for column in range(3):
+        actual_column = tuple(actual_rows[row][column] for row in range(3))
+        expected_column = tuple(expected_rows[row][column] for row in range(3))
+        actual_norm = sqrt(sum(value * value for value in actual_column))
+        expected_norm = sqrt(sum(value * value for value in expected_column))
+        relative_trace += sum(
+            actual_column[row] * expected_column[row] for row in range(3)
+        ) / (actual_norm * expected_norm)
+    cosine = max(-1.0, min(1.0, 0.5 * (relative_trace - 1.0)))
+    return float(position_error), float(degrees(acos(cosine)))
+
+
+def _pose_matrices_world_to_base_mm(pose_matrices, base_transform):
+    """Convert explicit world-RAS/mm poses once into base-link/mm poses."""
+
+    if base_transform is None:
+        raise ValueError("Cartesian planning requires the locked robot-base transform.")
+    import vtk
+
+    base_to_world = vtk.vtkMatrix4x4()
+    result = base_transform.GetMatrixTransformToWorld(base_to_world)
+    if result is False:
+        raise ValueError("Could not resolve the robot-base transform in world RAS.")
+    base_rows = _matrix4_rows(base_to_world)
+    converted = []
+    for pose_world in pose_matrices:
+        rows = _rigid_pose_world_to_reference_rows(pose_world, base_rows)
+        matrix = vtk.vtkMatrix4x4()
+        matrix.Identity()
+        for row in range(4):
+            for column in range(4):
+                matrix.SetElement(row, column, rows[row][column])
+        converted.append(matrix)
+    return converted
+
+
+def _cartesian_start_continuity(
+    robot_node,
+    start_joint_positions_si: Mapping[str, float],
+    first_pose_base_mm,
+) -> tuple[float, float]:
+    """Compare the explicit MoveIt start-state FK with waypoint zero."""
+
+    import vtk
+
+    actual_pose = vtk.vtkMatrix4x4()
+    actual_pose.Identity()
+    fk_result = robot_node.ComputeKDLFK(
+        joint_si_vector(start_joint_positions_si),
+        actual_pose,
+        ROS2_TOOL_TCP_LINK,
+    )
+    if fk_result is None:
+        raise ValueError(
+            f"Could not compute {ROS2_TOOL_TCP_LINK} FK for the Cartesian start state."
+        )
+    return _pose_residual_mm_degrees(actual_pose, first_pose_base_mm)
+
+
 def tool_pose_matrices_world_mm(
     entry_ras_mm: Sequence[float],
     target_ras_mm: Sequence[float],
     sample_count: int,
+    *,
+    axial_roll_start_deg: float = 0.0,
+    axial_roll_end_deg: float = 0.0,
 ):
     """Create right-handed poses whose +Z axis follows Entry-to-Target."""
     import numpy as np
@@ -1503,13 +1927,22 @@ def tool_pose_matrices_world_mm(
     y_axis /= np.linalg.norm(y_axis)
     x_axis = np.cross(y_axis, z_axis)
 
+    roll_start = float(axial_roll_start_deg)
+    roll_end = float(axial_roll_end_deg)
+    if not isfinite(roll_start) or not isfinite(roll_end):
+        raise ValueError("Tool-axis roll must be finite.")
+    points = np.linspace(entry, target, max(2, int(sample_count)))
+    rolls = np.linspace(roll_start, roll_end, len(points))
     matrices = []
-    for point in np.linspace(entry, target, max(2, int(sample_count))):
+    for point, roll_deg in zip(points, rolls):
+        angle = radians(float(roll_deg))
+        rolled_x = cos(angle) * x_axis + sin(angle) * y_axis
+        rolled_y = -sin(angle) * x_axis + cos(angle) * y_axis
         matrix = vtk.vtkMatrix4x4()
         matrix.Identity()
         for row in range(3):
-            matrix.SetElement(row, 0, float(x_axis[row]))
-            matrix.SetElement(row, 1, float(y_axis[row]))
+            matrix.SetElement(row, 0, float(rolled_x[row]))
+            matrix.SetElement(row, 1, float(rolled_y[row]))
             matrix.SetElement(row, 2, float(z_axis[row]))
             matrix.SetElement(row, 3, float(point[row]))
         matrices.append(matrix)
@@ -1525,6 +1958,8 @@ def plan_moveit_cartesian_path(
     avoid_collisions: bool = True,
     minimum_fraction: float = 0.99,
     start_joint_positions_si: Optional[Mapping[str, float]] = None,
+    axial_roll_start_deg: float = 0.0,
+    axial_roll_end_deg: float = 0.0,
 ) -> MoveItCartesianResult:
     """Plan a collision-aware TCP path and convert it for Step 6 preview."""
     status = simulation_stack_status()
@@ -1545,42 +1980,113 @@ def plan_moveit_cartesian_path(
     if motion_node is None:
         return MoveItCartesianResult(False, "MoveIt motion-control node is unavailable.")
     try:
-        poses = tool_pose_matrices_world_mm(entry_ras_mm, target_ras_mm, sample_count)
+        world_poses = tool_pose_matrices_world_mm(
+            entry_ras_mm,
+            target_ras_mm,
+            sample_count,
+            axial_roll_start_deg=axial_roll_start_deg,
+            axial_roll_end_deg=axial_roll_end_deg,
+        )
+        poses = _pose_matrices_world_to_base_mm(world_poses, base_transform)
         start_names = None
         start_values = None
+        start_position_error_mm = None
+        start_orientation_error_deg = None
         if start_joint_positions_si is not None:
             start_names = list(ROS2_JOINT_SI_ORDER)
             start_values = joint_si_vector(start_joint_positions_si)
-        trajectory = motion_logic.PlanMoveItCartesianTrajectoryFromPoseMarkers(
-            motionControlNode=motion_node,
-            groupName=ROS2_PLANNING_GROUP,
-            poseMarkers=poses,
-            relativeToNode=base_transform,
-            robotNode=robot_node,
-            eefStepMeters=0.001,
-            jumpThreshold=0.0,
-            avoidCollisions=bool(avoid_collisions),
-            velocityScaling=0.2,
-            accelerationScaling=0.2,
-            planningTimeSec=10.0,
-            startJointNames=start_names,
-            startJointValues=start_values,
-            linkName=ROS2_TOOL_TCP_LINK,
+            (
+                start_position_error_mm,
+                start_orientation_error_deg,
+            ) = _cartesian_start_continuity(
+                robot_node,
+                start_joint_positions_si,
+                poses[0],
+            )
+            if (
+                start_position_error_mm > CARTESIAN_START_POSITION_TOLERANCE_MM
+                or start_orientation_error_deg
+                > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+            ):
+                return MoveItCartesianResult(
+                    False,
+                    "Refusing an unintended Cartesian bridge: the explicit "
+                    f"start-state TCP differs from waypoint zero by "
+                    f"{start_position_error_mm:.3f} mm and "
+                    f"{start_orientation_error_deg:.3f} deg in {ROS2_FIXED_FRAME}.",
+                    coordinate_frame=ROS2_FIXED_FRAME,
+                    start_position_error_mm=start_position_error_mm,
+                    start_orientation_error_deg=start_orientation_error_deg,
+                )
+        # A coarse Cartesian step can stop at a local IK-continuation failure
+        # even when closer seeded waypoints remain solvable. Retry only with
+        # bounded, progressively finer steps and keep the best result. The
+        # requested poses/orientation and exact Entry-to-Target line do not
+        # change. Collision-aware requests retain one 1 mm attempt; exploratory
+        # contact/drilling requests may use all three resolutions.
+        eef_steps = (
+            (ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M[0],)
+            if avoid_collisions
+            else ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M
         )
+        trajectory = None
+        fraction = 0.0
+        used_eef_step_m = float(eef_steps[0])
+        for eef_step_m in eef_steps:
+            candidate = motion_logic.PlanMoveItCartesianTrajectoryFromPoseMarkers(
+                motionControlNode=motion_node,
+                groupName=ROS2_PLANNING_GROUP,
+                poseMarkers=poses,
+                # These raw matrices are explicitly base-local. The generic
+                # SlicerROS2 helper must not reinterpret their coordinates.
+                relativeToNode=None,
+                robotNode=robot_node,
+                eefStepMeters=float(eef_step_m),
+                jumpThreshold=0.0,
+                avoidCollisions=bool(avoid_collisions),
+                velocityScaling=0.2,
+                accelerationScaling=0.2,
+                planningTimeSec=10.0,
+                startJointNames=start_names,
+                startJointValues=start_values,
+                linkName=ROS2_TOOL_TCP_LINK,
+            )
+            candidate_fraction = float(motion_node.GetLastCartesianPathFraction())
+            if candidate is not None and (
+                trajectory is None or candidate_fraction >= fraction
+            ):
+                trajectory = candidate
+                fraction = candidate_fraction
+                used_eef_step_m = float(eef_step_m)
+            if (
+                avoid_collisions
+                and candidate is not None
+                and candidate_fraction >= float(minimum_fraction)
+            ):
+                break
     except Exception as exc:
         return MoveItCartesianResult(False, f"MoveIt Cartesian request failed: {exc}")
-    fraction = float(motion_node.GetLastCartesianPathFraction())
     if trajectory is None:
         return MoveItCartesianResult(
             False,
             f"MoveIt returned no Cartesian trajectory (fraction {fraction:.3f}).",
             fraction=fraction,
+            coordinate_frame=ROS2_FIXED_FRAME,
+            start_position_error_mm=start_position_error_mm,
+            start_orientation_error_deg=start_orientation_error_deg,
+            axial_roll_deg=float(axial_roll_end_deg),
         )
     if fraction < float(minimum_fraction):
         return MoveItCartesianResult(
             False,
-            f"MoveIt planned only {fraction * 100.0:.1f}% of the requested path.",
+            f"MoveIt planned only {fraction * 100.0:.1f}% of the requested path "
+            f"after bounded Cartesian steps down to "
+            f"{min(eef_steps) * 1000.0:.2f} mm.",
             fraction=fraction,
+            coordinate_frame=ROS2_FIXED_FRAME,
+            start_position_error_mm=start_position_error_mm,
+            start_orientation_error_deg=start_orientation_error_deg,
+            axial_roll_deg=float(axial_roll_end_deg),
         )
     joint_trajectory = trajectory.GetJointTrajectory()
     names = [str(name) for name in joint_trajectory.GetJointNames()]
@@ -1600,10 +2106,15 @@ def plan_moveit_cartesian_path(
         return MoveItCartesianResult(False, "MoveIt returned an empty trajectory.")
     return MoveItCartesianResult(
         True,
-        f"MoveIt planned {len(waypoints)} points with Cartesian fraction {fraction:.3f}.",
+        f"MoveIt planned {len(waypoints)} points with Cartesian fraction "
+        f"{fraction:.3f} using a {used_eef_step_m * 1000.0:.2f} mm step.",
         fraction=fraction,
         waypoint_joint_vectors_si=tuple(waypoints),
         waypoint_times_sec=tuple(times),
+        coordinate_frame=ROS2_FIXED_FRAME,
+        start_position_error_mm=start_position_error_mm,
+        start_orientation_error_deg=start_orientation_error_deg,
+        axial_roll_deg=float(axial_roll_end_deg),
     )
 
 
@@ -1770,17 +2281,60 @@ def plan_moveit_joint_goal() -> MoveItCartesianResult:
     if motion_node is None:
         return MoveItCartesianResult(False, "MoveIt motion-control node is unavailable.")
     try:
+        # Refresh republishes SlicerROS2 collision objects asynchronously. Do
+        # not plan against a scene that is still changing: MoveIt can otherwise
+        # find a path against the old world and invalidate it after newer
+        # objects arrive in the response-validation adapter.
         logic.RefreshMoveItPlanningScene(robot_node)
-        trajectory = motion_node.PlanMoveItTrajectory(
-            ROS2_PLANNING_GROUP,
-            list(logic.last_ik_solution),
-            0.2,
-            0.2,
-            10.0,
+        deadline = time.monotonic() + ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC
+        while time.monotonic() < deadline:
+            try:
+                import slicer
+
+                slicer.app.processEvents()
+            except Exception:
+                pass
+            ros_logic = get_ros2_logic()
+            if ros_logic is not None:
+                try:
+                    ros_logic.Spin()
+                except Exception:
+                    pass
+            time.sleep(0.02)
+        last_result = MoveItCartesianResult(
+            False, "MoveIt did not attempt joint-goal planning."
+        )
+        for attempt in range(1, ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS + 1):
+            trajectory = motion_node.PlanMoveItTrajectory(
+                ROS2_PLANNING_GROUP,
+                list(logic.last_ik_solution),
+                0.2,
+                0.2,
+                10.0,
+            )
+            last_result = _moveit_trajectory_result(trajectory)
+            if last_result.success:
+                if attempt == 1:
+                    return last_result
+                return MoveItCartesianResult(
+                    True,
+                    f"{last_result.message} Stable-scene planning succeeded on "
+                    f"bounded attempt {attempt}/{ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS}.",
+                    fraction=last_result.fraction,
+                    waypoint_joint_vectors_si=last_result.waypoint_joint_vectors_si,
+                    waypoint_times_sec=last_result.waypoint_times_sec,
+                    coordinate_frame=last_result.coordinate_frame,
+                )
+            if attempt < ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS:
+                time.sleep(ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC)
+        return MoveItCartesianResult(
+            False,
+            f"MoveIt joint-goal planning failed after "
+            f"{ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS} stable-scene attempt(s): "
+            f"{last_result.message}",
         )
     except Exception as exc:
         return MoveItCartesianResult(False, f"MoveIt goal planning failed: {exc}")
-    return _moveit_trajectory_result(trajectory)
 
 
 def sync_moveit_obstacle_polydata(

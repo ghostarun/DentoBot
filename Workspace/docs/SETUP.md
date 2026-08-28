@@ -1,6 +1,6 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-25
+Last verified: 2026-08-28
 
 ## Scope
 
@@ -748,6 +748,54 @@ KDL compatibility. Treat joint zeros/directions/limits, masses/inertias, mesh
 scale/alignment, collision fidelity, tool/TCP/docking frames, self-collision,
 and physical calibration as unverified inputs.
 
+## graphify (Cursor + Codex codebase graph)
+
+[graphify](https://github.com/Graphify-Labs/graphify) builds a local AST knowledge
+graph so agents can run `graphify query` instead of repeatedly grepping large
+trees. Code extraction is deterministic and stays on-machine; optional semantic
+doc passes use the assistant model or an API key.
+
+**Install (host Ubuntu):**
+
+```bash
+python3 -m pip install --user pipx
+pipx install graphifyy          # PyPI name is graphifyy (two y's)
+# ensure ~/.local/bin is on PATH
+```
+
+**Project wiring (from repository root):**
+
+```bash
+cd /home/light-tarun/dentobot
+graphify cursor install         # .cursor/rules/graphify.mdc (alwaysApply)
+graphify codex install          # AGENTS.md section + .codex/hooks.json
+graphify update .               # AST-only index → graphify-out/ (gitignored)
+```
+
+Codex app and Codex CLI share the repository skill at
+`.agents/skills/graphify/SKILL.md`. Its `agents/openai.yaml` metadata exposes a
+**Graphify** entry in app skill pickers, and CLI users can invoke it explicitly
+as `$graphify` (or allow its description to match a codebase-navigation
+request). Codex discovers repository skills from `.agents/skills`; if an
+already-running app or CLI session does not show a newly added skill, restart
+Codex and open this repository again.
+
+**Daily use:**
+
+```bash
+graphify query "<question>"
+graphify path "<symbol A>" "<symbol B>"
+graphify explain "<concept>"
+graphify update .               # after code edits (no LLM cost)
+```
+
+In Cursor chat, `/graphify .` runs the full skill (code + optional docs). For
+token economy, prefer `graphify update .` plus `graphify query` for code
+questions. Regenerate the graph after substantive refactors.
+
+Optional: `graphify hook install` keeps the graph fresh on git commit (requires
+a git repository at the project root).
+
 ## Host Arduino pressure monitor
 
 The live pneumatic-pressure GUI is a host-only sensing bench:
@@ -1151,6 +1199,19 @@ may still recreate the container when its image or configuration has actually
 changed. Save any open Slicer scene before invoking the launcher: the clean
 restart intentionally discards unsaved in-container UI state.
 
+The collision guard parses its versioned phase JSON with JsonCpp. The ROS
+package declares `jsoncpp` as a build dependency and CMake links
+`JsonCpp::JsonCpp`; do not replace this with delimiter-based string parsing,
+because valid task/object labels may contain Unicode punctuation and brackets.
+For a focused rebuild in the pinned container:
+
+```bash
+cd /workspace/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src/DentoBot/dentobot_moveit_config \
+  --packages-select dentobot_moveit_config --symlink-install
+```
+
 `--check-only` remains non-destructive. It does not restart a running
 container and refuses the check when an active DENTOBOT Slicer or simulation
 launch is found, allowing it to be used without interrupting an operator
@@ -1208,14 +1269,18 @@ Step 6 operator sequence:
    (Simulation)**. Connect remains inside DENTOWorkflow, aligns the live robot
    to the locked base, applies Task Home through the strict guard, and syncs
    obstacles. Confirm one immutable task snapshot before planning.
-6. **6.5 Goal 1 — approach:** plan collision-free to the default 5 mm pre-entry
-   point, then preview the short guarded terminal move to Entry. Only the
-   selected burr-to-target contact at Entry can be accepted.
+6. **6.5 Goal 1 — approach:** plan collision-free to the new-case default 2 mm
+   pre-entry point (restored cases retain their recorded value), then plan the
+   short guarded terminal move to Entry. Before enabling preview, Step 6 must
+   prove complete Entry-to-Target reachability. It may vary only cylindrical-
+   burr axial roll; failure requires base repositioning and cannot be accepted
+   as a partial trajectory.
 7. **6.6 Goal 2 — drilling preview:** after Goal 1 completes, plan and preview
-   Entry-to-Target strictly inside the approved corridor. Intentional selected
-   target contact is allowed only by the independent phase guard; every other
-   contact, joint-bound violation, lateral escape, backtracking, or overshoot is
-   rejected.
+   Entry-to-Target strictly inside the approved corridor. The exploratory
+   guard may suppress only the configured burr-to-task-anatomy/guide contacts
+   and reports every suppression. Every non-tool contact, self-collision,
+   joint-bound violation, stale session, lateral escape, backtracking, or
+   overshoot is rejected.
 
 The same sequence is exposed by Legacy and New GUI. **Open Expert ROS
 Diagnostics** is optional; application-level Views stays available and the
@@ -1224,8 +1289,8 @@ does not enter `ROS2MotionControl`.
 
 Do not press or script Execute. It is hidden and disabled, and `move_group` has
 no controller. `dentobot_drill_tip_provisional` is a CAD-derived fixed frame,
-not a physically calibrated TCP; the 5 mm policy and generic phantom/proxy are
-draft simulation aids only.
+not a physically calibrated TCP; the 2 mm standoff, 1 mm guard margin, contact
+suppression, and generic phantom/proxy are research simulation aids only.
 
 Manual and preview values use this ROS-only simulation chain:
 
@@ -1238,19 +1303,22 @@ Manual and preview values use this ROS-only simulation chain:
 ```
 
 Phased preview additionally uses transient JSON contracts on
-`/dentobot/task_guard/configuration`, `/dentobot/task_guard/command`, and
-`/dentobot/task_guard/status`. The configuration and every command carry the
+`/dentobot/task_guard_config`, `/dentobot/task_joint_command`, and
+`/dentobot/task_joint_status`. The configuration and every command carry the
 same immutable task fingerprint. These topics and their Slicer MRML wrappers
 must never be serialized into MRML/MRB/`.dentocase`.
 
 The guard checks the entire sampled transition, not only the requested end
 state. Revolute changes are divided into increments no larger than 1 degree;
 prismatic changes use increments no larger than 0.5 mm. Every sample must be
-inside URDF bounds, collision-free, and at least 5 mm from non-allowed robot
-links and current MoveIt world objects. A rejection restores the last accepted
-joint values in the Step 6 and Motion Control widgets. Locking the base uploads
-the current phantom/case/guide proxies; reconnect or re-lock after changing the
-scene. This is a design-test guard, not certified continuous collision safety.
+inside URDF bounds and at least 1 mm from non-allowed robot links and current
+MoveIt world objects. Strict phases must be collision-free. Terminal/drilling
+may suppress only the configured burr contact with fingerprinted task anatomy
+and the approved guide/template; status reports this explicitly. A rejection
+restores the last accepted joint values in the Step 6 and Motion Control
+widgets. Locking the base uploads the current case/guide proxies; reconnect or
+re-lock after changing the scene. This is a design-test guard, not certified
+continuous collision safety.
 
 No explicit IK formula must be entered. The required model configuration is:
 
@@ -1262,11 +1330,12 @@ No explicit IK formula must be entered. The required model configuration is:
 
 MoveIt constructs the RobotModel and KDL numerically solves a requested TCP
 pose from a seed joint state. `/compute_ik` tests a single pose. The current
-Step 6 `/compute_cartesian_path` call samples Entry-to-Target at a maximum
-0.5 mm end-effector step, seeds each IK solve from the preceding solution, and
-returns the completed fraction; Step 6 accepts at least 0.99. OMPL RRTConnect
-is installed for general obstacle-avoiding joint-space plans but is not the
-algorithm used by this straight Cartesian Step 6 request.
+Step 6 `/compute_cartesian_path` call retries bounded end-effector steps down to
+0.25 mm, seeds each IK solve from the preceding solution, and returns the
+completed fraction; Step 6 accepts at least 0.99. Dense terminal/drilling
+samples are retained. OMPL RRTConnect plans the strict current-to-pre-entry
+portion after a bounded planning-scene settle/retry; it is not used to replace
+the approved straight drilling centreline.
 
 Generic Motion Control interpretation:
 

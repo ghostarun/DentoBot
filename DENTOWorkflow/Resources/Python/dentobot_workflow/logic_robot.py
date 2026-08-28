@@ -71,8 +71,82 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 node.GetAttribute("DENTOBOT.MoveItObstacleProxy") == "true"
                 and node.GetAttribute("DENTOBOT.MoveItObstacleSource") == source_id
             ):
-                return str(node.GetID() or "")
+                # SlicerROS2 publishes CollisionObject.id from the model name,
+                # not its MRML node ID.
+                return str(node.GetName() or "")
         return ""
+
+    @staticmethod
+    def step6GuidanceCollisionObjectIds(parameterNode) -> tuple[str, ...]:
+        """Return transient MoveIt IDs for approved guide/template geometry."""
+
+        guidanceNodes = (
+            [parameterNode.finalPrintableTemplateModel]
+            if parameterNode.finalPrintableTemplateModel is not None
+            else [
+                parameterNode.draftTemplateSupportModel,
+                parameterNode.targetDockingAssemblyModel,
+            ]
+        )
+        sourceIds = {
+            str(node.GetID()) for node in guidanceNodes if node is not None and node.GetID()
+        }
+        if not sourceIds:
+            return ()
+        result = []
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if (
+                node.GetAttribute("DENTOBOT.MoveItObstacleProxy") == "true"
+                and node.GetAttribute("DENTOBOT.MoveItObstacleSource") in sourceIds
+                and node.GetName()
+            ):
+                result.append(str(node.GetName()))
+        return tuple(sorted(dict.fromkeys(result)))
+
+    def step6BurrProximityCollisionObjectIds(
+        self,
+        parameterNode,
+    ) -> tuple[str, ...]:
+        """Configured task objects eligible for tool-only exploratory relaxation.
+
+        The task guard omits these burr-to-object pairs from the 1 mm research
+        distance margin. Approach collision remains strict. Terminal/drilling
+        preview may suppress only those configured burr pairs and reports each
+        affected guard sample; all other collision checks remain authoritative.
+        """
+
+        guidanceSourceIds = {
+            str(node.GetID())
+            for node in (
+                [parameterNode.finalPrintableTemplateModel]
+                if parameterNode.finalPrintableTemplateModel is not None
+                else [
+                    parameterNode.draftTemplateSupportModel,
+                    parameterNode.targetDockingAssemblyModel,
+                ]
+            )
+            if node is not None and node.GetID()
+        }
+        segmentation = parameterNode.teethSegmentation
+        segmentationPrefix = (
+            f"{segmentation.GetID()}:" if segmentation is not None else ""
+        )
+        result = []
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if node.GetAttribute("DENTOBOT.MoveItObstacleProxy") != "true":
+                continue
+            sourceId = str(
+                node.GetAttribute("DENTOBOT.MoveItObstacleSource") or ""
+            )
+            isGuidance = sourceId in guidanceSourceIds
+            isCaseAnatomy = bool(
+                segmentationPrefix
+                and sourceId.startswith(segmentationPrefix)
+                and (":target:" in sourceId or ":anatomy:" in sourceId)
+            )
+            if (isGuidance or isCaseAnatomy) and node.GetName():
+                result.append(str(node.GetName()))
+        return tuple(sorted(dict.fromkeys(result)))
 
     def importStep6PlanningContext(self, parameterNode) -> PlanningContextReport:
         report = validate_planning_context(
@@ -80,7 +154,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         )
         if not report.ready:
             raise ValueError(report.message)
-        freshnessIssues = self.step6PlanningContextFreshnessIssues(parameterNode)
+        freshnessIssues = self.step6PlanningPackageFreshnessIssues(parameterNode)
         if freshnessIssues:
             raise ValueError(
                 _(
@@ -93,11 +167,37 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         parameterNode.robotBaseTransform = base_transform
         parameterNode.step6PlanningContextImported = True
         base_transform.SetAttribute(self.STEP6_PLANNING_CONTEXT_ATTRIBUTE, "true")
+        jawIssues = self.step6CaseJawPlacementFreshnessIssues(parameterNode)
+        if jawIssues and bool(parameterNode.robotBaseMountLocked):
+            # A retained Step 6 base belongs to the anatomy pose/revision that
+            # was saved.  Importing an unprepared or legacy case must expose
+            # 6.0A instead of deadlocking it behind that old lock.
+            self.setRobotBaseMountLocked(parameterNode, False)
+            parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
+            parameterNode.step6BasePlacementSource = "restored-before-step6a-review"
+            parameterNode.step6BasePlacementRevision = max(
+                0,
+                int(parameterNode.step6BasePlacementRevision),
+            ) + 1
+            self.invalidateStep6TaskConfirmation(
+                parameterNode,
+                _("Step 6A anatomy preparation is incomplete after package import."),
+            )
         return report
 
-    def step6PlanningContextFreshnessIssues(self, parameterNode) -> list[str]:
-        """Return deterministic reasons a saved case is unsafe for Step 6."""
+    def step6PlanningPackageFreshnessIssues(self, parameterNode) -> list[str]:
+        """Return upstream Steps 4A/4C/5C package-freshness failures.
+
+        Case mouth opening is intentionally excluded.  It is a post-import
+        Step 6 prerequisite: the case must remain active so the operator can
+        place its four landmarks and derive the opened-jaw planning surface.
+        """
         issues = []
+        planning_report = validate_planning_context(
+            self.buildPlanningContextNodeMap(parameterNode),
+        )
+        if not planning_report.ready:
+            issues.append(planning_report.message)
         trajectory = parameterNode.trajectoryLine
         if trajectory is None or trajectory.GetNumberOfDefinedControlPoints() != 2:
             issues.append(_("Step 4A trajectory must contain exactly two points."))
@@ -141,33 +241,21 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     .replace("%2", verification)
                     .replace("%3", reason)
                 )
+        return issues
+
+    def step6PlanningContextFreshnessIssues(self, parameterNode) -> list[str]:
+        """Return upstream and post-import Step 6 readiness failures."""
+        issues = self.step6PlanningPackageFreshnessIssues(parameterNode)
         if bool(parameterNode.step6PlanningContextImported):
             issues.extend(self.step6CaseJawOpeningFreshnessIssues(parameterNode))
         return issues
 
-    def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
-        requested_status = (
-            BasePlacementStatus.PROVISIONAL_LOCKED
-            if locked
-            else BasePlacementStatus.UNLOCKED
-        )
-        current_status = normalize_base_status(parameterNode.step6BasePlacementStatus)
-        state_changed = bool(parameterNode.robotBaseMountLocked) != bool(locked) or (
-            current_status is not requested_status
-        )
-        parameterNode.robotBaseMountLocked = bool(locked)
-        parameterNode.step6BasePlacementStatus = requested_status.value
-        if state_changed:
-            parameterNode.step6BasePlacementSource = (
-                "manual-mount-plane" if locked else "operator-unlocked"
-            )
-            parameterNode.step6BasePlacementRevision = max(
-                0, int(parameterNode.step6BasePlacementRevision)
-            ) + 1
-            self.invalidateStep6TaskConfirmation(
-                parameterNode,
-                _("Robot base lock state changed."),
-            )
+    def _applyRobotBaseMountInteractionState(
+        self,
+        parameterNode,
+        locked: bool,
+    ) -> None:
+        """Synchronize persistent lock evidence with editable MRML handles."""
         base_transform = parameterNode.robotBaseTransform
         plane_node = parameterNode.robotMountPlane
         if base_transform and self.isRobotBaseTransformNode(base_transform):
@@ -195,6 +283,36 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 display.SetHandlesInteractive(not locked)
                 display.SetTranslationHandleVisibility(not locked)
                 display.SetRotationHandleVisibility(not locked)
+
+    def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
+        requested_status = (
+            BasePlacementStatus.PROVISIONAL_LOCKED
+            if locked
+            else BasePlacementStatus.UNLOCKED
+        )
+        current_status = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        state_changed = bool(parameterNode.robotBaseMountLocked) != bool(locked) or (
+            current_status is not requested_status
+        )
+        was_modifying = parameterNode.StartModify()
+        try:
+            parameterNode.robotBaseMountLocked = bool(locked)
+            parameterNode.step6BasePlacementStatus = requested_status.value
+            if state_changed:
+                parameterNode.step6BasePlacementSource = (
+                    "manual-mount-plane" if locked else "operator-unlocked"
+                )
+                parameterNode.step6BasePlacementRevision = max(
+                    0, int(parameterNode.step6BasePlacementRevision)
+                ) + 1
+        finally:
+            parameterNode.EndModify(was_modifying)
+        if state_changed:
+            self.invalidateStep6TaskConfirmation(
+                parameterNode,
+                _("Robot base lock state changed."),
+            )
+        self._applyRobotBaseMountInteractionState(parameterNode, locked)
 
     def robotProfileFingerprint(self) -> str:
         return str(self.caseBundleRobotProfile().get("identitySha256") or "")
@@ -419,10 +537,34 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         makeBaseStale: bool = False,
     ) -> None:
         had_confirmation = bool(str(parameterNode.step6ConfirmedTaskJson or "").strip())
-        parameterNode.step6ConfirmedTaskJson = ""
-        if makeBaseStale and parameterNode.robotBaseMountLocked:
-            parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
-            parameterNode.robotBaseMountLocked = False
+        base_status = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        has_reviewed_base = bool(
+            parameterNode.robotBaseMountLocked
+            or base_status
+            in {
+                BasePlacementStatus.PROVISIONAL_LOCKED,
+                BasePlacementStatus.REGISTERED_LOCKED,
+                BasePlacementStatus.STALE,
+            }
+        )
+        base_made_stale = bool(makeBaseStale and has_reviewed_base)
+        was_modifying = parameterNode.StartModify()
+        try:
+            parameterNode.step6ConfirmedTaskJson = ""
+            if base_made_stale:
+                if (
+                    parameterNode.robotBaseMountLocked
+                    or base_status is not BasePlacementStatus.STALE
+                ):
+                    parameterNode.step6BasePlacementRevision = max(
+                        0, int(parameterNode.step6BasePlacementRevision)
+                    ) + 1
+                parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
+                parameterNode.robotBaseMountLocked = False
+        finally:
+            parameterNode.EndModify(was_modifying)
+        if base_made_stale:
+            self._applyRobotBaseMountInteractionState(parameterNode, False)
         workspace = self.robotWorkspaceModelNode()
         if workspace is not None:
             workspace.SetAttribute("DENTOBOT.WorkspaceState", "Stale")
@@ -623,7 +765,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 message=(
                     f"{moveit_result.message} Planning scene contained "
                     f"{obstacle_count} Step 6 collision surface(s); the manual "
-                    "command guard requires 5 mm self/world clearance."
+                    "command guard requires the 1 mm research self/world clearance."
                 ),
                 waypoint_joint_vectors_si=moveit_result.waypoint_joint_vectors_si,
                 planner="moveit_cartesian",

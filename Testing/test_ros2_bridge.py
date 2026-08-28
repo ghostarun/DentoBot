@@ -12,18 +12,25 @@ if str(HELPERS) not in sys.path:
     sys.path.insert(0, str(HELPERS))
 
 from DENTOROS2Bridge import (  # noqa: E402
+    CARTESIAN_START_ORIENTATION_TOLERANCE_DEG,
+    CARTESIAN_START_POSITION_TOLERANCE_MM,
     ROS2_JOINT_COMMAND_STATUS_SCHEMA,
     ROS2_JOINT_SI_ORDER,
     ROS2_PLANNING_GROUP,
     ROS2_SIMULATION_STATUS_SCHEMA,
+    ROS2_TASK_GUARD_INITIAL_SEQUENCE,
+    ROS2_TASK_JOINT_STATUS_SCHEMA,
     ROS2_TOOL_TCP_LINK,
     RuntimeState,
+    _pose_residual_mm_degrees,
+    _rigid_pose_world_to_reference_rows,
     _trajectory_motion_summary,
     align_ros2_goal_to_base_transform,
     align_ros2_robot_to_base_transform,
     joint_si_vector,
     parse_joint_command_status,
     parse_simulation_status,
+    parse_task_joint_status,
 )
 
 
@@ -114,9 +121,154 @@ def test_joint_guard_status_rejects_wrong_mode_and_vector_length():
         raise AssertionError("five-joint status was accepted")
 
 
+def test_task_guard_status_requires_and_preserves_transient_session_identity():
+    payload = {
+        "schema": ROS2_TASK_JOINT_STATUS_SCHEMA,
+        "mode": "simulation_only",
+        "accepted": True,
+        "reason": "accepted",
+        "task_fingerprint": "immutable-task",
+        "guard_session_id": "transient-session",
+        "phase": "approach",
+        "sequence": 1,
+        "requested_positions": [0.0] * 6,
+        "accepted_positions": [0.0] * 6,
+        "exploratory_tool_contact_suppressed": True,
+        "suppressed_tool_contact_sample_count": 3,
+    }
+    status = parse_task_joint_status(json.dumps(payload))
+    assert status.guard_session_id == "transient-session"
+    assert status.exploratory_tool_contact_suppressed
+    assert status.suppressed_tool_contact_sample_count == 3
+    payload["guard_session_id"] = ""
+    try:
+        parse_task_joint_status(json.dumps(payload))
+    except ValueError as exc:
+        assert "guard session" in str(exc)
+    else:
+        raise AssertionError("task status without a guard session was accepted")
+
+
 def test_moveit_frame_contract_constants():
     assert ROS2_PLANNING_GROUP == "dentobot_arm"
     assert ROS2_TOOL_TCP_LINK == "dentobot_drill_tip_provisional"
+    assert ROS2_TASK_GUARD_INITIAL_SEQUENCE == 1
+    assert CARTESIAN_START_POSITION_TOLERANCE_MM == 0.25
+    assert CARTESIAN_START_ORIENTATION_TOLERANCE_DEG == 0.5
+
+
+def test_joint_goal_planning_waits_for_a_stable_scene_and_retries_boundedly():
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    planner = source.split("def plan_moveit_joint_goal", 1)[1].split(
+        "def sync_moveit_obstacle_polydata", 1
+    )[0]
+    assert "RefreshMoveItPlanningScene" in planner
+    assert "ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC" in planner
+    assert "ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS" in planner
+    assert "for attempt in range" in planner
+
+
+def test_exploratory_cartesian_planning_uses_bounded_finer_ik_steps():
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    planner = source.split("def plan_moveit_cartesian_path", 1)[1].split(
+        "def _dentobot_native_motion_context", 1
+    )[0]
+    assert "ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M" in planner
+    assert "if avoid_collisions" in planner
+    assert "for eef_step_m in eef_steps" in planner
+    assert "candidate_fraction >= fraction" in planner
+    assert "avoid_collisions" in planner.split("break", 1)[0]
+    assert "axial_roll_start_deg" in planner
+    assert "axial_roll_end_deg" in planner
+
+
+def test_step65_world_pose_is_explicitly_converted_to_locked_base_frame():
+    """Regression for the 0.9% x4-case Cartesian planning failure."""
+
+    base_to_world = (
+        (0.0201084, 0.999776, -0.00656425, -88.4572),
+        (0.950417, -0.0211527, -0.310257, 42.0928),
+        (-0.310326, 0.0, -0.95063, 137.66),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    pre_entry_world = (
+        (1.0, 0.0, 0.0, -74.433660),
+        (0.0, 1.0, 0.0, -66.834729),
+        (0.0, 0.0, 1.0, 47.057526),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    pre_entry_base = _rigid_pose_world_to_reference_rows(
+        pre_entry_world,
+        base_to_world,
+    )
+    assert tuple(round(pre_entry_base[row][3], 6) for row in range(3)) == (
+        -75.128281,
+        16.324510,
+        119.832904,
+    )
+    wrong_frame_position_error, _angle_error = _pose_residual_mm_degrees(
+        pre_entry_world,
+        pre_entry_base,
+    )
+    assert abs(wrong_frame_position_error - 110.5088) < 0.001
+    assert _pose_residual_mm_degrees(pre_entry_base, pre_entry_base) == (0.0, 0.0)
+
+
+def test_cartesian_frame_conversion_rejects_scale_or_reflection():
+    identity = (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    scaled = (
+        (2.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    try:
+        _rigid_pose_world_to_reference_rows(identity, scaled)
+    except ValueError as exc:
+        assert "unit length" in str(exc) or "scale" in str(exc)
+    else:
+        raise AssertionError("a scaled robot-base pose was accepted")
+
+
+def test_cartesian_planner_converts_raw_matrices_once_and_checks_continuity():
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    planner = source.split("def plan_moveit_cartesian_path", 1)[1].split(
+        "def _dentobot_native_motion_context", 1
+    )[0]
+    assert "_pose_matrices_world_to_base_mm" in planner
+    assert "_cartesian_start_continuity" in planner
+    assert "relativeToNode=None" in planner
+    assert "Refusing an unintended Cartesian bridge" in planner
+
+
+def test_phased_waypoints_do_not_republish_and_reset_guard_configuration():
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    apply_phase = source.split("def apply_task_phase_joint_positions", 1)[1].split(
+        "def _wait_for_joint_command_result", 1
+    )[0]
+    assert "config_publisher.Publish" not in apply_phase
+    assert "active_fingerprint" in apply_phase
+
+
+def test_task_guard_configuration_requires_a_strict_sequence_zero_handshake():
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    configure = source.split("def configure_task_phase_guard", 1)[1].split(
+        "def apply_task_phase_joint_positions", 1
+    )[0]
+    assert '"sequence": 0' in configure
+    assert '"phase": "approach"' in configure
+    assert '"guard_session_id": uuid4().hex' in configure
+    assert '"clearance_exempt_object_ids"' in configure
+    assert "status.accepted" in configure
+    assert "ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC" in configure
+    assert "configured task-proximity collision object is missing" in configure
+    assert "complete planning-scene object set" in configure
+    assert "did not acknowledge" in configure
 
 
 class _FakeTransform:
@@ -213,6 +365,7 @@ def test_step6_joint_controls_publish_when_ros_robot_is_active():
         "def onRobotBaseTransformSelectionChanged", 1
     )[0]
     assert "_robotWorkflowFacade.requestCurrentJointState()" in handler
+    assert "_robotWorkflowFacade.displaySyncActive" in handler
     facade = (
         ROOT
         / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"

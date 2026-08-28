@@ -106,14 +106,33 @@ class RobotSceneSyncLogicMixin:
         if parameterNode.teethSegmentation:
             segmentation = parameterNode.teethSegmentation
             jawGroups = self.step6CaseJawSegmentIds(segmentation)
-            fixedSurface = self._segmentationSegmentsSurfaceWorld(
-                segmentation,
-                set(jawGroups["upper"]),
-            )
-            movingSurface = self._segmentationSegmentsSurfaceWorld(
-                segmentation,
-                set(jawGroups["lower"]),
-            )
+            if (
+                str(parameterNode.step6CaseJawPreparationMode)
+                == "TargetJawFallback"
+            ):
+                targetJaw = self.step6TargetJaw(parameterNode)
+                fallbackSurface = self._segmentationSegmentsSurfaceWorld(
+                    segmentation,
+                    set(jawGroups.get(targetJaw, ())),
+                )
+                if fallbackSurface:
+                    samples.extend(
+                        self._subsample_polydata_points(
+                            fallbackSurface,
+                            stride=80,
+                        )
+                    )
+                fixedSurface = None
+                movingSurface = None
+            else:
+                fixedSurface = self._segmentationSegmentsSurfaceWorld(
+                    segmentation,
+                    set(jawGroups["upper"]),
+                )
+                movingSurface = self._segmentationSegmentsSurfaceWorld(
+                    segmentation,
+                    set(jawGroups["lower"]),
+                )
             if fixedSurface:
                 samples.extend(
                     self._subsample_polydata_points(fixedSurface, stride=80),
@@ -225,6 +244,8 @@ class RobotSceneSyncLogicMixin:
         parameterNode,
         polydataWorld: vtk.vtkPolyData,
     ) -> vtk.vtkPolyData:
+        if str(parameterNode.step6CaseJawPreparationMode) == "TargetJawFallback":
+            return polydataWorld
         if (
             bool(parameterNode.step6PlanningContextImported)
             and self.step6TargetJaw(parameterNode) == "lower"
@@ -247,6 +268,8 @@ class RobotSceneSyncLogicMixin:
             not summary.get("isValid")
             or not bool(parameterNode.step6PlanningContextImported)
             or self.step6TargetJaw(parameterNode) != "lower"
+            or str(parameterNode.step6CaseJawPreparationMode)
+            == "TargetJawFallback"
         ):
             return summary
         matrix = self._step6CaseJawMatrixWorld(parameterNode)
@@ -347,12 +370,19 @@ class RobotSceneSyncLogicMixin:
             if jawIssues:
                 raise ValueError(" ".join(jawIssues))
         sources: list[tuple[str, str, vtk.vtkPolyData]] = []
-        model_candidates = [
-            *self.draftPhantomModelNodes(),
-            parameterNode.draftTemplateSupportModel,
-            parameterNode.finalPrintableTemplateModel,
-            parameterNode.targetDockingAssemblyModel,
-        ]
+        # A verified 5C template already contains the support shell and docking
+        # assembly.  Publishing those precursors again creates coincident world
+        # objects with different identities.  Use the final template when it is
+        # available; only fall back to its components for pre-final test scenes.
+        guidance_models = (
+            [parameterNode.finalPrintableTemplateModel]
+            if parameterNode.finalPrintableTemplateModel is not None
+            else [
+                parameterNode.draftTemplateSupportModel,
+                parameterNode.targetDockingAssemblyModel,
+            ]
+        )
+        model_candidates = [*self.draftPhantomModelNodes(), *guidance_models]
         for model in dict.fromkeys(node for node in model_candidates if node is not None):
             if not isinstance(model, vtkMRMLModelNode):
                 continue
@@ -372,11 +402,6 @@ class RobotSceneSyncLogicMixin:
 
         segmentation = parameterNode.teethSegmentation
         target_id = str(parameterNode.targetToothSegmentId or "")
-        all_tooth_ids = {
-            str(record.get("segmentId") or "")
-            for record in self.getTargetToothRecords(segmentation)
-            if record.get("segmentId")
-        } if segmentation else set()
         jawGroups = (
             self.step6CaseJawSegmentIds(segmentation)
             if segmentation
@@ -387,69 +412,73 @@ class RobotSceneSyncLogicMixin:
                 "lowerJaw": (),
             }
         )
-        lowerToothIds = set(jawGroups["lowerTeeth"])
-        target_world = self._segmentationSegmentsSurfaceWorld(
-            segmentation,
-            {target_id} if target_id else set(),
-        ) if segmentation else None
-        if target_world is not None and target_id in lowerToothIds:
-            target_world = self._step6CaseJawPolydataWorld(
-                parameterNode,
-                target_world,
-            )
-        if target_world is not None:
-            sources.append(
-                (
-                    f"{segmentation.GetID()}:target:{target_id}",
-                    self.step6TargetCollisionObjectName(parameterNode),
-                    target_world,
-                )
-            )
-        nonTargetIds = all_tooth_ids - {target_id}
-        fixedNonTarget = self._segmentationSegmentsSurfaceWorld(
-            segmentation,
-            nonTargetIds - lowerToothIds,
-        ) if segmentation else None
-        movingNonTarget = self._segmentationSegmentsSurfaceWorld(
-            segmentation,
-            nonTargetIds.intersection(lowerToothIds),
-        ) if segmentation else None
-        if movingNonTarget is not None:
-            movingNonTarget = self._step6CaseJawPolydataWorld(
-                parameterNode,
-                movingNonTarget,
-            )
-        non_target_world = self._appendPolydata(
-            [fixedNonTarget, movingNonTarget],
+        lowerIds = set(jawGroups["lower"])
+        toothIds = set(
+            (*jawGroups.get("upperTeeth", ()), *jawGroups.get("lowerTeeth", ()))
         )
-        if non_target_world is not None:
-            sources.append(
-                (
-                    f"{segmentation.GetID()}:non-target-teeth",
-                    "dentobot_non_target_teeth",
-                    non_target_world,
+        anatomyIds = tuple(
+            dict.fromkeys((*jawGroups.get("upper", ()), *jawGroups.get("lower", ())))
+        )
+        nonTargetTeeth: list[vtk.vtkPolyData] = []
+        nonTargetAnatomy: list[vtk.vtkPolyData] = []
+        for segmentId in anatomyIds:
+            worldSurface = self._segmentationSegmentsSurfaceWorld(
+                segmentation,
+                {segmentId},
+            )
+            if worldSurface is None or worldSurface.GetNumberOfPoints() == 0:
+                raise ValueError(
+                    _("Step 6 collision anatomy segment %1 is empty.").replace(
+                        "%1", str(segmentId)
+                    )
                 )
-            )
-        fixedJaw = self._segmentationSegmentsSurfaceWorld(
-            segmentation,
-            set(jawGroups["upperJaw"]),
-        ) if segmentation else None
-        movingJaw = self._segmentationSegmentsSurfaceWorld(
-            segmentation,
-            set(jawGroups["lowerJaw"]),
-        ) if segmentation else None
-        if movingJaw is not None:
-            movingJaw = self._step6CaseJawPolydataWorld(
-                parameterNode,
-                movingJaw,
-            )
-        jawWorld = self._appendPolydata([fixedJaw, movingJaw])
-        if jawWorld is not None:
+            if segmentId in lowerIds:
+                worldSurface = self._step6CaseJawPolydataWorld(
+                    parameterNode,
+                    worldSurface,
+                )
+            triangle = vtk.vtkTriangleFilter()
+            triangle.SetInputData(worldSurface)
+            triangle.PassLinesOff()
+            triangle.PassVertsOff()
+            triangle.Update()
+            collisionSurface = vtk.vtkPolyData()
+            collisionSurface.DeepCopy(triangle.GetOutput())
+            topology = surface_topology(collisionSurface)
+            if topology["boundaryOrNonManifoldEdgeCount"] != 0:
+                raise ValueError(
+                    _(
+                        "Step 6 collision anatomy segment %1 is not a closed, "
+                        "watertight surface."
+                    ).replace("%1", str(segmentId))
+                )
+            if segmentId == target_id:
+                sourceId = f"{segmentation.GetID()}:target:{target_id}"
+                sourceName = self.step6TargetCollisionObjectName(parameterNode)
+                sources.append((sourceId, sourceName, collisionSurface))
+            elif segmentId in toothIds:
+                nonTargetTeeth.append(collisionSurface)
+            else:
+                nonTargetAnatomy.append(collisionSurface)
+
+        # Keep the selected target tooth independent for the phase guard's
+        # selective burr-contact rule.  The exact, transformed triangles for
+        # all other teeth and for jaw anatomy are grouped into two disconnected
+        # meshes.  This preserves geometry while avoiding dozens of separate
+        # FCL world objects and their repeated broad-phase traversal at every
+        # guarded preview sample.
+        for category, surfaces in (
+            ("non_target_teeth", nonTargetTeeth),
+            ("non_target_anatomy", nonTargetAnatomy),
+        ):
+            combined = self._appendPolydata(surfaces)
+            if combined is None:
+                continue
             sources.append(
                 (
-                    f"{segmentation.GetID()}:case-jaw-bones",
-                    "dentobot_case_jaw_bones",
-                    jawWorld,
+                    f"{segmentation.GetID()}:anatomy:{category}",
+                    f"dentobot_anatomy_{category}",
+                    combined,
                 )
             )
 

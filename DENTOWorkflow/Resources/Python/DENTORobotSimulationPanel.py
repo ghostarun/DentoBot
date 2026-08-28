@@ -263,8 +263,14 @@ class DENTORobotSimulationPanel:
         self.approachGroup.objectName = "DENTOBOTApproachPhaseGroupBox"
         approach_layout = qt.QVBoxLayout(self.approachGroup)
         approach_description = qt.QLabel(
-            "Plan collision-free to the default 5 mm pre-entry standoff, then "
-            "validate the short terminal move to exact Entry. Only terminal burr-to-target contact may be accepted.",
+            "Plan collision-free to the configured pre-entry standoff, then "
+            "validate the short terminal move to exact Entry. The translucent "
+            "goal robot shows the pre-entry IK solution only; it does not mean "
+            "the terminal path has planned successfully. During exploratory "
+            "terminal preview, only configured burr-to-task-object collisions "
+            "may be suppressed and every suppression is reported. Goal 1 is "
+            "enabled only after the complete Entry-to-Target line passes a "
+            "bounded reachability preflight; otherwise reposition the base.",
             self.approachGroup,
         )
         approach_description.wordWrap = True
@@ -285,7 +291,12 @@ class DENTORobotSimulationPanel:
         drilling_layout = qt.QVBoxLayout(self.drillingGroup)
         drilling_description = qt.QLabel(
             "Generate Entry-to-Target motion strictly inside the approved corridor. "
-            "Only burr-to-selected-target contact is allowed; all other contacts, overshoot, and joint violations are rejected.",
+            "Goal 2 continues the same immutable task-guard session and starts "
+            "from Goal 1's accepted Entry state. For exploratory simulation, "
+            "configured burr-to-task-anatomy/guide collisions may be suppressed "
+            "and reported. All non-tool contacts, overshoot, backward motion, "
+            "duplicate commands, and joint violations remain rejected. This is "
+            "not collision-safe or executable evidence.",
             self.drillingGroup,
         )
         drilling_description.wordWrap = True

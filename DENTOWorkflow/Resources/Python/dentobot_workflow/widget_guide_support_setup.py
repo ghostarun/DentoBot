@@ -101,14 +101,26 @@ class GuideSupportSetupWidgetMixin:
 
         if lineNode is self._templateInsertionDirectionNode:
             return
-        if self._templateInsertionDirectionNode:
+        previousNode = self._templateInsertionDirectionNode
+        if previousNode:
             self.removeObserver(
-                self._templateInsertionDirectionNode,
+                previousNode,
                 vtk.vtkCommand.ModifiedEvent,
                 self._onTemplateInsertionDirectionModified,
             )
+            previousNodeId = previousNode.GetID()
+            if previousNodeId:
+                self._templateInsertionDirectionGeometryByNodeId.pop(
+                    previousNodeId,
+                    None,
+                )
         self._templateInsertionDirectionNode = lineNode
         if lineNode:
+            lineNodeId = lineNode.GetID()
+            if lineNodeId:
+                self._templateInsertionDirectionGeometryByNodeId[
+                    lineNodeId
+                ] = self._trajectoryGeometrySnapshot(lineNode)
             self.addObserver(
                 lineNode,
                 vtk.vtkCommand.ModifiedEvent,
@@ -141,10 +153,36 @@ class GuideSupportSetupWidgetMixin:
         del event
         if (
             self._restoringTemplateInsertionDirection
+            or self._caseBundleRestoreDepth > 0
             or not self._parameterNode
             or caller is not self._parameterNode.templateInsertionDirection
         ):
             return
+        lineNodeId = caller.GetID()
+        currentGeometry = self._trajectoryGeometrySnapshot(caller)
+        previousGeometry = (
+            self._templateInsertionDirectionGeometryByNodeId.get(lineNodeId)
+            if lineNodeId
+            else None
+        )
+        if previousGeometry is None:
+            if lineNodeId:
+                self._templateInsertionDirectionGeometryByNodeId[
+                    lineNodeId
+                ] = currentGeometry
+            return
+        if self._trajectoryGeometrySnapshotsMatch(
+            previousGeometry,
+            currentGeometry,
+        ):
+            # Stage ownership changes lock/selectability, while summary and
+            # display refreshes may update labels or references. None of these
+            # changes the Approach-to-Seat geometry used by the shell.
+            return
+        if lineNodeId:
+            self._templateInsertionDirectionGeometryByNodeId[
+                lineNodeId
+            ] = currentGeometry
         self._invalidateTemplateUndercutDownstream(
             _("The template insertion direction changed."),
         )

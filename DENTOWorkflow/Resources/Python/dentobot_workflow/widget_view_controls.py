@@ -48,6 +48,8 @@ class ViewControlsWidgetMixin:
     def _workflowAdvancedTreeGroup(entry: dict) -> tuple[str, str]:
         category = entry["category"]
         anatomyGroup = str(entry.get("anatomyGroup") or "")
+        if category == "case_jaw_opening":
+            return "Robot simulation objects", "Step 6 scene"
         if anatomyGroup:
             region = (
                 "Upper jaw"
@@ -286,9 +288,24 @@ class ViewControlsWidgetMixin:
         if restriction:
             return restriction
         if entry["kind"] == "node":
-            displayNode = entry["node"].GetDisplayNode()
+            node = entry["node"]
+            displayNode = node.GetDisplayNode()
             if displayNode:
-                displayNode.SetVisibility(visible)
+                wasModifying = displayNode.StartModify()
+                try:
+                    if visible and node.IsA("vtkMRMLSegmentationNode"):
+                        # A derived Step 6 segmentation is presented as one
+                        # viewer object.  Re-enabling that object must restore
+                        # its jaw and every tooth, even if an earlier preset
+                        # changed per-segment flags.
+                        displayNode.SetAllSegmentsVisibility(True)
+                        if hasattr(displayNode, "SetAllSegmentsVisibility3D"):
+                            displayNode.SetAllSegmentsVisibility3D(True)
+                    displayNode.SetVisibility(visible)
+                    if node.IsA("vtkMRMLSegmentationNode"):
+                        displayNode.SetVisibility3D(visible)
+                finally:
+                    displayNode.EndModify(wasModifying)
         elif entry["kind"] == "nodes":
             for node in entry["nodes"]:
                 displayNode = node.GetDisplayNode() if node else None
@@ -307,6 +324,15 @@ class ViewControlsWidgetMixin:
                 try:
                     for segmentId in entry["segmentIds"]:
                         displayNode.SetSegmentVisibility(segmentId, visible)
+                        displayNode.SetSegmentVisibility3D(segmentId, visible)
+                        if hasattr(displayNode, "SetSegmentVisibility2DFill"):
+                            displayNode.SetSegmentVisibility2DFill(
+                                segmentId, visible
+                            )
+                        if hasattr(displayNode, "SetSegmentVisibility2DOutline"):
+                            displayNode.SetSegmentVisibility2DOutline(
+                                segmentId, visible
+                            )
                     segmentation = segmentationNode.GetSegmentation()
                     segmentIds = vtk.vtkStringArray()
                     segmentation.GetSegmentIDs(segmentIds)
@@ -323,12 +349,33 @@ class ViewControlsWidgetMixin:
                     displayNode.EndModify(wasModifying)
         return ""
 
+    def _scheduleWorkflowViewControlsRefresh(self) -> None:
+        """Coalesce a Viewer rebuild until after the active Qt signal returns."""
+
+        if self._workflowViewRefreshScheduled or self._isCleaningUp:
+            return
+        self._workflowViewRefreshScheduled = True
+        qt.QTimer.singleShot(0, self._flushWorkflowViewControlsRefresh)
+
+    def _flushWorkflowViewControlsRefresh(self) -> None:
+        self._workflowViewRefreshScheduled = False
+        if self._isCleaningUp or not hasattr(self, "ui"):
+            return
+        self._updateWorkflowViewControls()
+        self._updateTemplateGuideVisibilityControls()
+
     def onWorkflowViewTreeItemChanged(self, item, column: int) -> None:
         del column
         if self._updatingWorkflowViewUI or not item or not self._parameterNode:
             return
+        checkState = item.checkState(0)
+        if checkState == qt.Qt.PartiallyChecked:
+            # QTreeWidget emits itemChanged for auto-tristate ancestors when a
+            # leaf changes.  Partial is a derived summary state, not an
+            # operator request to hide the whole entry/group.
+            return
         self._ensureWorkflowViewSnapshot()
-        desired = item.checkState(0) == qt.Qt.Checked
+        desired = checkState == qt.Qt.Checked
         key = str(item.data(0, qt.Qt.UserRole) or "")
         entriesToChange = []
         if key and key in self._workflowViewEntriesByKey:
@@ -360,7 +407,9 @@ class ViewControlsWidgetMixin:
         }
         self._workflowViewActivePresetKey = "custom"
         self._workflowViewComposition = None
-        self._enforceStep6OpenedJawDisplaySeparation()
+        # Tree toggles are explicit custom presentation.  Recommended Step 6
+        # composition avoids duplicate source/derived anatomy, but must not
+        # override an operator's subsequent visibility choice.
         if restrictions:
             self.ui.workflowViewStatusLabel.text = " ".join(restrictions)
             self.ui.workflowViewStatusLabel.styleSheet = "color: #b06a00;"
@@ -369,8 +418,10 @@ class ViewControlsWidgetMixin:
                 "Custom object visibility; geometry, mask contents, and workflow lineage are unchanged."
             )
             self.ui.workflowViewStatusLabel.styleSheet = "color: #1f5f99;"
-        self._updateWorkflowViewControls()
-        self._updateTemplateGuideVisibilityControls()
+        # Do not clear/rebuild the QTreeWidget while its itemChanged callback
+        # still owns ``item``.  That invalidates a live C++ QTreeWidgetItem and
+        # can terminate Slicer without a Python traceback.
+        self._scheduleWorkflowViewControlsRefresh()
 
     def _updateWorkflowViewControls(self) -> None:
         if not hasattr(self, "ui"):
@@ -640,7 +691,6 @@ class ViewControlsWidgetMixin:
             managedNodes,
             visibleNodeIds,
         )
-        self._enforceStep6OpenedJawDisplaySeparation()
         primarySegmentation = self._parameterNode.teethSegmentation
         segmentIdsByNode = {}
         for entry in entries:
@@ -651,6 +701,21 @@ class ViewControlsWidgetMixin:
                 segmentIdsByNode.setdefault(segmentationNode, set()).update(
                     entry["segmentIds"]
                 )
+        for entry in entries:
+            if entry["key"] not in visibleKeys or entry["kind"] != "node":
+                continue
+            segmentationNode = entry.get("node")
+            if not segmentationNode or not segmentationNode.IsA(
+                "vtkMRMLSegmentationNode"
+            ):
+                continue
+            segmentation = segmentationNode.GetSegmentation()
+            segmentIds = vtk.vtkStringArray()
+            segmentation.GetSegmentIDs(segmentIds)
+            segmentIdsByNode.setdefault(segmentationNode, set()).update(
+                segmentIds.GetValue(index)
+                for index in range(segmentIds.GetNumberOfValues())
+            )
         for segmentationNode in slicer.util.getNodesByClass("vtkMRMLSegmentationNode"):
             if segmentationNode is primarySegmentation:
                 continue
@@ -660,6 +725,10 @@ class ViewControlsWidgetMixin:
                 [],
                 set(),
             )
+        # Apply separation last.  Preset selection above touches every
+        # segmentation and must not be allowed to re-enable source closed-jaw
+        # masks after the derived opened/fallback anatomy is selected.
+        self._enforceStep6OpenedJawDisplaySeparation()
         self._workflowViewVisibleKeys = set(visibleKeys)
         self._workflowViewActivePresetKey = activePresetKey
         if activePresetKey == "trajectory_only":

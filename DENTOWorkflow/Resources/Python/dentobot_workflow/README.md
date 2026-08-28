@@ -25,7 +25,7 @@ compatibility contract.
 | Template finalization and verification | `widget_template_finalization.py`, `logic_finalization.py` |
 | Step 6 shell actions | `widget_robot_shell.py`, `widget_robot.py` |
 | Robot placement, jaw/phantom setup | `widget_robot_placement.py`, `widget_robot_scene.py`, `logic_robot_placement.py`, `logic_phantom_scene.py` |
-| Planning-scene synchronization and robot task state | `logic_robot_scene_sync.py`, `logic_robot.py`, `logic_step6_scene.py` |
+| Planning-scene synchronization, Step 6 jaw landmarks, and robot task state | `logic_robot_scene_sync.py`, `logic_robot.py`, `logic_step6_scene.py`, `logic_step6_landmark_review.py` |
 | Persistent typed state and stage identifiers | `parameter_state.py`, `contracts.py` |
 | Slicer-native regression archive | `slicer_tests.py` |
 

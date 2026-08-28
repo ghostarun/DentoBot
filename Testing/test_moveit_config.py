@@ -61,7 +61,8 @@ def test_collision_guard_gates_raw_commands_before_joint_states():
         ROOT / "dentobot_moveit_config/src/collision_guard.cpp"
     ).read_text(encoding="utf-8")
     assert 'executable="collision_guard"' in launch
-    assert '"minimum_clearance_m": 0.005' in launch
+    assert '"minimum_clearance_m": 0.001' in launch
+    assert '"default_robot_padding": 0.001' in launch
     assert '"command_topic": "/dentobot/validated_joint_positions"' in launch
     assert "distanceSelf" in guard
     assert "distanceRobot" in guard
@@ -83,16 +84,28 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
         "/dentobot/task_joint_status",
     ):
         assert topic in launch
-    assert "dentobot.task_guard_config.v1" in guard
-    assert "dentobot.task_joint_command.v1" in guard
-    assert "dentobot.task_joint_status.v1" in guard
+    assert "dentobot.task_guard_config.v2" in guard
+    assert "dentobot.task_joint_command.v2" in guard
+    assert "dentobot.task_joint_status.v2" in guard
     assert "Command task fingerprint does not match" in guard
-    assert "only_allowed_target_contact" in guard
+    assert "Command guard session does not match" in guard
+    assert "candidate.guard_session_id == task_config_.guard_session_id" in guard
+    assert "phase_collision_matrix" in guard
+    assert "exploratory_tool_contact_suppressed" in guard
+    assert "suppressed_tool_contact_sample_count" in guard
     assert "left the approved Entry-to-Target corridor" in guard
     assert "overshot or preceded" in guard
+    assert "CORRIDOR_MONOTONIC_EPSILON_M = 0.00025" in guard
     assert "satisfiesBounds" in guard
     assert "distanceSelf" in guard
     assert "distanceRobot" in guard
+    assert "clearance_exempt_object_ids" in guard
+    assert "clearance_collision_matrix.setEntry" in guard
+    assert "phase_collision_matrix.setEntry" in guard
+    assert "task_config != nullptr ? clearance_collision_matrix" in guard
+    assert "scene->checkCollision(\n        collision_request, collision_result, sample, allowed_collision_matrix)" in guard
+    assert "scene->checkCollision(\n          phase_request, phase_result, sample, phase_collision_matrix)" in guard
+    assert "non-tool or unconfigured collision" in guard
 
 
 def test_ik_is_runtime_urdf_srdf_kdl_not_hard_coded():
