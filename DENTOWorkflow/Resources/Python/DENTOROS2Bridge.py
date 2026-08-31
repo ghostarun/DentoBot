@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from math import acos, cos, degrees, isfinite, radians, sin, sqrt
+from math import acos, cos, degrees, floor, isfinite, radians, sin, sqrt
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
@@ -47,6 +47,9 @@ ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC = 8.0
 ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M = (0.001, 0.0005, 0.00025)
 CARTESIAN_START_POSITION_TOLERANCE_MM = 0.25
 CARTESIAN_START_ORIENTATION_TOLERANCE_DEG = 0.5
+ROS2_MONITORED_STATE_TIMEOUT_SEC = 3.0
+ROS2_MONITORED_REVOLUTE_TOLERANCE_RAD = 0.001
+ROS2_MONITORED_PRISMATIC_TOLERANCE_M = 0.0001
 
 ROS2_ROBOT_NODE_ATTRIBUTE = "DENTOBOT.Ros2RobotName"
 ROS2_MOTION_ACTIVE_ATTRIBUTE = "DENTOBOT.Ros2MotionControlActive"
@@ -55,6 +58,7 @@ ROS2_STATUS_SUBSCRIBER_ATTRIBUTE = "DENTOBOT.SimulationStatusSubscriber"
 ROS2_JOINT_STATUS_SUBSCRIBER_ATTRIBUTE = "DENTOBOT.JointCommandStatusSubscriber"
 ROS2_OBSTACLE_PROXY_ATTRIBUTE = "DENTOBOT.MoveItObstacleProxy"
 ROS2_OBSTACLE_SOURCE_ATTRIBUTE = "DENTOBOT.MoveItObstacleSource"
+ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE = "DENTOBOT.MoveItObstaclePublishedId"
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
 ROS2_JOINT_SI_ORDER = (
@@ -111,6 +115,25 @@ class MoveItCartesianResult:
     start_position_error_mm: Optional[float] = None
     start_orientation_error_deg: Optional[float] = None
     axial_roll_deg: float = 0.0
+    eef_step_m: Optional[float] = None
+    requested_path_length_mm: float = 0.0
+    completed_distance_mm: float = 0.0
+    last_valid_waypoint_index: int = -1
+    first_invalid_requested_index: int = -1
+    last_valid_joint_positions_si: Optional[dict[str, float]] = None
+    first_invalid_ras_mm: Optional[tuple[float, float, float]] = None
+    failure_classification: str = ""
+    collision_aware_ik_at_first_invalid: Optional[bool] = None
+    kinematics_only_ik_at_first_invalid: Optional[bool] = None
+    first_invalid_joint_positions_si: Optional[dict[str, float]] = None
+    first_invalid_collision_pairs: tuple[tuple[str, str], ...] = ()
+    submitted_start_joint_positions_si: Optional[dict[str, float]] = None
+    submitted_goal_joint_positions_si: Optional[dict[str, float]] = None
+    monitored_start_joint_positions_si: Optional[dict[str, float]] = None
+    maximum_start_goal_delta: Optional[float] = None
+    maximum_monitored_start_error: Optional[float] = None
+    planner_start_source: str = ""
+    native_planner_message: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,6 +149,8 @@ class JointCommandStatus:
     first_body: str = ""
     second_body: str = ""
     world_object_count: int = 0
+    world_objects: tuple[dict[str, object], ...] = ()
+    world_object_evidence_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,6 +173,7 @@ class TaskJointStatus:
     first_body: str = ""
     second_body: str = ""
     world_object_count: int = 0
+    world_objects: tuple[dict[str, object], ...] = ()
     exploratory_tool_contact_suppressed: bool = False
     suppressed_tool_contact_sample_count: int = 0
 
@@ -240,6 +266,33 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
             raise ValueError(f"{key} must be finite or null.")
         return parsed
 
+    def world_objects() -> tuple[dict[str, object], ...]:
+        records = data.get("world_objects", [])
+        if not isinstance(records, list):
+            raise ValueError("world_objects must be an array.")
+        normalized = []
+        for record in records:
+            if not isinstance(record, dict) or not str(record.get("id") or ""):
+                raise ValueError("Each world object must have an ID.")
+            pose = tuple(float(value) for value in record.get("pose_base_link_m_xyzw", ()))
+            if len(pose) != 7 or not all(isfinite(value) for value in pose):
+                raise ValueError("World-object pose must contain seven finite values.")
+            bounds_data = record.get("bounds_base_link_m")
+            bounds = None
+            if bounds_data is not None:
+                bounds = tuple(float(value) for value in bounds_data)
+                if len(bounds) != 6 or not all(isfinite(value) for value in bounds):
+                    raise ValueError("World-object bounds must contain six finite values.")
+            normalized.append(
+                {
+                    "id": str(record["id"]),
+                    "shape_count": max(0, int(record.get("shape_count", 0))),
+                    "pose_base_link_m_xyzw": pose,
+                    "bounds_base_link_m": bounds,
+                }
+            )
+        return tuple(normalized)
+
     if not isinstance(data.get("accepted"), bool):
         raise ValueError("accepted must be a boolean.")
     minimum_clearance_m = float(
@@ -259,6 +312,8 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
         first_body=str(data.get("first_body", "") or ""),
         second_body=str(data.get("second_body", "") or ""),
         world_object_count=max(0, int(data.get("world_object_count", 0))),
+        world_objects=world_objects(),
+        world_object_evidence_present="world_objects" in data,
     )
 
 
@@ -286,6 +341,33 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         if not isfinite(result):
             raise ValueError(f"{key} must be finite or null.")
         return result
+
+    def world_objects() -> tuple[dict[str, object], ...]:
+        records = data.get("world_objects", [])
+        if not isinstance(records, list):
+            raise ValueError("world_objects must be an array.")
+        normalized = []
+        for record in records:
+            if not isinstance(record, dict) or not str(record.get("id") or ""):
+                raise ValueError("Each world object must have an ID.")
+            pose = tuple(float(value) for value in record.get("pose_base_link_m_xyzw", ()))
+            bounds_data = record.get("bounds_base_link_m")
+            bounds = None if bounds_data is None else tuple(float(value) for value in bounds_data)
+            if len(pose) != 7 or not all(isfinite(value) for value in pose):
+                raise ValueError("World-object pose must contain seven finite values.")
+            if bounds is not None and (
+                len(bounds) != 6 or not all(isfinite(value) for value in bounds)
+            ):
+                raise ValueError("World-object bounds must contain six finite values.")
+            normalized.append(
+                {
+                    "id": str(record["id"]),
+                    "shape_count": max(0, int(record.get("shape_count", 0))),
+                    "pose_base_link_m_xyzw": pose,
+                    "bounds_base_link_m": bounds,
+                }
+            )
+        return tuple(normalized)
 
     if not isinstance(data.get("accepted"), bool):
         raise ValueError("accepted must be a boolean.")
@@ -321,6 +403,7 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         first_body=str(data.get("first_body") or ""),
         second_body=str(data.get("second_body") or ""),
         world_object_count=max(0, int(data.get("world_object_count", 0))),
+        world_objects=world_objects(),
         exploratory_tool_contact_suppressed=exploratory_suppressed,
         suppressed_tool_contact_sample_count=max(
             0, int(data.get("suppressed_tool_contact_sample_count", 0))
@@ -677,6 +760,116 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
         return {}
     _timestamp, values = max(candidates, key=lambda item: item[0])
     return dict(zip(ROS2_JOINT_SI_ORDER, values))
+
+
+def monitored_joint_positions_si() -> dict[str, float]:
+    """Return the joint vector currently reported on ROS ``/joint_states``.
+
+    This is deliberately separate from the latest collision-guard acceptance
+    and from the generic Motion Control widget's goal sliders. It is the state
+    MoveIt's current-state monitor is expected to observe.
+    """
+
+    logic = get_motion_control_logic()
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if logic is None or robot_node is None:
+        return {}
+    try:
+        values = logic.GetCurrentJointState(list(ROS2_JOINT_SI_ORDER))
+    except Exception:
+        return {}
+    if values is None or len(values) != len(ROS2_JOINT_SI_ORDER):
+        return {}
+    try:
+        result = {
+            name: float(value)
+            for name, value in zip(ROS2_JOINT_SI_ORDER, values)
+        }
+    except (TypeError, ValueError):
+        return {}
+    return result if all(isfinite(value) for value in result.values()) else {}
+
+
+def _joint_state_error(
+    expected: Mapping[str, float],
+    observed: Mapping[str, float],
+) -> tuple[float, tuple[str, ...]]:
+    maximum_error = 0.0
+    mismatched: list[str] = []
+    for name in ROS2_JOINT_SI_ORDER:
+        if name not in expected or name not in observed:
+            mismatched.append(name)
+            continue
+        error = abs(float(observed[name]) - float(expected[name]))
+        maximum_error = max(maximum_error, error)
+        tolerance = (
+            ROS2_MONITORED_PRISMATIC_TOLERANCE_M
+            if "Slider" in name
+            else ROS2_MONITORED_REVOLUTE_TOLERANCE_RAD
+        )
+        if error > tolerance:
+            mismatched.append(name)
+    return maximum_error, tuple(mismatched)
+
+
+def wait_for_monitored_joint_positions_si(
+    expected_positions_si: Mapping[str, float],
+    *,
+    timeout_sec: float = ROS2_MONITORED_STATE_TIMEOUT_SEC,
+) -> tuple[bool, str, dict[str, float], float]:
+    """Wait until ROS and MoveIt's monitored current state equals *expected*.
+
+    The bounded wait proves state handoff only; it never sends a command.
+    """
+
+    try:
+        expected = dict(
+            zip(ROS2_JOINT_SI_ORDER, joint_si_vector(expected_positions_si))
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"Expected joint state is invalid: {exc}", {}, float("inf")
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    observed: dict[str, float] = {}
+    maximum_error = float("inf")
+    mismatched: tuple[str, ...] = ROS2_JOINT_SI_ORDER
+    while time.monotonic() <= deadline:
+        observed = monitored_joint_positions_si()
+        if observed:
+            maximum_error, mismatched = _joint_state_error(expected, observed)
+            if not mismatched:
+                return (
+                    True,
+                    "MoveIt monitored /joint_states matches the submitted Task Home.",
+                    observed,
+                    maximum_error,
+                )
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        ros_logic = get_ros2_logic()
+        if ros_logic is not None:
+            try:
+                ros_logic.Spin()
+            except Exception:
+                pass
+        time.sleep(0.02)
+    if not observed:
+        return (
+            False,
+            "No complete /joint_states vector reached Slicer before the bounded timeout.",
+            {},
+            maximum_error,
+        )
+    return (
+        False,
+        "MoveIt monitored state did not converge to Task Home; mismatched joints: "
+        + ", ".join(mismatched),
+        observed,
+        maximum_error,
+    )
 
 
 def last_task_joint_status() -> Optional[TaskJointStatus]:
@@ -1467,6 +1660,11 @@ def set_mrml_link_models_visible(model_nodes: list, visible: bool) -> None:
 
 
 def _motion_control_joint_positions() -> list[float]:
+    # DENTOWorkflow is the sole command-state authority. The optional generic
+    # Motion Control widget may display diagnostics, but opening it must never
+    # replace the native vector with slider or delayed /joint_states values.
+    if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
+        return list(_native_joint_positions)
     try:
         import slicer
 
@@ -1480,8 +1678,6 @@ def _motion_control_joint_positions() -> list[float]:
             return [float(value) for value in values]
     except Exception:
         pass
-    if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
-        return list(_native_joint_positions)
     return []
 
 
@@ -1606,14 +1802,103 @@ def apply_joint_positions_si_to_motion_control(
             _slicer_joint_command_timer.start()
 
 
+def show_goal_robot_joint_positions(
+    positions_si: Mapping[str, float],
+) -> Tuple[bool, str]:
+    """Apply a display-only diagnostic state to the translucent goal robot."""
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    motion_logic = get_motion_control_logic()
+    if robot_node is None or motion_logic is None:
+        return False, "Connect the simulation-only ROS robot first."
+    if robot_node.GetNumberOfNodeReferences("goal_model") == 0:
+        return False, "The transient goal robot is unavailable."
+    try:
+        values = joint_si_vector(positions_si)
+        motion_logic.updategoalTransformsFromJointsKDL(robot_node, values)
+        for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
+            model = robot_node.GetNthNodeReference("goal_model", index)
+            if model is not None and model.GetDisplayNode() is not None:
+                model.GetDisplayNode().SetVisibility(True)
+                model.GetDisplayNode().SetOpacity(0.35)
+        return True, "Showing the selected last-valid state on the display-only goal robot."
+    except Exception as exc:
+        return False, f"Could not show the diagnostic goal state: {exc}"
+
+
+def show_motion_diagnostic_evidence(
+    *,
+    first_invalid_ras_mm: Optional[Sequence[float]],
+    collision_pairs: Sequence[Sequence[str]],
+) -> Tuple[bool, str]:
+    """Show a transient first-invalid marker and collision-object highlight."""
+    try:
+        import slicer
+        import vtk
+
+        for node in list(slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode")):
+            if node.GetAttribute("DENTOBOT.MotionDiagnosticBoundary") == "true":
+                slicer.mrmlScene.RemoveNode(node)
+        if first_invalid_ras_mm is not None:
+            point = tuple(float(value) for value in first_invalid_ras_mm)
+            if len(point) != 3 or not all(isfinite(value) for value in point):
+                raise ValueError("First-invalid point must be finite world RAS mm.")
+            marker = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsFiducialNode",
+                "[Step 6 Diagnostic] First Invalid Requested Point",
+            )
+            marker.SetAttribute("DENTOBOT.MotionDiagnosticBoundary", "true")
+            marker.SetAttribute("DENTOBOT.IntendedUse", "DisplayOnlyDiagnostic")
+            marker.SaveWithSceneOff()
+            marker.AddControlPointWorld(vtk.vtkVector3d(*point), "First invalid")
+            marker.SetLocked(True)
+            marker.CreateDefaultDisplayNodes()
+            marker.GetDisplayNode().SetSelectedColor(1.0, 0.15, 0.10)
+            marker.GetDisplayNode().SetColor(1.0, 0.15, 0.10)
+            marker.GetDisplayNode().SetGlyphScale(3.0)
+        collision_ids = {
+            str(body)
+            for pair in collision_pairs
+            for body in pair
+            if str(body) and not str(body).startswith("__")
+        }
+        highlighted = []
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if node.GetAttribute("DENTOBOT.CollisionAuditCopy") != "true":
+                continue
+            display = node.GetDisplayNode()
+            object_id = str(
+                node.GetAttribute("DENTOBOT.OutgoingCollisionObjectId") or ""
+            )
+            if display:
+                if object_id in collision_ids:
+                    display.SetColor(1.0, 0.15, 0.10)
+                    display.SetVisibility(True)
+                    highlighted.append(object_id)
+                else:
+                    display.SetColor(0.10, 0.95, 0.95)
+        return True, (
+            "Displayed the retained first-invalid point"
+            + (
+                " and highlighted collision object(s): " + ", ".join(highlighted)
+                if highlighted
+                else "; no named world collision object was reported"
+            )
+            + "."
+        )
+    except Exception as exc:
+        return False, f"Could not show diagnostic boundary evidence: {exc}"
+
+
 def connect_dentobot_motion_control(
     base_transform,
     hide_mrml_robot: bool = True,
     mrml_robot_models: Optional[list] = None,
     open_motion_module: bool = True,
     start_stack_if_needed: bool = True,
+    initial_joint_positions_si: Optional[Mapping[str, float]] = None,
 ) -> Tuple[Optional[object], str]:
-    """Create the Slicer robot and attach MoveIt plan-only motion control."""
+    """Create the Slicer robot and seed plan-only control from reviewed state."""
+    global _native_joint_positions
     del start_stack_if_needed
     import slicer
 
@@ -1662,6 +1947,12 @@ def connect_dentobot_motion_control(
         return None, "Could not align the goal robot with the Step 6 base transform."
     if not motion_logic.SetupMoveItPlanningGroup(robot_node, ROS2_PLANNING_GROUP):
         return None, "MoveIt planning group dentobot_arm could not be initialized."
+
+    if initial_joint_positions_si is not None:
+        try:
+            _native_joint_positions = joint_si_vector(initial_joint_positions_si)
+        except (KeyError, TypeError, ValueError) as exc:
+            return None, f"The reviewed Task Home joint vector is invalid: {exc}"
 
     streamed, stream_error = start_slicer_joint_command_stream()
     if not streamed:
@@ -2066,6 +2357,11 @@ def plan_moveit_cartesian_path(
                 break
     except Exception as exc:
         return MoveItCartesianResult(False, f"MoveIt Cartesian request failed: {exc}")
+    requested_entry = tuple(float(value) for value in entry_ras_mm)
+    requested_target = tuple(float(value) for value in target_ras_mm)
+    requested_length_mm = sqrt(
+        sum((target - entry) ** 2 for entry, target in zip(requested_entry, requested_target))
+    )
     if trajectory is None:
         return MoveItCartesianResult(
             False,
@@ -2075,18 +2371,10 @@ def plan_moveit_cartesian_path(
             start_position_error_mm=start_position_error_mm,
             start_orientation_error_deg=start_orientation_error_deg,
             axial_roll_deg=float(axial_roll_end_deg),
-        )
-    if fraction < float(minimum_fraction):
-        return MoveItCartesianResult(
-            False,
-            f"MoveIt planned only {fraction * 100.0:.1f}% of the requested path "
-            f"after bounded Cartesian steps down to "
-            f"{min(eef_steps) * 1000.0:.2f} mm.",
-            fraction=fraction,
-            coordinate_frame=ROS2_FIXED_FRAME,
-            start_position_error_mm=start_position_error_mm,
-            start_orientation_error_deg=start_orientation_error_deg,
-            axial_roll_deg=float(axial_roll_end_deg),
+            eef_step_m=used_eef_step_m,
+            requested_path_length_mm=requested_length_mm,
+            completed_distance_mm=requested_length_mm * max(0.0, min(1.0, fraction)),
+            failure_classification="no_cartesian_trajectory",
         )
     joint_trajectory = trajectory.GetJointTrajectory()
     names = [str(name) for name in joint_trajectory.GetJointNames()]
@@ -2104,6 +2392,92 @@ def plan_moveit_cartesian_path(
         times.append(_trajectory_time_seconds(point))
     if not waypoints:
         return MoveItCartesianResult(False, "MoveIt returned an empty trajectory.")
+    bounded_fraction = max(0.0, min(1.0, fraction))
+    first_invalid_index = -1
+    first_invalid_ras = None
+    if fraction < float(minimum_fraction):
+        requested_pose_count = max(2, len(world_poses))
+        first_invalid_index = min(
+            requested_pose_count - 1,
+            max(1, int(floor(bounded_fraction * (requested_pose_count - 1))) + 1),
+        )
+        first_invalid_pose = world_poses[first_invalid_index]
+        first_invalid_ras = tuple(
+            float(first_invalid_pose.GetElement(axis, 3)) for axis in range(3)
+        )
+        seed_values = [float(waypoints[-1][name]) for name in ROS2_JOINT_SI_ORDER]
+        collision_solution = list(
+            robot_node.ComputeMoveItIK(
+                poses[first_invalid_index],
+                ROS2_TOOL_TCP_LINK,
+                seed_values,
+                0.2,
+                True,
+            )
+        )
+        kinematics_solution = list(
+            robot_node.ComputeMoveItIK(
+                poses[first_invalid_index],
+                ROS2_TOOL_TCP_LINK,
+                seed_values,
+                0.2,
+                False,
+            )
+        )
+        if kinematics_solution and not collision_solution:
+            classification = "collision_induced_ik_failure"
+        elif not kinematics_solution:
+            classification = "kinematic_joint_or_singularity_failure"
+        else:
+            classification = "cartesian_continuity_or_interpolation_failure"
+        first_invalid_joint_positions = (
+            {
+                name: float(value)
+                for name, value in zip(ROS2_JOINT_SI_ORDER, kinematics_solution)
+            }
+            if len(kinematics_solution) == len(ROS2_JOINT_SI_ORDER)
+            else None
+        )
+        collision_pairs = ()
+        if first_invalid_joint_positions is not None:
+            encoded_pairs = robot_node.GetMoveItCollidingBodyPairs(
+                ROS2_PLANNING_GROUP,
+                [
+                    first_invalid_joint_positions[name]
+                    for name in ROS2_JOINT_SI_ORDER
+                ],
+            )
+            collision_pairs = tuple(
+                tuple(str(value).split("\t", 1))
+                for value in encoded_pairs
+                if "\t" in str(value)
+            )
+        return MoveItCartesianResult(
+            False,
+            f"MoveIt planned only {fraction * 100.0:.1f}% of the requested path "
+            f"after bounded Cartesian steps down to "
+            f"{min(eef_steps) * 1000.0:.2f} mm; {len(waypoints)} partial "
+            "joint waypoint(s) were retained for diagnosis.",
+            fraction=fraction,
+            waypoint_joint_vectors_si=tuple(waypoints),
+            waypoint_times_sec=tuple(times),
+            coordinate_frame=ROS2_FIXED_FRAME,
+            start_position_error_mm=start_position_error_mm,
+            start_orientation_error_deg=start_orientation_error_deg,
+            axial_roll_deg=float(axial_roll_end_deg),
+            eef_step_m=used_eef_step_m,
+            requested_path_length_mm=requested_length_mm,
+            completed_distance_mm=requested_length_mm * bounded_fraction,
+            last_valid_waypoint_index=len(waypoints) - 1,
+            first_invalid_requested_index=first_invalid_index,
+            last_valid_joint_positions_si=dict(waypoints[-1]),
+            first_invalid_ras_mm=first_invalid_ras,
+            failure_classification=classification,
+            collision_aware_ik_at_first_invalid=bool(collision_solution),
+            kinematics_only_ik_at_first_invalid=bool(kinematics_solution),
+            first_invalid_joint_positions_si=first_invalid_joint_positions,
+            first_invalid_collision_pairs=collision_pairs,
+        )
     return MoveItCartesianResult(
         True,
         f"MoveIt planned {len(waypoints)} points with Cartesian fraction "
@@ -2115,11 +2489,26 @@ def plan_moveit_cartesian_path(
         start_position_error_mm=start_position_error_mm,
         start_orientation_error_deg=start_orientation_error_deg,
         axial_roll_deg=float(axial_roll_end_deg),
+        eef_step_m=used_eef_step_m,
+        requested_path_length_mm=requested_length_mm,
+        completed_distance_mm=requested_length_mm,
+        last_valid_waypoint_index=len(waypoints) - 1,
+        last_valid_joint_positions_si=dict(waypoints[-1]),
     )
 
 
-def _dentobot_native_motion_context(*, initialize_goal: bool = False):
-    """Return native logic/MRML objects without entering the generic widget."""
+def _dentobot_native_motion_context(
+    *,
+    initialize_goal: bool = False,
+    require_goal: bool = True,
+):
+    """Return native logic/MRML objects without entering the generic widget.
+
+    A draggable TCP goal is presentation state, not a prerequisite for
+    explicit joint-state planning, state-validity, or FK queries.  Callers
+    performing those read-only/state-owned operations set ``require_goal`` to
+    false; interactive IK callers retain the fail-closed goal requirement.
+    """
     global _native_goal_transform
     try:
         import slicer
@@ -2150,7 +2539,7 @@ def _dentobot_native_motion_context(*, initialize_goal: bool = False):
         except Exception:
             pass
         mark_slicer_ros2_runtime_nodes_transient()
-    if _native_goal_transform is None:
+    if require_goal and _native_goal_transform is None:
         return logic, robot_node, None, "Create the DENTOBOT TCP goal control first."
     return logic, robot_node, _native_goal_transform, ""
 
@@ -2191,7 +2580,10 @@ def set_moveit_tcp_goal_matrix(matrix_goal_parent):
     return True, "Updated the provisional TCP goal transform.", goal_node
 
 
-def solve_moveit_tcp_goal():
+def solve_moveit_tcp_goal(
+    *,
+    seed_joint_positions_si: Optional[Mapping[str, float]] = None,
+):
     """Solve the current goal probe through the configured MoveIt IK plugin."""
     logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
         initialize_goal=False
@@ -2199,10 +2591,15 @@ def solve_moveit_tcp_goal():
     if error or logic is None or robot_node is None:
         return False, error or "TCP goal control is unavailable.", {}
     try:
-        solution = logic.computeIKWithMoveIt(
-            robotmodel=robot_node,
-            tipLink=ROS2_TOOL_TCP_LINK,
-        )
+        kwargs = {
+            "robotmodel": robot_node,
+            "tipLink": ROS2_TOOL_TCP_LINK,
+        }
+        if seed_joint_positions_si is not None:
+            kwargs["seedJointValues"] = joint_si_vector(
+                seed_joint_positions_si
+            )
+        solution = logic.computeIKWithMoveIt(**kwargs)
     except Exception as exc:
         return False, f"MoveIt IK request failed: {exc}", {}
     if not solution:
@@ -2259,18 +2656,95 @@ def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
     )
 
 
-def plan_moveit_joint_goal() -> MoveItCartesianResult:
-    """Plan current joints to the most recent successful TCP IK goal."""
+def plan_moveit_joint_goal(
+    *,
+    start_joint_positions_si: Optional[Mapping[str, float]] = None,
+    goal_joint_positions_si: Optional[Mapping[str, float]] = None,
+    refresh_planning_scene: bool = True,
+    planning_attempts: Optional[int] = None,
+    allowed_planning_time_sec: float = 10.0,
+    planner_context: str = "",
+) -> MoveItCartesianResult:
+    """Plan one joint goal with explicit DENTOBOT state ownership.
+
+    Routine Step 6 calls must provide both mappings. The legacy no-argument
+    form remains available to the generic expert widget, but it intentionally
+    retains that widget's current-state semantics and is not accepted as Step 6
+    task evidence.
+    """
+    attempt_count = (
+        ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS
+        if planning_attempts is None
+        else max(1, int(planning_attempts))
+    )
+    allowed_time = max(0.1, float(allowed_planning_time_sec))
     logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
-        initialize_goal=False
+        initialize_goal=False,
+        require_goal=False,
     )
     if error or logic is None or robot_node is None:
-        return MoveItCartesianResult(False, error or "TCP goal control is unavailable.")
-    if not getattr(logic, "last_ik_solution", None):
+        return MoveItCartesianResult(False, error or "MoveIt context is unavailable.")
+    explicit_start = start_joint_positions_si is not None
+    explicit_goal = goal_joint_positions_si is not None
+    explicit_context = str(planner_context or "explicit_joint_state")
+    if explicit_start != explicit_goal:
         return MoveItCartesianResult(
             False,
-            "Solve a distinct TCP IK goal before planning.",
+            "Explicit MoveIt planning requires both start and goal joint vectors.",
         )
+    if explicit_goal:
+        try:
+            start_values = joint_si_vector(start_joint_positions_si)
+            goal_values = joint_si_vector(goal_joint_positions_si)
+        except (KeyError, TypeError, ValueError) as exc:
+            return MoveItCartesianResult(False, f"MoveIt start/goal vector is invalid: {exc}")
+        submitted_start = dict(zip(ROS2_JOINT_SI_ORDER, start_values))
+        submitted_goal = dict(zip(ROS2_JOINT_SI_ORDER, goal_values))
+        per_joint_delta = {
+            name: abs(submitted_goal[name] - submitted_start[name])
+            for name in ROS2_JOINT_SI_ORDER
+        }
+        maximum_delta = max(per_joint_delta.values(), default=0.0)
+        meaningfully_distinct = any(
+            delta
+            > (
+                ROS2_MONITORED_PRISMATIC_TOLERANCE_M
+                if "Slider" in name
+                else ROS2_MONITORED_REVOLUTE_TOLERANCE_RAD
+            )
+            for name, delta in per_joint_delta.items()
+        )
+        monitored_start = monitored_joint_positions_si()
+        monitored_error = None
+        if monitored_start:
+            monitored_error, _mismatched = _joint_state_error(
+                submitted_start, monitored_start
+            )
+        if not meaningfully_distinct:
+            return MoveItCartesianResult(
+                False,
+                "Rejected an accidental equal start/goal request: Task Home and "
+                "PreEntry IK are indistinguishable within the monitored-state tolerances.",
+                submitted_start_joint_positions_si=submitted_start,
+                submitted_goal_joint_positions_si=submitted_goal,
+                monitored_start_joint_positions_si=monitored_start or None,
+                maximum_start_goal_delta=maximum_delta,
+                maximum_monitored_start_error=monitored_error,
+                planner_start_source=explicit_context,
+            )
+    else:
+        if not getattr(logic, "last_ik_solution", None):
+            return MoveItCartesianResult(
+                False,
+                "Solve a distinct TCP IK goal before planning.",
+            )
+        start_values = []
+        goal_values = [float(value) for value in logic.last_ik_solution]
+        submitted_start = None
+        submitted_goal = None
+        monitored_start = monitored_joint_positions_si()
+        maximum_delta = None
+        monitored_error = None
     parameter_node = logic.getParameterNode()
     try:
         import slicer
@@ -2285,56 +2759,252 @@ def plan_moveit_joint_goal() -> MoveItCartesianResult:
         # not plan against a scene that is still changing: MoveIt can otherwise
         # find a path against the old world and invalidate it after newer
         # objects arrive in the response-validation adapter.
-        logic.RefreshMoveItPlanningScene(robot_node)
-        deadline = time.monotonic() + ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC
-        while time.monotonic() < deadline:
-            try:
-                import slicer
-
-                slicer.app.processEvents()
-            except Exception:
-                pass
-            ros_logic = get_ros2_logic()
-            if ros_logic is not None:
+        if refresh_planning_scene:
+            logic.RefreshMoveItPlanningScene(robot_node)
+            deadline = time.monotonic() + ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC
+            while time.monotonic() < deadline:
                 try:
-                    ros_logic.Spin()
+                    import slicer
+
+                    slicer.app.processEvents()
                 except Exception:
                     pass
-            time.sleep(0.02)
+                ros_logic = get_ros2_logic()
+                if ros_logic is not None:
+                    try:
+                        ros_logic.Spin()
+                    except Exception:
+                        pass
+                time.sleep(0.02)
         last_result = MoveItCartesianResult(
             False, "MoveIt did not attempt joint-goal planning."
         )
-        for attempt in range(1, ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS + 1):
-            trajectory = motion_node.PlanMoveItTrajectory(
-                ROS2_PLANNING_GROUP,
-                list(logic.last_ik_solution),
-                0.2,
-                0.2,
-                10.0,
+        for attempt in range(1, attempt_count + 1):
+            if explicit_start:
+                planner = getattr(
+                    motion_node, "PlanMoveItTrajectoryFromState", None
+                )
+                if planner is None:
+                    return MoveItCartesianResult(
+                        False,
+                        "The loaded SlicerROS2 build lacks explicit-start planning; "
+                        "rebuild/restart the module before Step 6.5.",
+                        submitted_start_joint_positions_si=submitted_start,
+                        submitted_goal_joint_positions_si=submitted_goal,
+                        monitored_start_joint_positions_si=monitored_start or None,
+                        maximum_start_goal_delta=maximum_delta,
+                        maximum_monitored_start_error=monitored_error,
+                        planner_start_source=explicit_context,
+                    )
+                trajectory = planner(
+                    ROS2_PLANNING_GROUP,
+                    list(ROS2_JOINT_SI_ORDER),
+                    start_values,
+                    goal_values,
+                    0.2,
+                    0.2,
+                    allowed_time,
+                )
+            else:
+                trajectory = motion_node.PlanMoveItTrajectory(
+                    ROS2_PLANNING_GROUP,
+                    goal_values,
+                    0.2,
+                    0.2,
+                    allowed_time,
+                )
+            native_plan_message = str(
+                getattr(motion_node, "GetLastJointPlanMessage", lambda: "")()
+                or ""
             )
-            last_result = _moveit_trajectory_result(trajectory)
+            trajectory_result = _moveit_trajectory_result(trajectory)
+            last_result = replace(
+                trajectory_result,
+                message=(
+                    trajectory_result.message
+                    + (
+                        " " + native_plan_message
+                        if native_plan_message
+                        and not trajectory_result.success
+                        else ""
+                    )
+                ),
+                submitted_start_joint_positions_si=submitted_start,
+                submitted_goal_joint_positions_si=submitted_goal,
+                monitored_start_joint_positions_si=monitored_start or None,
+                maximum_start_goal_delta=maximum_delta,
+                maximum_monitored_start_error=monitored_error,
+                planner_start_source=(
+                    explicit_context if explicit_start else "moveit_current_legacy"
+                ),
+                native_planner_message=native_plan_message,
+            )
             if last_result.success:
                 if attempt == 1:
                     return last_result
-                return MoveItCartesianResult(
-                    True,
-                    f"{last_result.message} Stable-scene planning succeeded on "
-                    f"bounded attempt {attempt}/{ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS}.",
-                    fraction=last_result.fraction,
-                    waypoint_joint_vectors_si=last_result.waypoint_joint_vectors_si,
-                    waypoint_times_sec=last_result.waypoint_times_sec,
-                    coordinate_frame=last_result.coordinate_frame,
+                return replace(
+                    last_result,
+                    message=(
+                        f"{last_result.message} Stable-scene planning succeeded on "
+                        f"bounded attempt {attempt}/{attempt_count}."
+                    ),
                 )
-            if attempt < ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS:
+            if attempt < attempt_count:
                 time.sleep(ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC)
-        return MoveItCartesianResult(
-            False,
-            f"MoveIt joint-goal planning failed after "
-            f"{ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS} stable-scene attempt(s): "
-            f"{last_result.message}",
+        ownership_evidence = ""
+        if explicit_start:
+            ownership_evidence = (
+                f" Submitted explicit planner context={explicit_context}; "
+                f"maximum start/goal joint delta={maximum_delta:.6g}"
+                + (
+                    f", maximum monitored/start error={monitored_error:.6g}."
+                    if monitored_error is not None
+                    else "; monitored start was unavailable."
+                )
+            )
+        return replace(
+            last_result,
+            success=False,
+            message=(
+                f"MoveIt joint-goal planning failed after "
+                f"{attempt_count} stable-scene attempt(s): "
+                f"{last_result.message}{ownership_evidence}"
+            ),
         )
     except Exception as exc:
-        return MoveItCartesianResult(False, f"MoveIt goal planning failed: {exc}")
+        return MoveItCartesianResult(
+            False,
+            f"MoveIt goal planning failed: {exc}",
+            submitted_start_joint_positions_si=submitted_start,
+            submitted_goal_joint_positions_si=submitted_goal,
+            monitored_start_joint_positions_si=monitored_start or None,
+            maximum_start_goal_delta=maximum_delta,
+            maximum_monitored_start_error=monitored_error,
+            planner_start_source=(
+                explicit_context if explicit_start else "moveit_current_legacy"
+            ),
+        )
+
+
+def check_moveit_static_joint_state(
+    positions_si: Mapping[str, float],
+    *,
+    timeout_sec: float = 2.0,
+) -> tuple[bool, str, bool]:
+    """Query one explicit state against MoveIt's synchronized PlanningScene.
+
+    Returns ``(valid, message, authoritative)``. The query is read-only and
+    never changes the ROS current state or the translucent goal robot.
+    """
+
+    logic, _robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None:
+        return False, error or "MoveIt context is unavailable.", False
+    try:
+        values = joint_si_vector(positions_si)
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"Static state vector is invalid: {exc}", False
+    parameter_node = logic.getParameterNode()
+    try:
+        import slicer
+
+        motion_node = slicer.mrmlScene.GetNodeByID(
+            parameter_node.motionControlNodeID
+        )
+    except Exception:
+        motion_node = None
+    if motion_node is None:
+        return False, "MoveIt motion-control node is unavailable.", False
+    checker = getattr(motion_node, "CheckMoveItStateValidity", None)
+    if checker is None:
+        return (
+            False,
+            "The loaded SlicerROS2 build lacks explicit state-validity queries; "
+            "rebuild/restart it before Step 6.3.",
+            False,
+        )
+    try:
+        valid = bool(
+            checker(
+                ROS2_PLANNING_GROUP,
+                list(ROS2_JOINT_SI_ORDER),
+                values,
+                float(timeout_sec),
+            )
+        )
+        message = str(motion_node.GetLastStateValidityMessage() or "")
+    except Exception as exc:
+        return False, f"MoveIt state-validity query failed: {exc}", False
+    lowered = message.lower()
+    authoritative = not any(
+        token in lowered
+        for token in (
+            "unavailable",
+            "timed out",
+            "null response",
+            "ros node",
+            "empty or mismatched",
+        )
+    )
+    return valid, message or ("MoveIt state is valid." if valid else "MoveIt state is invalid."), authoritative
+
+
+def compute_moveit_static_tcp_pose_base_mm(
+    positions_si: Mapping[str, float],
+    *,
+    timeout_sec: float = 2.0,
+) -> tuple[bool, str, Optional[tuple[float, float, float]]]:
+    """Return MoveIt FK for the provisional drill-tip frame without mutation."""
+
+    logic, _robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None:
+        return False, error or "MoveIt context is unavailable.", None
+    try:
+        values = joint_si_vector(positions_si)
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"FK state vector is invalid: {exc}", None
+    parameter_node = logic.getParameterNode()
+    try:
+        import slicer
+
+        motion_node = slicer.mrmlScene.GetNodeByID(
+            parameter_node.motionControlNodeID
+        )
+    except Exception:
+        motion_node = None
+    if motion_node is None:
+        return False, "MoveIt motion-control node is unavailable.", None
+    compute_fk = getattr(motion_node, "ComputeMoveItForwardKinematics", None)
+    if compute_fk is None:
+        return (
+            False,
+            "The loaded SlicerROS2 build lacks explicit-state MoveIt FK; "
+            "rebuild/restart it before Step 6.3.",
+            None,
+        )
+    try:
+        matrix = compute_fk(
+            ROS2_PLANNING_GROUP,
+            list(ROS2_JOINT_SI_ORDER),
+            values,
+            ROS2_TOOL_TCP_LINK,
+            float(timeout_sec),
+        )
+        message = str(motion_node.GetLastForwardKinematicsMessage() or "")
+        if not message.startswith("MoveIt FK returned"):
+            return False, message or "MoveIt FK returned no authoritative pose.", None
+        position = tuple(float(matrix.GetElement(index, 3)) for index in range(3))
+    except Exception as exc:
+        return False, f"MoveIt FK query failed: {exc}", None
+    if len(position) != 3 or not all(isfinite(value) for value in position):
+        return False, "MoveIt FK returned a non-finite TCP position.", None
+    return True, message, position
 
 
 def sync_moveit_obstacle_polydata(
@@ -2364,11 +3034,41 @@ def sync_moveit_obstacle_polydata(
             proxy = node
             break
     if proxy is None:
+        # SlicerROS2 derives moveit_msgs/CollisionObject.id directly from the
+        # source model node's name.  The hidden proxy must therefore use the
+        # canonical audited object ID, not a UI-oriented display label.
         proxy = slicer.mrmlScene.AddNewNodeByClass(
-            "vtkMRMLModelNode", f"[Step 6] MoveIt obstacle - {source_name}"
+            "vtkMRMLModelNode", source_name
         )
         proxy.SetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE, "true")
         proxy.SetAttribute(ROS2_OBSTACLE_SOURCE_ATTRIBUTE, source_id)
+    prior_published_id = str(
+        proxy.GetAttribute(ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE)
+        or proxy.GetName()
+        or ""
+    ).strip()
+    if prior_published_id and prior_published_id != source_name:
+        # Remove a collision object published by an older module revision (or
+        # before a source rename) before reusing the proxy under its canonical
+        # ID. PublishRemove also derives the ID from the model-node name.
+        try:
+            publisher = motion_logic._getCollisionObjectPublisher(
+                robot_node, create=False
+            )
+            if publisher is not None:
+                proxy.SetName(prior_published_id)
+                publisher.SetFrameId(ROS2_FIXED_FRAME)
+                publisher.PublishRemove(proxy)
+        except Exception:
+            # The canonical replacement below is still authoritative.  A
+            # clean runtime starts without the obsolete ID, while an active
+            # runtime will also discard it when the transient robot is torn
+            # down.  Do not block current publication on best-effort cleanup.
+            pass
+        finally:
+            proxy.SetName(source_name)
+    else:
+        proxy.SetName(source_name)
     proxy.SaveWithSceneOff()
     proxy.SetAndObservePolyData(polydata_base_mm)
     proxy.CreateDefaultDisplayNodes()
@@ -2384,8 +3084,145 @@ def sync_moveit_obstacle_polydata(
     )
     if not motion_logic.PublishMoveItObstacle(proxy, ROS2_FIXED_FRAME, robot_node):
         return False, f"Failed to publish MoveIt obstacle {source_name}."
+    proxy.SetAttribute(ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE, source_name)
     mark_slicer_ros2_runtime_nodes_transient()
     return True, ""
+
+
+def acknowledge_moveit_collision_scene(
+    *,
+    expected_objects: Sequence[Mapping[str, object]],
+    current_joint_positions_si: Mapping[str, float],
+    timeout_sec: float = ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC,
+) -> dict[str, object]:
+    """Read back collision IDs/poses/bounds from the guard's PlanningScene.
+
+    Publishing a CollisionObject only proves that the local publish call
+    returned.  This bounded handshake sends the unchanged current simulation
+    state through the guard and compares the guard's monitored MoveIt world
+    against the exact prepared payload manifest.
+    """
+
+    expected_by_id = {
+        str(record.get("outgoing_collision_object_id") or ""): record
+        for record in expected_objects
+    }
+    expected_by_id.pop("", None)
+    if not expected_by_id:
+        return {
+            "status": "Mismatch",
+            "reason": "No expected collision objects were supplied.",
+            "acknowledged_object_ids": [],
+            "mismatches": ["empty expected object set"],
+        }
+    deadline = time.monotonic() + max(0.1, float(timeout_sec))
+    last_status = None
+    last_mismatches = ["PlanningScene readback has not arrived."]
+    while time.monotonic() < deadline:
+        # A rejected unchanged state still carries valid read-only world
+        # evidence.  It is not treated as an accepted motion command here.
+        apply_joint_positions_si_to_motion_control(current_joint_positions_si)
+        status = joint_command_status(max_age_sec=1.0)
+        if status is None:
+            time.sleep(0.05)
+            continue
+        last_status = status
+        if not status.world_object_evidence_present:
+            return {
+                "status": "RuntimeUpgradeRequired",
+                "reason": (
+                    "The running collision guard predates per-object PlanningScene "
+                    "evidence. Restart the external DENTOBOT simulation stack so "
+                    "it uses the newly built collision_guard binary, then reconnect."
+                ),
+                "acknowledged_object_ids": [],
+                "mismatches": [],
+            }
+        runtime_by_id = {
+            str(record.get("id") or ""): record for record in status.world_objects
+        }
+        mismatches: list[str] = []
+        for object_id, expected in expected_by_id.items():
+            observed = runtime_by_id.get(object_id)
+            if observed is None:
+                mismatches.append(f"missing runtime object {object_id}")
+                continue
+            expected_bounds_mm = tuple(
+                float(value)
+                for value in expected.get("outgoing_bounds_base_link_mm", ())
+            )
+            observed_bounds_m = observed.get("bounds_base_link_m")
+            if len(expected_bounds_mm) != 6 or observed_bounds_m is None:
+                mismatches.append(f"missing comparable bounds for {object_id}")
+                continue
+            expected_bounds_m = tuple(value * 0.001 for value in expected_bounds_mm)
+            if any(
+                abs(expected_value - float(observed_value)) > 1e-6
+                for expected_value, observed_value in zip(
+                    expected_bounds_m, observed_bounds_m
+                )
+            ):
+                mismatches.append(f"runtime bounds differ for {object_id}")
+            if int(observed.get("shape_count", 0)) < 1:
+                mismatches.append(f"runtime object {object_id} has no shape")
+        if mismatches:
+            missing_ids = sorted(set(expected_by_id).difference(runtime_by_id))
+            unexpected_ids = sorted(set(runtime_by_id).difference(expected_by_id))
+            legacy_prefix = "[Step 6] MoveIt obstacle - "
+            legacy_proxy_ids = {
+                f"{legacy_prefix}{object_id}" for object_id in expected_by_id
+            }
+            if missing_ids and set(runtime_by_id) == legacy_proxy_ids:
+                mismatches = [
+                    "runtime uses obsolete display-prefixed collision IDs; "
+                    "restart Slicer with the current DENTOWorkflow source"
+                ]
+            elif missing_ids:
+                missing_preview = ", ".join(missing_ids[:5])
+                unexpected_preview = ", ".join(unexpected_ids[:5])
+                mismatches = [
+                    f"runtime collision ID set differs: expected "
+                    f"{len(expected_by_id)}, observed {len(runtime_by_id)}; "
+                    f"missing [{missing_preview}]"
+                    + (
+                        f"; unexpected [{unexpected_preview}]"
+                        if unexpected_preview
+                        else ""
+                    )
+                ]
+            else:
+                mismatches = mismatches[:5]
+        last_mismatches = mismatches
+        if not mismatches:
+            unexpected = sorted(set(runtime_by_id).difference(expected_by_id))
+            return {
+                "status": "Acknowledged",
+                "reason": (
+                    "The collision guard's monitored MoveIt PlanningScene "
+                    "contains every prepared object with matching mesh bounds."
+                ),
+                "acknowledged_object_ids": sorted(expected_by_id),
+                "unexpected_object_ids": unexpected,
+                "world_object_count": int(status.world_object_count),
+                "objects": [runtime_by_id[key] for key in sorted(expected_by_id)],
+            }
+        time.sleep(0.1)
+    return {
+        "status": "Mismatch",
+        "reason": (
+            "MoveIt PlanningScene readback did not match the prepared collision "
+            "payload before the bounded timeout."
+        ),
+        "acknowledged_object_ids": (
+            sorted(str(record.get("id") or "") for record in last_status.world_objects)
+            if last_status is not None
+            else []
+        ),
+        "world_object_count": (
+            int(last_status.world_object_count) if last_status is not None else 0
+        ),
+        "mismatches": last_mismatches,
+    }
 
 
 def remove_stale_moveit_obstacle_proxies(active_source_ids: set[str]) -> None:

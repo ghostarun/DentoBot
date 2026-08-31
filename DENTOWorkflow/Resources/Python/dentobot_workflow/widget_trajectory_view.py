@@ -314,7 +314,7 @@ class TrajectoryViewWidgetMixin:
             )
             self._step6MotionPlan = None
             if self._robotWorkflowFacade:
-                self._robotWorkflowFacade.clearTransientState()
+                self._robotWorkflowFacade.invalidateMotionPlan()
             try:
                 dockingSummary = self.logic.getTargetDockingAssemblySummary(
                     self._parameterNode.targetDockingAssemblyModel

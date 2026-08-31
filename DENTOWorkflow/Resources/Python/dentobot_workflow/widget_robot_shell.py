@@ -33,6 +33,7 @@ class RobotShellWidgetMixin:
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
                 "preview_approach": self._onStep6PreviewApproach,
+                "show_motion_diagnostics": self._onStep6ShowMotionDiagnostics,
                 "plan_drilling": self._onStep6PlanDrilling,
                 "preview_drilling": self._onStep6PreviewDrilling,
             },
@@ -51,6 +52,9 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.runtimeGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.confirmationGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.goalGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
@@ -66,15 +70,20 @@ class RobotShellWidgetMixin:
             "Step 6 — Native Placement-to-Task Simulation"
         )
         self.ui.robotPlacementDescriptionLabel.text = _(
-            "Validate the case, place the local robot in CBCT context, save Task "
-            "Home, review workspace-assisted limits, connect ROS/MoveIt, confirm "
+            "Validate the case, place the local robot in CBCT context, connect "
+            "ROS/MoveIt, save a live-validated Task Home, review workspace-assisted limits, confirm "
             "one immutable task, then preview guarded approach and drilling phases."
         )
-        self.ui.step6MountLockGroupBox.title = _("6.1 — Local Robot and Provisional Base")
-        self.ui.step6TaskJointLimitsGroupBox.title = _("6.2 — Joint State for Task Home")
+        self.ui.step6MountLockGroupBox.title = _(
+            "6.1 — Robot, Manual Simulation Base, and ROS/MoveIt Runtime"
+        )
+        self.ui.step6TaskJointLimitsGroupBox.title = _(
+            "6.2 — Live Joint State for Task Home"
+        )
         self.ui.step6WorkspaceGroupBox.title = _("6.3 — Workspace and Assisted Limits")
         self.ui.step6TrajectoryPlanningGroupBox.visible = False
         self.ui.ros2MotionControlGroupBox.visible = False
+        self.ui.ros2MotionControlGroupBox.enabled = False
 
     def _setupStep6SubstepNavigator(self) -> None:
         """Add one shared 6.0–6.6 navigator to the normal module panel."""
@@ -282,19 +291,13 @@ class RobotShellWidgetMixin:
     def _onStep6CreateForeheadProxy(self) -> None:
         if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
             return
-        try:
-            proxy = self.logic.createOrUpdateStep6ForeheadProxy(self._parameterNode)
-            self._parameterNode.robotForeheadProxyModel = proxy
-            self._robotSimulationPanel.setAppearance(
-                "forehead_proxy", True, self._parameterNode.step6ForeheadProxyOpacity
-            )
-            self._robotSimulationPanel.visualizationStatusLabel.text = _(
-                "Created the curved Unregistered / Provisional / Visualization-only forehead envelope."
-            )
-            self._updateWorkflowViewControls()
-        except (RuntimeError, ValueError) as exc:
-            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
-            slicer.util.errorDisplay(str(exc))
+        message = _(
+            "Forehead-proxy creation is quarantined with the circular mount-plane "
+            "workflow. Existing proxies remain visualization-only; position the "
+            "Manual Simulation Base directly in Robot + CBCT context."
+        )
+        self._robotSimulationPanel.visualizationStatusLabel.text = message
+        slicer.util.errorDisplay(message)
 
     def _onStep6PlacementReview(self) -> None:
         if not self._robotSimulationPanel:
@@ -330,6 +333,27 @@ class RobotShellWidgetMixin:
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
+    def _onStep6ShowMotionDiagnostics(self) -> None:
+        if not self._parameterNode or not self._robotSimulationPanel:
+            return
+        payload = str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
+        if not payload:
+            slicer.util.errorDisplay(_("No retained Step 6 motion diagnostic is available."))
+            return
+        try:
+            session = parse_motion_diagnostic_session(payload)
+            self._robotSimulationPanel.showMotionDiagnostics(
+                session,
+                self._robotWorkflowFacade.showDiagnosticCandidate
+                if self._robotWorkflowFacade
+                else None,
+                self._robotWorkflowFacade.reviewMotionDiagnostic
+                if self._robotWorkflowFacade
+                else None,
+            )
+        except (ValueError, json.JSONDecodeError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
     def _onStep6ApplyTaskHome(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
@@ -337,8 +361,28 @@ class RobotShellWidgetMixin:
         self._setStep6PanelResult(self._robotSimulationPanel.homeStatusLabel, result)
         if result.success:
             self._updateRobotPlacement()
+            self._updateStep6PlanningUi(result.message)
+            # Placement/UI refresh derives the generic Home state and can
+            # overwrite the action-specific outcome. Restore the full result
+            # so the operator can see whether MoveIt planned a transition or
+            # merely revalidated an already-matching monitored state.
+            self._setStep6PanelResult(
+                self._robotSimulationPanel.homeStatusLabel,
+                result,
+            )
+            main_window = slicer.util.mainWindow()
+            if main_window is not None:
+                main_window.statusBar().showMessage(result.message, 8000)
+            slicer.util.infoDisplay(
+                _(
+                    "Task Home is now live-validated in the active ROS/MoveIt "
+                    "session.\n\n%1"
+                ).replace("%1", result.message),
+                windowTitle=_("Task Home applied"),
+            )
         else:
             slicer.util.errorDisplay(result.message)
+            self._updateStep6PlanningUi(result.message, error=True)
 
     def _onStep6ReviewAssistedLimits(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -357,8 +401,11 @@ class RobotShellWidgetMixin:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
         result = self._robotWorkflowFacade.confirmTask()
-        self._robotSimulationPanel.showRuntimeResult(result)
+        self._robotSimulationPanel.showConfirmationResult(result)
         self._updateStep6PlanningUi(result.message, error=not result.success)
+        # The generic planning refresh writes the current prerequisite summary.
+        # Restore the action-specific confirmation outcome afterward.
+        self._robotSimulationPanel.showConfirmationResult(result)
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
@@ -463,6 +510,7 @@ class RobotShellWidgetMixin:
             return
         index = max(0, min(int(substep_index), 6))
         self._step6SubstepIndex = index
+        self._robotSimulationPanel.setActiveSubstep(index)
         self._updatingStep6SubstepNavigation = True
         try:
             if self._step6SubstepComboBox is not None:
@@ -480,6 +528,7 @@ class RobotShellWidgetMixin:
             self.ui.step6WorkspaceGroupBox,
             self.ui.step6TrajectoryPlanningGroupBox,
             self._robotSimulationPanel.runtimeGroup,
+            self._robotSimulationPanel.confirmationGroup,
             self._robotSimulationPanel.goalGroup,
             self._robotSimulationPanel.collisionGroup,
             self._robotSimulationPanel.visualizationGroup,
@@ -495,6 +544,8 @@ class RobotShellWidgetMixin:
             1: (
                 self._robotSimulationPanel.visualizationGroup,
                 self.ui.step6MountLockGroupBox,
+                self._robotSimulationPanel.runtimeGroup,
+                self._robotSimulationPanel.collisionGroup,
             ),
             2: (
                 self.ui.step6TaskJointLimitsGroupBox,
@@ -504,10 +555,7 @@ class RobotShellWidgetMixin:
                 self.ui.step6WorkspaceGroupBox,
                 self._robotSimulationPanel.workspaceReviewGroup,
             ),
-            4: (
-                self._robotSimulationPanel.runtimeGroup,
-                self._robotSimulationPanel.collisionGroup,
-            ),
+            4: (self._robotSimulationPanel.confirmationGroup,),
             5: (self._robotSimulationPanel.approachGroup,),
             6: (self._robotSimulationPanel.drillingGroup,),
         }

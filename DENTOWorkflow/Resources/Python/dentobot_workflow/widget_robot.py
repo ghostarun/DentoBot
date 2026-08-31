@@ -209,6 +209,18 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         ) if self.logic else False
         home_issues = self.logic.taskHomeFreshnessIssues(self._parameterNode) if self.logic else ()
         home_ready = not home_issues
+        home_runtime_validated = bool(
+            self._robotWorkflowFacade
+            and self._robotWorkflowFacade.taskHomeRuntimeValidated(
+                self._parameterNode
+            )
+        )
+        workspace_runtime_validated = bool(
+            self._robotWorkflowFacade
+            and self._robotWorkflowFacade.workspaceRuntimeValidated(
+                self._parameterNode
+            )
+        )
         assisted_reviewed = (
             self.logic.assistedTaskLimitsReviewed(self._parameterNode)
             if self.logic else False
@@ -249,12 +261,21 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             context_status = _("No Step 6 scene yet. Import a case or load the phantom.")
 
         base_state = str(self._parameterNode.step6BasePlacementStatus or "Unlocked")
+        base_source = str(self._parameterNode.step6BasePlacementSource or "")
         if locked:
-            mount_status = _("Base placement: %1 (simulation review only).").replace(
+            mount_status = _(
+                "Manual Simulation Base: %1 (diagnostic placement only; no "
+                "forehead/registration truth)."
+            ).replace(
                 "%1", base_state
             )
         elif base_state == BasePlacementStatus.STALE.value:
-            mount_status = _("Base placement is Stale; review and provisionally lock it again.")
+            mount_status = (
+                _(
+                    "Base placement is Stale (%1). Reposition it directly in "
+                    "Robot + CBCT context, then review and lock it again."
+                ).replace("%1", base_source or "unreviewed source")
+            )
         elif not scene_active:
             mount_status = _("Choose a scene before loading the robot.")
         elif not scene_prepared:
@@ -264,7 +285,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         elif not robot_present:
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
-            mount_status = _("Base mount is unlocked.")
+            mount_status = _(
+                "Manual Simulation Base is unlocked; position it directly in "
+                "Robot + CBCT context."
+            )
 
         if message and "motion plan" in message.lower():
             plan_status = message
@@ -302,9 +326,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         self.ui.step6MountLockGroupBox.enabled = scene_prepared
         self.ui.step6TaskJointLimitsGroupBox.enabled = (
-            robot_present and scene_prepared
+            robot_present and scene_prepared and ros2_active
         )
-        self.ui.step6WorkspaceGroupBox.enabled = robot_present and scene_prepared
+        self.ui.step6WorkspaceGroupBox.enabled = bool(
+            robot_present
+            and scene_prepared
+            and ros2_active
+            and home_runtime_validated
+        )
         self.ui.step6TrajectoryPlanningGroupBox.enabled = (
             locked and imported and planning_anatomy_ready
         )
@@ -326,40 +355,35 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
         )
 
-        self.ui.connectRos2MotionButton.enabled = bool(
-            planning_anatomy_ready
-            and local_robot_present
-            and locked
-            and home_ready
-            and assisted_reviewed
-            and not ros2_active
+        # Retired XML controls remain only while the old UI file is migrated.
+        # Runtime ownership is exclusively the shared 6.1 panel; never allow
+        # these hidden buttons to become a second state-changing action path.
+        self.ui.connectRos2MotionButton.enabled = False
+        self.ui.disconnectRos2MotionButton.enabled = False
+        robot_recovery_allowed = bool(
+            scene_prepared
+            and not local_robot_present
+            and self.logic.isRobotBaseTransformNode(
+                self._parameterNode.robotBaseTransform
+            )
         )
-        self.ui.disconnectRos2MotionButton.enabled = ros2_active
-        self.ui.loadRobotModelButton.enabled = scene_prepared and not locked
+        self.ui.loadRobotModelButton.enabled = bool(
+            scene_prepared and (not locked or robot_recovery_allowed)
+        )
         self.ui.frameRobotButton.enabled = scene_prepared
         self.ui.importStep6PlanningContextButton.enabled = not locked
         self.ui.loadDraftPhantomButton.enabled = not locked
 
+        self.ui.resetRobotBaseButton.enabled = place_enabled
         for widget_name in (
             "createRobotMountPlaneButton",
             "flipRobotMountPlaneButton",
             "snapRobotBaseToPlaneButton",
-            "resetRobotBaseButton",
         ):
             widget = getattr(self.ui, widget_name, None)
             if widget is not None:
-                widget.setEnabled(place_enabled)
-        self.ui.snapRobotBaseToPlaneButton.enabled = (
-            place_enabled
-            and self.logic.isRobotBaseTransformNode(
-                self._parameterNode.robotBaseTransform
-            )
-            and self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
-        )
-        self.ui.flipRobotMountPlaneButton.enabled = (
-            place_enabled
-            and self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
-        )
+                widget.setEnabled(False)
+        self.ui.robotMountPlaneSelector.enabled = False
         for widget_name in (
             "robotXMinusButton",
             "robotXPlusButton",
@@ -378,12 +402,22 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if widget is not None:
                 widget.setEnabled(place_enabled)
         self.ui.robotKeyboardNudgeCheckBox.enabled = place_enabled
-        self.ui.resetRobotJointsButton.enabled = robot_present and scene_prepared
+        self.ui.resetRobotJointsButton.enabled = bool(
+            robot_present and scene_prepared and ros2_active
+        )
         self.ui.deleteRobotSetupButton.enabled = robot_present and not locked
-        self.ui.applyTaskJointLimitsButton.enabled = robot_present and scene_prepared
-        self.ui.resetTaskJointLimitsButton.enabled = robot_present and scene_prepared
+        self.ui.applyTaskJointLimitsButton.enabled = bool(
+            robot_present and scene_prepared and ros2_active
+        )
+        self.ui.resetTaskJointLimitsButton.enabled = bool(
+            robot_present and scene_prepared and ros2_active
+        )
         self.ui.generateRobotWorkspaceButton.enabled = (
-            scene_prepared and robot_present and locked and home_ready
+            scene_prepared
+            and robot_present
+            and locked
+            and ros2_active
+            and home_runtime_validated
             and self.logic.isRobotBaseTransformNode(
                 self._parameterNode.robotBaseTransform
             )
@@ -394,35 +428,65 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         panel = self._robotSimulationPanel
         if panel is not None:
-            panel.loadFallbackButton.enabled = scene_prepared and not locked
+            panel.loadFallbackButton.enabled = bool(
+                scene_prepared and (not locked or robot_recovery_allowed)
+            )
             panel.enableCbctRenderingButton.enabled = imported and scene_prepared
-            panel.createProxyButton.enabled = bool(
-                self.logic.isRobotMountPlaneNode(self._parameterNode.robotMountPlane)
-                and not locked
+            panel.createProxyButton.enabled = False
+            panel.saveTaskHomeButton.enabled = bool(
+                scene_prepared and locked and ros2_active
             )
-            panel.saveTaskHomeButton.enabled = scene_prepared and locked
-            panel.applyTaskHomeButton.enabled = scene_prepared and home_ready
-            panel.homeStatusLabel.text = (
-                _("Task Home is current for this base and robot profile.")
-                if home_ready
-                else " ".join(home_issues)
+            panel.motionDiagnosticsButton.enabled = bool(
+                str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
             )
+            panel.applyTaskHomeButton.enabled = bool(
+                scene_prepared and ros2_active and home_ready
+            )
+            if home_runtime_validated:
+                panel.homeStatusLabel.text = _(
+                    "Task Home is current and live-validated in this ROS/MoveIt session."
+                )
+            elif home_ready and ros2_active:
+                panel.homeStatusLabel.text = _(
+                    "Saved Task Home is current but unvalidated in this runtime. Apply it now."
+                )
+            elif home_ready:
+                panel.homeStatusLabel.text = _(
+                    "Saved Task Home is current; connect ROS/MoveIt in 6.1 to validate it."
+                )
+            else:
+                panel.homeStatusLabel.text = " ".join(home_issues)
             panel.reviewLimitsButton.enabled = bool(
                 scene_prepared
+                and ros2_active
+                and home_runtime_validated
+                and workspace_runtime_validated
                 and str(self._parameterNode.step6AssistedLimitProposalJson or "").strip()
                 and not assisted_reviewed
             )
-            panel.workspaceReviewStatusLabel.text = (
-                _("Workspace-assisted task limits were explicitly reviewed and applied.")
-                if assisted_reviewed
-                else _("Generate the FK workspace, then review its proposed limits.")
-            )
+            if workspace_runtime_validated and assisted_reviewed:
+                panel.workspaceReviewStatusLabel.text = _(
+                    "MoveIt static-valid workspace and bounded Home-connectivity "
+                    "evidence are current; its assisted envelope was explicitly reviewed."
+                )
+            elif workspace_runtime_validated:
+                panel.workspaceReviewStatusLabel.text = _(
+                    "MoveIt static-valid workspace and bounded Home-connectivity "
+                    "evidence are current; review its proposed envelope."
+                )
+            elif str(
+                self._parameterNode.step6AssistedLimitProposalJson or ""
+            ).strip():
+                panel.workspaceReviewStatusLabel.text = _(
+                    "Saved workspace evidence is available for inspection but is not validated in this runtime. Regenerate it."
+                )
+            else:
+                panel.workspaceReviewStatusLabel.text = _(
+                    "Generate the MoveIt static-valid workspace and bounded "
+                    "Home-connectivity evidence, then review its proposed limits."
+                )
             runtime_ready = bool(
-                planning_anatomy_ready
-                and local_robot_present
-                and locked
-                and home_ready
-                and assisted_reviewed
+                planning_anatomy_ready and local_robot_present and locked
             )
             panel.connectButton.enabled = runtime_ready and not ros2_active
             panel.disconnectButton.enabled = ros2_active
@@ -430,16 +494,23 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 imported
                 and planning_anatomy_ready
                 and ros2_active
+                and home_runtime_validated
+                and workspace_runtime_validated
+                and assisted_reviewed
                 and facade_capabilities
                 and facade_capabilities.planning_scene_synchronized
             )
-            panel.runtimeStatusLabel.text = (
+            panel.confirmationStatusLabel.text = (
                 _("Immutable task snapshot is current; phased plans are enabled.")
                 if task_ready
                 else " ".join(task_issues)
             )
             panel.planApproachButton.enabled = bool(
-                planning_anatomy_ready and task_ready and ros2_active
+                planning_anatomy_ready
+                and task_ready
+                and ros2_active
+                and home_runtime_validated
+                and workspace_runtime_validated
             )
             panel.previewApproachButton.enabled = bool(
                 isinstance(facade_plan, PhasePlan)
@@ -454,6 +525,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
+                and workspace_runtime_validated
                 and approach_complete
             )
             panel.previewDrillingButton.enabled = bool(
@@ -496,7 +568,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             self._step6MotionPlan = None
             if self._robotWorkflowFacade:
-                self._robotWorkflowFacade.clearTransientState()
+                self._robotWorkflowFacade.invalidateWorkspaceRuntimeValidation()
             self._applyTaskJointLimitsToJointSpinboxes()
             if self.logic.deleteRobotWorkspaceModel():
                 self.ui.robotWorkspaceStatusLabel.text = _(
@@ -639,13 +711,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if not result.success:
                 raise RuntimeError(result.message)
             self.ui.robotWorkspaceStatusLabel.text = result.message + " " + _(
-                "The Halton/FK/AABB cloud is a draft design-space estimate; MoveIt remains authoritative."
+                "Every accepted TCP point retains MoveIt FK/static-validity provenance. "
+                "Only the reported bounded subset has explicit Task Home path evidence; "
+                "unevaluated points must not be treated as connected."
             )
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #207227;"
             self.ui.clearRobotWorkspaceButton.enabled = True
+            self._updateStep6PlanningUi(result.message)
         except (RuntimeError, ValueError) as exc:
             self.ui.robotWorkspaceStatusLabel.text = str(exc)
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b00020;"
+            self._updateStep6PlanningUi(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
         finally:
             qt.QApplication.restoreOverrideCursor()
@@ -655,9 +731,12 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         if not self.logic:
             return
         self.logic.deleteRobotWorkspaceModel()
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.invalidateWorkspaceRuntimeValidation()
         self.ui.robotWorkspaceStatusLabel.text = _("No workspace cloud generated.")
         self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b36b00;"
         self.ui.clearRobotWorkspaceButton.enabled = False
+        self._updateStep6PlanningUi(_("Workspace evidence was cleared."))
 
     def onPlanTrajectoryMotion(self, checked: bool = False) -> None:
         del checked

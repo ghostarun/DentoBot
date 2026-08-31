@@ -118,7 +118,7 @@ class DENTOWorkflowParameterNode:
     robotKeyboardNudgeEnabled: bool = False
     robotBaseMountLocked: bool = False
     step6BasePlacementStatus: str = "Unlocked"
-    step6BasePlacementSource: str = "manual-mount-plane"
+    step6BasePlacementSource: str = "operator-unlocked"
     step6BasePlacementRevision: int = 0
     step6ForeheadProxyWidthMm: float = 140.0
     step6ForeheadProxyHeightMm: float = 85.0
@@ -127,7 +127,10 @@ class DENTOWorkflowParameterNode:
     step6TaskHomeJson: str = ""
     step6AssistedLimitProposalJson: str = ""
     step6ConfirmedTaskJson: str = ""
+    step6CollisionSceneAuditJson: str = ""
+    step6MotionDiagnosticJson: str = ""
     step6ApproachStandoffMm: float = 2.0
+    step6TerminalContactToleranceMm: float = 0.25
     step6TrajectoryCorridorRadiusMm: float = 0.75
     step6ToolFrame: str = "dentobot_drill_tip_provisional"
     step6CbctVolumeRenderingNodeId: str = ""
@@ -139,6 +142,7 @@ class DENTOWorkflowParameterNode:
     step6MountPlaneOpacity: float = 0.35
     step6TrajectoryOpacity: float = 1.0
     step6ForeheadProxyOpacity: float = 0.20
+    step6CollisionAuditOpacity: float = 0.45
     step6PlanningContextImported: bool = False
     robotMotionPlanSampleCount: int = 12
     robotCoarseSelfClearanceMm: float = 5.0

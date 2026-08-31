@@ -101,11 +101,16 @@ class RobotPlacementWidgetMixin:
             baseTransform.CreateDefaultDisplayNodes()
             displayNode = baseTransform.GetDisplayNode()
             if displayNode:
+                editable = bool(
+                    visible
+                    and self._parameterNode
+                    and not self._parameterNode.robotBaseMountLocked
+                )
                 for methodName, value in (
-                    ("SetEditorVisibility", bool(visible)),
-                    ("SetHandlesInteractive", bool(visible)),
-                    ("SetTranslationHandleVisibility", bool(visible)),
-                    ("SetRotationHandleVisibility", bool(visible)),
+                    ("SetEditorVisibility", editable),
+                    ("SetHandlesInteractive", editable),
+                    ("SetTranslationHandleVisibility", editable),
+                    ("SetRotationHandleVisibility", editable),
                     ("SetScaleHandleVisibility", False),
                 ):
                     method = getattr(displayNode, methodName, None)
@@ -115,9 +120,9 @@ class RobotPlacementWidgetMixin:
             planeNode.CreateDefaultDisplayNodes()
             displayNode = planeNode.GetDisplayNode()
             if displayNode:
-                displayNode.SetHandlesInteractive(bool(visible))
-                displayNode.SetTranslationHandleVisibility(bool(visible))
-                displayNode.SetRotationHandleVisibility(bool(visible))
+                displayNode.SetHandlesInteractive(False)
+                displayNode.SetTranslationHandleVisibility(False)
+                displayNode.SetRotationHandleVisibility(False)
                 displayNode.SetScaleHandleVisibility(False)
 
     def _bindRobotPlacementNodes(self, baseTransform, planeNode) -> None:
@@ -169,6 +174,11 @@ class RobotPlacementWidgetMixin:
                 self._lastRobotBasePoseFingerprint
                 and poseFingerprint != self._lastRobotBasePoseFingerprint
             ):
+                caller.SetAttribute(
+                    self.logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                    self.logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+                )
+                caller.SetAttribute("DENTOBOT.PlacementWarning", None)
                 self._parameterNode.step6BasePlacementRevision = max(
                     0, int(self._parameterNode.step6BasePlacementRevision)
                 ) + 1
@@ -223,6 +233,11 @@ class RobotPlacementWidgetMixin:
     def _updateRobotPlacement(self) -> None:
         if not self._parameterNode or not self.logic or not hasattr(self, "ui"):
             return
+        quarantineMessage = self.logic.quarantineLegacyRobotBasePlacement(
+            self._parameterNode
+        )
+        if quarantineMessage:
+            logging.warning(quarantineMessage)
         baseTransform = self._parameterNode.robotBaseTransform
         planeNode = self._parameterNode.robotMountPlane
         self._bindRobotPlacementNodes(baseTransform, planeNode)
@@ -259,8 +274,12 @@ class RobotPlacementWidgetMixin:
                 self.ui.robotRzPlusButton,
             ):
                 button.enabled = baseValid
-            self.ui.snapRobotBaseToPlaneButton.enabled = baseValid and planeValid
-            self.ui.flipRobotMountPlaneButton.enabled = planeValid
+            # The legacy plane was derived from the base itself.  It remains
+            # inspectable, but cannot provide independent placement evidence.
+            self.ui.createRobotMountPlaneButton.enabled = False
+            self.ui.snapRobotBaseToPlaneButton.enabled = False
+            self.ui.flipRobotMountPlaneButton.enabled = False
+            self.ui.robotMountPlaneSelector.enabled = False
             self.ui.robotKeyboardNudgeCheckBox.enabled = baseValid
             phantomLoaded = bool(
                 self._parameterNode.draftPhantomSkullModel

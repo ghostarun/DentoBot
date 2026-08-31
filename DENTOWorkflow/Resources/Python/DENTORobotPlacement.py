@@ -601,9 +601,18 @@ def solve_anatomy_directed_hinge_rotation_for_gap(
     return sign * angle_magnitude, matrix, opened, gap
 
 
-def vtk_matrix_elements(matrix: np.ndarray) -> tuple[tuple[float, ...], ...]:
-    """Return validated plain elements suitable for vtkMatrix4x4."""
-    values = np.asarray(matrix, dtype=float)
+def vtk_matrix_elements(matrix: object) -> tuple[tuple[float, ...], ...]:
+    """Return one finite 4x4 NumPy- or VTK-backed matrix as plain rows."""
+    if hasattr(matrix, "GetElement"):
+        values = np.asarray(
+            [
+                [float(matrix.GetElement(row, column)) for column in range(4)]
+                for row in range(4)
+            ],
+            dtype=float,
+        )
+    else:
+        values = np.asarray(matrix, dtype=float)
     if values.shape != (4, 4) or not np.all(np.isfinite(values)):
         raise ValueError("Expected a finite 4 x 4 matrix.")
     return tuple(tuple(float(value) for value in row) for row in values)

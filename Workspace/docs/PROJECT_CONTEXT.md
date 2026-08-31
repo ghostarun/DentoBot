@@ -38,6 +38,29 @@ custom branding.
 - It is not a medical device or validated clinical navigation system.
 - AI outputs require human review and independent validation.
 - Planned trajectories do not authorize drilling.
+
+## Active Step 6 stabilization checkpoint — 2026-08-29
+
+Priority-0 source implementation now separates a diagnostic Manual Simulation
+Base from the deferred physical forehead/mount problem, audits exact
+per-segment collision payloads against the guard's monitored MoveIt scene,
+retains bounded partial-path evidence with first-invalid classification, and
+uses explicit free-space, strict-axis, terminal-contact, and drilling stages.
+The 2026-08-31 runtime-first continuation also makes 6.1 own ROS/scene
+bootstrap, plans and guards any different current-to-Home transition in 6.2,
+and makes 6.3 persist MoveIt FK/static-valid samples separately from a bounded
+Home-connectivity classification. The latest focused native/UI build and
+static gate passed, but the checkpoint is not yet operator-runtime accepted;
+no hardware or execution path is enabled.
+
+The current renovation is now locked to one action owner per substep. 6.1 alone
+owns Connect/Disconnect, runtime diagnostics, and collision-scene audit; 6.4
+is confirmation-only. The earlier shared card that displayed those runtime
+actions in both substeps was an incomplete presentation refactor, not a second
+accepted connection path. Source has been split and the hidden XML runtime
+buttons are disabled. The expanded native/UI batch passed the isolated
+`slicer_ros2_module` rebuild, four-module Python syntax check, and both
+repository whitespace/conflict checks; it remains operator-runtime-unverified.
 - Robot execution and safety require a separate control architecture,
   hazard analysis, and verification program.
 
@@ -75,6 +98,15 @@ explicit simulation stages: strict free-space motion to PreEntry, strict axial
 approach to Entry with a narrow terminal contact tolerance, and guarded
 Entry-to-Target drilling. Diagnostic evidence is persistent; active ROS/MoveIt
 objects remain transient.
+
+The recovered post-stabilization roadmap preserves three distinct study
+increments. F0 manually aggregates reviewed single-attempt evidence into an
+evidence-only `.dentostudy`; F1 automatically evaluates every eligible
+trajectory in the active case at one reviewed base without animation or
+execution; F2 compares trajectory × base pose only after Track E supplies a
+stable base contract. Case geometry and the current attempt remain in
+`.dentocase`; studies reference source package identity and never restore
+geometry or ROS runtime state.
 
 The existing base-derived mount plane cannot be interpreted as forehead truth
 or a robot mount interface. Its snap path is quarantined for this work and

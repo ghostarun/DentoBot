@@ -3377,7 +3377,7 @@ class DENTOWorkflowTestMixin:
         )
 
     def test_DENTOWorkflowRobotPlacementLogic(self) -> None:
-        """Load articulated STLs and exercise plane snap plus local base nudges."""
+        """Load STLs and prove legacy plane placement remains quarantined."""
 
         logic = DENTOWorkflowLogic()
         parameterNode = logic.getParameterNode()
@@ -3435,18 +3435,34 @@ class DENTOWorkflowTestMixin:
         parameterNode.robotMountPlane = planeNode
         self.assertTrue(logic.isRobotMountPlaneNode(planeNode))
         self.assertTrue(planeNode.GetName().startswith("[Step 6]"))
-        self.assertFalse(planeNode.GetLocked())
-        self.assertTrue(planeNode.GetSelectable())
+        self.assertTrue(planeNode.GetLocked())
+        self.assertFalse(planeNode.GetSelectable())
+        self.assertEqual(
+            planeNode.GetAttribute("DENTOBOT.ExcludedFromPlacement"),
+            "true",
+        )
         planeNode.SetOriginWorld((10.0, 20.0, 30.0))
         planeNode.SetNormalWorld((0.0, 1.0, 0.0))
         snapped = logic.snapRobotBaseToPlane(baseTransform, planeNode)
         self.assertTrue(np.allclose(snapped[:3, 3], (10.0, 20.0, 30.0)))
         self.assertTrue(np.allclose(snapped[:3, 2], (0.0, 1.0, 0.0)))
+        self.assertEqual(
+            baseTransform.GetAttribute(
+                logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+            ),
+            logic.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY,
+        )
         nudged = logic.nudgeRobotBase(
             baseTransform,
             translationLocalMm=(0.0, 0.0, 2.0),
         )
         self.assertTrue(np.allclose(nudged[:3, 3], (10.0, 22.0, 30.0)))
+        self.assertEqual(
+            baseTransform.GetAttribute(
+                logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+            ),
+            logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+        )
 
         scenePath = Path(slicer.app.temporaryPath) / (
             f"dentobot-robot-lab-{uuid.uuid4().hex}.mrb"

@@ -216,7 +216,7 @@ class LifecycleWidgetMixin:
         if removedRobotNodes:
             logging.warning(
                 "Removed %d reconstructible local Step 6 robot node(s) from "
-                "the restored scene; use Load / Refresh Robot after jaw review",
+                "the restored scene before deterministic post-validation rehydration",
                 len(removedRobotNodes),
             )
             if self._robotWorkflowFacade:
@@ -238,6 +238,11 @@ class LifecycleWidgetMixin:
                 "Restored a legacy Boolean base lock as provisional/unreviewed; "
                 "task confirmation is required before planning"
             )
+        quarantineMessage = self.logic.quarantineLegacyRobotBasePlacement(
+            self._parameterNode
+        )
+        if quarantineMessage:
+            logging.warning(quarantineMessage)
         if not self._parameterNode.step6PlanningContextImported:
             return
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
@@ -264,6 +269,16 @@ class LifecycleWidgetMixin:
             self._parameterNode
         )
         if not jawIssues:
+            try:
+                self._rehydrateStep6LocalRobotAfterRestore()
+            except (RuntimeError, ValueError, OSError) as exc:
+                message = _(
+                    "The case package restored successfully, but the local "
+                    "seven-link robot could not be rebuilt: %1 Use Load / "
+                    "Refresh Robot; the reviewed base remains unchanged."
+                ).replace("%1", str(exc))
+                logging.exception(message)
+                self._updateStep6PlanningUi(message, error=True)
             return
         hadReviewedBase = bool(
             self._parameterNode.robotBaseMountLocked
@@ -291,6 +306,59 @@ class LifecycleWidgetMixin:
         self._updateStep6CaseJawOpeningControls()
         self._updateStep6CaseJawOpeningStatus()
         self._updateStep6PlanningUi(message)
+
+    def _rehydrateStep6LocalRobotAfterRestore(self) -> bool:
+        """Rebuild excluded local robot links without restoring ROS runtime."""
+
+        if not self._parameterNode or not self.logic:
+            return False
+        if not bool(self._parameterNode.step6PlanningContextImported):
+            return False
+        if self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode):
+            return False
+        if self.logic.step6BasePlacementFreshnessIssues(self._parameterNode):
+            return False
+        if self.logic.taskHomeFreshnessIssues(self._parameterNode):
+            return False
+        if not self.logic.isRobotBaseTransformNode(
+            self._parameterNode.robotBaseTransform
+        ):
+            return False
+        jointPositionsSi = joint_positions_si_from_display(
+            self._parameterNode.robotJoint1Deg,
+            self._parameterNode.robotJoint2Mm,
+            self._parameterNode.robotJoint3Deg,
+            self._parameterNode.robotJoint4Mm,
+            self._parameterNode.robotJoint5Deg,
+            self._parameterNode.robotJoint6Deg,
+        )
+        base, models = self.logic.createOrUpdateRobotPlacement(
+            self._parameterNode.robotBaseTransform,
+            jointPositionsSi,
+        )
+        self._parameterNode.robotBaseTransform = base
+        if len(models) != 7:
+            self.logic.deleteTransientRobotRuntimeNodes()
+            raise RuntimeError(
+                _(
+                    "Restored Step 6 state is current, but the local robot "
+                    "could not be reconstructed as seven links."
+                )
+            )
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
+        self._updateRobotPlacement()
+        self._updateStep6PlanningUi(
+            _(
+                "Restored the reviewed Step 6 base and deterministically rebuilt "
+                "the seven local robot links; ROS remains disconnected."
+            )
+        )
+        logging.info(
+            "Rehydrated %d local Step 6 robot links at the saved base/joint state",
+            len(models),
+        )
+        return True
 
     @staticmethod
     def _suspendRos2MotionActiveAttributesForSave() -> list[str]:

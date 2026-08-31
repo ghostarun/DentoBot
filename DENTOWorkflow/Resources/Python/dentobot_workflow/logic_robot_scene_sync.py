@@ -360,8 +360,134 @@ class RobotSceneSyncLogicMixin:
             selected_ids,
         )
 
+    @staticmethod
+    def _collisionAuditPolydataEvidence(polydata: vtk.vtkPolyData) -> dict:
+        """Return deterministic, bounded evidence for one exact mesh copy."""
+        if polydata is None or polydata.GetNumberOfPoints() <= 0:
+            raise ValueError(_("Collision-audit surface is empty."))
+        triangle = vtk.vtkTriangleFilter()
+        triangle.SetInputData(polydata)
+        triangle.PassLinesOff()
+        triangle.PassVertsOff()
+        triangle.Update()
+        surface = vtk.vtkPolyData()
+        surface.DeepCopy(triangle.GetOutput())
+        points = np.ascontiguousarray(
+            vtk_to_numpy(surface.GetPoints().GetData()), dtype="<f8"
+        )
+        polygons = np.ascontiguousarray(
+            vtk_to_numpy(surface.GetPolys().GetData()), dtype="<i8"
+        )
+        digest = hashlib.sha256()
+        digest.update(str(tuple(points.shape)).encode("ascii"))
+        digest.update(points.tobytes(order="C"))
+        digest.update(str(tuple(polygons.shape)).encode("ascii"))
+        digest.update(polygons.tobytes(order="C"))
+        connectivity = vtk.vtkConnectivityFilter()
+        connectivity.SetInputData(surface)
+        connectivity.SetExtractionModeToAllRegions()
+        connectivity.ColorRegionsOff()
+        connectivity.Update()
+        topology = surface_topology(surface)
+        return {
+            "surface": surface,
+            "fingerprint": digest.hexdigest(),
+            "point_count": int(surface.GetNumberOfPoints()),
+            "cell_count": int(surface.GetNumberOfPolys()),
+            "bounds": tuple(float(value) for value in surface.GetBounds()),
+            "connected_component_count": int(
+                connectivity.GetNumberOfExtractedRegions()
+            ),
+            "boundary_or_nonmanifold_edge_count": int(
+                topology["boundaryOrNonManifoldEdgeCount"]
+            ),
+        }
+
+    def collisionSceneAuditRecord(self, parameterNode):
+        payload = str(parameterNode.step6CollisionSceneAuditJson or "").strip()
+        return parse_collision_scene_audit(payload) if payload else None
+
+    def collisionSceneAuditFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        try:
+            audit = self.collisionSceneAuditRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            return (_("The saved collision-scene audit is invalid."),)
+        if audit is None:
+            return (_("Synchronize and audit the Step 6 collision scene."),)
+        issues = []
+        if audit.base_fingerprint != self.robotBaseFingerprint(parameterNode):
+            issues.append(_("Collision-scene evidence belongs to a different base pose."))
+        if audit.status != "Acknowledged":
+            issues.append(
+                _(
+                    "Collision-scene audit is not fully acknowledged "
+                    "(status: %1)."
+                ).replace("%1", audit.status)
+            )
+        acknowledgement = audit.runtime_acknowledgement
+        if acknowledgement.get("status") != "Acknowledged":
+            issues.append(
+                _(
+                    "MoveIt PlanningScene acknowledgement is not yet available; "
+                    "publisher success is not runtime-scene proof."
+                )
+            )
+        return tuple(issues)
+
+    def _syncCollisionAuditDisplayCopy(
+        self,
+        *,
+        source_id: str,
+        outgoing_id: str,
+        outgoing_base_mm: vtk.vtkPolyData,
+        base_world: vtk.vtkMatrix4x4,
+        outgoing_fingerprint: str,
+        opacity: float,
+    ) -> vtkMRMLModelNode:
+        """Create one transient world-RAS display copy of the exact payload."""
+        existing = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if node.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true"
+            and node.GetAttribute("DENTOBOT.MoveItObstacleSource") == source_id
+        ]
+        node = existing[0] if existing else slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLModelNode", f"[Step 6 Audit] {outgoing_id}"
+        )
+        for duplicate in existing[1:]:
+            slicer.mrmlScene.RemoveNode(duplicate)
+        world_copy = self._transformPolydataWithMatrix(
+            outgoing_base_mm,
+            base_world,
+        )
+        node.SetName(f"[Step 6 Audit] {outgoing_id}")
+        node.SetAndObserveTransformNodeID(None)
+        node.SetAndObservePolyData(world_copy)
+        node.SetAttribute("DENTOBOT.CollisionAuditCopy", "true")
+        node.SetAttribute("DENTOBOT.MoveItObstacleSource", source_id)
+        node.SetAttribute("DENTOBOT.OutgoingCollisionObjectId", outgoing_id)
+        node.SetAttribute(
+            "DENTOBOT.OutgoingCollisionFingerprint", outgoing_fingerprint
+        )
+        node.SetAttribute("DENTOBOT.CoordinateFrame", "SlicerWorldRAS")
+        node.SetAttribute("DENTOBOT.IntendedUse", "DisplayOnlyAuditOverlay")
+        node.SaveWithSceneOff()
+        node.CreateDefaultDisplayNodes()
+        display = node.GetDisplayNode()
+        if display:
+            display.SetVisibility(False)
+            display.SetOpacity(max(0.0, min(1.0, float(opacity))))
+            display.SetColor(0.10, 0.95, 0.95)
+            display.SetRepresentation(1)
+            display.SetLineWidth(2.0)
+        return node
+
     def syncStep6MoveItPlanningScene(self, parameterNode) -> int:
         """Publish Step 6 anatomy/guide surfaces in the base_link frame."""
+        try:
+            prior_audit = self.collisionSceneAuditRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            prior_audit = None
         base_transform = parameterNode.robotBaseTransform
         if base_transform is None:
             raise ValueError(_("Select the Step 6 robot base before syncing obstacles."))
@@ -369,7 +495,31 @@ class RobotSceneSyncLogicMixin:
             jawIssues = self.step6CaseJawOpeningFreshnessIssues(parameterNode)
             if jawIssues:
                 raise ValueError(" ".join(jawIssues))
-        sources: list[tuple[str, str, vtk.vtkPolyData]] = []
+        sources: list[dict[str, object]] = []
+
+        def append_source(
+            *,
+            source_id: str,
+            source_name: str,
+            source_role: str,
+            classification: str,
+            source_world: vtk.vtkPolyData,
+            prepared_world: vtk.vtkPolyData,
+            jaw_transform_applied: bool,
+        ) -> None:
+            sources.append(
+                {
+                    "sourceId": str(source_id),
+                    "sourceName": str(source_name),
+                    "sourceRole": str(source_role),
+                    "classification": str(classification),
+                    "sourceWorld": source_world,
+                    "preparedWorld": prepared_world,
+                    "jawTransformApplicationCount": (
+                        1 if jaw_transform_applied else 0
+                    ),
+                }
+            )
         # A verified 5C template already contains the support shell and docking
         # assembly.  Publishing those precursors again creates coincident world
         # objects with different identities.  Use the final template when it is
@@ -382,23 +532,59 @@ class RobotSceneSyncLogicMixin:
                 parameterNode.targetDockingAssemblyModel,
             ]
         )
-        model_candidates = [*self.draftPhantomModelNodes(), *guidance_models]
+        phantom_models = self.draftPhantomModelNodes()
+        model_candidates = [*phantom_models, *guidance_models]
         for model in dict.fromkeys(node for node in model_candidates if node is not None):
             if not isinstance(model, vtkMRMLModelNode):
                 continue
-            world_surface = model_polydata_in_world(model)
-            if model in {
+            source_world = model_polydata_in_world(model)
+            prepared_world = source_world
+            is_target_attached = model in {
                 parameterNode.draftTemplateSupportModel,
                 parameterNode.finalPrintableTemplateModel,
                 parameterNode.targetDockingAssemblyModel,
-            }:
-                world_surface = self._step6TargetAttachedPolydataWorld(
+            }
+            jaw_applied = bool(
+                is_target_attached
+                and bool(parameterNode.step6PlanningContextImported)
+                and self.step6TargetJaw(parameterNode) == "lower"
+                and str(parameterNode.step6CaseJawPreparationMode)
+                != "TargetJawFallback"
+            )
+            if is_target_attached:
+                prepared_world = self._step6TargetAttachedPolydataWorld(
                     parameterNode,
-                    world_surface,
+                    source_world,
                 )
-            if world_surface is None or world_surface.GetNumberOfPoints() == 0:
+            if prepared_world is None or prepared_world.GetNumberOfPoints() == 0:
                 continue
-            sources.append((model.GetID(), model.GetName(), world_surface))
+            if model in phantom_models:
+                role = "draft-phantom-anatomy"
+                classification = "fixed-test-anatomy"
+            elif model is parameterNode.finalPrintableTemplateModel:
+                role = "verified-final-template"
+                classification = (
+                    "moving-target-attached" if jaw_applied else "fixed-target-attached"
+                )
+            elif model is parameterNode.draftTemplateSupportModel:
+                role = "draft-template-support"
+                classification = (
+                    "moving-target-attached" if jaw_applied else "fixed-target-attached"
+                )
+            else:
+                role = "target-docking-assembly"
+                classification = (
+                    "moving-target-attached" if jaw_applied else "fixed-target-attached"
+                )
+            append_source(
+                source_id=model.GetID(),
+                source_name=model.GetName(),
+                source_role=role,
+                classification=classification,
+                source_world=source_world,
+                prepared_world=prepared_world,
+                jaw_transform_applied=jaw_applied,
+            )
 
         segmentation = parameterNode.teethSegmentation
         target_id = str(parameterNode.targetToothSegmentId or "")
@@ -419,26 +605,26 @@ class RobotSceneSyncLogicMixin:
         anatomyIds = tuple(
             dict.fromkeys((*jawGroups.get("upper", ()), *jawGroups.get("lower", ())))
         )
-        nonTargetTeeth: list[vtk.vtkPolyData] = []
-        nonTargetAnatomy: list[vtk.vtkPolyData] = []
         for segmentId in anatomyIds:
-            worldSurface = self._segmentationSegmentsSurfaceWorld(
+            sourceWorld = self._segmentationSegmentsSurfaceWorld(
                 segmentation,
                 {segmentId},
             )
-            if worldSurface is None or worldSurface.GetNumberOfPoints() == 0:
+            if sourceWorld is None or sourceWorld.GetNumberOfPoints() == 0:
                 raise ValueError(
                     _("Step 6 collision anatomy segment %1 is empty.").replace(
                         "%1", str(segmentId)
                     )
                 )
-            if segmentId in lowerIds:
-                worldSurface = self._step6CaseJawPolydataWorld(
+            isMoving = segmentId in lowerIds
+            preparedWorld = sourceWorld
+            if isMoving:
+                preparedWorld = self._step6CaseJawPolydataWorld(
                     parameterNode,
-                    worldSurface,
+                    sourceWorld,
                 )
             triangle = vtk.vtkTriangleFilter()
-            triangle.SetInputData(worldSurface)
+            triangle.SetInputData(preparedWorld)
             triangle.PassLinesOff()
             triangle.PassVertsOff()
             triangle.Update()
@@ -455,45 +641,190 @@ class RobotSceneSyncLogicMixin:
             if segmentId == target_id:
                 sourceId = f"{segmentation.GetID()}:target:{target_id}"
                 sourceName = self.step6TargetCollisionObjectName(parameterNode)
-                sources.append((sourceId, sourceName, collisionSurface))
+                sourceRole = "selected-target-tooth"
             elif segmentId in toothIds:
-                nonTargetTeeth.append(collisionSurface)
+                sourceId = f"{segmentation.GetID()}:anatomy:{segmentId}"
+                sourceName = "dentobot_tooth_" + re.sub(
+                    r"[^A-Za-z0-9_.-]+", "_", str(segmentId)
+                ) + "_" + fingerprint(str(segmentId))[:8]
+                sourceRole = "non-target-tooth"
             else:
-                nonTargetAnatomy.append(collisionSurface)
-
-        # Keep the selected target tooth independent for the phase guard's
-        # selective burr-contact rule.  The exact, transformed triangles for
-        # all other teeth and for jaw anatomy are grouped into two disconnected
-        # meshes.  This preserves geometry while avoiding dozens of separate
-        # FCL world objects and their repeated broad-phase traversal at every
-        # guarded preview sample.
-        for category, surfaces in (
-            ("non_target_teeth", nonTargetTeeth),
-            ("non_target_anatomy", nonTargetAnatomy),
-        ):
-            combined = self._appendPolydata(surfaces)
-            if combined is None:
-                continue
-            sources.append(
-                (
-                    f"{segmentation.GetID()}:anatomy:{category}",
-                    f"dentobot_anatomy_{category}",
-                    combined,
-                )
+                sourceId = f"{segmentation.GetID()}:anatomy:{segmentId}"
+                sourceName = "dentobot_jaw_" + re.sub(
+                    r"[^A-Za-z0-9_.-]+", "_", str(segmentId)
+                ) + "_" + fingerprint(str(segmentId))[:8]
+                sourceRole = "jaw-anatomy"
+            append_source(
+                source_id=sourceId,
+                source_name=sourceName,
+                source_role=sourceRole,
+                classification="moving" if isMoving else "fixed",
+                source_world=sourceWorld,
+                prepared_world=collisionSurface,
+                jaw_transform_applied=isMoving,
             )
 
-        active_ids = {source_id for source_id, _name, _surface in sources}
+        active_ids = {str(source["sourceId"]) for source in sources}
         remove_stale_moveit_obstacle_proxies(active_ids)
-        for source_id, source_name, world_surface in sources:
+        for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
+            if (
+                node.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true"
+                and node.GetAttribute("DENTOBOT.MoveItObstacleSource")
+                not in active_ids
+            ):
+                slicer.mrmlScene.RemoveNode(node)
+        base_world = self._worldMatrixFromTransform(base_transform)
+        world_to_base = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Invert(base_world, world_to_base)
+        world_to_base_fingerprint = fingerprint(
+            {
+                "direction": "world-RAS-mm-to-base_link-RAS-mm",
+                "matrix": vtk_matrix_elements(world_to_base),
+                "applicationCount": 1,
+            }
+        )
+        jaw_preparation_fingerprint = fingerprint(
+            {
+                "mode": str(parameterNode.step6CaseJawPreparationMode or ""),
+                "record": str(parameterNode.step6CaseJawPreparationJson or ""),
+            }
+        )
+        object_records: list[dict[str, object]] = []
+        for source in sources:
+            source_id = str(source["sourceId"])
+            source_name = str(source["sourceName"])
+            source_world = source["sourceWorld"]
+            world_surface = source["preparedWorld"]
             base_surface = self._polydataWorldToRobotBase(
                 world_surface,
                 base_transform,
             )
+            source_evidence = self._collisionAuditPolydataEvidence(source_world)
+            prepared_evidence = self._collisionAuditPolydataEvidence(world_surface)
+            outgoing_evidence = self._collisionAuditPolydataEvidence(base_surface)
+            record = {
+                "source_id": source_id,
+                "source_name": source_name,
+                "source_role": str(source["sourceRole"]),
+                "classification": str(source["classification"]),
+                "source_revision": fingerprint(
+                    {
+                        "sourceId": source_id,
+                        "sourceFingerprint": source_evidence["fingerprint"],
+                    }
+                ),
+                "source_fingerprint": source_evidence["fingerprint"],
+                "prepared_world_fingerprint": prepared_evidence["fingerprint"],
+                "outgoing_fingerprint": outgoing_evidence["fingerprint"],
+                "source_point_count": source_evidence["point_count"],
+                "source_cell_count": source_evidence["cell_count"],
+                "outgoing_point_count": outgoing_evidence["point_count"],
+                "outgoing_cell_count": outgoing_evidence["cell_count"],
+                "source_bounds_world_ras_mm": source_evidence["bounds"],
+                "prepared_bounds_world_ras_mm": prepared_evidence["bounds"],
+                "outgoing_bounds_base_link_mm": outgoing_evidence["bounds"],
+                "connected_component_count": outgoing_evidence[
+                    "connected_component_count"
+                ],
+                "boundary_or_nonmanifold_edge_count": outgoing_evidence[
+                    "boundary_or_nonmanifold_edge_count"
+                ],
+                "jaw_transform_application_count": int(
+                    source["jawTransformApplicationCount"]
+                ),
+                "jaw_transform_fingerprint": (
+                    jaw_preparation_fingerprint
+                    if int(source["jawTransformApplicationCount"])
+                    else ""
+                ),
+                "world_to_base_fingerprint": world_to_base_fingerprint,
+                "world_to_base_application_count": 1,
+                "source_coordinate_frame": "SlicerWorldRAS",
+                "source_linear_unit": "mm",
+                "outgoing_coordinate_frame": "base_link",
+                "outgoing_linear_unit_before_publish": "mm",
+                "publisher_linear_scale_m_per_mm": 0.001,
+                "collision_padding_mm": 0.0,
+                "outgoing_collision_object_id": source_name,
+                "publish_status": "Pending",
+                "runtime_acknowledgement_status": "NotQueried",
+            }
+            self._syncCollisionAuditDisplayCopy(
+                source_id=source_id,
+                outgoing_id=source_name,
+                outgoing_base_mm=outgoing_evidence["surface"],
+                base_world=base_world,
+                outgoing_fingerprint=str(outgoing_evidence["fingerprint"]),
+                opacity=float(parameterNode.step6CollisionAuditOpacity),
+            )
             ok, message = sync_moveit_obstacle_polydata(
                 source_id=source_id,
                 source_name=source_name,
-                polydata_base_mm=base_surface,
+                polydata_base_mm=outgoing_evidence["surface"],
             )
             if not ok:
+                record["publish_status"] = "Failed"
+                record["publish_error"] = str(message)
+                object_records.append(record)
+                audit = build_collision_scene_audit(
+                    status="PublishFailed",
+                    base_fingerprint=self.robotBaseFingerprint(parameterNode),
+                    jaw_preparation_fingerprint=jaw_preparation_fingerprint,
+                    world_to_base_fingerprint=world_to_base_fingerprint,
+                    object_records=object_records,
+                    runtime_acknowledgement={
+                        "status": "NotAcknowledged",
+                        "reason": "Collision-object publication failed.",
+                        "acknowledged_object_ids": [],
+                    },
+                )
+                parameterNode.step6CollisionSceneAuditJson = canonical_json(
+                    audit.to_dict()
+                )
                 raise RuntimeError(message)
+            record["publish_status"] = "PublishReturnedSuccess"
+            object_records.append(record)
+        acknowledgement = acknowledge_moveit_collision_scene(
+            expected_objects=object_records,
+            current_joint_positions_si=joint_positions_si_from_display(
+                parameterNode.robotJoint1Deg,
+                parameterNode.robotJoint2Mm,
+                parameterNode.robotJoint3Deg,
+                parameterNode.robotJoint4Mm,
+                parameterNode.robotJoint5Deg,
+                parameterNode.robotJoint6Deg,
+            ),
+        )
+        audit = build_collision_scene_audit(
+            status=(
+                "Acknowledged"
+                if acknowledgement.get("status") == "Acknowledged"
+                else "RuntimeAcknowledgementFailed"
+            ),
+            base_fingerprint=self.robotBaseFingerprint(parameterNode),
+            jaw_preparation_fingerprint=jaw_preparation_fingerprint,
+            world_to_base_fingerprint=world_to_base_fingerprint,
+            object_records=object_records,
+            runtime_acknowledgement=acknowledgement,
+        )
+        parameterNode.step6CollisionSceneAuditJson = canonical_json(audit.to_dict())
+        if (
+            prior_audit is not None
+            and prior_audit.audit_fingerprint != audit.audit_fingerprint
+        ):
+            self.markStep6MotionDiagnosticStale(
+                parameterNode,
+                _("Collision-scene payload or runtime acknowledgement changed."),
+            )
+        if audit.status != "Acknowledged":
+            mismatches = acknowledgement.get("mismatches", ())
+            raise RuntimeError(
+                _(
+                    "MoveIt collision-scene acknowledgement failed: %1"
+                ).replace(
+                    "%1",
+                    "; ".join(str(item) for item in mismatches)
+                    or str(acknowledgement.get("reason") or "unknown mismatch"),
+                )
+            )
         return len(sources)

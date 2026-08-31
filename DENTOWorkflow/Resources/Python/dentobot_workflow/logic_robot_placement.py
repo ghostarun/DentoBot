@@ -6,6 +6,13 @@ from .runtime import *
 
 
 class RobotPlacementLogicMixin:
+    ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = (
+        "DENTOBOT.RobotBasePlacementAuthority"
+    )
+    ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
+    ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
+    ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "QuarantinedCircularMountPlane"
+
     @classmethod
     def isRobotBaseTransformNode(cls, node) -> bool:
         return bool(
@@ -63,6 +70,10 @@ class RobotPlacementLogicMixin:
         )
         base_transform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
         base_transform.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        base_transform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+        )
         base_transform.CreateDefaultDisplayNodes()
         base_display = base_transform.GetDisplayNode()
         if base_display:
@@ -150,6 +161,13 @@ class RobotPlacementLogicMixin:
         )
         baseTransform.SetAttribute("DENTOBOT.Status", "SimulationOnly")
         baseTransform.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        if not baseTransform.GetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+        ):
+            baseTransform.SetAttribute(
+                self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+            )
         baseTransform.CreateDefaultDisplayNodes()
         baseDisplay = baseTransform.GetDisplayNode()
         if baseDisplay:
@@ -293,8 +311,8 @@ class RobotPlacementLogicMixin:
             tuple(baseMatrix.GetElement(axis, 2) for axis in range(3))
         )
         planeNode.SetSize(120.0, 120.0)
-        planeNode.SetLocked(False)
-        planeNode.SetSelectable(True)
+        planeNode.SetLocked(True)
+        planeNode.SetSelectable(False)
         planeNode.SetAttribute("DENTOBOT.MarkupsRole", self.ROBOT_MOUNT_PLANE_ROLE)
         planeNode.SetAttribute(
             "DENTOBOT.RobotPlacementSchemaVersion",
@@ -302,6 +320,13 @@ class RobotPlacementLogicMixin:
         )
         planeNode.SetAttribute("DENTOBOT.Status", "SimulationOnly")
         planeNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        planeNode.SetAttribute("DENTOBOT.GeometryState", "QuarantinedLegacy")
+        planeNode.SetAttribute("DENTOBOT.IntendedUse", "VisualizationOnly")
+        planeNode.SetAttribute("DENTOBOT.ExcludedFromPlacement", "true")
+        planeNode.SetAttribute(
+            "DENTOBOT.StaleReason",
+            "Circular base-derived mount plane; not forehead or mount-face evidence.",
+        )
         planeNode.CreateDefaultDisplayNodes()
         displayNode = planeNode.GetDisplayNode()
         if displayNode:
@@ -310,9 +335,9 @@ class RobotPlacementLogicMixin:
             displayNode.SetVisibility3D(True)
             displayNode.SetOpacity(0.28)
             displayNode.SetColor(0.15, 0.80, 0.95)
-            displayNode.SetHandlesInteractive(True)
-            displayNode.SetTranslationHandleVisibility(True)
-            displayNode.SetRotationHandleVisibility(True)
+            displayNode.SetHandlesInteractive(False)
+            displayNode.SetTranslationHandleVisibility(False)
+            displayNode.SetRotationHandleVisibility(False)
             displayNode.SetScaleHandleVisibility(False)
             displayNode.SetPointLabelsVisibility(False)
             displayNode.SetPropertiesLabelVisibility(False)
@@ -560,6 +585,7 @@ class RobotPlacementLogicMixin:
             "mount_plane": "step6MountPlaneOpacity",
             "trajectory": "step6TrajectoryOpacity",
             "forehead_proxy": "step6ForeheadProxyOpacity",
+            "collision_audit": "step6CollisionAuditOpacity",
         }
         if key not in parameter_fields:
             raise ValueError(_("Unknown Step 6 appearance element."))
@@ -630,6 +656,13 @@ class RobotPlacementLogicMixin:
             display = parameterNode.robotForeheadProxyModel.GetDisplayNode()
             if display:
                 displays.append(display)
+        elif key == "collision_audit":
+            displays.extend(
+                node.GetDisplayNode()
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if node.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true"
+                and node.GetDisplayNode()
+            )
         for display in dict.fromkeys(displays):
             display.SetVisibility(bool(visible))
             set_opacity = getattr(display, "SetOpacity", None)
@@ -650,6 +683,14 @@ class RobotPlacementLogicMixin:
         snapped = orthonormal_plane_pose(self._numpyFromVtkMatrix(planeMatrix))
         baseTransform.SetAndObserveTransformNodeID(None)
         baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(snapped))
+        baseTransform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY,
+        )
+        baseTransform.SetAttribute(
+            "DENTOBOT.PlacementWarning",
+            "Quarantined circular mount-plane snap; manual review and repositioning required.",
+        )
         return snapped
 
     def nudgeRobotBase(
@@ -670,4 +711,9 @@ class RobotPlacementLogicMixin:
         )
         baseTransform.SetAndObserveTransformNodeID(None)
         baseTransform.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(nudged))
+        baseTransform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+        )
+        baseTransform.SetAttribute("DENTOBOT.PlacementWarning", None)
         return nudged

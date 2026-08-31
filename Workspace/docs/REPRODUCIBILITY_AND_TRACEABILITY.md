@@ -22,9 +22,102 @@ inference environment, checking its identity, and retaining sufficient
 evidence to trace a DENTOBOT inference run. It does not establish anatomical
 accuracy, clinical safety, or regulatory compliance.
 
+## Step 6 runtime-first Home/workspace evidence contract — 2026-08-29/31
+
+Status: source implementation and focused static/package build gate completed
+2026-08-31; runtime/operator verification pending
+
+Step 6.2 Task Home evidence is created only after a compatible ROS/MoveIt
+runtime acknowledges the exact per-segment PlanningScene. The persistent record
+binds the six-joint vector to the base and robot-resource fingerprints,
+collision-audit fingerprint, guard/policy schema, joint-bound and self/world
+validity result, measured clearance summary, and revision. Applying a saved
+Home from another accepted simulation state uses an explicit-start MoveIt joint
+plan: the submitted start is the separately read monitored `/joint_states`
+vector, the goal is Home, and every returned waypoint is sent through the
+strict interpolation guard. Equal current/Home states skip an artificial
+zero-length plan but repeat the guard and monitored-state handshake. This is
+transition evidence, not physical actuator homing or reachability from every
+pose.
+
+Step 6.3 workspace evidence retains a bounded reproducible candidate set. Every
+accepted record includes its joint vector, provisional TCP pose from MoveIt FK,
+authoritative state-validity/FCL result, and bounded diagnostic messages. The
+proposal binds the full evidence list to the Task Home, collision-audit, and
+workspace-policy fingerprints. `StateValid` means only that sampled
+configuration is valid in the recorded scene. A deterministic set of at most
+13 samples (nearest to Home, joint extrema, then even coverage) receives one
+explicit-start MoveIt planning attempt of at most 2 seconds from the validated
+Home. `HomeConnected` means that attempt returned a full trajectory;
+`PlanRejected` records its failure; `NotEvaluated` remains explicit for the
+other static-valid points. At least one Home-connected sample is required
+before review. The reviewed joint min/max proposal is a sampled exploration
+envelope; it does not assert that unsampled combinations inside the box are
+valid.
+
+Saved evidence restores for inspection, but its live-validation state does not.
+After reconnect, exact fingerprint comparison and explicit runtime regeneration
+or revalidation are required before 6.4 confirmation. Persistent inspection
+evidence is stored in MRML/`.dentocase`; the live-valid key exists only in the
+façade session. ROS nodes, service clients, PlanningScene objects, guard
+sessions, messages, plans, active flags, and current acceptance remain excluded.
+Verification requires renewed operator approval.
+
+UI provenance is now part of this evidence contract: a Connect/Disconnect or
+collision-audit action is valid only when invoked from active substep 6.1;
+Task Home from 6.2; workspace/review from 6.3; confirmation from 6.4; and phase
+planning/preview from 6.5/6.6. The shared panel rejects an action whose declared
+owner differs from the active substep. A hidden legacy widget or callback is
+not admissible evidence. The 6.4 panel must contain no connection, disconnection,
+or collision-repair action, and its result must use a confirmation-specific
+status label rather than overwriting the 6.1 runtime result.
+
+Focused implementation evidence recorded 2026-08-31: `git diff --check`
+passed in both the DentoBot and `slicer_ros2_module` repositories; `py_compile`
+passed for the five edited Step 6 Python files with bytecode redirected to
+`/tmp`; and `colcon build --symlink-install --packages-select
+slicer_ros2_module` passed in the pinned container. The first two native build
+attempts correctly failed because the pre-existing FK wrapper called
+`hasVariable()` on APIs that do not expose it in pinned MoveIt. Membership now
+uses `RobotState::getVariableNames()` and the final package build/install
+completed. No Slicer load, ROS connection, MoveIt request, preview, or hardware
+action was part of this evidence.
+
+Latest ownership/FK gate recorded 2026-08-31: after the explicit-state
+RobotState and single-owner panel corrections, the isolated
+`slicer_ros2_module` rebuild completed one package in 27.4 seconds. Python
+syntax compilation passed for `DENTOROS2Bridge.py`,
+`DENTORobotSimulationPanel.py`, `widget_robot_shell.py`, and `widget_robot.py`;
+both source repositories passed `git diff --check`. The host commands emitted
+non-fatal sandbox stream-descriptor warnings but returned zero with no Python
+or Git diagnostic. No Slicer process, ROS connection, MoveIt request, preview,
+execution, or hardware action was part of this gate.
+
 ## Planned Step 6 collision/motion diagnostic evidence contract — 2026-08-28
 
-Status: accepted planning scope; no implementation or verification claim
+Status: initial source implementation completed 2026-08-29; no build/live
+verification claim
+
+Recovered schema direction accepted 2026-08-31: upgrade the bounded record to
+`MotionDiagnosticSessionV2`, with explicit Stage 1, Stage 2, Stage 3 and
+full-task outcomes for each roll candidate and a compatibility reader for V1.
+The later `.dentostudy` schema V1 is evidence/reference-only: manifest, source
+case package ID/checksum/lineage, integrity checksums, immutable results, and
+canonical JSON plus summary/candidate CSV. Study load must produce zero MRML
+geometry, ROS node, robot, callback, plan or active flag. In-app statistics and
+exports must be derived from the same immutable records.
+
+The implementation now persists `step6CollisionSceneAuditJson` and
+`step6MotionDiagnosticJson` on the workflow parameter node. Collision audit
+copies, ROS nodes, publishers, MoveIt trajectories, goal robots, and boundary
+markers remain transient and `SaveWithSceneOff`. The collision guard's status
+contract now reports monitored PlanningScene object IDs, object poses, shape
+counts, and mesh bounds. DENTOBOT compares those values against the exact
+prepared base-link payload and records publisher success separately from
+runtime acknowledgement. Motion diagnostics retain at most the bounded axial-
+roll candidates and their important last-valid/first-invalid evidence; a
+review flag never authorizes preview or execution. Verification is explicitly
+pending operator approval.
 
 The next Priority-0 increment stores diagnostic evidence rather than only a
 generic Cartesian fraction or console text. The persistent record must include

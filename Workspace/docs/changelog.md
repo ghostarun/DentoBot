@@ -21,6 +21,197 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-08-31 23:27:00 IST (UTC+05:30) — Restored Stage diagnostics and F0/F1/F2 study roadmap
+
+- **Why:** the controlled tracker had compressed the multi-tooth/base study
+  into one future line, obscuring the original distinction between completing
+  Priority-0 single-trajectory truth, manually aggregating reviewed evidence,
+  automating a current-case single-base study, and later varying base poses.
+- **Change:** Development Plan and Tasks now require
+  `MotionDiagnosticSessionV2` with Stage 1/2/3/full-task candidate evidence and
+  a V1 reader; define evidence-only `.dentostudy` F0 manual aggregation; define
+  F1 plan-only current-case automation with atomic per-result save and truthful
+  progress; and reserve F2 trajectory × base studies until Track E. Decisions,
+  Architecture, Project Context and Traceability record the same
+  `.dentocase`/`.dentostudy` authority boundary.
+- **Verification:** documentation reconciliation only. No source code, build,
+  test, Slicer, ROS, MoveIt, preview, execution or hardware action was run.
+  F0/F1/F2 implementation remains unauthorized until their recorded entry
+  gates are met.
+
+## 2026-08-31 22:42:00 IST (UTC+05:30) — Locked Step 6 action ownership and split 6.1 from 6.4
+
+- **Why:** after moving runtime establishment ahead of Home/workspace
+  validation, the programmatic panel still reused one card in 6.1 and 6.4.
+  This visibly exposed Connect/Disconnect in task confirmation, left collision
+  repair in 6.4, and allowed runtime and confirmation messages to overwrite
+  each other. Disconnect there would invalidate exactly the live evidence 6.4
+  needs.
+- **Change:** split the shared panel into a 6.1 runtime card and a separate 6.4
+  confirmation card; moved planning-scene audit controls to 6.1; separated
+  runtime and confirmation statuses; disabled the hidden XML runtime controls;
+  and added a panel action-owner map that rejects a callback outside its active
+  substep. Added one authoritative 6.0–6.6 ownership/progress/acceptance ledger
+  to the Development Plan and reconciled Architecture, Decisions, Project
+  Context, Tasks, Traceability, Agent Context, and this logbook.
+- **Verification:** Graphify refreshed to 8,482 nodes and 13,243 edges. With
+  explicit approval, the isolated `slicer_ros2_module` rebuild completed one
+  package in 27.4 seconds; the four affected Python modules passed
+  `py_compile`; and both source repositories passed `git diff --check`. The
+  host checks emitted non-fatal sandbox stream-descriptor warnings but returned
+  zero with no Python or Git diagnostics. No Slicer/ROS call, planning request,
+  preview, execution, or hardware action was run. Operator runtime acceptance
+  remains pending.
+
+## 2026-08-31 22:15:00 IST (UTC+05:30) — Explicit-state FK ownership and visible Task Home completion
+
+- **Why:** the operator's manual 6.3 retry passed the earlier false TCP-goal
+  prerequisite and began producing the workspace cloud, then stopped because
+  native MoveIt FK could not obtain a live current-state `RobotState`. The
+  candidate joint vector was already explicit, so coupling FK to asynchronous
+  current-state monitoring was incorrect. Separately, successful Task Home
+  application was easy to mistake for no action because its detailed result
+  could be replaced during the next UI refresh.
+- **Change:** SlicerROS2 explicit-state FK and explicit-start joint planning now
+  obtain the immutable MoveIt robot model and construct their own RobotState
+  containers, apply the submitted joints, update, check group bounds, and then
+  compute FK or submit the start state. Step 6 restores the full Home action
+  result after refresh and reports success in the card, status bar, and a
+  confirmation dialog. A Priority-2 DENTO-NOTE records the broader shared
+  progress/running/completion contract for long-running UI actions.
+- **Verification:** none yet. Per operator instruction, no build, static check,
+  Slicer/ROS request, planning request, preview, or hardware action was run.
+  The isolated native package rebuild and bounded static checks require the
+  operator's explicit approval; the subsequent runtime retry will be performed
+  manually in a fresh Slicer session.
+
+## 2026-08-31 19:24:00 IST (UTC+05:30) — Runtime-first Task Home and workspace source completion
+
+- **Why:** Step 6 still treated direct strict-guard interpolation as a Home
+  transition and persisted a workspace as static-valid without distinguishing
+  whether MoveIt could reach representative samples from Home.
+- **Change:** `DENTORobotWorkflowFacade` now reads the monitored current state,
+  requests an explicit-start MoveIt plan to a different saved Home, and submits
+  every returned waypoint to the strict simulation guard before marking Home
+  live-valid. Workspace generation retains MoveIt FK/static-valid provenance
+  for every accepted point and separately plans a deterministic bounded
+  13-sample Home-connectivity set. The nested evidence persists in the existing
+  optional assisted-limit JSON; ROS objects, plans, and session-valid keys do
+  not. Legacy and Shell gates/status text now report the same distinction.
+- **Native diagnostics:** SlicerROS2 explicit-start planning accepts bounded
+  refresh/attempt/time context through the bridge and reports human-readable
+  early failures and MoveIt error names/codes instead of only an empty
+  trajectory.
+- **Verification:** after explicit approval, both repositories passed
+  `git diff --check` and the five edited Python files passed `py_compile` with
+  bytecode redirected to `/tmp`. The isolated `slicer_ros2_module` build first
+  exposed that pinned MoveIt lacks both attempted `hasVariable()` APIs in the
+  earlier FK source; membership was changed to `RobotState::getVariableNames()`
+  and the final build/install passed. No Graphify refresh, Slicer, ROS, plan
+  request, preview, or hardware action was executed. The operator runtime trial
+  requires separate approval.
+
+## 2026-08-31 19:21:00 IST (UTC+05:30) — Portable Arduino pressure folder
+
+- **Why:** Another PC needs the pressure monitor and post-processing
+  without the DENTOBOT tree, while the lab scripts stay free for a live run.
+- **Change:** Added `arduino-pressure/` with copied Python modules, a
+  protocol-matching UNO R4 sketch, `requirements.txt`, and one Ubuntu/
+  Windows README. Live files under `ros2_ws/src/Arduino/` were not edited.
+- **Verification:** `pressure-env` `py_compile` on the package modules;
+  `pressure_monitor.py --help` and `--list-ports`; `pressure_analysis.py
+  --help`. Live USB/GUI on a second PC was not run.
+
+## 2026-08-31 18:56:00 IST (UTC+05:30) — Combined Start Recording + looping auto cues
+
+- **Why:** Stage cues needed a metronome once a run starts, without a
+  second start control, while Space/click skip remains available.
+- **Change:** **Start Recording + Cues** opens the run folder and starts
+  an adjustable timer (default 10 s). Order loops AIR OFF → DRILL IN AIR →
+  DRILL IN DENTIN → DRILL IN PULP until **Stop Recording**. Manual Space
+  skips ahead and resets the countdown. Interval changes mid-run retune
+  without an extra cue. `samples.csv` unchanged.
+- **Verification:** `pressure-env` `py_compile` on monitor and
+  `pressure_annotate.py`; `next_cue_key` loops the four stage keys twice.
+  Live serial/GUI click acceptance was not run.
+
+## 2026-08-31 18:39:00 IST (UTC+05:30) — Stage cues and latency-corrected annotations
+
+- **Why:** The experiment needs a driller cue (air/dentin/pulp) and a
+  separate annotator mark. The button lags the tissue-boundary dip.
+- **Change:** Live monitor adds CUE NEXT STAGE (Space, beep+flash) and
+  AIR OFF / DRILL IN AIR / DRILL IN DENTIN / DRILL IN PULP (F1–F4).
+  `annotations.csv` stores press, latency (default 400 ms), and corrected
+  time. Analysis overlays those marks and matches the nearby 50 ms median
+  drop. `samples.csv` is unchanged.
+- **Verification:** `pressure-env` `py_compile` plus a headless dip-match on
+  `run_20260831_181522` (see logbook). Live GUI/beep click acceptance was
+  not run.
+
+## 2026-08-31 18:35:00 IST (UTC+05:30) — Median/envelope live plot and load boundaries
+
+- **Why:** The 1 kHz overview is a filled band; contact and breakthrough
+  steps were not readable. Helpers in `pressure_signal.py` were not wired.
+- **Change:** Default **Trace → Median + envelope** on the live monitor and
+  analysis inspector (50 ms median, p10–p90 fill). Vertical marks and an
+  analysis table show contact, air/breakthrough, and held ≥20 kPa inner
+  steps. The 1 s inset keeps raw under the overlay. `--no-gui` prints the
+  boundaries. CSV unchanged.
+- **Verification:** `pressure-env` `py_compile` on monitor, analysis,
+  `pressure_signal.py`, and `pressure_plot.py`. Headless boundaries on
+  today's runs (see logbook). Live serial/GUI click acceptance was not run.
+
+## 2026-08-31 18:25:00 IST (UTC+05:30) — Air-off / air-on display filter
+
+- **Why:** Today's drilling CSVs are bimodal (~0 kPa air-off vs ~225 kPa
+  air-on / drill-in-air). Idle samples hide the plateau and mix two states.
+- **Change:** `pressure_signal.py` classifies air-off with 50 ms median
+  hysteresis (8 / 25 kPa, optional Otsu-style auto gates). Live monitor
+  **Air** combo defaults to hide air-off; analysis `--no-gui` prints the
+  fraction and the GUI has the same filter plus **Auto air gates**. CSV
+  columns are unchanged.
+- **Verification:** `pressure-env` `py_compile` on monitor, analysis, and
+  `pressure_signal.py`. Headless classification on `run_20260831_181522`,
+  `180819`, and `180324` (see logbook). Live serial/GUI click acceptance was
+  not run.
+
+## 2026-08-31 18:22:00 IST (UTC+05:30) — Live 1 s inset and optional live-only view
+
+- **Why:** The whole-run 1 kHz trace fills the plot; operators still need the
+  overview and a readable live waveform.
+- **Change:** `pressure_monitor.py` defaults to overview plus a 1-second
+  picture-in-picture inset (full-rate last second, orange region on the
+  overview). **View → 1 s live only** uses the main plot for that window.
+- **Verification:** `pressure-env` `python -m py_compile` on
+  `pressure_monitor.py` passed. Live serial/GUI click acceptance was not run.
+
+## 2026-08-31 18:14:00 IST (UTC+05:30) — Pressure-run CSV loader and dip inspector
+
+- **Why:** Saved `samples.csv` / `events.csv` needed a review path that does
+  not reopen serial and can find dips after a recording that started mid-event.
+- **Change:** Added `ros2_ws/src/Arduino/pressure_analysis.py`. It loads a run
+  folder, overlays live baseline/thresholds, redetects DIP/PEAK with the live
+  algorithm, filters sub-20 ms glitches, and reports sequence gaps and ADC
+  rails. Cursor launch config **Pressure Analysis** added.
+- **Verification:** `pressure-env` `py_compile` passed. `--no-gui` on
+  `run_20260831_181114` reported one 4342 ms redetected dip to -3.01 kPa and
+  flagged the 1 ms recorded DIP as a glitch. `--no-gui` on
+  `run_20260831_180324` reported six confirmed peaks and two seq gaps.
+  Interactive GUI was not click-accepted in this turn.
+
+## 2026-08-31 18:03:00 IST (UTC+05:30) — Pressure-monitor Start/Stop recording
+
+- **Why:** Launch was writing CSV immediately, mixing idle and trial data.
+- **Change:** `pressure_monitor.py` keeps live serial/plot at start. **Start
+  Recording** creates `pressure_runs/run_<timestamp>/` and writes
+  `samples.csv` / `events.csv`. **Stop Recording** flushes and closes the
+  run. Window close stops an active recording. Serial `in_waiting` after
+  port close is ignored.
+- **Verification:**
+  `/home/light-tarun/pressure-env/bin/python -m py_compile
+  ros2_ws/src/Arduino/pressure_monitor.py` passed. Live serial/GUI click
+  acceptance was not run in this turn.
+
 ## 2026-08-25 17:09:00 IST (UTC+05:30) — Context-bounded workflow modularization
 
 - Replaced the 39,889-line implementation entrypoint with a 117-line public
@@ -2279,3 +2470,23 @@ captured, so they must not be inferred from either timestamp.
 - Added host and real-Slicer tests. Recorded 81 host passes, application-shell
   PASS, module reload PASS, scene lifecycle PASS, and live façade IK/planning/
   collision evidence. The known post-PASS SlicerROS2 shutdown leak remains.
+
+## 2026-08-29 — Unreleased partial Step 6 runtime/state-ownership redesign
+
+- Began replacing implicit MoveIt planner state with an explicit immutable
+  Task Home start vector and the exact returned PreEntry IK goal vector.
+- Added source-level monitored `/joint_states` convergence evidence, equal
+  start/goal rejection, planner input diagnostics, and containment preventing
+  the optional Expert Diagnostics widget from becoming DENTOWorkflow command
+  authority.
+- Began moving ROS/MoveIt connection and exact collision-scene synchronization
+  into 6.1, with live collision/monitor validation for 6.2 Task Home and
+  optional backward-compatible persistent validation provenance.
+- Added an unverified read-only MoveIt static-state validity API and began using
+  it to filter 6.3 deterministic workspace candidates; updated Step 6 labels
+  and gates toward the runtime-first order.
+- **Status:** intentionally paused mid-implementation. Workspace runtime-key
+  completion, Home-connectivity classification, planned Home application,
+  remaining gate reconciliation, and all verification are pending. No build,
+  parser, reload, ROS/MoveIt request, preview, or motion test was run for this
+  increment.

@@ -14,11 +14,72 @@
 - Advance only after acceptance evidence and a short milestone review.
 - Future milestones are a blueprint, not authorization to implement them.
 
+## Step 6 renovation lock — authoritative sequence and completion ledger 2026-08-31
+
+This section is the single current Step 6 development contract. Older dated
+Step 6 plans remain historical evidence but do not define current ownership,
+gates, or acceptance. Changing this sequence requires an explicit controlled
+decision, an updated ledger here, and operator approval; a surviving widget,
+callback, test fixture, or historical paragraph cannot silently restore an old
+flow.
+
+### Non-negotiable action ownership
+
+| Substep | Sole routine owner | Must not own |
+|---|---|---|
+| 6.0 / 6.0A | Atomic case/task selection and non-destructive case jaw preparation | ROS creation, Task Home, workspace, or planning |
+| 6.1 | Local robot, reviewed Manual Simulation Base, **Connect/Disconnect ROS + MoveIt**, runtime diagnostics, and authoritative collision-scene audit/acknowledgement | Saving Home, accepting workspace limits, task confirmation, or motion planning |
+| 6.2 | Choose, validate, plan-to if necessary, apply, and save simulation Task Home against the active 6.1 runtime | Runtime creation, collision-scene ownership, physical homing, or workspace acceptance |
+| 6.3 | MoveIt state-valid/FK workspace sampling, bounded Home-connectivity classification, and explicit assisted-limit review | Runtime creation, local-only FK acceptance, task confirmation, or planning |
+| 6.4 | Read prerequisite evidence and confirm one immutable task snapshot | Connect, Disconnect, collision repair, Home mutation, workspace mutation, or planning |
+| 6.5 | Goal 1 free-space plus strict axial/terminal approach planning and guarded simulation preview | Runtime setup, task mutation, drilling, Execute, or hardware motion |
+| 6.6 | Goal 2 Entry-to-Target guarded drilling-plan simulation preview | Runtime setup, task mutation, powered drilling, Execute, or hardware motion |
+
+Disconnect is a deliberate return to 6.1: it clears transient runtime, live
+Home/workspace validation, task confirmation validity, plans, and guard
+sessions. The UI must never offer Disconnect as a 6.4 action. A stale or hidden
+legacy callback is not an alternate workflow path.
+
+### Locked implementation and acceptance ledger
+
+| Scope | Source state | Operator/runtime evidence | Remaining bounded work |
+|---|---|---|---|
+| 6.0 / 6.0A | Package import, XOR scene choice, source-preserving open-mouth transform, retryable placement-only fallback, and Viewer authority implemented | Retained cases have imported and opened; earlier landmark/event and direction defects were corrected | Priority-1 condylar/crown/MPR safeguards remain separate; rerun representative anatomy after higher-priority runtime closure |
+| 6.1 | Facade Connect no longer requires Home/limits; it aligns the live robot and synchronizes/acknowledges the exact scene. Runtime/collision cards are now owned only by 6.1; retired XML buttons stay disabled. Latest native/UI batch passed the isolated build/static gate | Exact x4 trial reconstructed seven links and acknowledged 32 collision objects | Normal-window reconnection and action-ownership check; physical forehead/mount truth remains a separate future workstream |
+| 6.2 | Live state validation, explicit monitored-current-to-Home planning, strict waypoint guard, persistence, invalidation, and visible success confirmation implemented; latest source passed build/static checks | Equal-current/Home x4 case passed live validation with zero error and 1 mm research clearance | Manually confirm the new result message. A genuinely different current-to-Home plan remains unaccepted |
+| 6.3 | MoveIt state-valid/FK sampling, retained joint vectors, assisted proposal, and bounded Home-connectivity classification implemented. Explicit FK/start states now use the MoveIt robot model rather than `getCurrentState()` as a container; the native package rebuild passed | Manual retry passed the former TCP-goal blocker and rendered samples, then failed at the now-corrected native RobotState ownership boundary | Restart Slicer and manually retry 6.3. Do not promote workspace evidence until full generation and review succeed |
+| 6.4 | Facade requires active runtime, acknowledged scene, live Home, current workspace, and reviewed limits. Presentation is now a separate confirmation-only card and status; source passed syntax/static checks | Not reached after the current 6.3 failure | Confirm that no Connect/Disconnect/collision controls appear; create one snapshot only after 6.1–6.3 pass |
+| 6.5 | Three-stage Goal 1 source and retained first-invalid diagnostics implemented; partial plans remain non-previewable | Earlier x4 result is only a negative diagnostic fixture | Operator-led plan-only trial after 6.4; inspect causal evidence before changing base/planner/tolerances |
+| 6.6 | Guarded Entry-to-Target preview source implemented with configured tool-contact reporting and all other constraints retained | No accepted end-to-end runtime evidence | Attempt only after accepted Goal 1 Entry state; Execute and hardware remain blocked |
+| Cross-cutting persistence/lifecycle | `.dentocase` persists intent/evidence and excludes live ROS objects; local robot reconstruction and modular navigation are implemented | Clean-start and selected restore paths improved | Warm active-ROS New Case/reload remains unresolved and cannot be called accepted |
+
+### Residual-artifact rule
+
+- Programmatic Step 6 cards enforce one active owner per action. The old
+  XML-defined ROS buttons are migration residue only: hidden and disabled.
+- The retained hidden generic Goal/IK card is expert/development residue and
+  has no routine Step 6 owner; expert diagnostics remain an explicit 6.1
+  handoff with a Return action.
+- Historical local FK/AABB controls and old four-stage labels may remain in the
+  XML until the normal-window parity check permits deletion, but they cannot be
+  visible, enabled, or used as current evidence.
+- Every future Step 6 source change must update one row above as
+  `planned`, `source implemented`, `static/build checked`, or
+  `operator/runtime accepted`; these states must not be conflated.
+
 ## Priority 0 Step 6 simulation stabilization — strategy reset 2026-08-28
 
-**Status:** planning accepted; implementation and automated verification are
-paused at the operator-directed checkpoint. The next objective is diagnosis,
-not making one retained case pass through planner tuning.
+**Status:** initial Priority-0 source implementation completed 2026-08-29;
+build/live verification remains paused pending explicit operator approval. The
+objective remains diagnosis, not making one retained case pass through planner
+tuning.
+
+The unverified implementation now contains the prerequisite Manual Simulation
+Base containment; per-segment collision payload/audit/overlay and guard-side
+PlanningScene acknowledgement; bounded partial-path candidate evidence with
+last-valid/first-invalid IK and collision-pair classification; an in-application
+diagnostic inspector; and explicit free-space, strict-axis, terminal-contact,
+and drilling stages. Do not treat source completion as an acceptance result.
 
 The current implementation remains a fail-closed baseline: new cases default
 to a 2 mm pre-entry standoff; the research guard uses 1 mm clearance; dense
@@ -26,6 +87,67 @@ Cartesian samples are retained; and only configured burr-to-task-object contact
 may be suppressed in exploratory terminal/drilling phases. Every other world or
 self collision, joint bound, task/session mismatch, corridor escape,
 backtracking, and overshoot remains rejected. Execute stays hidden.
+
+### Runtime-first Task Home and workspace correction — accepted 2026-08-29
+
+**Status:** source implementation and focused static/package-build gate
+completed 2026-08-31; operator runtime verification remains pending separate
+approval. This unprioritized
+DENTO-NOTE is an ordering dependency for Priority-0 acceptance, so the
+superseded pre-ROS 6.2/6.3 flow is not verified further.
+
+Rebuild the Step 6 gates in this order:
+
+1. **6.1 Robot, Base, and Runtime:** after case preparation and a reviewed
+   Manual Simulation Base, connect ROS/MoveIt, align `base_link`, and require
+   exact collision-object ID/bounds acknowledgement. Do not require Home or
+   assisted limits merely to connect.
+2. **6.2 Collision-validated Task Home:** treat local/saved joint values as
+   display candidates. Query the synchronized MoveIt PlanningScene for joint
+   bounds, self/world collisions, and research clearance before allowing
+   **Commit and Save Task Home**. Applying a different Home from an accepted
+   current state requires a strict planned/guarded transition.
+3. **6.3 ROS-derived Workspace and Limits:** reproducibly sample joint
+   candidates, but accept them only through MoveIt state-validity/FCL and
+   MoveIt FK for `dentobot_drill_tip_provisional`. Retain each accepted TCP pose
+   with its producing vector and rejection diagnostics. Classify strict
+   Home-connected samples separately from merely static-valid samples. Present
+   min/max suggestions as a sampled exploration envelope, never as a globally
+   collision-free box.
+4. **6.4 Task Confirmation:** require active runtime, current scene audit,
+   runtime-validated Home, current workspace evidence, and explicit envelope
+   review. Connect is no longer owned here.
+
+Implemented source phases are: schema/invalidation; façade bootstrap split;
+Legacy and Shell UI reorder/gates; Task Home candidate validation/commit;
+explicit monitored-current-to-Home MoveIt planning followed by strict guarded
+waypoint application; bounded MoveIt FK/state-validity workspace generation;
+and deterministic Home-connectivity classification over the nearest sample,
+joint extrema, and bounded coverage samples. Every accepted static-valid sample
+persists its TCP pose, producing joint vector, FK/static-valid provenance, and
+one of `HomeConnected`, `PlanRejected`, or `NotEvaluated`. Saved evidence
+remains inspectable, while live validity never restores without an explicit
+compatible ROS session. Operator-approved focused verification is still
+required before this status becomes accepted runtime evidence.
+
+The first exact-x4 runtime trial on 2026-08-31 passed restore/open-mouth/base
+freshness, reconstructed all seven local links, acknowledged all 32 audited
+MoveIt collision objects, and live-validated the saved revision-6 Task Home at
+the already-matching monitored state with 1 mm research clearance. It first
+stopped at 6.3 sample zero because the new explicit state-validity/FK bridge
+called the shared native context with the interactive TCP-goal prerequisite
+still enabled. Source separated presentation state from explicit-state
+services, and the operator's manual retry then entered workspace generation
+and rendered accepted samples. That retry exposed the next ownership defect:
+native FK called `getCurrentState()` solely to acquire a RobotState/model even
+though the authoritative candidate was already an explicit six-joint vector.
+Native FK and explicit-start planning now construct independent RobotState
+instances from `MoveGroupInterface::getRobotModel()`, set only the submitted
+state, update it, and enforce group bounds. The UI also gives **Plan + Apply
+Task Home** a persistent detailed result, status-bar result, and explicit
+success dialog after live validation. These latest C++/Python changes are not
+yet rebuilt or statically/operator verified; approval is required before the
+focused build/check. 6.4 confirmation and 6.5 planning remain untested.
 
 The retained `dentobot-case-step6x4.dentocase` reaches only
 `44.44–45.34%` of its 15.77 mm Entry-to-Target line for all bounded roll
@@ -95,6 +217,18 @@ singularity/low manipulability, interpolation failure, frame/transform failure,
 invalid collision scene, and unknown MoveIt failure. Removing a constraint in
 a shadow query never relaxes the accepted plan or authorizes preview.
 
+The next schema is `MotionDiagnosticSessionV2`. It replaces the current
+partial Entry-to-Target-centric record with one immutable attempt containing
+Stage 1, Stage 2, Stage 3, and full-task outcomes. Every bounded axial-roll
+candidate records the MoveIt status/error code and planning time; path duration,
+waypoint count, completion distance/fraction; start, goal, last-valid and
+first-invalid joint/TCP states; joint-limit margins; minimum clearance;
+collision pairs and self-collision; manipulability/Jacobian condition when
+available; strict, configured-contact-relaxed, and kinematics-only shadow
+results; and a deterministic failure classification. A compatibility reader
+must preserve existing V1 evidence as legacy bounded diagnostics without
+inventing missing stage results.
+
 Expose this through a Step 6 Motion Diagnostics dock/popup with a candidate
 table, sample scrubber, ghost robot, exact TCP/depth/joint-margin readout,
 collision-pair highlighting, outgoing/anatomy surface overlay, and explicit
@@ -131,6 +265,71 @@ Stages 1 and 2 succeed. The existing two-phase façade is refactored only after
 Tracks B and the minimum Track C result schema are usable, so each stage can
 explain its own failure.
 
+### Track F0 — persistent reviewed-result ledger and manual aggregation
+
+**Entry gate:** runtime-first 6.1–6.4 is operator-accepted and one trajectory
+produces complete reviewed Stage 1/2/3 V2 evidence that survives
+`.dentocase` save/reopen. F0 is not part of Priority 0 and receives no inferred
+numeric priority.
+
+Keep the current reviewed single-attempt evidence in `.dentocase`. Add a
+separate versioned `.dentostudy` evidence package containing no MRML geometry
+and no live ROS/MoveIt object. Schema V1 contains `manifest.json`,
+`study/results.json`, integrity checksums, source-case references, and generated
+canonical JSON plus summary/candidate CSV exports. Each immutable result binds
+its source `.dentocase` package ID, checksum and lineage fingerprint to target
+FDI, trajectory, reviewed base, robot/tool/TCP, collision-scene, planning
+fingerprints, and complete stage/candidate evidence.
+
+The first accepted UI adds **Add Reviewed Result to Study** and one study
+window. It compares trajectories/teeth; groups by tooth, class, jaw and
+quadrant; reports success, best roll, drilling reach, limiting joint, dominant
+collision, minimum clearance, manipulability and planning time; and opens the
+existing retained failure boundary in the ghost/scrubber viewer. Every accepted
+addition is saved atomically. Initial acceptance is manual accumulation from
+the active case; cross-case accumulation is enabled only in the later expansion
+below.
+
+### Track F1 — automatic plan-only study for the current case
+
+**Entry gate:** F0 package/in-app aggregation is accepted, runtime-first state
+is current, and the active `.dentocase` contains at least two eligible Current,
+locked, complete trajectories. F1 is an in-application research feature, not a
+new broad verification script campaign.
+
+At one reviewed base pose and one acknowledged robot/tool/collision scene,
+enumerate every eligible trajectory and reject stale, unresolved or lineage-
+mismatched entries. Before each trajectory, reset transient planning state to
+the live-validated Task Home. Run bounded axial-roll evaluation and all three
+planning/independent-guard stages without viewport animation, preview playback,
+execution, or drilling commands. Atomically append one immutable result after
+each trajectory so interruption resumes without repeating fingerprint-identical
+work.
+
+Progress is truthful completed/total trajectory and candidate count, with the
+current tooth, trajectory and stage. Pause/cancel is exposed only at safe
+between-attempt boundaries. A trajectory failure is recorded and the study
+continues; a changed runtime-integrity, base, anatomy, collision-scene, robot,
+tool or planning fingerprint stops the run fail-closed and marks affected
+evidence stale. The final statistics window and JSON/CSV totals use the same
+records as F0. This feature depends on the Priority-2 shared long-running action
+contract or an equivalent bounded implementation; it must not show fabricated
+percentage progress.
+
+### Track F later expansion and F2 — cross-case and base-pose studies
+
+After F1 current-case automation is accepted, allow one `.dentostudy` to
+accumulate reviewed results from sequentially loaded `.dentocase` packages for
+different teeth. Automatic multi-package iteration remains blocked until warm
+active-ROS scene lifecycle and package rehydration are reliable.
+
+Track F2 begins only after Track E supplies stable, reviewable base-pose
+candidates. It evaluates trajectory × base-pose combinations and reports best
+base, best roll, success coverage, limiting joints/collisions and mechanical-
+design limitations. A Manual Simulation Base is sufficient for base-specific
+F0/F1 diagnostic evidence but must never be promoted into a stable physical
+mount or cross-base conclusion.
+
 ### Verification policy and later work
 
 Do not add another broad smoke/diagnostic script campaign. The first acceptance
@@ -140,13 +339,23 @@ scrub to the failure boundary, and save/reopen the diagnostic evidence. Minimal
 static or focused checks may be proposed after implementation, but no automated
 run resumes without renewed operator authorization.
 
-After B/C/D are trustworthy, implement the stable reviewed virtual mount/base
-contract (Track E), then multi-tooth/base task-space studies (Track F). A broad
-canonical frame architecture (Track A) and physical robot/patient registration
-(Track G) remain later work. The minimal transform declarations above are a
-correctness exception, not permission for either broad refactor. Separately,
-the saved 2.0 mm burr versus 1.5 mm guide bore remains an upstream Step 5C
-physical-fit defect and cannot be solved by collision suppression.
+Acceptance proceeds in this order: (1) runtime-first 6.1–6.4; (2) one complete
+Stage 1/2/3 V2 attempt that round-trips in `.dentocase`; (3) two manually
+reviewed results appended without overwrite to one `.dentostudy`; (4) one F1
+current-case run over at least two locked trajectories, including a retained
+success and failure and interruption/resume; (5) fail-closed stop/staleness on
+base, trajectory, anatomy, collision-scene or resource change; and (6) matching
+in-app/JSON/CSV totals with study load creating no ROS node, robot, callback or
+geometry. No check runs without the existing explain-and-approve gate.
+
+After B/C/D are trustworthy, implement F0 and then F1 at one reviewed,
+base-specific simulation pose. Track E remains the prerequisite for F2
+trajectory × base-pose studies, not for evidence-only F0 or single-base F1. A
+broad canonical frame architecture (Track A) and physical robot/patient
+registration (Track G) remain later work. The minimal transform declarations
+above are a correctness exception, not permission for either broad refactor.
+Separately, the saved 2.0 mm burr versus 1.5 mm guide bore remains an upstream
+Step 5C physical-fit defect and cannot be solved by collision suppression.
 
 ## Modular saved-case continuation acceptance — active 2026-08-27
 
@@ -1479,3 +1688,82 @@ acceptance. Legacy and Shell still share one backend and continue in parallel.
 The currently failing active-ROS New Case lifecycle smoke is a Track 1 defect
 and must be repaired before warm scene-replacement acceptance; UI shell,
 viewer, bounded Step 6 case view, and five-cycle source reload are verified.
+
+## 2026-08-29 — Step 6 runtime/state-ownership implementation paused
+
+Implementation was deliberately paused at the operator's request before any
+build or verification. The source now contains an **unverified partial** of the
+runtime-first 6.1–6.4 redesign and the Priority-0 Goal 1 state-handoff repair:
+
+- SlicerROS2 has a new explicit-start joint planner intended to submit the
+  immutable Task Home vector as the MoveIt start state and the returned
+  PreEntry IK vector as the goal. The legacy current-state planner remains for
+  generic non-DENTOBOT use.
+- The DENTOBOT bridge now keeps its native joint vector ahead of optional
+  expert-widget sliders, reads the monitored `/joint_states` vector separately,
+  performs a bounded Task Home convergence handshake, rejects effectively
+  equal explicit start/goal requests, and retains submitted/observed planner
+  evidence in the result.
+- Step 6.5 now asks the explicit planner for `Task Home -> PreEntry` and refuses
+  to plan unless the live monitored state equals the reviewed Home.
+- Connect prerequisites were moved toward 6.1: a prepared scene, local robot,
+  and locked reviewed base are required; a pre-ROS Home and assisted limits are
+  no longer prerequisites. Step 6.2 Home save/apply now requires live strict
+  collision acceptance plus monitored-state agreement. Optional persistent
+  Home runtime provenance fields were added while old records parse as
+  `Unreviewed`.
+- A read-only SlicerROS2 `/check_state_validity` interface and a partial 6.3
+  filtering path were added so deterministic FK candidates can be checked
+  against the synchronized MoveIt PlanningScene without commanding the robot.
+  Both presentation modes were relabelled/gated for the runtime-first order.
+
+This increment is **not ready for use or acceptance**. The following work must
+resume before proposing a check:
+
+1. finish the transient workspace-validation key and reconnect/revalidation
+   gates (the key is declared/reset but is not yet committed after generation
+   or required consistently by confirmation/UI);
+2. complete workspace provenance/count handling and the planned separate
+   `HomeConnected` classification; current code checks static MoveIt validity
+   after local URDF FK but does not yet prove a path from Home or use ROS FK;
+3. decide and implement collision-free Home application from another accepted
+   state rather than treating strict sampled-command acceptance as a plan;
+4. inspect the edited C++/Python interfaces for wrapper/compile/syntax issues,
+   finish failure diagnostics, and update any remaining Legacy/Shell gates;
+5. only after the feature is complete, describe the exact focused build and
+   operator check and obtain explicit approval before running it.
+
+No test, build, parser, Graphify refresh, Slicer reload, ROS query, planning
+request, preview, or motion action was run for this paused increment.
+
+## 2026-08-31 — Step 6 runtime/state-ownership source continuation
+
+The paused runtime-first increment has now been completed in source, still
+without running a build, parser, test, Graphify refresh, Slicer, ROS, planning
+request, preview, or motion action. The implementation resolves the five
+outstanding source items above:
+
+1. transient Home/workspace session keys are committed only after compatible
+   live evidence and are cleared on disconnect, scene/base invalidation,
+   workspace deletion, or incompatible policy/fingerprint state;
+2. every retained static-valid workspace sample stores MoveIt FK TCP and its
+   six-joint vector, while a deterministic bounded 13-sample set separately
+   records explicit `Task Home -> sample` MoveIt outcomes;
+3. applying a different saved Home now plans from the monitored current state
+   in MoveIt and submits every returned waypoint to the strict simulation
+   guard; an already-matching Home is revalidated without an artificial
+   equal-start/goal plan;
+4. Legacy and Shell labels/gates now expose the same runtime-first order and
+   refresh immediately after Home/workspace success or failure; and
+5. the native explicit-start planner retains bounded context and human-readable
+   early/MoveIt failure diagnostics rather than returning only an empty path or
+   numeric code.
+
+The approved focused gate then passed: both repositories passed
+`git diff --check`, the five edited Step 6 Python files passed `py_compile`, and
+`slicer_ros2_module` built and installed successfully. The first two native
+build attempts exposed the earlier FK wrapper's use of unavailable
+`hasVariable()` APIs; the final implementation checks membership against
+`RobotState::getVariableNames()` and the rebuild passed. The next action is a
+separately approved normal-window operator trial of 6.1 through 6.5. Execute
+and hardware motion remain unavailable.

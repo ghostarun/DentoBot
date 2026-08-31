@@ -276,15 +276,130 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     if method:
                         method(value)
         if plane_node and self.isRobotMountPlaneNode(plane_node):
-            plane_node.SetLocked(locked)
-            plane_node.SetSelectable(not locked)
+            plane_node.SetLocked(True)
+            plane_node.SetSelectable(False)
             display = plane_node.GetDisplayNode()
             if display:
-                display.SetHandlesInteractive(not locked)
-                display.SetTranslationHandleVisibility(not locked)
-                display.SetRotationHandleVisibility(not locked)
+                display.SetHandlesInteractive(False)
+                display.SetTranslationHandleVisibility(False)
+                display.SetRotationHandleVisibility(False)
+
+    def step6BasePlacementFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        """Return fail-closed issues for the diagnostic Step 6 base contract."""
+        base_transform = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base_transform):
+            return (_("Load the local Step 6 robot before reviewing its base."),)
+        issue = base_placement_source_issue(
+            parameterNode.step6BasePlacementStatus,
+            parameterNode.step6BasePlacementSource,
+            bool(parameterNode.robotBaseMountLocked),
+        )
+        state = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        if (
+            not parameterNode.robotBaseMountLocked
+            or state
+            not in {
+                BasePlacementStatus.PROVISIONAL_LOCKED,
+                BasePlacementStatus.REGISTERED_LOCKED,
+            }
+        ):
+            issue = _(
+                "Review Robot + CBCT placement and lock the Manual Simulation "
+                "Base before continuing."
+            )
+        authority = str(
+            base_transform.GetAttribute(
+                self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+            )
+            or ""
+        )
+        issues = [issue] if issue else []
+        if authority == self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
+            issues.append(
+                _(
+                    "The base was copied from the quarantined circular mount plane. "
+                    "Unlock it, reposition it manually in CBCT context, then review "
+                    "and lock the Manual Simulation Base."
+                )
+            )
+        return tuple(dict.fromkeys(item for item in issues if item))
+
+    def quarantineLegacyRobotBasePlacement(self, parameterNode) -> str:
+        """Reopen legacy/circular provisional placements for explicit review.
+
+        The old mount plane was derived from the robot base and then copied back
+        into that same base.  It therefore carries no independent forehead or
+        registration evidence and cannot remain an accepted planning input.
+        """
+        base_transform = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base_transform):
+            return ""
+        status = normalize_base_status(parameterNode.step6BasePlacementStatus)
+        source = str(parameterNode.step6BasePlacementSource or "")
+        authority = str(
+            base_transform.GetAttribute(
+                self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+            )
+            or ""
+        )
+        already_quarantined = bool(
+            not parameterNode.robotBaseMountLocked
+            and status is BasePlacementStatus.STALE
+            and source == QUARANTINED_CIRCULAR_BASE_SOURCE
+        )
+        legacy_locked = bool(
+            (parameterNode.robotBaseMountLocked
+             or status is BasePlacementStatus.PROVISIONAL_LOCKED)
+            and source != MANUAL_SIMULATION_BASE_SOURCE
+            and status is not BasePlacementStatus.REGISTERED_LOCKED
+        )
+        circular = authority == self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY
+        if not (legacy_locked or circular):
+            return ""
+        message = _(
+            "Restored Step 6 base placement predates the Manual Simulation Base "
+            "contract or came from the circular mount-plane snap. It was reopened "
+            "as Stale; reposition it manually in Robot + CBCT context and review "
+            "it again before Task Home or planning."
+        )
+        if already_quarantined:
+            return message
+        was_modifying = parameterNode.StartModify()
+        try:
+            parameterNode.robotBaseMountLocked = False
+            parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
+            parameterNode.step6BasePlacementSource = (
+                QUARANTINED_CIRCULAR_BASE_SOURCE
+            )
+            parameterNode.step6BasePlacementRevision = max(
+                0, int(parameterNode.step6BasePlacementRevision)
+            ) + 1
+        finally:
+            parameterNode.EndModify(was_modifying)
+        base_transform.SetAttribute("DENTOBOT.PlacementWarning", message)
+        self.invalidateStep6TaskConfirmation(parameterNode, message)
+        self._applyRobotBaseMountInteractionState(parameterNode, False)
+        return message
 
     def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
+        base_transform = parameterNode.robotBaseTransform
+        if locked:
+            if not self.isRobotBaseTransformNode(base_transform):
+                raise ValueError(_("Load the local Step 6 robot before locking its base."))
+            authority = str(
+                base_transform.GetAttribute(
+                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+                )
+                or ""
+            )
+            if authority == self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
+                raise ValueError(
+                    _(
+                        "The legacy mount-plane snap is quarantined because the "
+                        "plane was derived from this same base. Reposition the "
+                        "Manual Simulation Base directly before reviewing it."
+                    )
+                )
         requested_status = (
             BasePlacementStatus.PROVISIONAL_LOCKED
             if locked
@@ -300,7 +415,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             parameterNode.step6BasePlacementStatus = requested_status.value
             if state_changed:
                 parameterNode.step6BasePlacementSource = (
-                    "manual-mount-plane" if locked else "operator-unlocked"
+                    MANUAL_SIMULATION_BASE_SOURCE if locked else "operator-unlocked"
                 )
                 parameterNode.step6BasePlacementRevision = max(
                     0, int(parameterNode.step6BasePlacementRevision)
@@ -312,6 +427,24 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 parameterNode,
                 _("Robot base lock state changed."),
             )
+        if self.isRobotBaseTransformNode(base_transform):
+            existing_authority = str(
+                base_transform.GetAttribute(
+                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+                )
+                or ""
+            )
+            if locked:
+                base_transform.SetAttribute(
+                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                    self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY,
+                )
+            elif existing_authority != self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
+                base_transform.SetAttribute(
+                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                    self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+                )
+                base_transform.SetAttribute("DENTOBOT.PlacementWarning", None)
         self._applyRobotBaseMountInteractionState(parameterNode, locked)
 
     def robotProfileFingerprint(self) -> str:
@@ -331,6 +464,10 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 ).value,
                 "source": str(parameterNode.step6BasePlacementSource or "legacy-scene"),
                 "sourceRevision": int(parameterNode.step6BasePlacementRevision),
+                "authority": str(
+                    base.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE)
+                    or ""
+                ),
             }
         )
 
@@ -384,14 +521,12 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         payload = str(parameterNode.step6TaskHomeJson or "").strip()
         return parse_task_home(payload) if payload else None
 
-    def saveCurrentTaskHome(self, parameterNode):
-        state = normalize_base_status(parameterNode.step6BasePlacementStatus)
-        if state not in {
-            BasePlacementStatus.PROVISIONAL_LOCKED,
-            BasePlacementStatus.REGISTERED_LOCKED,
-        }:
-            raise ValueError(_("Provisionally lock the robot base before saving Task Home."))
+    def saveCurrentTaskHome(self, parameterNode, *, runtime_validation=None):
+        base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
+        if base_issues:
+            raise ValueError(" ".join(base_issues))
         previous = self.taskHomeRecord(parameterNode)
+        evidence = dict(runtime_validation or {})
         record = build_task_home(
             joint_positions_si_from_display(
                 parameterNode.robotJoint1Deg,
@@ -404,12 +539,62 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             base_fingerprint=self.robotBaseFingerprint(parameterNode),
             robot_profile_fingerprint=self.robotProfileFingerprint(),
             revision=(previous.revision + 1 if previous else 1),
+            runtime_validation_status=str(
+                evidence.get("runtimeValidationStatus") or "Unreviewed"
+            ),
+            collision_audit_fingerprint=str(
+                evidence.get("collisionAuditFingerprint") or ""
+            ),
+            guard_policy_fingerprint=str(
+                evidence.get("guardPolicyFingerprint") or ""
+            ),
+            validated_at_utc=str(evidence.get("validatedAtUtc") or ""),
+            minimum_clearance_mm=evidence.get("minimumClearanceMm"),
+            world_object_count=int(evidence.get("worldObjectCount", 0)),
         )
         parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
         self.invalidateStep6TaskConfirmation(parameterNode, _("Task Home changed."))
         return record
 
+    def recordTaskHomeRuntimeValidation(self, parameterNode, *, runtime_validation):
+        """Upgrade a restored/unreviewed Home with live runtime evidence.
+
+        Joint values and revision are preserved. A task confirmed against the
+        prior unreviewed record is invalidated because its Home fingerprint did
+        not contain the current collision-audit/guard provenance.
+        """
+
+        previous = self.taskHomeRecord(parameterNode)
+        if previous is None:
+            raise ValueError(_("Save Task Home before recording runtime validation."))
+        evidence = dict(runtime_validation or {})
+        record = build_task_home(
+            dict(zip(previous.joint_names, previous.joint_positions_si)),
+            base_fingerprint=previous.base_fingerprint,
+            robot_profile_fingerprint=previous.robot_profile_fingerprint,
+            revision=previous.revision,
+            runtime_validation_status="Validated",
+            collision_audit_fingerprint=str(
+                evidence.get("collisionAuditFingerprint") or ""
+            ),
+            guard_policy_fingerprint=str(
+                evidence.get("guardPolicyFingerprint") or ""
+            ),
+            validated_at_utc=str(evidence.get("validatedAtUtc") or ""),
+            minimum_clearance_mm=evidence.get("minimumClearanceMm"),
+            world_object_count=int(evidence.get("worldObjectCount", 0)),
+        )
+        parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
+        self.invalidateStep6TaskConfirmation(
+            parameterNode,
+            _("Task Home runtime-validation evidence changed."),
+        )
+        return record
+
     def taskHomeFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
+        if base_issues:
+            return base_issues
         try:
             record = self.taskHomeRecord(parameterNode)
         except (ValueError, json.JSONDecodeError):
@@ -475,11 +660,9 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             return False
 
     def confirmStep6Task(self, parameterNode):
-        if normalize_base_status(parameterNode.step6BasePlacementStatus) not in {
-            BasePlacementStatus.PROVISIONAL_LOCKED,
-            BasePlacementStatus.REGISTERED_LOCKED,
-        }:
-            raise ValueError(_("Review and provisionally lock the robot base first."))
+        base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
+        if base_issues:
+            raise ValueError(" ".join(base_issues))
         home_issues = self.taskHomeFreshnessIssues(parameterNode)
         if home_issues:
             raise ValueError(" ".join(home_issues))
@@ -510,7 +693,67 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         payload = str(parameterNode.step6ConfirmedTaskJson or "").strip()
         return parse_task_snapshot(payload) if payload else None
 
+    def motionDiagnosticRecord(self, parameterNode):
+        payload = str(parameterNode.step6MotionDiagnosticJson or "").strip()
+        return parse_motion_diagnostic_session(payload) if payload else None
+
+    def markStep6MotionDiagnosticStale(self, parameterNode, reason: str) -> None:
+        try:
+            record = self.motionDiagnosticRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            parameterNode.step6MotionDiagnosticJson = ""
+            return
+        if record is None or record.state == "Stale":
+            return
+        stale = build_motion_diagnostic_session(
+            state="Stale",
+            stale_reason=str(reason),
+            task_fingerprint=record.task_fingerprint,
+            base_fingerprint=record.base_fingerprint,
+            trajectory_fingerprint=record.trajectory_fingerprint,
+            robot_profile_fingerprint=record.robot_profile_fingerprint,
+            collision_audit_fingerprint=record.collision_audit_fingerprint,
+            planning_parameters_fingerprint=record.planning_parameters_fingerprint,
+            candidate_records=record.candidate_records,
+            selected_candidate_index=record.selected_candidate_index,
+            failure_classification=record.failure_classification,
+            operator_review_state=record.operator_review_state,
+            generated_at_utc=record.generated_at_utc,
+        )
+        parameterNode.step6MotionDiagnosticJson = canonical_json(stale.to_dict())
+
+    def motionDiagnosticFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        try:
+            record = self.motionDiagnosticRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            return (_("The saved motion-diagnostic record is invalid."),)
+        if record is None:
+            return (_("No Step 6 motion-diagnostic record is available."),)
+        issues = []
+        if record.state != "Current":
+            issues.append(record.stale_reason or _("Motion diagnostic is Stale."))
+        if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
+            issues.append(_("Motion diagnostic belongs to a different base pose."))
+        if record.trajectory_fingerprint != self.step6TrajectoryRevision(parameterNode):
+            issues.append(_("Motion diagnostic belongs to a different trajectory."))
+        if record.robot_profile_fingerprint != self.robotProfileFingerprint():
+            issues.append(_("Motion diagnostic belongs to different robot resources."))
+        try:
+            collision_audit = self.collisionSceneAuditRecord(parameterNode)
+        except (ValueError, json.JSONDecodeError):
+            collision_audit = None
+        if (
+            collision_audit is None
+            or record.collision_audit_fingerprint
+            != collision_audit.audit_fingerprint
+        ):
+            issues.append(_("Motion diagnostic belongs to a different collision scene."))
+        return tuple(dict.fromkeys(issues))
+
     def confirmedTaskFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
+        if base_issues:
+            return base_issues
         try:
             snapshot = self.confirmedTaskRecord(parameterNode)
         except (ValueError, json.JSONDecodeError):
@@ -570,6 +813,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             workspace.SetAttribute("DENTOBOT.WorkspaceState", "Stale")
         if had_confirmation:
             logging.warning("Invalidated Step 6 task confirmation: %s", reason)
+        self.markStep6MotionDiagnosticStale(parameterNode, reason)
 
     def getTaskJointLimits(self, parameterNode) -> TaskJointLimits:
         urdf_path, _package_root = self.robotDescriptionPaths()
@@ -719,10 +963,9 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     "%1", " ".join(freshnessIssues)
                 )
             )
-        if not parameterNode.robotBaseMountLocked:
-            raise ValueError(
-                _("Lock the robot base mount before motion planning.")
-            )
+        base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
+        if base_issues:
+            raise ValueError(" ".join(base_issues))
         if not parameterNode.robotBaseTransform:
             raise ValueError(_("Load or create the Step 6 robot base first."))
         ros_active = self.isRos2MotionControlActive(parameterNode.robotBaseTransform)

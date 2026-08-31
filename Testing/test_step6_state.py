@@ -15,8 +15,10 @@ if str(HELPERS) not in sys.path:
 from DENTOStep6State import (  # noqa: E402
     BasePlacementStatus,
     JOINT_NAMES,
+    MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
     approach_points,
+    base_placement_source_issue,
     build_assisted_limit_proposal,
     build_phase_guard_configuration,
     build_phase_joint_command,
@@ -59,6 +61,29 @@ def test_base_state_transitions_fail_closed_and_reserve_registered_lock():
     assert transition_base_status("Stale", "unlock") == BasePlacementStatus.UNLOCKED
     with pytest.raises(ValueError, match="future verified registration"):
         transition_base_status("Unlocked", "registered_lock")
+
+
+def test_provisional_base_requires_explicit_manual_simulation_source():
+    assert not base_placement_source_issue(
+        "ProvisionalLocked",
+        MANUAL_SIMULATION_BASE_SOURCE,
+        True,
+    )
+    assert "predates" in base_placement_source_issue(
+        "ProvisionalLocked",
+        "manual-mount-plane",
+        True,
+    )
+    assert "explicitly reviewed" in base_placement_source_issue(
+        "Unlocked",
+        "operator-unlocked",
+        True,
+    )
+    assert not base_placement_source_issue(
+        "Stale",
+        "quarantined-circular-mount-plane",
+        False,
+    )
 
 
 def test_task_home_round_trip_is_versioned_and_case_base_specific():

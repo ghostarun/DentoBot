@@ -95,12 +95,37 @@ planned versioned diagnostic evidence records
 ```
 
 `DENTORobotWorkflowFacade` is the shared Legacy/New-GUI application seam. It
-loads the local MRML robot before ROS, saves/applies Task Home, retains sampled
-TCP poses with their six-joint vectors, reviews assisted limits, connects the
-runtime without changing modules, synchronizes split target/non-target planning
-objects, confirms the task fingerprint, and builds the two preview phases.
+loads the local MRML robot, owns runtime connection without changing modules,
+synchronizes split target/non-target planning objects, validates/saves Task Home,
+retains sampled TCP poses with their six-joint vectors, reviews assisted limits,
+confirms the task fingerprint, and builds the preview phases.
 Routine calls use SlicerROS2 logic/MRML APIs; the upstream widget is optional
 expert diagnostics and never a lifecycle prerequisite.
+
+The source implements a runtime-first gate. 6.1 requires prepared anatomy, a
+local robot, and a reviewed Manual Simulation Base, then aligns `base_link` and
+acknowledges the exact PlanningScene without requiring saved Home/workspace
+evidence. Only afterward may 6.2 commit a MoveIt/FCL-validated Task Home. A
+different saved Home is reached by an explicit-start MoveIt plan from the
+monitored current state, with every returned waypoint rechecked by the strict
+simulation guard. 6.3 accepts MoveIt-FK/static-state-valid workspace samples
+and persists their TCP/joint/provenance records. A deterministic bounded set of
+the nearest sample plus joint extrema/coverage points is separately planned
+from Home. Thus `StateValid`, `HomeConnected`, `PlanRejected`, and
+`NotEvaluated` remain distinct. The reviewed min/max proposal is an exploration
+envelope, not a collision-free-volume claim. This implementation remains
+runtime-unverified; its operator-approved static/package build gate passed on
+2026-08-31, while the normal-window ROS/MoveIt trial is still pending.
+
+The presentation follows the same single-owner boundary. A dedicated 6.1
+runtime card owns Connect/Disconnect and expert runtime diagnostics, and its
+planning-scene audit card is visible only in 6.1. A separate 6.4 card owns the
+immutable task confirmation and its prerequisite summary; it exposes no
+runtime or collision-repair action. The shared panel declares an action-to-
+substep ownership map and refuses a panel callback outside its owner. Retired
+XML Connect/Disconnect widgets remain hidden and disabled during migration.
+Thus UI reparenting or an old callback cannot silently reintroduce the former
+6.4 connection sequence.
 
 Task confirmation fingerprints target/trajectory, base, home, reviewed limits,
 tool/corridor provenance, and robot resources. Any material input change clears
@@ -108,9 +133,26 @@ both transient plans. Appearance and camera changes are excluded. The only
 current lock state reachable by an operator is `ProvisionalLocked`;
 `RegisteredLocked` is reserved for a future measured registration source.
 
-The explicit CBCT renderer is display-only and singleton-by-source. The curved
-forehead proxy is a separately editable visualization envelope, excluded from
-planning-scene collision objects and registration evidence. The planning TCP is
+### Planned evidence-only study boundary
+
+`.dentocase` remains the sole package for case geometry, lineage, Step 6 intent
+and the current reviewed single-attempt diagnostic. Planned
+`MotionDiagnosticSessionV2` keeps explicit Stage 1/2/3/full-task and bounded
+candidate outcomes while reading legacy V1 evidence without inventing fields.
+
+The later `.dentostudy` package is a separate evidence ledger, not a scene
+format. It references source `.dentocase` package identity/checksum/lineage and
+stores immutable task/base/resource/planning fingerprints plus stage/candidate
+results and canonical JSON/CSV summaries. Loading it creates no MRML geometry,
+robot, ROS node, callback, plan or active flag. F0 appends manually reviewed
+results; F1 automates plan-only eligible trajectories in the active case at
+one reviewed base; F2 varies reviewed base poses only after Track E.
+
+The explicit CBCT renderer is display-only and singleton-by-source. The former
+curved forehead proxy and base-derived mount plane remain excluded from
+planning-scene collision objects and registration evidence, and their
+create/edit/snap workflow is quarantined pending an independent patient/contact
+frame. The planning TCP is
 `dentobot_drill_tip_provisional`; its CAD offset is not physical calibration.
 
 The external guard preserves the ordinary strict channel and adds task/phase
@@ -119,10 +161,10 @@ accept only the burr-to-selected-target pair inside the confirmed corridor.
 All other robot/world/self contacts and joint violations remain fail-closed.
 No controller or hardware execution path is exposed.
 
-### Planned Priority-0 collision and motion-diagnostic boundary
+### Priority-0 collision and motion-diagnostic boundary — source implementation 2026-08-29
 
-The next Step 6 increment adds evidence without turning ROS runtime state into
-case state:
+The initial implementation adds evidence without turning ROS runtime state into
+case state. Build and operator acceptance remain pending:
 
 ```text
 reviewed per-segment Slicer surface
@@ -1537,12 +1579,21 @@ The shell reparents the authoritative existing module widget into its task
 dock. Therefore the Case workspace and not-yet-visually-migrated workspaces
 retain their exact MRML bindings and callbacks while the new navigation maps
 six workspaces onto stable internal stage indices 0–10. Robot Simulation uses
-seven operator substeps—6.0 Case and Task, 6.1 Robot and Base, 6.2 Task Home,
-6.3 Workspace and Limits, 6.4 Runtime and Confirmation, 6.5 Goal 1 Approach,
+seven operator substeps. The accepted target labels are 6.0 Case and Task,
+6.1 Robot/Base/Runtime, 6.2 Validated Task Home,
+6.3 ROS Workspace and Limits, 6.4 Task Confirmation, 6.5 Goal 1 Approach,
 and 6.6 Goal 2 Drilling Preview. Both the normal module and application shell
 show exactly one substep card at a time and call the same visibility controller;
 Back/Next or either presentation's selector changes presentation only. Existing
 base, joint, workspace, task, and phase state remains authoritative in MRML.
+
+Runtime acceptance is intentionally not case-persistent. Task Home and bounded
+workspace evidence—including per-sample MoveIt FK/static validity and bounded
+Home-connectivity classifications—persist with base/robot/collision/policy
+fingerprints, but a new session must explicitly regenerate or revalidate them.
+ROS nodes, service clients, guard
+sessions, PlanningScene objects, plans, connection flags, and runtime-accepted
+state remain transient.
 
 Presentation mode, light/dark theme, Expert mode, and dock geometry are local
 `QSettings`. MRML nodes and the parameter node remain authoritative case state;

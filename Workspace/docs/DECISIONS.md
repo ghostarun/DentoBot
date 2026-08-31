@@ -1,5 +1,272 @@
 # Dentobot Technical Decisions
 
+## 2026-08-31 — Separate single-attempt case evidence from evidence-only studies
+
+Status: accepted roadmap; implementation not started
+
+Keep reviewed single-trajectory planning evidence with the authoritative
+geometry and lineage in `.dentocase`. Introduce a separate `.dentostudy`
+package only after Priority-0 runtime-first and Stage 1/2/3 diagnostic evidence
+is accepted. `.dentostudy` contains immutable results, source-case package
+IDs/checksums/lineage fingerprints, integrity checksums and JSON/CSV summaries;
+it contains no MRML geometry and restores no ROS/MoveIt runtime object.
+
+Sequence the study track as F0 manual aggregation, F1 automatic plan-only
+iteration over all eligible trajectories in the current case at one reviewed
+base, later sequential-case accumulation, and F2 trajectory × base-pose study.
+F0/F1 may retain explicitly base-specific Manual Simulation Base evidence after
+Priority-0 acceptance. Only F2 requires the stable Track E base contract.
+Changing a run-integrity fingerprint stops automation fail-closed; ordinary
+trajectory failure is recorded and the current-case study may continue. No
+stage authorizes preview, Execute, hardware motion or drilling.
+
+Reason: geometry/lineage authority and aggregate research evidence have
+different lifecycle and restore semantics. Keeping studies reference-only
+prevents duplicate or stale MRML geometry and live ROS objects from becoming a
+second case truth, while the F0/F1/F2 split prevents a useful single-base study
+from being blocked by or confused with later base-pose optimization.
+
+## 2026-08-31 — Lock each Step 6 action to one substep owner
+
+Status: accepted architecture; presentation/source correction implemented;
+build and operator acceptance pending
+
+The authoritative runtime-first sequence is 6.0/6.0A case preparation; 6.1
+robot/base/runtime and collision-scene acknowledgement; 6.2 live-validated
+Task Home; 6.3 MoveIt-derived workspace and reviewed limits; 6.4 immutable task
+confirmation; 6.5 approach; and 6.6 drilling preview. Each state-changing
+action has exactly one routine owner. In particular, Connect, Disconnect,
+runtime diagnostics, and collision re-audit belong only to 6.1. 6.4 contains
+only prerequisite review and task confirmation.
+
+Reason: the partially renovated shared runtime card was displayed in both 6.1
+and 6.4. Disconnecting in 6.4 clears live Home/workspace validation and phase
+state, so presenting that action there both contradicted the accepted order and
+could destroy the evidence needed for confirmation. The same shared status
+label also allowed runtime and task-confirmation messages to overwrite each
+other.
+
+Implementation splits the cards and status labels, moves the collision-audit
+card to 6.1, disables the hidden legacy XML Connect/Disconnect buttons, and
+blocks programmatic panel actions when their declared owner is not the active
+substep. Older UI elements may remain temporarily for migration/API
+compatibility, but hidden residue cannot be enabled, invoked, or treated as an
+alternate workflow. Removing the retired XML and hidden generic Goal/IK card
+is permitted only after normal-window Legacy/Shell parity confirms no required
+consumer remains.
+
+## 2026-08-31 — Separate static-valid workspace evidence from bounded Home connectivity
+
+Status: source implemented; build/runtime verification pending explicit approval
+
+Step 6.2 may persist a Home only from an authoritative live accepted state. If
+the monitored current state differs from a restored Home, MoveIt must first
+plan an explicit current-to-Home joint transition; every returned waypoint is
+then submitted to the strict simulation guard. An already-matching state is
+revalidated without requesting a meaningless equal-start/goal plan.
+
+Step 6.3 evaluates at most 400 deterministic local candidates with MoveIt
+static state validity and MoveIt FK. Every accepted sample persists its TCP,
+joint vector, and bounded provenance. Path connectivity is a separate bounded
+classification: at most 13 deterministic samples (nearest to Home, joint
+extrema, then even coverage) receive one 2-second explicit Home-to-sample plan.
+The outcome is `HomeConnected`, `PlanRejected`, or `NotEvaluated`; at least one
+Home-connected sample is required to review the envelope. The envelope remains
+a sampled suggestion and does not certify the unsampled joint-space box.
+
+Reason: a collision-free configuration does not prove a collision-free path,
+and direct command interpolation is not a global planner. Keeping the two
+claims separate prevents restored evidence, translucent goal state, or min/max
+bounds from being mistaken for MoveIt reachability. The bounded subset keeps
+interactive generation finite while preserving representative path evidence.
+Live-valid keys remain transient across reconnect; no plan or ROS object is
+serialized.
+
+## 2026-08-31 — Arduino pressure tools ship as a portable folder copy
+
+Status: package syntax verified; live serial on a second PC pending
+
+Keep a self-contained snapshot at repository-root `arduino-pressure/` for
+Windows/Ubuntu setup on another PC. The live experiment path remains
+`ros2_ws/src/Arduino/`. The portable copy may add `--port` / `--list-ports`
+and a protocol-matching UNO R4 sketch; those changes stay in the snapshot
+so an in-progress recording is not interrupted.
+
+Reason: another workstation needs the monitor and post-processing without
+the DENTOBOT ROS/Slicer tree, and the lab PC may be mid-run.
+
+## 2026-08-31 — Start Recording also starts the looping stage-cue timer
+
+Status: source and syntax verified; live serial/GUI click and beep acceptance
+pending
+
+One **Start Recording + Cues** button opens the run CSVs and starts a
+repeating QTimer. Default interval is 10 s and is adjustable from 1–600 s
+while idle or mid-run. On start, AIR OFF fires immediately, then every N
+seconds the order is DRILL IN AIR → DRILL IN DENTIN → DRILL IN PULP → AIR
+OFF, looping until **Stop Recording**. **CUE NEXT STAGE** (Space/click)
+remains a manual skip and restarts the countdown so a skip cannot double
+with the next auto fire. Changing the interval mid-run retunes the timer
+without emitting an extra cue. Annotator F1–F4 marks do not rewrite the
+protocol clock while auto-cue is running.
+
+Reason: the driller needs a metronome for the four-stage air/dentin/pulp
+cycle; combining it with recording avoids a second start and keeps cue
+rows in the same `annotations.csv`.
+
+## 2026-08-31 — Manual stage annotations subtract operator latency
+
+Status: source and syntax verified; live serial/GUI click and beep acceptance
+pending
+
+Keep `samples.csv` unchanged. Live stage buttons
+(AIR OFF, DRILL IN AIR, DRILL IN DENTIN, DRILL IN PULP) write
+`annotations.csv` with both the button-press time and
+`corrected_s = press_s - latency_s`. Default latency is 400 ms and is stored
+per press so post-run review can look for the tissue-boundary dip before the
+mark, not at the mark. A separate **CUE NEXT STAGE** control (air → dentin →
+pulp) is visual+beep only for the driller; it is stored as `kind=cue` and is
+not used as the dip-search time. Analysis matches the strongest 50 ms median
+drop in a window from slightly before `corrected_s` up to `press_s`.
+
+Reason: the annotator presses after noticing the change, so raw press time
+lags the pressure dip.
+
+## 2026-08-31 — Live pressure plots use a 50 ms median and load-boundary marks
+
+Status: headless boundary detection verified on 2026-08-31 runs; live
+serial/GUI click acceptance pending
+
+Default the host Arduino overview and analysis trace to a 50 ms median plus
+p10–p90 envelope instead of the raw 1 kHz waveform. That band is display-only;
+CSV remains every sample. Detect contact, air/breakthrough, and held ≥20 kPa
+inner rise/drop on the same binned median and draw them as vertical marks plus
+a review table. The 1-second inset keeps the raw waveform under the overlay so
+drill vibration stays visible. Cutting versus free spinning at the ~225 kPa
+plateau is still not separable by absolute pressure on today's files; inner
+marks on those runs are mostly pneumatic ramps, not enamel/dentin claims.
+
+Reason: the 1 kHz trace reads as a filled band and hides the load steps the
+operator needs for tissue-boundary review.
+
+## 2026-08-31 — Air-off vs air-on is a display filter, not a CSV change
+
+Status: headless classification verified on 2026-08-31 runs; live serial/GUI
+click acceptance pending
+
+Treat host pneumatic traces as two absolute-pressure states. On the
+2026-08-31 tooth-drilling CSVs the 50 ms median is bimodal: air-off ~-0.4 kPa
+(p95 typically <8 kPa) and air-on / drill-in-air ~220–228 kPa, with almost no
+dwell between ~10 and ~200 kPa except ramps. Cutting versus free spinning is
+not separable by absolute pressure on those files. Hysteresis: enter air-on
+when the binned median reaches 25 kPa, return to air-off at 8 kPa. The live
+monitor and analysis GUI default to **Hide air-off** (NaN those samples;
+`connect='finite'`). **Highlight air-off** draws them grey. Raw
+`samples.csv` is not modified. Optional `--auto-air-thresholds` re-estimates
+the gates from the open file when the two modes are ≥40 kPa apart.
+
+Reason: air-off idle samples pull the Y axis to ~0 kPa and hide the air-on
+plateau that the operator needs during a trial.
+
+## 2026-08-31 — Live pressure overview keeps a 1-second inset
+
+Status: source and syntax verified; live serial/GUI click acceptance pending
+
+The Arduino pressure monitor default view remains the expanding whole-run
+plot. A 1-second live inset (picture-in-picture) shows the latest second at
+full sample density so drill vibration is visible without replacing the
+overview. **View → 1 s live only** hides the inset and uses the main plot for
+that same 1-second window. This is display-only and does not change recording
+or serial behaviour.
+
+Reason: a full-run 1 kHz trace reads as a filled band; the last second at
+native spacing is the readable live waveform.
+
+## 2026-08-31 — Post-run pressure CSV analysis is a separate host inspector
+
+Status: headless load/redetect verified on two recorded runs; GUI click
+acceptance pending
+
+Inspect saved Arduino pressure runs with
+`ros2_ws/src/Arduino/pressure_analysis.py` and the same `pressure-env`
+interpreter as the live monitor. The loader reads `samples.csv` and optional
+`events.csv`. The inspector plots pressure, live baseline/thresholds, and
+residual; re-runs the live dip/peak detector on the saved window; and lists
+sequence gaps, ADC rails, and sub-20 ms glitches. It does not open serial or
+command a robot. Default input is the newest `pressure_runs/run_*` folder.
+
+Reason: live `events.csv` can start mid-event and keep 1 ms noise triggers.
+Post-run redetection on the recorded window is the review path for dips.
+
+## 2026-08-31 — Pressure-monitor CSV recording is operator-gated
+
+Status: source and syntax verified; live serial/GUI acceptance pending
+
+Keep the Arduino pressure GUI live at launch for display and baseline
+calibration. Do not open a run folder or write CSV until **Start Recording**.
+That action creates `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/` and
+writes `samples.csv` / `events.csv`. **Stop Recording** flushes and closes
+those files so another start makes a new run. Closing the window stops an
+active recording. Live plot, serial, and event markers continue while idle.
+This remains a sensing bench, not robot command or stop-logic.
+
+Reason: continuous recording from process start mixed setup, idle, and
+intended trial data in the same CSV.
+
+## 2026-08-29 — Connect the Step 6 simulation world before Task Home and workspace acceptance
+
+Status: accepted replanning direction; implementation not started
+
+The ordering portion of the 2026-08-24 Step 6 decision is superseded. A local
+MRML/URDF pose and coarse FK/AABB workspace cannot authorize a collision-free
+Task Home or a valid task-space result before ROS/MoveIt and the exact patient
+collision scene are loaded. The target sequence is now: 6.1 connect the
+simulation runtime and acknowledge the collision scene; 6.2 validate and save
+Task Home against that scene; 6.3 generate/review a ROS/MoveIt-derived sampled
+workspace; 6.4 confirm the immutable task; 6.5/6.6 plan and preview.
+
+Connect no longer depends on a pre-existing Home or assisted limits. It depends
+on prepared anatomy, the local robot, and a reviewed locked Manual Simulation
+Base. Its initial joint vector is only a candidate until MoveIt state validity
+accepts bounds, self/world collision, clearance, resources, and the exact
+collision-audit fingerprint. If invalid, the runtime may remain connected for
+display-only candidate diagnosis, but no invalid vector is accepted as Home or
+published as a successful simulation state.
+
+The 6.3 point cloud is a set of sampled collision-valid configurations, not a
+continuous reachable volume. Every accepted TCP point retains its joint vector
+and is derived using the connected MoveIt robot and current PlanningScene.
+Static state validity is distinct from path connectivity; only samples with a
+successful strict MoveIt path from Task Home may be labelled `HomeConnected`.
+Likewise, min/max values over accepted samples are an operator-reviewed
+exploration envelope, not proof that every combination inside that box is
+collision free.
+
+Task Home and bounded workspace evidence may persist with their base, robot,
+collision-audit, limits, and policy fingerprints. ROS nodes, services, guard
+sessions, plans, connection flags, and current-runtime acceptance remain
+transient. Reopen or disconnect removes live validity; a compatible reconnect
+must explicitly revalidate saved evidence before 6.4 confirmation.
+
+## 2026-08-29 — Fail closed on circular base evidence and unacknowledged collision payloads
+
+Status: implemented in source; build/operator acceptance pending
+
+The former Step 6 mount plane is quarantined because it was created from the
+robot base and then copied back into that same base. It cannot establish a
+forehead or mount-face relationship. Priority-0 simulation trials may use only
+an explicitly reviewed `manual-simulation-base` pose; restored legacy locks
+reopen Stale. The separate physical forehead/mount-frame redesign remains
+unprioritized and requires independent CAD/contact/registration evidence.
+
+MoveIt collision synchronization now uses stable per-segment objects and is
+not considered complete when the publisher merely returns success. The
+collision guard must read back the monitored PlanningScene object IDs, poses,
+and mesh bounds, and DENTOBOT fails closed on a missing or mismatched object.
+Partial Cartesian paths remain non-authorizing evidence and are retained for
+bounded first-invalid diagnosis rather than discarded or mislabeled as a base
+failure.
+
 ## 2026-08-28 — Diagnose Step 6 before planner tuning or base optimization
 
 Status: accepted planning direction; implementation not started

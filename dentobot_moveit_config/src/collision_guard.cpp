@@ -17,6 +17,7 @@
 #include <moveit/robot_model_loader/robot_model_loader.hpp>
 #include <moveit/robot_model/joint_model.hpp>
 #include <moveit/robot_state/robot_state.hpp>
+#include <geometric_shapes/shapes.h>
 #include <json/json.h>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -234,6 +235,22 @@ struct TaskJointCommand
   std::vector<double> joint_positions;
 };
 
+struct WorldObjectEvidence
+{
+  std::string id;
+  std::size_t shape_count{ 0 };
+  std::array<double, 7> pose_xyzw{ { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 } };
+  std::array<double, 6> bounds_m{ {
+    std::numeric_limits<double>::infinity(),
+    -std::numeric_limits<double>::infinity(),
+    std::numeric_limits<double>::infinity(),
+    -std::numeric_limits<double>::infinity(),
+    std::numeric_limits<double>::infinity(),
+    -std::numeric_limits<double>::infinity()
+  } };
+  bool has_mesh_bounds{ false };
+};
+
 struct GuardResult
 {
   bool accepted{ false };
@@ -244,6 +261,7 @@ struct GuardResult
   std::string first_body;
   std::string second_body;
   std::size_t world_object_count{ 0 };
+  std::vector<WorldObjectEvidence> world_objects;
   bool corridor_ok{ false };
   double corridor_progress{ std::numeric_limits<double>::quiet_NaN() };
   double corridor_distance_m{ std::numeric_limits<double>::quiet_NaN() };
@@ -653,6 +671,54 @@ private:
 
     planning_scene_monitor::LockedPlanningSceneRO scene(planning_scene_monitor_);
     result.world_object_count = scene->getWorld()->size();
+    for (const std::string& object_id : scene->getWorld()->getObjectIds())
+    {
+      const collision_detection::World::ObjectConstPtr object =
+        scene->getWorld()->getObject(object_id);
+      if (!object)
+      {
+        continue;
+      }
+      WorldObjectEvidence evidence;
+      evidence.id = object_id;
+      evidence.shape_count = object->shapes_.size();
+      const Eigen::Quaterniond object_orientation(object->pose_.linear());
+      evidence.pose_xyzw = {
+        object->pose_.translation().x(), object->pose_.translation().y(),
+        object->pose_.translation().z(), object_orientation.x(),
+        object_orientation.y(), object_orientation.z(), object_orientation.w()
+      };
+      for (std::size_t shape_index = 0;
+           shape_index < object->shapes_.size() &&
+           shape_index < object->global_shape_poses_.size();
+           ++shape_index)
+      {
+        const shapes::ShapeConstPtr& shape = object->shapes_[shape_index];
+        if (!shape || shape->type != shapes::MESH)
+        {
+          continue;
+        }
+        const auto* mesh = static_cast<const shapes::Mesh*>(shape.get());
+        const Eigen::Isometry3d& shape_pose = object->global_shape_poses_[shape_index];
+        for (unsigned int vertex_index = 0;
+             vertex_index < mesh->vertex_count; ++vertex_index)
+        {
+          const Eigen::Vector3d local(
+            mesh->vertices[3 * vertex_index],
+            mesh->vertices[3 * vertex_index + 1],
+            mesh->vertices[3 * vertex_index + 2]);
+          const Eigen::Vector3d world = shape_pose * local;
+          evidence.bounds_m[0] = std::min(evidence.bounds_m[0], world.x());
+          evidence.bounds_m[1] = std::max(evidence.bounds_m[1], world.x());
+          evidence.bounds_m[2] = std::min(evidence.bounds_m[2], world.y());
+          evidence.bounds_m[3] = std::max(evidence.bounds_m[3], world.y());
+          evidence.bounds_m[4] = std::min(evidence.bounds_m[4], world.z());
+          evidence.bounds_m[5] = std::max(evidence.bounds_m[5], world.z());
+          evidence.has_mesh_bounds = true;
+        }
+      }
+      result.world_objects.push_back(std::move(evidence));
+    }
     if (contact_phase && !scene->getWorld()->hasObject(task_config->target_object_id))
     {
       result.reason = "The configured selected target-tooth collision object is missing.";
@@ -919,6 +985,54 @@ private:
     return output.str();
   }
 
+  std::string world_objects_json(
+    const std::vector<WorldObjectEvidence>& objects) const
+  {
+    std::ostringstream output;
+    output << '[';
+    for (std::size_t index = 0; index < objects.size(); ++index)
+    {
+      if (index > 0)
+      {
+        output << ',';
+      }
+      const WorldObjectEvidence& object = objects[index];
+      output << '{'
+             << "\"id\":\"" << json_escape(object.id) << "\","
+             << "\"shape_count\":" << object.shape_count << ','
+             << "\"pose_base_link_m_xyzw\":[";
+      for (std::size_t pose_index = 0; pose_index < object.pose_xyzw.size(); ++pose_index)
+      {
+        if (pose_index > 0)
+        {
+          output << ',';
+        }
+        output << json_number(object.pose_xyzw[pose_index]);
+      }
+      output << "],\"bounds_base_link_m\":";
+      if (!object.has_mesh_bounds)
+      {
+        output << "null";
+      }
+      else
+      {
+        output << '[';
+        for (std::size_t bound_index = 0; bound_index < object.bounds_m.size(); ++bound_index)
+        {
+          if (bound_index > 0)
+          {
+            output << ',';
+          }
+          output << json_number(object.bounds_m[bound_index]);
+        }
+        output << ']';
+      }
+      output << '}';
+    }
+    output << ']';
+    return output.str();
+  }
+
   std::string status_json(
     const GuardResult& result,
     const std::vector<double>& requested,
@@ -940,7 +1054,8 @@ private:
            << json_number(result.minimum_world_distance_m) << ','
            << "\"first_body\":\"" << json_escape(result.first_body) << "\","
            << "\"second_body\":\"" << json_escape(result.second_body) << "\","
-           << "\"world_object_count\":" << result.world_object_count
+           << "\"world_object_count\":" << result.world_object_count << ','
+           << "\"world_objects\":" << world_objects_json(result.world_objects)
            << '}';
     return output.str();
   }
@@ -982,7 +1097,8 @@ private:
            << json_number(result.minimum_world_distance_m) << ','
            << "\"first_body\":\"" << json_escape(result.first_body) << "\","
            << "\"second_body\":\"" << json_escape(result.second_body) << "\","
-           << "\"world_object_count\":" << result.world_object_count
+           << "\"world_object_count\":" << result.world_object_count << ','
+           << "\"world_objects\":" << world_objects_json(result.world_objects)
            << '}';
     std_msgs::msg::String message;
     message.data = output.str();

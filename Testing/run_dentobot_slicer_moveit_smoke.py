@@ -80,11 +80,26 @@ def run() -> dict[str, object]:
     forehead = workflow_logic.draftPhantomNativePointToWorldRas(
         workflow_logic.draftPhantomExampleForeheadPlaneNativeRas()
     )
-    mount_plane = workflow_logic.createOrResetRobotMountPlane(None, base)
-    mount_plane.SetOriginWorld(tuple(forehead))
-    mount_plane.SetNormalWorld((0.0, -1.0, 0.0))
-    workflow_logic.snapRobotBaseToPlane(base, mount_plane)
-    parameter_node.robotMountPlane = mount_plane
+    # Diagnostic-only manual base seed. The former plane was derived from the
+    # base and is quarantined; it cannot provide independent mount evidence.
+    manual_base = vtk.vtkMatrix4x4()
+    manual_base.Identity()
+    for row, values in enumerate(
+        (
+            (1.0, 0.0, 0.0),
+            (0.0, 0.0, -1.0),
+            (0.0, 1.0, 0.0),
+        )
+    ):
+        for column, value in enumerate(values):
+            manual_base.SetElement(row, column, value)
+    for axis, value in enumerate(forehead):
+        manual_base.SetElement(axis, 3, float(value))
+    base.SetMatrixTransformToParent(manual_base)
+    base.SetAttribute(
+        workflow_logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+        workflow_logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+    )
     robot_facade = DENTORobotWorkflowFacade(
         workflow_logic,
         lambda: parameter_node,

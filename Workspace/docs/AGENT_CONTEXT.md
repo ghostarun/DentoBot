@@ -4,7 +4,7 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-08-28
+## Current engineering state — 2026-08-29
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
 - Active integration branch: `integration/gui-step6`.
@@ -15,6 +15,29 @@ reproducibility, or dated evidence documents.
 - Step 6 is simulation/preview only. MoveIt provides configured IK, planning,
   FCL self/world collision, and planning-scene services. DENTOBOT does not
   expose controller/hardware execution.
+- Priority-0 source work has passed its bounded no-motion compile/import gate:
+  Python/UI parsing, the SlicerROS2 wrapper build, the collision-guard build,
+  and direct headless DENTOWorkflow widget construction completed. Runtime and
+  operator behavior remain unverified. The circular base-plane
+  path is quarantined behind a reviewed Manual Simulation Base contract;
+  collision surfaces are per-segment and require guard-side PlanningScene
+  ID/bounds acknowledgement; partial Cartesian candidates persist with
+  last-valid/first-invalid evidence and an in-app inspector; Goal 1 is split
+  into free-space, strict-axis, and final contact stages. The headless widget
+  printed PASS with ROS2 uninstantiated, but the Slicer debug process returned
+  `1` at shutdown while reporting retained VTK objects; treat that as open
+  lifecycle evidence, not an initialization failure or an accepted leak. Do
+  not run tests or
+  build verification without first explaining the proposed check and receiving
+  explicit operator approval.
+- The latest clean operator retry proves restored local-robot reconstruction
+  and Task Home seeding work and that the rebuilt collision guard receives the
+  published meshes. The remaining 6.4 failure was traced to object identity:
+  SlicerROS2 derives `CollisionObject.id` from the hidden MRML proxy name, but
+  the proxy used a display-prefixed label while the audit expected the source
+  ID. Source now names each transient proxy with the exact canonical audit ID,
+  removes an obsolete published ID on resync, and bounds mismatch reporting.
+  This correction is not yet runtime-verified.
 - Current Step 6 motion policy uses a 2 mm new-case pre-entry standoff and
   1 mm research guard margin. Strict approach remains collision checked;
   terminal/drilling exploration may suppress only configured burr-to-task-
@@ -38,6 +61,49 @@ reproducibility, or dated evidence documents.
   objects, in `.dentocase`. Broad automated verification and new diagnostic
   scripts remain paused; the next verification loop is operator-visible and
   in-application.
+- The recovered post-Priority-0 study roadmap is no longer a one-line Track F.
+  First complete `MotionDiagnosticSessionV2` with explicit Stage 1/2/3/full-
+  task outcomes and a V1 reader. Then F0 manually aggregates reviewed,
+  source-referenced results in an evidence-only `.dentostudy`; F1 performs
+  plan-only automation over eligible trajectories in the active case at one
+  reviewed base; later cross-case accumulation follows; and F2 varies base
+  poses only after Track E. `.dentocase` remains geometry/lineage/current-
+  attempt authority, and study load creates no MRML or ROS runtime object.
+- The accepted Step 6 ordering is runtime-first and is source-complete as of
+  2026-08-31. Its focused static/package build gate passed: both repositories
+  passed `git diff --check`, five edited Python files passed `py_compile`, and
+  the isolated `slicer_ros2_module` package rebuilt successfully. Normal-window
+  ROS/MoveIt behavior remains unverified. After case preparation and Manual Simulation Base
+  review, 6.1 connects ROS/MoveIt and acknowledges the exact collision scene.
+  6.2 saves a live-valid Home or explicitly plans monitored-current-to-Home in
+  MoveIt before applying every waypoint through the strict guard. 6.3 retains
+  every accepted MoveIt-FK/static-valid TCP plus its joint vector and separately
+  classifies a deterministic bounded 13-sample set as `HomeConnected` or
+  `PlanRejected`; unevaluated static-valid samples remain explicit. 6.4 is
+  confirmation only. The reviewed min/max proposal is an exploration envelope,
+  not a collision-free box. Saved evidence requires explicit regeneration or
+  revalidation after reconnect because live ROS validity is transient.
+- The first approved exact-x4 remote runtime trial on 2026-08-31 proved case,
+  jaw-opening, Manual Simulation Base, seven-link local-robot reconstruction,
+  32-object collision-scene acknowledgement, and live Task Home validation.
+  It first stopped at the first 6.3 sample because the bridge incorrectly
+  required a draggable TCP goal for explicit state-validity/FK queries. After
+  that source correction, the operator's manual retry entered workspace
+  generation and rendered accepted samples, then native FK failed because it
+  requested a live current-state `RobotState` merely as a model/container for
+  an already explicit six-joint vector. Native explicit-state FK and
+  explicit-start planning now construct their own state from MoveIt's robot
+  model; Task Home application also retains an action-specific result and
+  displays explicit success confirmation. A follow-up ownership audit found
+  that one shared card still exposed Connect/Disconnect in both 6.1 and 6.4,
+  placed collision repair in 6.4, and reused one label for runtime and task
+  confirmation. Source now splits 6.1 runtime/audit from confirmation-only
+  6.4, disables the retired XML runtime controls, and rejects shared-panel
+  actions outside their declared substep. `DEVELOPMENT_PLAN.md` contains the
+  authoritative locked 6.0–6.6 ownership/progress ledger. These native/UI
+  changes passed the approved isolated `slicer_ros2_module` rebuild,
+  four-module `py_compile`, and both repository `git diff --check`; operator
+  runtime verification remains pending. 6.4 and 6.5 were not reached.
 - Source CBCT geometry remains authoritative and unchanged. Volume rendering
   is display-only, not a segmentation surface or collision mesh.
 - Step 6 uses seven shared one-card substeps in both presentations. A current

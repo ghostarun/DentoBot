@@ -4,6 +4,7 @@ Domain modules will tighten these imports after relocation parity.
 """
 
 import colorsys
+import hashlib
 import json
 import logging
 import math
@@ -131,6 +132,7 @@ from DENTOROS2Bridge import (
     ROS2_DEFAULT_SLICER_NODE,
     ROS2_MOTION_ACTIVE_ATTRIBUTE,
     ROS2_ROBOT_NAME,
+    acknowledge_moveit_collision_scene,
     apply_joint_positions_si_to_motion_control,
     clear_legacy_dentobot_moveit_source_attributes,
     clear_stale_ros2_motion_active_attributes,
@@ -185,9 +187,14 @@ from DENTOStep6Planning import (
 )
 from DENTOStep6State import (
     BasePlacementStatus,
+    MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
+    QUARANTINED_CIRCULAR_BASE_SOURCE,
     approach_points,
+    base_placement_source_issue,
     build_assisted_limit_proposal,
+    build_collision_scene_audit,
+    build_motion_diagnostic_session,
     build_phase_guard_configuration,
     build_task_home,
     build_task_snapshot,
@@ -196,6 +203,8 @@ from DENTOStep6State import (
     normalize_base_status,
     parse_task_snapshot,
     parse_task_home,
+    parse_collision_scene_audit,
+    parse_motion_diagnostic_session,
     task_snapshot_invalidation_reasons,
 )
 

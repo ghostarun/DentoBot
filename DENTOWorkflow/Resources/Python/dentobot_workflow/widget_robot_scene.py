@@ -123,7 +123,20 @@ class RobotSceneWidgetMixin:
         acceptedEvidence = None
         self._updatingStep6CaseJawLandmarks = True
         try:
-            if event == slicer.vtkMRMLMarkupsNode.PointPositionDefinedEvent:
+            # Markups event ordering is not stable across interaction paths and
+            # Slicer builds. A completed click may reach this observer first as
+            # PointModifiedEvent or ModifiedEvent rather than exclusively as
+            # PointPositionDefinedEvent. Finalize from MRML state: when the
+            # pending index has become a defined point. The logic method is
+            # idempotent after it clears PendingLandmarkIndex.
+            pendingIndexText = str(
+                node.GetAttribute("DENTOBOT.PendingLandmarkIndex") or ""
+            )
+            pendingPointIsDefined = bool(
+                pendingIndexText.isdigit()
+                and node.GetNumberOfDefinedControlPoints() > int(pendingIndexText)
+            )
+            if pendingPointIsDefined:
                 acceptedEvidence = self.logic.finalizeStep6CaseJawLandmarkPlacement(
                     self._parameterNode,
                     node,
@@ -223,11 +236,10 @@ class RobotSceneWidgetMixin:
                 imported
                 and not blocked
                 and not inFallback
-                and not placementPending
-                and (not complete or evidenceIssues)
+                and (placementPending or not complete or evidenceIssues)
             )
             self.ui.createStep6CaseJawLandmarksButton.text = (
-                _("Placement active — click %1 surface")
+                _("Resolve / cancel placement — %1")
                 .replace(
                     "%1",
                     self.logic.draftJawLandmarkPlacementHints()[pendingIndex],
@@ -385,6 +397,43 @@ class RobotSceneWidgetMixin:
             )
             self._parameterNode.step6CaseJawLandmarks = node
             self._bindStep6CaseJawLandmarksNode(node)
+            pendingIndexText = str(
+                node.GetAttribute("DENTOBOT.PendingLandmarkIndex") or ""
+            )
+            if pendingIndexText.isdigit():
+                pendingIndex = int(pendingIndexText)
+                if node.GetNumberOfDefinedControlPoints() > pendingIndex:
+                    self._updatingStep6CaseJawLandmarks = True
+                    try:
+                        evidence = self.logic.finalizeStep6CaseJawLandmarkPlacement(
+                            self._parameterNode,
+                            node,
+                        )
+                    finally:
+                        self._updatingStep6CaseJawLandmarks = False
+                    self._updateStep6CaseJawOpeningControls()
+                    self._updateStep6CaseJawOpeningStatus(
+                        _(
+                            "Recovered and accepted %1 on its current source "
+                            "surface. Select the next labelled landmark action."
+                        ).replace(
+                            "%1",
+                            str((evidence or {}).get("label") or "landmark"),
+                        )
+                    )
+                else:
+                    self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
+                        self._parameterNode
+                    )
+                    self._updateStep6CaseJawOpeningControls()
+                    self._updateStep6CaseJawOpeningStatus(
+                        _(
+                            "Cancelled the unfinished landmark placement. "
+                            "Select the labelled action again when ready."
+                        )
+                    )
+                self._updateStep6PlanningUi()
+                return
             summary = self.logic.getStep6CaseJawLandmarkSummary(node)
             if summary["isComplete"]:
                 evidenceIssues = self.logic.step6CaseJawSurfaceEvidenceIssues(
@@ -885,50 +934,32 @@ class RobotSceneWidgetMixin:
 
     def onCreateRobotMountPlane(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
-            return
-        try:
-            planeNode = self.logic.createOrResetRobotMountPlane(
-                self._parameterNode.robotMountPlane,
-                self._parameterNode.robotBaseTransform,
+        slicer.util.errorDisplay(
+            _(
+                "Legacy mount-plane creation is quarantined. It was derived "
+                "from the robot base and cannot represent the forehead. Position "
+                "the Manual Simulation Base directly in Robot + CBCT context."
             )
-            self._parameterNode.robotMountPlane = planeNode
-            try:
-                slicer.modules.markups.logic().SetActiveListID(planeNode)
-            except Exception:
-                logging.debug("Could not make the robot mount plane active.")
-            self._updateRobotPlacement()
-            self._updateRobotPlacementStatus(
-                _("Mount plane ready. Drag its handles, then click Snap Base to Plane.")
-            )
-        except (RuntimeError, ValueError) as exc:
-            slicer.util.errorDisplay(str(exc))
+        )
 
     def onSnapRobotBaseToPlane(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
-            return
-        try:
-            self.logic.snapRobotBaseToPlane(
-                self._parameterNode.robotBaseTransform,
-                self._parameterNode.robotMountPlane,
+        slicer.util.errorDisplay(
+            _(
+                "Snap Base to Mount Plane is quarantined because the plane was "
+                "derived from this same base. Use direct transform handles or "
+                "local-axis nudges for the Manual Simulation Base."
             )
-            self._updateRobotPlacementStatus(
-                _("Robot base snapped to the mount-plane origin and orientation.")
-            )
-        except (RuntimeError, ValueError) as exc:
-            slicer.util.errorDisplay(str(exc))
+        )
 
     def onFlipRobotMountPlane(self, checked: bool = False) -> None:
         del checked
-        if not self._parameterNode or not self.logic:
-            return
-        planeNode = self._parameterNode.robotMountPlane
-        if not self.logic.isRobotMountPlaneNode(planeNode):
-            return
-        normal = np.asarray(planeNode.GetNormalWorld(), dtype=float)
-        planeNode.SetNormalWorld(tuple(float(value) for value in -normal))
-        self._updateRobotPlacementStatus(_("Mount-plane normal flipped."))
+        slicer.util.errorDisplay(
+            _(
+                "The legacy mount plane is visualization-only and quarantined "
+                "from placement. Edit the Manual Simulation Base directly."
+            )
+        )
 
     def _nudgeRobotBase(
         self,
@@ -1057,6 +1088,11 @@ class RobotSceneWidgetMixin:
         matrix.Identity()
         baseTransform.SetAndObserveTransformNodeID(None)
         baseTransform.SetMatrixTransformToParent(matrix)
+        baseTransform.SetAttribute(
+            self.logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+        )
+        baseTransform.SetAttribute("DENTOBOT.PlacementWarning", None)
         self._updateRobotPlacementStatus(_("Robot base reset to Slicer world RAS."))
 
     def onFrameStep6CaseScene(self, checked: bool = False) -> None:

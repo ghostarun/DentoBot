@@ -2,22 +2,56 @@
 
 from __future__ import annotations
 
+import json
 import qt
 
 
 class DENTORobotSimulationPanel:
     """Build goal/IK and collision cards without calling robot services."""
 
+    # One state-changing owner per Step 6 action. This prevents a hidden or
+    # reparented legacy button from silently reintroducing an older substep
+    # order. A value of -1 means the retained expert-only control has no
+    # routine Step 6 owner and cannot be invoked from this panel.
+    ACTION_OWNER_SUBSTEP = {
+        "connect": 1,
+        "disconnect": 1,
+        "load_fallback": 1,
+        "refresh": 1,
+        "sync_collision": 1,
+        "check_state": 1,
+        "enable_cbct_rendering": 1,
+        "cbct_preset": 1,
+        "create_proxy": 1,
+        "placement_review": 1,
+        "appearance_changed": 1,
+        "expert_diagnostics": 1,
+        "save_home": 2,
+        "apply_home": 2,
+        "review_limits": 3,
+        "confirm_task": 4,
+        "plan_approach": 5,
+        "preview_approach": 5,
+        "show_motion_diagnostics": 5,
+        "plan_drilling": 6,
+        "preview_drilling": 6,
+        "create_goal": -1,
+        "solve_ik": -1,
+        "plan_goal": -1,
+    }
+
     def __init__(self, parent, callbacks: dict[str, object]) -> None:
         self._callbacks = callbacks
+        self._activeSubstep = 0
+        self._diagnosticDialog = None
         self.visualizationGroup = qt.QGroupBox("Placement Context", parent)
         self.visualizationGroup.objectName = "DENTOBOTPlacementContextGroupBox"
         visualization_layout = qt.QVBoxLayout(self.visualizationGroup)
         visualization_description = qt.QLabel(
             "CBCT rendering is opt-in and display-only: it reuses the source "
-            "volume without resampling or changing IJK-to-RAS. The curved "
-            "forehead proxy is unregistered, provisional, visualization-only, "
-            "and excluded from collision and registration evidence.",
+            "volume without resampling or changing IJK-to-RAS. Legacy mount-plane "
+            "and forehead-proxy tools are quarantined because they were derived "
+            "from the robot base rather than independent patient evidence.",
             self.visualizationGroup,
         )
         visualization_description.wordWrap = True
@@ -31,7 +65,11 @@ class DENTORobotSimulationPanel:
         self.cbctPresetCombo.addItem("CT-Bone intensity appearance", "CT-Bone")
         self.cbctPresetCombo.addItem("uCT-Skull intensity appearance", "uCT-Skull")
         self.createProxyButton = qt.QPushButton(
-            "Create / Update Provisional Forehead Proxy", self.visualizationGroup
+            "Forehead Proxy — Quarantined", self.visualizationGroup
+        )
+        self.createProxyButton.enabled = False
+        self.createProxyButton.toolTip = (
+            "Deferred until an independent forehead/mount reference exists."
         )
         self.loadFallbackButton = qt.QPushButton(
             "Load / Reuse Local MRML Robot", self.visualizationGroup
@@ -56,10 +94,16 @@ class DENTORobotSimulationPanel:
             ("mount_plane", "Mount plane", 35),
             ("trajectory", "Trajectory / corridor", 100),
             ("forehead_proxy", "Forehead proxy", 20),
+            ("collision_audit", "Outgoing collision payload", 45),
         )
         for row, (key, label, default) in enumerate(appearance_rows, start=1):
             visible = qt.QCheckBox(self.visualizationGroup)
-            visible.checked = key not in {"cbct", "goal_robot", "forehead_proxy"}
+            visible.checked = key not in {
+                "cbct",
+                "goal_robot",
+                "forehead_proxy",
+                "collision_audit",
+            }
             opacity = qt.QSlider(qt.Qt.Horizontal, self.visualizationGroup)
             opacity.minimum = 0
             opacity.maximum = 100
@@ -88,19 +132,24 @@ class DENTORobotSimulationPanel:
         self.visualizationStatusLabel.setProperty("dentobotRole", "status")
         visualization_layout.addWidget(self.visualizationStatusLabel)
 
-        self.homeGroup = qt.QGroupBox("6.2 — Task Home", parent)
+        self.homeGroup = qt.QGroupBox("6.2 — Live-Validated Task Home", parent)
         self.homeGroup.objectName = "DENTOBOTTaskHomeGroupBox"
         home_layout = qt.QVBoxLayout(self.homeGroup)
         home_description = qt.QLabel(
-            "Save the current six-joint vector as the case/base-specific Task "
-            "Home. This is not physical actuator homing; hardware homing remains unavailable.",
+            "With ROS/MoveIt and the audited collision scene active, save the "
+            "current accepted six-joint vector as the case/base-specific Task "
+            "Home. Applying a saved Home plans from the monitored current state "
+            "in MoveIt, then sends every plan waypoint through the strict simulation "
+            "guard. This is not physical actuator homing; hardware homing remains unavailable.",
             self.homeGroup,
         )
         home_description.wordWrap = True
         home_layout.addWidget(home_description)
         home_buttons = qt.QHBoxLayout()
         self.saveTaskHomeButton = qt.QPushButton("Save Current as Task Home", self.homeGroup)
-        self.applyTaskHomeButton = qt.QPushButton("Apply Task Home (Strict Guard)", self.homeGroup)
+        self.applyTaskHomeButton = qt.QPushButton(
+            "Plan + Apply Task Home", self.homeGroup
+        )
         home_buttons.addWidget(self.saveTaskHomeButton)
         home_buttons.addWidget(self.applyTaskHomeButton)
         home_layout.addLayout(home_buttons)
@@ -109,12 +158,16 @@ class DENTORobotSimulationPanel:
         self.homeStatusLabel.setProperty("dentobotRole", "status")
         home_layout.addWidget(self.homeStatusLabel)
 
-        self.workspaceReviewGroup = qt.QGroupBox("Assisted Limit Review", parent)
+        self.workspaceReviewGroup = qt.QGroupBox(
+            "6.3 — ROS Workspace and Assisted-Limit Review", parent
+        )
         self.workspaceReviewGroup.objectName = "DENTOBOTAssistedLimitReviewGroupBox"
         workspace_review_layout = qt.QVBoxLayout(self.workspaceReviewGroup)
         workspace_review_description = qt.QLabel(
-            "Every accepted TCP sample retains its producing joint vector. "
-            "Generate the workspace, inspect the suggested envelope, then explicitly review before applying.",
+            "Every accepted TCP sample must retain its producing joint vector. "
+            "Generate the static-valid workspace from live Task Home; a bounded "
+            "representative subset is also planned from Home to classify connectivity. "
+            "Inspect the suggested envelope, then explicitly review before applying.",
             self.workspaceReviewGroup,
         )
         workspace_review_description.wordWrap = True
@@ -130,13 +183,13 @@ class DENTORobotSimulationPanel:
         self.workspaceReviewStatusLabel.setProperty("dentobotRole", "status")
         workspace_review_layout.addWidget(self.workspaceReviewStatusLabel)
 
-        self.runtimeGroup = qt.QGroupBox("6.4 — Runtime and Task Confirmation", parent)
+        self.runtimeGroup = qt.QGroupBox("6.1 — ROS/MoveIt Runtime", parent)
         self.runtimeGroup.objectName = "DENTOBOTRobotRuntimeGroupBox"
         runtime_layout = qt.QVBoxLayout(self.runtimeGroup)
         runtime_description = qt.QLabel(
             "The desktop launcher owns the simulation-only ROS 2 and MoveIt "
-            "stack. Connect loads the robot and detects its fixed planning "
-            "group and provisional TCP; it never starts hardware execution.",
+            "stack. Connect is performed in 6.1 before Task Home and workspace "
+            "validation. It never starts hardware execution.",
             self.runtimeGroup,
         )
         runtime_description.wordWrap = True
@@ -149,16 +202,10 @@ class DENTORobotSimulationPanel:
         runtime_buttons.addWidget(self.connectButton)
         runtime_buttons.addWidget(self.disconnectButton)
         runtime_layout.addLayout(runtime_buttons)
-        confirmation_buttons = qt.QHBoxLayout()
-        self.confirmTaskButton = qt.QPushButton(
-            "Confirm Immutable Task Snapshot", self.runtimeGroup
-        )
         self.openExpertDiagnosticsButton = qt.QPushButton(
             "Expert ROS Diagnostics…", self.runtimeGroup
         )
-        confirmation_buttons.addWidget(self.confirmTaskButton)
-        confirmation_buttons.addWidget(self.openExpertDiagnosticsButton)
-        runtime_layout.addLayout(confirmation_buttons)
+        runtime_layout.addWidget(self.openExpertDiagnosticsButton)
         self.runtimeStatusLabel = qt.QLabel(
             "Choose a case or phantom, then connect the simulation stack.",
             self.runtimeGroup,
@@ -167,6 +214,35 @@ class DENTORobotSimulationPanel:
         self.runtimeStatusLabel.wordWrap = True
         self.runtimeStatusLabel.setProperty("dentobotRole", "status")
         runtime_layout.addWidget(self.runtimeStatusLabel)
+
+        self.confirmationGroup = qt.QGroupBox(
+            "6.4 — Immutable Task Confirmation", parent
+        )
+        self.confirmationGroup.objectName = "DENTOBOTTaskConfirmationGroupBox"
+        confirmation_layout = qt.QVBoxLayout(self.confirmationGroup)
+        confirmation_description = qt.QLabel(
+            "Review the already-active ROS/MoveIt runtime, acknowledged collision "
+            "scene, live-validated Task Home, and reviewed workspace evidence. "
+            "6.4 only freezes one immutable task snapshot; runtime connection and "
+            "collision-scene repair belong exclusively to 6.1.",
+            self.confirmationGroup,
+        )
+        confirmation_description.wordWrap = True
+        confirmation_layout.addWidget(confirmation_description)
+        self.confirmTaskButton = qt.QPushButton(
+            "Confirm Immutable Task Snapshot", self.confirmationGroup
+        )
+        confirmation_layout.addWidget(self.confirmTaskButton)
+        self.confirmationStatusLabel = qt.QLabel(
+            "Complete and validate 6.1–6.3 before confirming the task.",
+            self.confirmationGroup,
+        )
+        self.confirmationStatusLabel.objectName = (
+            "DENTOBOTTaskConfirmationStatusLabel"
+        )
+        self.confirmationStatusLabel.wordWrap = True
+        self.confirmationStatusLabel.setProperty("dentobotRole", "status")
+        confirmation_layout.addWidget(self.confirmationStatusLabel)
 
         self.goalGroup = qt.QGroupBox("Goal and IK", parent)
         self.goalGroup.objectName = "DENTOBOTGoalIkGroupBox"
@@ -224,14 +300,17 @@ class DENTORobotSimulationPanel:
         self.goalStatusLabel.setProperty("dentobotRole", "status")
         goal_layout.addWidget(self.goalStatusLabel)
 
-        self.collisionGroup = qt.QGroupBox("Scene and Collision", parent)
+        self.collisionGroup = qt.QGroupBox("6.1 — Planning-Scene Audit", parent)
         self.collisionGroup.objectName = "DENTOBOTCollisionSceneGroupBox"
         collision_layout = qt.QVBoxLayout(self.collisionGroup)
         collision_description = qt.QLabel(
-            "Synchronize the active skull/case, support anatomy, template, and "
-            "docking surfaces with the MoveIt planning scene. MoveIt/FCL is "
-            "authoritative; the separate Halton/FK/AABB cloud is only a draft "
-            "design-space approximation.",
+            "Connection performs the authoritative case collision-scene audit. "
+            "Use these 6.1 controls only to inspect or explicitly repeat that "
+            "synchronization before Task Home and workspace validation. DENTOBOT "
+            "records source and outgoing mesh fingerprints, transform counts, "
+            "units, topology, IDs, poses, and bounds; the collision guard must "
+            "read back matching objects from MoveIt's monitored PlanningScene. "
+            "This does not visualize FCL's private acceleration structure.",
             self.collisionGroup,
         )
         collision_description.wordWrap = True
@@ -240,7 +319,7 @@ class DENTORobotSimulationPanel:
         self.refreshButton = qt.QPushButton("Refresh Status", self.collisionGroup)
         self.refreshButton.objectName = "DENTOBOTRefreshRobotCapabilitiesButton"
         self.syncCollisionButton = qt.QPushButton(
-            "Sync Collision Surfaces",
+            "Audit + Sync Collision Surfaces",
             self.collisionGroup,
         )
         self.syncCollisionButton.objectName = "DENTOBOTSyncCollisionSceneButton"
@@ -263,14 +342,17 @@ class DENTORobotSimulationPanel:
         self.approachGroup.objectName = "DENTOBOTApproachPhaseGroupBox"
         approach_layout = qt.QVBoxLayout(self.approachGroup)
         approach_description = qt.QLabel(
-            "Plan collision-free to the configured pre-entry standoff, then "
-            "validate the short terminal move to exact Entry. The translucent "
+            "Stage 1 plans from the exact live-validated Task Home to the "
+            "explicit PreEntry IK state. Stage 2 follows the "
+            "trajectory axis strictly to the configured terminal tolerance, then "
+            "validate only that short final contact move to exact Entry. The translucent "
             "goal robot shows the pre-entry IK solution only; it does not mean "
             "the terminal path has planned successfully. During exploratory "
             "terminal preview, only configured burr-to-task-object collisions "
             "may be suppressed and every suppression is reported. Goal 1 is "
             "enabled only after the complete Entry-to-Target line passes a "
-            "bounded reachability preflight; otherwise reposition the base.",
+            "bounded reachability preflight. A failed preflight retains "
+            "last-valid/first-invalid evidence without assigning its cause.",
             self.approachGroup,
         )
         approach_description.wordWrap = True
@@ -278,8 +360,13 @@ class DENTORobotSimulationPanel:
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
         self.previewApproachButton = qt.QPushButton("Preview Goal 1", self.approachGroup)
+        self.motionDiagnosticsButton = qt.QPushButton(
+            "Inspect Motion Diagnostics", self.approachGroup
+        )
+        self.motionDiagnosticsButton.enabled = False
         approach_buttons.addWidget(self.planApproachButton)
         approach_buttons.addWidget(self.previewApproachButton)
+        approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
         self.approachStatusLabel = qt.QLabel("No Goal 1 plan.", self.approachGroup)
         self.approachStatusLabel.wordWrap = True
@@ -379,6 +466,9 @@ class DENTORobotSimulationPanel:
         self.previewApproachButton.clicked.connect(
             lambda checked=False: self._invoke("preview_approach")
         )
+        self.motionDiagnosticsButton.clicked.connect(
+            lambda checked=False: self._invoke("show_motion_diagnostics")
+        )
         self.planDrillingButton.clicked.connect(
             lambda checked=False: self._invoke("plan_drilling")
         )
@@ -389,21 +479,35 @@ class DENTORobotSimulationPanel:
         self.homeGroup.visible = False
         self.workspaceReviewGroup.visible = False
         self.runtimeGroup.visible = False
+        self.confirmationGroup.visible = False
         self.goalGroup.visible = False
         self.collisionGroup.visible = False
         self.approachGroup.visible = False
         self.drillingGroup.visible = False
 
     def _invoke(self, name: str) -> None:
+        owner = self.ACTION_OWNER_SUBSTEP.get(name)
+        if owner is not None and owner != self._activeSubstep:
+            self.runtimeStatusLabel.text = (
+                f"Blocked stale Step 6 action '{name}': owner is 6.{owner}, "
+                f"active substep is 6.{self._activeSubstep}."
+            )
+            self.runtimeStatusLabel.setProperty("dentobotState", "error")
+            return
         callback = self._callbacks.get(name)
         if callback:
             callback()
 
     def _invoke_appearance(self, key: str) -> None:
+        if self._activeSubstep != self.ACTION_OWNER_SUBSTEP["appearance_changed"]:
+            return
         callback = self._callbacks.get("appearance_changed")
         if callback:
             visible, opacity = self.appearanceControls[key]
             callback(key, bool(visible.checked), float(opacity.value) / 100.0)
+
+    def setActiveSubstep(self, substep_index: int) -> None:
+        self._activeSubstep = max(0, min(int(substep_index), 6))
 
     def cbctPreset(self) -> str:
         return str(self.cbctPresetCombo.currentData or "current")
@@ -421,6 +525,119 @@ class DENTORobotSimulationPanel:
         finally:
             checkbox.blockSignals(False)
             slider.blockSignals(False)
+
+    def showMotionDiagnostics(
+        self,
+        session,
+        on_candidate_selected,
+        on_review,
+    ) -> None:
+        """Open the bounded operator-facing diagnostic candidate inspector."""
+        if self._diagnosticDialog is not None:
+            try:
+                self._diagnosticDialog.close()
+            except RuntimeError:
+                pass
+        dialog = qt.QDialog(self.approachGroup)
+        dialog.windowTitle = "DENTOBOT Step 6 Motion Diagnostics"
+        dialog.resize(980, 560)
+        layout = qt.QVBoxLayout(dialog)
+        summary = qt.QLabel(
+            "Diagnostic evidence is display-only and non-authorizing. Selecting "
+            "a row shows its retained last-valid joints on the translucent goal "
+            "robot; the partial path is never promoted to preview. "
+            f"State: {session.state}; review: {session.operator_review_state}."
+            + (
+                f" Stale reason: {session.stale_reason}"
+                if session.stale_reason
+                else ""
+            ),
+            dialog,
+        )
+        summary.wordWrap = True
+        layout.addWidget(summary)
+        table = qt.QTableWidget(dialog)
+        records = tuple(session.candidate_records)
+        headers = (
+            "Roll",
+            "Result",
+            "Fraction",
+            "Distance",
+            "Waypoints",
+            "Classification",
+            "Min joint margin",
+        )
+        table.setColumnCount(len(headers))
+        table.setRowCount(len(records))
+        table.setHorizontalHeaderLabels(list(headers))
+        for row, record in enumerate(records):
+            values = (
+                f"{float(record.get('axial_roll_deg', 0.0)):.1f}°",
+                "PASS" if record.get("success") else "PARTIAL/FAIL",
+                f"{float(record.get('completion_fraction', 0.0)) * 100.0:.2f}%",
+                (
+                    f"{float(record.get('completed_distance_mm', 0.0)):.3f} / "
+                    f"{float(record.get('requested_distance_mm', 0.0)):.3f} mm"
+                ),
+                str(int(record.get("waypoint_count", 0))),
+                str(record.get("failure_classification") or "unknown"),
+                (
+                    "—"
+                    if record.get("minimum_joint_margin_display") is None
+                    else f"{float(record['minimum_joint_margin_display']):.3f}"
+                ),
+            )
+            for column, value in enumerate(values):
+                table.setItem(row, column, qt.QTableWidgetItem(value))
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        scrubber = qt.QSlider(qt.Qt.Horizontal, dialog)
+        scrubber.minimum = 0
+        scrubber.maximum = max(0, len(records) - 1)
+        scrubber.value = int(session.selected_candidate_index)
+        layout.addWidget(scrubber)
+        details = qt.QPlainTextEdit(dialog)
+        details.readOnly = True
+        layout.addWidget(details)
+        dialog_buttons = qt.QHBoxLayout()
+        review_button = qt.QPushButton("Mark Current Evidence Reviewed", dialog)
+        close_button = qt.QPushButton("Close", dialog)
+        dialog_buttons.addWidget(review_button)
+        dialog_buttons.addWidget(close_button)
+        layout.addLayout(dialog_buttons)
+        close_button.clicked.connect(dialog.close)
+
+        def review_evidence() -> None:
+            if on_review:
+                result = on_review()
+                details.appendPlainText("\n\nReview result: " + result.message)
+                if result.success:
+                    review_button.enabled = False
+
+        review_button.clicked.connect(review_evidence)
+        review_button.enabled = session.operator_review_state != "Reviewed"
+
+        def select_candidate(index: int) -> None:
+            index = max(0, min(len(records) - 1, int(index)))
+            table.selectRow(index)
+            scrubber.blockSignals(True)
+            scrubber.value = index
+            scrubber.blockSignals(False)
+            record = records[index]
+            details.plainText = json.dumps(record, indent=2, sort_keys=True)
+            if on_candidate_selected:
+                result = on_candidate_selected(index)
+                details.appendPlainText("\n\nDisplay result: " + result.message)
+
+        table.currentCellChanged.connect(
+            lambda row, column, previous_row, previous_column: (
+                select_candidate(row) if row >= 0 else None
+            )
+        )
+        scrubber.valueChanged.connect(select_candidate)
+        self._diagnosticDialog = dialog
+        select_candidate(int(session.selected_candidate_index))
+        dialog.show()
 
     @staticmethod
     def _set_boolean(label, available: bool, yes: str = "Available", no: str = "Unavailable") -> None:
@@ -454,8 +671,9 @@ class DENTORobotSimulationPanel:
         self.planGoalButton.enabled = capabilities.ik_available
         self.syncCollisionButton.enabled = capabilities.collision_check_available
         self.checkStateButton.enabled = capabilities.connected
-        self.connectButton.enabled = not capabilities.connected
-        self.disconnectButton.enabled = capabilities.connected
+        # Step-aware enablement is owned by widget_robot._updateStep6PlanningUi.
+        # A generic capability refresh must not bypass the case/base/runtime
+        # prerequisites by re-enabling Connect on its own.
         self.runtimeStatusLabel.text = (
             f"Runtime {capabilities.stack_state}; group {capabilities.planning_group}; "
             f"TCP {capabilities.tcp_link}. "
@@ -474,6 +692,9 @@ class DENTORobotSimulationPanel:
 
     def showRuntimeResult(self, result) -> None:
         self._show_result(self.runtimeStatusLabel, result)
+
+    def showConfirmationResult(self, result) -> None:
+        self._show_result(self.confirmationStatusLabel, result)
 
     def showCollisionResult(self, result) -> None:
         self._show_result(self.collisionStatusLabel, result)

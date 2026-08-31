@@ -807,7 +807,29 @@ The live pneumatic-pressure GUI is a host-only sensing bench:
   `pyqtgraph 0.14.0`
 - serial: Arduino UNO WiFi R4 on `/dev/ttyACM0` at 460800 baud; the account
   `light-tarun` is in `dialout`
-- CSV output: `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/`
+- CSV output: `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/`, created
+  only after **Start Recording + Cues**. **Stop Recording** closes that run
+  and stops the auto-cue timer. Live
+  plot continues while idle. The default view is the whole run plus a
+  1-second live inset in the corner; **View → 1 s live only** replaces the
+  overview with that same 1-second window. **Air** defaults to **Hide
+  air-off**: a 50 ms median hysteresis (enter off at ≤8 kPa, enter on at
+  ≥25 kPa, from the 2026-08-31 runs) drops idle ~0 kPa samples from the
+  plot. **Highlight air-off** draws those samples grey; **Show all** is the
+  raw trace. **Trace** defaults to **Median + envelope**: a 50 ms median and
+  p10–p90 band replace the 1 kHz blob so contact and breakthrough steps are
+  readable. Vertical dashed marks are load boundaries (contact, air/
+  breakthrough, held ≥20 kPa inner rise/drop). The 1 s inset always keeps
+  the raw waveform under that overlay. CSV sample columns are unchanged.
+  While recording, **Start Recording + Cues** opens the run CSVs and starts
+  an adjustable auto-cue timer (default 10 s; **Cue every** 1–600 s). The
+  loop is AIR OFF → DRILL IN AIR → DRILL IN DENTIN → DRILL IN PULP until
+  **Stop Recording**. **CUE NEXT STAGE** (Space) still skips ahead and
+  resets the countdown. Coloured **AIR OFF / DRILL IN AIR / DRILL IN DENTIN
+  / DRILL IN PULP** (F1–F4) write `annotations.csv` with press time minus
+  **Operator latency** (default 400 ms). Cue rows are `kind=cue` and are not
+  used as the dip-search time. Analysis overlays the latency-corrected time
+  and searches for the nearby pressure dip.
 
 Do not install these packages into Slicer, the `dentobot` Conda environment, or
 the SlicerROS2 container. Cursor workspace settings select `pressure-env` and
@@ -824,9 +846,35 @@ From a host terminal in the physical graphical session:
 ```
 
 On 2026-08-17 this connected, completed a 2-second baseline calibration, and
-wrote samples under the script-local `pressure_runs/` directory. Closing the window flushes CSV files
-and releases the serial port. The GUI is sensing-only: it does not command a
-robot or authorize drilling.
+wrote samples under the script-local `pressure_runs/` directory. From
+2026-08-31 the GUI starts idle: CSV is written only between **Start
+Recording + Cues** and **Stop Recording**. Closing the window flushes an
+active run and releases the serial port. The GUI is sensing-only: it does
+not command a robot or authorize drilling.
+
+Post-run inspection uses the same venv:
+
+```bash
+/home/light-tarun/pressure-env/bin/python \
+  /home/light-tarun/dentobot/ros2_ws/src/Arduino/pressure_analysis.py
+```
+
+That opens the newest `pressure_runs/run_*` folder. Pass a run directory or
+`samples.csv` to review a specific acquisition. `--no-gui` prints dips, peaks,
+air-off/air-on fractions, load/tissue boundaries on the 50 ms median, and
+anomalies. `--min-duration-ms 20` is the confirmed-event floor; shorter
+triggers are listed as glitches. `--air-filter hide|highlight|all` is the GUI
+display filter (default hide). `--auto-air-thresholds` estimates the
+hysteresis gates from that file instead of 8/25 kPa. The inspector defaults
+to the median+envelope trace with a clickable boundary table. If the run has
+`annotations.csv`, the inspector overlays latency-corrected marks, lists
+matched dips, and `--no-gui` prints them. Cursor F5 **Pressure Analysis**
+launches the inspector.
+
+A portable copy of the same tools lives in `arduino-pressure/` at the
+repository root, with one README for Ubuntu and Windows. Use that folder on
+another PC. Do not point the live experiment at it while
+`ros2_ws/src/Arduino/pressure_monitor.py` is recording.
 
 ## Host Record3D / iPhone LiDAR scan viewer
 
@@ -1252,23 +1300,31 @@ Step 6 operator sequence:
 1. **6.0 Case and task:** import a valid `.dentocase` and validate its target,
    Entry/Target line, CBCT, guides/template, and lineage. A draft phantom remains
    available for placement experiments but cannot confirm a drilling task.
-2. **6.1 Robot and base:** load the local MRML robot first. Create/place the
-   mount plane and provisionally lock the base only after reviewing robot,
-   CBCT/masks, guides, and trajectory together. **Enable CBCT 3D Context** is
+2. **6.1 Robot, base, and runtime:** load the local MRML robot first. Position
+   and review the explicitly labelled Manual Simulation Base with robot,
+   CBCT/masks, guides, and trajectory together, then lock it. The old
+   base-derived mount-plane/proxy snap is quarantined and supplies no forehead
+   or registration truth. **Enable CBCT 3D Context** is
    explicit and creates/reuses one display-only renderer; CT-Bone/uCT-Skull are
    intensity presets and do not segment anatomy. The optional curved forehead
-   envelope never appears automatically and is visualization-only.
-3. **6.2 Task Home:** set the desired six-joint pose and save it as Task Home.
-   The record is bound to the base and installed robot profile. This is a
-   simulation task pose, not physical actuator homing.
-4. **6.3 Workspace and limits:** generate the deterministic FK workspace. Each
-   accepted TCP point retains its six-joint vector. Inspect the proposed task
-   limits and explicitly **Review & Apply**; generation alone does not apply
-   them.
-5. **6.4 Runtime and confirmation:** press **Connect ROS + MoveIt
-   (Simulation)**. Connect remains inside DENTOWorkflow, aligns the live robot
-   to the locked base, applies Task Home through the strict guard, and syncs
-   obstacles. Confirm one immutable task snapshot before planning.
+   envelope never appears automatically and is visualization-only. Press
+   **Connect ROS + MoveIt (Simulation)** here; Connect stays inside
+   DENTOWorkflow, aligns the live robot to the locked base, and acknowledges
+   the exact collision scene without requiring Home or workspace evidence.
+3. **6.2 Collision-validated Task Home:** use only a guard-accepted current
+   state, then save it as Task Home. A different restored Home is reached by a
+   MoveIt plan from the monitored current state and every returned waypoint is
+   checked by the strict guard. The record is bound to the base, robot profile,
+   collision audit, and guard policy. This is a simulation task pose, not
+   physical actuator homing.
+4. **6.3 ROS workspace and limits:** generate the deterministic candidate set.
+   Each retained point uses MoveIt FK and static PlanningScene validity and
+   stores its six-joint vector. A bounded 13-sample representative set is also
+   planned from Home; unevaluated static-valid points are not called connected.
+   Inspect the proposed exploration envelope and explicitly **Review & Apply**;
+   generation alone does not apply it.
+5. **6.4 Task confirmation:** with runtime, collision audit, Home evidence, and
+   reviewed workspace evidence current, confirm one immutable task snapshot.
 6. **6.5 Goal 1 — approach:** plan collision-free to the new-case default 2 mm
    pre-entry point (restored cases retain their recorded value), then plan the
    short guarded terminal move to Entry. Before enabling preview, Step 6 must
@@ -1383,13 +1439,16 @@ entered. Theme/navigation changes are presentation-only.
 For the current Robot Simulation vertical slice:
 
 1. **6.0 Case and task** validates the package and lineage.
-2. **6.1 Robot and base** loads the local model, provides explicit CBCT/proxy
-   context, and provisionally locks placement.
-3. **6.2 Task Home** records the six-joint case/base/profile pose.
-4. **6.3 Workspace and limits** retains accepted TCP+joint samples and requires
+2. **6.1 Robot/Base/Runtime** loads the local model, provides explicit CBCT
+   context, locks the reviewed Manual Simulation Base, connects natively, and
+   acknowledges the collision scene.
+3. **6.2 Validated Task Home** saves a live accepted pose or plans and guards a
+   transition from the monitored current state to a restored Home.
+4. **6.3 ROS Workspace and Limits** retains MoveIt-FK/static-valid TCP+joint
+   samples, separately records bounded Home-connectivity results, and requires
    review before applying the suggestion.
-5. **6.4 Runtime and confirmation** connects natively, applies home, syncs
-   obstacles, and confirms the immutable task.
+5. **6.4 Task Confirmation** confirms the immutable task only while the
+   runtime audit/Home/workspace evidence remains current.
 6. **6.5 Goal 1** plans strict pre-entry plus guarded terminal contact.
 7. **6.6 Goal 2** plans guarded Entry-to-Target simulation preview.
 

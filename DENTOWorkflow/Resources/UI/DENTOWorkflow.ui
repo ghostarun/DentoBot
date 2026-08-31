@@ -3537,9 +3537,10 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       </item>
       <item>
        <widget class="QGroupBox" name="step6MountLockGroupBox">
-        <property name="title"><string>6.1 — Load ROS Robot, Place, and Lock</string></property>
+        <property name="title"><string>6.1 — Load Robot and Set Manual Simulation Base</string></property>
         <layout class="QVBoxLayout" name="step6MountLockVerticalLayout">
-         <item><widget class="QLabel" name="step6MountLockDescriptionLabel"><property name="text"><string>After a scene is chosen, load the robot from ROS into the viewport. Then create/snap/nudge the mount plane and lock the base. Placement is blocked until a robot is in the scene. Unlock to adjust again.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6MountLockDescriptionLabel"><property name="text"><string>Load the local robot, show Robot + CBCT context, position the base directly with transform handles or local-axis nudges, then explicitly review and lock it. This is a diagnostic simulation placement—not forehead, registration, or clinical mounting truth.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6MountContainmentWarningLabel"><property name="styleSheet"><string notr="true">color: #b36b00; font-weight: 600;</string></property><property name="text"><string>Containment: the former mount plane and forehead proxy were derived from the robot base itself. Their create/flip/snap actions are quarantined; existing nodes are view-only.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QGroupBox" name="ros2MotionControlGroupBox">
         <property name="title"><string>Load robot from ROS (SlicerROS2)</string></property>
         <layout class="QVBoxLayout" name="ros2MotionControlVerticalLayout">
@@ -3564,9 +3565,10 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           <property name="SlicerParameterName" stdset="0"><string>robotBaseTransform</string></property>
          </widget>
         </item>
-        <item row="1" column="0"><widget class="QLabel" name="robotMountPlaneLabel"><property name="text"><string>Mount plane:</string></property></widget></item>
+        <item row="1" column="0"><widget class="QLabel" name="robotMountPlaneLabel"><property name="text"><string>Legacy plane (view only):</string></property></widget></item>
         <item row="1" column="1">
          <widget class="qMRMLNodeComboBox" name="robotMountPlaneSelector">
+          <property name="enabled"><bool>false</bool></property>
           <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsPlaneNode</string></stringlist></property>
           <property name="noneEnabled"><bool>true</bool></property>
           <property name="addEnabled"><bool>false</bool></property>
@@ -3577,13 +3579,13 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </layout></item>
          <item>
           <layout class="QGridLayout" name="robotPlacementPrimaryButtonLayout">
-           <item row="0" column="0"><widget class="QPushButton" name="createRobotMountPlaneButton"><property name="text"><string>Create / Reset Mount Plane</string></property><property name="toolTip"><string>Create an editable 120 mm plane at the current robot base, or reset the selected plane there. Drag its cyan translation and rotation handles in a 3D view.</string></property></widget></item>
-           <item row="0" column="1"><widget class="QPushButton" name="flipRobotMountPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Flip Plane Normal</string></property></widget></item>
-           <item row="1" column="0" colspan="2"><widget class="QPushButton" name="snapRobotBaseToPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Snap Base to Mount Plane</string></property><property name="toolTip"><string>Set the robot base origin and orientation to the plane. Scale and shear are removed; the plane normal becomes base +Z.</string></property></widget></item>
+           <item row="0" column="0"><widget class="QPushButton" name="createRobotMountPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Legacy Plane — Quarantined</string></property><property name="toolTip"><string>Disabled because this plane was circularly derived from the robot base, not independent patient evidence.</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="flipRobotMountPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Flip — Quarantined</string></property></widget></item>
+           <item row="1" column="0" colspan="2"><widget class="QPushButton" name="snapRobotBaseToPlaneButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Snap — Quarantined</string></property><property name="toolTip"><string>Use direct Manual Simulation Base transforms or local-axis nudges.</string></property></widget></item>
           </layout>
          </item>
          <item><widget class="QGroupBox" name="robotFinePlacementGroupBox">
-        <property name="title"><string>Fine Base Placement (local axes)</string></property>
+        <property name="title"><string>Manual Simulation Base (local axes; diagnostic only)</string></property>
         <layout class="QVBoxLayout" name="robotFinePlacementVerticalLayout">
          <item>
           <layout class="QFormLayout" name="robotNudgeStepFormLayout">
@@ -3620,12 +3622,12 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </widget></item>
          <item>
           <layout class="QHBoxLayout" name="step6MountLockButtonLayout">
-<item><widget class="QPushButton" name="lockRobotBaseMountButton"><property name="text"><string>Lock Base Mount</string></property></widget></item>
-           <item><widget class="QPushButton" name="unlockRobotBaseMountButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Unlock Base Mount</string></property></widget></item>
+<item><widget class="QPushButton" name="lockRobotBaseMountButton"><property name="text"><string>Review &amp; Lock Manual Simulation Base</string></property></widget></item>
+           <item><widget class="QPushButton" name="unlockRobotBaseMountButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Unlock Manual Simulation Base</string></property></widget></item>
           
           </layout>
          </item>
-         <item><widget class="QLabel" name="step6MountLockStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Base mount is unlocked.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="step6MountLockStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Manual Simulation Base is unlocked.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
           <widget class="QGroupBox" name="step6FallbackRobotGroupBox">
            <property name="title"><string>Fallback if ROS is unavailable</string></property>

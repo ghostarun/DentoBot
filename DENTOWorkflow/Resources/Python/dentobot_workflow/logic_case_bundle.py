@@ -256,6 +256,38 @@ class CaseBundleLogicMixin:
         del cls
         return lineage_snapshot_matches(expected, actual, tolerance)
 
+    @classmethod
+    def _caseBundleActualAtRecordedShape(
+        cls,
+        expected: object,
+        actual: object,
+    ) -> object:
+        """Project current metadata to the fields recorded by schema-V1.
+
+        Schema-V1 intentionally permits lineage extensions. An older bundle
+        cannot contain attributes introduced by newer software, while current
+        scene hydration may legitimately add those attributes before the first
+        integrity comparison. Every field that the package did record remains
+        strict; only actual-only dictionary keys are omitted. Lists, geometry,
+        matrices, control points, and scalar values retain exact shape/value
+        comparison.
+        """
+
+        if not isinstance(expected, dict) or not isinstance(actual, dict):
+            return actual
+        projected: dict[str, object] = {}
+        for key, expectedValue in expected.items():
+            if key not in actual:
+                # Preserve a deterministic mismatch instead of silently
+                # treating a missing historically recorded field as optional.
+                projected[key] = {"__dentobot_missing_recorded_field__": key}
+                continue
+            projected[key] = cls._caseBundleActualAtRecordedShape(
+                expectedValue,
+                actual[key],
+            )
+        return projected
+
     def validateLoadedCaseBundleWorkflow(
         self,
         parameterNode,
@@ -302,6 +334,10 @@ class CaseBundleLogicMixin:
                 actualComparable.pop("locked", None)
                 expectedComparable.pop("selectable", None)
                 actualComparable.pop("selectable", None)
+            actualComparable = self._caseBundleActualAtRecordedShape(
+                expectedComparable,
+                actualComparable,
+            )
             if not self._caseBundleValuesMatch(expectedComparable, actualComparable):
                 mismatchPath = lineage_snapshot_mismatch_path(
                     expectedComparable,
@@ -338,6 +374,10 @@ class CaseBundleLogicMixin:
             currentJawOpening = dict(currentJawOpening)
             currentJawOpening.pop("current", None)
             actualComparableStep6["jawOpening"] = currentJawOpening
+        actualComparableStep6 = self._caseBundleActualAtRecordedShape(
+            expectedComparableStep6,
+            actualComparableStep6,
+        )
         if not self._caseBundleValuesMatch(
             expectedComparableStep6,
             actualComparableStep6,
