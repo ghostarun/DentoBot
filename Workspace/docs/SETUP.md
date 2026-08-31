@@ -407,9 +407,38 @@ rendering is an explicitly accepted diagnostic mode.
 ### Chrome Remote Desktop virtual display
 
 Chrome Remote Desktop (CRD) creates a separate X11 desktop and normally does
-not use the physical console display `:0`. Open a terminal inside the CRD
-desktop and run the normal top-level launcher; do not export a remembered
-display number manually:
+not use the physical console display `:0`.
+
+#### Cursor IDE on CRD (`cursor-xfce`)
+
+The normal Cursor desktop icon reuses the local GNOME Electron singleton, so
+it often never opens a window on the CRD display. Launch Cursor on CRD with:
+
+```bash
+/home/light-tarun/.local/bin/cursor-xfce
+# or the "Cursor (Remote XFCE)" application menu entry
+```
+
+By default (`CURSOR_XFCE_PROFILE=auto`), that launcher:
+
+- uses the host profile `~/.config/Cursor` when no host Cursor is running, so
+  CRD shares the same agent/chat history as the local desktop
+- falls back to `~/.config/cursor-crd-profile` when the host profile is already
+  in use, to avoid SQLite / singleton conflicts
+
+Force a profile when needed:
+
+```bash
+CURSOR_XFCE_PROFILE=host /home/light-tarun/.local/bin/cursor-xfce   # share host chats (quit local Cursor first)
+CURSOR_XFCE_PROFILE=crd  /home/light-tarun/.local/bin/cursor-xfce   # isolated CRD profile
+```
+
+Quit the currently open CRD Cursor window and relaunch via `cursor-xfce`
+after this change; an already-running CRD instance keeps its old profile until
+restarted.
+
+Open a terminal inside the CRD desktop and run the normal top-level DENTO
+Workflow launcher; do not export a remembered display number manually:
 
 ```bash
 /home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash
@@ -809,27 +838,19 @@ The live pneumatic-pressure GUI is a host-only sensing bench:
   `light-tarun` is in `dialout`
 - CSV output: `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/`, created
   only after **Start Recording + Cues**. **Stop Recording** closes that run
-  and stops the auto-cue timer. Live
-  plot continues while idle. The default view is the whole run plus a
-  1-second live inset in the corner; **View → 1 s live only** replaces the
-  overview with that same 1-second window. **Air** defaults to **Hide
-  air-off**: a 50 ms median hysteresis (enter off at ≤8 kPa, enter on at
-  ≥25 kPa, from the 2026-08-31 runs) drops idle ~0 kPa samples from the
-  plot. **Highlight air-off** draws those samples grey; **Show all** is the
-  raw trace. **Trace** defaults to **Median + envelope**: a 50 ms median and
-  p10–p90 band replace the 1 kHz blob so contact and breakthrough steps are
-  readable. Vertical dashed marks are load boundaries (contact, air/
-  breakthrough, held ≥20 kPa inner rise/drop). The 1 s inset always keeps
-  the raw waveform under that overlay. CSV sample columns are unchanged.
-  While recording, **Start Recording + Cues** opens the run CSVs and starts
-  an adjustable auto-cue timer (default 10 s; **Cue every** 1–600 s). The
-  loop is AIR OFF → DRILL IN AIR → DRILL IN DENTIN → DRILL IN PULP until
-  **Stop Recording**. **CUE NEXT STAGE** (Space) still skips ahead and
-  resets the countdown. Coloured **AIR OFF / DRILL IN AIR / DRILL IN DENTIN
-  / DRILL IN PULP** (F1–F4) write `annotations.csv` with press time minus
-  **Operator latency** (default 400 ms). Cue rows are `kind=cue` and are not
-  used as the dip-search time. Analysis overlays the latency-corrected time
-  and searches for the nearby pressure dip.
+  and stops the auto-cue timer. Live plot continues while idle. Four linked
+  plots show filtered pressure, ΔP (fast−slow), filtered dP/dt, and
+  p90−p10 spread. The 1-second inset stays on the pressure plot;
+  **View → 1 s live only** puts that window on all plots. **Air** defaults
+  to **Hide air-off**. **Trace** defaults to **Filtered**. Tissue-boundary
+  detection arms only while air is on and **DRILL IN DENTIN** is marked;
+  air-off and spinup are not scored. New `samples.csv` columns keep raw
+  ADC/pressure plus filtered/ΔP fields; older runs still load. While
+  recording, **Start Recording + Cues** starts the stage metronome
+  (default 10 s; **Cue every** 1–600 s): AIR OFF → DRILL IN AIR → DENTIN →
+  PULP. **CUE NEXT STAGE** (Space) still skips ahead. F1–F4 write
+  `annotations.csv` with press minus **Operator latency** (default 400 ms).
+  Analysis prints stage statistics and replays the gated detector.
 
 Do not install these packages into Slicer, the `dentobot` Conda environment, or
 the SlicerROS2 container. Cursor workspace settings select `pressure-env` and

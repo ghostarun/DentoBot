@@ -21,6 +21,19 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-09-01 02:35:00 IST (UTC+05:30) — ΔP / change-point pressure detector
+
+- **Why:** The 2 s residual detector treated air-off→~225 kPa spin-up as
+  the main PEAK, and the p10–p90 fill hid cutting steps.
+- **Change:** `pressure_filter.py` adds median + fast/slow LPF, ΔP,
+  filtered dP/dt, air-spinup gating, DENTIN-armed step/transient events,
+  and stage statistics. Live GUI is four linked plots. New CSV columns
+  keep raw pressure. Old runs still load. Cues/annotations unchanged.
+- **Verification:** `pressure-env` `py_compile`; synthetic 225→218 kPa
+  dentin step reported as STEP −6.9 kPa at ~2.26 s with no spin-up event;
+  `--no-gui run_20260831_181522` loaded 40264 samples, 0 redetected
+  tissue events (no DENTIN annotation). Live serial/GUI not run.
+
 ## 2026-08-31 23:27:00 IST (UTC+05:30) — Restored Stage diagnostics and F0/F1/F2 study roadmap
 
 - **Why:** the controlled tracker had compressed the multi-tooth/base study

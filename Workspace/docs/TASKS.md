@@ -1,6 +1,6 @@
 # Dentobot Tasks
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 ## Current project tracker — authoritative work order
 
@@ -12,10 +12,10 @@ retain provenance but are not a second priority order.
 
 | Workstream | Priority | Current state | Next bounded outcome |
 |---|---:|---|---|
-| Step 6 renovation lock and runtime-first sequence | Unprioritized Priority-0 dependency | The authoritative 6.0–6.6 ownership/progress ledger is locked in `DEVELOPMENT_PLAN.md`. Source splits 6.1 runtime/audit from confirmation-only 6.4, disables retired XML runtime buttons, blocks shared-panel actions outside their declared owner, fixes native explicit-state FK/start ownership, and adds explicit Task Home completion feedback. Approved gate passed 2026-08-31: isolated `slicer_ros2_module` rebuild, four-module `py_compile`, and both repository `git diff --check` | Restart Slicer; operator verifies 6.1 owns all runtime actions, 6.2 confirms Home, 6.3 completes, and 6.4 exposes confirmation only; no plan/preview before those gates pass |
+| Step 6 renovation lock and runtime-first sequence | Unprioritized Priority-0 dependency | The authoritative 6.0–6.6 ownership/progress ledger is locked in `DEVELOPMENT_PLAN.md`. The current operator run completed 6.1 runtime/audit, 6.2 Task Home, 6.3 workspace/review, and confirmation-only 6.4, then reached Goal 1 | Preserve the accepted ownership while diagnosing 6.5; no Connect/Disconnect or collision-repair action may migrate back to 6.4 |
 | Step 6 collision geometry audit | 0 | Source implementation complete, operator acceptance pending. The clean retry proved the rebuilt guard received every mesh and emitted per-object evidence; the remaining all-object failure was an ID-boundary defect: SlicerROS2 derives `CollisionObject.id` from the hidden proxy node name, while the audit expected the source ID. Proxies now publish under the exact canonical audited ID, remove an obsolete display-prefixed ID during same-session resync, and report bounded expected/observed ID differences | Exercise this acknowledgement as part of the new 6.1 runtime bootstrap after the runtime-first dependency is implemented |
-| Step 6 motion diagnostics | 0 | Existing bounded diagnostic source retains partial trajectories, roll candidates, first-invalid IK, joint margins/collision pairs, persistence/staleness, and the in-app inspector. The recovered roadmap now requires `MotionDiagnosticSessionV2` with explicit Stage 1/2/3/full-task results and a V1 compatibility reader; runtime operator evidence remains pending | First complete runtime-first 6.1–6.4, then implement/accept one complete V2 single-trajectory attempt before any study aggregation |
-| Step 6 three-stage planner | 0 | Source implementation and no-motion compile/import gate complete. Goal 1 is strict free-space, strict-axis, then guarded terminal contact, and partial stages remain non-previewable. Its old pre-ROS Home/limits gate is superseded by the runtime-first plan | After the new 6.2 Home and 6.3 workspace evidence are current, request separate approval for the operator-led three-stage simulation trial |
+| Step 6 motion diagnostics | 0 | The first current-flow 6.5 run exposed an individually valid PreEntry IK endpoint but an empty strict OMPL plan, with only a generic `-99999` result and raw maximum joint delta `6.25726 rad`. New unverified source names raw/effective offending joints, records continuous-wrap adjustments, ranks bounded roll/IK endpoints, and reports the first exact collision pair on the diagnostic direct joint chord. Full `MotionDiagnosticSessionV2` is still pending | Request approval for the focused static/source gate, then operator-retry the same task and use the new in-app evidence to distinguish joint wrap/branch, swept collision, and planner-search failure |
+| Step 6 three-stage planner | 0 | Strict free-space, strict-axis, terminal contact and guarded drilling remain fail-closed. New unverified Stage-1 source tries up to three distinct Home-continuous axial-roll IK branches instead of three identical plans, canonicalizes only the URDF-continuous spindle joint, keeps selected roll continuous through Entry and drilling preflight, and makes the translucent robot reflect the selected endpoint | Do not change collision margins or base placement yet. After the approved source gate, retry Goal 1; proceed to 6.6 only if the complete guarded Goal 1 plan and preview are accepted |
 | Step 6.1 base-placement containment | Unprioritized dependency | Source plus no-motion compile/import gate complete: circular plane/proxy actions are quarantined; legacy locks reopen Stale; only a reviewed `manual-simulation-base` source can gate Task Home/planning | Inspect restored legacy and fresh manual placements in the normal window; full forehead/mount design still waits for CAD/contact evidence |
 | Step 6A landmark/anatomy safeguards | 1 | Landmark continuation blocker fixed in source, unverified: finalization is now MRML-state-based across Markups event ordering and active placement has an explicit recover/cancel path. Laterality and inferior opening are corrected; condylar/crown subregions and enforced MPR review remain missing | With explicit approval, retry four sequential landmarks in the normal window; then add source-fingerprinted bilateral condylar and incisal/crown interaction surfaces, contralateral guide, and representative operator review |
 | Saved-case modular continuation | Unprioritized active | Atomic restore, free navigation, and legacy schema-V1 comparison are implemented. A current 6.2/6.3 package now reconstructs its excluded seven-link local MRML robot after integrity/freshness validation while preserving the reviewed base lock; ROS remains transient. Source rehydration fix is unverified | With explicit approval, reopen the reported 6.3 package and confirm robot/base/Home/limits restoration without unlock/relock or ROS creation; also confirm a Step 5 package still restores without a robot |
@@ -1811,6 +1811,13 @@ sequenced through the ordered viewport tasks above.
   established.
 
 ## Completed
+
+- Host Arduino ΔP / change-point pressure detector on 2026-09-01. Replaced
+  the 2 s residual DIP/PEAK detector with median + fast/slow LPF, ΔP,
+  filtered dP/dt, air-spinup gating, and DENTIN-armed STEP/TRANSIENT
+  events. Four linked plots; raw CSV preserved. Synthetic step −6.9 kPa
+  verified; old unmarked run loads with 0 tissue events. Live GUI pending.
+  Sensing-only; no robot motion.
 
 - Portable Arduino pressure folder `arduino-pressure/` on 2026-08-31.
   Copied monitor/analysis tools plus a Windows+Ubuntu README. Live

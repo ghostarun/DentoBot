@@ -1,5 +1,38 @@
 # Dentobot Technical Decisions
 
+## 2026-09-01 — Pressure bench detects change-points on ΔP, not startup anomalies
+
+Status: source and syntax verified; live serial/GUI click acceptance pending
+
+Replace the 2 s startup residual detector with a local baseline: 5-sample
+median, ~15 ms fast LPF, ~400 ms slow LPF, ΔP = fast−slow, and dP/dt from
+the fast pressure. Do not score tissue boundaries during air-off or
+air-spinup. During experiments, arm detection only while air is on and the
+annotator has marked DRILL_IN_DENTIN. Events are step vs transient
+change-points with before/after medians, not “return to the same baseline.”
+Keep raw ADC/pressure in CSV; add filtered columns. Plot p90−p10 as a
+separate spread trace, not a filled envelope. Filter time constants are
+experimental starting values, not clinical.
+
+Reason: a global baseline from air-off treats turbine spin-up as the
+largest PEAK, and a filled p10–p90 band hides millimetre-scale cutting
+steps on a 0–250 kPa axis.
+
+## 2026-09-01 — CRD Cursor prefers host chat profile when free
+
+Status: accepted; launcher updated
+
+`cursor-xfce` launches Cursor on the Chrome Remote Desktop X11 session with an
+explicit `--user-data-dir`. Default mode (`CURSOR_XFCE_PROFILE=auto`) uses
+`~/.config/Cursor` when that host profile is not held by a live Cursor main
+process, so CRD shares local agent/chat history. When the host profile is in
+use, it falls back to `~/.config/cursor-crd-profile` to avoid Electron
+singleton reuse and SQLite corruption. Operators may force `host` or `crd`.
+
+Reason: a permanent isolated CRD profile made active chats appear missing on
+remote sessions even though the project path and machine were the same. Auto
+sharing restores continuity without forcing two writers onto one profile.
+
 ## 2026-08-31 — Separate single-attempt case evidence from evidence-only studies
 
 Status: accepted roadmap; implementation not started
