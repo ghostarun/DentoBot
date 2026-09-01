@@ -28,9 +28,6 @@ namespace
 constexpr char STATUS_SCHEMA[] = "dentobot.joint_command_status.v1";
 constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v2";
 constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v2";
-constexpr char SPINDLE_JOINT_NAME[] = "pneumatic_spindle-Copy_Revolute-6";
-constexpr double SPINDLE_LOCKED_VALUE_RAD = 0.0;
-constexpr double SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9;
 constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v2";
 constexpr double CLEARANCE_COMPARISON_EPSILON_M = 1e-9;
 constexpr double CORRIDOR_ENDPOINT_EPSILON_M = 0.00025;
@@ -236,7 +233,6 @@ struct TaskJointCommand
   std::string phase;
   std::int64_t sequence{ -1 };
   std::vector<double> joint_positions;
-  bool validate_only{ false };
 };
 
 struct WorldObjectEvidence
@@ -339,14 +335,6 @@ public:
     {
       throw std::runtime_error("MoveIt group has no commandable joint variables");
     }
-    const auto spindle_it = std::find(
-      joint_names_.begin(), joint_names_.end(), SPINDLE_JOINT_NAME);
-    if (spindle_it == joint_names_.end())
-    {
-      throw std::runtime_error("MoveIt group omitted the compatible pneumatic spindle joint");
-    }
-    spindle_joint_index_ = static_cast<std::size_t>(
-      std::distance(joint_names_.begin(), spindle_it));
 
     moveit::core::RobotState initial_state(robot_model_);
     initial_state.setToDefaultValues();
@@ -419,12 +407,6 @@ private:
                           [](double value) { return std::isfinite(value); }))
     {
       result.reason = "A requested joint value is not finite.";
-    }
-    else if (std::abs(requested[spindle_joint_index_] -
-                      SPINDLE_LOCKED_VALUE_RAD) > SPINDLE_LOCK_TOLERANCE_RAD)
-    {
-      result.reason =
-        "The pneumatic spindle is externally driven and must remain locked at 0 rad.";
     }
     else
     {
@@ -558,22 +540,6 @@ private:
       reason = "Phased command must contain six finite ordered joint values.";
       return false;
     }
-    if (document.isMember("validate_only"))
-    {
-      if (!document["validate_only"].isBool())
-      {
-        reason = "Phased command validate_only flag must be Boolean.";
-        return false;
-      }
-      command.validate_only = document["validate_only"].asBool();
-    }
-    if (std::abs(command.joint_positions[spindle_joint_index_] -
-                 SPINDLE_LOCKED_VALUE_RAD) > SPINDLE_LOCK_TOLERANCE_RAD)
-    {
-      reason =
-        "The pneumatic spindle is externally driven and must remain locked at 0 rad during planning.";
-      return false;
-    }
     return true;
   }
 
@@ -612,9 +578,6 @@ private:
     active_task_config_payload_ = message->data;
     last_task_sequence_ = -1;
     last_corridor_progress_m_ = -candidate.approach_standoff_m;
-    preflight_positions_ = last_accepted_positions_;
-    last_preflight_sequence_ = -1;
-    last_preflight_corridor_progress_m_ = -candidate.approach_standoff_m;
     RCLCPP_INFO(
       get_logger(), "Accepted simulation task guard %s session %s for target %s.",
       candidate.task_fingerprint.c_str(), candidate.guard_session_id.c_str(),
@@ -642,43 +605,25 @@ private:
     {
       result.reason = "Command guard session does not match the active preview session.";
     }
-    else if (command.sequence <= (command.validate_only ?
-                                  last_preflight_sequence_ : last_task_sequence_))
+    else if (command.sequence <= last_task_sequence_)
     {
       result.reason = "Phased command sequence is stale or duplicated.";
     }
     else
     {
-      const std::vector<double>& start_positions = command.validate_only ?
-        preflight_positions_ : last_accepted_positions_;
-      const double prior_progress = command.validate_only ?
-        last_preflight_corridor_progress_m_ : last_corridor_progress_m_;
       result = validate_motion(
-        start_positions, command.joint_positions, &task_config_, command.phase,
-        prior_progress);
+        last_accepted_positions_, command.joint_positions, &task_config_, command.phase);
     }
 
     if (result.accepted)
     {
-      if (command.validate_only)
+      last_accepted_positions_ = command.joint_positions;
+      last_task_sequence_ = command.sequence;
+      if (command.phase == "terminal_contact" || command.phase == "drilling")
       {
-        preflight_positions_ = command.joint_positions;
-        last_preflight_sequence_ = command.sequence;
-        if (command.phase == "terminal_contact" || command.phase == "drilling")
-        {
-          last_preflight_corridor_progress_m_ = result.corridor_progress;
-        }
+        last_corridor_progress_m_ = result.corridor_progress;
       }
-      else
-      {
-        last_accepted_positions_ = command.joint_positions;
-        last_task_sequence_ = command.sequence;
-        if (command.phase == "terminal_contact" || command.phase == "drilling")
-        {
-          last_corridor_progress_m_ = result.corridor_progress;
-        }
-        publish_accepted(last_accepted_positions_);
-      }
+      publish_accepted(last_accepted_positions_);
     }
     publish_task_status(result, command);
   }
@@ -687,18 +632,14 @@ private:
     const std::vector<double>& start_positions,
     const std::vector<double>& target_positions,
     const TaskGuardConfig* task_config = nullptr,
-    const std::string& phase = "",
-    double prior_corridor_progress_m = std::numeric_limits<double>::quiet_NaN())
+    const std::string& phase = "")
   {
     GuardResult result;
     const bool contact_phase =
       task_config != nullptr && (phase == "terminal_contact" || phase == "drilling");
     Eigen::Vector3d corridor_axis = Eigen::Vector3d::Zero();
     double corridor_length_m = 0.0;
-    if (!std::isfinite(prior_corridor_progress_m))
-    {
-      prior_corridor_progress_m = last_corridor_progress_m_;
-    }
+    double prior_corridor_progress_m = last_corridor_progress_m_;
     if (contact_phase)
     {
       const Eigen::Vector3d corridor =
@@ -1134,7 +1075,6 @@ private:
            << json_escape(command.guard_session_id) << "\","
            << "\"phase\":\"" << json_escape(command.phase) << "\","
            << "\"sequence\":" << command.sequence << ','
-           << "\"validate_only\":" << (command.validate_only ? "true" : "false") << ','
            << "\"requested_positions\":"
            << json_array(command.joint_positions) << ','
            << "\"accepted_positions\":"
@@ -1190,7 +1130,6 @@ private:
   std::string task_config_topic_;
   std::string task_command_topic_;
   std::string task_status_topic_;
-  std::size_t spindle_joint_index_{ 0 };
   double minimum_clearance_m_{ 0.001 };
   double maximum_revolute_step_rad_{ 0.017453292519943295 };
   double maximum_prismatic_step_m_{ 0.0005 };
@@ -1205,9 +1144,6 @@ private:
   std::string active_task_config_payload_;
   std::int64_t last_task_sequence_{ -1 };
   double last_corridor_progress_m_{ 0.0 };
-  std::vector<double> preflight_positions_;
-  std::int64_t last_preflight_sequence_{ -1 };
-  double last_preflight_corridor_progress_m_{ 0.0 };
   std::string last_status_json_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr accepted_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;

@@ -18,11 +18,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 import DENTOROS2Bridge as _default_bridge
 from DENTORobotPlacement import joint_positions_si_from_display
 from DENTOStep6State import (
-    SPINDLE_JOINT_NAME,
-    SPINDLE_LOCKED_VALUE_RAD,
-    SPINDLE_PLANNING_POLICY,
     build_motion_diagnostic_session,
-    canonicalize_planning_joint_positions,
     canonical_json,
     fingerprint,
     parse_motion_diagnostic_session,
@@ -53,8 +49,17 @@ WORKSPACE_RUNTIME_VALIDATION_STATUS = (
     "MoveItStaticStateValidity+BoundedHomeConnectivity"
 )
 WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION = "1.0"
-GOAL1_CANONICAL_TOOL_ROLL_DEG = 0.0
-GOAL1_MAX_PLANNED_IK_CANDIDATES = 4
+GOAL1_AXIAL_ROLL_CANDIDATES_DEG = (
+    0.0,
+    45.0,
+    -45.0,
+    90.0,
+    -90.0,
+    135.0,
+    -135.0,
+    180.0,
+)
+GOAL1_MAX_PLANNED_IK_CANDIDATES = len(GOAL1_AXIAL_ROLL_CANDIDATES_DEG)
 GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
 GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
@@ -437,9 +442,7 @@ class DENTORobotWorkflowFacade:
 
     @staticmethod
     def _positions_si(display_values: Sequence[float]) -> dict[str, float]:
-        return canonicalize_planning_joint_positions(
-            joint_positions_si_from_display(*display_values)
-        )
+        return joint_positions_si_from_display(*display_values)
 
     @staticmethod
     def _task_home_runtime_key(record) -> str:
@@ -457,8 +460,6 @@ class DENTORobotWorkflowFacade:
                 "jointOrder": tuple(self._bridge.ROS2_JOINT_SI_ORDER),
                 "planningGroup": self._bridge.ROS2_PLANNING_GROUP,
                 "tcpLink": self._bridge.ROS2_TOOL_TCP_LINK,
-                "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
-                "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
             }
         )
 
@@ -481,8 +482,6 @@ class DENTORobotWorkflowFacade:
                 "classification": (
                     "StaticCollisionValid+BoundedHomeConnectedSubset"
                 ),
-                "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
-                "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
             }
         )
 
@@ -501,8 +500,6 @@ class DENTORobotWorkflowFacade:
         maximum_error = 0.0
         mismatched = []
         for name in JOINT_NAMES:
-            if name == SPINDLE_JOINT_NAME:
-                continue
             error = abs(float(observed[name]) - float(expected[name]))
             maximum_error = max(maximum_error, error)
             tolerance = (
@@ -2160,10 +2157,7 @@ class DENTORobotWorkflowFacade:
         return {
             "candidate_index": int(candidate_index),
             "stage": "entry_to_target_preflight",
-            "planner_leg": "stage3_entry_to_target_cartesian",
-            "route_type": "cartesian",
-            "geometrically_distinct": False,
-            "axial_roll_deg": GOAL1_CANONICAL_TOOL_ROLL_DEG,
+            "axial_roll_deg": float(result.axial_roll_deg),
             "success": bool(result.success),
             "message": str(result.message),
             "completion_fraction": max(0.0, min(1.0, float(result.fraction))),
@@ -2241,9 +2235,9 @@ class DENTORobotWorkflowFacade:
                 "approachStandoffMm": float(parameter_node.step6ApproachStandoffMm),
                 "corridorRadiusMm": float(parameter_node.step6TrajectoryCorridorRadiusMm),
                 "eefStepsM": tuple(self._bridge.ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M),
-                "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
-                "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
-                "routePlannerRevision": "full-chain-v1",
+                "axialRollCandidatesDeg": tuple(
+                    float(result.axial_roll_deg) for result in candidate_results
+                ),
             }
         )
         session = build_motion_diagnostic_session(
@@ -2283,10 +2277,34 @@ class DENTORobotWorkflowFacade:
         *,
         start_axial_roll_deg: float = 0.0,
     ):
-        """Plan the complete Entry-to-Target line with the spindle locked."""
+        """Find a full line while varying only cylindrical-burr axial roll.
 
-        del start_axial_roll_deg
-        result = self._bridge.plan_moveit_cartesian_path(
+        ``axial_roll_candidates_deg`` remains an explicit bounded list so a
+        partial path can never be promoted as a drilling preview or used to
+        justify a blind "Reposition the robot base" conclusion.
+        """
+
+        result = None
+        best_result = None
+        best_index = -1
+        candidate_results = []
+        axial_roll_candidates_deg = (
+            0.0,
+            45.0,
+            -45.0,
+            90.0,
+            -90.0,
+            135.0,
+            -135.0,
+            180.0,
+        )
+        # Default candidate semantics: axial_roll_start_deg=0.0 unless the
+        # selected Goal 1 roll is explicitly carried into drilling preflight.
+        for axial_roll_offset_deg in axial_roll_candidates_deg:
+            axial_roll_deg = float(start_axial_roll_deg) + float(
+                axial_roll_offset_deg
+            )
+            candidate = self._bridge.plan_moveit_cartesian_path(
                 entry_ras_mm=snapshot.entry_ras_mm,
                 target_ras_mm=snapshot.target_ras_mm,
                 sample_count=int(parameter_node.robotMotionPlanSampleCount),
@@ -2294,19 +2312,36 @@ class DENTORobotWorkflowFacade:
                 avoid_collisions=False,
                 minimum_fraction=0.99,
                 start_joint_positions_si=start_positions,
-                axial_roll_start_deg=GOAL1_CANONICAL_TOOL_ROLL_DEG,
-                axial_roll_end_deg=GOAL1_CANONICAL_TOOL_ROLL_DEG,
+                # The cylindrical burr axis and TCP centreline stay fixed;
+                # only otherwise-irrelevant axial roll is varied to avoid a
+                # false full-orientation IK dead end.
+                axial_roll_start_deg=(
+                    0.0 if start_axial_roll_deg is None else float(start_axial_roll_deg)
+                ),
+                axial_roll_end_deg=axial_roll_deg,
             )
+            candidate_results.append(candidate)
+            if best_result is None or candidate.fraction > best_result.fraction:
+                best_result = candidate
+                best_index = len(candidate_results) - 1
+            if candidate.success:
+                result = candidate
+                best_index = len(candidate_results) - 1
+                break
+        if result is None:
+            result = best_result
+        if result is None:
+            raise RuntimeError("MoveIt returned no drilling-path result.")
         diagnostic = self._persist_motion_diagnostic(
             parameter_node,
             snapshot,
-            (result,),
-            0,
+            candidate_results,
+            best_index,
         )
         if not result.success:
             raise RuntimeError(
-                "Full Entry-to-Target reachability failed with the external "
-                "spindle locked at 0 rad. "
+                "Full Entry-to-Target reachability failed for every bounded "
+                "cylindrical-burr axial-roll candidate. Best result: "
                 + result.message
                 + " The partial joint path and its last-valid/first-invalid "
                 f"boundary were retained in diagnostic session "
@@ -2318,12 +2353,18 @@ class DENTORobotWorkflowFacade:
 
     def _goal1_pre_entry_ik_candidates(
         self,
-        parameter_node,
         pre_entry: Sequence[float],
         entry: Sequence[float],
         home_positions: Mapping[str, float],
     ) -> tuple[list[dict[str, object]], list[str]]:
-        """Return the canonical collision-aware PreEntry arm endpoint."""
+        """Return collision-aware PreEntry IK branches ranked from Task Home.
+
+        The drill axis is immutable, but cylindrical-burr roll about that axis
+        is redundant for approach positioning.  Sampling that bounded degree
+        of freedom avoids freezing Goal 1 onto the first valid-but-distant IK
+        branch.  This helper performs IK only; MoveIt remains authoritative for
+        every connecting path.
+        """
 
         candidates: list[dict[str, object]] = []
         failures: list[str] = []
@@ -2332,65 +2373,25 @@ class DENTORobotWorkflowFacade:
             "moveit_joint_goal_diagnostics",
             _default_bridge.moveit_joint_goal_diagnostics,
         )
-        seeds: list[tuple[str, Mapping[str, float], Optional[int]]] = [
-            ("direct", home_positions, None)
-        ]
-        try:
-            proposal = json.loads(
-                str(parameter_node.step6AssistedLimitProposalJson or "")
-            )
-        except (TypeError, json.JSONDecodeError):
-            proposal = {}
-        for evidence in proposal.get("accepted_sample_evidence", ()):
-            if len(seeds) >= GOAL1_MAX_PLANNED_IK_CANDIDATES:
-                break
-            if not isinstance(evidence, dict):
-                continue
-            names = tuple(evidence.get("joint_names", ()))
-            values = tuple(evidence.get("joint_positions_si", ()))
-            connectivity = evidence.get("home_connectivity", {})
-            if names != JOINT_NAMES or len(values) != len(JOINT_NAMES) or (
-                not isinstance(connectivity, dict)
-                or connectivity.get("status") != "HomeConnected"
-            ):
-                continue
-            seeds.append(
-                (
-                    "seeded",
-                    canonicalize_planning_joint_positions(dict(zip(names, values))),
-                    int(evidence.get("sample_index", len(seeds))),
-                )
-            )
-        pose = self._bridge.tool_pose_matrices_world_mm(
-            pre_entry,
-            entry,
-            2,
-            axial_roll_start_deg=GOAL1_CANONICAL_TOOL_ROLL_DEG,
-            axial_roll_end_deg=GOAL1_CANONICAL_TOOL_ROLL_DEG,
-        )[0]
-        seen_solutions: set[tuple[float, ...]] = set()
-        for route_type, seed_positions, seed_sample_index in seeds:
-            axial_roll_deg = GOAL1_CANONICAL_TOOL_ROLL_DEG
+        for axial_roll_deg in GOAL1_AXIAL_ROLL_CANDIDATES_DEG:
+            pose = self._bridge.tool_pose_matrices_world_mm(
+                pre_entry,
+                entry,
+                2,
+                axial_roll_start_deg=axial_roll_deg,
+                axial_roll_end_deg=axial_roll_deg,
+            )[0]
             ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
             if not ok:
                 failures.append(f"{axial_roll_deg:+.0f} deg goal: {message}")
                 continue
             ok, message, positions = self._bridge.solve_moveit_tcp_goal(
-                seed_joint_positions_si=seed_positions
+                seed_joint_positions_si=home_positions
             )
             if not ok:
                 failures.append(f"{axial_roll_deg:+.0f} deg IK: {message}")
                 continue
             joint_diagnostic = joint_diagnostic_fn(home_positions, positions)
-            canonical_solution = canonicalize_planning_joint_positions(
-                joint_diagnostic["submitted_goal"]
-            )
-            solution_identity = tuple(
-                round(canonical_solution[name], 9) for name in JOINT_NAMES[:-1]
-            )
-            if solution_identity in seen_solutions:
-                continue
-            seen_solutions.add(solution_identity)
             deltas = dict(joint_diagnostic["effective_deltas"])
             normalized_deltas = []
             for name in JOINT_NAMES:
@@ -2406,11 +2407,7 @@ class DENTORobotWorkflowFacade:
                 {
                     "rollDeg": float(axial_roll_deg),
                     "pose": pose,
-                    "positions": canonicalize_planning_joint_positions(
-                        joint_diagnostic["submitted_goal"]
-                    ),
-                    "routeType": route_type,
-                    "seedSampleIndex": seed_sample_index,
+                    "positions": dict(joint_diagnostic["submitted_goal"]),
                     "requestedPositions": dict(
                         joint_diagnostic["requested_goal"]
                     ),
@@ -2418,7 +2415,7 @@ class DENTORobotWorkflowFacade:
                     "score": (
                         max(normalized_deltas, default=0.0),
                         sum(value * value for value in normalized_deltas),
-                        0.0,
+                        abs(float(axial_roll_deg)),
                     ),
                 }
             )
@@ -2553,7 +2550,6 @@ class DENTORobotWorkflowFacade:
         stage: str,
         axial_roll_deg: float,
         result,
-        route_type: str = "direct",
         clearance: Optional[Mapping[str, object]] = None,
         segment=None,
     ) -> dict[str, object]:
@@ -2578,10 +2574,7 @@ class DENTORobotWorkflowFacade:
         return {
             "candidate_index": int(candidate_index),
             "stage": str(stage),
-            "axial_roll_deg": GOAL1_CANONICAL_TOOL_ROLL_DEG,
-            "route_type": str(route_type),
-            "planner_leg": str(stage),
-            "geometrically_distinct": str(route_type) != "direct",
+            "axial_roll_deg": float(axial_roll_deg),
             "clearance_sample_index": (
                 int(clearance["sampleIndex"]) if clearance is not None else None
             ),
@@ -2608,20 +2601,6 @@ class DENTORobotWorkflowFacade:
             "maximum_start_goal_delta_joint": (
                 result.maximum_start_goal_delta_joint
             ),
-            "per_joint_start_goal_delta": dict(
-                result.per_joint_start_goal_delta or {}
-            ),
-            "path_length_joint_si": sum(
-                sum(
-                    abs(float(current[name]) - float(previous[name]))
-                    for name in JOINT_NAMES[:-1]
-                )
-                for previous, current in zip(
-                    result.waypoint_joint_vectors_si,
-                    result.waypoint_joint_vectors_si[1:],
-                )
-            ),
-            "minimum_clearance_m": getattr(segment, "minimum_clearance_m", None),
             "continuous_joint_wrap_adjustments": (
                 result.continuous_joint_wrap_adjustments
             ),
@@ -2639,7 +2618,6 @@ class DENTORobotWorkflowFacade:
         stage2_status: str = "NotRun",
         stage3_status: str = "NotRun",
         full_task_status: str = "Failed",
-        full_task_reason: str = "",
     ):
         collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
         selected = records[int(selected_index)]
@@ -2656,9 +2634,7 @@ class DENTORobotWorkflowFacade:
                     "approachStandoffMm": float(
                         parameter_node.step6ApproachStandoffMm
                     ),
-                    "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
-                    "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
-                    "routePlannerRevision": "arm-routes-v1",
+                    "axialRollCandidatesDeg": GOAL1_AXIAL_ROLL_CANDIDATES_DEG,
                     "maximumClearanceWaypoints": GOAL1_MAX_CLEARANCE_WAYPOINTS,
                 }
             ),
@@ -2689,9 +2665,7 @@ class DENTORobotWorkflowFacade:
             full_task_outcome={
                 "status": str(full_task_status),
                 "selected_candidate_index": int(selected_index),
-                "spindle_planning_policy": SPINDLE_PLANNING_POLICY,
-                "spindle_locked_value_rad": SPINDLE_LOCKED_VALUE_RAD,
-                "first_invalid_cause": _bounded_text(full_task_reason),
+                "selected_axial_roll_deg": float(selected["axial_roll_deg"]),
             },
         )
         parameter_node.step6MotionDiagnosticJson = canonical_json(session.to_dict())
@@ -2753,20 +2727,18 @@ class DENTORobotWorkflowFacade:
             self._completed_phase = ""
             pre_entry, entry = self._logic.step6ApproachPoints(parameter_node)
             ik_candidates, ik_failures = self._goal1_pre_entry_ik_candidates(
-                parameter_node,
                 pre_entry,
                 entry,
                 home_positions,
             )
             if not ik_candidates:
                 raise RuntimeError(
-                    "Goal 1 found no collision-aware PreEntry IK endpoint for "
-                    "the canonical arm orientation with the external spindle locked. "
+                    "Goal 1 found no collision-aware PreEntry IK endpoint across "
+                    "the bounded cylindrical-burr axial-roll candidates. "
                     + "; ".join(ik_failures)
                 )
             strict_plan = None
             selected_candidate = None
-            selected_goal1_diagnostic_index = -1
             plan_failures: list[dict[str, object]] = []
             diagnostic_records: list[dict[str, object]] = []
             for candidate_index, candidate in enumerate(
@@ -2778,7 +2750,7 @@ class DENTORobotWorkflowFacade:
                 if not ok:
                     plan_failures.append(
                         {
-                            "routeType": candidate.get("routeType", "direct"),
+                            "rollDeg": candidate["rollDeg"],
                             "message": "Goal display failed: " + message,
                         }
                     )
@@ -2790,8 +2762,8 @@ class DENTORobotWorkflowFacade:
                     planning_attempts=1,
                     allowed_planning_time_sec=GOAL1_DIRECT_PLANNING_TIME_SEC,
                     planner_context=(
-                        "task_home_to_preentry_"
-                        + str(candidate.get("routeType") or "direct")
+                        "task_home_to_preentry_roll_"
+                        f"{float(candidate['rollDeg']):+.0f}deg"
                     ),
                 )
                 segment = None
@@ -2811,22 +2783,20 @@ class DENTORobotWorkflowFacade:
                         stage="task_home_to_preentry_direct",
                         axial_roll_deg=float(candidate["rollDeg"]),
                         result=candidate_plan,
-                        route_type=str(candidate.get("routeType") or "direct"),
                         segment=segment,
                     )
                 )
                 if candidate_plan.success:
-                    # One canonical spindle-locked endpoint is used. Route
-                    # diversity comes from independent arm-space planning and
-                    # reviewed 6.3 clearance waypoints, never spindle angle.
+                    # Complete the bounded roll matrix for truthful V2
+                    # evidence, but retain the first (best-ranked) successful
+                    # route for the actual guarded preview.
                     if strict_plan is None:
                         strict_plan = candidate_plan
                         selected_candidate = candidate
-                        selected_goal1_diagnostic_index = len(diagnostic_records) - 1
                     continue
                 plan_failures.append(
                     {
-                        "routeType": candidate.get("routeType", "direct"),
+                        "rollDeg": candidate["rollDeg"],
                         "maximumDelta": candidate_plan.maximum_start_goal_delta,
                         "maximumDeltaJoint": (
                             candidate_plan.maximum_start_goal_delta_joint
@@ -2890,7 +2860,8 @@ class DENTORobotWorkflowFacade:
                             ),
                             planner_context=(
                                 "clearance_sample_"
-                                f"{int(clearance['sampleIndex'])}_to_preentry"
+                                f"{int(clearance['sampleIndex'])}_to_preentry_"
+                                f"roll_{float(candidate['rollDeg']):+.0f}deg"
                             ),
                         )
                         segment = None
@@ -2910,7 +2881,6 @@ class DENTORobotWorkflowFacade:
                                 stage="clearance_to_preentry",
                                 axial_roll_deg=float(candidate["rollDeg"]),
                                 result=second_leg,
-                                route_type="clearance-detour",
                                 clearance=clearance,
                                 segment=segment,
                             )
@@ -2925,11 +2895,10 @@ class DENTORobotWorkflowFacade:
                             )
                             selected_candidate = candidate
                             selected_clearance = clearance
-                            selected_goal1_diagnostic_index = len(diagnostic_records) - 1
                             break
                         plan_failures.append(
                             {
-                                "routeType": "clearance-detour",
+                                "rollDeg": candidate["rollDeg"],
                                 "clearanceSampleIndex": clearance["sampleIndex"],
                                 "stage": "clearance_to_preentry",
                                 "nativePlannerMessage": (
@@ -2975,8 +2944,8 @@ class DENTORobotWorkflowFacade:
                 )
                 self._clear_phase_session()
                 best_joint_diagnostic = best_candidate["jointDiagnostic"]
-                attempted_routes = ", ".join(
-                    str(item.get("routeType") or item.get("stage") or "direct")
+                attempted_rolls = ", ".join(
+                    f"{float(item['rollDeg']):+.0f} deg"
                     for item in plan_failures
                 )
                 return RobotActionResult(
@@ -2985,21 +2954,21 @@ class DENTORobotWorkflowFacade:
                     "Goal 1 found "
                     f"{len(ik_candidates)} collision-aware PreEntry IK endpoint(s), "
                     "but MoveIt could not connect Task Home to the top-ranked "
-                    f"arm branch(es) via {attempted_routes or 'no submitted route'}. "
+                    f"branch(es) at {attempted_rolls or 'no submitted roll'}. "
                     f"Best endpoint's largest effective joint change is "
                     f"{float(best_joint_diagnostic['maximum_delta']):.6g} on "
                     f"{best_joint_diagnostic['maximum_joint']}. "
                     + direct_segment.message
                     + " The translucent robot is an individually valid endpoint, "
                     "not proof of a collision-free connecting path. All bounded "
-                    "direct arm route and retained 6.3 clearance-waypoint routes "
+                    "roll branches and the retained 6.3 clearance-waypoint routes "
                     "were attempted; inspect motion diagnostic session "
                     f"{diagnostic.session_fingerprint[:12]} for the failing leg.",
                     details={
                         "collisionAwareIkCandidateCount": len(ik_candidates),
                         "ikFailures": tuple(ik_failures),
                         "planFailures": tuple(plan_failures),
-                        "bestRouteType": best_candidate.get("routeType", "direct"),
+                        "bestRollDeg": best_candidate["rollDeg"],
                         "bestRequestedGoalJointPositionsSi": (
                             best_candidate["requestedPositions"]
                         ),
@@ -3037,9 +3006,17 @@ class DENTORobotWorkflowFacade:
                     },
                     payload=tuple(plan_failures),
                 )
-            selected_roll_deg = GOAL1_CANONICAL_TOOL_ROLL_DEG
-            if selected_goal1_diagnostic_index < 0:
-                selected_goal1_diagnostic_index = len(diagnostic_records) - 1
+            selected_roll_deg = float(selected_candidate["rollDeg"])
+            selected_goal1_diagnostic_index = next(
+                (
+                    index
+                    for index in range(len(diagnostic_records) - 1, -1, -1)
+                    if diagnostic_records[index]["success"]
+                    and float(diagnostic_records[index]["axial_roll_deg"])
+                    == selected_roll_deg
+                ),
+                len(diagnostic_records) - 1,
+            )
             self._persist_goal1_diagnostic(
                 parameter_node,
                 snapshot,
@@ -3110,8 +3087,7 @@ class DENTORobotWorkflowFacade:
                     selected_goal1_diagnostic_index,
                     stage2_status="DeferredAtPreEntry",
                     stage3_status="NotRun",
-                    full_task_status="Blocked",
-                    full_task_reason=axis_plan.message,
+                    full_task_status="ReadyForPreEntryPreview",
                 )
                 preentry_plan = PhasePlan(
                     success=True,
@@ -3151,7 +3127,7 @@ class DENTORobotWorkflowFacade:
                     )
                 return RobotActionResult(
                     True,
-                    "approach_provisional_plan_ready",
+                    "approach_preentry_plan_ready",
                     preentry_plan.message,
                     details={
                         "waypointCount": len(strict_waypoints),
@@ -3163,7 +3139,7 @@ class DENTORobotWorkflowFacade:
                         "terminalPlanningFraction": float(axis_plan.fraction),
                         "trajectoryPathDisplayed": bool(path_view_ok),
                         "trajectoryPathDisplayMessage": path_view_message,
-                        "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
+                        "selectedApproachAxialRollDeg": selected_roll_deg,
                         "collisionAwareIkCandidateCount": len(ik_candidates),
                         "plannedIkCandidateCount": min(
                             len(ik_candidates), GOAL1_MAX_PLANNED_IK_CANDIDATES
@@ -3171,9 +3147,6 @@ class DENTORobotWorkflowFacade:
                         "motionDiagnosticSessionFingerprint": (
                             deferred_diagnostic.session_fingerprint
                         ),
-                        "fullTaskStatus": "Blocked",
-                        "blockedStage": "stage2_strict_axis",
-                        "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
                     },
                     payload=preentry_plan,
                 )
@@ -3193,60 +3166,9 @@ class DENTORobotWorkflowFacade:
                 axial_roll_end_deg=selected_roll_deg,
             )
             if not terminal.success:
-                diagnostic = self._persist_goal1_diagnostic(
-                    parameter_node,
-                    snapshot,
-                    diagnostic_records,
-                    selected_goal1_diagnostic_index,
-                    stage2_status="FailedTerminalContact",
-                    stage3_status="NotRun",
-                    full_task_status="Blocked",
-                    full_task_reason=terminal.message,
-                )
-                strict_waypoints, strict_times = self._guarded_preview_checkpoints(
-                    tuple(strict_plan.waypoint_joint_vectors_si),
-                    strict_plan.waypoint_times_sec,
-                )
-                axis_waypoints = tuple(axis_plan.waypoint_joint_vectors_si)
-                provisional = PhasePlan(
-                    success=True,
-                    message=(
-                        "Full task Blocked in Stage 2 terminal contact: "
-                        + terminal.message
-                        + " The collision-free Home→PreEntry evidence remains previewable."
-                    ),
-                    task_fingerprint=snapshot.snapshot_fingerprint,
-                    requested_phase="approach",
-                    waypoint_joint_vectors_si=strict_waypoints + axis_waypoints,
-                    waypoint_phases=("approach",) * (
-                        len(strict_waypoints) + len(axis_waypoints)
-                    ),
-                    waypoint_times_sec=_concatenate_waypoint_times(
-                        strict_times, axis_plan.waypoint_times_sec
-                    ),
-                    cartesian_fraction=float(terminal.fraction),
-                    strict_waypoint_count=len(strict_waypoints),
-                    axis_waypoint_count=len(axis_waypoints),
-                    source_waypoint_count=(
-                        len(strict_plan.waypoint_joint_vectors_si)
-                        + len(axis_plan.waypoint_joint_vectors_si)
-                    ),
-                )
-                self._motion_plan = provisional
-                self._preflight_drilling_plan = None
-                self._preflight_task_fingerprint = ""
-                return RobotActionResult(
-                    True,
-                    "approach_provisional_plan_ready",
-                    provisional.message,
-                    details={
-                        "fullTaskStatus": "Blocked",
-                        "blockedStage": "stage2_strict_axis",
-                        "firstInvalidCause": terminal.message,
-                        "motionDiagnosticSessionFingerprint": diagnostic.session_fingerprint,
-                        "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
-                    },
-                    payload=provisional,
+                raise RuntimeError(
+                    "Goal 1 terminal pre-entry-to-Entry planning failed: "
+                    + terminal.message
                 )
             if not terminal.waypoint_joint_vectors_si:
                 raise RuntimeError(
@@ -3276,33 +3198,6 @@ class DENTORobotWorkflowFacade:
                     terminal.waypoint_joint_vectors_si[-1],
                     start_axial_roll_deg=selected_roll_deg,
                 )
-                preflight_waypoints = (
-                    tuple(strict_plan.waypoint_joint_vectors_si)
-                    + tuple(axis_plan.waypoint_joint_vectors_si)
-                    + tuple(terminal.waypoint_joint_vectors_si)
-                    + tuple(drilling_preflight.waypoint_joint_vectors_si)
-                )
-                preflight_phases = (
-                    ("approach",) * len(strict_plan.waypoint_joint_vectors_si)
-                    + ("approach",) * len(axis_plan.waypoint_joint_vectors_si)
-                    + ("terminal_contact",) * len(terminal.waypoint_joint_vectors_si)
-                    + ("drilling",) * len(drilling_preflight.waypoint_joint_vectors_si)
-                )
-                validate_chain = getattr(
-                    self._bridge,
-                    "validate_task_phase_waypoints",
-                    _default_bridge.validate_task_phase_waypoints,
-                )
-                guard_valid, guard_message, invalid_index = validate_chain(
-                    preflight_waypoints,
-                    preflight_phases,
-                    task_fingerprint=snapshot.snapshot_fingerprint,
-                )
-                if not guard_valid:
-                    raise RuntimeError(
-                        guard_message
-                        + f" First invalid composed waypoint: {invalid_index}."
-                    )
             except (RuntimeError, ValueError, OSError) as exc:
                 drilling_preflight_error = str(exc)
                 self._preflight_drilling_plan = None
@@ -3320,14 +3215,11 @@ class DENTORobotWorkflowFacade:
                 selected_goal1_diagnostic_index,
                 stage2_status="Passed",
                 stage3_status=(
-                    "Passed"
+                    "ReachabilityPreflightPassed"
                     if drilling_preflight is not None
-                    else "Failed"
+                    else "ReachabilityPreflightDeferred"
                 ),
-                full_task_status=(
-                    "Complete" if drilling_preflight is not None else "Blocked"
-                ),
-                full_task_reason=drilling_preflight_error,
+                full_task_status="ReadyForGuardedGoal1Preview",
             )
             strict_source = tuple(strict_plan.waypoint_joint_vectors_si)
             axis_source = tuple(axis_plan.waypoint_joint_vectors_si)
@@ -3357,8 +3249,8 @@ class DENTORobotWorkflowFacade:
                     f"Only the final {terminal_tolerance:.2f} mm terminal preview "
                     "may suppress configured burr-to-task-object contact, and "
                     "every suppression will be reported. "
-                    "The pneumatic spindle remained locked at 0 rad; route "
-                    "selection used only controllable arm joints"
+                    f"The Task-Home connection selected {selected_roll_deg:+.1f}° "
+                    "cylindrical-burr axial roll from the bounded IK search"
                     + (
                         " through previously validated workspace clearance "
                         f"sample {int(selected_clearance['sampleIndex'])}. "
@@ -3366,13 +3258,12 @@ class DENTORobotWorkflowFacade:
                         else ". "
                     )
                     + (
-                        "The complete Entry-to-Target drilling line passed the "
-                        "spindle-locked reachability preflight."
+                        f"The complete drilling line passed reachability preflight at "
+                        f"{drilling_preflight.axial_roll_deg:.1f}° axial roll."
                         if drilling_preflight is not None
                         else (
-                            "Full-task status is Blocked at Stage 3; the provisional "
-                            "Goal 1 approach preview remains available as historical "
-                            "evidence and is not a drilling authorization."
+                            "Goal 2 reachability preflight is deferred; Goal 1 "
+                            "approach preview remains available."
                         )
                     )
                 ),
@@ -3407,35 +3298,14 @@ class DENTORobotWorkflowFacade:
             path_view_ok = False
             path_view_message = ""
             if callable(path_view):
-                path_results = []
-                path_results.append(path_view(
-                    strict_waypoints,
+                path_view_ok, path_view_message = path_view(
+                    plan.waypoint_joint_vectors_si,
                     parameter_node.robotBaseTransform,
-                    phase="stage1",
-                    clear_existing=True,
-                ))
-                path_results.append(path_view(
-                    axis_waypoints + terminal_waypoints,
-                    parameter_node.robotBaseTransform,
-                    phase="stage2",
-                    clear_existing=False,
-                ))
-                if drilling_preflight is not None:
-                    path_results.append(path_view(
-                        drilling_preflight.waypoint_joint_vectors_si,
-                        parameter_node.robotBaseTransform,
-                        phase="stage3",
-                        clear_existing=False,
-                    ))
-                path_view_ok = all(result[0] for result in path_results)
-                path_view_message = " ".join(result[1] for result in path_results)
+                    phase="approach",
+                )
             return RobotActionResult(
                 True,
-                (
-                    "approach_full_chain_plan_ready"
-                    if drilling_preflight is not None
-                    else "approach_provisional_plan_ready"
-                ),
+                "approach_plan_ready",
                 plan.message,
                 details={
                     "waypointCount": len(plan.waypoint_joint_vectors_si),
@@ -3443,7 +3313,7 @@ class DENTORobotWorkflowFacade:
                     "axisWaypointCount": len(axis_waypoints),
                     "terminalWaypointCount": len(terminal_waypoints),
                     "terminalContactToleranceMm": terminal_tolerance,
-                    "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
+                    "selectedApproachAxialRollDeg": selected_roll_deg,
                     "selectedClearanceSampleIndex": (
                         int(selected_clearance["sampleIndex"])
                         if selected_clearance is not None
@@ -3465,14 +3335,12 @@ class DENTORobotWorkflowFacade:
                         if drilling_preflight is not None
                         else None
                     ),
-                    "drillingPreflightSpindleLocked": (
-                        drilling_preflight is not None
+                    "drillingPreflightAxialRollDeg": (
+                        drilling_preflight.axial_roll_deg
+                        if drilling_preflight is not None
+                        else None
                     ),
                     "drillingPreflightError": drilling_preflight_error,
-                    "fullTaskStatus": (
-                        "Complete" if drilling_preflight is not None else "Blocked"
-                    ),
-                    "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
                     "trajectoryPathDisplayed": bool(path_view_ok),
                     "trajectoryPathDisplayMessage": path_view_message,
                     "plannerStartSource": strict_plan.planner_start_source,
@@ -3552,10 +3420,10 @@ class DENTORobotWorkflowFacade:
             ):
                 result = self._preflight_drilling_plan
             else:
-                raise RuntimeError(
-                    "The complete Home-to-PreEntry-to-Entry-to-Target preflight "
-                    "is not current. Re-plan Goal 1; Goal 2 cannot independently "
-                    "replan or promote a partial drilling path."
+                result = self._plan_full_drilling_line(
+                    parameter_node,
+                    snapshot,
+                    start_positions,
                 )
             source_waypoints = tuple(result.waypoint_joint_vectors_si)
             # Entry-to-Target is short and accuracy-dominant. Preserve every
@@ -3568,7 +3436,8 @@ class DENTORobotWorkflowFacade:
                 message=(
                     f"Goal 2 preview ready: {len(waypoints)} guarded Entry-to-Target "
                     f"checkpoint(s) from {len(source_waypoints)} MoveIt samples. "
-                    "Spindle locked at 0 rad (external pressure/RPM; not planned). "
+                    f"Selected cylindrical-burr axial roll: "
+                    f"{result.axial_roll_deg:.1f}°. "
                     "Solver collision avoidance is disabled for this exploratory "
                     "Cartesian check. The independent guard may suppress only "
                     "configured burr-to-task-object contacts; non-tool collisions, "
@@ -3599,7 +3468,7 @@ class DENTORobotWorkflowFacade:
                     "coordinateFrame": str(result.coordinate_frame),
                     "startPositionErrorMm": result.start_position_error_mm,
                     "startOrientationErrorDeg": result.start_orientation_error_deg,
-                    "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
+                    "axialRollDeg": float(result.axial_roll_deg),
                 },
                 payload=plan,
             )
@@ -3929,12 +3798,9 @@ class DENTORobotWorkflowFacade:
             runtime_rejections: list[str] = []
             maximum_local_moveit_fk_difference_mm = 0.0
             for sample_index, (source_index, sample) in enumerate(candidate_samples):
-                sample_positions = canonicalize_planning_joint_positions(
-                    sample.joint_positions_si_dict()
-                )
                 valid, validity_message, authoritative = (
                     self._bridge.check_moveit_static_joint_state(
-                        sample_positions
+                        sample.joint_positions_si_dict()
                     )
                 )
                 if not authoritative:
@@ -3953,7 +3819,7 @@ class DENTORobotWorkflowFacade:
                 if valid:
                     fk_ok, fk_message, tcp_base_mm = (
                         self._bridge.compute_moveit_static_tcp_pose_base_mm(
-                            sample_positions
+                            sample.joint_positions_si_dict()
                         )
                     )
                     if not fk_ok or tcp_base_mm is None:
@@ -3980,10 +3846,8 @@ class DENTORobotWorkflowFacade:
                     runtime_accepted.append(
                         sample.__class__(
                             tcp_base_mm=tuple(tcp_base_mm),
-                            joint_display=tuple(sample.joint_display[:-1]) + (0.0,),
-                            joint_positions_si=tuple(
-                                sample_positions[name] for name in JOINT_NAMES
-                            ),
+                            joint_display=sample.joint_display,
+                            joint_positions_si=sample.joint_positions_si,
                         )
                     )
                     accepted_sample_evidence.append(
@@ -3993,7 +3857,7 @@ class DENTORobotWorkflowFacade:
                             "tcp_base_mm": [float(value) for value in tcp_base_mm],
                             "joint_names": list(JOINT_NAMES),
                             "joint_positions_si": [
-                                float(sample_positions[name])
+                                float(sample.joint_positions_si_dict()[name])
                                 for name in JOINT_NAMES
                             ],
                             "joint_display": [

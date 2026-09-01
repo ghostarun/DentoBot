@@ -369,14 +369,6 @@ class DENTORobotSimulationPanel:
         )
         approach_description.wordWrap = True
         approach_layout.addWidget(approach_description)
-        spindle_policy = qt.QLabel(
-            "Spindle locked — external pressure/RPM; not planned. Joint 6 remains "
-            "in the compatibility vector at 0 rad.",
-            self.approachGroup,
-        )
-        spindle_policy.wordWrap = True
-        spindle_policy.setProperty("dentobotRole", "status")
-        approach_layout.addWidget(spindle_policy)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
         self.previewApproachButton = qt.QPushButton("Preview Goal 1", self.approachGroup)
@@ -579,38 +571,11 @@ class DENTORobotSimulationPanel:
         )
         summary.wordWrap = True
         layout.addWidget(summary)
-        full_status = str(session.full_task_outcome.get("status") or "Unknown")
-        full_task_label = qt.QLabel(
-            f"Full task: {full_status}. Spindle locked at 0 rad; external RPM is not planned.",
-            dialog,
-        )
-        full_task_label.wordWrap = True
-        layout.addWidget(full_task_label)
-        stage_table = qt.QTableWidget(dialog)
-        stages = tuple(session.stage_outcomes)
-        stage_table.setColumnCount(3)
-        stage_table.setRowCount(len(stages))
-        stage_table.setHorizontalHeaderLabels(["Task stage", "Status", "First cause"])
-        stage_labels = {
-            "stage1_free_space": "Stage 1 — Home→PreEntry",
-            "stage2_strict_axis": "Stage 2 — PreEntry→Entry",
-            "stage3_drilling": "Stage 3 — Entry→Target",
-        }
-        for row, stage in enumerate(stages):
-            values = (
-                stage_labels.get(str(stage.get("stage") or ""), str(stage.get("stage") or "")),
-                str(stage.get("status") or "Unknown"),
-                str(stage.get("failure_classification") or stage.get("reason") or "—"),
-            )
-            for column, value in enumerate(values):
-                stage_table.setItem(row, column, qt.QTableWidgetItem(value))
-        stage_table.resizeColumnsToContents()
-        layout.addWidget(stage_table)
         table = qt.QTableWidget(dialog)
         records = tuple(session.candidate_records)
         headers = (
-            "Planner leg",
-            "Route",
+            "Stage",
+            "Roll",
             "Clearance",
             "Result",
             "Fraction",
@@ -624,8 +589,8 @@ class DENTORobotSimulationPanel:
         table.setHorizontalHeaderLabels(list(headers))
         for row, record in enumerate(records):
             values = (
-                str(record.get("planner_leg") or record.get("stage", "")),
-                str(record.get("route_type") or "legacy-roll"),
+                str(record.get("stage", "")),
+                f"{float(record.get('axial_roll_deg', 0.0)):.1f}°",
                 (
                     "direct"
                     if record.get("clearance_sample_index") is None

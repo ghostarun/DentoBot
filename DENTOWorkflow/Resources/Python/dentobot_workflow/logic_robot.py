@@ -698,34 +698,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
 
     def taskHomeRecord(self, parameterNode):
         payload = str(parameterNode.step6TaskHomeJson or "").strip()
-        if not payload:
-            return None
-        source = json.loads(payload)
-        record = parse_task_home(source)
-        positions = tuple(source.get("joint_positions_si", ()))
-        old_spindle = (
-            float(positions[-1]) if len(positions) == len(record.joint_names) else None
-        )
-        try:
-            saved_lock_value = float(source.get("spindle_locked_value_rad"))
-        except (TypeError, ValueError):
-            saved_lock_value = float("nan")
-        migrated = (
-            source.get("spindle_planning_policy") != SPINDLE_PLANNING_POLICY
-            or saved_lock_value != SPINDLE_LOCKED_VALUE_RAD
-            or old_spindle != SPINDLE_LOCKED_VALUE_RAD
-        )
-        if migrated:
-            parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
-            parameterNode.step6ConfirmedTaskJson = ""
-            self.markStep6MotionDiagnosticStale(
-                parameterNode,
-                _(
-                    "Migrated Task Home to the external spindle-lock policy; "
-                    "old axial-roll diagnostics and phase evidence are stale."
-                ),
-            )
-        return record
+        return parse_task_home(payload) if payload else None
 
     def saveCurrentTaskHome(self, parameterNode, *, runtime_validation=None):
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
@@ -759,7 +732,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             world_object_count=int(evidence.get("worldObjectCount", 0)),
         )
         parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
-        parameterNode.robotJoint6Deg = 0.0
         self.invalidateStep6TaskConfirmation(parameterNode, _("Task Home changed."))
         return record
 
