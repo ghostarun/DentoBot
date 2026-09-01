@@ -68,7 +68,7 @@ def test_status_schema_mismatch_is_explicit_error():
 
 def test_joint_vector_has_one_explicit_urdf_order():
     positions = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
-    assert joint_si_vector(positions) == list(map(float, range(6)))
+    assert joint_si_vector(positions) == [0.0, 1.0, 2.0, 3.0, 4.0, 0.0]
 
 
 def test_joint_guard_status_parses_accepted_state_and_clearances():

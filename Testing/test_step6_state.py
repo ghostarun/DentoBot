@@ -17,6 +17,9 @@ from DENTOStep6State import (  # noqa: E402
     JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
+    SPINDLE_JOINT_NAME,
+    SPINDLE_LOCKED_VALUE_RAD,
+    SPINDLE_PLANNING_POLICY,
     approach_points,
     base_placement_source_issue,
     build_assisted_limit_proposal,
@@ -97,6 +100,23 @@ def test_task_home_round_trip_is_versioned_and_case_base_specific():
     assert restored == record
     assert restored.revision == 3
     assert restored.joint_names == JOINT_NAMES
+    assert restored.joint_positions_si[-1] == SPINDLE_LOCKED_VALUE_RAD
+    assert restored.spindle_planning_policy == SPINDLE_PLANNING_POLICY
+
+
+def test_legacy_nonzero_spindle_home_migrates_without_changing_arm_pose():
+    legacy = build_task_home(
+        joints(0.25),
+        base_fingerprint="base-a",
+        robot_profile_fingerprint="robot-a",
+    ).to_dict()
+    legacy.pop("spindle_planning_policy")
+    legacy.pop("spindle_locked_value_rad")
+    legacy["joint_positions_si"][-1] = 2.75
+    restored = parse_task_home(legacy)
+    assert restored.joint_positions_si[:-1] == tuple(legacy["joint_positions_si"][:-1])
+    assert restored.joint_positions_si[-1] == 0.0
+    assert restored.joint_names[-1] == SPINDLE_JOINT_NAME
 
 
 def test_workspace_limit_suggestion_retains_observed_range_and_needs_review():
@@ -162,6 +182,7 @@ def test_phase_schema_binds_commands_to_one_immutable_task():
     assert command.phase is MotionPhase.DRILLING
     assert command.task_fingerprint == config.task_fingerprint
     assert command.to_dict()["phase"] == "drilling"
+    assert command.joint_positions_si[-1] == SPINDLE_LOCKED_VALUE_RAD
     with pytest.raises(ValueError, match="task fingerprint"):
         build_phase_joint_command(
             task_fingerprint="",

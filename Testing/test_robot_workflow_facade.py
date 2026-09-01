@@ -301,7 +301,7 @@ def test_goal2_reuses_goal1_guard_session_and_accepted_entry_state():
     assert "_phase_guard_task_fingerprint" in drilling
     assert "last_accepted_joint_positions_si" in drilling
     assert "_preflight_drilling_plan" in drilling
-    assert "_plan_full_drilling_line" in drilling
+    assert "cannot independently" in drilling
     assert "start_positions" in drilling
 
 
@@ -357,7 +357,7 @@ def test_terminal_and_drilling_keep_dense_cartesian_samples_uncompacted():
     assert "waypoints = source_waypoints" in drilling
 
 
-def test_drilling_searches_only_bounded_cylindrical_burr_axial_roll():
+def test_drilling_uses_one_spindle_locked_cartesian_orientation():
     source = (
         ROOT
         / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
@@ -365,8 +365,42 @@ def test_drilling_searches_only_bounded_cylindrical_burr_axial_roll():
     drilling = source.split("def _plan_full_drilling_line", 1)[1].split(
         "def planApproachPhase", 1
     )[0]
-    assert "axial_roll_candidates_deg" in drilling
-    assert "axial_roll_start_deg=0.0" in drilling
-    assert "axial_roll_end_deg=axial_roll_deg" in drilling
-    assert "Reposition the robot base" in drilling
-    assert "partial path" in drilling
+    assert "axial_roll_candidates_deg" not in drilling
+    assert "GOAL1_CANONICAL_TOOL_ROLL_DEG" in drilling
+    assert "spindle locked at 0 rad" in drilling
+    assert "partial joint path" in drilling
+
+
+def test_full_chain_uses_non_mutating_phase_guard_preflight():
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    approach = source.split("def planApproachPhase", 1)[1].split(
+        "def planDrillingPhase", 1
+    )[0]
+    assert "validate_task_phase_waypoints" in approach
+    assert '"terminal_contact"' in approach
+    assert '"drilling"' in approach
+    assert '"Complete" if drilling_preflight is not None else "Blocked"' in approach
+
+
+def test_goal1_diagnostics_are_arm_routes_not_spindle_roll_rows():
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    assert "GOAL1_AXIAL_ROLL_CANDIDATES_DEG" not in source
+    assert '"route_type"' in source
+    assert '"clearance-detour"' in source
+    assert '"seeded"' in source
+    assert '"geometrically_distinct"' in source
+
+
+def test_collision_guard_rejects_spindle_motion_and_supports_validate_only():
+    source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text(
+        encoding="utf-8"
+    )
+    assert "SPINDLE_LOCKED_VALUE_RAD" in source
+    assert "validate_only" in source
+    assert "preflight_positions_" in source

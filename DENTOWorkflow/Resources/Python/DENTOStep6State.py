@@ -32,6 +32,30 @@ JOINT_NAMES = (
     "link-5_Revolute-5",
     "pneumatic_spindle-Copy_Revolute-6",
 )
+SPINDLE_JOINT_NAME = JOINT_NAMES[-1]
+SPINDLE_LOCKED_VALUE_RAD = 0.0
+SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
+SPINDLE_PLANNING_POLICY = "external-pressure-spindle-locked-v1"
+
+
+def canonicalize_planning_joint_positions(
+    joint_positions_si: Mapping[str, float],
+) -> dict[str, float]:
+    """Return the compatible six-joint vector with the external spindle locked."""
+
+    result = {name: float(joint_positions_si[name]) for name in JOINT_NAMES}
+    if not all(isfinite(value) for value in result.values()):
+        raise ValueError("planning joint vector must contain six finite values")
+    result[SPINDLE_JOINT_NAME] = SPINDLE_LOCKED_VALUE_RAD
+    return result
+
+
+def spindle_is_locked(joint_positions_si: Mapping[str, float]) -> bool:
+    try:
+        value = float(joint_positions_si[SPINDLE_JOINT_NAME])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return isfinite(value) and abs(value - SPINDLE_LOCKED_VALUE_RAD) <= SPINDLE_LOCK_TOLERANCE_RAD
 
 
 class BasePlacementStatus(str, Enum):
@@ -138,6 +162,8 @@ class TaskHomeRecord:
     validated_at_utc: str = ""
     minimum_clearance_mm: float | None = None
     world_object_count: int = 0
+    spindle_planning_policy: str = SPINDLE_PLANNING_POLICY
+    spindle_locked_value_rad: float = SPINDLE_LOCKED_VALUE_RAD
 
     def to_dict(self) -> dict[str, object]:
         result = asdict(self)
@@ -159,8 +185,9 @@ def build_task_home(
     minimum_clearance_mm: float | None = None,
     world_object_count: int = 0,
 ) -> TaskHomeRecord:
+    canonical_positions = canonicalize_planning_joint_positions(joint_positions_si)
     values = _finite_tuple(
-        [joint_positions_si[name] for name in JOINT_NAMES],
+        [canonical_positions[name] for name in JOINT_NAMES],
         len(JOINT_NAMES),
         "Task Home joint vector",
     )
@@ -187,6 +214,8 @@ def build_task_home(
         validated_at_utc=str(validated_at_utc or ""),
         minimum_clearance_mm=clearance,
         world_object_count=max(0, int(world_object_count)),
+        spindle_planning_policy=SPINDLE_PLANNING_POLICY,
+        spindle_locked_value_rad=SPINDLE_LOCKED_VALUE_RAD,
     )
 
 
@@ -767,8 +796,9 @@ def build_phase_joint_command(
         raise ValueError("phase command requires a task fingerprint")
     if int(sequence) < 0:
         raise ValueError("phase command sequence must be non-negative")
+    canonical_positions = canonicalize_planning_joint_positions(joint_positions_si)
     values = _finite_tuple(
-        [joint_positions_si[name] for name in JOINT_NAMES],
+        [canonical_positions[name] for name in JOINT_NAMES],
         len(JOINT_NAMES),
         "phase joint vector",
     )
