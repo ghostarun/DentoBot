@@ -15,6 +15,14 @@ from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sq
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
+from DENTOStep6State import (
+    SPINDLE_JOINT_NAME,
+    SPINDLE_LOCKED_VALUE_RAD,
+    SPINDLE_LOCK_TOLERANCE_RAD,
+    SPINDLE_PLANNING_POLICY,
+    canonicalize_planning_joint_positions,
+)
+
 ROS2_ROBOT_NAME = "dentobot"
 ROS2_URDF_PARAM_NODE = "/dentobot_robot_state_publisher"
 ROS2_URDF_PARAM_NAME = "robot_description"
@@ -73,7 +81,6 @@ ROS2_JOINT_SI_ORDER = (
 ROS2_CONTINUOUS_REVOLUTE_JOINTS = frozenset(
     {
         "link-5_Revolute-5",
-        "pneumatic_spindle-Copy_Revolute-6",
     }
 )
 
@@ -783,7 +790,9 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
     if not candidates:
         return {}
     _timestamp, values = max(candidates, key=lambda item: item[0])
-    return dict(zip(ROS2_JOINT_SI_ORDER, values))
+    return canonicalize_planning_joint_positions(
+        dict(zip(ROS2_JOINT_SI_ORDER, values))
+    )
 
 
 def monitored_joint_positions_si() -> dict[str, float]:
@@ -811,7 +820,11 @@ def monitored_joint_positions_si() -> dict[str, float]:
         }
     except (TypeError, ValueError):
         return {}
-    return result if all(isfinite(value) for value in result.values()) else {}
+    return (
+        canonicalize_planning_joint_positions(result)
+        if all(isfinite(value) for value in result.values())
+        else {}
+    )
 
 
 def _joint_state_error(
@@ -821,6 +834,10 @@ def _joint_state_error(
     maximum_error = 0.0
     mismatched: list[str] = []
     for name in ROS2_JOINT_SI_ORDER:
+        if name == SPINDLE_JOINT_NAME:
+            # The pneumatic spindle is represented for compatibility but its
+            # physical angle is neither monitored nor planned.
+            continue
         if name not in expected or name not in observed:
             mismatched.append(name)
             continue
@@ -1152,6 +1169,7 @@ def apply_task_phase_joint_positions(
     task_fingerprint: str,
     phase: str,
     sequence: int,
+    validate_only: bool = False,
     timeout_sec: float = 6.0,
 ) -> Tuple[bool, str]:
     global _native_joint_positions
@@ -1192,6 +1210,7 @@ def apply_task_phase_joint_positions(
             "phase": str(phase),
             "sequence": int(sequence),
             "joint_positions": values,
+            "validate_only": bool(validate_only),
         }
     )
     command_publisher.Publish(json.dumps(command, sort_keys=True, separators=(",", ":")))
@@ -1206,7 +1225,8 @@ def apply_task_phase_joint_positions(
     if status is None:
         return False, "Task guard did not answer the phased simulation command."
     if status.accepted:
-        _native_joint_positions = values
+        if not validate_only:
+            _native_joint_positions = values
         return True, status.reason
     _native_joint_positions = prior
     pair = (
@@ -1219,6 +1239,36 @@ def apply_task_phase_joint_positions(
         f"Task guard rejected {phase} sequence {int(sequence)}: "
         f"{status.reason}{pair}",
     )
+
+
+def validate_task_phase_waypoints(
+    waypoint_joint_vectors_si: Sequence[Mapping[str, float]],
+    waypoint_phases: Sequence[str],
+    *,
+    task_fingerprint: str,
+    first_sequence: int = ROS2_TASK_GUARD_INITIAL_SEQUENCE,
+) -> Tuple[bool, str, int]:
+    """Validate an ordered plan without moving or consuming the preview state."""
+
+    waypoints = tuple(waypoint_joint_vectors_si or ())
+    phases = tuple(str(value) for value in waypoint_phases or ())
+    if not waypoints or len(waypoints) != len(phases):
+        return False, "Phase-guard preflight requires one phase per waypoint.", -1
+    for index, (waypoint, phase) in enumerate(zip(waypoints, phases)):
+        ok, message = apply_task_phase_joint_positions(
+            waypoint,
+            task_fingerprint=task_fingerprint,
+            phase=phase,
+            sequence=int(first_sequence) + index,
+            validate_only=True,
+        )
+        if not ok:
+            return (
+                False,
+                f"Full-chain guard rejected waypoint {index} ({phase}): {message}",
+                index,
+            )
+    return True, f"Phase guard accepted all {len(waypoints)} full-chain waypoints.", -1
 
 
 def _wait_for_joint_command_result(
@@ -1367,7 +1417,8 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     missing = [name for name in ROS2_JOINT_SI_ORDER if name not in positions_si]
     if missing:
         raise ValueError("Missing joint values: " + ", ".join(missing))
-    return [float(positions_si[name]) for name in ROS2_JOINT_SI_ORDER]
+    canonical = canonicalize_planning_joint_positions(positions_si)
+    return [canonical[name] for name in ROS2_JOINT_SI_ORDER]
 
 
 def moveit_joint_goal_diagnostics(
@@ -2036,6 +2087,7 @@ def show_phase_plan_tcp_path(
     base_transform,
     *,
     phase: str = "approach",
+    clear_existing: bool = True,
 ) -> Tuple[bool, str]:
     """Render a transient world-RAS TCP polyline for a planned phase.
 
@@ -2052,7 +2104,8 @@ def show_phase_plan_tcp_path(
         import vtk
     except ImportError:
         return False, ROS2_UNAVAILABLE_MESSAGE
-    clear_phase_plan_tcp_path()
+    if clear_existing:
+        clear_phase_plan_tcp_path()
     waypoints = tuple(waypoint_joint_vectors_si or ())
     if len(waypoints) < 2:
         return False, "A phase path needs at least two joint waypoints."
@@ -2112,7 +2165,15 @@ def show_phase_plan_tcp_path(
     display = node.GetDisplayNode()
     if display is not None:
         display.SetVisibility(True)
-        display.SetColor(1.0, 0.65, 0.05)
+        colors = {
+            "stage1": (1.0, 0.65, 0.05),
+            "stage2": (0.95, 0.90, 0.10),
+            "stage3": (0.95, 0.15, 0.20),
+            "approach": (1.0, 0.65, 0.05),
+            "terminal_contact": (0.95, 0.90, 0.10),
+            "drilling": (0.95, 0.15, 0.20),
+        }
+        display.SetColor(*colors.get(str(phase), (1.0, 0.65, 0.05)))
         display.SetOpacity(0.95)
         set_line_width = getattr(display, "SetLineWidth", None)
         if set_line_width is not None:
@@ -2686,7 +2747,11 @@ def plan_moveit_cartesian_path(
         if len(values) != len(names):
             return MoveItCartesianResult(False, "MoveIt returned a malformed joint point.")
         by_name = dict(zip(names, values))
-        waypoints.append({name: by_name[name] for name in ROS2_JOINT_SI_ORDER})
+        waypoints.append(
+            canonicalize_planning_joint_positions(
+                {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+            )
+        )
         times.append(_trajectory_time_seconds(point))
     if not waypoints:
         return MoveItCartesianResult(False, "MoveIt returned an empty trajectory.")
@@ -2913,7 +2978,9 @@ def solve_moveit_tcp_goal(
     missing = [name for name in ROS2_JOINT_SI_ORDER if name not in by_name]
     if missing:
         return False, "MoveIt IK omitted: " + ", ".join(missing), {}
-    ordered = {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+    ordered = canonicalize_planning_joint_positions(
+        {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+    )
     return (
         True,
         f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
@@ -2943,7 +3010,11 @@ def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
                 "MoveIt returned a malformed joint point.",
             )
         by_name = dict(zip(names, values))
-        waypoints.append({name: by_name[name] for name in ROS2_JOINT_SI_ORDER})
+        waypoints.append(
+            canonicalize_planning_joint_positions(
+                {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+            )
+        )
         times.append(_trajectory_time_seconds(point))
     return MoveItCartesianResult(
         True,
