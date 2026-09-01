@@ -464,6 +464,15 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and str(self._parameterNode.step6AssistedLimitProposalJson or "").strip()
                 and not assisted_reviewed
             )
+            panel.revalidateWorkspaceButton.enabled = bool(
+                scene_prepared
+                and ros2_active
+                and home_runtime_validated
+                and not workspace_runtime_validated
+                and str(
+                    self._parameterNode.step6AssistedLimitProposalJson or ""
+                ).strip()
+            )
             if workspace_runtime_validated and assisted_reviewed:
                 panel.workspaceReviewStatusLabel.text = _(
                     "MoveIt static-valid workspace and bounded Home-connectivity "
@@ -478,7 +487,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._parameterNode.step6AssistedLimitProposalJson or ""
             ).strip():
                 panel.workspaceReviewStatusLabel.text = _(
-                    "Saved workspace evidence is available for inspection but is not validated in this runtime. Regenerate it."
+                    "Saved workspace evidence needs live revalidation. Replay it "
+                    "without changing the reviewed envelope, or regenerate 6.3 "
+                    "if replay rejects any state."
                 )
             else:
                 panel.workspaceReviewStatusLabel.text = _(
@@ -558,7 +569,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
     def _onTaskJointLimitSpinBoxChanged(self, value: float = 0.0) -> None:
         del value
-        if self._updatingFromParameterNode or self._updatingRobotPlacementUI:
+        if (
+            self._updatingFromParameterNode
+            or self._updatingRobotPlacementUI
+            or (
+                self._robotWorkflowFacade is not None
+                and self._robotWorkflowFacade.displaySyncActive
+            )
+        ):
             return
         try:
             if self.logic and self._parameterNode:

@@ -25,7 +25,8 @@ accuracy, clinical safety, or regulatory compliance.
 ## Step 6 runtime-first Home/workspace evidence contract — 2026-08-29/31
 
 Status: source implementation and focused static/package build gate completed
-2026-08-31; runtime/operator verification pending
+2026-08-31; clean-stack exact-case runtime reached guarded PreEntry preview on
+2026-09-01; terminal Entry and normal-window operator verification pending
 
 Step 6.2 Task Home evidence is created only after a compatible ROS/MoveIt
 runtime acknowledges the exact per-segment PlanningScene. The persistent record
@@ -62,6 +63,25 @@ evidence is stored in MRML/`.dentocase`; the live-valid key exists only in the
 façade session. ROS nodes, service clients, PlanningScene objects, guard
 sessions, messages, plans, active flags, and current acceptance remain excluded.
 Verification requires renewed operator approval.
+
+On first 6.1 connection, a base/resource-current saved Home supplies the
+transient initial six-joint vector. This prevents the reconstructed MRML robot
+and ROS robot from diverging at startup but does not restore its prior
+`Validated` status; the façade clears the session key and 6.2 must establish
+new live evidence. If no fresh Home exists, Connect uses the visible joint
+candidate and reports that fallback explicitly.
+
+Robot profile migration is fail-closed. The sole accepted coordinate-only
+migration recognizes former URDF SHA-256
+`af3862afc95fe4b071827eaf947408102a5baf12444cc44213a86813148acfc0`
+and current extended-zero URDF SHA-256
+`aea15dfd355d1a22f1b753011ed58979a8e63a2d87d8a7f9209478afee00fc11`.
+It maps J2 by `q_new=0.08 m-q_old`, maps task bounds by reversing their
+endpoints, canonicalizes J5 into `[-pi, pi]` under its new continuous type,
+preserves the physical pose/base, upgrades the Home robot
+fingerprint as `Unreviewed`, and discards workspace/collision/runtime/task
+evidence whose coordinate provenance changed. Other resource mismatches are
+not migrated or accepted.
 
 UI provenance is now part of this evidence contract: a Connect/Disconnect or
 collision-audit action is valid only when invoked from active substep 6.1;
@@ -119,8 +139,28 @@ roll candidates and their important last-valid/first-invalid evidence; a
 review flag never authorizes preview or execution. Verification is explicitly
 pending operator approval.
 
-The next Priority-0 increment stores diagnostic evidence rather than only a
-generic Cartesian fraction or console text. The persistent record must include
+Stage-1 diagnostic source added 2026-09-01 is now folded into the first
+`MotionDiagnosticSessionV2` implementation: requested/submitted PreEntry joint vectors,
+per-joint raw and effective Task-Home deltas, the named maximum-delta joint,
+continuous-joint wrap adjustments, bounded axial-roll IK candidates and plan
+outcomes, and the first collision pair/fraction on a read-only sampled direct
+joint chord. The chord does not become a trajectory and is not saved as ROS
+state. V2 adds explicit Stage 1/2/3 and full-task summaries and distinguishes
+direct from retained-workspace clearance routes. Its reader rebuilds V1 under
+the V1 schema before checking the original fingerprint; it does not invent V2
+claims. The source has not yet passed an approved static/build or normal-window
+runtime gate.
+
+Persistent 6.3 evidence may be replayed but never silently restored as live.
+After current ROS/MoveIt connection and Task Home validation, replay rechecks
+every retained joint state, compares authoritative MoveIt TCP FK to saved
+coordinates within `1e-6 mm`, and replans the previously evaluated bounded
+Home-connectivity subset. It preserves the reviewed min/max envelope but
+invalidates prior task confirmation so 6.4 must be reconfirmed. Any context,
+state, FK, or connectivity mismatch requires full 6.3 regeneration.
+
+The remaining Priority-0 evidence closure extends V2 beyond a generic
+Cartesian fraction or console text. The persistent record must ultimately include
 a schema version and timestamp; case/target/trajectory/base/tool/robot-resource/
 collision-scene/planning fingerprints; every bounded axial-roll candidate;
 Stage 1/2/3 result and MoveIt error code; completion fraction and physical

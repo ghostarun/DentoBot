@@ -30,6 +30,24 @@ thin Y-normal mounting face on the RViz XY plane with the articulated chain
 above the grid. J4's axis is negated while retaining its positive `0–75 mm`
 control range, so increasing J4 now moves primarily in negative `base_link` X.
 
+On 2026-09-01 J2 was normalized so its mechanically extended/home end is
+`0 mm`. The former description used that same physical pose at `80 mm`.
+The tracked URDF moves the J2 joint origin to the former `q=0.08 m` pose and
+reverses its axis, so physical geometry is preserved by
+`q_new = 0.08 m - q_old`. DENTOWorkflow applies this exact conversion only to
+packages carrying the fingerprint of the tracked former URDF; saved Task Home
+runtime evidence and workspace samples are then required to be regenerated.
+The J1/J3/J5/J6 photographed-pose offsets above remain absorbed into their
+URDF origins, so their configured default Home values remain displayed as
+zero.
+
+The same simulation-profile revision declares J5 continuous. The former
+finite interval `-1.08–358.92 deg` covered one full revolution but forced a
+pose just below zero to be represented as an almost-complete positive turn.
+MoveIt and DENTOWorkflow now use the shortest representation relative to the
+accepted start state for J5 and J6. This is a simulation configuration pending
+physical joint-stop confirmation; it is not an actuator or hardware claim.
+
 The received source URDF remains unchanged under `data/ROS/assembly`. Mesh
 bytes, link frames/geometries, masses, inertias, and the other joint axes are
 unchanged in the tracked description.
@@ -73,10 +91,10 @@ metres):
 | Joint | Type | Manual display range |
 | --- | --- | --- |
 | `link-1_Revolute-1` | revolute | -25.38–334.62 deg |
-| `link-2_Slider-2` | prismatic | 0–80 mm |
+| `link-2_Slider-2` | prismatic | 0 mm extended/home–80 mm retracted |
 | `link-3_Revolute-3` | revolute | -62.46–297.54 deg |
 | `link-4_Slider-4` | prismatic | 0–75 mm |
-| `link-5_Revolute-5` | revolute | -1.08–358.92 deg |
+| `link-5_Revolute-5` | continuous | -180–180 deg display window |
 | `pneumatic_spindle-Copy_Revolute-6` | continuous | -180–180 deg |
 
 All six displayed values start at zero. **Reset all joints to zero** restores

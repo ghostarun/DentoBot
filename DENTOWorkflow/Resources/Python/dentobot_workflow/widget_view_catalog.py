@@ -632,6 +632,17 @@ class ViewCatalogWidgetMixin:
                 parameterNode.trajectoryLine,
                 "trajectory",
             )
+        phasePathNodes = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if node.GetAttribute("DENTOBOT.Step6PhasePlanPath") == "true"
+        ]
+        addNodes(
+            "nodes:step6PhasePlanPath",
+            _("[Step 6] Planned TCP phase path"),
+            phasePathNodes,
+            "trajectory",
+        )
         addNode(
             "node:step6Volume",
             _("[1] CBCT volume"),

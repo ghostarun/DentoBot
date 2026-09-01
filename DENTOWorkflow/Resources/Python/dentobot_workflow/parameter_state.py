@@ -156,8 +156,8 @@ class DENTOWorkflowParameterNode:
     robotJoint3TaskMaxDeg: float = 297.54
     robotJoint4TaskMinMm: float = 0.0
     robotJoint4TaskMaxMm: float = 75.0
-    robotJoint5TaskMinDeg: float = -1.08
-    robotJoint5TaskMaxDeg: float = 358.92
+    robotJoint5TaskMinDeg: float = -180.0
+    robotJoint5TaskMaxDeg: float = 180.0
     robotJoint6TaskMinDeg: float = -360.0
     robotJoint6TaskMaxDeg: float = 360.0
     sceneDisplayPresetJson: str = ""

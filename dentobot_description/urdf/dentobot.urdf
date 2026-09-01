@@ -152,10 +152,14 @@
         <limit lower="-0.44296456415616081" upper="5.8402204358438388" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-2_Slider-2" type="prismatic">
-        <origin xyz="0.0 0.0 0.08" rpy="-1.5707963267948966 -0.0 1.5707963267948966" />
+        <!-- J2 zero is the mechanically extended/home end of travel.  The
+             former description placed zero at the opposite end.  Moving the
+             joint origin to the former q=0.08 pose and reversing the axis
+             preserves every physical pose while making q_new=0.08-q_old. -->
+        <origin xyz="0.0 0.0 0.0" rpy="-1.5707963267948966 -0.0 1.5707963267948966" />
         <parent link="link-2" />
         <child link="link-3" />
-        <axis xyz="0.0 0.9999999999999999 0.0" />
+        <axis xyz="0.0 -0.9999999999999999 0.0" />
         <limit lower="0.0" upper="0.08" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="link-3_Revolute-3" type="revolute">
@@ -172,12 +176,15 @@
         <axis xyz="-0.893638 -2.4694080114073816e-17 0.44878900000000005" />
         <limit lower="0.0" upper="0.075" effort="1000000" velocity="1000000" />
     </joint>
-    <joint name="link-5_Revolute-5" type="revolute">
+    <!-- Simulation contract: J5 is continuous.  The former finite interval
+         [-1.08, 358.92] deg represented one full revolution but forced poses
+         just below zero through an almost-complete positive turn. -->
+    <joint name="link-5_Revolute-5" type="continuous">
         <origin xyz="-0.021752659999999997 -0.006762529999999991 0.007295090000000003" rpy="-2.933237124130466 -1.553411074346388 2.925952888262058" />
         <parent link="link-5" />
         <child link="pneumatic_spindle-Copy" />
         <axis xyz="-0.38643099999999997 -0.9016699999999997 0.194068" />
-        <limit lower="-0.018849555921538759" upper="6.2643354440784611" effort="1000000" velocity="1000000" />
+        <limit effort="1000000" velocity="1000000" />
     </joint>
     <joint name="pneumatic_spindle-Copy_Revolute-6" type="continuous">
         <origin xyz="0.035401760000000004 0.0029788100000000027 0.04568638" rpy="0.9502765943544816 1.0092142015761 -1.935369066862216" />

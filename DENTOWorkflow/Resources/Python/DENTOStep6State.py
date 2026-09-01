@@ -20,7 +20,8 @@ from typing import Mapping, Sequence
 
 STATE_SCHEMA_VERSION = "1.0"
 COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
-MOTION_DIAGNOSTIC_SCHEMA_VERSION = "1.0"
+MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.0"
+SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0")
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
 JOINT_NAMES = (
@@ -543,6 +544,8 @@ class MotionDiagnosticSession:
     selected_candidate_index: int
     failure_classification: str
     operator_review_state: str
+    stage_outcomes: tuple[dict[str, object], ...]
+    full_task_outcome: dict[str, object]
     session_fingerprint: str
 
     def to_dict(self) -> dict[str, object]:
@@ -550,6 +553,8 @@ class MotionDiagnosticSession:
         result["candidate_records"] = [
             dict(record) for record in self.candidate_records
         ]
+        result["stage_outcomes"] = [dict(record) for record in self.stage_outcomes]
+        result["full_task_outcome"] = dict(self.full_task_outcome)
         return result
 
 
@@ -568,7 +573,13 @@ def build_motion_diagnostic_session(
     failure_classification: str,
     operator_review_state: str = "Unreviewed",
     generated_at_utc: str = "",
+    schema_version: str = MOTION_DIAGNOSTIC_SCHEMA_VERSION,
+    stage_outcomes: Sequence[Mapping[str, object]] = (),
+    full_task_outcome: Mapping[str, object] | None = None,
 ) -> MotionDiagnosticSession:
+    schema = str(schema_version).strip()
+    if schema not in SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS:
+        raise ValueError("unsupported motion-diagnostic schema")
     records = tuple(json.loads(canonical_json(dict(item))) for item in candidate_records)
     if not records or len(records) > 32:
         raise ValueError("motion diagnostic requires 1–32 bounded candidates")
@@ -607,8 +618,23 @@ def build_motion_diagnostic_session(
     generated = str(generated_at_utc or "").strip() or datetime.now(
         timezone.utc
     ).isoformat()
+    stages = tuple(
+        json.loads(canonical_json(dict(item))) for item in stage_outcomes
+    )
+    full_outcome = json.loads(canonical_json(dict(full_task_outcome or {})))
+    if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+        valid_stage_names = {
+            "stage1_free_space",
+            "stage2_strict_axis",
+            "stage3_drilling",
+        }
+        for stage in stages:
+            if str(stage.get("stage") or "") not in valid_stage_names:
+                raise ValueError("motion diagnostic contains an unknown stage outcome")
+            if "status" not in stage:
+                raise ValueError("motion diagnostic stage outcome is missing status")
     identity = {
-        "schema_version": MOTION_DIAGNOSTIC_SCHEMA_VERSION,
+        "schema_version": schema,
         "generated_at_utc": generated,
         "state": str(state).strip(),
         "stale_reason": str(stale_reason).strip(),
@@ -618,11 +644,20 @@ def build_motion_diagnostic_session(
         "failure_classification": str(failure_classification).strip(),
         "operator_review_state": str(operator_review_state).strip(),
     }
+    if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+        identity["stage_outcomes"] = stages
+        identity["full_task_outcome"] = full_outcome
     if not identity["state"] or not identity["failure_classification"]:
         raise ValueError("motion diagnostic requires state and classification")
     return MotionDiagnosticSession(
         session_fingerprint=fingerprint(identity),
-        **identity,
+        stage_outcomes=stages,
+        full_task_outcome=full_outcome,
+        **{
+            key: value
+            for key, value in identity.items()
+            if key not in {"stage_outcomes", "full_task_outcome"}
+        },
     )
 
 
@@ -630,7 +665,8 @@ def parse_motion_diagnostic_session(
     payload: str | Mapping[str, object],
 ) -> MotionDiagnosticSession:
     data = json.loads(payload) if isinstance(payload, str) else dict(payload)
-    if data.get("schema_version") != MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+    schema = str(data.get("schema_version") or "")
+    if schema not in SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS:
         raise ValueError("unsupported motion-diagnostic schema")
     rebuilt = build_motion_diagnostic_session(
         state=str(data.get("state") or ""),
@@ -648,6 +684,9 @@ def parse_motion_diagnostic_session(
         failure_classification=str(data.get("failure_classification") or ""),
         operator_review_state=str(data.get("operator_review_state") or ""),
         generated_at_utc=str(data.get("generated_at_utc") or ""),
+        schema_version=schema,
+        stage_outcomes=data.get("stage_outcomes", ()),
+        full_task_outcome=data.get("full_task_outcome", {}),
     )
     if rebuilt.session_fingerprint != str(data.get("session_fingerprint") or ""):
         raise ValueError("motion-diagnostic fingerprint does not match its contents")

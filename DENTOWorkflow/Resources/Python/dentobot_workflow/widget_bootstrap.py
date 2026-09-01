@@ -174,6 +174,7 @@ class BootstrapWidgetMixin:
         self._updatingRobotPlacementUI = False
         self._loadedCaseBundlePath: str = ""
         self._caseBundleRobotProfileCompatible: bool | None = None
+        self._caseBundleRobotProfileMigrationMessage: str = ""
         self._isCleaningUp = False
 
     def setup(self) -> None:

@@ -4,7 +4,7 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-08-29
+## Current engineering state — 2026-09-01
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
 - Active integration branch: `integration/gui-step6`.
@@ -15,10 +15,12 @@ reproducibility, or dated evidence documents.
 - Step 6 is simulation/preview only. MoveIt provides configured IK, planning,
   FCL self/world collision, and planning-scene services. DENTOBOT does not
   expose controller/hardware execution.
-- Priority-0 source work has passed its bounded no-motion compile/import gate:
-  Python/UI parsing, the SlicerROS2 wrapper build, the collision-guard build,
-  and direct headless DENTOWorkflow widget construction completed. Runtime and
-  operator behavior remain unverified. The circular base-plane
+- Priority-0 source work has passed its bounded compile/import gate and a
+  clean-stack exact-case runtime milestone: Python/UI parsing, the SlicerROS2
+  wrapper build, the collision-guard build, and direct DENTOWorkflow widget
+  construction completed. The x4 case now reaches a guarded Home→PreEntry
+  preview in 6.5; terminal Entry/Goal 2 remain unaccepted. The circular
+  base-plane
   path is quarantined behind a reviewed Manual Simulation Base contract;
   collision surfaces are per-segment and require guard-side PlanningScene
   ID/bounds acknowledgement; partial Cartesian candidates persist with
@@ -30,14 +32,15 @@ reproducibility, or dated evidence documents.
   not run tests or
   build verification without first explaining the proposed check and receiving
   explicit operator approval.
-- The latest clean operator retry proves restored local-robot reconstruction
+- The latest clean runtime retry proves restored local-robot reconstruction
   and Task Home seeding work and that the rebuilt collision guard receives the
   published meshes. The remaining 6.4 failure was traced to object identity:
   SlicerROS2 derives `CollisionObject.id` from the hidden MRML proxy name, but
   the proxy used a display-prefixed label while the audit expected the source
   ID. Source now names each transient proxy with the exact canonical audit ID,
   removes an obsolete published ID on resync, and bounds mismatch reporting.
-  This correction is not yet runtime-verified.
+  This correction is runtime-verified in the exact-case clean stack; a
+  normal-window operator retry remains separate evidence.
 - Current Step 6 motion policy uses a 2 mm new-case pre-entry standoff and
   1 mm research guard margin. Strict approach remains collision checked;
   terminal/drilling exploration may suppress only configured burr-to-task-
@@ -51,7 +54,10 @@ reproducibility, or dated evidence documents.
   and the Step 6.1 plane/base snap is circular rather than a patient-contact to
   robot-mount transform. Preserve x4 as a negative diagnostic fixture; do not
   treat its partial result as a drilling plan or tune the planner to make it
-  pass. The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate
+  pass. When strict Home→PreEntry succeeds but the terminal axis segment is
+  blocked, the API retains a truthful guarded PreEntry-only PhasePlan and
+  records the deferred terminal fraction; it never promotes the partial path.
+  The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate
   upstream physical-fit defect.
 - The active Priority-0 strategy is now: audit the exact anatomy meshes sent to
   MoveIt, add structured last-valid/first-invalid motion diagnosis, then expose
@@ -70,7 +76,8 @@ reproducibility, or dated evidence documents.
   poses only after Track E. `.dentocase` remains geometry/lineage/current-
   attempt authority, and study load creates no MRML or ROS runtime object.
 - The accepted Step 6 ordering is runtime-first and is source-complete as of
-  2026-08-31. Its focused static/package build gate passed: both repositories
+  2026-08-31. Its focused static/package build gate passed, and the clean
+  exact-case stack reached the guarded PreEntry milestone on 2026-09-01: both repositories
   passed `git diff --check`, five edited Python files passed `py_compile`, and
   the isolated `slicer_ros2_module` package rebuilt successfully. Normal-window
   ROS/MoveIt behavior remains unverified. After case preparation and Manual Simulation Base
@@ -103,7 +110,37 @@ reproducibility, or dated evidence documents.
   authoritative locked 6.0–6.6 ownership/progress ledger. These native/UI
   changes passed the approved isolated `slicer_ros2_module` rebuild,
   four-module `py_compile`, and both repository `git diff --check`; operator
-  runtime verification remains pending. 6.4 and 6.5 were not reached.
+  runtime verification was still pending at that earlier checkpoint; the
+  later exact-case run reached 6.5 and accepted the PreEntry preview.
+- A restored fresh Task Home is now the 6.1 transient bootstrap vector, not an
+  incidental visible/default ROS pose; this prevents grey MRML/cyan ROS drift
+  on first Connect but never restores live validity, so 6.2 remains mandatory.
+  J2 now uses an extended/home zero and J5 is continuous in the URDF. Exact
+  former-profile packages migrate by `q_new=0.08 m-q_old`, canonicalize J5 to
+  its shortest representation, retain physical pose/base, and invalidate
+  runtime, workspace and later evidence for explicit 6.2/6.3 regeneration.
+  This source increment was built and exercised by the clean exact-case runtime;
+  migration remains subject to normal-window operator confirmation.
+- A subsequent clean-stack run completed the runtime-first gates through
+  immutable confirmation in 6.4, then reached Goal 1. MoveIt found a
+  collision-aware PreEntry IK endpoint (visible as the translucent robot) but
+  strict explicit-start OMPL returned an empty trajectory after the old three
+  identical attempts. The old message reported a raw `6.25726 rad` maximum
+  Home-to-goal delta without naming its joint or a collision pair. Current
+  source treats J5 and the spindle as continuous, evaluates all eight
+  direct axial-roll IK branches, then tries bounded two-leg routes through at
+  most three saved 6.3 samples already proven static-valid and Home-connected.
+  Both legs are replanned in the current scene. V2 diagnostics retain explicit
+  stage/full-task outcomes and direct/detour collision evidence while reading
+  V1 records without changing their fingerprint. Collision margins and anatomy
+  policy were not relaxed. The focused retry accepted 55 strict Home→PreEntry
+  waypoints and a guarded preview; the terminal segment remains explicitly
+  deferred.
+- Saved current-profile 6.3 evidence now has an explicit live-revalidation
+  action: after 6.1 Connect and 6.2 Home validation it replays every retained
+  state/FK and the formerly evaluated Home-connectivity subset, preserves the
+  reviewed limits, and requires fresh 6.4 confirmation. A mismatch requires
+  regeneration; no live-valid key is restored from package JSON.
 - Source CBCT geometry remains authoritative and unchanged. Volume rendering
   is display-only, not a segmentation surface or collision mesh.
 - Step 6 uses seven shared one-card substeps in both presentations. A current
@@ -131,6 +168,20 @@ reproducibility, or dated evidence documents.
 - The strongest automated evidence in this checkpoint is host-static or
   synthetic Slicer. It is not anatomical, clinical, registration, metrology,
   physical-fit, or hardware-safety evidence.
+
+## Reusable documentation-and-Git keyword
+
+When the operator sends `DENTO-POSTMORTEM-SYNC`, reconcile current
+implementation evidence into the controlled changelog, development plan, and
+dated logbook, then perform the requested Git diff-check, commit, and push for
+that documentation checkpoint. The generated summary is generic and
+evidence-based: what changed, why, what was superseded, verification,
+limitations, and the next bounded work. Do not update Google Drive, the
+personal journal/Daily Compass, or `TASKS.md`/the project tracker unless the
+operator separately approves each destination. Drive synchronization always
+requires explicit approval. Preserve unrelated dirty-worktree files and
+never include credentials, patient identifiers, or transient ROS/runtime
+objects in the summary.
 
 ## Read routing
 

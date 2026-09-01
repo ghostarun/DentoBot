@@ -28,6 +28,7 @@ class RobotShellWidgetMixin:
                 "appearance_changed": self._onStep6AppearanceChanged,
                 "save_home": self._onStep6SaveTaskHome,
                 "apply_home": self._onStep6ApplyTaskHome,
+                "revalidate_workspace": self._onStep6RevalidateWorkspace,
                 "review_limits": self._onStep6ReviewAssistedLimits,
                 "confirm_task": self._onStep6ConfirmTask,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
@@ -392,10 +393,31 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.workspaceReviewStatusLabel, result
         )
         if result.success:
-            self._applyTaskJointLimitsToJointSpinboxes()
+            self._updatingRobotPlacementUI = True
+            try:
+                self._applyTaskJointLimitsToJointSpinboxes()
+            finally:
+                self._updatingRobotPlacementUI = False
         else:
             slicer.util.errorDisplay(result.message)
         self._updateStep6PlanningUi(result.message, error=not result.success)
+
+    def _onStep6RevalidateWorkspace(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.revalidateSavedWorkspace()
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.workspaceReviewStatusLabel,
+            result,
+        )
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+        self._updateRobotPlacement()
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.workspaceReviewStatusLabel,
+            result,
+        )
 
     def _onStep6ConfirmTask(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -452,6 +474,10 @@ class RobotShellWidgetMixin:
         result = self._robotWorkflowFacade.planApproachPhase()
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
         self._updateStep6PlanningUi(result.message, error=not result.success)
+        # The façade creates one transient TCP path model from the accepted
+        # MoveIt waypoints. Refresh the shared View catalog so it is available
+        # to the operator's trajectory visibility/Frame controls immediately.
+        self._updateWorkflowViewControls()
         if not result.success:
             slicer.util.errorDisplay(result.message)
 

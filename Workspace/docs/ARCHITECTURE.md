@@ -105,7 +105,11 @@ expert diagnostics and never a lifecycle prerequisite.
 The source implements a runtime-first gate. 6.1 requires prepared anatomy, a
 local robot, and a reviewed Manual Simulation Base, then aligns `base_link` and
 acknowledges the exact PlanningScene without requiring saved Home/workspace
-evidence. Only afterward may 6.2 commit a MoveIt/FCL-validated Task Home. A
+evidence. When a base/resource-current Task Home is present after restore, 6.1
+uses its six-joint vector as the transient robot bootstrap so the MRML and ROS
+robots begin coincident; that persistent vector is still only a candidate and
+does not restore live validation. Only afterward may 6.2 commit or revalidate a
+MoveIt/FCL-validated Task Home. A
 different saved Home is reached by an explicit-start MoveIt plan from the
 monitored current state, with every returned waypoint rechecked by the strict
 simulation guard. 6.3 accepts MoveIt-FK/static-state-valid workspace samples
@@ -113,9 +117,19 @@ and persists their TCP/joint/provenance records. A deterministic bounded set of
 the nearest sample plus joint extrema/coverage points is separately planned
 from Home. Thus `StateValid`, `HomeConnected`, `PlanRejected`, and
 `NotEvaluated` remain distinct. The reviewed min/max proposal is an exploration
-envelope, not a collision-free-volume claim. This implementation remains
-runtime-unverified; its operator-approved static/package build gate passed on
-2026-08-31, while the normal-window ROS/MoveIt trial is still pending.
+envelope, not a collision-free-volume claim. This implementation passed the
+focused static/package build gate and a clean-stack exact-case runtime on
+2026-09-01 through guarded Home→PreEntry preview. A normal-window operator
+trial and terminal PreEntry→Entry acceptance remain pending.
+
+The tracked robot-description coordinate contract defines J2 `q=0` at the
+mechanically extended/home end. Its origin and axis encode the same physical
+chain formerly represented at J2 `q=0.08 m`; therefore
+`q_new = 0.08 m - q_old`. Package restore recognizes only the exact former
+URDF hash for this migration, converts the displayed/saved J2 value and task
+bounds, rewrites Task Home against the current robot fingerprint, and drops
+runtime/workspace/confirmation evidence that must be regenerated. Arbitrary
+robot-profile mismatches remain blocked.
 
 The presentation follows the same single-owner boundary. A dedicated 6.1
 runtime card owns Connect/Disconnect and expert runtime diagnostics, and its
@@ -138,7 +152,16 @@ current lock state reachable by an operator is `ProvisionalLocked`;
 `.dentocase` remains the sole package for case geometry, lineage, Step 6 intent
 and the current reviewed single-attempt diagnostic. Planned
 `MotionDiagnosticSessionV2` keeps explicit Stage 1/2/3/full-task and bounded
-candidate outcomes while reading legacy V1 evidence without inventing fields.
+candidate outcomes, including direct versus retained-workspace clearance
+routes, while reading legacy V1 evidence under its original schema fingerprint
+without inventing fields.
+
+Saved workspace samples are persistent evidence, not a restored runtime. A
+façade replay operation may recheck those exact states through current MoveIt
+static validity/FK and replan only the previously evaluated bounded Task-Home
+connections. Replay neither regenerates samples nor changes reviewed limits,
+and success still invalidates the former immutable confirmation. The live-valid
+key remains transient and absent from `.dentocase`.
 
 The later `.dentostudy` package is a separate evidence ledger, not a scene
 format. It references source `.dentocase` package identity/checksum/lineage and
@@ -160,6 +183,21 @@ messages tied to the immutable fingerprint. Terminal contact and drilling may
 accept only the burr-to-selected-target pair inside the confirmed corridor.
 All other robot/world/self contacts and joint violations remain fail-closed.
 No controller or hardware execution path is exposed.
+
+Goal 1 Stage 1 treats a translucent PreEntry robot as an IK endpoint view, not
+path evidence. `DENTORobotWorkflowFacade` constructs a bounded set of poses
+that share the exact approved drill axis and differ only by cylindrical-burr
+axial roll. `DENTOROS2Bridge` solves collision-aware IK from the immutable Task
+Home seed, canonicalizes only URDF-continuous joint representations, and ranks
+the resulting endpoints by normalized joint continuity before bounded strict
+planning. A successful endpoint's roll is carried unchanged into the axial and
+terminal segments and becomes the drilling-preflight start roll.
+
+When every strict candidate fails, the bridge may query exact MoveIt collision
+pairs along a sampled direct joint chord. That read-only chord never replaces
+OMPL and cannot authorize preview. Its purpose is to distinguish an obvious
+swept collision from a wrap/IK-branch or planner-search problem without
+relaxing collision geometry, padding, margins, or non-tool contacts.
 
 ### Priority-0 collision and motion-diagnostic boundary — source implementation 2026-08-29
 
@@ -206,8 +244,10 @@ evidence.
 The planned motion façade has three gates: collision-aware free-space motion to
 PreEntry; straight strict approach to Entry with only a narrow terminal
 tip-on-target tolerance; and guarded prescribed Entry-to-Target drilling with
-the existing scoped tool/target exception. A partial path is retained for
-diagnosis but never promoted to a successful preview.
+the existing scoped tool/target exception. If the first gate succeeds but the
+terminal segment is blocked, a guarded PreEntry-only PhasePlan is retained as
+a review milestone. A partial terminal path is retained for diagnosis but
+never promoted to Entry or drilling preview.
 
 Immediate base trials use an explicitly labelled manual simulation base pose.
 The existing plane-to-base snap is quarantined because the plane is derived

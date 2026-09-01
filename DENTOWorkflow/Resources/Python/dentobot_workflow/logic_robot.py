@@ -11,6 +11,16 @@ from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
 from dentobot_workflow.logic_robot_scene_sync import RobotSceneSyncLogicMixin
 
 
+LEGACY_J2_RETRACTED_ZERO_URDF_SHA256 = (
+    "af3862afc95fe4b071827eaf947408102a5baf12444cc44213a86813148acfc0"
+)
+J2_EXTENDED_J5_CONTINUOUS_URDF_SHA256 = (
+    "aea15dfd355d1a22f1b753011ed58979a8e63a2d87d8a7f9209478afee00fc11"
+)
+J2_TRAVEL_M = 0.08
+J2_TRAVEL_MM = J2_TRAVEL_M * 1000.0
+
+
 class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
 
 
@@ -450,6 +460,175 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
     def robotProfileFingerprint(self) -> str:
         return str(self.caseBundleRobotProfile().get("identitySha256") or "")
 
+    @staticmethod
+    def _robotProfileComponentSha256(
+        robotProfile,
+        componentPath: str,
+    ) -> str:
+        for component in dict(robotProfile or {}).get("components", ()):
+            if (
+                isinstance(component, dict)
+                and str(component.get("path") or "") == componentPath
+            ):
+                return str(component.get("sha256") or "")
+        return ""
+
+    def _migrateLegacyJ2ZeroRobotProfile(
+        self,
+        parameterNode,
+        savedRobotProfile,
+    ) -> dict[str, object]:
+        """Migrate the one approved URDF coordinate-only profile change.
+
+        The old J2 coordinate placed q=0 at the retracted end.  The current
+        URDF moves the origin to the former q=0.08 pose and reverses the axis,
+        so the same physical state is represented by q_new=0.08-q_old. J5's
+        former one-turn finite interval is canonicalized into the continuous
+        [-pi, pi] display window without changing its physical pose. This
+        migration runs only after package integrity/lineage validation and
+        only for the exact tracked legacy/current URDF hashes.
+        """
+
+        currentProfile = self.caseBundleRobotProfile()
+        savedIdentity = str(
+            dict(savedRobotProfile or {}).get("identitySha256") or ""
+        )
+        currentIdentity = str(currentProfile.get("identitySha256") or "")
+        if savedIdentity and savedIdentity == currentIdentity:
+            return {
+                "compatible": True,
+                "migrated": False,
+                "message": "",
+            }
+
+        savedUrdfSha = self._robotProfileComponentSha256(
+            savedRobotProfile,
+            "description/urdf/dentobot.urdf",
+        )
+        currentUrdfSha = self._robotProfileComponentSha256(
+            currentProfile,
+            "description/urdf/dentobot.urdf",
+        )
+        if not (
+            savedUrdfSha == LEGACY_J2_RETRACTED_ZERO_URDF_SHA256
+            and currentUrdfSha == J2_EXTENDED_J5_CONTINUOUS_URDF_SHA256
+        ):
+            return {
+                "compatible": False,
+                "migrated": False,
+                "message": "",
+            }
+
+        taskHome = self.taskHomeRecord(parameterNode)
+        if (
+            taskHome is not None
+            and taskHome.robot_profile_fingerprint != savedIdentity
+        ):
+            raise ValueError(
+                _(
+                    "The saved Task Home robot fingerprint does not match the "
+                    "case-package robot profile; J2 coordinates were not migrated."
+                )
+            )
+
+        hasPersistentStep6RobotState = bool(
+            taskHome is not None
+            or parameterNode.step6PlanningContextImported
+            or self.isRobotBaseTransformNode(parameterNode.robotBaseTransform)
+        )
+        if hasPersistentStep6RobotState:
+            oldJoint2Mm = float(parameterNode.robotJoint2Mm)
+            oldTaskMinimumMm = float(parameterNode.robotJoint2TaskMinMm)
+            oldTaskMaximumMm = float(parameterNode.robotJoint2TaskMaxMm)
+            newJoint2Mm = min(
+                J2_TRAVEL_MM,
+                max(0.0, J2_TRAVEL_MM - oldJoint2Mm),
+            )
+            newTaskMinimumMm = min(
+                J2_TRAVEL_MM,
+                max(0.0, J2_TRAVEL_MM - oldTaskMaximumMm),
+            )
+            newTaskMaximumMm = min(
+                J2_TRAVEL_MM,
+                max(0.0, J2_TRAVEL_MM - oldTaskMinimumMm),
+            )
+            oldJoint5Deg = float(parameterNode.robotJoint5Deg)
+            newJoint5Deg = (oldJoint5Deg + 180.0) % 360.0 - 180.0
+            migratedTaskHome = None
+            if taskHome is not None:
+                positionsSi = dict(
+                    zip(taskHome.joint_names, taskHome.joint_positions_si)
+                )
+                positionsSi["link-2_Slider-2"] = min(
+                    J2_TRAVEL_M,
+                    max(
+                        0.0,
+                        J2_TRAVEL_M
+                        - float(positionsSi["link-2_Slider-2"]),
+                    ),
+                )
+                oldJoint5Rad = float(positionsSi["link-5_Revolute-5"])
+                positionsSi["link-5_Revolute-5"] = (
+                    (oldJoint5Rad + math.pi) % (2.0 * math.pi) - math.pi
+                )
+                migratedTaskHome = build_task_home(
+                    positionsSi,
+                    base_fingerprint=taskHome.base_fingerprint,
+                    robot_profile_fingerprint=currentIdentity,
+                    revision=taskHome.revision + 1,
+                    runtime_validation_status="Unreviewed",
+                )
+
+            wasModifying = parameterNode.StartModify()
+            try:
+                parameterNode.robotJoint2Mm = newJoint2Mm
+                parameterNode.robotJoint2TaskMinMm = min(
+                    newTaskMinimumMm,
+                    newTaskMaximumMm,
+                )
+                parameterNode.robotJoint2TaskMaxMm = max(
+                    newTaskMinimumMm,
+                    newTaskMaximumMm,
+                )
+                parameterNode.robotJoint5Deg = newJoint5Deg
+                parameterNode.robotJoint5TaskMinDeg = -180.0
+                parameterNode.robotJoint5TaskMaxDeg = 180.0
+                if migratedTaskHome is not None:
+                    parameterNode.step6TaskHomeJson = canonical_json(
+                        migratedTaskHome.to_dict()
+                    )
+                # Workspace samples and their reviewed proposal encode the old
+                # joint coordinate.  They must be regenerated under MoveIt;
+                # runtime collision acknowledgement is likewise never carried
+                # across a robot-description revision.
+                parameterNode.step6AssistedLimitProposalJson = ""
+                parameterNode.step6CollisionSceneAuditJson = ""
+            finally:
+                parameterNode.EndModify(wasModifying)
+            self.invalidateStep6TaskConfirmation(
+                parameterNode,
+                _(
+                    "The J2 zero and J5 continuity conventions changed; regenerate "
+                    "workspace evidence under the current robot profile."
+                ),
+            )
+
+        return {
+            "compatible": True,
+            "migrated": hasPersistentStep6RobotState,
+            "message": _(
+                "Migrated the saved J2 coordinate and J5 representation to the "
+                "extended-zero/continuous URDF without changing the physical robot "
+                "pose. Task Home requires live validation in 6.2, and 6.3 workspace "
+                "evidence must be regenerated."
+            )
+            if hasPersistentStep6RobotState
+            else _(
+                "Accepted the tracked J2/J5 robot-profile upgrade; this package "
+                "contains no persistent Step 6 robot state to migrate."
+            ),
+        }
+
     def robotBaseFingerprint(self, parameterNode) -> str:
         base = parameterNode.robotBaseTransform
         if not self.isRobotBaseTransformNode(base):
@@ -719,6 +898,8 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             failure_classification=record.failure_classification,
             operator_review_state=record.operator_review_state,
             generated_at_utc=record.generated_at_utc,
+            stage_outcomes=record.stage_outcomes,
+            full_task_outcome=record.full_task_outcome,
         )
         parameterNode.step6MotionDiagnosticJson = canonical_json(stale.to_dict())
 

@@ -1,5 +1,49 @@
 # Dentobot Technical Decisions
 
+## 2026-09-01 — Preserve a truthful Goal 1 PreEntry milestone when Entry is blocked
+
+Status: source implemented; clean ROS 2/MoveIt exact-case runtime accepted
+
+Goal 1 must not report failure solely because its final Cartesian terminal
+segment cannot reach Entry when the strict Task-Home→PreEntry route is fully
+collision-free and previewable. In that case the façade returns a successful
+PreEntry-only `PhasePlan`, records `DeferredAtPreEntry` and the exact terminal
+fraction/error in the V2 diagnostic session, and keeps Entry/Goal 2 deferred.
+The guarded preview contains only the strict waypoints; no partial Cartesian
+trajectory is promoted and no collision channel is relaxed.
+
+Reason: a valid endpoint and a partial terminal fraction are different pieces
+of evidence. The operator needs a safe, reviewable placement milestone while
+the terminal collision/reachability issue is diagnosed, and the workflow must
+never imply that a partial path is a drilling or Entry result.
+
+## 2026-09-01 — Bootstrap ROS from fresh saved Home and put J2 zero at full extension
+
+Status: source implemented; build and normal-window verification pending
+
+Step 6.1 remains the sole runtime owner and still does not require a saved
+Task Home. When a restored Home is current for the reviewed base and installed
+robot resources, however, Connect must initialize the transient ROS robot from
+that exact vector rather than the incidental visible controls or ROS default.
+This seeding never restores live validity: Step 6.2 must recheck the candidate
+against the newly acknowledged MoveIt/FCL scene.
+
+Define J2 zero at its mechanically extended/home end. Preserve physical poses
+by moving the URDF joint origin to the former `q=0.08 m` pose, reversing the J2
+axis, and mapping `q_new = 0.08 m - q_old`. The previously selected
+J1/J3/J5/J6 Home offsets remain absorbed in their URDF origins and therefore
+remain displayed as zero. Accept automatic saved-case conversion only when the
+package contains the exact tracked former URDF hash; convert J2 pose and task
+bounds, rewrite Home for the current robot profile, invalidate live validation,
+workspace proposal, collision acknowledgement, immutable task, and motion
+evidence, and require 6.2/6.3 regeneration. Any other profile mismatch remains
+blocked.
+
+Reason: restoring a persistent Home but starting ROS at its default produced
+two superposed robot poses until the operator applied Home, disconnected, and
+reconnected. A UI-only J2 inversion would leave URDF, MoveIt, TF, MRML FK, and
+saved packages in competing coordinate conventions.
+
 ## 2026-09-01 — Pressure bench detects change-points on ΔP, not startup anomalies
 
 Status: source and syntax verified; live serial/GUI click acceptance pending
@@ -3066,3 +3110,33 @@ Presets remain display-only and restore exact prior state across save handling;
 geometry, mask voxels, references, coordinate frames, and validity are not
 changed by viewing. This removes step-dependent blind spots, including the
 inability to compare full CBCT volume rendering with the Step 6 robot.
+
+## 2026-09-01 — Goal 1 uses bounded tool-roll/IK branches and diagnostic chords
+
+Status: accepted source design; implementation is not yet statically or
+runtime verified
+
+A collision-aware IK endpoint and its translucent robot prove only endpoint
+validity. They do not prove that Task Home and that endpoint share a
+collision-free MoveIt path. Goal 1 therefore must not retry one frozen joint
+goal while presenting its ghost as path evidence.
+
+Keep the Entry-to-Target drill axis fixed, but exploit the cylindrical burr's
+otherwise redundant axial roll through a bounded candidate set. Solve each
+PreEntry candidate with collision-aware MoveIt IK seeded from Task Home, rank
+the candidates by normalized Home-to-goal joint continuity, and submit at most
+three distinct candidates to the strict explicit-start planner. The selected
+roll remains constant through the strict axial and terminal approach and is
+the starting roll for drilling preflight.
+
+Canonicalize angle representation only for joints declared `continuous` in
+the tracked URDF. Joints 1, 3 and 5 remain hard-bounded even though their
+configured spans are one full revolution; never wrap them through a limit.
+Record requested versus submitted goals, per-joint raw/effective deltas, the
+largest joint, and any continuous-joint adjustment.
+
+If every candidate plan fails, sample the direct joint interpolation at the
+existing guard step scale and report the first exact MoveIt collision pair.
+This is a non-authorizing shadow observation: a colliding chord does not rule
+out a curved path, and a clear chord is not a MoveIt plan. Collision margins,
+anatomy objects and non-tool contacts remain unchanged and fail-closed.

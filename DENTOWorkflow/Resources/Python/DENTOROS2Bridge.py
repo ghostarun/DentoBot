@@ -11,7 +11,7 @@ import json
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import acos, cos, degrees, floor, isfinite, radians, sin, sqrt
+from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
@@ -59,6 +59,7 @@ ROS2_JOINT_STATUS_SUBSCRIBER_ATTRIBUTE = "DENTOBOT.JointCommandStatusSubscriber"
 ROS2_OBSTACLE_PROXY_ATTRIBUTE = "DENTOBOT.MoveItObstacleProxy"
 ROS2_OBSTACLE_SOURCE_ATTRIBUTE = "DENTOBOT.MoveItObstacleSource"
 ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE = "DENTOBOT.MoveItObstaclePublishedId"
+ROS2_PHASE_PATH_ATTRIBUTE = "DENTOBOT.Step6PhasePlanPath"
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
 ROS2_JOINT_SI_ORDER = (
@@ -68,6 +69,12 @@ ROS2_JOINT_SI_ORDER = (
     "link-4_Slider-4",
     "link-5_Revolute-5",
     "pneumatic_spindle-Copy_Revolute-6",
+)
+ROS2_CONTINUOUS_REVOLUTE_JOINTS = frozenset(
+    {
+        "link-5_Revolute-5",
+        "pneumatic_spindle-Copy_Revolute-6",
+    }
 )
 
 ROS2_MODULE_NAME = "ROS2"
@@ -129,11 +136,28 @@ class MoveItCartesianResult:
     first_invalid_collision_pairs: tuple[tuple[str, str], ...] = ()
     submitted_start_joint_positions_si: Optional[dict[str, float]] = None
     submitted_goal_joint_positions_si: Optional[dict[str, float]] = None
+    requested_goal_joint_positions_si: Optional[dict[str, float]] = None
     monitored_start_joint_positions_si: Optional[dict[str, float]] = None
+    per_joint_start_goal_delta: Optional[dict[str, float]] = None
     maximum_start_goal_delta: Optional[float] = None
+    maximum_start_goal_delta_joint: str = ""
+    raw_maximum_start_goal_delta: Optional[float] = None
+    raw_maximum_start_goal_delta_joint: str = ""
+    continuous_joint_wrap_adjustments: Optional[dict[str, float]] = None
     maximum_monitored_start_error: Optional[float] = None
     planner_start_source: str = ""
     native_planner_message: str = ""
+
+
+@dataclass(frozen=True)
+class JointSegmentDiagnostic:
+    """Read-only collision evidence along one direct joint interpolation."""
+
+    sample_count: int
+    collision_found: bool
+    first_collision_fraction: Optional[float] = None
+    first_collision_pairs: tuple[tuple[str, str], ...] = ()
+    message: str = ""
 
 
 @dataclass(frozen=True)
@@ -800,7 +824,10 @@ def _joint_state_error(
         if name not in expected or name not in observed:
             mismatched.append(name)
             continue
-        error = abs(float(observed[name]) - float(expected[name]))
+        delta = float(observed[name]) - float(expected[name])
+        if name in ROS2_CONTINUOUS_REVOLUTE_JOINTS:
+            delta = (delta + pi) % (2.0 * pi) - pi
+        error = abs(delta)
         maximum_error = max(maximum_error, error)
         tolerance = (
             ROS2_MONITORED_PRISMATIC_TOLERANCE_M
@@ -1343,6 +1370,168 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     return [float(positions_si[name]) for name in ROS2_JOINT_SI_ORDER]
 
 
+def moveit_joint_goal_diagnostics(
+    start_joint_positions_si: Mapping[str, float],
+    goal_joint_positions_si: Mapping[str, float],
+) -> dict[str, object]:
+    """Canonicalize continuous goals and describe Task-Home continuity.
+
+    Only joints declared continuous in the tracked URDF may cross a ``2*pi``
+    representation boundary.  The other revolute joints have real bounded
+    intervals even when an interval happens to span one full turn; silently
+    wrapping those joints could request motion through a mechanical limit.
+    """
+
+    start_values = joint_si_vector(start_joint_positions_si)
+    requested_goal_values = joint_si_vector(goal_joint_positions_si)
+    start = dict(zip(ROS2_JOINT_SI_ORDER, start_values))
+    requested_goal = dict(zip(ROS2_JOINT_SI_ORDER, requested_goal_values))
+    submitted_goal = dict(requested_goal)
+    adjustments: dict[str, float] = {}
+    for name in ROS2_CONTINUOUS_REVOLUTE_JOINTS:
+        requested = requested_goal[name]
+        reference = start[name]
+        turns = round((reference - requested) / (2.0 * pi))
+        adjusted = requested + float(turns) * 2.0 * pi
+        submitted_goal[name] = adjusted
+        adjustment = adjusted - requested
+        if abs(adjustment) > 1e-12:
+            adjustments[name] = adjustment
+    raw_deltas = {
+        name: abs(requested_goal[name] - start[name])
+        for name in ROS2_JOINT_SI_ORDER
+    }
+    effective_deltas = {
+        name: abs(submitted_goal[name] - start[name])
+        for name in ROS2_JOINT_SI_ORDER
+    }
+    raw_maximum_joint = max(raw_deltas, key=raw_deltas.get, default="")
+    maximum_joint = max(effective_deltas, key=effective_deltas.get, default="")
+    return {
+        "start": start,
+        "requested_goal": requested_goal,
+        "submitted_goal": submitted_goal,
+        "raw_deltas": raw_deltas,
+        "effective_deltas": effective_deltas,
+        "raw_maximum_joint": raw_maximum_joint,
+        "raw_maximum_delta": (
+            raw_deltas[raw_maximum_joint] if raw_maximum_joint else 0.0
+        ),
+        "maximum_joint": maximum_joint,
+        "maximum_delta": effective_deltas[maximum_joint] if maximum_joint else 0.0,
+        "continuous_adjustments": adjustments,
+    }
+
+
+def diagnose_moveit_joint_segment(
+    start_joint_positions_si: Mapping[str, float],
+    goal_joint_positions_si: Mapping[str, float],
+    *,
+    maximum_samples: int = 721,
+) -> JointSegmentDiagnostic:
+    """Probe the direct joint chord for the first exact MoveIt collision.
+
+    This is diagnostic only.  A colliding direct chord does not prove that no
+    curved free-space plan exists, and a clear chord is never promoted as a
+    plan.  No joint state is published or applied.
+    """
+
+    _logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or robot_node is None:
+        return JointSegmentDiagnostic(
+            sample_count=0,
+            collision_found=False,
+            message=error or "MoveIt robot context is unavailable.",
+        )
+    try:
+        diagnostic = moveit_joint_goal_diagnostics(
+            start_joint_positions_si,
+            goal_joint_positions_si,
+        )
+        start = diagnostic["start"]
+        goal = diagnostic["submitted_goal"]
+        effective_deltas = diagnostic["effective_deltas"]
+        requested_intervals = []
+        for name in ROS2_JOINT_SI_ORDER:
+            maximum_step = (
+                ROS2_GUARD_MAX_PRISMATIC_STEP_M
+                if "Slider" in name
+                else ROS2_GUARD_MAX_REVOLUTE_STEP_RAD
+            )
+            requested_intervals.append(
+                int(ceil(float(effective_deltas[name]) / maximum_step))
+            )
+        interval_count = max(1, min(max(requested_intervals), maximum_samples - 1))
+        sample_count = interval_count + 1
+        for sample_index in range(sample_count):
+            fraction = float(sample_index) / float(interval_count)
+            values = [
+                float(start[name])
+                + (float(goal[name]) - float(start[name])) * fraction
+                for name in ROS2_JOINT_SI_ORDER
+            ]
+            encoded_pairs = robot_node.GetMoveItCollidingBodyPairs(
+                ROS2_PLANNING_GROUP,
+                values,
+            )
+            pairs = tuple(
+                tuple(str(value).split("\t", 1))
+                for value in encoded_pairs
+                if "\t" in str(value)
+            )
+            if pairs:
+                first_pair = " <-> ".join(pairs[0])
+                return JointSegmentDiagnostic(
+                    sample_count=sample_count,
+                    collision_found=True,
+                    first_collision_fraction=fraction,
+                    first_collision_pairs=pairs,
+                    message=(
+                        "The direct Task-Home-to-goal joint interpolation first "
+                        f"collides at {fraction * 100.0:.1f}%: {first_pair}. "
+                        "This does not rule out a curved collision-free plan."
+                    ),
+                )
+        return JointSegmentDiagnostic(
+            sample_count=sample_count,
+            collision_found=False,
+            message=(
+                f"No collision pair was found on the direct joint interpolation "
+                f"at {sample_count} bounded sample(s). The chord is diagnostic "
+                "only and was not promoted as a plan."
+            ),
+        )
+    except Exception as exc:
+        return JointSegmentDiagnostic(
+            sample_count=0,
+            collision_found=False,
+            message=f"Direct joint-interpolation diagnosis failed: {exc}",
+        )
+
+
+def show_moveit_joint_goal(
+    joint_positions_si: Mapping[str, float],
+) -> tuple[bool, str]:
+    """Display one already-selected joint goal on the transient goal robot."""
+
+    logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None or robot_node is None:
+        return False, error or "MoveIt goal-robot context is unavailable."
+    try:
+        values = joint_si_vector(joint_positions_si)
+        logic.last_ik_solution = list(values)
+        logic.updategoalTransformsFromJointsKDL(robot_node, values)
+    except Exception as exc:
+        return False, f"Could not display the selected MoveIt goal state: {exc}"
+    return True, "Displayed the selected MoveIt plan endpoint."
+
+
 def find_ros2_robot_by_name(robot_name: str):
     try:
         import slicer
@@ -1823,6 +2012,115 @@ def show_goal_robot_joint_positions(
         return True, "Showing the selected last-valid state on the display-only goal robot."
     except Exception as exc:
         return False, f"Could not show the diagnostic goal state: {exc}"
+
+
+def clear_phase_plan_tcp_path() -> None:
+    """Remove the transient TCP path used by the Step 6 phase preview.
+
+    The path is display-only evidence.  It is deliberately a transient MRML
+    model and is never serialized into a case package or published to
+    MoveIt's PlanningScene.
+    """
+
+    try:
+        import slicer
+    except ImportError:
+        return
+    for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
+        if node.GetAttribute(ROS2_PHASE_PATH_ATTRIBUTE) == "true":
+            slicer.mrmlScene.RemoveNode(node)
+
+
+def show_phase_plan_tcp_path(
+    waypoint_joint_vectors_si: Sequence[Mapping[str, float]],
+    base_transform,
+    *,
+    phase: str = "approach",
+) -> Tuple[bool, str]:
+    """Render a transient world-RAS TCP polyline for a planned phase.
+
+    Each point is obtained from the same SlicerROS2 KDL chain that drives the
+    robot model, then transformed by the locked base into world RAS mm.  This
+    avoids inventing a second coordinate conversion and makes the line an
+    honest view of the actual joint waypoints that will be previewed.  It has
+    no collision/planning authority and is excluded from all outgoing obstacle
+    payloads.
+    """
+
+    try:
+        import slicer
+        import vtk
+    except ImportError:
+        return False, ROS2_UNAVAILABLE_MESSAGE
+    clear_phase_plan_tcp_path()
+    waypoints = tuple(waypoint_joint_vectors_si or ())
+    if len(waypoints) < 2:
+        return False, "A phase path needs at least two joint waypoints."
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if robot_node is None:
+        return False, "The transient ROS robot is unavailable for TCP path display."
+    if base_transform is None:
+        return False, "The locked robot base is unavailable for TCP path display."
+    base_world = vtk.vtkMatrix4x4()
+    if base_transform.GetMatrixTransformToWorld(base_world) is False:
+        return False, "Could not resolve the robot base in world RAS."
+    points = vtk.vtkPoints()
+    for waypoint in waypoints:
+        try:
+            pose_base = vtk.vtkMatrix4x4()
+            pose_base.Identity()
+            if (
+                robot_node.ComputeKDLFK(
+                    joint_si_vector(waypoint),
+                    pose_base,
+                    ROS2_TOOL_TCP_LINK,
+                )
+                is None
+            ):
+                clear_phase_plan_tcp_path()
+                return False, f"Could not compute {ROS2_TOOL_TCP_LINK} FK for the planned path."
+            pose_world = vtk.vtkMatrix4x4()
+            vtk.vtkMatrix4x4.Multiply4x4(base_world, pose_base, pose_world)
+            points.InsertNextPoint(
+                float(pose_world.GetElement(0, 3)),
+                float(pose_world.GetElement(1, 3)),
+                float(pose_world.GetElement(2, 3)),
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            clear_phase_plan_tcp_path()
+            return False, f"Could not compute the planned TCP path: {exc}"
+    polyline = vtk.vtkPolyLine()
+    polyline.GetPointIds().SetNumberOfIds(points.GetNumberOfPoints())
+    for index in range(points.GetNumberOfPoints()):
+        polyline.GetPointIds().SetId(index, index)
+    cells = vtk.vtkCellArray()
+    cells.InsertNextCell(polyline)
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(points)
+    polydata.SetLines(cells)
+    node = slicer.mrmlScene.AddNewNodeByClass(
+        "vtkMRMLModelNode",
+        f"[Step 6] Planned TCP Path ({str(phase).title()})",
+    )
+    node.SetAttribute(ROS2_PHASE_PATH_ATTRIBUTE, "true")
+    node.SetAttribute("DENTOBOT.IntendedUse", "DisplayOnlyPhasePlan")
+    node.SetAttribute("DENTOBOT.Phase", str(phase))
+    node.SetAttribute("DENTOBOT.CoordinateFrame", ROS2_FIXED_FRAME)
+    node.SaveWithSceneOff()
+    node.SetAndObservePolyData(polydata)
+    node.CreateDefaultDisplayNodes()
+    display = node.GetDisplayNode()
+    if display is not None:
+        display.SetVisibility(True)
+        display.SetColor(1.0, 0.65, 0.05)
+        display.SetOpacity(0.95)
+        set_line_width = getattr(display, "SetLineWidth", None)
+        if set_line_width is not None:
+            set_line_width(4.0)
+    return True, (
+        f"Showing the {str(phase)} TCP phase path ({points.GetNumberOfPoints()} points) "
+        "in world RAS."
+    )
 
 
 def show_motion_diagnostic_evidence(
@@ -2694,17 +2992,25 @@ def plan_moveit_joint_goal(
         )
     if explicit_goal:
         try:
-            start_values = joint_si_vector(start_joint_positions_si)
-            goal_values = joint_si_vector(goal_joint_positions_si)
+            joint_diagnostic = moveit_joint_goal_diagnostics(
+                start_joint_positions_si,
+                goal_joint_positions_si,
+            )
         except (KeyError, TypeError, ValueError) as exc:
             return MoveItCartesianResult(False, f"MoveIt start/goal vector is invalid: {exc}")
-        submitted_start = dict(zip(ROS2_JOINT_SI_ORDER, start_values))
-        submitted_goal = dict(zip(ROS2_JOINT_SI_ORDER, goal_values))
-        per_joint_delta = {
-            name: abs(submitted_goal[name] - submitted_start[name])
-            for name in ROS2_JOINT_SI_ORDER
-        }
-        maximum_delta = max(per_joint_delta.values(), default=0.0)
+        submitted_start = dict(joint_diagnostic["start"])
+        requested_goal = dict(joint_diagnostic["requested_goal"])
+        submitted_goal = dict(joint_diagnostic["submitted_goal"])
+        start_values = [submitted_start[name] for name in ROS2_JOINT_SI_ORDER]
+        goal_values = [submitted_goal[name] for name in ROS2_JOINT_SI_ORDER]
+        per_joint_delta = dict(joint_diagnostic["effective_deltas"])
+        maximum_delta = float(joint_diagnostic["maximum_delta"])
+        maximum_delta_joint = str(joint_diagnostic["maximum_joint"])
+        raw_maximum_delta = float(joint_diagnostic["raw_maximum_delta"])
+        raw_maximum_delta_joint = str(joint_diagnostic["raw_maximum_joint"])
+        continuous_adjustments = dict(
+            joint_diagnostic["continuous_adjustments"]
+        )
         meaningfully_distinct = any(
             delta
             > (
@@ -2727,8 +3033,14 @@ def plan_moveit_joint_goal(
                 "PreEntry IK are indistinguishable within the monitored-state tolerances.",
                 submitted_start_joint_positions_si=submitted_start,
                 submitted_goal_joint_positions_si=submitted_goal,
+                requested_goal_joint_positions_si=requested_goal,
                 monitored_start_joint_positions_si=monitored_start or None,
+                per_joint_start_goal_delta=per_joint_delta,
                 maximum_start_goal_delta=maximum_delta,
+                maximum_start_goal_delta_joint=maximum_delta_joint,
+                raw_maximum_start_goal_delta=raw_maximum_delta,
+                raw_maximum_start_goal_delta_joint=raw_maximum_delta_joint,
+                continuous_joint_wrap_adjustments=continuous_adjustments,
                 maximum_monitored_start_error=monitored_error,
                 planner_start_source=explicit_context,
             )
@@ -2742,8 +3054,14 @@ def plan_moveit_joint_goal(
         goal_values = [float(value) for value in logic.last_ik_solution]
         submitted_start = None
         submitted_goal = None
+        requested_goal = None
         monitored_start = monitored_joint_positions_si()
+        per_joint_delta = None
         maximum_delta = None
+        maximum_delta_joint = ""
+        raw_maximum_delta = None
+        raw_maximum_delta_joint = ""
+        continuous_adjustments = None
         monitored_error = None
     parameter_node = logic.getParameterNode()
     try:
@@ -2791,8 +3109,14 @@ def plan_moveit_joint_goal(
                         "rebuild/restart the module before Step 6.5.",
                         submitted_start_joint_positions_si=submitted_start,
                         submitted_goal_joint_positions_si=submitted_goal,
+                        requested_goal_joint_positions_si=requested_goal,
                         monitored_start_joint_positions_si=monitored_start or None,
+                        per_joint_start_goal_delta=per_joint_delta,
                         maximum_start_goal_delta=maximum_delta,
+                        maximum_start_goal_delta_joint=maximum_delta_joint,
+                        raw_maximum_start_goal_delta=raw_maximum_delta,
+                        raw_maximum_start_goal_delta_joint=raw_maximum_delta_joint,
+                        continuous_joint_wrap_adjustments=continuous_adjustments,
                         maximum_monitored_start_error=monitored_error,
                         planner_start_source=explicit_context,
                     )
@@ -2831,8 +3155,14 @@ def plan_moveit_joint_goal(
                 ),
                 submitted_start_joint_positions_si=submitted_start,
                 submitted_goal_joint_positions_si=submitted_goal,
+                requested_goal_joint_positions_si=requested_goal,
                 monitored_start_joint_positions_si=monitored_start or None,
+                per_joint_start_goal_delta=per_joint_delta,
                 maximum_start_goal_delta=maximum_delta,
+                maximum_start_goal_delta_joint=maximum_delta_joint,
+                raw_maximum_start_goal_delta=raw_maximum_delta,
+                raw_maximum_start_goal_delta_joint=raw_maximum_delta_joint,
+                continuous_joint_wrap_adjustments=continuous_adjustments,
                 maximum_monitored_start_error=monitored_error,
                 planner_start_source=(
                     explicit_context if explicit_start else "moveit_current_legacy"
@@ -2855,7 +3185,23 @@ def plan_moveit_joint_goal(
         if explicit_start:
             ownership_evidence = (
                 f" Submitted explicit planner context={explicit_context}; "
-                f"maximum start/goal joint delta={maximum_delta:.6g}"
+                f"largest effective start/goal joint delta="
+                f"{maximum_delta:.6g} on {maximum_delta_joint}"
+                + (
+                    f"; raw largest delta={raw_maximum_delta:.6g} on "
+                    f"{raw_maximum_delta_joint}"
+                    if raw_maximum_delta is not None
+                    else ""
+                )
+                + (
+                    "; normalized continuous joint representation: "
+                    + ", ".join(
+                        f"{name} {adjustment:+.6g} rad"
+                        for name, adjustment in continuous_adjustments.items()
+                    )
+                    if continuous_adjustments
+                    else ""
+                )
                 + (
                     f", maximum monitored/start error={monitored_error:.6g}."
                     if monitored_error is not None
@@ -2877,8 +3223,14 @@ def plan_moveit_joint_goal(
             f"MoveIt goal planning failed: {exc}",
             submitted_start_joint_positions_si=submitted_start,
             submitted_goal_joint_positions_si=submitted_goal,
+            requested_goal_joint_positions_si=requested_goal,
             monitored_start_joint_positions_si=monitored_start or None,
+            per_joint_start_goal_delta=per_joint_delta,
             maximum_start_goal_delta=maximum_delta,
+            maximum_start_goal_delta_joint=maximum_delta_joint,
+            raw_maximum_start_goal_delta=raw_maximum_delta,
+            raw_maximum_start_goal_delta_joint=raw_maximum_delta_joint,
+            continuous_joint_wrap_adjustments=continuous_adjustments,
             maximum_monitored_start_error=monitored_error,
             planner_start_source=(
                 explicit_context if explicit_start else "moveit_current_legacy"

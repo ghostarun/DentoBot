@@ -10,9 +10,9 @@ hardware execution path.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from math import degrees, isfinite
+from math import degrees, isfinite, pi
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import DENTOROS2Bridge as _default_bridge
@@ -49,6 +49,20 @@ WORKSPACE_RUNTIME_VALIDATION_STATUS = (
     "MoveItStaticStateValidity+BoundedHomeConnectivity"
 )
 WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION = "1.0"
+GOAL1_AXIAL_ROLL_CANDIDATES_DEG = (
+    0.0,
+    45.0,
+    -45.0,
+    90.0,
+    -90.0,
+    135.0,
+    -135.0,
+    180.0,
+)
+GOAL1_MAX_PLANNED_IK_CANDIDATES = len(GOAL1_AXIAL_ROLL_CANDIDATES_DEG)
+GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
+GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
+GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
 
 
 def _bounded_text(value: object, maximum_length: int = 600) -> str:
@@ -362,6 +376,14 @@ class DENTORobotWorkflowFacade:
     def _clear_phase_session(self) -> None:
         """Invalidate all local state tied to one transient task-guard session."""
 
+        clear_path = getattr(self._bridge, "clear_phase_plan_tcp_path", None)
+        if callable(clear_path):
+            try:
+                clear_path()
+            except Exception:
+                # A display-only cleanup failure must never mask the state
+                # invalidation that owns the actual planning/guard session.
+                pass
         self._motion_plan = None
         self._phase_sequence = 0
         self._completed_phase = ""
@@ -771,12 +793,34 @@ class DENTORobotWorkflowFacade:
             )
             parameter_node.robotBaseTransform = base
             mrml_models = self._logic.robotModelNodes()
-            # Step 6.1 owns runtime creation. Seed it from the visible local
-            # candidate only; Task Home and assisted limits are downstream live
-            # evidence and therefore must not be prerequisites for Connect.
-            bootstrap_positions_si = self._positions_si(
-                self._display_values(parameter_node)
-            )
+            # Step 6.1 owns runtime creation.  A fresh persistent Task Home is
+            # the authoritative bootstrap candidate after case restore, but it
+            # is not treated as live evidence: 6.2 must still validate it
+            # against the newly connected MoveIt/collision runtime.  If no
+            # current Home exists, retain the visible local candidate so a new
+            # case can establish one in 6.2.
+            bootstrap_source = "visible_joint_controls"
+            task_home_revision = 0
+            task_home_issues: tuple[str, ...] = ()
+            task_home = None
+            try:
+                task_home_issues = tuple(
+                    self._logic.taskHomeFreshnessIssues(parameter_node)
+                )
+                if not task_home_issues:
+                    task_home = self._logic.taskHomeRecord(parameter_node)
+            except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+                task_home_issues = (str(exc),)
+            if task_home is not None:
+                bootstrap_positions_si = dict(
+                    zip(task_home.joint_names, task_home.joint_positions_si)
+                )
+                bootstrap_source = "saved_task_home"
+                task_home_revision = int(task_home.revision)
+            else:
+                bootstrap_positions_si = self._positions_si(
+                    self._display_values(parameter_node)
+                )
             seeded_candidate = self._apply_positions_si(bootstrap_positions_si)
             if not seeded_candidate.success:
                 return RobotActionResult(
@@ -840,15 +884,27 @@ class DENTORobotWorkflowFacade:
             self._runtime_validated_workspace_key = ""
             candidate_result = self._apply_positions_si(bootstrap_positions_si)
             candidate_status = self.checkStateValidity()
+            bootstrap_message = (
+                " Seeded the transient robot from the fresh saved Task Home "
+                "candidate; 6.2 must still validate it in this live runtime."
+                if bootstrap_source == "saved_task_home"
+                else " Seeded the transient robot from the visible joint "
+                "candidate because no fresh saved Task Home was available."
+            )
             return RobotActionResult(
                 True,
                 "connected",
                 "Connected natively inside DENTOWorkflow, aligned the live robot "
                 "to the locked base, and synchronized the simulation planning "
-                "scene. Continue to 6.2 to choose and validate Task Home against "
-                "this live runtime.",
+                "scene."
+                + bootstrap_message
+                + " Continue to 6.2 to validate Task Home against this live "
+                "runtime.",
                 details={
                     "obstacleCount": obstacle_count,
+                    "bootstrapSource": bootstrap_source,
+                    "savedTaskHomeRevision": task_home_revision,
+                    "savedTaskHomeFreshnessIssues": list(task_home_issues),
                     "candidateAccepted": bool(
                         candidate_result.success and candidate_status.success
                     ),
@@ -1508,9 +1564,22 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "workspace_runtime_revalidation_required",
-                    "The saved workspace is not validated in this ROS/MoveIt session. Regenerate it in 6.3 before review.",
+                    "The saved workspace is not validated in this ROS/MoveIt "
+                    "session. Revalidate the saved evidence in 6.3, or regenerate "
+                    "it if replay fails, before review.",
                 )
-            proposal = self._logic.reviewAndApplyAssistedTaskLimits(parameter_node)
+            # Parameter-node GUI connectors emit the same limit-spinbox signal
+            # for operator edits and for these accepted programmatic writes.
+            # Keep the display-sync guard active until all six values and the
+            # reviewed proposal have been committed so the widget does not
+            # delete the workspace it has just accepted.
+            self._display_sync_depth += 1
+            try:
+                proposal = self._logic.reviewAndApplyAssistedTaskLimits(
+                    parameter_node
+                )
+            finally:
+                self._display_sync_depth = max(0, self._display_sync_depth - 1)
             self._runtime_validated_workspace_key = fingerprint(proposal)
             self._clear_phase_session()
             return RobotActionResult(
@@ -1521,6 +1590,245 @@ class DENTORobotWorkflowFacade:
             )
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "assisted_limits_failed", str(exc))
+
+    def revalidateSavedWorkspace(self) -> RobotActionResult:
+        """Replay persisted 6.3 evidence in the current ROS/MoveIt session.
+
+        This deliberately does not regenerate Halton samples or change the
+        reviewed assisted envelope.  It rechecks every retained static state,
+        verifies authoritative TCP FK against the saved coordinates, and
+        replans the previously evaluated Home-connectivity subset.
+        """
+
+        try:
+            parameter_node = self._require_context()
+            if not self._logic.isRos2MotionControlActive(
+                parameter_node.robotBaseTransform
+            ):
+                raise ValueError("Connect ROS/MoveIt in 6.1 first.")
+            if not self.taskHomeRuntimeValidated(parameter_node):
+                raise ValueError(
+                    "Apply and live-validate the saved Task Home in 6.2 first."
+                )
+            try:
+                payload = json.loads(
+                    str(parameter_node.step6AssistedLimitProposalJson or "")
+                )
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("No valid saved 6.3 workspace evidence exists.") from exc
+            evidence = payload.get("accepted_sample_evidence")
+            if not isinstance(evidence, list) or not evidence:
+                raise ValueError(
+                    "The saved package has no replayable workspace sample evidence; "
+                    "generate 6.3 once."
+                )
+            home = self._logic.taskHomeRecord(parameter_node)
+            collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
+            collision_fingerprint = (
+                str(collision_audit.audit_fingerprint)
+                if collision_audit is not None
+                else ""
+            )
+            prerequisite_issues = []
+            if payload.get("runtime_validation_status") != (
+                WORKSPACE_RUNTIME_VALIDATION_STATUS
+            ):
+                prerequisite_issues.append("unsupported saved validation status")
+            if payload.get("runtime_evidence_schema_version") != (
+                WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION
+            ):
+                prerequisite_issues.append("unsupported workspace evidence schema")
+            if home is None or payload.get("task_home_fingerprint") != fingerprint(
+                home.to_dict()
+            ):
+                prerequisite_issues.append("saved evidence belongs to another Task Home")
+            if payload.get("collision_audit_fingerprint") != collision_fingerprint:
+                prerequisite_issues.append("saved evidence belongs to another collision scene")
+            if payload.get("workspace_validation_policy_fingerprint") != (
+                self._workspace_validation_policy_fingerprint()
+            ):
+                prerequisite_issues.append("workspace validation policy changed")
+            if prerequisite_issues:
+                raise ValueError(
+                    "Saved workspace cannot be replayed safely: "
+                    + "; ".join(prerequisite_issues)
+                    + ". Regenerate 6.3."
+                )
+            home_positions = dict(zip(home.joint_names, home.joint_positions_si))
+            static_valid_count = 0
+            home_evaluated_count = 0
+            home_connected_count = 0
+            rejected_messages: list[str] = []
+            scene_refreshed = False
+            maximum_fk_difference_mm = 0.0
+            for evidence_index, sample in enumerate(evidence):
+                if not isinstance(sample, dict):
+                    raise ValueError(
+                        f"Saved workspace sample {evidence_index} is malformed."
+                    )
+                names = tuple(sample.get("joint_names", ()))
+                values = tuple(sample.get("joint_positions_si", ()))
+                if len(names) != len(JOINT_NAMES) or len(values) != len(JOINT_NAMES):
+                    raise ValueError(
+                        f"Saved workspace sample {evidence_index} lacks six joints."
+                    )
+                positions = {
+                    str(name): float(value) for name, value in zip(names, values)
+                }
+                valid, validity_message, authoritative = (
+                    self._bridge.check_moveit_static_joint_state(positions)
+                )
+                if not authoritative:
+                    raise RuntimeError(
+                        "MoveIt did not return authoritative state validity for "
+                        f"saved sample {evidence_index}: {validity_message}"
+                    )
+                sample["static_state_validity"] = {
+                    "status": "Valid" if valid else "RejectedOnReplay",
+                    "authoritative": True,
+                    "message": _bounded_text(validity_message),
+                }
+                if not valid:
+                    rejected_messages.append(
+                        f"sample {evidence_index}: {validity_message}"
+                    )
+                    continue
+                fk_ok, fk_message, tcp_base_mm = (
+                    self._bridge.compute_moveit_static_tcp_pose_base_mm(positions)
+                )
+                if not fk_ok or tcp_base_mm is None:
+                    raise RuntimeError(
+                        f"MoveIt TCP FK failed for saved sample {evidence_index}: "
+                        + fk_message
+                    )
+                saved_tcp = tuple(float(value) for value in sample.get("tcp_base_mm", ()))
+                if len(saved_tcp) != 3:
+                    raise ValueError(
+                        f"Saved workspace sample {evidence_index} lacks TCP coordinates."
+                    )
+                difference_mm = sum(
+                    (float(tcp_base_mm[index]) - saved_tcp[index]) ** 2
+                    for index in range(3)
+                ) ** 0.5
+                maximum_fk_difference_mm = max(
+                    maximum_fk_difference_mm,
+                    difference_mm,
+                )
+                if difference_mm > 1e-6:
+                    raise ValueError(
+                        "Saved workspace TCP geometry no longer matches MoveIt FK: "
+                        f"sample {evidence_index} differs by {difference_mm:.9g} mm."
+                    )
+                sample["tcp_fk"] = {
+                    "source": "MoveItRobotState",
+                    "message": _bounded_text(fk_message),
+                    "saved_difference_mm": difference_mm,
+                }
+                static_valid_count += 1
+                connectivity = sample.get("home_connectivity")
+                if not isinstance(connectivity, dict) or connectivity.get("status") not in {
+                    "HomeConnected",
+                    "PlanRejected",
+                }:
+                    continue
+                home_evaluated_count += 1
+                matches_home, maximum_delta, mismatched = (
+                    self._joint_positions_match(home_positions, positions)
+                )
+                if matches_home:
+                    connectivity.update(
+                        {
+                            "status": "HomeConnected",
+                            "method": "IdentityAtTaskHomeReplay",
+                            "maximum_start_goal_delta": maximum_delta,
+                            "waypoint_count": 1,
+                            "message": "Saved sample still matches live Task Home.",
+                        }
+                    )
+                    home_connected_count += 1
+                    continue
+                path = self._bridge.plan_moveit_joint_goal(
+                    start_joint_positions_si=home_positions,
+                    goal_joint_positions_si=positions,
+                    refresh_planning_scene=not scene_refreshed,
+                    planning_attempts=1,
+                    allowed_planning_time_sec=2.0,
+                    planner_context="task_home_to_saved_workspace_sample_replay",
+                )
+                scene_refreshed = True
+                connectivity.update(
+                    {
+                        "status": "HomeConnected" if path.success else "PlanRejected",
+                        "method": "MoveItExplicitTaskHomeReplay",
+                        "maximum_start_goal_delta": maximum_delta,
+                        "mismatched_joints": list(mismatched),
+                        "waypoint_count": len(path.waypoint_joint_vectors_si),
+                        "planner_start_source": path.planner_start_source,
+                        "message": _bounded_text(path.message),
+                        "native_planner_message": _bounded_text(
+                            path.native_planner_message
+                        ),
+                    }
+                )
+                if path.success:
+                    home_connected_count += 1
+                elif len(rejected_messages) < 8:
+                    rejected_messages.append(
+                        f"Home→sample {evidence_index}: {path.message}"
+                    )
+            if static_valid_count != len(evidence):
+                raise RuntimeError(
+                    f"Saved workspace replay rejected {len(evidence) - static_valid_count}/"
+                    f"{len(evidence)} retained state(s). "
+                    + "; ".join(rejected_messages[:8])
+                )
+            if home_evaluated_count <= 0 or home_connected_count <= 0:
+                raise RuntimeError(
+                    "Saved workspace replay found no current Home-connected sample. "
+                    + "; ".join(rejected_messages[:8])
+                )
+            payload.update(
+                {
+                    "runtime_valid_sample_count": static_valid_count,
+                    "home_connectivity_evaluated_sample_count": home_evaluated_count,
+                    "home_connected_sample_count": home_connected_count,
+                    "home_connectivity_rejected_sample_count": (
+                        home_evaluated_count - home_connected_count
+                    ),
+                    "accepted_sample_evidence": evidence,
+                    "maximum_local_moveit_fk_difference_mm": (
+                        maximum_fk_difference_mm
+                    ),
+                    "revalidated_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "runtime_revalidation_method": "PersistedEvidenceReplay",
+                }
+            )
+            parameter_node.step6AssistedLimitProposalJson = canonical_json(payload)
+            self._runtime_validated_workspace_key = fingerprint(payload)
+            self._logic.invalidateStep6TaskConfirmation(
+                parameter_node,
+                "Workspace evidence was replayed in a new ROS/MoveIt session; reconfirm 6.4.",
+            )
+            self._clear_phase_session()
+            return RobotActionResult(
+                True,
+                "saved_workspace_revalidated",
+                f"Revalidated all {static_valid_count} saved workspace states and "
+                f"reconfirmed {home_connected_count}/{home_evaluated_count} "
+                "bounded Task-Home connections in the current MoveIt scene. "
+                "The reviewed limits were preserved; reconfirm the immutable task in 6.4.",
+                details={
+                    "staticValidSampleCount": static_valid_count,
+                    "homeConnectivityEvaluatedSampleCount": home_evaluated_count,
+                    "homeConnectedSampleCount": home_connected_count,
+                    "maximumSavedFkDifferenceMm": maximum_fk_difference_mm,
+                    "reviewedLimitsPreserved": bool(payload.get("reviewed")),
+                },
+            )
+        except (RuntimeError, ValueError, OSError, KeyError) as exc:
+            self._runtime_validated_workspace_key = ""
+            self.invalidateMotionPlan()
+            return RobotActionResult(False, "saved_workspace_revalidation_failed", str(exc))
 
     def confirmTask(self) -> RobotActionResult:
         try:
@@ -1541,7 +1849,8 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "workspace_runtime_revalidation_required",
-                    "Regenerate and review the workspace in the current ROS/MoveIt session before task confirmation.",
+                    "Revalidate or regenerate the workspace in the current "
+                    "ROS/MoveIt session before task confirmation.",
                 )
             try:
                 workspace_evidence = json.loads(
@@ -1740,6 +2049,8 @@ class DENTORobotWorkflowFacade:
                 failure_classification=record.failure_classification,
                 operator_review_state="Reviewed",
                 generated_at_utc=record.generated_at_utc,
+                stage_outcomes=record.stage_outcomes,
+                full_task_outcome=record.full_task_outcome,
             )
             parameter_node.step6MotionDiagnosticJson = canonical_json(
                 reviewed.to_dict()
@@ -1941,6 +2252,19 @@ class DENTORobotWorkflowFacade:
             selected_candidate_index=int(selected_index),
             failure_classification=classification,
             operator_review_state="Unreviewed",
+            stage_outcomes=(
+                {
+                    "stage": "stage3_drilling",
+                    "status": "Passed" if result.success else "Failed",
+                    "selected_candidate_index": int(selected_index),
+                    "completion_fraction": float(result.fraction),
+                    "failure_classification": classification,
+                },
+            ),
+            full_task_outcome={
+                "status": "PendingGoal1Assembly" if result.success else "Failed",
+                "failure_stage": "" if result.success else "stage3_drilling",
+            },
         )
         parameter_node.step6MotionDiagnosticJson = canonical_json(session.to_dict())
         return session
@@ -1950,8 +2274,15 @@ class DENTORobotWorkflowFacade:
         parameter_node,
         snapshot,
         start_positions: Mapping[str, float],
+        *,
+        start_axial_roll_deg: float = 0.0,
     ):
-        """Find a full line while varying only cylindrical-burr axial roll."""
+        """Find a full line while varying only cylindrical-burr axial roll.
+
+        ``axial_roll_candidates_deg`` remains an explicit bounded list so a
+        partial path can never be promoted as a drilling preview or used to
+        justify a blind "Reposition the robot base" conclusion.
+        """
 
         result = None
         best_result = None
@@ -1967,7 +2298,12 @@ class DENTORobotWorkflowFacade:
             -135.0,
             180.0,
         )
-        for axial_roll_deg in axial_roll_candidates_deg:
+        # Default candidate semantics: axial_roll_start_deg=0.0 unless the
+        # selected Goal 1 roll is explicitly carried into drilling preflight.
+        for axial_roll_offset_deg in axial_roll_candidates_deg:
+            axial_roll_deg = float(start_axial_roll_deg) + float(
+                axial_roll_offset_deg
+            )
             candidate = self._bridge.plan_moveit_cartesian_path(
                 entry_ras_mm=snapshot.entry_ras_mm,
                 target_ras_mm=snapshot.target_ras_mm,
@@ -1979,7 +2315,9 @@ class DENTORobotWorkflowFacade:
                 # The cylindrical burr axis and TCP centreline stay fixed;
                 # only otherwise-irrelevant axial roll is varied to avoid a
                 # false full-orientation IK dead end.
-                axial_roll_start_deg=0.0,
+                axial_roll_start_deg=(
+                    0.0 if start_axial_roll_deg is None else float(start_axial_roll_deg)
+                ),
                 axial_roll_end_deg=axial_roll_deg,
             )
             candidate_results.append(candidate)
@@ -2012,6 +2350,326 @@ class DENTORobotWorkflowFacade:
                 "cannot be previewed."
             )
         return result
+
+    def _goal1_pre_entry_ik_candidates(
+        self,
+        pre_entry: Sequence[float],
+        entry: Sequence[float],
+        home_positions: Mapping[str, float],
+    ) -> tuple[list[dict[str, object]], list[str]]:
+        """Return collision-aware PreEntry IK branches ranked from Task Home.
+
+        The drill axis is immutable, but cylindrical-burr roll about that axis
+        is redundant for approach positioning.  Sampling that bounded degree
+        of freedom avoids freezing Goal 1 onto the first valid-but-distant IK
+        branch.  This helper performs IK only; MoveIt remains authoritative for
+        every connecting path.
+        """
+
+        candidates: list[dict[str, object]] = []
+        failures: list[str] = []
+        joint_diagnostic_fn = getattr(
+            self._bridge,
+            "moveit_joint_goal_diagnostics",
+            _default_bridge.moveit_joint_goal_diagnostics,
+        )
+        for axial_roll_deg in GOAL1_AXIAL_ROLL_CANDIDATES_DEG:
+            pose = self._bridge.tool_pose_matrices_world_mm(
+                pre_entry,
+                entry,
+                2,
+                axial_roll_start_deg=axial_roll_deg,
+                axial_roll_end_deg=axial_roll_deg,
+            )[0]
+            ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
+            if not ok:
+                failures.append(f"{axial_roll_deg:+.0f} deg goal: {message}")
+                continue
+            ok, message, positions = self._bridge.solve_moveit_tcp_goal(
+                seed_joint_positions_si=home_positions
+            )
+            if not ok:
+                failures.append(f"{axial_roll_deg:+.0f} deg IK: {message}")
+                continue
+            joint_diagnostic = joint_diagnostic_fn(home_positions, positions)
+            deltas = dict(joint_diagnostic["effective_deltas"])
+            normalized_deltas = []
+            for name in JOINT_NAMES:
+                scale = (
+                    0.08
+                    if name == "link-2_Slider-2"
+                    else 0.075
+                    if name == "link-4_Slider-4"
+                    else 2.0 * pi
+                )
+                normalized_deltas.append(float(deltas[name]) / scale)
+            candidates.append(
+                {
+                    "rollDeg": float(axial_roll_deg),
+                    "pose": pose,
+                    "positions": dict(joint_diagnostic["submitted_goal"]),
+                    "requestedPositions": dict(
+                        joint_diagnostic["requested_goal"]
+                    ),
+                    "jointDiagnostic": joint_diagnostic,
+                    "score": (
+                        max(normalized_deltas, default=0.0),
+                        sum(value * value for value in normalized_deltas),
+                        abs(float(axial_roll_deg)),
+                    ),
+                }
+            )
+        candidates.sort(key=lambda candidate: candidate["score"])
+        return candidates, failures
+
+    def _goal1_clearance_waypoints(
+        self,
+        parameter_node,
+        home_positions: Mapping[str, float],
+        goal_positions: Mapping[str, float],
+    ) -> tuple[dict[str, object], ...]:
+        """Return bounded, already Home-connected 6.3 states for a detour.
+
+        These are not invented geometric waypoints.  Each returned state was
+        retained by the current workspace proposal after authoritative MoveIt
+        static-state validation and a successful Task-Home connection.  Goal 1
+        replans both legs in the current scene before accepting the detour.
+        """
+
+        try:
+            proposal = json.loads(
+                str(parameter_node.step6AssistedLimitProposalJson or "")
+            )
+        except (TypeError, json.JSONDecodeError):
+            return ()
+        ranked: list[dict[str, object]] = []
+        seen: set[tuple[float, ...]] = set()
+        joint_diagnostic_fn = getattr(
+            self._bridge,
+            "moveit_joint_goal_diagnostics",
+            _default_bridge.moveit_joint_goal_diagnostics,
+        )
+        for evidence_index, evidence in enumerate(
+            proposal.get("accepted_sample_evidence", ())
+        ):
+            if not isinstance(evidence, dict):
+                continue
+            connectivity = evidence.get("home_connectivity")
+            if not isinstance(connectivity, dict) or (
+                connectivity.get("status") != "HomeConnected"
+            ):
+                continue
+            names = tuple(evidence.get("joint_names", ()))
+            values = tuple(evidence.get("joint_positions_si", ()))
+            if len(names) != len(JOINT_NAMES) or len(values) != len(JOINT_NAMES):
+                continue
+            try:
+                positions = {
+                    str(name): float(value) for name, value in zip(names, values)
+                }
+                if set(positions) != set(JOINT_NAMES):
+                    continue
+                identity = tuple(round(positions[name], 12) for name in JOINT_NAMES)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                from_home = joint_diagnostic_fn(home_positions, positions)
+                to_goal = joint_diagnostic_fn(positions, goal_positions)
+            except (KeyError, TypeError, ValueError):
+                continue
+            # Prefer a modest, centrally useful bend over an extreme workspace
+            # state.  The maximum term prevents one joint from dominating the
+            # detour while the sum term gives deterministic tie-breaking.
+            score = (
+                float(to_goal["maximum_delta"]),
+                float(from_home["maximum_delta"]),
+                sum(
+                    float(value) * float(value)
+                    for value in to_goal["effective_deltas"].values()
+                ),
+                evidence_index,
+            )
+            ranked.append(
+                {
+                    "evidenceIndex": evidence_index,
+                    "sampleIndex": int(evidence.get("sample_index", evidence_index)),
+                    "positions": positions,
+                    "tcpBaseMm": tuple(evidence.get("tcp_base_mm", ())),
+                    "score": score,
+                }
+            )
+        ranked.sort(key=lambda item: item["score"])
+        return tuple(ranked[:GOAL1_MAX_CLEARANCE_WAYPOINTS])
+
+    @staticmethod
+    def _merge_goal1_joint_plans(first, second, *, planner_context: str):
+        """Join two successful explicit-start MoveIt trajectories."""
+
+        first_waypoints = tuple(first.waypoint_joint_vectors_si)
+        second_waypoints = tuple(second.waypoint_joint_vectors_si)
+        first_times = tuple(first.waypoint_times_sec)
+        second_times = tuple(second.waypoint_times_sec)
+        if first_waypoints and second_waypoints:
+            duplicate = all(
+                abs(
+                    float(first_waypoints[-1][name])
+                    - float(second_waypoints[0][name])
+                )
+                <= 1e-10
+                for name in JOINT_NAMES
+            )
+            if duplicate:
+                second_waypoints = second_waypoints[1:]
+                second_times = second_times[1:]
+        return replace(
+            second,
+            success=True,
+            message=(
+                "MoveIt planned a collision-aware two-leg Task-Home clearance "
+                "route. " + first.message + " " + second.message
+            ),
+            waypoint_joint_vectors_si=first_waypoints + second_waypoints,
+            waypoint_times_sec=_concatenate_waypoint_times(
+                first_times,
+                second_times,
+            ),
+            submitted_start_joint_positions_si=(
+                first.submitted_start_joint_positions_si
+            ),
+            monitored_start_joint_positions_si=(
+                first.monitored_start_joint_positions_si
+            ),
+            maximum_monitored_start_error=first.maximum_monitored_start_error,
+            planner_start_source=planner_context,
+        )
+
+    def _goal1_diagnostic_record(
+        self,
+        candidate_index: int,
+        *,
+        stage: str,
+        axial_roll_deg: float,
+        result,
+        clearance: Optional[Mapping[str, object]] = None,
+        segment=None,
+    ) -> dict[str, object]:
+        """Normalize one Goal 1 planner attempt for persistent diagnostics."""
+
+        last_joint = (
+            dict(result.waypoint_joint_vectors_si[-1])
+            if result.waypoint_joint_vectors_si
+            else None
+        )
+        collision_pairs = (
+            tuple(segment.first_collision_pairs) if segment is not None else ()
+        )
+        first_collision_fraction = (
+            segment.first_collision_fraction if segment is not None else None
+        )
+        classification = "none" if result.success else (
+            "joint_segment_collision"
+            if collision_pairs
+            else "moveit_joint_plan_failure"
+        )
+        return {
+            "candidate_index": int(candidate_index),
+            "stage": str(stage),
+            "axial_roll_deg": float(axial_roll_deg),
+            "clearance_sample_index": (
+                int(clearance["sampleIndex"]) if clearance is not None else None
+            ),
+            "success": bool(result.success),
+            "message": _bounded_text(result.message),
+            "native_planner_message": _bounded_text(
+                result.native_planner_message
+            ),
+            "completion_fraction": 1.0 if result.success else 0.0,
+            "completed_distance_mm": 0.0,
+            "requested_distance_mm": 0.0,
+            "waypoint_count": len(result.waypoint_joint_vectors_si),
+            "last_valid_waypoint_index": (
+                len(result.waypoint_joint_vectors_si) - 1
+            ),
+            "last_valid_joint_positions_si": last_joint,
+            "first_invalid_requested_index": -1,
+            "first_invalid_ras_mm": None,
+            "first_invalid_joint_positions_si": None,
+            "first_invalid_collision_pairs": [list(pair) for pair in collision_pairs],
+            "first_collision_fraction": first_collision_fraction,
+            "failure_classification": classification,
+            "maximum_start_goal_delta": result.maximum_start_goal_delta,
+            "maximum_start_goal_delta_joint": (
+                result.maximum_start_goal_delta_joint
+            ),
+            "continuous_joint_wrap_adjustments": (
+                result.continuous_joint_wrap_adjustments
+            ),
+            "planner_start_source": result.planner_start_source,
+            "shadow_query_authorizing": False,
+        }
+
+    def _persist_goal1_diagnostic(
+        self,
+        parameter_node,
+        snapshot,
+        records: Sequence[Mapping[str, object]],
+        selected_index: int,
+        *,
+        stage2_status: str = "NotRun",
+        stage3_status: str = "NotRun",
+        full_task_status: str = "Failed",
+    ):
+        collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        selected = records[int(selected_index)]
+        session = build_motion_diagnostic_session(
+            state="Current",
+            task_fingerprint=snapshot.snapshot_fingerprint,
+            base_fingerprint=self._logic.robotBaseFingerprint(parameter_node),
+            trajectory_fingerprint=self._logic.step6TrajectoryRevision(parameter_node),
+            robot_profile_fingerprint=self._logic.robotProfileFingerprint(),
+            collision_audit_fingerprint=collision_audit.audit_fingerprint,
+            planning_parameters_fingerprint=fingerprint(
+                {
+                    "stage": "task_home_to_preentry",
+                    "approachStandoffMm": float(
+                        parameter_node.step6ApproachStandoffMm
+                    ),
+                    "axialRollCandidatesDeg": GOAL1_AXIAL_ROLL_CANDIDATES_DEG,
+                    "maximumClearanceWaypoints": GOAL1_MAX_CLEARANCE_WAYPOINTS,
+                }
+            ),
+            candidate_records=records,
+            selected_candidate_index=int(selected_index),
+            failure_classification=str(selected["failure_classification"]),
+            operator_review_state="Unreviewed",
+            stage_outcomes=(
+                {
+                    "stage": "stage1_free_space",
+                    "status": (
+                        "Passed" if bool(selected.get("success")) else "Failed"
+                    ),
+                    "selected_candidate_index": int(selected_index),
+                    "failure_classification": str(
+                        selected["failure_classification"]
+                    ),
+                },
+                {
+                    "stage": "stage2_strict_axis",
+                    "status": str(stage2_status),
+                },
+                {
+                    "stage": "stage3_drilling",
+                    "status": str(stage3_status),
+                },
+            ),
+            full_task_outcome={
+                "status": str(full_task_status),
+                "selected_candidate_index": int(selected_index),
+                "selected_axial_roll_deg": float(selected["axial_roll_deg"]),
+            },
+        )
+        parameter_node.step6MotionDiagnosticJson = canonical_json(session.to_dict())
+        return session
 
     def planApproachPhase(self) -> RobotActionResult:
         """Plan strict current→pre-entry plus independently guarded contact."""
@@ -2068,50 +2726,314 @@ class DENTORobotWorkflowFacade:
             self._phase_sequence = self._bridge.ROS2_TASK_GUARD_INITIAL_SEQUENCE
             self._completed_phase = ""
             pre_entry, entry = self._logic.step6ApproachPoints(parameter_node)
-            pose = self._bridge.tool_pose_matrices_world_mm(pre_entry, entry, 2)[0]
-            ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
-            if not ok:
-                raise RuntimeError("Goal 1 pre-entry goal setup failed: " + message)
-            ok, message, pre_entry_positions = self._bridge.solve_moveit_tcp_goal(
-                seed_joint_positions_si=home_positions
+            ik_candidates, ik_failures = self._goal1_pre_entry_ik_candidates(
+                pre_entry,
+                entry,
+                home_positions,
             )
-            if not ok:
-                raise RuntimeError("Goal 1 pre-entry IK failed: " + message)
-            strict_plan = self._bridge.plan_moveit_joint_goal(
-                start_joint_positions_si=home_positions,
-                goal_joint_positions_si=pre_entry_positions,
-                planner_context="task_home_to_preentry",
-            )
-            if not strict_plan.success:
+            if not ik_candidates:
+                raise RuntimeError(
+                    "Goal 1 found no collision-aware PreEntry IK endpoint across "
+                    "the bounded cylindrical-burr axial-roll candidates. "
+                    + "; ".join(ik_failures)
+                )
+            strict_plan = None
+            selected_candidate = None
+            plan_failures: list[dict[str, object]] = []
+            diagnostic_records: list[dict[str, object]] = []
+            for candidate_index, candidate in enumerate(
+                ik_candidates[:GOAL1_MAX_PLANNED_IK_CANDIDATES]
+            ):
+                ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(
+                    candidate["pose"]
+                )
+                if not ok:
+                    plan_failures.append(
+                        {
+                            "rollDeg": candidate["rollDeg"],
+                            "message": "Goal display failed: " + message,
+                        }
+                    )
+                    continue
+                candidate_plan = self._bridge.plan_moveit_joint_goal(
+                    start_joint_positions_si=home_positions,
+                    goal_joint_positions_si=candidate["positions"],
+                    refresh_planning_scene=(candidate_index == 0),
+                    planning_attempts=1,
+                    allowed_planning_time_sec=GOAL1_DIRECT_PLANNING_TIME_SEC,
+                    planner_context=(
+                        "task_home_to_preentry_roll_"
+                        f"{float(candidate['rollDeg']):+.0f}deg"
+                    ),
+                )
+                segment = None
+                if not candidate_plan.success:
+                    diagnose_segment = getattr(
+                        self._bridge,
+                        "diagnose_moveit_joint_segment",
+                        _default_bridge.diagnose_moveit_joint_segment,
+                    )
+                    segment = diagnose_segment(
+                        home_positions,
+                        candidate["positions"],
+                    )
+                diagnostic_records.append(
+                    self._goal1_diagnostic_record(
+                        len(diagnostic_records),
+                        stage="task_home_to_preentry_direct",
+                        axial_roll_deg=float(candidate["rollDeg"]),
+                        result=candidate_plan,
+                        segment=segment,
+                    )
+                )
+                if candidate_plan.success:
+                    # Complete the bounded roll matrix for truthful V2
+                    # evidence, but retain the first (best-ranked) successful
+                    # route for the actual guarded preview.
+                    if strict_plan is None:
+                        strict_plan = candidate_plan
+                        selected_candidate = candidate
+                    continue
+                plan_failures.append(
+                    {
+                        "rollDeg": candidate["rollDeg"],
+                        "maximumDelta": candidate_plan.maximum_start_goal_delta,
+                        "maximumDeltaJoint": (
+                            candidate_plan.maximum_start_goal_delta_joint
+                        ),
+                        "nativePlannerMessage": (
+                            candidate_plan.native_planner_message
+                        ),
+                        "message": candidate_plan.message,
+                        "firstCollisionFraction": (
+                            segment.first_collision_fraction
+                            if segment is not None
+                            else None
+                        ),
+                        "firstCollisionPairs": (
+                            segment.first_collision_pairs
+                            if segment is not None
+                            else ()
+                        ),
+                    }
+                )
+            selected_clearance = None
+            if strict_plan is None:
+                # A valid endpoint plus a failed straight joint-space route is
+                # not a proof that no route exists.  Reuse only the bounded
+                # 6.3 samples already shown to be static-valid and connected
+                # from Task Home, then independently replan both legs now.
+                clearance_start_plans: dict[int, object] = {}
+                for candidate in ik_candidates:
+                    candidate_clearances = self._goal1_clearance_waypoints(
+                        parameter_node,
+                        home_positions,
+                        candidate["positions"],
+                    )
+                    for clearance in candidate_clearances:
+                        clearance_index = int(clearance["sampleIndex"])
+                        first_leg = clearance_start_plans.get(clearance_index)
+                        if first_leg is None:
+                            first_leg = self._bridge.plan_moveit_joint_goal(
+                                start_joint_positions_si=home_positions,
+                                goal_joint_positions_si=clearance["positions"],
+                                refresh_planning_scene=False,
+                                planning_attempts=1,
+                                allowed_planning_time_sec=(
+                                    GOAL1_CLEARANCE_PLANNING_TIME_SEC
+                                ),
+                                planner_context=(
+                                    "task_home_to_clearance_sample_"
+                                    f"{clearance_index}"
+                                ),
+                            )
+                            clearance_start_plans[clearance_index] = first_leg
+                        if first_leg is None or not first_leg.success:
+                            continue
+                        second_leg = self._bridge.plan_moveit_joint_goal(
+                            start_joint_positions_si=clearance["positions"],
+                            goal_joint_positions_si=candidate["positions"],
+                            refresh_planning_scene=False,
+                            planning_attempts=1,
+                            allowed_planning_time_sec=(
+                                GOAL1_CLEARANCE_PLANNING_TIME_SEC
+                            ),
+                            planner_context=(
+                                "clearance_sample_"
+                                f"{int(clearance['sampleIndex'])}_to_preentry_"
+                                f"roll_{float(candidate['rollDeg']):+.0f}deg"
+                            ),
+                        )
+                        segment = None
+                        if not second_leg.success:
+                            diagnose_segment = getattr(
+                                self._bridge,
+                                "diagnose_moveit_joint_segment",
+                                _default_bridge.diagnose_moveit_joint_segment,
+                            )
+                            segment = diagnose_segment(
+                                clearance["positions"],
+                                candidate["positions"],
+                            )
+                        diagnostic_records.append(
+                            self._goal1_diagnostic_record(
+                                len(diagnostic_records),
+                                stage="clearance_to_preentry",
+                                axial_roll_deg=float(candidate["rollDeg"]),
+                                result=second_leg,
+                                clearance=clearance,
+                                segment=segment,
+                            )
+                        )
+                        if second_leg.success:
+                            strict_plan = self._merge_goal1_joint_plans(
+                                first_leg,
+                                second_leg,
+                                planner_context=(
+                                    "task_home_via_workspace_clearance_to_preentry"
+                                ),
+                            )
+                            selected_candidate = candidate
+                            selected_clearance = clearance
+                            break
+                        plan_failures.append(
+                            {
+                                "rollDeg": candidate["rollDeg"],
+                                "clearanceSampleIndex": clearance["sampleIndex"],
+                                "stage": "clearance_to_preentry",
+                                "nativePlannerMessage": (
+                                    second_leg.native_planner_message
+                                ),
+                                "message": second_leg.message,
+                                "firstCollisionFraction": (
+                                    segment.first_collision_fraction
+                                    if segment is not None
+                                    else None
+                                ),
+                                "firstCollisionPairs": (
+                                    segment.first_collision_pairs
+                                    if segment is not None
+                                    else ()
+                                ),
+                            }
+                        )
+                    if strict_plan is not None:
+                        break
+            if strict_plan is None or selected_candidate is None:
+                best_candidate = ik_candidates[0]
+                diagnose_segment = getattr(
+                    self._bridge,
+                    "diagnose_moveit_joint_segment",
+                    _default_bridge.diagnose_moveit_joint_segment,
+                )
+                direct_segment = diagnose_segment(
+                    home_positions,
+                    best_candidate["positions"],
+                )
+                show_goal = getattr(
+                    self._bridge,
+                    "show_moveit_joint_goal",
+                    _default_bridge.show_moveit_joint_goal,
+                )
+                show_goal(best_candidate["positions"])
+                diagnostic = self._persist_goal1_diagnostic(
+                    parameter_node,
+                    snapshot,
+                    diagnostic_records,
+                    max(0, len(diagnostic_records) - 1),
+                )
                 self._clear_phase_session()
+                best_joint_diagnostic = best_candidate["jointDiagnostic"]
+                attempted_rolls = ", ".join(
+                    f"{float(item['rollDeg']):+.0f} deg"
+                    for item in plan_failures
+                )
                 return RobotActionResult(
                     False,
                     "approach_start_goal_plan_failed",
-                    "Goal 1 strict Task-Home-to-PreEntry planning failed: "
-                    + strict_plan.message,
+                    "Goal 1 found "
+                    f"{len(ik_candidates)} collision-aware PreEntry IK endpoint(s), "
+                    "but MoveIt could not connect Task Home to the top-ranked "
+                    f"branch(es) at {attempted_rolls or 'no submitted roll'}. "
+                    f"Best endpoint's largest effective joint change is "
+                    f"{float(best_joint_diagnostic['maximum_delta']):.6g} on "
+                    f"{best_joint_diagnostic['maximum_joint']}. "
+                    + direct_segment.message
+                    + " The translucent robot is an individually valid endpoint, "
+                    "not proof of a collision-free connecting path. All bounded "
+                    "roll branches and the retained 6.3 clearance-waypoint routes "
+                    "were attempted; inspect motion diagnostic session "
+                    f"{diagnostic.session_fingerprint[:12]} for the failing leg.",
                     details={
-                        "plannerStartSource": strict_plan.planner_start_source,
-                        "submittedStartJointPositionsSi": (
-                            strict_plan.submitted_start_joint_positions_si
+                        "collisionAwareIkCandidateCount": len(ik_candidates),
+                        "ikFailures": tuple(ik_failures),
+                        "planFailures": tuple(plan_failures),
+                        "bestRollDeg": best_candidate["rollDeg"],
+                        "bestRequestedGoalJointPositionsSi": (
+                            best_candidate["requestedPositions"]
                         ),
-                        "submittedGoalJointPositionsSi": (
-                            strict_plan.submitted_goal_joint_positions_si
+                        "bestSubmittedGoalJointPositionsSi": (
+                            best_candidate["positions"]
                         ),
-                        "monitoredStartJointPositionsSi": (
-                            strict_plan.monitored_start_joint_positions_si
+                        "bestPerJointStartGoalDelta": (
+                            best_joint_diagnostic["effective_deltas"]
                         ),
                         "maximumStartGoalDelta": (
-                            strict_plan.maximum_start_goal_delta
+                            best_joint_diagnostic["maximum_delta"]
                         ),
-                        "maximumMonitoredStartError": (
-                            strict_plan.maximum_monitored_start_error
+                        "maximumStartGoalDeltaJoint": (
+                            best_joint_diagnostic["maximum_joint"]
                         ),
-                        "nativePlannerMessage": (
-                            strict_plan.native_planner_message
+                        "rawMaximumStartGoalDelta": (
+                            best_joint_diagnostic["raw_maximum_delta"]
+                        ),
+                        "rawMaximumStartGoalDeltaJoint": (
+                            best_joint_diagnostic["raw_maximum_joint"]
+                        ),
+                        "continuousJointWrapAdjustments": (
+                            best_joint_diagnostic["continuous_adjustments"]
+                        ),
+                        "directSegmentSampleCount": direct_segment.sample_count,
+                        "directSegmentFirstCollisionFraction": (
+                            direct_segment.first_collision_fraction
+                        ),
+                        "directSegmentFirstCollisionPairs": (
+                            direct_segment.first_collision_pairs
+                        ),
+                        "motionDiagnosticSessionFingerprint": (
+                            diagnostic.session_fingerprint
                         ),
                     },
-                    payload=strict_plan,
+                    payload=tuple(plan_failures),
                 )
+            selected_roll_deg = float(selected_candidate["rollDeg"])
+            selected_goal1_diagnostic_index = next(
+                (
+                    index
+                    for index in range(len(diagnostic_records) - 1, -1, -1)
+                    if diagnostic_records[index]["success"]
+                    and float(diagnostic_records[index]["axial_roll_deg"])
+                    == selected_roll_deg
+                ),
+                len(diagnostic_records) - 1,
+            )
+            self._persist_goal1_diagnostic(
+                parameter_node,
+                snapshot,
+                diagnostic_records,
+                selected_goal1_diagnostic_index,
+                full_task_status="PendingStage2",
+            )
+            show_goal = getattr(
+                self._bridge,
+                "show_moveit_joint_goal",
+                _default_bridge.show_moveit_joint_goal,
+            )
+            show_goal(
+                strict_plan.waypoint_joint_vectors_si[-1]
+                if strict_plan.waypoint_joint_vectors_si
+                else selected_candidate["positions"]
+            )
             approach_vector = tuple(
                 float(entry[index] - pre_entry[index]) for index in range(3)
             )
@@ -2139,12 +3061,94 @@ class DENTORobotWorkflowFacade:
                     if strict_plan.waypoint_joint_vectors_si
                     else None
                 ),
+                axial_roll_start_deg=selected_roll_deg,
+                axial_roll_end_deg=selected_roll_deg,
             )
             if not axis_plan.success:
-                raise RuntimeError(
-                    "Goal 1 strict axis approach stopped before the terminal "
-                    f"{terminal_tolerance:.2f} mm contact tolerance: "
-                    + axis_plan.message
+                # A valid Home→PreEntry joint-space plan is still a complete
+                # Goal-1 milestone for placement review.  The final approach
+                # can be blocked by an overly conservative target/neighbor
+                # collision boundary even when the pre-entry state itself is
+                # collision-free (the common failure is a partial Cartesian
+                # fraction).  Keep the evidence and expose a guarded preview
+                # to PreEntry; do not manufacture an Entry or silently disable
+                # collision checking.
+                strict_source = tuple(strict_plan.waypoint_joint_vectors_si)
+                strict_waypoints, strict_times = self._guarded_preview_checkpoints(
+                    strict_source,
+                    strict_plan.waypoint_times_sec,
+                )
+                self._preflight_drilling_plan = None
+                self._preflight_task_fingerprint = ""
+                deferred_diagnostic = self._persist_goal1_diagnostic(
+                    parameter_node,
+                    snapshot,
+                    diagnostic_records,
+                    selected_goal1_diagnostic_index,
+                    stage2_status="DeferredAtPreEntry",
+                    stage3_status="NotRun",
+                    full_task_status="ReadyForPreEntryPreview",
+                )
+                preentry_plan = PhasePlan(
+                    success=True,
+                    message=(
+                        f"Goal 1 PreEntry ready: {len(strict_waypoints)} "
+                        "collision-free Task-Home waypoints are available for "
+                        "guarded preview. The terminal axis segment toward Entry "
+                        f"stopped at {axis_plan.fraction * 100.0:.1f}% "
+                        f"({axis_plan.message}); Entry and Goal 2 remain deferred."
+                    ),
+                    task_fingerprint=snapshot.snapshot_fingerprint,
+                    requested_phase="approach",
+                    waypoint_joint_vectors_si=strict_waypoints,
+                    waypoint_phases=("approach",) * len(strict_waypoints),
+                    waypoint_times_sec=strict_times,
+                    cartesian_fraction=1.0,
+                    coordinate_frame=self._bridge.ROS2_FIXED_FRAME,
+                    strict_waypoint_count=len(strict_waypoints),
+                    axis_waypoint_count=0,
+                    contact_waypoint_count=0,
+                    source_waypoint_count=len(strict_source),
+                    axial_roll_deg=selected_roll_deg,
+                )
+                self._motion_plan = preentry_plan
+                path_view = getattr(
+                    self._bridge,
+                    "show_phase_plan_tcp_path",
+                    None,
+                )
+                path_view_ok = False
+                path_view_message = ""
+                if callable(path_view):
+                    path_view_ok, path_view_message = path_view(
+                        strict_waypoints,
+                        parameter_node.robotBaseTransform,
+                        phase="approach",
+                    )
+                return RobotActionResult(
+                    True,
+                    "approach_preentry_plan_ready",
+                    preentry_plan.message,
+                    details={
+                        "waypointCount": len(strict_waypoints),
+                        "strictWaypointCount": len(strict_waypoints),
+                        "axisWaypointCount": 0,
+                        "terminalWaypointCount": 0,
+                        "terminalPlanningDeferred": True,
+                        "terminalPlanningError": axis_plan.message,
+                        "terminalPlanningFraction": float(axis_plan.fraction),
+                        "trajectoryPathDisplayed": bool(path_view_ok),
+                        "trajectoryPathDisplayMessage": path_view_message,
+                        "selectedApproachAxialRollDeg": selected_roll_deg,
+                        "collisionAwareIkCandidateCount": len(ik_candidates),
+                        "plannedIkCandidateCount": min(
+                            len(ik_candidates), GOAL1_MAX_PLANNED_IK_CANDIDATES
+                        ),
+                        "motionDiagnosticSessionFingerprint": (
+                            deferred_diagnostic.session_fingerprint
+                        ),
+                    },
+                    payload=preentry_plan,
                 )
             terminal = self._bridge.plan_moveit_cartesian_path(
                 entry_ras_mm=contact_start,
@@ -2158,6 +3162,8 @@ class DENTORobotWorkflowFacade:
                     if axis_plan.waypoint_joint_vectors_si
                     else None
                 ),
+                axial_roll_start_deg=selected_roll_deg,
+                axial_roll_end_deg=selected_roll_deg,
             )
             if not terminal.success:
                 raise RuntimeError(
@@ -2168,13 +3174,53 @@ class DENTORobotWorkflowFacade:
                 raise RuntimeError(
                     "Goal 1 terminal plan did not provide an Entry joint state."
                 )
-            drilling_preflight = self._plan_full_drilling_line(
+            self._persist_goal1_diagnostic(
                 parameter_node,
                 snapshot,
-                terminal.waypoint_joint_vectors_si[-1],
+                diagnostic_records,
+                selected_goal1_diagnostic_index,
+                stage2_status="Passed",
+                full_task_status="PendingStage3Preflight",
             )
-            self._preflight_drilling_plan = drilling_preflight
-            self._preflight_task_fingerprint = snapshot.snapshot_fingerprint
+            # Goal 1 is an independently useful approach preview.  Do not let
+            # the optional Entry→Target reachability preflight veto a valid
+            # Home→PreEntry→Entry plan: Goal 2 has its own guarded planner
+            # and may legitimately remain blocked while the operator studies
+            # the approach.  Preserve the failure text in the diagnostic and
+            # expose it in the result instead of silently treating it as a
+            # successful drilling plan.
+            drilling_preflight = None
+            drilling_preflight_error = ""
+            try:
+                drilling_preflight = self._plan_full_drilling_line(
+                    parameter_node,
+                    snapshot,
+                    terminal.waypoint_joint_vectors_si[-1],
+                    start_axial_roll_deg=selected_roll_deg,
+                )
+            except (RuntimeError, ValueError, OSError) as exc:
+                drilling_preflight_error = str(exc)
+                self._preflight_drilling_plan = None
+                self._preflight_task_fingerprint = ""
+            if drilling_preflight is not None:
+                self._preflight_drilling_plan = drilling_preflight
+                self._preflight_task_fingerprint = snapshot.snapshot_fingerprint
+            # The successful Goal 1 route is the operator's current diagnostic
+            # evidence.  A failed drilling preflight remains an explicit
+            # deferred stage-3 outcome and never authorizes Goal 2.
+            goal1_diagnostic = self._persist_goal1_diagnostic(
+                parameter_node,
+                snapshot,
+                diagnostic_records,
+                selected_goal1_diagnostic_index,
+                stage2_status="Passed",
+                stage3_status=(
+                    "ReachabilityPreflightPassed"
+                    if drilling_preflight is not None
+                    else "ReachabilityPreflightDeferred"
+                ),
+                full_task_status="ReadyForGuardedGoal1Preview",
+            )
             strict_source = tuple(strict_plan.waypoint_joint_vectors_si)
             axis_source = tuple(axis_plan.waypoint_joint_vectors_si)
             terminal_source = tuple(terminal.waypoint_joint_vectors_si)
@@ -2203,8 +3249,23 @@ class DENTORobotWorkflowFacade:
                     f"Only the final {terminal_tolerance:.2f} mm terminal preview "
                     "may suppress configured burr-to-task-object contact, and "
                     "every suppression will be reported. "
-                    f"The complete drilling line passed reachability preflight at "
-                    f"{drilling_preflight.axial_roll_deg:.1f}° axial roll."
+                    f"The Task-Home connection selected {selected_roll_deg:+.1f}° "
+                    "cylindrical-burr axial roll from the bounded IK search"
+                    + (
+                        " through previously validated workspace clearance "
+                        f"sample {int(selected_clearance['sampleIndex'])}. "
+                        if selected_clearance is not None
+                        else ". "
+                    )
+                    + (
+                        f"The complete drilling line passed reachability preflight at "
+                        f"{drilling_preflight.axial_roll_deg:.1f}° axial roll."
+                        if drilling_preflight is not None
+                        else (
+                            "Goal 2 reachability preflight is deferred; Goal 1 "
+                            "approach preview remains available."
+                        )
+                    )
                 ),
                 task_fingerprint=snapshot.snapshot_fingerprint,
                 requested_phase="approach",
@@ -2226,8 +3287,22 @@ class DENTORobotWorkflowFacade:
                 axis_waypoint_count=len(axis_waypoints),
                 contact_waypoint_count=len(terminal_waypoints),
                 source_waypoint_count=source_count,
+                axial_roll_deg=selected_roll_deg,
             )
             self._motion_plan = plan
+            path_view = getattr(
+                self._bridge,
+                "show_phase_plan_tcp_path",
+                None,
+            )
+            path_view_ok = False
+            path_view_message = ""
+            if callable(path_view):
+                path_view_ok, path_view_message = path_view(
+                    plan.waypoint_joint_vectors_si,
+                    parameter_node.robotBaseTransform,
+                    phase="approach",
+                )
             return RobotActionResult(
                 True,
                 "approach_plan_ready",
@@ -2238,15 +3313,36 @@ class DENTORobotWorkflowFacade:
                     "axisWaypointCount": len(axis_waypoints),
                     "terminalWaypointCount": len(terminal_waypoints),
                     "terminalContactToleranceMm": terminal_tolerance,
+                    "selectedApproachAxialRollDeg": selected_roll_deg,
+                    "selectedClearanceSampleIndex": (
+                        int(selected_clearance["sampleIndex"])
+                        if selected_clearance is not None
+                        else None
+                    ),
+                    "collisionAwareIkCandidateCount": len(ik_candidates),
+                    "plannedIkCandidateCount": min(
+                        len(ik_candidates),
+                        GOAL1_MAX_PLANNED_IK_CANDIDATES,
+                    ),
+                    "failedPlannedCandidates": tuple(plan_failures),
                     "sourceWaypointCount": source_count,
                     "cartesianFraction": float(terminal.fraction),
                     "coordinateFrame": str(terminal.coordinate_frame),
                     "startPositionErrorMm": terminal.start_position_error_mm,
                     "startOrientationErrorDeg": terminal.start_orientation_error_deg,
-                    "drillingPreflightFraction": drilling_preflight.fraction,
+                    "drillingPreflightFraction": (
+                        drilling_preflight.fraction
+                        if drilling_preflight is not None
+                        else None
+                    ),
                     "drillingPreflightAxialRollDeg": (
                         drilling_preflight.axial_roll_deg
+                        if drilling_preflight is not None
+                        else None
                     ),
+                    "drillingPreflightError": drilling_preflight_error,
+                    "trajectoryPathDisplayed": bool(path_view_ok),
+                    "trajectoryPathDisplayMessage": path_view_message,
                     "plannerStartSource": strict_plan.planner_start_source,
                     "submittedStartJointPositionsSi": (
                         strict_plan.submitted_start_joint_positions_si
@@ -2260,10 +3356,28 @@ class DENTORobotWorkflowFacade:
                     "maximumStartGoalDelta": (
                         strict_plan.maximum_start_goal_delta
                     ),
+                    "maximumStartGoalDeltaJoint": (
+                        strict_plan.maximum_start_goal_delta_joint
+                    ),
+                    "rawMaximumStartGoalDelta": (
+                        strict_plan.raw_maximum_start_goal_delta
+                    ),
+                    "rawMaximumStartGoalDeltaJoint": (
+                        strict_plan.raw_maximum_start_goal_delta_joint
+                    ),
+                    "perJointStartGoalDelta": (
+                        strict_plan.per_joint_start_goal_delta
+                    ),
+                    "continuousJointWrapAdjustments": (
+                        strict_plan.continuous_joint_wrap_adjustments
+                    ),
                     "maximumMonitoredStartError": (
                         strict_plan.maximum_monitored_start_error
                     ),
                     "nativePlannerMessage": strict_plan.native_planner_message,
+                    "motionDiagnosticSessionFingerprint": (
+                        goal1_diagnostic.session_fingerprint
+                    ),
                 },
                 payload=plan,
             )

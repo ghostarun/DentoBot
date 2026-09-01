@@ -28,6 +28,7 @@ class DENTORobotSimulationPanel:
         "expert_diagnostics": 1,
         "save_home": 2,
         "apply_home": 2,
+        "revalidate_workspace": 3,
         "review_limits": 3,
         "confirm_task": 4,
         "plan_approach": 5,
@@ -172,10 +173,20 @@ class DENTORobotSimulationPanel:
         )
         workspace_review_description.wordWrap = True
         workspace_review_layout.addWidget(workspace_review_description)
+        workspace_buttons = qt.QHBoxLayout()
+        self.revalidateWorkspaceButton = qt.QPushButton(
+            "Revalidate Saved Workspace", self.workspaceReviewGroup
+        )
+        self.revalidateWorkspaceButton.toolTip = (
+            "Replay the persisted states through the current MoveIt scene; "
+            "do not regenerate samples or change reviewed limits."
+        )
         self.reviewLimitsButton = qt.QPushButton(
             "Review and Apply Suggested Limits", self.workspaceReviewGroup
         )
-        workspace_review_layout.addWidget(self.reviewLimitsButton)
+        workspace_buttons.addWidget(self.revalidateWorkspaceButton)
+        workspace_buttons.addWidget(self.reviewLimitsButton)
+        workspace_review_layout.addLayout(workspace_buttons)
         self.workspaceReviewStatusLabel = qt.QLabel(
             "No reviewed assisted-limit proposal.", self.workspaceReviewGroup
         )
@@ -346,7 +357,8 @@ class DENTORobotSimulationPanel:
             "explicit PreEntry IK state. Stage 2 follows the "
             "trajectory axis strictly to the configured terminal tolerance, then "
             "validate only that short final contact move to exact Entry. The translucent "
-            "goal robot shows the pre-entry IK solution only; it does not mean "
+            "goal robot and the orange TCP phase path show the planned waypoints; "
+            "the goal robot endpoint alone does not mean "
             "the terminal path has planned successfully. During exploratory "
             "terminal preview, only configured burr-to-task-object collisions "
             "may be suppressed and every suppression is reported. Goal 1 is "
@@ -454,6 +466,9 @@ class DENTORobotSimulationPanel:
         self.reviewLimitsButton.clicked.connect(
             lambda checked=False: self._invoke("review_limits")
         )
+        self.revalidateWorkspaceButton.clicked.connect(
+            lambda checked=False: self._invoke("revalidate_workspace")
+        )
         self.confirmTaskButton.clicked.connect(
             lambda checked=False: self._invoke("confirm_task")
         )
@@ -559,7 +574,9 @@ class DENTORobotSimulationPanel:
         table = qt.QTableWidget(dialog)
         records = tuple(session.candidate_records)
         headers = (
+            "Stage",
             "Roll",
+            "Clearance",
             "Result",
             "Fraction",
             "Distance",
@@ -572,7 +589,13 @@ class DENTORobotSimulationPanel:
         table.setHorizontalHeaderLabels(list(headers))
         for row, record in enumerate(records):
             values = (
+                str(record.get("stage", "")),
                 f"{float(record.get('axial_roll_deg', 0.0)):.1f}°",
+                (
+                    "direct"
+                    if record.get("clearance_sample_index") is None
+                    else f"sample {int(record['clearance_sample_index'])}"
+                ),
                 "PASS" if record.get("success") else "PARTIAL/FAIL",
                 f"{float(record.get('completion_fraction', 0.0)) * 100.0:.2f}%",
                 (

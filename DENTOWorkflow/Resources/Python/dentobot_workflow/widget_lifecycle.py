@@ -92,6 +92,7 @@ class LifecycleWidgetMixin:
         del caller, event
         self._loadedCaseBundlePath = ""
         self._caseBundleRobotProfileCompatible = None
+        self._caseBundleRobotProfileMigrationMessage = ""
         self._workflowNavigationInitializedFromScene = False
         self._resumeTrajectoryVerificationAfterSave = False
         self._trajectoryVerificationResumeStateAfterSave = None

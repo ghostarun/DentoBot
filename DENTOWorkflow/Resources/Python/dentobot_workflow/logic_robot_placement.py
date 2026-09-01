@@ -648,10 +648,21 @@ class RobotPlacementLogicMixin:
             display = parameterNode.robotMountPlane.GetDisplayNode()
             if display:
                 displays.append(display)
-        elif key == "trajectory" and parameterNode.trajectoryLine:
-            display = parameterNode.trajectoryLine.GetDisplayNode()
-            if display:
-                displays.append(display)
+        elif key == "trajectory":
+            if parameterNode.trajectoryLine:
+                display = parameterNode.trajectoryLine.GetDisplayNode()
+                if display:
+                    displays.append(display)
+            # Include the transient TCP path generated from the actual phase
+            # waypoints under the same trajectory visibility/opacity control.
+            # It is display-only and never participates in case lineage or
+            # MoveIt collision synchronization.
+            displays.extend(
+                node.GetDisplayNode()
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if node.GetAttribute("DENTOBOT.Step6PhasePlanPath") == "true"
+                and node.GetDisplayNode()
+            )
         elif key == "forehead_proxy" and parameterNode.robotForeheadProxyModel:
             display = parameterNode.robotForeheadProxyModel.GetDisplayNode()
             if display:

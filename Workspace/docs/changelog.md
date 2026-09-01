@@ -21,6 +21,113 @@ Use newest-first ordering. Each entry should state:
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
 
+## 2026-09-01 04:06:00 IST (UTC+05:30) — Goal 1 PreEntry preview acceptance
+
+- **Why:** the exact `dentobot-case-step6x4.dentocase` could produce valid
+  collision-aware PreEntry IK endpoints, but the strict Cartesian terminal
+  segment to Entry still returned a partial fraction. The operator needed a
+  truthful, reviewable Goal 1 milestone instead of an empty plan or a false
+  drilling preview.
+- **Change:** `DENTORobotWorkflowFacade.planApproachPhase()` now preserves a
+  complete strict Task-Home→PreEntry MoveIt plan as a successful, guarded
+  `PhasePlan` when the terminal axis segment is blocked. It records the exact
+  terminal fraction/error in the V2 diagnostic session, marks Stage 2 as
+  `DeferredAtPreEntry`, leaves Entry and Goal 2 unavailable, and keeps the
+  selected axial-roll branch and collision checking intact. The focused exact
+  case smoke harness now handles packages without a pre-existing immutable
+  snapshot and reports the live reconfirmed fingerprint safely.
+- **Verification:** rebuilt/installed `slicer_ros2_module`; Python compile
+  passed; focused facade/bridge/state/config tests passed (`48 passed`); a
+  clean ROS 2/MoveIt stack and Slicer/Xvfb exact-case run emitted
+  `DENTOBOT_STEP65_EXACT_CASE_PASS` with 55 strict waypoints, complete guarded
+  PreEntry preview, and `goal2_deferred=true`. No hardware or execution path
+  was enabled. `graphify update .` was attempted and remained blocked by the
+  local watcher `Operation not permitted` error.
+- **Pending:** terminal PreEntry→Entry reachability and Goal 2 drilling
+  preview still require a valid collision-aware route; the fallback never
+  promotes a partial Cartesian path or disables collision checks.
+
+## 2026-09-01 04:25:00 IST (UTC+05:30) — Goal 1 stabilization postmortem and sync contract
+
+- **Outcome:** Goal 1 now reaches the collision-free PreEntry milestone on the
+  exact saved x4 case and displays the guarded TCP waypoint path. The clean
+  ROS 2/MoveIt run produced 55 strict Home→PreEntry checkpoints, completed the
+  guarded preview, and passed the path-model assertion. This is a PreEntry
+  acceptance, not an Entry or drilling acceptance.
+- **Main causes:** a valid IK endpoint was mistaken for a reachable connecting
+  path; repeated attempts reused one distant joint branch; continuous-joint
+  angle representations made equivalent goals look like large moves; the
+  collision audit expected source IDs while transient proxies published
+  display IDs; and a partial terminal Cartesian fraction could be mistaken for
+  a usable plan. First-connect also seeded the cyan ROS robot at a default pose
+  instead of the saved Task Home.
+- **Fixes:** explicit Task-Home start ownership; shortest-angle normalization
+  for continuous J5/J6; eight bounded axial-roll IK candidates ranked by Home
+  continuity; bounded 6.3 clearance detours; canonical collision-proxy IDs
+  with stale-ID cleanup; V2 diagnostics with stage, roll, joint-delta,
+  last-valid, and sampled-collision evidence; fail-closed partial-path
+  handling; and a transient TCP polyline from the same KDL FK/base transform
+  as the robot preview.
+- **Superseded:** three identical planner retries, endpoint-only success
+  claims, partial Cartesian promotion, default-ROS first connection, and
+  routine ROS ownership in 6.4. Connect/audit belongs to 6.1; 6.4 is
+  confirmation-only; ROS objects and phase paths are not saved in `.dentocase`.
+- **Verification:** focused host tests passed (`48 passed`), edited Python
+  modules compiled, `git diff --check` passed, and the clean exact-case
+  Slicer/Xvfb runtime emitted `DENTOBOT_STEP65_EXACT_CASE_PASS`. Known
+  shutdown VTK/class-loader leak warnings remain lifecycle evidence only.
+- **Next:** recover the strict PreEntry→Entry terminal route using V2
+  diagnostics, then accept complete Goal 1 Entry before enabling Goal 2.
+
+## 2026-09-01 03:48:00 IST (UTC+05:30) — Saved-Home bootstrap and J2 extended-zero URDF
+
+- **Why:** a restored `.dentocase` reconstructed the grey MRML robot at its
+  saved Task Home, but the first 6.1 connection created the cyan ROS robot at
+  its default joint vector. Applying Home, disconnecting, and reconnecting hid
+  the defect. J2 also used the opposite mechanical endpoint as zero.
+- **Change:** 6.1 now selects a base/resource-current saved Task Home as its
+  transient initial joint vector and reports the bootstrap source, while 6.2
+  remains mandatory for live validation. The URDF moves J2's origin to the
+  former `q=0.08 m` pose and reverses its axis so extended/home is `q=0` and
+  `q_new=0.08-q_old`. The UI names the convention explicitly.
+- **Compatibility:** package restore accepts only the exact tracked former
+  URDF hash for automatic conversion. It converts saved/display J2 and task
+  bounds, preserves the physical pose and base, rewrites Home against the new
+  profile as `Unreviewed`, and invalidates workspace, collision, confirmation,
+  and motion evidence. Other robot-profile differences remain blocked. The
+  previously selected J1/J3/J5/J6 offsets were already absorbed into URDF
+  origins and remain zero-valued defaults.
+- **Verification:** implementation and read-only source/diff inspection only.
+  Per operator policy, no syntax check, build, Slicer, ROS, MoveIt, test,
+  preview, execution, or hardware action was run. Focused verification awaits
+  explicit approval.
+
+## 2026-09-01 02:43:00 IST (UTC+05:30) — Goal 1 branch selection and causal failure feedback
+
+- **Why:** the first operator run through the runtime-first 6.1–6.4 flow
+  reached Goal 1, displayed a valid PreEntry IK robot, then received an empty
+  strict OMPL trajectory and only a generic `-99999` error. The reported
+  `6.25726 rad` maximum delta did not name the joint or distinguish angle
+  representation, swept collision, IK branch, or planner search failure.
+- **Change:** `DENTOROS2Bridge.py` now canonicalizes only the tracked URDF's
+  continuous spindle joint relative to Task Home, reports requested/submitted
+  vectors plus raw/effective per-joint deltas, and can inspect the first exact
+  MoveIt collision pair along a guard-resolution direct joint chord without
+  promoting it as a plan. `DENTORobotWorkflowFacade.py` solves a bounded set of
+  collision-aware PreEntry axial-roll IK endpoints, ranks them by normalized
+  Home continuity, submits up to three distinct strict plans, keeps the chosen
+  roll through the axis/contact/drilling preflight, and makes the translucent
+  goal robot show the selected endpoint.
+- **Preserved:** collision geometry, 1 mm research clearance, Task Home,
+  immutable task, non-tool/self/world collision policy, partial-plan rejection,
+  hidden Execute, and hardware prohibition are unchanged. Bounded full-turn
+  joints are not wrapped through their URDF limits.
+- **Verification:** source implementation and read-only diff review only. Per
+  operator instruction, no syntax check, build, Slicer, ROS, MoveIt plan,
+  preview, test, execution, or hardware action was run. Local `graphify update
+  .` was attempted at both workspace and checkout roots but failed with
+  `Operation not permitted`; the pre-edit graph query remains navigation-only.
+
 ## 2026-09-01 02:35:00 IST (UTC+05:30) — ΔP / change-point pressure detector
 
 - **Why:** The 2 s residual detector treated air-off→~225 kPa spin-up as
@@ -2503,3 +2610,21 @@ captured, so they must not be inferred from either timestamp.
   remaining gate reconciliation, and all verification are pending. No build,
   parser, reload, ROS/MoveIt request, preview, or motion test was run for this
   increment.
+
+## 2026-09-01 — Goal 1 PreEntry preview path
+
+- Added a transient, display-only world-RAS TCP polyline for every accepted
+  Step 6 phase plan. The line is generated from the same SlicerROS2 KDL FK
+  chain and locked-base transform used by the robot preview, so it does not
+  introduce a second coordinate conversion or alter the MoveIt collision
+  scene. It is never serialized into `.dentocase` and is removed with the
+  transient phase session.
+- Added the path to the shared DENTOBOT View catalog and trajectory
+  visibility/opacity controls; the Step 6 panel refreshes the catalog as soon
+  as planning returns. The panel now explicitly describes the orange TCP path
+  as planned waypoint evidence alongside the translucent goal robot.
+- Extended the exact-case smoke gate to require one path model with at least
+  two points and a line cell after Goal 1 planning. The clean ROS 2/MoveIt run
+  passed: 55 strict Home-to-PreEntry waypoints, guarded preview complete, and
+  the TCP path was present. The strict terminal segment remains truthfully
+  deferred; Goal 2 remains blocked.

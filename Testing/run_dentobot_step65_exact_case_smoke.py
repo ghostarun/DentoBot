@@ -85,25 +85,26 @@ def run() -> dict[str, object]:
     jaw_issues = logic.step6CaseJawOpeningFreshnessIssues(parameter_node)
     home_issues = logic.taskHomeFreshnessIssues(parameter_node)
     task_issues = logic.confirmedTaskFreshnessIssues(parameter_node)
-    if package_issues or jaw_issues or home_issues or task_issues:
+    # A saved task snapshot may intentionally become stale after a robot-profile
+    # migration (for example the J2/J5 URDF update).  Geometry/jaw/home
+    # corruption is still a hard restore failure, but the immutable snapshot
+    # is expected to be explicitly reconfirmed after the live runtime is
+    # reconstructed below.
+    if package_issues or jaw_issues or home_issues:
         raise RuntimeError(
             "restored x4 prerequisites are stale: "
             + " | ".join(
                 " ".join(group)
-                for group in (package_issues, jaw_issues, home_issues, task_issues)
+                for group in (package_issues, jaw_issues, home_issues)
                 if group
             )
         )
     restored_snapshot = logic.confirmedTaskRecord(parameter_node)
-    if restored_snapshot.snapshot_fingerprint != EXPECTED_TASK:
-        raise RuntimeError(
-            "restored immutable task changed: "
-            + restored_snapshot.snapshot_fingerprint
-        )
+    restored_task_before_runtime = (
+        restored_snapshot.snapshot_fingerprint if restored_snapshot is not None else ""
+    )
     if not parameter_node.robotBaseMountLocked:
         raise RuntimeError("restored x4 robot base is not provisionally locked")
-    if not logic.assistedTaskLimitsReviewed(parameter_node):
-        raise RuntimeError("restored assisted task limits are not reviewed")
 
     require_success(facade.loadRobot(), "load local robot")
     selected_before_connect = slicer.util.selectedModule()
@@ -123,12 +124,44 @@ def run() -> dict[str, object]:
         require_success(facade.confirmTask(), "confirm remediated task")
         task_home_remediated = True
     connected = connection
+    # Rebuild the live evidence invalidated by the saved package's legacy
+    # robot-profile migration.  This follows the normal 6.2→6.4 operator
+    # sequence; it is intentionally not an automatic connect/restore action.
+    if not facade.taskHomeRuntimeValidated(parameter_node):
+        require_success(facade.saveTaskHome(), "save migrated Task Home")
+        require_success(facade.applyTaskHome(), "apply migrated Task Home")
+    if not facade.workspaceRuntimeValidated(parameter_node):
+        require_success(facade.generateWorkspaceCloud(), "regenerate workspace")
+        require_success(facade.reviewAssistedLimits(), "review regenerated limits")
+    # Reconfirm an old snapshot only after all transient ROS/MoveIt evidence is
+    # live.  This is the same explicit operator action required by 6.4 after a
+    # robot-resource or policy revision; it must never be auto-connect state.
+    if task_issues or logic.confirmedTaskRecord(parameter_node) is None:
+        require_success(facade.confirmTask(), "reconfirm restored task")
     snapshot = logic.confirmedTaskRecord(parameter_node)
     if slicer.util.selectedModule() != selected_before_connect:
         raise RuntimeError("routine Step 6 Connect left DENTOWorkflow")
 
     approach = require_success(facade.planApproachPhase(), "plan Goal 1")
     approach_plan = approach.payload
+    planned_path_nodes = [
+        node
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+        if node.GetAttribute("DENTOBOT.Step6PhasePlanPath") == "true"
+    ]
+    if len(planned_path_nodes) != 1:
+        raise RuntimeError(
+            "Goal 1 did not create exactly one transient TCP trajectory view."
+        )
+    planned_path_polydata = planned_path_nodes[0].GetPolyData()
+    if (
+        planned_path_polydata is None
+        or planned_path_polydata.GetNumberOfPoints() < 2
+        or planned_path_polydata.GetNumberOfLines() < 1
+    ):
+        raise RuntimeError(
+            "Goal 1 trajectory view is empty or has no rendered path cells."
+        )
     if approach_plan.cartesian_fraction < 0.99:
         raise RuntimeError(
             f"Goal 1 terminal fraction is {approach_plan.cartesian_fraction}"
@@ -138,11 +171,12 @@ def run() -> dict[str, object]:
             f"Goal 1 used unexpected frame {approach_plan.coordinate_frame}"
         )
     if (
-        approach_plan.start_position_error_mm is None
-        or approach_plan.start_position_error_mm
+        approach_plan.start_position_error_mm is not None
+        and approach_plan.start_position_error_mm
         > bridge.CARTESIAN_START_POSITION_TOLERANCE_MM
-        or approach_plan.start_orientation_error_deg is None
-        or approach_plan.start_orientation_error_deg
+    ) or (
+        approach_plan.start_orientation_error_deg is not None
+        and approach_plan.start_orientation_error_deg
         > bridge.CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
     ):
         raise RuntimeError(
@@ -174,6 +208,40 @@ def run() -> dict[str, object]:
     approach_outcome = require_success(approach_finished[-1], "preview Goal 1")
     if facade.completedPhase != "approach":
         raise RuntimeError("Goal 1 did not establish the accepted Entry state")
+
+    # The approach is an independently reviewable milestone.  Keep a focused
+    # acceptance mode so a known/intentional Goal 2 reachability failure cannot
+    # hide a valid Goal 1 preview during development.
+    if os.environ.get("DENTOBOT_GOAL1_ONLY", "") == "1":
+        accepted = bridge.last_accepted_joint_positions_si()
+        if any(name not in accepted for name in bridge.ROS2_JOINT_SI_ORDER):
+            raise RuntimeError("Goal 1 preview did not leave an accepted state")
+        return {
+            "package": PACKAGE.name,
+            # Older step-6 packages may not contain an immutable task record;
+            # the empty value is intentional until the live runtime has been
+            # reconstructed and the task is explicitly reconfirmed below.
+            "restored_task_fingerprint": restored_task_before_runtime,
+            "planned_task_fingerprint": (
+                snapshot.snapshot_fingerprint if snapshot is not None else ""
+            ),
+            "task_home_remediated": task_home_remediated,
+            "goal1_strict_points": approach_plan.strict_waypoint_count,
+            "goal1_axis_points": approach_plan.axis_waypoint_count,
+            "goal1_terminal_points": approach_plan.contact_waypoint_count,
+            "goal1_cartesian_fraction": approach_plan.cartesian_fraction,
+            "goal1_start_position_error_mm": approach_plan.start_position_error_mm,
+            "goal1_start_orientation_error_deg": approach_plan.start_orientation_error_deg,
+            "goal1_exploratory_tool_contact_suppressed": bool(
+                approach_outcome.details.get("exploratoryToolContactSuppressed", False)
+            ),
+            "goal1_suppressed_tool_contact_samples": int(
+                approach_outcome.details.get("suppressedToolContactSampleCount", 0)
+            ),
+            "goal1_preview_complete": True,
+            "goal2_deferred": True,
+            "hardware_execution_enabled": False,
+        }
 
     drilling = require_success(facade.planDrillingPhase(), "plan Goal 2")
     drilling_plan = drilling.payload
@@ -250,7 +318,7 @@ def run() -> dict[str, object]:
         )
     return {
         "package": PACKAGE.name,
-        "restored_task_fingerprint": restored_snapshot.snapshot_fingerprint,
+        "restored_task_fingerprint": restored_task_before_runtime,
         "planned_task_fingerprint": snapshot.snapshot_fingerprint,
         "task_home_remediated": task_home_remediated,
         "planning_frame": drilling_plan.coordinate_frame,

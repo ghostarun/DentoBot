@@ -295,7 +295,13 @@ class CaseBackendWidgetMixin:
     def _openCaseBundle(self, bundlePath: str | Path):
         if not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow logic is unavailable."))
+        self._caseBundleRobotProfileMigrationMessage = ""
         inspection = validate_case_bundle(bundlePath)
+        profileMigration = {
+            "compatible": False,
+            "migrated": False,
+            "message": "",
+        }
         recoveryLocationState = self._sceneLocationState()
         restoreGeneration = self._beginCaseBundleRestore()
         try:
@@ -318,6 +324,12 @@ class CaseBackendWidgetMixin:
                             _("Slicer could not replace the scene from the package.")
                         )
                     self._bindAndValidateRestoredCase(inspection.workflow)
+                    profileMigration = (
+                        self.logic._migrateLegacyJ2ZeroRobotProfile(
+                            self._parameterNode,
+                            inspection.robot_profile,
+                        )
+                    )
                 except Exception as loadError:
                     logging.exception(
                         "DENTOBOT case-package load failed; restoring recovery scene"
@@ -361,6 +373,10 @@ class CaseBackendWidgetMixin:
         self._caseBundleRobotProfileCompatible = (
             currentRobotProfile.get("identitySha256")
             == inspection.robot_profile.get("identitySha256")
+            or bool(profileMigration.get("compatible"))
+        )
+        self._caseBundleRobotProfileMigrationMessage = str(
+            profileMigration.get("message") or ""
         )
         self._loadedCaseBundlePath = str(inspection.path)
         return inspection
@@ -425,6 +441,8 @@ class CaseBackendWidgetMixin:
             "to inspect or continue from any saved checkpoint. Each step's "
             "actions still validate their own prerequisites."
         )
+        if self._caseBundleRobotProfileMigrationMessage:
+            message += " " + self._caseBundleRobotProfileMigrationMessage
         self.ui.caseBundleStatusLabel.text = message
         self.ui.caseBundleStatusLabel.styleSheet = f"color: {color};"
         self.ui.workflowStageComboBox.enabled = True
@@ -447,6 +465,7 @@ class CaseBackendWidgetMixin:
                 raise RuntimeError(_("Slicer did not replace the active scene."))
         self._loadedCaseBundlePath = ""
         self._caseBundleRobotProfileCompatible = None
+        self._caseBundleRobotProfileMigrationMessage = ""
         self.ui.caseBundleStatusLabel.text = _(
             "Loaded a legacy MRML/MRB without DENTOBOT package integrity metadata."
         )
@@ -466,6 +485,7 @@ class CaseBackendWidgetMixin:
         slicer.mrmlScene.Clear(0)
         self._loadedCaseBundlePath = ""
         self._caseBundleRobotProfileCompatible = None
+        self._caseBundleRobotProfileMigrationMessage = ""
         self.ui.caseBundleStatusLabel.text = _(
             "New empty case. Use Save Case Package for integrity-checked persistence."
         )
