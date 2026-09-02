@@ -532,12 +532,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.completedPhase == MotionPhase.APPROACH.value
             )
+            drilling_preflight_ready = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.drillingPreflightReady
+            )
             panel.planDrillingButton.enabled = bool(
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
                 and workspace_runtime_validated
                 and approach_complete
+                and drilling_preflight_ready
             )
             panel.previewDrillingButton.enabled = bool(
                 approach_complete
@@ -545,6 +550,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and facade_plan.success
                 and facade_plan.requested_phase == MotionPhase.DRILLING.value
             )
+            if not drilling_preflight_ready:
+                panel.drillingStatusLabel.text = _(
+                    "Goal 2 is blocked until Goal 1 returns a complete guarded "
+                    "Stage 3 preflight. Inspect partial Stage 3 evidence and paths "
+                    "in the 6.5 diagnostics; partial output cannot unlock drilling."
+                )
+            elif not approach_complete:
+                panel.drillingStatusLabel.text = _(
+                    "The complete Stage 3 preflight is retained. Preview Goal 1 "
+                    "through Entry before creating the Goal 2 drilling preview."
+                )
 
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
         if not self._parameterNode or not self.logic:

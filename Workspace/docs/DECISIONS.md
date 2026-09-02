@@ -1,5 +1,40 @@
 # Dentobot Technical Decisions
 
+## 2026-09-03 — Diagnostic route playback is transient and display-only
+
+Status: source implemented; verification pending
+
+Retain each Goal 1 candidate's live Stage 1, Stage 2, and available Stage 3
+joint waypoints only in the façade process. The diagnostics dialog may draw
+their world-RAS TCP polylines and animate them on the translucent goal robot,
+including a failed Cartesian stage only through its last returned waypoint.
+These paths are not written to `.dentocase`, submitted to the phase guard, or
+used to unlock Goal 2. Preview speed is a workstation presentation preference,
+not case or task evidence.
+
+Reason: equal MoveIt waypoint counts do not establish equal routes, while
+persisting hundreds of transient candidate vectors would bloat and confuse the
+case evidence contract. Failed-route inspection must never make a partial path
+authoritative.
+
+## 2026-09-03 — SlicerROS2 scene ownership follows MRML references and scene lifetime
+
+Status: source implemented and package-build verified; runtime acceptance pending
+
+The process-owned default ROS node may survive a case-level `Clear(0)`, but its
+children do not gain a second manual lifetime. Parameter clients are enumerated
+through MRML references instead of a parallel raw-pointer vector; delayed ROS
+callbacks hold only a weak MRML node; and `RemoveAndDelete*` methods detach the
+child and let `vtkMRMLScene::RemoveNode` release scene ownership without a
+second explicit `Delete()`. Robot removal also clears its cached name, and
+robot scene update fails safely when no ROS host is present.
+
+Reason: the former mixed ownership could retain a deleted parameter node for a
+later `Spin()` or decrement a scene-owned pub/sub node twice during reconnect
+and scene clear. Both paths can abort native Slicer before Python can report an
+exception. DENTOWorkflow continues to quiesce its adapter before scene close;
+it does not compensate with another Python object registry.
+
 ## 2026-09-02 — Authoritative Git branch is `main`; lab PCs use a dated tag
 
 Status: applied; GitHub default retargeted; obsolete public `main` deleted

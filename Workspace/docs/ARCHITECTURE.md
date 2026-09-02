@@ -27,6 +27,11 @@ not a spindle command or alternate route. Routine UI replaces Roll with
 Planner leg/Route and a separate Stage 1/2/3 summary. Three display-only,
 non-persistent KDL/world-RAS
 paths use distinct colors; none is a planning-scene object or execution path.
+The façade may additionally retain every candidate's live waypoints until the
+next plan/disconnect. The diagnostics panel draws or animates those vectors
+only on transient TCP models and the translucent goal robot. Saved diagnostic
+JSON remains bounded summaries; candidate waypoint arrays never enter MRML or
+`.dentocase`.
 
 > Cross-platform update (2026-09-02): the Slicer/MRML workflow is shared.
 > Native Windows Slicer uses a WSL2 inference adapter without ROS. Ubuntu uses

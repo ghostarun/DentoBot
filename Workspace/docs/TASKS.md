@@ -1,6 +1,6 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-02
+Last reconciled: 2026-09-03
 
 This file is the single actionable queue. Each active item has one stable ID,
 one priority, one status, and one next acceptance action. Implementation order
@@ -12,13 +12,9 @@ preserved in `archive/2026-09-01/TASKS_HISTORY.md`.
 
 | Order | ID | Priority | State | Next acceptance action |
 |---:|---|---:|---|---|
-| 1 | `S6-P0-01` | 0 | Active; planner-v4 source and production failure feedback are Python/pure-test verified (`py_compile`; scoped state/façade `pytest` 33/33), but normal-window behavior is unaccepted. The inspector now reports Stage 1/2/3 progress, composed/stage-local first-invalid indices, retained guard cause, and next operator action; failed Stage-3 preflight can no longer be misclassified complete | Operator manually retries the current case in normal-window Slicer. Accept only a full guard-valid fixed-frame chain or a truthful Stage-1-only provisional preview whose automatically opened diagnostics identify the first blocked Stage 2/3 waypoint/cause and retain no partial drilling plan |
-| 2 (dependency) | `S6-U-01` | Unprioritized dependency | Active investigation; New Case after live reconnect can still abort native Slicer | Identify and quiesce the surviving SlicerROS2 owner; accept repeated connect/disconnect/reload/New Case/save-reopen with a clean exit |
-| 3 | `S6-P0-02` | 0 | Source complete and pure-verified; normal-window resume unaccepted | Load complete, partial/stale, and ROS-unavailable checkpoints; verify reconstruction stops at the highest truthful substep, restored anatomy/teeth and Viewer toggles remain stable, and repeated load creates no duplicate runtime owner or crash |
-| 4 | `S6-P1-01` | 1 | Partially implemented; laterality, inferior direction, and retry flow corrected; anatomical subregions/MPR review missing | Add bilateral condylar and incisal/crown interaction regions, guide metrics, exact-source/MPR gates, and a representative operator trial |
-
-`S6-U-01` is ordered here because it is a persistence/lifecycle dependency; its
-numeric priority remains explicitly unassigned.
+| 1 | `S6-P0-01` | 0 | Operator trial passed Stage 1 (328 waypoints) and Stage 2 (18); Stage 3 remains blocked at 91.7%/42 partial waypoints. Candidate paths, display-only playback, speed control, and first-invalid classification are source/static verified; restore passed 28/28 and the new planning regression passed inside a 50-pass/1-known-AABB-failure gate | Re-run Goal 1 once, compare candidate paths, and use the first-invalid classification to resolve Stage 3. Accept only a 100% independently guarded Stage 3; keep 6.6 blocked otherwise |
+| 2 | `S6-P0-02` | 0 | Operator trial proved transient reconstruction, but x4 stopped truthfully at 6.3 and initially displayed 5C. Direct Step 6 landing passed compilation and restore tests 28/28; normal-window behavior is unverified | Reload x4 and confirm Step 6 appears immediately, then verify saved workspace replay either reaches 6.5 or explains the exact 6.3 prerequisite without duplicate runtime ownership |
+| 3 | `S6-P1-01` | 1 | Partially implemented; laterality, inferior direction, and retry flow corrected; anatomical subregions/MPR review missing | Add bilateral condylar and incisal/crown interaction regions, guide metrics, exact-source/MPR gates, and a representative operator trial |
 
 ## Next — queued by priority
 
@@ -28,6 +24,7 @@ numeric priority remains explicitly unassigned.
 | `S6-P2-02` | 2 | Planned | `S6-P1-01` accepted | Add smooth display-only incisor-gap preview and one explicit commit action |
 | `S6-P2-03` | 2 | Planned | Priority-0 correctness accepted | Add shared truthful busy/progress/result/cancel behavior to long-running actions without fake percentages |
 | `UI-P3-01` | 3 | Planned | Priority 1–2 correctness and interaction contracts accepted | Refine the New GUI while proving Legacy parity and zero MRML/ROS side effects |
+| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings | Priority 0–3 work or an observed runtime regression no longer blocks it | Centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct test process-group cleanup, then require a zero-exit lifecycle run with no SlicerROS2 leaks |
 
 ## Unprioritized active and backlog
 

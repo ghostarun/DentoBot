@@ -533,6 +533,35 @@ def test_full_chain_uses_non_mutating_phase_guard_preflight():
     assert '"Complete" if drilling_preflight is not None else "Blocked"' in approach
 
 
+def test_later_cartesian_failure_keeps_its_first_invalid_evidence():
+    partial = SimpleNamespace(
+        waypoint_joint_vectors_si=({"joint": 0.0},) * 4,
+        first_invalid_requested_index=5,
+        first_invalid_ras_mm=(1.0, 2.0, 3.0),
+        first_invalid_joint_positions_si=None,
+        first_invalid_collision_pairs=(),
+        last_valid_joint_positions_si={"joint": 0.0},
+        failure_classification="kinematic_joint_or_singularity_failure",
+        completed_distance_mm=9.0,
+        requested_path_length_mm=10.0,
+    )
+    fields = DENTORobotWorkflowFacade._goal1_chain_diagnostic_fields(
+        {
+            "status": "BlockedStage3Cartesian",
+            "terminalPlan": SimpleNamespace(waypoint_joint_vectors_si=({},) * 2),
+            "drillingPlan": partial,
+            "firstInvalidIndex": -1,
+            "reason": "partial",
+            "guardMessage": "",
+        },
+        3,
+    )
+    assert fields["full_chain_first_invalid_stage_index"] == 5
+    assert fields["full_chain_first_invalid_index"] == 10
+    assert fields["failure_classification"] == "kinematic_joint_or_singularity_failure"
+    assert fields["first_invalid_ras_mm"] == (1.0, 2.0, 3.0)
+
+
 def test_stage2_uses_one_fixed_axis_path_and_phase_guard_contact_policy():
     source = (
         ROOT

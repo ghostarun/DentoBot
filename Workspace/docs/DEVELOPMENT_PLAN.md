@@ -1,6 +1,6 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-02
+Last reconciled: 2026-09-03
 
 This file defines implementation order, milestone gates, and workflow ownership.
 Actionable status is tracked once in `TASKS.md`; architectural rationale belongs
@@ -32,18 +32,13 @@ pre-cleanup plan is preserved in
 | Order | Task ID | Outcome | Exit gate |
 |---:|---|---|---|
 | 1 | `S6-P0-01` | Complete spindle-locked, fixed-frame Home→PreEntry→Entry→Target planning | One collision-valid complete chain; identical frame fingerprint through all stages; guarded previews available; no non-tool collision relaxation |
-| 2 (dependency) | `S6-U-01` | Make warm active-ROS scene replacement fail-safe | Repeated reconnect/New Case/reload/save-reopen completes without native abort or duplicate ROS ownership |
-| 3 | `S6-P0-02` | Resume valid saved Step 6 checkpoints at the highest truthful substep | Normal-window complete/partial/ROS-unavailable/repeated-load acceptance; 6.6 still requires a fresh complete plan |
-| 4 | `S6-P1-01` | Finish anatomically constrained Step 6A landmarks and hinge review | Condylar/crown regions, exact-source snapping, MPR review, guide metrics, and representative anatomy acceptance |
-| 5 | `S6-P2-01` | Add progressive restored-case integrity review | Steps 1–6 show one integrity state, reason, and recommended action without partial archive hydration |
-| 6 | `S6-P2-02` | Add transient incisor-gap preview | Smooth preview; one explicit lock commits and invalidates descendants once |
-| 7 | `S6-P2-03` | Add shared progress/completion feedback | Truthful busy/progress/result feedback without fabricated percentages or duplicate callbacks |
-| 8 | `UI-P3-01` | Refine the New GUI after correctness gates close | Legacy parity, viewport-first layout, accessibility, and no new MRML/ROS side effects |
-
-Unprioritized design work remains below numbered work unless it is a recorded
-dependency. `S6-U-01` is sequenced only because repeated runtime reconstruction
-cannot be accepted while scene replacement can abort; it does not acquire a
-fabricated numeric priority.
+| 2 | `S6-P0-02` | Resume valid saved Step 6 checkpoints at the highest truthful substep | Normal-window complete/partial/ROS-unavailable/repeated-load acceptance; 6.6 still requires a fresh complete plan |
+| 3 | `S6-P1-01` | Finish anatomically constrained Step 6A landmarks and hinge review | Condylar/crown regions, exact-source snapping, MPR review, guide metrics, and representative anatomy acceptance |
+| 4 | `S6-P2-01` | Add progressive restored-case integrity review | Steps 1–6 show one integrity state, reason, and recommended action without partial archive hydration |
+| 5 | `S6-P2-02` | Add transient incisor-gap preview | Smooth preview; one explicit lock commits and invalidates descendants once |
+| 6 | `S6-P2-03` | Add shared progress/completion feedback | Truthful busy/progress/result feedback without fabricated percentages or duplicate callbacks |
+| 7 | `UI-P3-01` | Refine the New GUI after correctness gates close | Legacy parity, viewport-first layout, accessibility, and no new MRML/ROS side effects |
+| 8 | `S6-U-01` | Finish clean native SlicerROS2 shutdown | Zero-exit lifecycle with no retained SlicerROS2/MoveIt wrappers; may advance only if the defect again disrupts normal workflow |
 
 ## Step 6 ownership contract
 
@@ -111,6 +106,20 @@ diagnostic schema 2.1 retains read-only schema-2.0 compatibility. `py_compile`
 passed and the scoped state/façade suites passed `33/33`; runtime evidence is
 still required before claiming a complete x4 chain.
 
+The 2026-09-03 operator trial supersedes that pending-runtime statement for
+the current x4 attempt: Stage 1 passed with 328 waypoints and Stage 2 passed
+with 18, while every inspected fixed-frame candidate stopped at 91.7% of
+Stage 3 with 42 retained waypoints. Because Stage 3 requested MoveIt with
+collision avoidance disabled and reported no collision pair, this is presently
+a Cartesian kinematic/continuity failure, not collision evidence. Source now
+propagates the first invalid requested pose and classification, retains each
+live candidate path for display-only static/animated inspection, and adds a
+workstation preview-speed control. Compilation and restore tests pass; the new
+diagnostic regression passes within a `50 passed, 1 failed` planning gate whose
+sole failure is the known unrelated draft-AABB neutral-pose assertion. Goal 2
+remains correctly blocked pending normal-window acceptance and a complete
+Stage 3.
+
 ## `S6-P0-02` — saved-checkpoint continuation
 
 `.dentocase` restore remains one atomic geometry/lineage transaction. After it
@@ -126,13 +135,31 @@ may land at 6.5, while 6.6 remains blocked until a fresh complete Goal 1 plan is
 generated in the new runtime. Current source/pure verification is not a
 substitute for normal-window acceptance.
 
+The same operator trial proved automatic runtime reconstruction begins, but
+the workflow visibly remained at 5C until Step 6 was selected and truthful
+revalidation stopped at 6.3. Source now switches to Step 6 before reconstruction
+starts; it still stops at 6.3 when saved workspace evidence cannot be replayed.
+This landing change passed compilation and the `28/28` pure restore gate;
+normal-window behavior remains unaccepted.
+
 ## Remaining correctness work
 
-### `S6-U-01` — active-ROS scene lifecycle
+### `S6-U-01` — Priority-4 native shutdown hygiene
 
-Isolate and fix the native SlicerROS2 owner that survives reconnect and aborts
-`mrmlScene.Clear(0)`. Warm New Case, module reload, and save/reopen remain
-unaccepted until quiescence and repeated lifecycle acceptance are observed.
+The former reconnect/`mrmlScene.Clear(0)` abort no longer reproduces: warm New
+Case, module reload, reconnect, and save/reopen reach the functional lifecycle
+PASS marker. This item therefore no longer blocks Priority-0 workflow work.
+The current native source repair replaces the ROS host's raw parameter-node
+list with MRML references, makes delayed parameter callbacks weak-node safe,
+removes redundant `Delete()` calls after scene-owned nodes are removed, handles
+a missing default ROS node during robot scene update, and removes stale robot
+names on teardown. The package rebuild passes; this is source/build evidence,
+and the serialized lifecycle now completes connect/reload/reconnect/New Case/
+reconnect/save-reopen with its PASS marker. Closure still requires a clean
+shutdown: retained ROS2/MoveIt VTK and class-loader objects remain after the
+functional pass. At Priority 4, finish one idempotent native shutdown path,
+release all robot/parameter/pub-sub/MoveIt wrappers before plugin unload, and
+make the lifecycle harness terminate its complete ROS process group.
 
 ### `S6-U-02` — physical mount-frame truth
 

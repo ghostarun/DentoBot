@@ -21,6 +21,18 @@ reproducibility, or dated evidence documents.
 - Step 6 is simulation/preview only. MoveIt provides configured IK, planning,
   FCL self/world collision, and planning-scene services. DENTOBOT does not
   expose controller/hardware execution.
+- The 2026-09-03 normal-window x4 trial passed Stage 1 (328 MoveIt points) and
+  Stage 2 (18), while every inspected candidate stopped at 91.7%/42 points in
+  collision-off Stage 3. This is presently Cartesian kinematic/continuity
+  evidence, not collision evidence. Current unverified source carries the
+  first-invalid classification into diagnostics, retains live candidate paths
+  for static/display-only translucent-robot inspection, adds a workstation
+  1×–10× preview speed, explains the 6.6 gate, and enters Step 6 before saved-
+  checkpoint reconstruction. Compilation and restore tests pass (`28/28`);
+  planning returned `50 passed, 1 failed`, with only the known unrelated
+  draft-AABB neutral-pose assertion failing. Normal-window acceptance remains.
+  The 2.0 mm burr/1.5 mm bore mismatch is a separate upstream physical-fit
+  defect.
 - Priority-0 source work has passed its bounded compile/import gate and a
   clean-stack exact-case runtime milestone: Python/UI parsing, the SlicerROS2
   wrapper build, the collision-guard build, and direct DENTOWorkflow widget
@@ -293,12 +305,18 @@ simulation-only. Full inference tests require the configured inference
 environment; a host `pytest` collection failure for missing `nibabel` or the
 package path is an environment mismatch, not a substitute for those tests.
 
-## Known active issue
+## Known deferred issue — Priority 4
 
 The non-ROS application shell, composable viewer, Step 6 case view, and five
 consecutive developer reloads pass after modularization. A separate Track 1
-SlicerROS2 lifecycle smoke still aborts native Slicer when `mrmlScene.Clear(0)`
-follows a live robot reconnect; the external simulation stack precondition and
-all earlier reconnect steps pass. Treat this as an active native ROS scene-
-lifecycle defect. Do not claim warm active-ROS New Case/save-reopen acceptance
-until it is isolated and verified.
+SlicerROS2 lifecycle smoke previously aborted native Slicer when
+`mrmlScene.Clear(0)` followed a live robot reconnect. Native source now removes
+the identified stale/double-owned parameter, pub/sub, and robot teardown paths,
+and the SlicerROS2 package rebuilds successfully. The approved serialized
+runtime smoke now reaches `DENTOBOT_SCENE_LIFECYCLE_PASS` through warm New Case
+and save/reopen, so the former scene-clear abort did not reproduce. Shutdown
+still reports retained ROS2/MoveIt VTK objects and class-loader warnings;
+functional lifecycle evidence must not be reported as clean-exit acceptance.
+This shutdown-hygiene note no longer blocks Priority-0 workflow work and moves
+forward only after priorities 0–3 or if an observed regression again disrupts
+normal use.

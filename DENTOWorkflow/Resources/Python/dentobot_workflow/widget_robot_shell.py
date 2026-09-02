@@ -351,6 +351,12 @@ class RobotShellWidgetMixin:
                 self._robotWorkflowFacade.reviewMotionDiagnostic
                 if self._robotWorkflowFacade
                 else None,
+                self._robotWorkflowFacade.showDiagnosticCandidatePaths
+                if self._robotWorkflowFacade
+                else None,
+                self._robotWorkflowFacade.previewDiagnosticCandidate
+                if self._robotWorkflowFacade
+                else None,
             )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
@@ -498,6 +504,7 @@ class RobotShellWidgetMixin:
             return
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.APPROACH.value,
+            interval_ms=self._robotSimulationPanel.previewIntervalMs(),
             on_progress=lambda _index, _count: self._updateRobotPlacement(),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
                 self._robotSimulationPanel.approachStatusLabel, outcome
@@ -521,6 +528,7 @@ class RobotShellWidgetMixin:
             return
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.DRILLING.value,
+            interval_ms=self._robotSimulationPanel.previewIntervalMs(),
             on_progress=lambda _index, _count: self._updateRobotPlacement(),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
                 self._robotSimulationPanel.drillingStatusLabel, outcome

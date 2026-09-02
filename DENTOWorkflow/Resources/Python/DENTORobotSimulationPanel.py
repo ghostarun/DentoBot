@@ -394,6 +394,25 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
+        preview_settings = qt.QHBoxLayout()
+        preview_settings.addWidget(qt.QLabel("Preview speed:", self.approachGroup))
+        self.previewSpeedCombo = qt.QComboBox(self.approachGroup)
+        for label, multiplier in (("1×", 1.0), ("2×", 2.0), ("5×", 5.0), ("10×", 10.0)):
+            self.previewSpeedCombo.addItem(label, multiplier)
+        saved_speed = float(qt.QSettings().value("DENTOBOT/Step6PreviewSpeed", 10.0))
+        speed_index = min(
+            range(self.previewSpeedCombo.count),
+            key=lambda index: abs(float(self.previewSpeedCombo.itemData(index)) - saved_speed),
+        )
+        self.previewSpeedCombo.currentIndex = speed_index
+        self.previewSpeedCombo.currentIndexChanged.connect(
+            lambda _index=0: qt.QSettings().setValue(
+                "DENTOBOT/Step6PreviewSpeed", self.previewSpeedMultiplier()
+            )
+        )
+        preview_settings.addWidget(self.previewSpeedCombo)
+        preview_settings.addStretch(1)
+        approach_layout.addLayout(preview_settings)
         self.approachStatusLabel = qt.QLabel("No Goal 1 plan.", self.approachGroup)
         self.approachStatusLabel.wordWrap = True
         self.approachStatusLabel.setProperty("dentobotRole", "status")
@@ -541,6 +560,12 @@ class DENTORobotSimulationPanel:
     def cbctPreset(self) -> str:
         return str(self.cbctPresetCombo.currentData or "current")
 
+    def previewSpeedMultiplier(self) -> float:
+        return max(1.0, float(self.previewSpeedCombo.currentData or 1.0))
+
+    def previewIntervalMs(self) -> int:
+        return max(20, round(250.0 / self.previewSpeedMultiplier()))
+
     def setAppearance(self, key: str, visible: bool, opacity: float) -> None:
         controls = self.appearanceControls.get(key)
         if not controls:
@@ -666,6 +691,8 @@ class DENTORobotSimulationPanel:
         session,
         on_candidate_selected,
         on_review,
+        on_candidate_path=None,
+        on_candidate_preview=None,
     ) -> None:
         """Open the bounded operator-facing diagnostic candidate inspector."""
         if self._diagnosticDialog is not None:
@@ -686,7 +713,10 @@ class DENTORobotSimulationPanel:
                 f" Stale reason: {session.stale_reason}"
                 if session.stale_reason
                 else ""
-            ),
+            )
+            + " Equal waypoint counts are only MoveIt sampling counts; they do not "
+            "mean equal joint routes. Compare the IK seed, fixed frame, arm travel, "
+            "and display-only path.",
             dialog,
         )
         summary.wordWrap = True
@@ -755,6 +785,7 @@ class DENTORobotSimulationPanel:
             "Fraction",
             "Distance",
             "Waypoints",
+            "Arm travel",
             "Classification",
             "Min joint margin",
         )
@@ -788,6 +819,7 @@ class DENTORobotSimulationPanel:
                     f"{float(record.get('requested_distance_mm', 0.0)):.3f} mm"
                 ),
                 str(int(record.get("waypoint_count", 0))),
+                f"{float(record.get('path_length_joint_si', 0.0)):.4f}",
                 str(record.get("failure_classification") or "unknown"),
                 (
                     "—"
@@ -808,8 +840,12 @@ class DENTORobotSimulationPanel:
         details.readOnly = True
         layout.addWidget(details)
         dialog_buttons = qt.QHBoxLayout()
+        path_button = qt.QPushButton("Show Selected Paths", dialog)
+        preview_button = qt.QPushButton("Preview Selected Leg", dialog)
         review_button = qt.QPushButton("Mark Current Evidence Reviewed", dialog)
         close_button = qt.QPushButton("Close", dialog)
+        dialog_buttons.addWidget(path_button)
+        dialog_buttons.addWidget(preview_button)
         dialog_buttons.addWidget(review_button)
         dialog_buttons.addWidget(close_button)
         layout.addLayout(dialog_buttons)
@@ -824,6 +860,23 @@ class DENTORobotSimulationPanel:
 
         review_button.clicked.connect(review_evidence)
         review_button.enabled = session.operator_review_state != "Reviewed"
+
+        def show_selected_path() -> None:
+            if on_candidate_path:
+                result = on_candidate_path(int(table.currentRow))
+                details.appendPlainText("\n\nPath display: " + result.message)
+
+        def preview_selected_leg() -> None:
+            if on_candidate_preview:
+                result = on_candidate_preview(
+                    int(table.currentRow), self.previewIntervalMs()
+                )
+                details.appendPlainText("\n\nDiagnostic preview: " + result.message)
+
+        path_button.clicked.connect(show_selected_path)
+        preview_button.clicked.connect(preview_selected_leg)
+        path_button.enabled = bool(on_candidate_path)
+        preview_button.enabled = bool(on_candidate_preview)
 
         def select_candidate(index: int) -> None:
             index = max(0, min(len(records) - 1, int(index)))

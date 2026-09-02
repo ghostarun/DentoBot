@@ -1,5 +1,22 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-03 — Make Goal 1 candidate evidence inspectable
+
+- **Why:** The operator could see 12 planner rows with equal Stage-1 waypoint
+  counts but could not compare their geometry, the accepted preview took over
+  a minute, and a 91.7% Stage-3 stop lost its first-invalid classification.
+- **Change:** Retain candidate waypoints transiently, draw separate Stage 1/2/3
+  TCP paths, animate selected complete or partial evidence only on the
+  translucent goal robot, add a persistent 1×–10× workstation speed control,
+  carry later-stage failure classification/position into diagnostics, make
+  6.6 explain its full-chain gate, and enter Step 6 before saved-checkpoint
+  reconstruction.
+- **Verification:** Python compilation passed; restore tests passed `28/28`.
+  Planning tests returned `50 passed, 1 failed`, with the sole failure being
+  the pre-existing coarse-AABB neutral-pose assertion (`link-1`↔`link-3` at
+  `0.00 mm`); the new diagnostic regression passed. Normal-window retry remains
+  pending. No partial route is persisted, guarded, promoted, or executed.
+
 ## 2026-09-03 — Finalize Git/GHCR Windows-lab release metadata
 
 - **Why:** The frozen source tag was installable, but the derived image first

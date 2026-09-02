@@ -1,5 +1,62 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-03 operator Goal 1 and Stage 3 evidence
+
+- Loading `dentobot-case-step6x4.dentocase` reconstructed ROS/MoveIt, but the
+  visible workflow remained at 5C until the operator selected Step 6; runtime
+  revalidation then stopped at 6.3 and required workspace regeneration/review.
+- The resulting Goal 1 trial produced multiple seeded arm candidates. The
+  inspected candidates passed Home→PreEntry at 328 waypoints and
+  PreEntry→Entry at 18 waypoints, then returned 91.7% of Entry→Target with 42
+  partial waypoints. Goal 2 remained disabled.
+- The supplied records had no first collision pair or first-invalid joint/RAS
+  state. Stage 3 is invoked with `avoid_collisions=False`, so the 91.7% fraction
+  is not evidence that the guide, anatomy, or robot collided. The next source
+  revision carries MoveIt's first-invalid IK classification into the candidate
+  report.
+- The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate physical-fit
+  defect. Guide/burr contact is explicitly suppressible in exploratory
+  terminal/drilling guard phases, so this simulation can pass despite an
+  unusable physical bore; it must be corrected upstream before physical-fit
+  claims.
+- New route-display and preview-speed source passed `static.step6_pycompile`;
+  restore tests passed `28/28`. Planning tests returned `50 passed, 1 failed`:
+  the new later-Cartesian evidence regression passed, while the known unrelated
+  draft-AABB neutral-pose assertion again reported `link-1`↔`link-3` at
+  `0.00 mm`. Evidence is under
+  `/tmp/dentobot-verification/2026-09-03-step6-diagnostic-ui/`. Normal-window
+  UI/runtime acceptance remains pending. No hardware motion, drilling,
+  collision-policy relaxation, or clinical claim occurred.
+
+## 2026-09-03 SlicerROS2 native lifetime repair build evidence
+
+- Source evidence is in the adjacent pinned `slicer_ros2_module` worktree. The
+  repair removes stale raw parameter-node ownership, makes delayed parameter
+  callbacks weak-node safe, removes redundant explicit deletion after MRML
+  scene removal, fails safely when a robot is updated without a ROS host, and
+  clears removed robot-name cache entries.
+- `git diff --check` passed in the SlicerROS2 worktree.
+- Inside `dentobot-slicerros2`, `colcon build --packages-select
+  slicer_ros2_module --symlink-install --event-handlers console_direct+`
+  completed: `1 package finished [18.3s]`.
+- The existing `ROS2LifetimeRegressionTest.py` now also exercises publisher
+  and subscriber creation/removal before another ROS spin. That isolated script
+  was not run; the stronger application lifecycle below exercised real adapter
+  teardown instead.
+- The approved exclusive `runtime.scene_lifecycle` campaign reached every
+  phase—first connect, module reload, reconnect, New Case, reconnect, and saved
+  scene reload—and printed `DENTOBOT_SCENE_LIFECYCLE_PASS`. The former native
+  scene-clear abort did not reproduce.
+- Shutdown remained non-clean: Slicer reported class-loader unload warnings,
+  `vtkDebugLeaks`, one retained `vtkMRMLROS2NodeNode`, three retained robot and
+  parameter nodes, seven subscriber nodes, three publisher nodes, and related
+  MoveIt/VTK objects. Record the functional PASS and shutdown failure
+  separately. Full logs: `/tmp/dentobot-verification/2026-09-03-s6-u-01/`.
+- No robot motion, drilling, controller execution, or patient-facing action
+  occurred. The four ROS child processes started by the campaign outlived the
+  launch parent; their exact PIDs were identified, terminated, and cleanup was
+  verified before releasing the runtime lane.
+
 ## 2026-09-02 Git main and Windows-lab release identity
 
 - GitHub's default and local authoritative development branch is `main`. The

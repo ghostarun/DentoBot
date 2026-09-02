@@ -454,6 +454,14 @@ class CaseBackendWidgetMixin:
         if self._parameterNode and self._parameterNode.step6PlanningContextImported:
             resumePath = str(self._loadedCaseBundlePath or "")
             if resumePath:
+                # Enter Step 6 before the transient reconstruction starts so a
+                # restored checkpoint never appears to resume in Step 5C.
+                self._setWorkflowStage(len(self._workflowStageEntries()) - 1)
+                self._configureRobotSimulationShellSubstep(1)
+                self._setCaseBundleResumeStatus(
+                    "Restoring the saved Step 6 checkpoint and rebuilding its transient ROS/MoveIt runtime…",
+                    error=False,
+                )
                 qt.QTimer.singleShot(
                     0,
                     lambda path=resumePath: self._resumeLoadedStep6Checkpoint(path),

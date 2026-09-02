@@ -329,6 +329,7 @@ class DENTORobotWorkflowFacade:
         self._runtime_validated_task_home_key = ""
         self._runtime_task_home_evidence: dict[str, Any] = {}
         self._runtime_validated_workspace_key = ""
+        self._diagnostic_candidate_paths: dict[int, dict[str, tuple]] = {}
 
     def setLogic(self, logic) -> None:
         self._logic = logic
@@ -344,6 +345,10 @@ class DENTORobotWorkflowFacade:
     @property
     def completedPhase(self) -> str:
         return self._completed_phase
+
+    @property
+    def drillingPreflightReady(self) -> bool:
+        return self._preflight_drilling_plan is not None
 
     @property
     def displaySyncActive(self) -> bool:
@@ -2041,6 +2046,77 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "diagnostic_candidate_failed", str(exc))
 
+    def showDiagnosticCandidatePaths(self, candidate_index: int) -> RobotActionResult:
+        """Show all retained display-only TCP paths for one live planner leg."""
+        paths = self._diagnostic_candidate_paths.get(int(candidate_index), {})
+        if not paths:
+            return RobotActionResult(
+                False,
+                "diagnostic_path_unavailable",
+                "This saved diagnostic has no live route waypoints; re-plan Goal 1 to inspect its path.",
+            )
+        parameter_node = self._require_context()
+        results = []
+        for stage in ("stage1", "stage2", "stage3"):
+            waypoints = tuple(paths.get(stage, ()))
+            if len(waypoints) < 2:
+                continue
+            results.append(
+                self._bridge.show_phase_plan_tcp_path(
+                    waypoints,
+                    parameter_node.robotBaseTransform,
+                    phase=stage,
+                    clear_existing=not results,
+                )
+            )
+        if not results:
+            return RobotActionResult(False, "diagnostic_path_unavailable", "This planner leg retained no drawable path.")
+        return RobotActionResult(
+            all(ok for ok, _message in results),
+            "diagnostic_paths_shown",
+            " ".join(message for _ok, message in results)
+            + " Failed stages stop at their last returned waypoint and remain non-authorizing.",
+        )
+
+    def previewDiagnosticCandidate(
+        self,
+        candidate_index: int,
+        interval_ms: int = 50,
+    ) -> RobotActionResult:
+        """Animate one retained route on the translucent goal robot only."""
+        paths = self._diagnostic_candidate_paths.get(int(candidate_index), {})
+        waypoints = tuple(
+            waypoint
+            for stage in ("stage1", "stage2", "stage3")
+            for waypoint in paths.get(stage, ())
+        )
+        if not waypoints:
+            return RobotActionResult(False, "diagnostic_path_unavailable", "This planner leg retained no previewable waypoints.")
+        try:
+            import qt
+        except ImportError:
+            return RobotActionResult(False, "qt_unavailable", "Qt is unavailable for diagnostic preview timing.")
+        self.stopPreview()
+        self._preview_index = 0
+        timer = qt.QTimer()
+        timer.setInterval(max(20, int(interval_ms)))
+
+        def advance() -> None:
+            if self._preview_index >= len(waypoints):
+                self.stopPreview()
+                return
+            self._bridge.show_goal_robot_joint_positions(waypoints[self._preview_index])
+            self._preview_index += 1
+
+        timer.timeout.connect(advance)
+        timer.start()
+        self._preview_timer = timer
+        return RobotActionResult(
+            True,
+            "diagnostic_preview_started",
+            f"Display-only preview started for {len(waypoints)} retained waypoint(s); failed legs stop at last-valid evidence.",
+        )
+
     def reviewMotionDiagnostic(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
@@ -3128,7 +3204,25 @@ class DENTORobotWorkflowFacade:
             elif failure_stage == "stage3_drilling":
                 invalid_stage = invalid_composed - stage1_count - stage2_count
             invalid_stage = max(-1, invalid_stage)
-        return {
+        failed_plan = (
+            drilling_plan
+            if failure_stage == "stage3_drilling"
+            else terminal_plan
+            if failure_stage == "stage2_fixed_axis_terminal"
+            else None
+        )
+        if (
+            invalid_stage < 0
+            and failed_plan is not None
+            and int(failed_plan.first_invalid_requested_index) >= 0
+        ):
+            invalid_stage = int(failed_plan.first_invalid_requested_index)
+            invalid_composed = (
+                stage1_count
+                + (stage2_count if failure_stage == "stage3_drilling" else 0)
+                + invalid_stage
+            )
+        result = {
             "full_chain_candidate_status": status,
             "full_chain_failure_stage": failure_stage,
             "full_chain_failure_reason": _bounded_text(chain.get("reason") or ""),
@@ -3141,6 +3235,35 @@ class DENTORobotWorkflowFacade:
             "stage2_waypoint_count": stage2_count,
             "stage3_waypoint_count": stage3_count,
         }
+        if failed_plan is not None:
+            result.update(
+                {
+                    "failure_classification": str(
+                        failed_plan.failure_classification or "unknown"
+                    ),
+                    "first_invalid_requested_index": int(
+                        failed_plan.first_invalid_requested_index
+                    ),
+                    "first_invalid_ras_mm": failed_plan.first_invalid_ras_mm,
+                    "first_invalid_joint_positions_si": (
+                        failed_plan.first_invalid_joint_positions_si
+                    ),
+                    "first_invalid_collision_pairs": [
+                        list(pair)
+                        for pair in failed_plan.first_invalid_collision_pairs
+                    ],
+                    "last_valid_joint_positions_si": (
+                        failed_plan.last_valid_joint_positions_si
+                    ),
+                    "completed_distance_mm": float(
+                        failed_plan.completed_distance_mm
+                    ),
+                    "requested_distance_mm": float(
+                        failed_plan.requested_path_length_mm
+                    ),
+                }
+            )
+        return result
 
     def planApproachPhase(self) -> RobotActionResult:
         """Plan strict current→pre-entry plus independently guarded contact."""
@@ -3148,6 +3271,7 @@ class DENTORobotWorkflowFacade:
         try:
             parameter_node = self._require_context()
             self.stopPreview()
+            self._diagnostic_candidate_paths = {}
             issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
             if issues:
                 raise ValueError("Task confirmation is missing or stale: " + ", ".join(issues))
@@ -3270,6 +3394,10 @@ class DENTORobotWorkflowFacade:
                         segment=segment,
                     )
                 )
+                diagnostic_index = len(diagnostic_records) - 1
+                self._diagnostic_candidate_paths[diagnostic_index] = {
+                    "stage1": tuple(candidate_plan.waypoint_joint_vectors_si),
+                }
                 if candidate_plan.success:
                     # Stage 1 owns the complete drill-frame decision. Evaluate
                     # Stage 2 and Stage 3 with that exact frame before ranking
@@ -3302,6 +3430,18 @@ class DENTORobotWorkflowFacade:
                             **self._goal1_chain_diagnostic_fields(
                                 chain,
                                 len(candidate_plan.waypoint_joint_vectors_si),
+                            ),
+                        }
+                    )
+                    self._diagnostic_candidate_paths[diagnostic_index].update(
+                        {
+                            "stage2": tuple(
+                                chain["terminalPlan"].waypoint_joint_vectors_si
+                            ),
+                            "stage3": tuple(
+                                chain["drillingPlan"].waypoint_joint_vectors_si
+                                if chain["drillingPlan"] is not None
+                                else ()
                             ),
                         }
                     )
@@ -3439,6 +3579,13 @@ class DENTORobotWorkflowFacade:
                                 segment=segment,
                             )
                         )
+                        diagnostic_index = len(diagnostic_records) - 1
+                        self._diagnostic_candidate_paths[diagnostic_index] = {
+                            "stage1": (
+                                tuple(first_leg.waypoint_joint_vectors_si)
+                                + tuple(second_leg.waypoint_joint_vectors_si)
+                            ),
+                        }
                         if second_leg.success:
                             merged_plan = self._merge_goal1_joint_plans(
                                 first_leg,
@@ -3483,6 +3630,17 @@ class DENTORobotWorkflowFacade:
                                     ),
                                 }
                             )
+                            self._diagnostic_candidate_paths[diagnostic_index] = {
+                                "stage1": tuple(merged_plan.waypoint_joint_vectors_si),
+                                "stage2": tuple(
+                                    chain["terminalPlan"].waypoint_joint_vectors_si
+                                ),
+                                "stage3": tuple(
+                                    chain["drillingPlan"].waypoint_joint_vectors_si
+                                    if chain["drillingPlan"] is not None
+                                    else ()
+                                ),
+                            }
                             clearance_candidate_routes.append(
                                 {
                                     "candidate": candidate,
