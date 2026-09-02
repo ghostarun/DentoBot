@@ -100,5 +100,5 @@ lab_unpublished_tag_message() {
   printf '%s\n' \
     "Lab tag '${DENTOBOT_TAG}' is not on origin yet." \
     'The maintainer must commit the freeze, create this tag, and push it.' \
-    'Lab PCs must not follow integration/gui-step6 or a dirty working tree.' >&2
+    'Lab PCs must not follow main, integration/gui-step6, or a dirty working tree.' >&2
 }

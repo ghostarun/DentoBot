@@ -23,7 +23,8 @@ second test harness.
 
 ## 2026-09-02 — Windows lab ROS uses WSL2 Linux SlicerROS2, not native Slicer
 
-Status: scripts and pin file added; lab GUI/ROS unaccepted; git tag unpublished
+Status: scripts and pin file added; tag published; GHCR image and lab GUI/ROS
+acceptance pending
 
 Lab PCs that need DENTOWorkflow including Step 6 ROS/MoveIt run the same
 Linux `dentobot-slicerros2` stack as Ubuntu, hosted by WSL2 + Docker, with
@@ -33,11 +34,13 @@ profile (`DENTOBOT_ROS_PROFILE=none`) and is not this export.
 Access is GitHub collaborator approval plus GHCR package read. Update scripts
 check out only the tag in `Workspace/LAB_RELEASE`. They store no password.
 Do not zip the overlay or copy `ros2_ws/build|install|log` or `data/` cases.
-The first `lab/*` tag and GHCR push wait for explicit Git authorization after
-an Ubuntu freeze. Simulation/preview only.
+The first tag, `lab/2026-09-02`, is published at the frozen source commit.
+Publishing the pinned GHCR image still waits for separate explicit
+authorization. Simulation/preview only.
 
 Reason: SlicerROS2 is Linux-only; a shared password in a batch file cannot be
-revoked; labmates must not track a dirty `integration/gui-step6` worktree.
+revoked; labmates must not track a mutable maintainer `main`,
+`integration/gui-step6`, or dirty worktree.
 
 ## 2026-09-02 — One overlay graphify index; Drive/MCP scratch stays untracked
 

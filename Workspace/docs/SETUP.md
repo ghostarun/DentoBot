@@ -118,8 +118,10 @@ load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
 WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
 `launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
 SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
-implemented and unpublished until a `lab/*` git tag and GHCR image exist; it
-is not Ubuntu-verified and not a substitute for native Windows Slicer.
+implemented, and `lab/2026-09-02` is published at the frozen source commit.
+The GHCR image remains unpublished, so installation currently fails closed at
+the image pull. This path is not Windows-lab-verified and is not a substitute
+for native Windows Slicer.
 
 Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
 source-built Slicer 5.10/5.12. The published CI image is Linux.
@@ -185,7 +187,7 @@ That wrapper calls `scripts/launch-dentoworkflow.bash` inside WSL. Treat WSLg
 software/llvmpipe rendering like the CRD session: functional checks only, not
 FPS acceptance.
 
-**Update** (pinned tag only; never `integration/gui-step6`)
+**Update** (pinned tag only; never `main` or `integration/gui-step6`)
 
 ```bat
 Workspace\scripts\update-lab-release.bat

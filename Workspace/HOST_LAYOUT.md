@@ -1,7 +1,7 @@
 # Host overlay layout
 
 `~/dentobot` is not a git repository. Git lives in
-`ros2_ws/src/DentoBot` (branch `integration/gui-step6`).
+`ros2_ws/src/DentoBot` (branch `main`, tracking `origin/main`).
 
 Root shortcuts (symlinks) exist so Ubuntu looks like a normal project:
 

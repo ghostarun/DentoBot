@@ -1,5 +1,25 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-02 Git main and Windows-lab release identity
+
+- GitHub's default and local authoritative development branch is `main`. The
+  accepted source freeze and lab tag resolve to
+  `17af3d8a7790f86e7a85965693107e92b0d2165b`; local `main` was attached to
+  `origin/main` with zero ahead/behind difference before the follow-up
+  release-metadata commit.
+- The repository-local origin fetch mapping is the standard
+  `+refs/heads/*:refs/remotes/origin/*`, and `origin/HEAD` resolves to
+  `origin/main`.
+- Published tag `lab/2026-09-02` resolves to the same frozen commit. The remote
+  `integration/gui-step6` branch remains a compatibility alias at that commit;
+  it is not the authoritative development branch.
+- The pinned GHCR image remains unpublished. The first authorized
+  `publish-lab-image.bash --push` attempt reached GHCR and was rejected with
+  `denied`; Docker was unauthenticated and the configured GitHub CLI token was
+  invalid. Windows-lab install therefore clones and checks out the tag, then
+  fails closed at `docker pull`. No image publication or Windows WSLg runtime
+  acceptance is claimed here.
+
 ## 2026-09-02 Cross-tool agentic verification boundary
 
 Codex, Cursor, and Claude use one controlled verification protocol:

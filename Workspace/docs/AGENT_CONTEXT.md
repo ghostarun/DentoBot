@@ -7,7 +7,7 @@ reproducibility, or dated evidence documents.
 ## Current engineering state — 2026-09-02
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
-- Active integration branch: `integration/gui-step6`.
+- Authoritative development branch: `main`, tracking `origin/main`.
 - `DENTOWorkflow.py` is a thin public Slicer entrypoint. Production UI and
   logic live in `DENTOWorkflow/Resources/Python/dentobot_workflow/`.
 - Legacy and six-workspace Shell presentations share the same MRML parameter

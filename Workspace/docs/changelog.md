@@ -1,5 +1,20 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-02 20:26 IST — `main` authority and lab tag publication
+
+- **Why:** The accepted Step 6/export tree replaced the obsolete GitHub
+  `main`, but the local checkout still had a single-branch-style fetch map and
+  no upstream; live documentation also named the retired integration branch
+  and described the now-published lab tag as absent.
+- **Change:** Made local `main` track `origin/main`, restored the standard
+  all-origin-branches fetch mapping, aligned `origin/HEAD`, and updated live
+  branch/release references. `lab/2026-09-02` is published at `17af3d8`; the
+  GHCR image remains deliberately unpublished.
+- **Verification:** Remote `HEAD`, `main`, `integration/gui-step6`, and the lab
+  tag were queried directly; all resolve to `17af3d8`. Local ahead/behind is
+  `0/0` before this documentation commit. No branch deletion, image push,
+  Slicer/ROS runtime, hardware motion, or Drive sync was performed.
+
 ## 2026-09-02 19:40 IST — Windows lab WSL2 SlicerROS2 export scripts
 
 - **Why:** Lab PCs on Windows need the current DENTOWorkflow including Step 6

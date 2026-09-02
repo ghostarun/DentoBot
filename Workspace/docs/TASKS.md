@@ -47,7 +47,7 @@ numeric priority remains explicitly unassigned.
 | `CASE-U-01` | Backlog | Define and implement an offline no-ROS migrator for contaminated historical MRML/MRB scenes; never load them into a live ROS process |
 | `PLAT-U-01` | Blocked by clean-image acceptance | Rebuild the pinned Ubuntu inference image and accept dependency, backend, Bridge, Slicer import, and persistence behavior without mutable-container repair |
 | `PLAT-U-02` | Pending external workstation | Run Windows 11 **native Slicer** launcher, path, CUDA segmentation, cancellation, and scene-reopen acceptance |
-| `PLAT-U-04` | Scripts/pin present; unpublished tag; GUI unaccepted | On one Windows 11 lab PC with collaborator access: install-lab-wsl, pull GHCR image, launch-dentoworkflow.bash via WSLg, open DENTOWorkflow, Connect Step 6 ROS/MoveIt simulation. No hardware motion. |
+| `PLAT-U-04` | Scripts/pin and published tag present; GHCR push blocked by missing valid package-write authentication; GUI unaccepted | Authenticate Docker/GitHub CLI to GHCR using the maintainer account with `write:packages`, rerun `publish-lab-image.bash --push`, then perform the Windows 11 WSLg install/launch/Step 6 simulation trial. No hardware motion. |
 | `PLAT-U-03` | Deferred observation | After an approved reboot, record overnight CRD/GDM availability and resource behavior before closing workstation stability |
 | `QA-U-01` | Unresolved | Diagnose why the aggregate Slicer test wrapper returns nonzero although isolated members reach PASS; do not treat isolated PASS as aggregate closure |
 | `ROS-U-01` | Future design | Define geometry-preserving medical-image and transform semantics before broadening ROS scope beyond current bounded simulation interfaces |
