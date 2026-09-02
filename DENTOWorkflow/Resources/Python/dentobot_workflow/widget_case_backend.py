@@ -447,6 +447,131 @@ class CaseBackendWidgetMixin:
         self.ui.caseBundleStatusLabel.styleSheet = f"color: {color};"
         self.ui.workflowStageComboBox.enabled = True
         self._updateWorkflowNavigationButtons()
+        # A case package never serializes ROS/MoveIt objects.  Queue a
+        # best-effort reconstruction only after the integrity checks and GUI
+        # hydration above have completed; the callback is simulation-only and
+        # stops at the first missing operator-owned prerequisite.
+        if self._parameterNode and self._parameterNode.step6PlanningContextImported:
+            resumePath = str(self._loadedCaseBundlePath or "")
+            if resumePath:
+                qt.QTimer.singleShot(
+                    0,
+                    lambda path=resumePath: self._resumeLoadedStep6Checkpoint(path),
+                )
+
+    def _resumeLoadedStep6Checkpoint(self, bundlePath: str) -> None:
+        """Rebuild transient Step 6 runtime state from a saved checkpoint.
+
+        Persisted packages contain intent/evidence only; ROS nodes, MoveIt
+        plans and guard sessions remain transient.  This routine therefore
+        rehydrates the local robot, reconnects the simulation runtime, and
+        revalidates each saved gate in order.  It never relaxes a prerequisite
+        or promotes stale evidence, and it leaves the UI at the first truthful
+        resume point when the external stack is unavailable.
+        """
+
+        if str(self._loadedCaseBundlePath or "") != str(bundlePath):
+            return
+        parameterNode = self._parameterNode
+        facade = self._robotWorkflowFacade
+        if not parameterNode or not self.logic or not facade:
+            return
+
+        def stopAt(substep: int, detail: str) -> None:
+            self._setCaseBundleResumeStatus(detail, error=False)
+            if self._workflowStageEntries():
+                self._setWorkflowStage(len(self._workflowStageEntries()) - 1)
+            self._configureRobotSimulationShellSubstep(substep)
+            self._updateRobotPlacement()
+            self._updateStep6PlanningUi(detail)
+
+        try:
+            packageIssues = self.logic.step6PlanningPackageFreshnessIssues(parameterNode)
+            jawIssues = self.logic.step6CaseJawOpeningFreshnessIssues(parameterNode)
+            if packageIssues:
+                stopAt(0, "Saved Step 6 resume stopped at 6.0A: " + " ".join(packageIssues))
+                return
+            if jawIssues:
+                stopAt(0, "Saved Step 6 resume stopped at 6.0A: " + " ".join(jawIssues))
+                return
+            if not self._caseBundleRobotProfileCompatible:
+                stopAt(1, "Saved Step 6 resume stopped at 6.1: robot resources differ from the package.")
+                return
+            if not self.logic.isRobotBaseTransformNode(parameterNode.robotBaseTransform):
+                stopAt(1, "Saved Step 6 resume stopped at 6.1: no valid saved robot base exists.")
+                return
+            if not bool(parameterNode.robotBaseMountLocked):
+                stopAt(1, "Saved Step 6 resume stopped at 6.1: the saved base is not locked.")
+                return
+            homeIssues = self.logic.taskHomeFreshnessIssues(parameterNode)
+            if homeIssues:
+                stopAt(2, "Saved Step 6 resume stopped at 6.2: " + " ".join(homeIssues))
+                return
+
+            loaded = facade.loadRobot()
+            if not loaded.success:
+                stopAt(1, "Saved Step 6 resume loaded the case but could not reconstruct the local robot: " + loaded.message)
+                return
+            self._updateRobotPlacement()
+
+            connected = facade.connect(open_motion_module=False)
+            if not connected.success:
+                stopAt(1, "Saved Step 6 resume loaded the local robot but ROS/MoveIt was not ready: " + connected.message)
+                return
+            self._updateRobotPlacement()
+
+            homeResult = facade.applyTaskHome()
+            if not homeResult.success:
+                stopAt(2, "Saved Step 6 resume stopped while revalidating Task Home: " + homeResult.message)
+                return
+
+            try:
+                workspacePayload = json.loads(
+                    str(parameterNode.step6AssistedLimitProposalJson or "")
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                workspacePayload = {}
+            if not isinstance(workspacePayload, dict) or not workspacePayload:
+                stopAt(3, "Saved Step 6 resume stopped at 6.3: no saved workspace evidence is available.")
+                return
+            if not self.logic.assistedTaskLimitsReviewed(parameterNode):
+                stopAt(3, "Saved Step 6 resume stopped at 6.3: saved assisted limits still require operator review.")
+                return
+
+            replayed = facade.revalidateSavedWorkspace()
+            if not replayed.success:
+                stopAt(3, "Saved Step 6 resume stopped while replaying workspace evidence: " + replayed.message)
+                return
+            confirmed = facade.confirmTask()
+            if not confirmed.success:
+                stopAt(4, "Saved Step 6 resume stopped at 6.4: " + confirmed.message)
+                return
+
+            # Plans are intentionally transient, so a restored complete
+            # checkpoint is ready to run Goal 1 again, not falsely marked as a
+            # previously planned Goal 1/Goal 2 result.
+            if self._workflowStageEntries():
+                self._setWorkflowStage(len(self._workflowStageEntries()) - 1)
+            self._configureRobotSimulationShellSubstep(5)
+            self._updateRobotPlacement()
+            self._updateStep6PlanningUi(
+                "Saved Step 6 checkpoint restored: ROS/MoveIt, Task Home, workspace evidence, and task confirmation are current. Ready to run 6.5 Goal 1; 6.6 unlocks after a fresh complete plan."
+            )
+            self._setCaseBundleResumeStatus(
+                "Saved Step 6 checkpoint restored. ROS/MoveIt was reconstructed transiently; run Goal 1 in 6.5.",
+                error=False,
+            )
+        except (RuntimeError, ValueError, TypeError, OSError, KeyError) as exc:
+            logging.exception("Automatic saved Step 6 checkpoint resume failed")
+            stopAt(1, "Saved Step 6 resume stopped safely: " + str(exc))
+
+    def _setCaseBundleResumeStatus(self, message: str, *, error: bool) -> None:
+        if not hasattr(self, "ui") or not getattr(self.ui, "caseBundleStatusLabel", None):
+            return
+        self.ui.caseBundleStatusLabel.text = message
+        self.ui.caseBundleStatusLabel.styleSheet = (
+            "color: #b00020;" if error else "color: #207227;"
+        )
 
     def onOpenScene(self) -> None:
         scenePath = qt.QFileDialog.getOpenFileName(

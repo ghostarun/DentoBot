@@ -39,13 +39,13 @@ custom branding.
 - AI outputs require human review and independent validation.
 - Planned trajectories do not authorize drilling.
 
-## Active Step 6 stabilization checkpoint — 2026-08-29
+## Active Step 6 stabilization checkpoint — 2026-09-02
 
 Priority-0 source implementation now separates a diagnostic Manual Simulation
 Base from the deferred physical forehead/mount problem, audits exact
 per-segment collision payloads against the guard's monitored MoveIt scene,
 retains bounded partial-path evidence with first-invalid classification, and
-uses explicit free-space, strict-axis, terminal-contact, and drilling stages.
+uses explicit free-space, fixed-axis terminal-contact, and drilling stages.
 The 2026-08-31 runtime-first continuation also makes 6.1 own ROS/scene
 bootstrap, plans and guards any different current-to-Home transition in 6.2,
 and makes 6.3 persist MoveIt FK/static-valid samples separately from a bounded
@@ -94,10 +94,11 @@ The immediate robotics objective is now trustworthy diagnosis rather than
 planner success on one retained case. In order, DENTOBOT will audit the exact
 per-segment collision geometry and transforms supplied to MoveIt, expose
 structured last-valid/first-invalid candidate diagnostics, and implement three
-explicit simulation stages: strict free-space motion to PreEntry, strict axial
-approach to Entry with a narrow terminal contact tolerance, and guarded
-Entry-to-Target drilling. Diagnostic evidence is persistent; active ROS/MoveIt
-objects remain transient.
+explicit simulation stages: strict free-space motion to PreEntry, one
+fixed-frame PreEntry→Entry path whose selective burr contact is independently
+phase-guarded, and guarded Entry-to-Target drilling. A guessed TCP-distance
+split is no longer planning authority. Diagnostic evidence is persistent;
+active ROS/MoveIt objects remain transient.
 
 The recovered post-stabilization roadmap preserves three distinct study
 increments. F0 manually aggregates reviewed single-attempt evidence into an

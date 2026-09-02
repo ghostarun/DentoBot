@@ -33,14 +33,21 @@ install_link() {
 
 install_link "${workspace_root}/AGENTS.md" \
   "ros2_ws/src/DentoBot/Workspace/AGENTS.md"
+install_link "${workspace_root}/CLAUDE.md" \
+  "ros2_ws/src/DentoBot/CLAUDE.md"
 install_link "${workspace_root}/compose.yaml" \
   "ros2_ws/src/DentoBot/Workspace/compose.yaml"
 install_link "${workspace_root}/docs" \
   "ros2_ws/src/DentoBot/Workspace/docs"
 install_link "${workspace_root}/scripts" \
   "ros2_ws/src/DentoBot/Workspace/scripts"
+install_link "${workspace_root}/tools" \
+  "ros2_ws/src/DentoBot/tools"
 install_link "${workspace_root}/ros2_ws/src/dentobot_description" \
   "DentoBot/dentobot_description"
+mkdir -p "${workspace_root}/.cursor/rules"
+install_link "${workspace_root}/.cursor/rules/dentobot-verification.mdc" \
+  "../../ros2_ws/src/DentoBot/.cursor/rules/dentobot-verification.mdc"
 
 if [[ ! -e ${workspace_root}/.dentobot.env ]]; then
   cp "${script_directory}/.dentobot.env.example" \

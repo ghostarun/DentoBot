@@ -1,5 +1,151 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-02 19:40 IST — Windows lab WSL2 SlicerROS2 export scripts
+
+- **Why:** Lab PCs on Windows need the current DENTOWorkflow including Step 6
+  ROS, which native Windows Slicer cannot host.
+- **Change:** Added `Workspace/LAB_RELEASE` and WSL install/update/launch
+  scripts plus GHCR publish helper. Lab layout is documented in
+  `Workspace/HOST_LAYOUT.md` and SETUP. Native `launch-dentoworkflow.ps1`
+  is unchanged. No git tag, commit, or image push.
+- **Verification:** `bash -n` on the new scripts; `install-lab-wsl.bash
+  --check-only` parses the pin; `update-lab-release.bash --check-only`
+  refuses the maintainer `integration/gui-step6` worktree;
+  `launch-dentoworkflow.bash --check-only` still passed (GUI skipped).
+  Windows WSLg/Docker GUI is unaccepted (`PLAT-U-04`). No robot motion,
+  Drive sync, commit, or image push.
+
+## 2026-09-02 18:30 IST — Drive/MCP scratch and nested graphify-out
+
+- **Why:** Overlay Drive/MCP JSON leftovers and a second `graphify-out/`
+  inside the DentoBot checkout were regenerable scratch, not source.
+- **Change:** Deleted overlay `.tmp_*` / `.mcp_*` / `.upload_*` /
+  `.drive_upload_*` JSON and DentoBot `.drive_upload_text/` plus
+  `.drive_upload_b64_*.txt`. Removed nested `ros2_ws/src/DentoBot/graphify-out/`
+  (~37 MB) and untracked its two accidental git entries. Ignored
+  `graphify-out/` and Drive dumps in the DentoBot `.gitignore`. Kept all
+  `Workspace/scripts/` launchers and `Infrastructure/` close-day/backend
+  scripts. Left Docker-owned `__pycache__` / `.pytest_cache` in place
+  (root-owned; regenerate on next container run).
+- **Verification:** overlay temps gone; nested graphify directory absent;
+  `git ls-files graphify-out` empty; overlay `~/dentobot/graphify-out`
+  retained. Overlay `graphify update .`: 6,659 nodes, 10,539 edges, 626
+  communities. No commit, Drive sync, robot motion, or serial open.
+
+## 2026-09-02 18:14 IST — Host overlay cleanup and in-repo Arduino bench
+
+- **Why:** Duplicate Arduino packages and a second docs/demo tree made the
+  overlay unreadable. The live bench was outside the DentoBot git checkout.
+- **Change:** Live pressure scripts now live at `tools/arduino-pressure/`
+  in the DentoBot repo, with a `~/dentobot/tools` symlink. Removed
+  `ros2_ws/src/Arduino/` and the overlay `arduino-pressure/` package.
+  `--port` / `--list-ports` are on the in-repo copy. Stale `DentoBot/docs`
+  is `docs-legacy/`. Frozen `DentoBot-demo-aff8b2e` is under
+  `~/dentobot/archive/`. `pressure_runs/` is gitignored. See
+  `Workspace/HOST_LAYOUT.md`.
+- **Verification:** `pressure-env` `py_compile` on the moved modules;
+  `pressure_monitor.py --help`. Live serial/GUI was not re-run.
+
+## 2026-09-02 18:10:02 IST (UTC+05:30) — Pressure fs and pipeline Config tab
+
+- **Why:** sampling rate was assumed in docs (“1 kHz”) but never paced,
+  displayed, or editable; the live `.ino` was still 10-bit / 115200 / ~100 Hz.
+- **Change:** paced 14-bit `seq,micros,raw` firmware with `RATE <hz>` (default
+  1000 Hz from MPX5700 tR=1 ms). Shared `pressure_config.py`; live **Config**
+  tab; always-on set vs measured fs strip; `pipeline.json` per run; analysis
+  Pipeline tab can redetect with filter taus. Portable `arduino-pressure/`
+  copy updated.
+- **Verification:** `pressure-env` `py_compile`; `--no-gui` on an existing
+  run; offscreen analysis GUI shows Hz. No Arduino flash or `/dev/ttyACM0`
+  open. Sensing-only.
+- **Pending:** operator flash of the UNO R4, then confirm measured ≈ set fs.
+
+## 2026-09-01 20:18 IST — Saved Step 6 checkpoint resume
+
+- Added a post-integrity-load, simulation-only resume transaction for packages
+  containing Step 6 evidence. It reconstructs the local robot, reconnects
+  ROS/MoveIt, reapplies Task Home, replays saved workspace evidence, and
+  reconfirms the immutable task before selecting 6.5.
+- Partial or stale checkpoints and unavailable external stacks stop at the
+  first truthful substep with an explicit reason. ROS nodes, MoveIt plans,
+  publishers/subscribers, guard sessions and active runtime flags remain
+  excluded from `.dentocase`; 6.6 still requires a fresh complete Goal 1 plan.
+- Full pure suite after the change: `131 passed, 1 deselected`; Graphify
+  refreshed to 5,420 nodes, 8,610 edges and 402 communities; `git diff --check`
+  passed. Normal-window package-resume acceptance remains pending.
+
+## 2026-09-01 19:26 IST — Stage-1 fixed drilling-frame full-chain selection
+
+- Made Stage 1 commit the complete FK-derived tool frame at PreEntry. The
+  approved Entry→Target vector fixes tool +Z; the remaining arm-frame rotation
+  is fingerprinted and reused without change in Stages 2 and 3.
+- Corrected Stage 3 and diagnostics, which still discarded the selected frame
+  and substituted the retired canonical `0°` roll.
+- Changed direct/seeded branch selection from first Stage-2 success to bounded
+  full-chain evaluation. Complete guard-accepted chains rank first; then the
+  planner minimizes normalized joints-1–5 motion after PreEntry. Partial
+  branches retain their actual blocked stage/fraction and may provide only a
+  provisional Stage-1 preview.
+- Added fixed-frame identity/status to the diagnostic session and Goal 1/Goal
+  2 façade results. J6 remains compatibility-only at `0 rad`; collision and
+  phase-guard policy is unchanged.
+- Updated the narrow source-contract test for committed-frame propagation and
+  full-chain-before-selection. With approval, the focused suite passed `45`
+  tests with one unrelated draft-AABB assertion deselected; edited Python files
+  compiled and `git diff --check` passed.
+- The isolated exact-x4 ROS/MoveIt/Slicer smoke run emitted
+  `DENTOBOT_STEP65_EXACT_CASE_PASS` with 55 guarded Home→PreEntry waypoints,
+  J6 fixed at `0 rad`, a unit tool axis and a non-empty frame fingerprint.
+  Full-chain status remained `Blocked` at Stage 2 after `50.0%` because MoveIt
+  reported forbidden `link-3`↔tooth contact. No partial path was promoted.
+- The Slicer process printed the known VTK/class-loader teardown warnings after
+  the PASS marker; this remains separate lifecycle evidence. The AST-only
+  Graphify refresh was rerun after the final source/test edits and rebuilt
+  `graphify-out` with 5,414 nodes, 8,600 edges and 391 communities.
+
+## 2026-09-01 16:21 IST — Exact-case spindle-lock runtime and causal Stage-2 block
+
+- Corrected package hydration so legacy Task Home migration is read-only until
+  the explicit 6.2 save action; loading no longer mutates confirmed lineage
+  during post-bind validation.
+- Corrected runtime workspace samples to retain `(joint name, SI value)` pairs;
+  transition-build six-value samples are normalized on first use.
+- Removed an artificial `74.6 deg` PreEntry→axis discontinuity. The selected
+  J6-locked endpoint now derives its actual tool-axis roll from FK and carries
+  that orientation into Stage 2 instead of overwriting it with the retired
+  `0 deg` candidate constant.
+- Goal 1 now checks the strict-axis reach of each bounded PreEntry arm branch
+  before choosing the route. Endpoint reachability alone is not sufficient.
+- Exact x4 ROS/MoveIt assertions emitted
+  `DENTOBOT_STEP65_EXACT_CASE_PASS`: 55 guarded Home→PreEntry waypoints,
+  preview complete, one Stage-1 path, and J6 exactly `0 rad`. Full task remains
+  truthfully `Blocked` at Stage 2: the collision-aware axis reaches `50.0%`
+  before MoveIt reports forbidden `link-3`↔tooth contact. No burr exception,
+  partial-path promotion, collision relaxation, Goal 2, Execute, or hardware
+  path was enabled.
+- Focused pure suite passed (`62 passed`, one unrelated all-zero draft-AABB
+  assertion deselected). The Slicer process still returns `1` after its
+  explicit PASS while printing known VTK/class-loader teardown leaks; this is
+  retained lifecycle evidence, not a planner-pass claim.
+
+## 2026-09-01 15:29 IST — Spindle-locked, full-chain Step 6 planning
+
+- Kept the pneumatic spindle in the six-joint compatibility schema but locked
+  all planning, restore, workspace, guard and persistence state to `0 rad`.
+  The C++ guard rejects nonzero ordinary and phased commands.
+- Replaced eight routine axial-roll candidates with canonical direct,
+  workspace-seeded and reviewed clearance-detour arm-route evidence.
+- Added a non-mutating C++ phase-guard preflight over the composed
+  Home→PreEntry→Entry→Target chain. Full task is `Complete` only when all
+  stages pass; later failure retains a provisional approach preview and exact
+  blocked-stage evidence. Goal 2 no longer replans independently.
+- Added separate Stage 1/2/3 diagnostic summary and colored display-only TCP
+  paths. Old nonzero spindle Homes migrate without changing joints 1–5 and
+  invalidate roll-dependent evidence.
+- Verification: focused host tests `46 passed`; Python compile/diff checks;
+  container `dentobot_moveit_config` build passed. Normal-window full-chain
+  acceptance remains pending. Hardware and Execute remain unavailable.
+
 ## Purpose
 
 This file is the append-oriented, textual version history for DENTOBOT. It
@@ -20,6 +166,21 @@ Use newest-first ordering. Each entry should state:
 - behavior added, removed, preserved, or superseded;
 - verification performed and its environment;
 - limitations, pending validation, and whether anything was reverted.
+
+## 2026-09-01 13:38:45 IST (UTC+05:30) — Pressure analysis plots can fill the window
+
+- **Why:** the inspector locked traces to a short wide strip above four stacked
+  tables, so micro time windows were unreadable on the 0–250 kPa axis.
+- **Change:** `ros2_ws/src/Arduino/pressure_analysis.py` now uses a splitter and
+  a tabbed table panel. **Plots only** (F11) hides tables; **Show** isolates one
+  trace; double-click a plot does the same. **Auto Y** scales to the visible
+  window. Zoom resamples that interval at full CSV density. Portable copy
+  `arduino-pressure/pressure_analysis.py` matches.
+- **Verification:** `pressure-env` `py_compile`; `--no-gui run_20260831_181522`
+  (40264 samples, 0 redetected tissue events). Offscreen GUI: Plots only grew
+  the plot pane 655→823 px and hid tables; ΔP focus hid the other traces; a
+  0.2 s zoom showed 232 points at stride 1. No live display click. Sensing-only.
+- **Pending:** operator click on a physical display. No Git/Drive unless asked.
 
 ## 2026-09-01 04:06:00 IST (UTC+05:30) — Goal 1 PreEntry preview acceptance
 

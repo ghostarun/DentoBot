@@ -1,5 +1,91 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-02 Cross-tool agentic verification boundary
+
+Codex, Cursor, and Claude use one controlled verification protocol:
+`AGENTIC_VERIFICATION_PROTOCOL.md`, with machine-readable gate metadata in
+`Testing/verification_matrix.json`. The matrix inventories existing checks; it
+does not create a second runner or change their acceptance semantics. Static
+and pure checks may overlap only when declared parallel-safe. Docker, colcon
+install, ROS domain 73, Slicer, MoveIt, display, and MRML scene checks are one
+exclusive runtime lane with scoped setup/teardown and explicit operator
+approval.
+
+Full worker output is transient under
+`/tmp/dentobot-verification/<run-id>/`; controlled records retain only the exact
+command, source/runtime identity, exit and marker evidence, first causal
+failure, cleanup status, and evidence level. A worker is read-only and cannot
+turn a diagnostic result into a source edit, collision relaxation, plan
+authorization, or hardware action.
+
+The initial matrix contract passed host `py_compile` and container
+`pytest -q -p no:cacheprovider Testing/test_verification_matrix.py` (`1 passed
+in 0.09s`). This proves JSON/reference/resource classification only; no Slicer,
+ROS, MoveIt, colcon, GUI, case, or hardware behavior was exercised.
+
+## 2026-09-02 Step 6 planner-v4 evidence boundary
+
+- The approved focused seed regression passed (`1 passed, 20 deselected`) and
+  the edited façade/panel/test Python files compiled before the planner-v4
+  contact-policy edit.
+- The exact `dentobot-case-step6x4.dentocase` simulation trial emitted
+  `DENTOBOT_STEP65_EXACT_CASE_PASS`, previewed 55 Stage-1 waypoints with J6
+  fixed at `0 rad`, and retained one rendered Stage-1 path. The then-current
+  guessed-split Stage 2 still stopped at `50.0%` with 11 partial waypoints, so
+  full-task status remained `Blocked`. Slicer again returned `1` during known
+  VTK/class-loader teardown after the PASS marker.
+- Planner revision v4, full fixed-axis Stage-2 phase-guard ownership, isolated
+  candidate guard sessions, and motion-diagnostic schema 2.1 are source
+  implemented after that trial and have no verification claim yet. Schema 2.0
+  remains parseable as historical evidence; new v4 evidence must use
+  `stage2_fixed_axis_terminal` and the `phase_guard_evidence_based` policy.
+
+## 2026-09-01 Step 6 spindle-policy migration and evidence identity
+
+- Persistent Task Home records carry
+  `external-pressure-spindle-locked-v1` and fixed J6 value `0 rad`.
+- Restoring an older six-joint Home preserves joints 1–5, canonicalizes J6 to
+  zero, clears incompatible confirmation, and marks axial-roll diagnostics
+  stale. The installed robot-profile identity is not rewritten merely for this
+  policy migration.
+- The Home fingerprint propagates the policy into immutable task identity;
+  planning fingerprints also record the policy, fixed value and route-planner
+  revision.
+- MRML/.dentocase still excludes ROS nodes, MoveIt plans, active guard state,
+  publishers/subscribers and transient path/goal models. Three-stage paths and
+  preflight shadow state must be reconstructed after reload.
+- Verification now includes the source/build gate and exact x4 policy runtime:
+  `62 passed` in the focused pure suite with one unrelated draft-AABB assertion
+  deselected; prior collision-guard and `dentobot_moveit_config` builds; and an
+  exact-case PASS report with 55 guarded Home→PreEntry waypoints, one rendered
+  Stage-1 path and J6 `0 rad`. Full-task status is `Blocked`, not accepted:
+  Stage 2 reaches 50% before MoveIt reports forbidden `link-3`↔tooth contact.
+  The process still exits `1` after PASS during known VTK/class-loader teardown,
+  which remains separate lifecycle evidence.
+
+### Fixed drilling-frame planning evidence
+
+The current source adds `stage1-fixed-entry-target-frame-v1` to the planning
+identity. Each evaluated PreEntry branch records the normalized world-RAS tool
+axis, complete 3×3 rotation, FK-derived axial-frame roll, orientation
+fingerprint, full-chain candidate status, Stage-2/Stage-3 fractions and
+normalized joints-1–5 post-PreEntry motion cost. The selected diagnostic
+summary repeats the policy, orientation fingerprint and axis. Any earlier
+diagnostic lacks this planning fingerprint and is stale evidence for the new
+selector.
+
+The commitment is planning evidence, not registration or calibration truth.
+The confirmed task continues to own Entry/Target geometry and tool provenance;
+MoveIt paths and the live guard remain transient. A restored case must rebuild
+and revalidate the frame and all three paths in the current ROS/MoveIt scene.
+The approved focused suite passed `45` tests with one unrelated draft-AABB
+assertion deselected. The isolated x4 runtime emitted
+`DENTOBOT_STEP65_EXACT_CASE_PASS` with 55 guarded Home→PreEntry waypoints,
+J6 fixed at `0 rad`, a unit tool axis, and a non-empty orientation fingerprint.
+The same run correctly blocked the full chain at Stage 2 after `50.0%` of the
+strict-axis segment because MoveIt reported forbidden `link-3`↔tooth contact;
+this is not complete Goal 1/Goal 2 evidence.
+
 > Ubuntu transition note (2026-07-29): the validated execution layer below is
 > the Windows/WSL2 baseline. It remains controlled historical evidence, not an
 > Ubuntu installation procedure. An Ubuntu-specific validated baseline must be

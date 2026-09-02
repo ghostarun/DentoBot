@@ -4,15 +4,17 @@ Last verified: 2026-08-28
 
 ## Scope
 
-This file defines the shared deployment contract and the two supported host
+This file defines the shared deployment contract and the supported host
 profiles. The active IITM workstation remains the fully verified Ubuntu
-profile. The Windows profile preserves native Windows Slicer with a WSL2
-Linux inference backend and now has a tracked launcher; its final runtime
-acceptance must be repeated on a Windows 11 workstation.
+profile. Native Windows Slicer with a WSL2 inference backend has a tracked
+launcher (`PLAT-U-02`); its runtime acceptance must be repeated on a Windows 11
+workstation. A third **lab** profile runs the same Linux SlicerROS2 Docker
+stack inside WSL2 (`PLAT-U-04`); GUI/ROS acceptance is pending a real lab PC.
 
 | Host profile | Slicer | External inference | Docker | ROS/SlicerROS2 |
 |---|---|---|---|---|
-| Windows 11 | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported by the current Windows launcher |
+| Windows 11 native | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported (`DENTOBOT_ROS_PROFILE=none`) |
+| Windows 11 lab (WSL2) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (CPU pin) | Required | Same Ubuntu container stack; unaccepted until `PLAT-U-04` |
 | Ubuntu | Pinned Linux SlicerROS2 image | Direct Linux Python | Required by the verified profile | Included and verified |
 
 The planning/template workflow is Slicer/MRML code and remains shared. Never
@@ -107,23 +109,92 @@ is active. The UI retains a visible advanced manual override for recovery.
 
 ### Does Windows require Docker for SlicerROS2?
 
-No Docker is required for the current DENTOBOT imaging, segmentation,
-planning, template, verification, or export workflow. Those stages do not use
-ROS APIs.
+**Native Windows Slicer profile:** no. Imaging, segmentation, planning,
+template, verification, and export do not use ROS APIs. Use
+`Workspace/scripts/launch-dentoworkflow.ps1` with `DENTOBOT_ROS_PROFILE=none`.
 
-Current upstream SlicerROS2 1.2 explicitly targets Ubuntu 24.04, ROS 2 Jazzy,
-and source-built Slicer 5.10/5.12; its published CI image is Linux. Therefore
-the supported ROS-integrated DENTOBOT profile remains Ubuntu. Do not try to
-load its Linux binaries into native Windows Slicer. Hosting the Linux GUI
-container through Docker Desktop/WSL2 would replace native Windows Slicer and
-adds unverified GUI/GPU, DDS networking, device, and robot-connectivity
-boundaries. It is an experimental future profile, not a setup requirement.
+**Windows 11 lab profile (Step 6 with ROS):** yes. Native Windows Slicer cannot
+load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
+WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
+`launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
+SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
+implemented and unpublished until a `lab/*` git tag and GHCR image exist; it
+is not Ubuntu-verified and not a substitute for native Windows Slicer.
+
+Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
+source-built Slicer 5.10/5.12. The published CI image is Linux.
 
 References:
 
 - https://slicer-ros2.readthedocs.io/en/devel/pages/compatibility.html
 - https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html
 - https://slicer-ros2.readthedocs.io/en/devel/pages/ci-docker-image.html
+
+### Windows 11 lab — WSL2 Linux SlicerROS2
+
+Use this profile when a lab PC must run DENTOWorkflow **including Step 6
+ROS/MoveIt simulation**. It is not native Windows Slicer. Simulation/preview
+only: no hardware motion, drilling, or patient-facing use.
+
+**Prerequisites**
+
+- Windows 11 with WSLg, WSL2 Ubuntu 24.04, Git, and Docker Desktop (WSL2
+  backend) or Docker Engine in WSL;
+- a GitHub account added as a collaborator on the private DentoBot repository
+  (this is the approval model; scripts store no password);
+- tens of GB free for the image, `ros2_ws`, and the TotalSegmentator cache;
+- CPU inference matching the Ubuntu pin (`DENTOBOT_BACKEND_DEVICE=cpu`).
+
+**Do not zip or copy the Ubuntu overlay.** `~/dentobot` is not a git root.
+Do not ship `ros2_ws/build`, `ros2_ws/install`, `ros2_ws/log`, `data/` cases,
+or `graphify-out/`. Recreate the overlay inside WSL (see
+`Workspace/HOST_LAYOUT.md`).
+
+**First-time install** (from PowerShell, after collaborator access and
+`wsl` / `gh auth login` or SSH in WSL):
+
+```bat
+Workspace\scripts\install-lab-wsl.bat
+```
+
+Or in WSL after cloning DentoBot:
+
+```bash
+bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/install-lab-wsl.bash
+```
+
+The installer checks out the tag in `Workspace/LAB_RELEASE`, pins
+`slicer_ros2_module`, runs `bootstrap-workspace.bash`, and pulls
+`ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` (tagged
+locally as `dentobot/slicerros2:jazzy-moveit-sim-20260821` for Compose).
+It fails closed if that git tag is not on origin yet.
+
+Then, once per machine: edit `~/dentobot/.dentobot.env`, create the Ubuntu CPU
+backend from `Inference/` (same pin as this workstation), and copy
+TotalSegmentator tasks 113, 115, and 298 into
+`data/model-cache/totalsegmentator` by USB/rsync. Do not download weights as a
+Slicer launch side effect. Do not copy patient identifiers.
+
+**Launch**
+
+```bat
+Workspace\scripts\launch-lab-workflow.bat
+```
+
+That wrapper calls `scripts/launch-dentoworkflow.bash` inside WSL. Treat WSLg
+software/llvmpipe rendering like the CRD session: functional checks only, not
+FPS acceptance.
+
+**Update** (pinned tag only; never `integration/gui-step6`)
+
+```bat
+Workspace\scripts\update-lab-release.bat
+```
+
+Maintainer: after an explicit Git authorization, tag `lab/YYYY-MM-DD`, push
+the tag, and publish the image with
+`scripts/publish-lab-image.bash --push`. Lab PCs must not rebuild
+`Dockerfile.slicerros2` from scratch.
 
 ## Ubuntu workspace
 
@@ -229,7 +300,10 @@ MoveIt.
 
 `compose.yaml` defines the `slicerros2` service:
 
-- Image: `ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0`
+- Image: `dentobot/slicerros2:jazzy-moveit-sim-20260821` (FROM
+  `ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0` plus MoveIt OMPL
+  helpers in `Workspace/Dockerfile.slicerros2`). Lab pulls the same digest from
+  GHCR as `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821`.
 - Container: `dentobot-slicerros2`
 - Host networking and IPC
 - X11 display forwarding
@@ -798,7 +872,7 @@ pipx install graphifyy          # PyPI name is graphifyy (two y's)
 cd /home/light-tarun/dentobot
 graphify cursor install         # .cursor/rules/graphify.mdc (alwaysApply)
 graphify codex install          # AGENTS.md section + .codex/hooks.json
-graphify update .               # AST-only index → graphify-out/ (gitignored)
+graphify update .               # AST-only index → ~/dentobot/graphify-out/ (gitignored)
 ```
 
 Codex app and Codex CLI share the repository skill at
@@ -822,22 +896,56 @@ In Cursor chat, `/graphify .` runs the full skill (code + optional docs). For
 token economy, prefer `graphify update .` plus `graphify query` for code
 questions. Regenerate the graph after substantive refactors.
 
+The live graph is only `~/dentobot/graphify-out/`. Do not keep a second copy
+under `ros2_ws/src/DentoBot/graphify-out/`; that nested tree is gitignored.
+
 Optional: `graphify hook install` keeps the graph fresh on git commit (requires
-a git repository at the project root).
+a git repository at the project root). The Ubuntu overlay root is not a git
+repository, so the hook belongs in `ros2_ws/src/DentoBot` if used.
+
+## Shared agentic verification (Codex, Cursor, Claude)
+
+The tracked cross-tool policy is
+`Workspace/docs/AGENTIC_VERIFICATION_PROTOCOL.md`; the check/resource inventory
+is `Testing/verification_matrix.json`. The repository entrypoints are:
+
+- `AGENTS.md` and `Workspace/AGENTS.md` for Codex-compatible agents;
+- `.cursor/rules/dentobot-verification.mdc` for Cursor; and
+- `CLAUDE.md` for Claude.
+
+The workspace bootstrap links the tracked Claude entrypoint and Cursor rule
+into `~/dentobot`, alongside the existing `AGENTS.md` link. Re-run it after a
+fresh checkout or overlay reconstruction:
+
+```bash
+ros2_ws/src/DentoBot/Workspace/bootstrap-workspace.bash
+```
+
+Use `DENTO-VERIFY PLAN p0` to obtain a no-execution proposal. `DENTO-VERIFY p0`
+still requires explicit approval of the displayed commands/resources before
+workers execute. Static/pure checks may be delegated in parallel; Slicer, ROS
+domain 73, MoveIt, Docker runtime, display, install-tree, and MRML operations
+are one serialized lane. Complete worker logs remain under
+`/tmp/dentobot-verification/<run-id>/` and are not committed.
 
 ## Host Arduino pressure monitor
 
-The live pneumatic-pressure GUI is a host-only sensing bench:
+The live pneumatic-pressure GUI is a host-only sensing bench tracked in the
+DentoBot git checkout:
 
-- script: `ros2_ws/src/Arduino/pressure_monitor.py`
-- firmware: `ros2_ws/src/Arduino/pressure_monitor/pressure_monitor.ino`
+- script: `tools/arduino-pressure/pressure_monitor.py`
+- firmware: `tools/arduino-pressure/firmware/pressure_monitor/pressure_monitor.ino`
+  (14-bit, 460800 baud, `seq,micros,raw_adc`, default **1000 Hz** paced from
+  MPX5700 tR=1.0 ms; host may send `RATE <hz>` in 200–1500)
 - interpreter: `/home/light-tarun/pressure-env/bin/python` (Python 3.14.6)
 - verified packages: `numpy 2.5.2`, `pyserial 3.5`, `PyQt6 6.11.0`,
   `pyqtgraph 0.14.0`
-- serial: Arduino UNO WiFi R4 on `/dev/ttyACM0` at 460800 baud; the account
-  `light-tarun` is in `dialout`
-- CSV output: `ros2_ws/src/Arduino/pressure_runs/run_<timestamp>/`, created
-  only after **Start Recording + Cues**. **Stop Recording** closes that run
+- serial: Arduino UNO WiFi R4 at 460800 baud; pass `--port` or
+  `PRESSURE_PORT` (Ubuntu default `/dev/ttyACM0`, Windows `COM3`). The
+  account `light-tarun` is in `dialout`
+- CSV output: `tools/arduino-pressure/pressure_runs/run_<timestamp>/`, created
+  only after **Start Recording + Cues**. Run folders are gitignored.
+  **Stop Recording** closes that run
   and stops the auto-cue timer. Live plot continues while idle. Four linked
   plots show filtered pressure, ΔP (fast−slow), filtered dP/dt, and
   p90−p10 spread. The 1-second inset stays on the pressure plot;
@@ -850,7 +958,13 @@ The live pneumatic-pressure GUI is a host-only sensing bench:
   (default 10 s; **Cue every** 1–600 s): AIR OFF → DRILL IN AIR → DENTIN →
   PULP. **CUE NEXT STAGE** (Space) still skips ahead. F1–F4 write
   `annotations.csv` with press minus **Operator latency** (default 400 ms).
-  Analysis prints stage statistics and replays the gated detector.
+  The Live tab always shows **set fs vs measured fs**, ADC bits, MPX5700
+  range, and filter taus. **Config** edits sample rate (firmware `RATE`),
+  transfer-function scale/offset, and host LPF/median constants; **Apply**
+  is disabled while recording. Each run writes `pipeline.json`. Analysis
+  prints that fs line and can redetect from the Pipeline tab. After flashing
+  the paced sketch, confirm measured Hz ≈ set Hz on the strip. Do not flash
+  while another PC is recording.
 
 Do not install these packages into Slicer, the `dentobot` Conda environment, or
 the SlicerROS2 container. Cursor workspace settings select `pressure-env` and
@@ -863,7 +977,7 @@ From a host terminal in the physical graphical session:
 
 ```bash
 /home/light-tarun/pressure-env/bin/python \
-  /home/light-tarun/dentobot/ros2_ws/src/Arduino/pressure_monitor.py
+  /home/light-tarun/dentobot/tools/arduino-pressure/pressure_monitor.py
 ```
 
 On 2026-08-17 this connected, completed a 2-second baseline calibration, and
@@ -877,7 +991,7 @@ Post-run inspection uses the same venv:
 
 ```bash
 /home/light-tarun/pressure-env/bin/python \
-  /home/light-tarun/dentobot/ros2_ws/src/Arduino/pressure_analysis.py
+  /home/light-tarun/dentobot/tools/arduino-pressure/pressure_analysis.py
 ```
 
 That opens the newest `pressure_runs/run_*` folder. Pass a run directory or
@@ -887,15 +1001,15 @@ anomalies. `--min-duration-ms 20` is the confirmed-event floor; shorter
 triggers are listed as glitches. `--air-filter hide|highlight|all` is the GUI
 display filter (default hide). `--auto-air-thresholds` estimates the
 hysteresis gates from that file instead of 8/25 kPa. The inspector defaults
-to the median+envelope trace with a clickable boundary table. If the run has
+to filtered pressure, ΔP, and filtered dP/dt. Drag the splitter, or use
+**Plots only** (F11; Esc restores) so the traces fill the window. **Show**
+isolates one trace; double-click a plot does the same. **Auto Y** (default
+on) scales each axis to the visible time window. Click a table row or
+annotation to zoom; **Fit time** restores the whole run. If the run has
 `annotations.csv`, the inspector overlays latency-corrected marks, lists
 matched dips, and `--no-gui` prints them. Cursor F5 **Pressure Analysis**
-launches the inspector.
-
-A portable copy of the same tools lives in `arduino-pressure/` at the
-repository root, with one README for Ubuntu and Windows. Use that folder on
-another PC. Do not point the live experiment at it while
-`ros2_ws/src/Arduino/pressure_monitor.py` is recording.
+launches the inspector. See `tools/arduino-pressure/README.md` for Ubuntu
+and Windows venv setup.
 
 ## Host Record3D / iPhone LiDAR scan viewer
 
@@ -1211,7 +1325,7 @@ ros2 run demo_nodes_py listener
 printf '%s\n' "$ROS_DOMAIN_ID" "$ROS_AUTOMATIC_DISCOVERY_RANGE"
 docker compose ps
 docker image inspect \
-  ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0
+  dentobot/slicerros2:jazzy-moveit-sim-20260821
 docker exec dentobot-slicerros2 bash -lc \
   'source /opt/ros/jazzy/setup.bash && ros2 pkg list'
 docker exec dentobot-slicerros2 bash -lc \

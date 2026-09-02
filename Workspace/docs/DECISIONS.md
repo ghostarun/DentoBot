@@ -1,5 +1,200 @@
 # Dentobot Technical Decisions
 
+## 2026-09-02 — One verification contract serves Codex, Cursor, and Claude
+
+**Status:** adopted; protocol, matrix, and tool entrypoints implemented; pure
+matrix contract verified
+
+Keep the normative subagent, approval, resource-lock, evidence, and failure-
+reporting rules in `AGENTIC_VERIFICATION_PROTOCOL.md`. Keep executable/check
+metadata in `Testing/verification_matrix.json`. `AGENTS.md`, Cursor rules, and
+`CLAUDE.md` may only point to that contract; they must not fork it.
+
+The coordinator alone edits source. Static and pure workers may run in
+parallel when their matrix rows permit it. Exactly one runtime worker owns the
+container, ROS domain 73, Slicer, MoveIt, display, install tree, and MRML scene.
+Runtime checks remain explain-then-approve transactions with mandatory scoped
+teardown. Workers write full logs under `/tmp` and return bounded summaries.
+
+Reason: tool-specific copies drift, inherited long chats waste context, and
+parallel Slicer/ROS processes recreate the duplicate-owner and stale-scene
+failures being tested. One shared contract reduces context without inventing a
+second test harness.
+
+## 2026-09-02 — Windows lab ROS uses WSL2 Linux SlicerROS2, not native Slicer
+
+Status: scripts and pin file added; lab GUI/ROS unaccepted; git tag unpublished
+
+Lab PCs that need DENTOWorkflow including Step 6 ROS/MoveIt run the same
+Linux `dentobot-slicerros2` stack as Ubuntu, hosted by WSL2 + Docker, with
+the GUI on WSLg. Native `launch-dentoworkflow.ps1` stays the Steps 0–5
+profile (`DENTOBOT_ROS_PROFILE=none`) and is not this export.
+
+Access is GitHub collaborator approval plus GHCR package read. Update scripts
+check out only the tag in `Workspace/LAB_RELEASE`. They store no password.
+Do not zip the overlay or copy `ros2_ws/build|install|log` or `data/` cases.
+The first `lab/*` tag and GHCR push wait for explicit Git authorization after
+an Ubuntu freeze. Simulation/preview only.
+
+Reason: SlicerROS2 is Linux-only; a shared password in a batch file cannot be
+revoked; labmates must not track a dirty `integration/gui-step6` worktree.
+
+## 2026-09-02 — One overlay graphify index; Drive/MCP scratch stays untracked
+
+Status: applied locally; not committed
+
+Keep the live knowledge graph at `~/dentobot/graphify-out/`. Ignore
+`graphify-out/` and Drive/MCP upload scratch inside the DentoBot checkout.
+Do not commit `.drive_upload_*` dumps. Overlay launchers under
+`Workspace/scripts/` stay; they are the Ubuntu entrypoints, not leftovers.
+
+Reason: a nested `DentoBot/graphify-out/` duplicated the overlay index, and
+Drive upload JSON/base64 files were agent scratch, not product source.
+
+## 2026-09-02 — Arduino pressure bench lives in the DentoBot git tree
+
+Status: files moved; syntax verified; live serial/GUI click acceptance pending
+
+Keep one copy of the host pressure monitor at `tools/arduino-pressure/`
+inside `ros2_ws/src/DentoBot`. The Ubuntu overlay exposes it as
+`~/dentobot/tools` via bootstrap, matching `docs/` and `scripts/`. Local
+`pressure_runs/` stay gitignored. The separate overlay package
+`~/dentobot/arduino-pressure/` and the non-git `ros2_ws/src/Arduino/` tree
+are removed. `--port` / `--list-ports` belong to this in-repo copy.
+
+Reason: a second package drifted from the live scripts and sat outside the
+main git checkout.
+
+## 2026-09-02 — Host overlay keeps Workspace shortcuts; stale docs and demo leave src/
+
+Status: overlay reorganized; colcon src path cleaned
+
+Keep `Workspace/` as the Ubuntu overlay name (docs, Compose, launchers). Do
+not confuse it with the Slicer six-workspace UI. Current notes remain
+`Workspace/docs`. The older `DentoBot/docs/` tree is `docs-legacy/`. The
+frozen `DentoBot-demo-aff8b2e` checkout is under `~/dentobot/archive/` so it
+is not a second package on the colcon path. `~/dentobot` stays a symlink
+overlay, not a second git root. See `Workspace/HOST_LAYOUT.md`.
+
+Reason: duplicate docs and a frozen clone next to the live repo made the
+tree unreadable without rewriting Git history.
+
+## 2026-09-02 — Pressure sample rate is a paced firmware parameter, shown live
+
+**Status:** source implemented; host syntax and `--no-gui` verified; board
+flash and live Hz click pending operator authorization
+
+The MPX5700 analog output is not “1 kHz by folklore.” NXP MPX5700 Rev 10
+lists tR typical 1.0 ms (10–90%), so analog bandwidth is about 350 Hz.
+Default **1000 Hz** is ~3× that bandwidth. Firmware must *pace* analogRead
+on that period (host may send `RATE <hz>`, 200–1500). The live GUI always
+shows **set fs vs measured fs** from `micros` deltas. Filter taus remain
+host-side and are editable on a Config tab; they are not a sample rate.
+Each recording writes `pipeline.json`. Do not treat display downsample as
+`fs`. Cite the datasheet; do not vendor-copy it into git.
+
+Reason: a presentation question about sampling rate was unanswerable from
+the screen because the rate was neither commanded nor displayed, and the
+live `.ino` still printed 10-bit kPa at ~100 Hz.
+
+## 2026-09-02 — Stage 2 contact ownership belongs to the independent phase guard
+
+**Status:** accepted design; source implemented; verification pending
+
+Stage 2 is one fixed-frame Cartesian path from PreEntry to Entry. MoveIt is
+used to obtain the complete kinematic waypoint sequence with collision
+avoidance disabled for that path only; DENTOBOT's independent simulation phase
+guard remains authoritative at every waypoint and interpolation sample. It may
+suppress only configured burr-to-task contact and continues to reject all
+other robot/world contact, self-collision, research-clearance, bounds,
+corridor, backtracking, overshoot, stale-task, and nonzero-J6 failures.
+
+Each candidate chain is evaluated in a fresh transient validate-only guard
+session so sequence/corridor history cannot leak between arm branches. A
+Stage-2 guard rejection preserves only the valid Stage-1 PreEntry preview and
+records the first composed waypoint and guard cause. Motion diagnostic schema
+2.1 names this stage `stage2_fixed_axis_terminal`; schema 2.0 remains readable
+as historical evidence.
+
+Reason: the earlier fixed 0.25 mm split asked collision-aware MoveIt to stop at
+an assumed contact boundary. Burr geometry could contact the task before the
+TCP reached that guessed boundary, preventing the selective contact policy
+from evaluating the actual state. The guard can distinguish that configured
+tool contact from forbidden non-tool collision without weakening the latter.
+
+## 2026-09-01 — Saved Step 6 checkpoints reconstruct transient runtime on load
+
+**Status:** accepted Priority-0 implementation; pure-verified; normal-window
+checkpoint acceptance pending
+
+`.dentocase` remains intent/evidence-only and never stores ROS nodes, MoveIt
+plans, publishers, subscribers, guard sessions, or active runtime flags. After
+integrity validation, loading a package with Step 6 evidence queues a
+simulation-only resume transaction: rebuild the local robot, reconnect
+ROS/MoveIt, reapply and live-validate Task Home, replay saved workspace
+evidence, reconfirm the immutable task, then select 6.5. A package stops at
+the first missing or stale operator-owned prerequisite, reports the reason,
+and does not promote old motion plans; 6.6 remains gated on a fresh complete
+Goal 1 plan.
+
+Reason: saved cases should reopen at the highest truthful runnable checkpoint
+without requiring repetitive manual setup, while preserving the transient ROS
+boundary and fail-closed evidence rules.
+
+## 2026-09-01 — Stage 1 commits the immutable drilling frame for the full chain
+
+**Status:** accepted design; source implemented; focused pure checks and exact
+x4 PreEntry runtime milestone verified; full-chain acceptance remains blocked
+by the retained Stage-2 collision boundary
+
+The approved Entry→Target line fixes the drill-tip frame's +Z axis. Stage 1
+must also choose the remaining rotation about that axis through a collision-
+aware IK branch of controllable joints 1–5 while J6 stays locked at zero. The
+resulting complete 3×3 world-RAS frame is fingerprinted at PreEntry and is
+passed unchanged to Stage 2 and Stage 3. Neither later stage may recalculate,
+interpolate, or reset that orientation.
+
+Stage-1 selection is a full-task optimization, not an endpoint optimization.
+Each reachable direct/seeded candidate is evaluated through strict-axis
+approach, terminal contact, straight Entry→Target drilling, and the independent
+phase guard. A complete guarded chain ranks above every partial chain; among
+complete chains, lower normalized joints-1–5 motion after PreEntry ranks first,
+followed by the existing Home→PreEntry route score. This reduces configuration
+changes near anatomy without weakening collision, corridor, overshoot, bounds,
+or non-target-contact checks. A provisional Stage-1 preview may remain visible
+when all full chains block, but it is not a drilling plan.
+
+Reason: a TCP position and axis alone do not determine the arm posture. Roll
+about a cylindrical burr may not affect the drilling cut, but it changes the
+configuration and swept collision behavior of upstream links. Choosing it in
+Stage 1 and freezing it across the task makes all three stages continuous and
+diagnosable.
+
+## 2026-09-01 — Keep the pneumatic spindle in the compatibility chain but lock it for planning
+
+**Status:** accepted; source/build and exact-case policy runtime exercised;
+full x4 task remains correctly blocked by Stage-2 link-tooth collision
+
+Keep `pneumatic_spindle-Copy_Revolute-6` in the URDF, SRDF chain, saved
+six-joint vector and visualization, but define it as an externally pressure/RPM
+driven spindle fixed at `0 rad` for MoveIt planning. Canonicalize Task Home,
+restored vectors, IK results, trajectories, workspace evidence, guard commands
+and previews; reject a nonzero J6 at the C++ guard. Include the policy/value in
+the persistent Home/task fingerprints so old roll-dependent confirmations and
+diagnostics become stale without altering joints 1–5 or the robot-profile
+identity.
+
+Route alternatives are now arm-space evidence (direct, distinct seeded IK, or
+reviewed 6.3 clearance detour), not axial spindle angles. Goal 1 is provisional
+when only an approach preview survives and complete only after a non-mutating
+phase-guard pass over Home→PreEntry→Entry→Target. Goal 2 consumes that retained
+Stage-3 plan and cannot independently replan a partial drilling line.
+
+Reason: the former eight roll rows exercised an uncontrolled spindle angle and
+could look like eight routes despite identical waypoint counts. Full-chain
+continuity and collision/corridor validation must precede acceptance, while the
+known working Stage-1 preview remains available for research demonstration.
+
 ## 2026-09-01 — Preserve a truthful Goal 1 PreEntry milestone when Entry is blocked
 
 Status: source implemented; clean ROS 2/MoveIt exact-case runtime accepted
@@ -61,6 +256,21 @@ experimental starting values, not clinical.
 Reason: a global baseline from air-off treats turbine spin-up as the
 largest PEAK, and a filled p10–p90 band hides millimetre-scale cutting
 steps on a 0–250 kPa axis.
+
+## 2026-09-01 — Analysis GUI can fill the window with traces
+
+Status: source and offscreen GUI verified; operator click on a live display pending
+
+The post-run inspector must not pin the traces to a short wide strip above
+stacked tables. Default layout is a vertical splitter with events/statistics/
+annotations/anomalies in one tab panel. **Plots only** (F11) hides that panel
+so the traces use the window. **Show** isolates Pressure, ΔP, or dP/dt (also
+double-click a plot). **Auto Y** scales each axis to the visible time window.
+Zooming a short interval resamples that window at full CSV density instead of
+the whole-run stride.
+
+Reason: millimetre-scale load steps are unreadable in a pancake plot on a
+0–250 kPa axis, and a global downsample hides 1 kHz detail after a time zoom.
 
 ## 2026-09-01 — CRD Cursor prefers host chat profile when free
 

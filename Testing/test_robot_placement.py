@@ -41,7 +41,8 @@ def test_selected_zero_and_reversed_joint_four_match_robot_description() -> None
     assert len(zero_poses) == 7
     assert np.allclose(
         zero_poses["burr"].matrix_base_from_link_mm[:3, 3],
-        (-49.564540494, 1.369804798, 197.675185601),
+        # J2=0 is the mechanically extended/home end in the current URDF.
+        (-49.564540494, 1.369804798, 117.675185601),
         atol=1e-6,
     )
 

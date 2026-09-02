@@ -53,7 +53,8 @@ The existing repository remains at `ros2_ws/src/DentoBot`. Its tracked
 `Workspace/` directory now owns the Ubuntu launcher, Compose definition,
 helper scripts, active workspace notes, and top-level agent instructions.
 The surrounding workspace preserves the familiar `scripts`, `docs`,
-`compose.yaml`, and `AGENTS.md` paths as relative symlinks.
+`tools`, `compose.yaml`, and `AGENTS.md` paths as relative symlinks.
+See `Workspace/HOST_LAYOUT.md` for the overlay map.
 
 Create the compatibility links safely in a new workspace with:
 

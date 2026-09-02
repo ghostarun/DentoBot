@@ -1,0 +1,246 @@
+{
+  "schema_version": "1.0",
+  "evidence_root": "/tmp/dentobot-verification",
+  "maximum_workers_excluding_coordinator": 3,
+  "exclusive_resources": [
+    "docker:dentobot-slicerros2",
+    "ros_domain:73",
+    "slicer_process",
+    "mrml_scene",
+    "display",
+    "colcon_install"
+  ],
+  "profiles": {
+    "p0": [
+      "static.step6_pycompile",
+      "pure.step6_planning",
+      "build.slicer_ros2_if_changed",
+      "runtime.phase_guard",
+      "runtime.step65_exact_case",
+      "manual.step6_normal_window"
+    ],
+    "step6-restore": [
+      "pure.step6_restore",
+      "runtime.step6_restore",
+      "runtime.step6_view_integrity",
+      "manual.step6_normal_window"
+    ],
+    "lifecycle": [
+      "static.git_diff_check",
+      "runtime.slicer_reload",
+      "runtime.scene_lifecycle",
+      "manual.step6_normal_window"
+    ]
+  },
+  "checks": [
+    {
+      "id": "static.step6_pycompile",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "static",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile {changed_step6_python_files}",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "static.git_diff_check",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 30,
+      "evidence_level": "static",
+      "command_template": "git diff --check",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "pure.step6_planning",
+      "execution_kind": "container_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "pure_test",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'cd /workspace/ros2_ws/src/DentoBot && python3 -m pytest -q -p no:cacheprovider Testing/test_step6_state.py Testing/test_robot_workflow_facade.py Testing/test_step6_planning.py'",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "pure.step6_restore",
+      "execution_kind": "container_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "pure_test",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'cd /workspace/ros2_ws/src/DentoBot && python3 -m pytest -q -p no:cacheprovider Testing/test_case_bundle.py Testing/test_robot_placement.py Testing/test_step6_state.py'",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "build.slicer_ros2_if_changed",
+      "execution_kind": "container_colcon",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "pure.step6_planning"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 900,
+      "evidence_level": "build",
+      "when": "slicer_ros2_module production C++ or CMake changed, or operator requests rebuild",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'source /opt/ros/jazzy/setup.bash && cd /workspace/ros2_ws && colcon build --symlink-install --packages-select slicer_ros2_module'",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "runtime.phase_guard",
+      "execution_kind": "ros_python",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 180,
+      "evidence_level": "simulation_runtime",
+      "entrypoint": "Testing/run_dentobot_phase_guard_smoke.py",
+      "command_template": null,
+      "pass_condition": "exit_code_zero_and_all_report_fields_true"
+    },
+    {
+      "id": "runtime.step65_exact_case",
+      "execution_kind": "slicer_ros_moveit",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "runtime.phase_guard"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "simulation_exact_case",
+      "entrypoint": "Testing/run_dentobot_step65_exact_case_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_STEP65_EXACT_CASE_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "runtime.step6_restore",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "pure.step6_restore"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_step6_restore_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_STEP6_RESTORE_PASS"
+    },
+    {
+      "id": "runtime.step6_view_integrity",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "runtime.step6_restore"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_step6_view_integrity_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_STEP6_VIEW_INTEGRITY_PASS"
+    },
+    {
+      "id": "runtime.slicer_reload",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_slicer_reload_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_FIVE_RELOAD_CYCLES_PASS"
+    },
+    {
+      "id": "runtime.scene_lifecycle",
+      "execution_kind": "slicer_ros_moveit",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "runtime.slicer_reload"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 600,
+      "evidence_level": "simulation_runtime",
+      "entrypoint": "Testing/run_dentobot_scene_lifecycle_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_SCENE_LIFECYCLE_PASS"
+    },
+    {
+      "id": "manual.step6_normal_window",
+      "execution_kind": "manual",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [],
+      "approval": "operator_only",
+      "timeout_sec": 0,
+      "evidence_level": "developer_live",
+      "command_template": null,
+      "pass_condition": "operator records observed result"
+    }
+  ]
+}
+

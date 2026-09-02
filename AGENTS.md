@@ -19,3 +19,11 @@ checkpoint, and report any step that could not be completed.
 The trigger never authorizes robot motion, drilling, deletion of research
 data, force-pushes, uploading runtime/data/model artifacts, or committing
 credentials.
+
+## Shared agentic verification
+
+For verification, testing, builds, Slicer/ROS/MoveIt diagnosis, subagents, or
+any `DENTO-VERIFY` keyword, follow
+`Workspace/docs/AGENTIC_VERIFICATION_PROTOCOL.md` and select checks from
+`Testing/verification_matrix.json`. This is the common Codex/Cursor/Claude
+contract; tool-specific instructions may point to it but must not redefine it.

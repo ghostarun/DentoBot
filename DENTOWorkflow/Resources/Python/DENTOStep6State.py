@@ -20,8 +20,8 @@ from typing import Mapping, Sequence
 
 STATE_SCHEMA_VERSION = "1.0"
 COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
-MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.0"
-SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0")
+MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
+SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
 JOINT_NAMES = (
@@ -36,6 +36,7 @@ SPINDLE_JOINT_NAME = JOINT_NAMES[-1]
 SPINDLE_LOCKED_VALUE_RAD = 0.0
 SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
 SPINDLE_PLANNING_POLICY = "external-pressure-spindle-locked-v1"
+DRILL_TOOL_FRAME_POLICY = "stage1-fixed-entry-target-frame-v1"
 
 
 def canonicalize_planning_joint_positions(
@@ -651,10 +652,14 @@ def build_motion_diagnostic_session(
         json.loads(canonical_json(dict(item))) for item in stage_outcomes
     )
     full_outcome = json.loads(canonical_json(dict(full_task_outcome or {})))
-    if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+    if schema != "1.0":
         valid_stage_names = {
             "stage1_free_space",
-            "stage2_strict_axis",
+            (
+                "stage2_fixed_axis_terminal"
+                if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION
+                else "stage2_strict_axis"
+            ),
             "stage3_drilling",
         }
         for stage in stages:
@@ -673,7 +678,7 @@ def build_motion_diagnostic_session(
         "failure_classification": str(failure_classification).strip(),
         "operator_review_state": str(operator_review_state).strip(),
     }
-    if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+    if schema != "1.0":
         identity["stage_outcomes"] = stages
         identity["full_task_outcome"] = full_outcome
     if not identity["state"] or not identity["failure_classification"]:

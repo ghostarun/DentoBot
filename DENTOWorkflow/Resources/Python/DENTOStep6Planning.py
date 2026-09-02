@@ -126,7 +126,32 @@ class WorkspaceAcceptedSample:
     joint_positions_si: tuple[tuple[str, float], ...]
 
     def joint_positions_si_dict(self) -> dict[str, float]:
-        return dict(self.joint_positions_si)
+        try:
+            return {
+                str(name): float(value)
+                for name, value in self.joint_positions_si
+            }
+        except (TypeError, ValueError):
+            # Compatibility for in-memory samples produced by the brief
+            # full-chain-v1 transition build, which stored six ordered values
+            # instead of (joint-name, value) pairs. These samples are transient
+            # runtime evidence and are canonicalized on first use.
+            if len(self.joint_positions_si) != 6:
+                raise
+            return {
+                name: float(value)
+                for name, value in zip(
+                    (
+                        "link-1_Revolute-1",
+                        "link-2_Slider-2",
+                        "link-3_Revolute-3",
+                        "link-4_Slider-4",
+                        "link-5_Revolute-5",
+                        "pneumatic_spindle-Copy_Revolute-6",
+                    ),
+                    self.joint_positions_si,
+                )
+            }
 
 
 @dataclass(frozen=True)

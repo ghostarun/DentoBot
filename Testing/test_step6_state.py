@@ -23,12 +23,14 @@ from DENTOStep6State import (  # noqa: E402
     approach_points,
     base_placement_source_issue,
     build_assisted_limit_proposal,
+    build_motion_diagnostic_session,
     build_phase_guard_configuration,
     build_phase_joint_command,
     build_task_home,
     build_task_snapshot,
     fingerprint,
     parse_task_home,
+    parse_motion_diagnostic_session,
     task_snapshot_invalidation_reasons,
     transition_base_status,
 )
@@ -202,3 +204,54 @@ def test_approach_uses_two_mm_research_default_for_new_cases():
     pre_entry, entry = approach_points((0, 0, 0), (0, 0, -10))
     assert pre_entry == pytest.approx((0, 0, 2))
     assert entry == (0.0, 0.0, 0.0)
+
+
+def _motion_candidate():
+    return {
+        "candidate_index": 0,
+        "axial_roll_deg": 0.0,
+        "success": True,
+        "completion_fraction": 1.0,
+        "completed_distance_mm": 2.0,
+        "requested_distance_mm": 2.0,
+        "waypoint_count": 3,
+        "failure_classification": "none",
+    }
+
+
+def _motion_diagnostic(*, schema_version, stage_name):
+    return build_motion_diagnostic_session(
+        state="Current",
+        task_fingerprint="task-a",
+        base_fingerprint="base-a",
+        trajectory_fingerprint="trajectory-a",
+        robot_profile_fingerprint="robot-a",
+        collision_audit_fingerprint="collision-a",
+        planning_parameters_fingerprint="planner-a",
+        candidate_records=(_motion_candidate(),),
+        selected_candidate_index=0,
+        failure_classification="none",
+        schema_version=schema_version,
+        stage_outcomes=(
+            {"stage": "stage1_free_space", "status": "Passed"},
+            {"stage": stage_name, "status": "Passed"},
+            {"stage": "stage3_drilling", "status": "Passed"},
+        ),
+        full_task_outcome={"status": "Complete"},
+    )
+
+
+def test_motion_diagnostic_v21_names_fixed_axis_terminal_stage():
+    record = _motion_diagnostic(
+        schema_version="2.1",
+        stage_name="stage2_fixed_axis_terminal",
+    )
+    assert parse_motion_diagnostic_session(record.to_dict()) == record
+
+
+def test_motion_diagnostic_v20_remains_readable_after_stage2_policy_upgrade():
+    record = _motion_diagnostic(
+        schema_version="2.0",
+        stage_name="stage2_strict_axis",
+    )
+    assert parse_motion_diagnostic_session(record.to_dict()) == record

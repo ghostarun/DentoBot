@@ -365,6 +365,40 @@ if ! command -v xhost >/dev/null 2>&1; then
   exit 2
 fi
 
+x11_access_available() {
+  xhost >/dev/null 2>&1
+}
+
+resolve_x11_authority() {
+  local mutter_auth uid
+
+  if x11_access_available; then
+    return 0
+  fi
+
+  uid="$(id -u)"
+  for mutter_auth in /run/user/"${uid}"/.mutter-Xwaylandauth.*; do
+    if [[ -f ${mutter_auth} ]]; then
+      XAUTHORITY="${mutter_auth}" x11_access_available && {
+        export XAUTHORITY="${mutter_auth}"
+        printf 'Using GNOME XWayland authority: %s\n' "${XAUTHORITY}"
+        return 0
+      }
+    fi
+  done
+
+  printf '%s\n' \
+    "Cannot open DISPLAY=${DISPLAY} for scoped xhost access." \
+    'Run this launcher from the desktop session that owns that display.' \
+    'On GNOME Wayland, use a terminal on the physical desktop or Chrome Remote Desktop.' \
+    'If you are on CRD, open a terminal inside the CRD desktop and retry without exporting DISPLAY manually.' >&2
+  return 1
+}
+
+if ! resolve_x11_authority; then
+  exit 2
+fi
+
 cleanup_x11() {
   if [[ ${x11_access_granted} == true ]]; then
     xhost -SI:localuser:root >/dev/null 2>&1 || true

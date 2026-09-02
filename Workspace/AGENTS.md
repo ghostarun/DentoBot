@@ -59,6 +59,13 @@ For every substantial task:
     `Unprioritized` until the user assigns one. When a priority changes, update
     both `docs/TASKS.md` and today's logbook, including any sequencing effect.
 
+15. For verification, testing, builds, Slicer/ROS/MoveIt diagnosis, subagents,
+    or any `DENTO-VERIFY` keyword, follow
+    `docs/AGENTIC_VERIFICATION_PROTOCOL.md` and select checks from
+    `../Testing/verification_matrix.json`. The coordinator is the sole editor;
+    workers are read-only, runtime resources are serialized, and execution
+    remains approval-gated.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

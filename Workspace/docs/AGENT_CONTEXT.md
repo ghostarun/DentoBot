@@ -4,7 +4,7 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-09-01
+## Current engineering state — 2026-09-02
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
 - Active integration branch: `integration/gui-step6`.
@@ -42,15 +42,20 @@ reproducibility, or dated evidence documents.
   This correction is runtime-verified in the exact-case clean stack; a
   normal-window operator retry remains separate evidence.
 - Current Step 6 motion policy uses a 2 mm new-case pre-entry standoff and
-  1 mm research guard margin. Strict approach remains collision checked;
-  terminal/drilling exploration may suppress only configured burr-to-task-
-  anatomy/guide contact and must report it. All non-tool/self/bounds/session/
-  corridor/backtrack/overshoot checks remain fail-closed.
-- Goal 1 currently preflights complete Entry-to-Target reachability at 0.25 mm
-  Cartesian sampling across bounded cylindrical-burr axial roll. The retained
-  `dentobot-case-step6x4.dentocase` reaches only `44.44–45.34%`, but that
-  percentage alone does not prove collision, kinematic reach, or a mechanical
-  base-placement deficiency. The current API discards the partial trajectory,
+  1 mm research guard margin. Stage 1 remains collision checked to PreEntry.
+  Planner-v4 generates one fixed-frame PreEntry→Entry Cartesian line and lets
+  the independent phase guard suppress only configured burr-to-task contact;
+  all non-tool/self/bounds/session/corridor/backtrack/overshoot checks remain
+  fail-closed. The old 0.25 mm guessed split is package compatibility state,
+  not current planning authority.
+- Goal 1 source now locks the externally driven spindle/J6 at `0 rad`, plans
+  actual direct/seeded/detour arm routes, composes Home→PreEntry→Entry→Target,
+  and preflights every returned waypoint in a non-mutating shadow state of the
+  authoritative C++ phase guard. The retained x4 case's earlier bounded-roll
+  `44.44–45.34%` result predates this policy and remains only historical
+  negative evidence; it does not prove collision, kinematic reach, or a
+  mechanical base-placement deficiency. Partial Stage-3 output is never
+  promoted,
   and the Step 6.1 plane/base snap is circular rather than a patient-contact to
   robot-mount transform. Preserve x4 as a negative diagnostic fixture; do not
   treat its partial result as a drilling plan or tune the planner to make it
@@ -59,14 +64,36 @@ reproducibility, or dated evidence documents.
   records the deferred terminal fraction; it never promotes the partial path.
   The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate
   upstream physical-fit defect.
-- The active Priority-0 strategy is now: audit the exact anatomy meshes sent to
-  MoveIt, add structured last-valid/first-invalid motion diagnosis, then expose
-  an explicit three-stage simulation planner (strict free-space approach,
-  strict axis approach to Entry with a narrow terminal contact tolerance, and
-  guarded Entry-to-Target drilling). Persist diagnostic evidence, not live ROS
-  objects, in `.dentocase`. Broad automated verification and new diagnostic
-  scripts remain paused; the next verification loop is operator-visible and
-  in-application.
+- The newest Priority-0 source makes Stage 1 the immutable drilling-
+  frame owner. Entry→Target fixes tool +Z; J6-locked FK fixes the remaining
+  rotation, which is fingerprinted and reused unchanged in Stages 2 and 3.
+  Direct/seeded PreEntry branches are ranked only after bounded full-chain and
+  shadow-guard evaluation; complete chains win, then minimum normalized
+  joints-1–5 post-PreEntry motion. Stage 3 and diagnostics no longer reset the
+  selected frame to canonical `0°`. The approved focused suite passed `45`
+  tests with one unrelated draft-AABB assertion deselected, and the isolated
+  x4 runtime emitted the exact-case PASS marker with a fixed-frame fingerprint
+  and unit axis. Full-chain acceptance remains blocked at Stage 2 as described
+  below.
+- The superseding exact x4 runtime now exercises this policy. Package hydration
+  is read-only, workspace samples retain named SI vectors, and the selected
+  J6-locked PreEntry roll is derived from FK instead of being reset to the old
+  `0 deg` candidate constant. This removed the artificial `74.6 deg`
+  Cartesian bridge. The run emits PASS after 55 guarded Stage-1 waypoints and
+  J6 `0 rad`, then truthfully blocks at `50.0%` Stage 2 because MoveIt records
+  forbidden `link-3`↔tooth contact. Treat that pair as evidence for this x4
+  attempt, not authority to relax collision policy. Goal 2 remains unavailable.
+- The active Priority-0 implementation now evaluates every bounded
+  Home-connected 6.3 seed, audits the canonical J6-zero endpoint, fixes the
+  drill frame at PreEntry, and gives every full-chain candidate an isolated
+  validate-only guard session. Motion diagnostic schema 2.1 owns
+  `stage2_fixed_axis_terminal`; schema 2.0 remains read-only compatible. The
+  inspector exposes per-stage progress, composed/stage-local first-invalid
+  indices, the retained guard cause, and a bounded next action; blocked attempts
+  open it automatically. Failed Stage-3 preflight state is cleared rather than
+  misclassified as complete. The current Python/pure gate passed (`py_compile`;
+  scoped state/façade `pytest` 33/33), but normal-window runtime remains
+  unverified. Persist diagnostic evidence, not live ROS objects, in `.dentocase`.
 - The recovered post-Priority-0 study roadmap is no longer a one-line Track F.
   First complete `MotionDiagnosticSessionV2` with explicit Stage 1/2/3/full-
   task outcomes and a V1 reader. Then F0 manually aggregates reviewed,
@@ -90,6 +117,14 @@ reproducibility, or dated evidence documents.
   confirmation only. The reviewed min/max proposal is an exploration envelope,
   not a collision-free box. Saved evidence requires explicit regeneration or
   revalidation after reconnect because live ROS validity is transient.
+- Priority-0 saved-checkpoint resume is now source implemented: after a valid
+  package load, the backend queues transient local-robot reconstruction,
+  simulation ROS/MoveIt reconnect, Task Home application, saved-workspace
+  replay, and task reconfirmation. Complete persisted gates select 6.5; a
+  missing/stale prerequisite or unavailable external stack stops at the first
+  truthful substep with an explicit reason. ROS objects and motion plans remain
+  unsaved, and 6.6 still requires a fresh complete Goal 1 plan. Pure tests pass;
+  normal-window package-resume behavior remains to be exercised.
 - The first approved exact-x4 remote runtime trial on 2026-08-31 proved case,
   jaw-opening, Manual Simulation Base, seven-link local-robot reconstruction,
   32-object collision-scene acknowledgement, and live Task Home validation.
@@ -127,15 +162,17 @@ reproducibility, or dated evidence documents.
   strict explicit-start OMPL returned an empty trajectory after the old three
   identical attempts. The old message reported a raw `6.25726 rad` maximum
   Home-to-goal delta without naming its joint or a collision pair. Current
-  source treats J5 and the spindle as continuous, evaluates all eight
-  direct axial-roll IK branches, then tries bounded two-leg routes through at
-  most three saved 6.3 samples already proven static-valid and Home-connected.
+  source now keeps only J5 continuous, fixes the compatibility-only spindle at
+  zero, evaluates canonical direct and distinct workspace-seeded arm IK, then
+  tries bounded two-leg routes through at most three saved 6.3 samples already
+  proven static-valid and Home-connected.
   Both legs are replanned in the current scene. V2 diagnostics retain explicit
   stage/full-task outcomes and direct/detour collision evidence while reading
   V1 records without changing their fingerprint. Collision margins and anatomy
-  policy were not relaxed. The focused retry accepted 55 strict Home→PreEntry
-  waypoints and a guarded preview; the terminal segment remains explicitly
-  deferred.
+  policy were not relaxed. The earlier focused retry accepted 55 strict
+  Home→PreEntry waypoints and a guarded preview; source/build verification of
+  the superseding full-chain policy passes, while its operator-visible runtime
+  acceptance remains pending reload.
 - Saved current-profile 6.3 evidence now has an explicit live-revalidation
   action: after 6.1 Connect and 6.2 Home validation it replays every retained
   state/FK and the formerly evaluated Home-connectivity subset, preserves the

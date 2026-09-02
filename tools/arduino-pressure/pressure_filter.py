@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from pressure_signal import AIR_OFF_ENTER_KPA, AIR_ON_ENTER_KPA
+from pressure_config import PipelineConfig
 
 MEDIAN_WINDOW = 5
 FAST_TAU_S = 0.015
@@ -203,8 +204,9 @@ class StageStats:
 class PressureTracker:
     """Streaming filters + gated change-point detector."""
 
-    def __init__(self) -> None:
-        self._median_buf: deque[float] = deque(maxlen=MEDIAN_WINDOW)
+    def __init__(self, config: PipelineConfig | None = None) -> None:
+        self.config = config.copy() if config is not None else PipelineConfig()
+        self._median_buf: deque[float] = deque(maxlen=self.config.median_window)
         self._fast: float | None = None
         self._slow: float | None = None
         self._dpdt_filt = 0.0
@@ -229,7 +231,7 @@ class PressureTracker:
         self.events: list[BoundaryEvent] = []
 
     def reset(self) -> None:
-        self.__init__()
+        self.__init__(self.config)
 
     def _trim(self, buf: deque, now: float, span: float, index: int = 0) -> None:
         while buf and now - buf[0][index] > span:
@@ -311,7 +313,7 @@ class PressureTracker:
         raw_adc: int,
         drill_stage: str,
     ) -> FilterSample:
-        dt = 0.001
+        dt = 1.0 / max(self.config.sample_hz, 1.0)
         dpdt_raw = 0.0
         if self._prev_t is not None:
             dt = max(t - self._prev_t, 1e-6)
@@ -327,12 +329,12 @@ class PressureTracker:
             self._dpdt_filt = 0.0
             inst_dpdt = 0.0
         else:
-            self._fast += lpf_alpha(dt, FAST_TAU_S) * (p_median - self._fast)
-            self._slow += lpf_alpha(dt, SLOW_TAU_S) * (p_median - self._slow)
+            self._fast += lpf_alpha(dt, self.config.fast_tau_s) * (p_median - self._fast)
+            self._slow += lpf_alpha(dt, self.config.slow_tau_s) * (p_median - self._slow)
             inst_dpdt = 0.0
             if self._prev_fast is not None:
                 inst_dpdt = (self._fast - self._prev_fast) / dt
-            self._dpdt_filt += lpf_alpha(dt, DERIVATIVE_TAU_S) * (
+            self._dpdt_filt += lpf_alpha(dt, self.config.derivative_tau_s) * (
                 inst_dpdt - self._dpdt_filt
             )
 
@@ -454,8 +456,9 @@ def replay_tracker(
     seq: np.ndarray | None = None,
     raw_adc: np.ndarray | None = None,
     drill_stages: np.ndarray | None = None,
+    config: PipelineConfig | None = None,
 ) -> tuple[list[FilterSample], list[BoundaryEvent]]:
-    tracker = PressureTracker()
+    tracker = PressureTracker(config)
     samples: list[FilterSample] = []
     n = int(time_s.size)
     for i in range(n):

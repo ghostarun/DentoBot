@@ -51,6 +51,17 @@ Thumbs.db
 artifacts/
 runs/
 
+# Host Arduino pressure bench: keep source, not local recordings or venvs
+tools/arduino-pressure/pressure_runs/run_*/
+tools/arduino-pressure/.venv/
+tools/arduino-pressure/venv/
+tools/arduino-pressure/graphify-out/
+
+# Local knowledge-graph and Drive-sync scratch (regenerate / do not commit)
+graphify-out/
+.drive_upload_text/
+.drive_upload_b64_*.txt
+
 # Medical/research image data should not be committed by default
 *.dcm
 *.dicom

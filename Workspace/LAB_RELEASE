@@ -1,0 +1,11 @@
+# Pinned Windows-lab / WSL2 release. Lab PCs check out DENTOBOT_TAG only.
+# Do not follow integration/gui-step6 or a dirty maintainer worktree.
+# The tag and GHCR image are unpublished until the maintainer commits, tags,
+# and pushes (explicit Git authorization). Install/update fail closed until then.
+
+DENTOBOT_TAG=lab/2026-09-02
+DENTOBOT_GIT_URL=https://github.com/ghostarun/DentoBot.git
+SLICERROS2_GIT_URL=https://github.com/rosmed/slicer_ros2_module.git
+SLICERROS2_SHA=4ef3d5b427ff2846d3a79246bfc089df9f1cfe8b
+IMAGE=ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821
+COMPOSE_IMAGE=dentobot/slicerros2:jazzy-moveit-sim-20260821

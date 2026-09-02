@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +35,14 @@ class FakeBase:
 
     def SetMatrixTransformToParent(self, matrix):
         self.matrix = matrix
+
+
+class FakePoseMatrix:
+    def __init__(self, rotation):
+        self.rotation = rotation
+
+    def GetElement(self, row, column):
+        return self.rotation[row][column]
 
 
 class FakeParameterNode:
@@ -310,12 +319,12 @@ def test_phase_guard_separates_burr_proximity_from_contact_permission():
         ROOT
         / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
     ).read_text(encoding="utf-8")
-    prepare = facade_source.split("def _prepare_phase_guard", 1)[1].split(
-        "def _guarded_preview_checkpoints", 1
+    configure = facade_source.split("def _configure_phase_guard", 1)[1].split(
+        "def _prepare_phase_guard", 1
     )[0]
-    assert "step6BurrProximityCollisionObjectIds" in prepare
-    assert "target_object_id not in burr_proximity_object_ids" in prepare
-    assert "clearance_exempt_object_ids=burr_proximity_object_ids" in prepare
+    assert "step6BurrProximityCollisionObjectIds" in configure
+    assert "target_object_id not in burr_proximity_object_ids" in configure
+    assert "clearance_exempt_object_ids=burr_proximity_object_ids" in configure
 
     logic_source = (
         ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
@@ -366,9 +375,148 @@ def test_drilling_uses_one_spindle_locked_cartesian_orientation():
         "def planApproachPhase", 1
     )[0]
     assert "axial_roll_candidates_deg" not in drilling
-    assert "GOAL1_CANONICAL_TOOL_ROLL_DEG" in drilling
+    assert "fixed_roll_deg = float(start_axial_roll_deg)" in drilling
+    assert "axial_roll_start_deg=fixed_roll_deg" in drilling
+    assert "axial_roll_end_deg=fixed_roll_deg" in drilling
+    assert "del start_axial_roll_deg" not in drilling
     assert "spindle locked at 0 rad" in drilling
     assert "partial joint path" in drilling
+
+
+def test_stage1_selects_one_fixed_frame_after_full_chain_preflight():
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    approach = source.split("def planApproachPhase", 1)[1].split(
+        "def planDrillingPhase", 1
+    )[0]
+    assert "_goal1_candidate_chain_preflight" in approach
+    assert 'selected_candidate["orientationCommitment"]' in approach
+    assert 'route["chain"]["score"]' in approach
+    assert "tool_orientation_fingerprint" in approach
+    assert "selected_roll_deg" in approach
+
+
+def test_stage1_uses_every_bounded_home_connected_seed_with_j6_locked():
+    class SeedBridge(FakeBridge):
+        def __init__(self):
+            super().__init__()
+            self.goal = None
+            self.audited = []
+
+        @staticmethod
+        def tool_pose_matrices_world_mm(*_args, **_kwargs):
+            return (
+                FakePoseMatrix(
+                    (
+                        (1.0, 0.0, 0.0),
+                        (0.0, 1.0, 0.0),
+                        (0.0, 0.0, 1.0),
+                    )
+                ),
+            )
+
+        def set_moveit_tcp_goal_matrix(self, pose):
+            self.goal = pose
+            return True, "goal", pose
+
+        @staticmethod
+        def solve_moveit_tcp_goal(*, seed_joint_positions_si=None):
+            return True, "ik", dict(seed_joint_positions_si)
+
+        def check_moveit_static_joint_state(self, positions):
+            self.audited.append(dict(positions))
+            return True, "valid", True
+
+        @staticmethod
+        def spindle_locked_tcp_roll_deg(*_args, **_kwargs):
+            return True, "roll", 0.0
+
+    parameter_node = FakeParameterNode()
+    evidence = []
+    for sample_index in range(8):
+        positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+        positions[ROS2_JOINT_SI_ORDER[0]] = 0.1 * (sample_index + 1)
+        positions[ROS2_JOINT_SI_ORDER[-1]] = 1.0
+        evidence.append(
+            {
+                "sample_index": sample_index,
+                "joint_names": list(ROS2_JOINT_SI_ORDER),
+                "joint_positions_si": [
+                    positions[name] for name in ROS2_JOINT_SI_ORDER
+                ],
+                "home_connectivity": {"status": "HomeConnected"},
+            }
+        )
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(
+        {"accepted_sample_evidence": evidence}
+    )
+    bridge = SeedBridge()
+    facade = DENTORobotWorkflowFacade(
+        FakeLogic(parameter_node),
+        lambda: parameter_node,
+        bridge=bridge,
+    )
+    home = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+
+    candidates, failures = facade._goal1_pre_entry_ik_candidates(
+        parameter_node,
+        (0.0, 0.0, -2.0),
+        (0.0, 0.0, 0.0),
+        home,
+    )
+
+    assert failures == []
+    assert len(candidates) == 9
+    assert {candidate["seedSampleIndex"] for candidate in candidates} == {
+        None,
+        *range(8),
+    }
+    assert len(bridge.audited) == 9
+    assert all(
+        positions[ROS2_JOINT_SI_ORDER[-1]] == 0.0
+        for positions in bridge.audited
+    )
+
+
+def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation():
+    pose = FakePoseMatrix(
+        (
+            (0.0, -1.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )
+    )
+    first = DENTORobotWorkflowFacade._tool_orientation_commitment(
+        pose,
+        pre_entry_ras_mm=(0.0, 0.0, -5.0),
+        entry_ras_mm=(0.0, 0.0, 0.0),
+        axial_roll_deg=90.0,
+    )
+    second = DENTORobotWorkflowFacade._tool_orientation_commitment(
+        pose,
+        pre_entry_ras_mm=(0.0, 0.0, -5.0),
+        entry_ras_mm=(0.0, 0.0, 0.0),
+        axial_roll_deg=90.0,
+    )
+    assert first["toolAxisRas"] == (0.0, 0.0, 1.0)
+    assert first["rotationRas"] == pose.rotation
+    assert first["fingerprint"] == second["fingerprint"]
+
+
+def test_post_preentry_motion_cost_ignores_external_spindle_rotation():
+    first = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    spindle_only = dict(first)
+    spindle_only[ROS2_JOINT_SI_ORDER[-1]] = 2.0
+    arm_move = dict(spindle_only)
+    arm_move[ROS2_JOINT_SI_ORDER[0]] = 0.5
+    assert DENTORobotWorkflowFacade._arm_path_motion_cost(
+        SimpleNamespace(waypoint_joint_vectors_si=(first, spindle_only))
+    ) == 0.0
+    assert DENTORobotWorkflowFacade._arm_path_motion_cost(
+        SimpleNamespace(waypoint_joint_vectors_si=(first, arm_move))
+    ) > 0.0
 
 
 def test_full_chain_uses_non_mutating_phase_guard_preflight():
@@ -383,6 +531,21 @@ def test_full_chain_uses_non_mutating_phase_guard_preflight():
     assert '"terminal_contact"' in approach
     assert '"drilling"' in approach
     assert '"Complete" if drilling_preflight is not None else "Blocked"' in approach
+
+
+def test_stage2_uses_one_fixed_axis_path_and_phase_guard_contact_policy():
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    preflight = source.split("def _goal1_candidate_chain_preflight", 1)[1].split(
+        "def _goal1_pre_entry_ik_candidates", 1
+    )[0]
+    assert "target_ras_mm=entry" in preflight
+    assert "avoid_collisions=False" in preflight
+    assert '"terminal_contact"' in preflight
+    assert "_configure_phase_guard" in preflight
+    assert "contact_start" not in preflight
 
 
 def test_goal1_diagnostics_are_arm_routes_not_spindle_roll_rows():

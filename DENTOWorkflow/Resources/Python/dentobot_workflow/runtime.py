@@ -188,6 +188,7 @@ from DENTOStep6Planning import (
 from DENTOStep6State import (
     BasePlacementStatus,
     MANUAL_SIMULATION_BASE_SOURCE,
+    MOTION_DIAGNOSTIC_SCHEMA_VERSION,
     MotionPhase,
     QUARANTINED_CIRCULAR_BASE_SOURCE,
     SPINDLE_JOINT_NAME,

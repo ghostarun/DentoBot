@@ -39,6 +39,12 @@ from pressure_filter import (
     SAMPLE_COLUMNS,
     PressureTracker,
 )
+from pressure_config import (
+    PipelineConfig,
+    build_config_panel,
+    fs_mismatch,
+    status_line,
+)
 from pressure_cli import apply_monitor_cli
 
 
@@ -48,13 +54,7 @@ from pressure_cli import apply_monitor_cli
 
 PORT, BAUD = apply_monitor_cli()
 
-ADC_BITS = 14
-ADC_MAX = (1 << ADC_BITS) - 1       # 16383
-
-# MPX5700 datasheet transfer function:
-# Vout/Vs = 0.0012858 * P + 0.04
-MPX_SCALE = 0.0012858
-MPX_OFFSET = 0.04
+pipeline = PipelineConfig(baud=BAUD)
 
 # GUI
 GUI_REFRESH_MS = 50
@@ -126,25 +126,32 @@ print("Connected.")
 print("Live display is idle until Start Recording + Cues.\n")
 
 
+def send_sample_rate(hz: float) -> None:
+    if not ser.is_open:
+        return
+    pipeline.sample_hz = float(hz)
+    try:
+        ser.write(f"RATE {int(round(pipeline.sample_hz))}\n".encode("ascii"))
+    except (OSError, serial.SerialException):
+        pass
+
+
+send_sample_rate(pipeline.sample_hz)
+
+
 # ============================================================
 # PRESSURE CONVERSION
 # ============================================================
 
 def adc_to_pressure(raw):
-    ratio = raw / ADC_MAX
-
-    pressure_kpa = (
-        ratio - MPX_OFFSET
-    ) / MPX_SCALE
-
-    return pressure_kpa
+    return pipeline.adc_to_pressure(raw)
 
 
 # ============================================================
 # SIGNAL STATE
 # ============================================================
 
-tracker = PressureTracker()
+tracker = PressureTracker(pipeline)
 
 first_full_us = None
 previous_micros = None
@@ -152,6 +159,9 @@ micros_wrap_offset = 0
 
 last_seq = None
 lost_samples = 0
+measured_hz = float("nan")
+_rate_times = []
+_rate_dts = []
 
 
 # ============================================================
@@ -316,15 +326,38 @@ cue_row.addWidget(mute_beep)
 
 window = pg.GraphicsLayoutWidget()
 
+config_strip = QtWidgets.QLabel()
+config_strip.setWordWrap(True)
+config_strip.setTextInteractionFlags(
+    QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+)
+config_strip.setStyleSheet(
+    "QLabel { background: #1f2937; color: #e5e7eb; padding: 6px 10px; "
+    "font-size: 13px; }"
+)
+
+live_page = QtWidgets.QWidget()
+live_layout = QtWidgets.QVBoxLayout(live_page)
+live_layout.setContentsMargins(0, 0, 0, 0)
+live_layout.addWidget(stage_banner)
+live_layout.addLayout(annotate_row)
+live_layout.addLayout(cue_row)
+live_layout.addWidget(window, 1)
+
+config_page, config_widgets = build_config_panel(sample_rate_enabled=True)
+config_widgets["from_config"](pipeline)
+
+tabs = QtWidgets.QTabWidget()
+tabs.addTab(live_page, "Live")
+tabs.addTab(config_page, "Config")
+
 root_layout = QtWidgets.QVBoxLayout(
     main_window
 )
 root_layout.setContentsMargins(8, 8, 8, 8)
 root_layout.addLayout(controls)
-root_layout.addWidget(stage_banner)
-root_layout.addLayout(annotate_row)
-root_layout.addLayout(cue_row)
-root_layout.addWidget(window, 1)
+root_layout.addWidget(config_strip)
+root_layout.addWidget(tabs, 1)
 
 status = pg.LabelItem(
     justify="left"
@@ -531,6 +564,41 @@ def update_record_controls():
             "Not recording"
         )
 
+    config_widgets["apply"].setEnabled(not recording)
+    config_widgets["sample_hz"].setEnabled(not recording)
+    update_config_strip()
+
+
+def update_config_strip():
+    extra = ""
+    if last_sample is not None:
+        rec_label = "REC" if recording else "Idle"
+        extra = f"{rec_label}     lost {lost_samples}"
+    config_strip.setText(
+        status_line(pipeline, measured_hz=measured_hz, extra=extra)
+    )
+
+
+def apply_pipeline_from_panel():
+    global tracker
+    global pipeline
+    if recording:
+        return
+    pipeline = config_widgets["to_config"](pipeline)
+    send_sample_rate(pipeline.sample_hz)
+    tracker = PressureTracker(pipeline)
+    config_widgets["from_config"](pipeline)
+    update_config_strip()
+    print(
+        f"Applied pipeline: fs={pipeline.sample_hz:.0f} Hz  "
+        f"τf={1000.0 * pipeline.fast_tau_s:.0f} ms  "
+        f"τs={1000.0 * pipeline.slow_tau_s:.0f} ms  "
+        f"med N={pipeline.median_window}"
+    )
+
+
+config_widgets["apply"].clicked.connect(apply_pipeline_from_panel)
+
 
 def close_recording_files():
 
@@ -662,6 +730,10 @@ def start_recording():
     samples_file.flush()
     events_file.flush()
     annotations_file.flush()
+
+    snapshot = pipeline.copy()
+    snapshot.measured_hz = measured_hz
+    snapshot.save(run_dir / "pipeline.json")
 
     annotation_id = 0
     live_annotations = []
@@ -1024,6 +1096,7 @@ def process_sample(seq, micros_value, raw):
     global events_writer
     global events_file
     global last_sample
+    global measured_hz
 
     if last_seq is not None:
 
@@ -1052,6 +1125,16 @@ def process_sample(seq, micros_value, raw):
     t = (
         full_us - first_full_us
     ) / 1_000_000.0
+
+    _rate_times.append(t)
+    cutoff = t - 0.5
+    while len(_rate_times) > 2 and _rate_times[0] < cutoff:
+        _rate_times.pop(0)
+    if len(_rate_times) >= 2:
+        span = _rate_times[-1] - _rate_times[0]
+        if span > 0:
+            measured_hz = (len(_rate_times) - 1) / span
+            pipeline.measured_hz = measured_hz
 
     pressure = adc_to_pressure(raw)
     sample = tracker.update(
@@ -1349,7 +1432,7 @@ def update():
             if not line:
                 continue
 
-            if line.startswith("seq"):
+            if line.startswith("#") or line.startswith("seq"):
                 continue
 
             try:
@@ -1400,8 +1483,15 @@ def update():
         rec_label = "REC" if recording else "Idle"
         sample = last_sample
         gate = "ARMED" if sample.armed else sample.air_state.replace("AIR_", "")
+        mismatch = (
+            "     <b>fs MISMATCH</b>"
+            if fs_mismatch(pipeline.sample_hz, measured_hz)
+            else ""
+        )
         status.setText(
             f"<b>{rec_label}</b>     "
+            f"<b>fs</b> set {pipeline.sample_hz:.0f} / meas "
+            f"{measured_hz:.0f} Hz{mismatch}     "
             f"<b>P</b> {sample.pressure_filtered_kPa:.1f} kPa     "
             f"<b>ΔP</b> {sample.delta_kPa:+.2f}     "
             f"<b>dP/dt</b> {sample.dpdt_filtered_kPa_s:.0f}     "
@@ -1413,6 +1503,7 @@ def update():
             f"<b>Lost</b> {lost_samples}     "
             f"<b>Events</b> {len(event_times)}"
         )
+        update_config_strip()
 
 
     # --------------------------------------------------------

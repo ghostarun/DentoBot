@@ -130,6 +130,8 @@ class DENTOWorkflowParameterNode:
     step6CollisionSceneAuditJson: str = ""
     step6MotionDiagnosticJson: str = ""
     step6ApproachStandoffMm: float = 2.0
+    # Retained only for older .dentocase/MRML packages. Planner v4 validates
+    # the complete PreEntry→Entry line with the independent phase guard.
     step6TerminalContactToleranceMm: float = 0.25
     step6TrajectoryCorridorRadiusMm: float = 0.75
     step6ToolFrame: str = "dentobot_drill_tip_provisional"

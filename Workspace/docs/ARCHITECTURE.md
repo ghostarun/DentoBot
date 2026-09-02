@@ -1,9 +1,38 @@
 # DENTOBOT Architecture
 
-> Cross-platform update (2026-08-11): the Slicer/MRML workflow is shared.
-> Windows uses native Slicer plus a WSL2 inference adapter; Ubuntu uses the
-> direct Linux adapter inside the verified SlicerROS2 container. Runtime
-> acceptance is current on Ubuntu and must be repeated on Windows 11.
+## Step 6 spindle-lock and full-chain planning boundary — 2026-09-01
+
+The pneumatic spindle joint remains in the six-joint URDF/SRDF/MRML
+compatibility chain and visible robot, but is not a controllable planning
+degree of freedom. `DENTOStep6State` owns the versioned policy
+`external-pressure-spindle-locked-v1` and fixed value `0 rad`; bridge, façade,
+restore and guard boundaries canonicalize to it. The collision guard also
+rejects nonzero ordinary or phased commands. J5 remains the only continuous
+arm joint in Step 6 planning.
+
+Goal 1 now owns a connected three-stage preflight: strict MoveIt
+Home→PreEntry; axis-constrained PreEntry→Entry with only terminal configured
+burr contact; and Entry→Target Cartesian drilling exploration. Every returned
+waypoint is replayed through a non-mutating shadow state in the same C++ phase
+guard, so preflight does not move the displayed/current robot or consume the
+later preview sequence. Only all-stage acceptance is `Complete`; a later-stage
+failure is `Blocked` while retained Stage-1/approach evidence remains
+`Provisional`. Goal 2 can consume only the retained complete Stage-3 plan.
+
+Planner diagnostics represent actual arm routes: canonical direct IK,
+geometrically distinct workspace-seeded IK, or a two-leg reviewed 6.3
+clearance detour. The compatibility `axial_roll_deg` field records the
+FK-derived orientation needed to keep a J6-locked endpoint continuous; it is
+not a spindle command or alternate route. Routine UI replaces Roll with
+Planner leg/Route and a separate Stage 1/2/3 summary. Three display-only,
+non-persistent KDL/world-RAS
+paths use distinct colors; none is a planning-scene object or execution path.
+
+> Cross-platform update (2026-09-02): the Slicer/MRML workflow is shared.
+> Native Windows Slicer uses a WSL2 inference adapter without ROS. Ubuntu uses
+> the direct Linux adapter inside the verified SlicerROS2 container. Windows
+> lab PCs that need Step 6 ROS run that same Linux container in WSL2 (WSLg);
+> that lab GUI path is not Ubuntu-verified and is not native Windows SlicerROS2.
 
 ## Architectural overview
 
@@ -14,7 +43,8 @@
 |-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
 `-- Platform process adapter
 |   |
-|   +-- Windows: native Slicer -> wsl.exe -> Linux backend Python
+|   +-- Windows native: native Slicer -> wsl.exe -> Linux backend Python
+|   +-- Windows lab (WSL2): container Slicer via WSLg -> direct Linux backend Python
 |   `-- Ubuntu: container Slicer -> direct Linux backend Python
 |       +-- NIfTI payloads in an adapter-visible artifact root
 |       +-- structured stdout + exit status
@@ -102,6 +132,16 @@ confirms the task fingerprint, and builds the preview phases.
 Routine calls use SlicerROS2 logic/MRML APIs; the upstream widget is optional
 expert diagnostics and never a lifecycle prerequisite.
 
+Stage 1 owns one transient drilling-frame commitment for each planning
+attempt. The immutable task trajectory fixes the frame's +Z axis in world RAS;
+collision-aware FK with J6 locked fixes the remaining rotation. Direct and
+seeded joints-1–5 branches are compared only after the exact same frame has
+been propagated through PreEntry→Entry and Entry→Target plus shadow-guard
+validation. The selected frame fingerprint is diagnostic evidence tied to the
+current task/scene planning fingerprint; the transient MoveIt paths themselves
+remain excluded from MRML and `.dentocase`. Goal 2 consumes the retained Stage
+3 plan and its Stage-1 frame or fails closed.
+
 The source implements a runtime-first gate. 6.1 requires prepared anatomy, a
 local robot, and a reviewed Manual Simulation Base, then aligns `base_link` and
 acknowledges the exact PlanningScene without requiring saved Home/workspace
@@ -119,8 +159,11 @@ from Home. Thus `StateValid`, `HomeConnected`, `PlanRejected`, and
 `NotEvaluated` remain distinct. The reviewed min/max proposal is an exploration
 envelope, not a collision-free-volume claim. This implementation passed the
 focused static/package build gate and a clean-stack exact-case runtime on
-2026-09-01 through guarded Home→PreEntry preview. A normal-window operator
-trial and terminal PreEntry→Entry acceptance remain pending.
+2026-09-01 through guarded Home→PreEntry preview. The superseding x4 runtime
+also verified J6 `0 rad`, removed the artificial tool-roll bridge, and retained
+a causal Stage-2 block at 50% because MoveIt reports forbidden
+`link-3`↔tooth contact. A normal-window operator review and a genuinely
+collision-free PreEntry→Entry route remain pending.
 
 The tracked robot-description coordinate contract defines J2 `q=0` at the
 mechanically extended/home end. Its origin and axis encode the same physical
@@ -1332,8 +1375,9 @@ do not depend on either. The verified ROS profile is the Ubuntu
 24.04/Jazzy/Linux SlicerROS2 container. Current upstream SlicerROS2 1.2 does
 not list Windows as a supported build target, so native Windows Slicer remains
 a planning client without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux
-GUI image is an unverified future profile and must not be presented as native
-Windows module support. The description package does not decide whether the
+GUI image is the Windows **lab** profile (`PLAT-U-04`): same container as
+Ubuntu, not native Windows module support, unaccepted until a lab PC trial.
+The description package does not decide whether the
 future adapter uses ROS, MoveIt, a vendor SDK, or another transport. Regardless
 of host or transport, low-level motion and safety never run in the Slicer
 Python process.
@@ -1342,6 +1386,8 @@ Python process.
 
 - Windows planning development: native pinned Slicer, source extension path,
   WSL2 backend, and no Docker requirement.
+- Windows lab ROS: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
+  `lab/*` git releases, GHCR image pull, collaborator access (no script password).
 - Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
   extension path.
 - AI backend: isolated Linux environment, platform-specific locked Python

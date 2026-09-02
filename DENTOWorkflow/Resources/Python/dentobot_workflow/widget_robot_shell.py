@@ -480,6 +480,14 @@ class RobotShellWidgetMixin:
         self._updateWorkflowViewControls()
         if not result.success:
             slicer.util.errorDisplay(result.message)
+        diagnostic_blocked = str(result.details.get("fullTaskStatus") or "") == "Blocked"
+        if (
+            (not result.success or diagnostic_blocked)
+            and result.details.get("motionDiagnosticSessionFingerprint")
+            and self._parameterNode
+            and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
+        ):
+            qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
 
     def _onStep6PhasePreviewFinished(self, label, result) -> None:
         self._setStep6PanelResult(label, result)

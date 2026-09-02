@@ -698,34 +698,11 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
 
     def taskHomeRecord(self, parameterNode):
         payload = str(parameterNode.step6TaskHomeJson or "").strip()
-        if not payload:
-            return None
-        source = json.loads(payload)
-        record = parse_task_home(source)
-        positions = tuple(source.get("joint_positions_si", ()))
-        old_spindle = (
-            float(positions[-1]) if len(positions) == len(record.joint_names) else None
-        )
-        try:
-            saved_lock_value = float(source.get("spindle_locked_value_rad"))
-        except (TypeError, ValueError):
-            saved_lock_value = float("nan")
-        migrated = (
-            source.get("spindle_planning_policy") != SPINDLE_PLANNING_POLICY
-            or saved_lock_value != SPINDLE_LOCKED_VALUE_RAD
-            or old_spindle != SPINDLE_LOCKED_VALUE_RAD
-        )
-        if migrated:
-            parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
-            parameterNode.step6ConfirmedTaskJson = ""
-            self.markStep6MotionDiagnosticStale(
-                parameterNode,
-                _(
-                    "Migrated Task Home to the external spindle-lock policy; "
-                    "old axial-roll diagnostics and phase evidence are stale."
-                ),
-            )
-        return record
+        # Package hydration/lineage comparison must be read-only. The parser
+        # canonicalizes legacy J6 in memory, which makes the old confirmed-task
+        # fingerprint stale without altering the just-loaded MRML record.
+        # Explicit 6.2 save/revalidation persists the migrated Home.
+        return parse_task_home(payload) if payload else None
 
     def saveCurrentTaskHome(self, parameterNode, *, runtime_validation=None):
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
@@ -926,6 +903,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             failure_classification=record.failure_classification,
             operator_review_state=record.operator_review_state,
             generated_at_utc=record.generated_at_utc,
+            schema_version=record.schema_version,
             stage_outcomes=record.stage_outcomes,
             full_task_outcome=record.full_task_outcome,
         )
@@ -941,12 +919,36 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         issues = []
         if record.state != "Current":
             issues.append(record.stale_reason or _("Motion diagnostic is Stale."))
+        if record.schema_version != MOTION_DIAGNOSTIC_SCHEMA_VERSION:
+            issues.append(
+                _(
+                    "Motion diagnostic predates the fixed-axis Stage-2 phase-guard "
+                    "policy; re-plan Goal 1."
+                )
+            )
         if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
             issues.append(_("Motion diagnostic belongs to a different base pose."))
         if record.trajectory_fingerprint != self.step6TrajectoryRevision(parameterNode):
             issues.append(_("Motion diagnostic belongs to a different trajectory."))
         if record.robot_profile_fingerprint != self.robotProfileFingerprint():
             issues.append(_("Motion diagnostic belongs to different robot resources."))
+        try:
+            diagnosticSpindleValue = float(
+                record.full_task_outcome.get("spindle_locked_value_rad")
+            )
+        except (TypeError, ValueError):
+            diagnosticSpindleValue = float("nan")
+        if (
+            record.full_task_outcome.get("spindle_planning_policy")
+            != SPINDLE_PLANNING_POLICY
+            or diagnosticSpindleValue != SPINDLE_LOCKED_VALUE_RAD
+        ):
+            issues.append(
+                _(
+                    "Motion diagnostic predates the external spindle-lock policy; "
+                    "re-plan Goal 1."
+                )
+            )
         try:
             collision_audit = self.collisionSceneAuditRecord(parameterNode)
         except (ValueError, json.JSONDecodeError):

@@ -11,7 +11,7 @@ import json
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
+from math import acos, atan2, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
@@ -2986,6 +2986,88 @@ def solve_moveit_tcp_goal(
         f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
         ordered,
     )
+
+
+def spindle_locked_tcp_roll_deg(
+    joint_positions_si: Mapping[str, float],
+    *,
+    entry_ras_mm: Sequence[float],
+    target_ras_mm: Sequence[float],
+    base_transform,
+) -> tuple[bool, str, float]:
+    """Return the FK-derived tool-axis roll for a J6-locked IK endpoint."""
+
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if robot_node is None:
+        return False, "The ROS robot is unavailable for spindle-locked FK.", 0.0
+    try:
+        canonical_world = tool_pose_matrices_world_mm(
+            entry_ras_mm,
+            target_ras_mm,
+            2,
+            axial_roll_start_deg=0.0,
+            axial_roll_end_deg=0.0,
+        )[0]
+        canonical_base = _pose_matrices_world_to_base_mm(
+            (canonical_world,), base_transform
+        )[0]
+        import vtk
+
+        actual_base = vtk.vtkMatrix4x4()
+        actual_base.Identity()
+        if robot_node.ComputeKDLFK(
+            joint_si_vector(joint_positions_si),
+            actual_base,
+            ROS2_TOOL_TCP_LINK,
+        ) is None:
+            return False, f"Could not compute {ROS2_TOOL_TCP_LINK} FK.", 0.0
+        position_error = sqrt(
+            sum(
+                (
+                    actual_base.GetElement(row, 3)
+                    - canonical_base.GetElement(row, 3)
+                )
+                ** 2
+                for row in range(3)
+            )
+        )
+        canonical_x = tuple(canonical_base.GetElement(row, 0) for row in range(3))
+        canonical_y = tuple(canonical_base.GetElement(row, 1) for row in range(3))
+        canonical_z = tuple(canonical_base.GetElement(row, 2) for row in range(3))
+        actual_x = tuple(actual_base.GetElement(row, 0) for row in range(3))
+        actual_z = tuple(actual_base.GetElement(row, 2) for row in range(3))
+        z_dot = max(
+            -1.0,
+            min(
+                1.0,
+                sum(a * b for a, b in zip(actual_z, canonical_z)),
+            ),
+        )
+        axis_error_deg = degrees(acos(z_dot))
+        if (
+            position_error > CARTESIAN_START_POSITION_TOLERANCE_MM
+            or axis_error_deg > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+        ):
+            return (
+                False,
+                "The spindle-locked IK endpoint does not preserve the requested "
+                f"PreEntry position/axis ({position_error:.3f} mm, "
+                f"{axis_error_deg:.3f} deg axis error).",
+                0.0,
+            )
+        roll_deg = degrees(
+            atan2(
+                sum(a * b for a, b in zip(actual_x, canonical_y)),
+                sum(a * b for a, b in zip(actual_x, canonical_x)),
+            )
+        )
+        return (
+            True,
+            f"Derived spindle-locked TCP roll {roll_deg:.3f} deg from FK.",
+            float(roll_deg),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"Could not derive spindle-locked TCP roll: {exc}", 0.0
 
 
 def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:

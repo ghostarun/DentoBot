@@ -354,9 +354,15 @@ class DENTORobotSimulationPanel:
         approach_layout = qt.QVBoxLayout(self.approachGroup)
         approach_description = qt.QLabel(
             "Stage 1 plans from the exact live-validated Task Home to the "
-            "explicit PreEntry IK state. Stage 2 follows the "
-            "trajectory axis strictly to the configured terminal tolerance, then "
-            "validate only that short final contact move to exact Entry. The translucent "
+            "explicit PreEntry IK state and commits one complete tool frame. "
+            "Its tool axis is the approved Entry-to-Target line; its arm-frame "
+            "rotation is selected once at PreEntry, then remains fixed through "
+            "Stages 2 and 3. Candidate branches are ranked by complete-chain "
+            "acceptance and post-PreEntry arm motion, not PreEntry reach alone. "
+            "Stage 2 follows the trajectory axis from PreEntry to exact Entry. "
+            "MoveIt supplies the complete kinematic line and the independent "
+            "phase guard validates every state, suppressing only configured "
+            "burr-to-task contact while retaining every other collision rule. The translucent "
             "goal robot and the orange TCP phase path show the planned waypoints; "
             "the goal robot endpoint alone does not mean "
             "the terminal path has planned successfully. During exploratory "
@@ -549,6 +555,112 @@ class DENTORobotSimulationPanel:
             checkbox.blockSignals(False)
             slider.blockSignals(False)
 
+    @staticmethod
+    def _motionPlannerFeedback(session, candidate_index=None) -> str:
+        """Explain the retained three-stage evidence without authorizing it."""
+
+        records = tuple(session.candidate_records)
+        if not records:
+            return "No bounded planner attempt is retained."
+        index = (
+            int(session.selected_candidate_index)
+            if candidate_index is None
+            else max(0, min(len(records) - 1, int(candidate_index)))
+        )
+        record = records[index]
+        chain_status = str(
+            record.get("full_chain_candidate_status")
+            or session.full_task_outcome.get("status")
+            or "NotRun"
+        )
+        failure_stage = str(
+            record.get("full_chain_failure_stage")
+            or session.full_task_outcome.get("blocked_stage")
+            or ""
+        )
+        cause = str(
+            record.get("full_chain_failure_reason")
+            or session.full_task_outcome.get("first_invalid_cause")
+            or record.get("message")
+            or "No failure cause was returned."
+        )
+        invalid_composed = int(
+            record.get(
+                "full_chain_first_invalid_index",
+                session.full_task_outcome.get(
+                    "first_invalid_composed_waypoint", -1
+                ),
+            )
+        )
+        invalid_stage = int(
+            record.get(
+                "full_chain_first_invalid_stage_index",
+                session.full_task_outcome.get("first_invalid_stage_waypoint", -1),
+            )
+        )
+        route = str(record.get("route_type") or "direct")
+        seed = record.get("ik_seed_sample_index")
+        seed_text = "Task Home" if seed is None else f"6.3 sample {int(seed)}"
+        lines = [
+            f"Planner attempt {index + 1}: {route}, IK seed {seed_text}; "
+            f"full chain {chain_status}.",
+            (
+                "Stage 1 Home→PreEntry: "
+                + ("passed" if record.get("success") else "failed")
+                + f" ({int(record.get('waypoint_count', 0))} waypoint(s))."
+            ),
+            (
+                "Stage 2 PreEntry→Entry: "
+                f"{float(record.get('stage2_fraction', 0.0)) * 100.0:.1f}% "
+                f"({int(record.get('stage2_waypoint_count', 0))} waypoint(s))."
+            ),
+            (
+                "Stage 3 Entry→Target: "
+                f"{float(record.get('stage3_fraction', 0.0)) * 100.0:.1f}% "
+                f"({int(record.get('stage3_waypoint_count', 0))} waypoint(s))."
+            ),
+        ]
+        if chain_status == "Complete":
+            lines.append(
+                "Next: the fixed-frame three-stage preflight passed; inspect and "
+                "preview it as simulation evidence only."
+            )
+            return "\n".join(lines)
+        location = failure_stage or "unclassified planner stage"
+        if invalid_composed >= 0:
+            location += f", composed waypoint {invalid_composed}"
+        if invalid_stage >= 0:
+            location += f" (stage-local {invalid_stage})"
+        lines.append(f"First block: {location}. Cause: {cause}")
+        if failure_stage == "stage1_free_space":
+            lines.append(
+                "Next: inspect the reported self/world collision pair, then adjust "
+                "Task Home/base placement or use a distinct Home-connected 6.3 route. "
+                "A valid PreEntry endpoint alone is not a connecting path."
+            )
+        elif failure_stage == "stage2_fixed_axis_terminal":
+            lines.append(
+                "Next: revise the committed Stage-1 tool frame, base, or trajectory "
+                "for any non-tool/self/world/corridor failure. Configured burr-to-task "
+                "contact is already handled by the independent phase guard."
+            )
+        elif failure_stage == "stage3_drilling":
+            lines.append(
+                "Next: revise the Stage-1 fixed frame, base, or approved trajectory; "
+                "a partial Entry→Target result is never promoted as drilling preview."
+            )
+        elif failure_stage == "phase_guard_setup":
+            lines.append(
+                "Next: reconnect/resynchronize the simulation guard and collision "
+                "scene before replanning; do not interpret this as a geometric failure."
+            )
+        else:
+            lines.append(
+                "Next: inspect this bounded attempt's raw evidence; no collision "
+                "relaxation or hardware action is authorized by this diagnostic."
+            )
+        return "\n".join(lines)
+
     def showMotionDiagnostics(
         self,
         session,
@@ -580,26 +692,50 @@ class DENTORobotSimulationPanel:
         summary.wordWrap = True
         layout.addWidget(summary)
         full_status = str(session.full_task_outcome.get("status") or "Unknown")
+        orientation_id = str(
+            session.full_task_outcome.get("tool_orientation_fingerprint") or ""
+        )
         full_task_label = qt.QLabel(
-            f"Full task: {full_status}. Spindle locked at 0 rad; external RPM is not planned.",
+            f"Full task: {full_status}. Spindle locked at 0 rad; external RPM is not planned."
+            + (
+                f" Stage-1 fixed tool frame: {orientation_id[:12]}."
+                if orientation_id
+                else " Stage-1 tool frame is not yet committed."
+            ),
             dialog,
         )
         full_task_label.wordWrap = True
         layout.addWidget(full_task_label)
+        feedback_label = qt.QLabel(
+            self._motionPlannerFeedback(session),
+            dialog,
+        )
+        feedback_label.wordWrap = True
+        feedback_label.setProperty("dentobotRole", "status")
+        layout.addWidget(feedback_label)
         stage_table = qt.QTableWidget(dialog)
         stages = tuple(session.stage_outcomes)
-        stage_table.setColumnCount(3)
+        stage_table.setColumnCount(5)
         stage_table.setRowCount(len(stages))
-        stage_table.setHorizontalHeaderLabels(["Task stage", "Status", "First cause"])
+        stage_table.setHorizontalHeaderLabels(
+            ["Task stage", "Status", "Progress", "First invalid", "First cause"]
+        )
         stage_labels = {
             "stage1_free_space": "Stage 1 — Home→PreEntry",
             "stage2_strict_axis": "Stage 2 — PreEntry→Entry",
+            "stage2_fixed_axis_terminal": "Stage 2 — PreEntry→Entry",
             "stage3_drilling": "Stage 3 — Entry→Target",
         }
         for row, stage in enumerate(stages):
             values = (
                 stage_labels.get(str(stage.get("stage") or ""), str(stage.get("stage") or "")),
                 str(stage.get("status") or "Unknown"),
+                f"{float(stage.get('completion_fraction', 0.0)) * 100.0:.1f}%",
+                (
+                    "—"
+                    if int(stage.get("first_invalid_waypoint", -1)) < 0
+                    else str(int(stage["first_invalid_waypoint"]))
+                ),
                 str(stage.get("failure_classification") or stage.get("reason") or "—"),
             )
             for column, value in enumerate(values):
@@ -611,6 +747,9 @@ class DENTORobotSimulationPanel:
         headers = (
             "Planner leg",
             "Route",
+            "Fixed frame",
+            "Chain",
+            "IK seed",
             "Clearance",
             "Result",
             "Fraction",
@@ -626,6 +765,17 @@ class DENTORobotSimulationPanel:
             values = (
                 str(record.get("planner_leg") or record.get("stage", "")),
                 str(record.get("route_type") or "legacy-roll"),
+                (
+                    str(record.get("tool_orientation_fingerprint"))[:12]
+                    if record.get("tool_orientation_fingerprint")
+                    else "legacy"
+                ),
+                str(record.get("full_chain_candidate_status") or "NotRun"),
+                (
+                    "Task Home"
+                    if record.get("ik_seed_sample_index") is None
+                    else f"6.3 sample {int(record['ik_seed_sample_index'])}"
+                ),
                 (
                     "direct"
                     if record.get("clearance_sample_index") is None
@@ -663,7 +813,7 @@ class DENTORobotSimulationPanel:
         dialog_buttons.addWidget(review_button)
         dialog_buttons.addWidget(close_button)
         layout.addLayout(dialog_buttons)
-        close_button.clicked.connect(dialog.close)
+        close_button.clicked.connect(lambda checked=False: dialog.accept())
 
         def review_evidence() -> None:
             if on_review:
@@ -682,6 +832,7 @@ class DENTORobotSimulationPanel:
             scrubber.value = index
             scrubber.blockSignals(False)
             record = records[index]
+            feedback_label.text = self._motionPlannerFeedback(session, index)
             details.plainText = json.dumps(record, indent=2, sort_keys=True)
             if on_candidate_selected:
                 result = on_candidate_selected(index)

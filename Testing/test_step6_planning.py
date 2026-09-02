@@ -15,6 +15,7 @@ if str(HELPER_DIRECTORY) not in sys.path:
 from DENTOStep6Planning import (
     CASE_VIEW_ROLES,
     JointLimitPair,
+    WorkspaceAcceptedSample,
     apply_task_joint_limits_to_display_ranges,
     apply_task_limit_range_to_value,
     build_task_joint_limits_from_parameter_values,
@@ -280,6 +281,30 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     assert len(result.accepted_samples) == 10
     assert all(len(sample.joint_display) == 6 for sample in result.accepted_samples)
     assert all(len(sample.joint_positions_si) == 6 for sample in result.accepted_samples)
+
+
+def test_workspace_sample_normalizes_transition_build_ordered_joint_values() -> None:
+    names = (
+        "link-1_Revolute-1",
+        "link-2_Slider-2",
+        "link-3_Revolute-3",
+        "link-4_Slider-4",
+        "link-5_Revolute-5",
+        "pneumatic_spindle-Copy_Revolute-6",
+    )
+    values = (0.1, 0.02, -0.3, 0.04, 0.5, 0.0)
+    canonical = WorkspaceAcceptedSample(
+        tcp_base_mm=(1.0, 2.0, 3.0),
+        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        joint_positions_si=tuple(zip(names, values)),
+    )
+    transition = WorkspaceAcceptedSample(
+        tcp_base_mm=(1.0, 2.0, 3.0),
+        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        joint_positions_si=values,
+    )
+    assert canonical.joint_positions_si_dict() == dict(zip(names, values))
+    assert transition.joint_positions_si_dict() == dict(zip(names, values))
 
 
 def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others() -> None:

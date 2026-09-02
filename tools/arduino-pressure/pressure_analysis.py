@@ -50,9 +50,16 @@ from pressure_filter import (
     replay_tracker,
     stage_statistics,
 )
+from pressure_config import (
+    ADC_BITS,
+    PipelineConfig,
+    build_config_panel,
+    load_pipeline,
+    measured_hz_from_times,
+    status_line,
+)
 
-
-ADC_MAX = (1 << 14) - 1
+ADC_MAX = (1 << ADC_BITS) - 1
 MAX_DISPLAY_POINTS = 40000
 DEFAULT_MIN_DURATION_MS = 20.0
 RUNS_ROOT = Path(__file__).resolve().parent / "pressure_runs"
@@ -120,6 +127,8 @@ class PressureRun:
     recorded_events: list[DetectedEvent] = field(default_factory=list)
     annotations: list[ManualAnnotation] = field(default_factory=list)
     annotations_path: Path | None = None
+    pipeline: PipelineConfig | None = None
+    measured_hz: float = float("nan")
 
 
 def resolve_run_dir(target: str | Path | None) -> Path:
@@ -224,9 +233,11 @@ def load_recorded_events(path: Path) -> list[DetectedEvent]:
     return events
 
 
-def _arrays_from_replay(time_s, pressure, seq, raw_adc, annotations):
+def _arrays_from_replay(time_s, pressure, seq, raw_adc, annotations, config=None):
     stages = drill_stages_from_annotations(time_s, annotations)
-    samples, events = replay_tracker(time_s, pressure, seq, raw_adc, stages)
+    samples, events = replay_tracker(
+        time_s, pressure, seq, raw_adc, stages, config=config
+    )
     filtered = np.asarray([item.pressure_filtered_kPa for item in samples], dtype=np.float64)
     slow = np.asarray([item.baseline_slow_kPa for item in samples], dtype=np.float64)
     delta = np.asarray([item.delta_kPa for item in samples], dtype=np.float64)
@@ -277,8 +288,16 @@ def load_run(target: str | Path | None = None) -> PressureRun:
         state = np.asarray([row.get("candidate_state", "").strip() for row in rows], dtype=object)
     else:
         filtered, slow, delta, deriv, spread, air, state, _ = _arrays_from_replay(
-            time_s, pressure, seq, raw_adc, annotations
+            time_s, pressure, seq, raw_adc, annotations, load_pipeline(run_dir)
         )
+
+    pipeline = load_pipeline(run_dir)
+    measured = measured_hz_from_times(time_s)
+    if pipeline is None:
+        pipeline = PipelineConfig()
+        if math.isfinite(measured) and measured > 0:
+            pipeline.sample_hz = measured
+    pipeline.measured_hz = measured
 
     return PressureRun(
         run_dir=run_dir,
@@ -299,17 +318,24 @@ def load_run(target: str | Path | None = None) -> PressureRun:
         recorded_events=load_recorded_events(events_path),
         annotations=annotations,
         annotations_path=annotations_path if annotations_path.is_file() else None,
+        pipeline=pipeline,
+        measured_hz=measured,
     )
 
 
-def redetect_events(run: PressureRun) -> list[DetectedEvent]:
+def redetect_events(
+    run: PressureRun,
+    config: PipelineConfig | None = None,
+) -> list[DetectedEvent]:
     """Replay the gated ΔP / change-point detector on this file."""
+    cfg = config if config is not None else run.pipeline
     _, _, _, _, _, _, _, events = _arrays_from_replay(
         run.time_s,
         run.pressure_kPa,
         run.seq,
         run.raw_adc,
         run.annotations,
+        cfg,
     )
     return [boundary_to_detected(item, "redetected") for item in events]
 
@@ -388,10 +414,16 @@ def format_summary(
         f"Run: {run.run_dir}",
         f"Samples: {len(run.seq)}    duration: {duration:.3f} s    "
         f"t={run.time_s[0]:.3f}–{run.time_s[-1]:.3f} s    lost seq: {lost}",
+    ]
+    cfg = run.pipeline or PipelineConfig()
+    cfg = cfg.copy()
+    cfg.measured_hz = run.measured_hz
+    lines.append(status_line(cfg, measured_hz=run.measured_hz))
+    lines.append(
         f"Pressure: min {run.pressure_kPa.min():.2f} / "
         f"median {np.median(run.pressure_kPa):.2f} / "
-        f"max {run.pressure_kPa.max():.2f} kPa",
-    ]
+        f"max {run.pressure_kPa.max():.2f} kPa"
+    )
     if air_line:
         lines.append(air_line)
     steps = [event for event in confirmed if event.type == "STEP"]
@@ -456,8 +488,15 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         self._initial_air_filter = normalize_air_filter_mode(air_filter)
         self._initial_auto_air = bool(auto_air)
         self.annotation_matches = []
+        self._suspend_range = False
+        self._shown_raw = np.asarray([], dtype=np.float64)
+        self._shown_filt = np.asarray([], dtype=np.float64)
+        self._shown_residual = np.asarray([], dtype=np.float64)
+        self._shown_deriv = np.asarray([], dtype=np.float64)
+        self._shown_overlay = None
         self._build()
-        self._refresh()
+        self.pipeline_widgets["from_config"](self._pipeline_for_run())
+        self._refresh(reset_x=True)
 
     def _build(self) -> None:
         self.setWindowTitle("DENTOBOT Pressure Run Analysis")
@@ -505,6 +544,27 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         self.trace_mode.setToolTip(
             "Top plot: fast low-pass pressure, optional raw overlay, or raw."
         )
+        self.plot_focus = QtWidgets.QComboBox()
+        self.plot_focus.addItems(["All traces", "Pressure", "ΔP", "dP/dt"])
+        self.plot_focus.setToolTip(
+            "Show one trace at the full plot height. Double-click a plot "
+            "to isolate it; double-click again for all three."
+        )
+        self.auto_y = QtWidgets.QCheckBox("Auto Y")
+        self.auto_y.setChecked(True)
+        self.auto_y.setToolTip(
+            "Scale each Y axis to the visible time window so small steps "
+            "are readable after a zoom."
+        )
+        self.fit_time_btn = QtWidgets.QPushButton("Fit time")
+        self.fit_time_btn.setToolTip("Show the full recording on the time axis.")
+        self.plots_only_btn = QtWidgets.QPushButton("Plots only")
+        self.plots_only_btn.setCheckable(True)
+        self.plots_only_btn.setShortcut(QtGui.QKeySequence("F11"))
+        self.plots_only_btn.setToolTip(
+            "Hide the tables so the traces fill the window. F11 toggles; "
+            "Esc restores the tables."
+        )
 
         top = QtWidgets.QHBoxLayout()
         top.addWidget(self.open_button)
@@ -518,16 +578,31 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         top.addWidget(self.auto_air)
         top.addWidget(QtWidgets.QLabel("Trace"))
         top.addWidget(self.trace_mode)
+        top.addWidget(QtWidgets.QLabel("Show"))
+        top.addWidget(self.plot_focus)
+        top.addWidget(self.auto_y)
+        top.addWidget(self.fit_time_btn)
+        top.addWidget(self.plots_only_btn)
+
+        self.status_label = QtWidgets.QLabel()
+        self.status_label.setWordWrap(True)
+        self.status_label.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+        )
 
         pg.setConfigOptions(antialias=False)
         self.graphics = pg.GraphicsLayoutWidget()
-        self.status = pg.LabelItem(justify="left")
-        self.graphics.addItem(self.status, row=0, col=0)
+        self.graphics.setMinimumHeight(280)
+        self.graphics.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
 
-        self.pressure_plot = self.graphics.addPlot(row=1, col=0)
+        self.pressure_plot = self.graphics.addPlot(row=0, col=0)
         self.pressure_plot.setLabel("left", "Filtered pressure", units="kPa")
         self.pressure_plot.showGrid(x=True, y=True, alpha=0.25)
         self.pressure_plot.addLegend()
+        self._configure_plot(self.pressure_plot)
         self.pressure_curve = self.pressure_plot.plot(
             name="Raw",
             pen=pg.mkPen("w", width=2),
@@ -543,6 +618,9 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
             pen=pg.mkPen("#7fd0ff", width=2),
             connect="finite",
         )
+        self._configure_curve(self.pressure_curve)
+        self._configure_curve(self.air_off_curve)
+        self._configure_curve(self.filtered_curve)
         self.step_scatter = pg.ScatterPlotItem(
             symbol="d",
             size=12,
@@ -559,11 +637,12 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         self.pressure_plot.addItem(self.transient_scatter)
         self.annotation_marks = add_annotation_lines(self.pressure_plot)
 
-        self.residual_plot = self.graphics.addPlot(row=2, col=0)
+        self.residual_plot = self.graphics.addPlot(row=1, col=0)
         self.residual_plot.setLabel("left", "ΔP", units="kPa")
         self.residual_plot.showGrid(x=True, y=True, alpha=0.25)
         self.residual_plot.setXLink(self.pressure_plot)
         self.residual_plot.showAxis("bottom", False)
+        self._configure_plot(self.residual_plot)
         self.residual_curve = self.residual_plot.plot(
             pen=pg.mkPen("#fbbf24", width=2),
             connect="finite",
@@ -571,16 +650,25 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         self.residual_zero = self.residual_plot.plot(
             pen=pg.mkPen((180, 180, 180), width=1, style=QtCore.Qt.PenStyle.DashLine),
         )
+        self._configure_curve(self.residual_curve)
 
-        self.dpdt_plot = self.graphics.addPlot(row=3, col=0)
+        self.dpdt_plot = self.graphics.addPlot(row=2, col=0)
         self.dpdt_plot.setLabel("left", "Filtered dP/dt", units="kPa/s")
         self.dpdt_plot.setLabel("bottom", "Elapsed time", units="s")
         self.dpdt_plot.showGrid(x=True, y=True, alpha=0.25)
         self.dpdt_plot.setXLink(self.pressure_plot)
+        self._configure_plot(self.dpdt_plot)
         self.dpdt_curve = self.dpdt_plot.plot(
             pen=pg.mkPen("#fb7185", width=2),
             connect="finite",
         )
+        self._configure_curve(self.dpdt_curve)
+        grid = self.graphics.ci.layout
+        grid.setRowStretchFactor(0, 3)
+        grid.setRowStretchFactor(1, 2)
+        grid.setRowStretchFactor(2, 2)
+        self.pressure_plot.sigXRangeChanged.connect(self._on_x_range_changed)
+        self.graphics.scene().sigMouseClicked.connect(self._on_plot_clicked)
 
         self.table = QtWidgets.QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -603,11 +691,9 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         )
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMaximumHeight(240)
 
         self.anomaly_box = QtWidgets.QPlainTextEdit()
         self.anomaly_box.setReadOnly(True)
-        self.anomaly_box.setMaximumHeight(120)
 
         self.boundary_table = QtWidgets.QTableWidget(0, 7)
         self.boundary_table.setHorizontalHeaderLabels(
@@ -621,7 +707,6 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         )
         self.boundary_table.verticalHeader().setVisible(False)
         self.boundary_table.horizontalHeader().setStretchLastSection(True)
-        self.boundary_table.setMaximumHeight(160)
 
         self.annotation_table = QtWidgets.QTableWidget(0, 7)
         self.annotation_table.setHorizontalHeaderLabels(
@@ -643,18 +728,44 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         )
         self.annotation_table.verticalHeader().setVisible(False)
         self.annotation_table.horizontalHeader().setStretchLastSection(True)
-        self.annotation_table.setMaximumHeight(160)
+
+        plot_pane = QtWidgets.QWidget()
+        plot_layout = QtWidgets.QVBoxLayout(plot_pane)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.addWidget(self.graphics, 1)
+
+        self.tables_tabs = QtWidgets.QTabWidget()
+        self.tables_tabs.addTab(self.table, "Events")
+        self.tables_tabs.addTab(self.boundary_table, "Stage statistics")
+        self.tables_tabs.addTab(self.annotation_table, "Annotations")
+        self.tables_tabs.addTab(self.anomaly_box, "Anomalies")
+        self.pipeline_page, self.pipeline_widgets = build_config_panel(
+            sample_rate_enabled=False
+        )
+        self.pipeline_widgets["apply"].setText("Redetect with these filters")
+        self.pipeline_widgets["apply"].setToolTip(
+            "Replay the ΔP detector with the filter taus below. "
+            "Sample rate is whatever this CSV already contains."
+        )
+        self.tables_tabs.addTab(self.pipeline_page, "Pipeline")
+
+        self.tables_panel = QtWidgets.QWidget()
+        tables_layout = QtWidgets.QVBoxLayout(self.tables_panel)
+        tables_layout.setContentsMargins(0, 0, 0, 0)
+        tables_layout.addWidget(self.tables_tabs)
+
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.splitter.addWidget(plot_pane)
+        self.splitter.addWidget(self.tables_panel)
+        self.splitter.setStretchFactor(0, 5)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([720, 180])
+        self.splitter.setChildrenCollapsible(False)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(top)
-        layout.addWidget(self.graphics, 1)
-        layout.addWidget(self.table)
-        layout.addWidget(QtWidgets.QLabel("Stage statistics (from annotations)"))
-        layout.addWidget(self.boundary_table)
-        layout.addWidget(QtWidgets.QLabel("Manual annotations (latency-corrected)"))
-        layout.addWidget(self.annotation_table)
-        layout.addWidget(QtWidgets.QLabel("Anomalies / short glitches"))
-        layout.addWidget(self.anomaly_box)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.splitter, 1)
 
         self.open_button.clicked.connect(self._open_run)
         self.duration_spin.valueChanged.connect(self._refresh)
@@ -662,8 +773,207 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         self.air_filter.currentIndexChanged.connect(self._refresh)
         self.auto_air.toggled.connect(self._refresh)
         self.trace_mode.currentIndexChanged.connect(self._refresh)
+        self.plot_focus.currentIndexChanged.connect(self._apply_plot_focus)
+        self.auto_y.toggled.connect(self._apply_auto_y)
+        self.fit_time_btn.clicked.connect(self._fit_time)
+        self.plots_only_btn.toggled.connect(self._set_plots_only)
         self.table.itemSelectionChanged.connect(self._zoom_selected)
         self.annotation_table.itemSelectionChanged.connect(self._zoom_annotation)
+        self.pipeline_widgets["apply"].clicked.connect(self._apply_redetect)
+        QtGui.QShortcut(QtGui.QKeySequence("Escape"), self, self._restore_layout)
+        self._apply_auto_y(True)
+
+    def _pipeline_for_run(self) -> PipelineConfig:
+        cfg = self.run.pipeline.copy() if self.run.pipeline is not None else PipelineConfig()
+        cfg.measured_hz = self.run.measured_hz
+        return cfg
+
+    def _apply_redetect(self) -> None:
+        cfg = self.pipeline_widgets["to_config"](self._pipeline_for_run())
+        if self.run.pipeline is not None:
+            cfg.sample_hz = self.run.pipeline.sample_hz
+        elif math.isfinite(self.run.measured_hz) and self.run.measured_hz > 0:
+            cfg.sample_hz = self.run.measured_hz
+        else:
+            cfg.sample_hz = 1000.0
+        self.run.pipeline = cfg
+        self.redetected = redetect_events(self.run, cfg)
+        self.pipeline_widgets["from_config"](cfg)
+        self._refresh()
+
+    @staticmethod
+    def _configure_plot(plot: pg.PlotItem) -> None:
+        plot.setAutoVisible(y=True)
+        plot.enableAutoRange(axis="y", enable=True)
+        plot.getViewBox().setAspectLocked(False)
+        plot.getViewBox().setMouseEnabled(x=True, y=True)
+
+    @staticmethod
+    def _configure_curve(curve: pg.PlotDataItem) -> None:
+        curve.setClipToView(True)
+        curve.setDownsampling(auto=True, method="peak")
+
+    def _set_plots_only(self, on: bool) -> None:
+        self.tables_panel.setVisible(not on)
+        if on:
+            self.plots_only_btn.setText("Show tables")
+        else:
+            self.plots_only_btn.setText("Plots only")
+
+    def _restore_layout(self) -> None:
+        if self.plots_only_btn.isChecked():
+            self.plots_only_btn.setChecked(False)
+            return
+        if self.plot_focus.currentIndex() != 0:
+            self.plot_focus.setCurrentIndex(0)
+
+    def _apply_auto_y(self, on: bool) -> None:
+        enabled = bool(on)
+        for plot in (self.pressure_plot, self.residual_plot, self.dpdt_plot):
+            plot.setAutoVisible(y=enabled)
+            plot.enableAutoRange(axis="y", enable=enabled)
+
+    def _apply_plot_focus(self) -> None:
+        choice = self.plot_focus.currentText()
+        named = {
+            "Pressure": (self.pressure_plot, 0, 3),
+            "ΔP": (self.residual_plot, 1, 2),
+            "dP/dt": (self.dpdt_plot, 2, 2),
+        }
+        grid = self.graphics.ci.layout
+        show_all = choice == "All traces"
+        for name, (plot, row, stretch) in named.items():
+            visible = show_all or name == choice
+            plot.setVisible(visible)
+            if visible:
+                grid.setRowMaximumHeight(row, 1_000_000)
+                grid.setRowPreferredHeight(row, 120)
+                grid.setRowStretchFactor(row, stretch if show_all else 1)
+            else:
+                grid.setRowStretchFactor(row, 0)
+                grid.setRowPreferredHeight(row, 0)
+                grid.setRowMaximumHeight(row, 0)
+        self.pressure_plot.showAxis("bottom", show_all or choice == "Pressure")
+        self.residual_plot.showAxis("bottom", choice == "ΔP")
+        self.dpdt_plot.showAxis("bottom", show_all or choice == "dP/dt")
+        if choice == "ΔP":
+            self.residual_plot.setLabel("bottom", "Elapsed time", units="s")
+        else:
+            self.residual_plot.setLabel("bottom", "")
+
+    def _on_plot_clicked(self, event) -> None:
+        if not event.double():
+            return
+        pos = event.scenePos()
+        for name, plot in (
+            ("Pressure", self.pressure_plot),
+            ("ΔP", self.residual_plot),
+            ("dP/dt", self.dpdt_plot),
+        ):
+            if plot.isVisible() and plot.sceneBoundingRect().contains(pos):
+                if self.plot_focus.currentText() == name:
+                    self.plot_focus.setCurrentIndex(0)
+                else:
+                    self.plot_focus.setCurrentText(name)
+                return
+
+    def _on_x_range_changed(self, *_args) -> None:
+        if self._suspend_range:
+            return
+        self._update_traces()
+
+    def _fit_time(self) -> None:
+        self._reset_x_range()
+        self._update_traces()
+
+    def _reset_x_range(self) -> None:
+        if self.run.time_s.size == 0:
+            return
+        span = max(5.0, float(self.run.time_s[-1] - self.run.time_s[0]))
+        self._suspend_range = True
+        try:
+            self.pressure_plot.setXRange(
+                float(self.run.time_s[0]),
+                float(self.run.time_s[0]) + span,
+                padding=0.02,
+            )
+        finally:
+            self._suspend_range = False
+
+    def _visible_index_slice(self) -> slice:
+        t = self.run.time_s
+        n = int(t.size)
+        if n == 0:
+            return slice(0, 0)
+        fallback = slice(0, n, max(1, n // MAX_DISPLAY_POINTS))
+        try:
+            x0, x1 = self.pressure_plot.viewRange()[0]
+        except Exception:
+            return fallback
+        if not math.isfinite(x0) or not math.isfinite(x1) or x1 <= x0:
+            return fallback
+        pad = max(0.01, 0.08 * (x1 - x0))
+        i0 = int(np.searchsorted(t, x0 - pad, side="left"))
+        i1 = int(np.searchsorted(t, x1 + pad, side="right"))
+        i0 = max(0, min(i0, n))
+        i1 = max(i0, min(i1, n))
+        window = i1 - i0
+        if window <= 0:
+            return fallback
+        return slice(i0, i1, max(1, window // MAX_DISPLAY_POINTS))
+
+    def _update_traces(self) -> None:
+        run = self.run
+        if run.time_s.size == 0 or self._shown_raw.size == 0:
+            return
+        view = self._visible_index_slice()
+        t = run.time_s[view]
+
+        def take(arr: np.ndarray) -> np.ndarray:
+            if arr.size != run.time_s.size:
+                return np.full(t.shape, np.nan)
+            return arr[view]
+
+        shown = take(self._shown_raw)
+        shown_filt = take(self._shown_filt)
+        residual = take(self._shown_residual)
+        deriv = take(self._shown_deriv)
+        overlay = (
+            None
+            if self._shown_overlay is None
+            else take(self._shown_overlay)
+        )
+
+        trace = self.trace_mode.currentText()
+        if trace == "Raw":
+            self.pressure_curve.setData(t, shown)
+            self.pressure_curve.setPen(FULL_RAW_PEN)
+            self.pressure_curve.setVisible(True)
+            self.filtered_curve.setData([], [])
+            self.filtered_curve.setVisible(False)
+        elif trace == "Raw + filtered":
+            self.pressure_curve.setData(t, shown)
+            self.pressure_curve.setPen(DIM_RAW_PEN)
+            self.pressure_curve.setVisible(True)
+            self.filtered_curve.setData(t, shown_filt)
+            self.filtered_curve.setVisible(True)
+        else:
+            self.pressure_curve.setData([], [])
+            self.pressure_curve.setVisible(False)
+            self.filtered_curve.setData(t, shown_filt)
+            self.filtered_curve.setVisible(True)
+        if overlay is None or not self.pressure_curve.isVisible():
+            self.air_off_curve.setData([], [])
+            self.air_off_curve.setVisible(False)
+        else:
+            self.air_off_curve.setData(t, overlay)
+            self.air_off_curve.setVisible(True)
+        self.residual_curve.setData(t, residual)
+        self.residual_zero.setData(
+            [float(run.time_s[0]), float(run.time_s[-1])],
+            [0.0, 0.0],
+        )
+        self.dpdt_curve.setData(t, deriv)
 
     def _visible_events(self) -> list[DetectedEvent]:
         min_duration = float(self.duration_spin.value())
@@ -676,12 +986,9 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         events.sort(key=lambda event: (event.start_s, event.source, event.event_id))
         return events
 
-    def _refresh(self) -> None:
+    def _refresh(self, *args, reset_x: bool = False) -> None:
         run = self.run
         self.path_label.setText(str(run.run_dir))
-        n = len(run.time_s)
-        stride = max(1, n // MAX_DISPLAY_POINTS)
-        t = _stride_view(run.time_s, stride)
         mode = normalize_air_filter_mode(self.air_filter.currentText())
         mask_off, off_kPa, on_kPa = air_state_for_series(
             run.time_s,
@@ -693,34 +1000,16 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
         shown_filt, _ = apply_air_display(filt, mask_off, mode)
         residual, _ = apply_air_display(run.residual_kPa, mask_off, mode)
         deriv, _ = apply_air_display(run.dpdt_kPa_per_s, mask_off, mode)
-
-        trace = self.trace_mode.currentText()
-        if trace == "Raw":
-            self.pressure_curve.setData(t, _stride_view(shown, stride))
-            self.pressure_curve.setPen(FULL_RAW_PEN)
-            self.pressure_curve.setVisible(True)
-            self.filtered_curve.setData([], [])
-            self.filtered_curve.setVisible(False)
-        elif trace == "Raw + filtered":
-            self.pressure_curve.setData(t, _stride_view(shown, stride))
-            self.pressure_curve.setPen(DIM_RAW_PEN)
-            self.pressure_curve.setVisible(True)
-            self.filtered_curve.setData(t, _stride_view(shown_filt, stride))
-            self.filtered_curve.setVisible(True)
-        else:
-            self.pressure_curve.setData([], [])
-            self.pressure_curve.setVisible(False)
-            self.filtered_curve.setData(t, _stride_view(shown_filt, stride))
-            self.filtered_curve.setVisible(True)
-        if overlay is None or not self.pressure_curve.isVisible():
-            self.air_off_curve.setData([], [])
-            self.air_off_curve.setVisible(False)
-        else:
-            self.air_off_curve.setData(t, _stride_view(overlay, stride))
-            self.air_off_curve.setVisible(True)
-        self.residual_curve.setData(t, _stride_view(residual, stride))
-        self.residual_zero.setData([float(run.time_s[0]), float(run.time_s[-1])], [0.0, 0.0])
-        self.dpdt_curve.setData(t, _stride_view(deriv, stride))
+        self._shown_raw = np.asarray(shown, dtype=np.float64)
+        self._shown_filt = np.asarray(shown_filt, dtype=np.float64)
+        self._shown_residual = np.asarray(residual, dtype=np.float64)
+        self._shown_deriv = np.asarray(deriv, dtype=np.float64)
+        self._shown_overlay = (
+            None if overlay is None else np.asarray(overlay, dtype=np.float64)
+        )
+        if reset_x:
+            self._reset_x_range()
+        self._update_traces()
         set_annotation_lines(
             self.annotation_marks,
             run.annotations,
@@ -755,18 +1044,20 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
             [event.extreme_pressure_kPa for event in transients],
         )
 
-        span = max(5.0, float(run.time_s[-1] - run.time_s[0]))
-        self.pressure_plot.setXRange(float(run.time_s[0]), float(run.time_s[0]) + span, padding=0.02)
-
         min_duration = float(self.duration_spin.value())
         air_line = air_state_summary(mask_off, off_kPa, on_kPa)
-        self.status.setText(
-            format_summary(
-                run,
-                self.redetected,
-                min_duration,
-                air_line=air_line,
-            ).split("\n")[1]
+        cfg = self._pipeline_for_run()
+        summary_line = format_summary(
+            run,
+            self.redetected,
+            min_duration,
+            air_line=air_line,
+        ).split("\n")
+        sample_line = summary_line[1] if len(summary_line) > 1 else ""
+        self.status_label.setText(
+            status_line(cfg, measured_hz=run.measured_hz)
+            + "     "
+            + sample_line
             + f"     {air_line}     "
             f"annotations: {len(run.annotations)}     "
             f"visible: {len(steps)} step(s), {len(transients)} other"
@@ -880,7 +1171,8 @@ class PressureAnalysisWindow(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Could not load run", str(error))
             return
         self.redetected = redetect_events(self.run)
-        self._refresh()
+        self.pipeline_widgets["from_config"](self._pipeline_for_run())
+        self._refresh(reset_x=True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

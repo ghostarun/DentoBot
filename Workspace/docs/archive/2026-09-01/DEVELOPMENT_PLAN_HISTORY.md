@@ -1,0 +1,1834 @@
+# DENTOBOT Development Plan — archived snapshot 2026-09-01
+
+> Historical snapshot preserved during the controlled plan/task deduplication.
+> It retains prior milestone narratives and evidence but is not the current
+> implementation order. Use `../../DEVELOPMENT_PLAN.md` for current work.
+
+> Cross-platform note (2026-08-11): completed Windows/WSL and Ubuntu milestones
+> remain platform-qualified evidence. The workflow now shares one launcher
+> contract with `wsl` and `local` process adapters. Ubuntu is runtime verified;
+> the tracked Windows launcher still requires Windows 11 acceptance.
+
+## Development policy
+
+- Implement one authorized milestone at a time.
+- Prefer a small working vertical slice over disconnected feature fragments.
+- Keep the stock Slicer runtime unchanged during extension development.
+- Test Slicer and WSL components in their own environments.
+- Advance only after acceptance evidence and a short milestone review.
+- Future milestones are a blueprint, not authorization to implement them.
+
+## Step 6 renovation lock — authoritative sequence and completion ledger 2026-08-31
+
+This section is the single current Step 6 development contract. Older dated
+Step 6 plans remain historical evidence but do not define current ownership,
+gates, or acceptance. Changing this sequence requires an explicit controlled
+decision, an updated ledger here, and operator approval; a surviving widget,
+callback, test fixture, or historical paragraph cannot silently restore an old
+flow.
+
+### Non-negotiable action ownership
+
+| Substep | Sole routine owner | Must not own |
+|---|---|---|
+| 6.0 / 6.0A | Atomic case/task selection and non-destructive case jaw preparation | ROS creation, Task Home, workspace, or planning |
+| 6.1 | Local robot, reviewed Manual Simulation Base, **Connect/Disconnect ROS + MoveIt**, runtime diagnostics, and authoritative collision-scene audit/acknowledgement | Saving Home, accepting workspace limits, task confirmation, or motion planning |
+| 6.2 | Choose, validate, plan-to if necessary, apply, and save simulation Task Home against the active 6.1 runtime | Runtime creation, collision-scene ownership, physical homing, or workspace acceptance |
+| 6.3 | MoveIt state-valid/FK workspace sampling, bounded Home-connectivity classification, and explicit assisted-limit review | Runtime creation, local-only FK acceptance, task confirmation, or planning |
+| 6.4 | Read prerequisite evidence and confirm one immutable task snapshot | Connect, Disconnect, collision repair, Home mutation, workspace mutation, or planning |
+| 6.5 | Goal 1 free-space plus strict axial/terminal approach planning and guarded simulation preview | Runtime setup, task mutation, drilling, Execute, or hardware motion |
+| 6.6 | Goal 2 Entry-to-Target guarded drilling-plan simulation preview | Runtime setup, task mutation, powered drilling, Execute, or hardware motion |
+
+Disconnect is a deliberate return to 6.1: it clears transient runtime, live
+Home/workspace validation, task confirmation validity, plans, and guard
+sessions. The UI must never offer Disconnect as a 6.4 action. A stale or hidden
+legacy callback is not an alternate workflow path.
+
+### Locked implementation and acceptance ledger
+
+| Scope | Source state | Operator/runtime evidence | Remaining bounded work |
+|---|---|---|---|
+| 6.0 / 6.0A | Package import, XOR scene choice, source-preserving open-mouth transform, retryable placement-only fallback, and Viewer authority implemented | Retained cases have imported and opened; earlier landmark/event and direction defects were corrected | Priority-1 condylar/crown/MPR safeguards remain separate; rerun representative anatomy after higher-priority runtime closure |
+| 6.1 | Facade Connect no longer requires Home/limits; it aligns the live robot and synchronizes/acknowledges the exact scene. New unverified source seeds a fresh saved Home on the first connection instead of ROS default/visible drift, while retaining 6.2 as live-validation owner. Runtime/collision cards remain owned only by 6.1 | Current operator run completed 6.1, but exposed the restored-Home/default-ROS mismatch before the new source change | Verify first-connect grey/cyan coincidence from a saved Home; physical forehead/mount truth remains separate |
+| 6.2 | Live state validation, explicit monitored-current-to-Home planning, strict waypoint guard, persistence, invalidation, and visible success confirmation implemented. Exact legacy packages migrate J2 from retracted-zero to extended-zero, canonicalize J5 into its continuous representation, and return Home to `Unreviewed` | Current operator run completed the runtime-valid Task Home gate before the J2/J5 profile correction | Verify migrated x4 Home reports J2 `2 mm` for the former physical `78 mm` pose, J5 uses the shortest continuous representation, and Home revalidates without disconnect/reconnect |
+| 6.3 | MoveIt state-valid/FK sampling, retained joint vectors, assisted proposal, and bounded Home-connectivity classification implemented. Accepted programmatic limit writes no longer invalidate their own cloud. Saved evidence now has an explicit replay action that rechecks every retained state/FK and the prior bounded Home-connectivity subset without regenerating the cloud or changing reviewed limits | Current operator run completed 6.3 workspace generation/review and proceeded to confirmation; replay source is unverified | Verify review no longer reports an immediate false `Task limits changed`; after reconnect apply Home, replay the saved workspace, then reconfirm 6.4 |
+| 6.4 | Facade requires active runtime, acknowledged scene, live Home, current workspace, and reviewed limits. Presentation is a separate confirmation-only card and status | Current operator run confirmed the immutable task and reached 6.5 | Preserve confirmation-only ownership; no runtime controls may return here |
+| 6.5 | Spindle-locked full-chain policy is runtime exercised through the earlier PreEntry milestone. Stage 1 is the fixed drilling-frame owner: Entry→Target fixes tool +Z; the FK-derived rotation about that axis is committed once at PreEntry; Stage 2 and Stage 3 receive the identical frame. Every reachable direct/seeded PreEntry branch is evaluated through both Cartesian stages and the non-mutating phase guard before selection. Complete guarded chains rank first, then minimum joints-1–5 motion after PreEntry; partial chains rank by the furthest truthful stage/fraction. J6 remains fixed at `0 rad`. Diagnostics retain the frame fingerprint, axis, rotation, per-candidate chain status and post-PreEntry motion cost. A provisional Stage-1 preview remains available if all full chains block | Approved focused suite passed (`45 passed, 1 deselected` for the unrelated draft-AABB assertion); edited Python files compile and `git diff --check` passes. Exact x4 emitted `DENTOBOT_STEP65_EXACT_CASE_PASS` after 55 guarded Home→PreEntry waypoints with a unit tool axis and fixed-frame fingerprint. Full task is truthfully `Blocked` at Stage 2 (`50.0%`, forbidden `link-3`↔tooth contact); no partial path was promoted | Normal-window review of the Planner-leg/Stage table and a complete-chain case remain. Confirm Goal 1/Goal 2 frame inheritance once Stage 2 and Stage 3 are collision-valid; do not relax non-tool collision |
+| 6.6 | Guarded Entry-to-Target preview consumes only the Stage-3 plan retained by a current complete 6.5 preflight. It cannot independently replan or promote a partial Cartesian result. Joints 1–5 may move while J6 remains fixed; configured burr contact is exploratory and every other guard remains fail-closed | Source/build checked; no accepted end-to-end runtime evidence under the new spindle-lock policy | Attempt only after a `Complete` 6.5 full-chain preflight and accepted Goal 1 Entry preview; Execute and hardware remain blocked |
+| Cross-cutting persistence/lifecycle | `.dentocase` persists intent/evidence and excludes live ROS objects; local robot reconstruction and modular navigation are implemented. Exact former-profile packages now have a combined J2/J5 pose-preserving migration; arbitrary profile mismatches still block. Diagnostic V2 adds explicit Stage 1/2/3 and full-task summaries while reading V1 with its original fingerprint. Post-load Step 6 resume now queues transient robot/ROS reconstruction, Home/workspace revalidation, and task reconfirmation | Pure suite passes `131 passed, 1 deselected`; normal-window complete/partial checkpoint resume remains unverified | Complete packages should land at 6.5 with 6.6 gated behind a fresh Goal 1 plan. Missing/stale evidence or unavailable ROS must stop at the first truthful substep with an explicit reason; warm active-ROS New Case/reload remains unresolved |
+
+### Active Priority-0 DENTO-NOTEs
+
+| DENTO-NOTE | Controlled requirement | Current state | Remaining acceptance |
+|---|---|---|---|
+| Fixed drill frame across three-stage planning | Stage 1 must finalize one complete tool frame at PreEntry. Stages 2 and 3 use that identical orientation for straight-line Entry→Target drilling; route selection evaluates the full guarded chain and minimizes joints-1–5 motion near anatomy. J6 is locked at `0 rad` | Source implemented; pure checks and exact-x4 provisional Stage-1 runtime passed | Demonstrate one collision-valid complete chain and verify the same frame fingerprint/axis in Goal 1 and Goal 2 |
+| Saved Step 6 checkpoint resume | A valid package saved after 6.2–6.5 must reconstruct transient local-robot/ROS/MoveIt state, revalidate persisted Home/workspace/confirmation evidence, and resume at the highest truthful substep without storing ROS objects or old plans | Source implemented; `131 passed, 1 deselected` pure suite | Normal-window verify complete, partial/stale, ROS-unavailable, and repeated-load cases; 6.6 remains gated on a fresh complete Goal 1 plan |
+
+### Residual-artifact rule
+
+- Programmatic Step 6 cards enforce one active owner per action. The old
+  XML-defined ROS buttons are migration residue only: hidden and disabled.
+- The retained hidden generic Goal/IK card is expert/development residue and
+  has no routine Step 6 owner; expert diagnostics remain an explicit 6.1
+  handoff with a Return action.
+- Historical local FK/AABB controls and old four-stage labels may remain in the
+  XML until the normal-window parity check permits deletion, but they cannot be
+  visible, enabled, or used as current evidence.
+- Every future Step 6 source change must update one row above as
+  `planned`, `source implemented`, `static/build checked`, or
+  `operator/runtime accepted`; these states must not be conflated.
+
+## Priority 0 Step 6 simulation stabilization — strategy reset 2026-08-28
+
+### Goal 1 stabilization postmortem — 2026-09-01
+
+**Superseding spindle/full-chain increment — source/build checked 2026-09-01.**
+The eight axial-roll rows were not eight route solutions: they changed the
+pneumatic spindle joint/orientation even though spindle RPM is externally
+pressure-driven and not a controlled MoveIt degree of freedom. J6 is now
+compatibility-only and fixed at zero throughout Home, restore, IK, trajectories,
+guard commands and persistence. Route diversity now means distinct arm IK
+seeds, independent direct planning, or bounded reviewed workspace detours.
+Goal 1 retains a provisional Stage-1/approach preview when later preflight
+fails, but `Complete` requires a non-mutating authoritative guard pass over the
+entire Home→PreEntry→Entry→Target chain. The earlier exact-case runtime result
+remains historical evidence; operator-visible acceptance of this new policy is
+pending reload.
+
+**Fixed drilling-frame refinement — source implemented, unverified 2026-09-01.**
+Stage 1 is no longer optimized as an isolated PreEntry reach. The approved
+Entry→Target vector fixes the drill axis, while the collision-aware J6-locked
+FK solution fixes the remaining rotation about that axis. That complete frame
+is fingerprinted and immutable for the selected attempt. Each reachable arm
+branch is preflighted through strict-axis approach, terminal contact, straight
+Entry→Target motion, and the independent phase guard before selection.
+Selection is lexicographic: complete guard-accepted chain; furthest accepted
+stage/fraction; least normalized joints-1–5 motion after PreEntry; then the
+existing Stage-1 route score. Stage 3 no longer discards the selected FK frame
+and returns to the old canonical roll. No verification claim is made yet.
+
+The accepted PreEntry milestone required separating endpoint IK validity from
+path reachability. Earlier failures were caused by a single distant IK branch,
+continuous-joint representation jumps, collision-proxy ID mismatches, and
+partial Cartesian results being interpreted too broadly. The current planner
+uses explicit Task-Home start state, shortest continuous J5/J6 representations,
+eight axial-roll candidates, bounded workspace detours, canonical collision
+proxy IDs, and V2 per-candidate diagnostics. It now fail-closes on a partial
+terminal segment and retains only the verified Home→PreEntry plan, with a
+transient KDL-derived TCP path for visual review. The exact x4 runtime accepted
+55 guarded PreEntry checkpoints. The remaining work is a complete
+PreEntry→Entry route; Goal 2 must remain blocked until that is accepted.
+
+**Status:** Priority-0 source implementation and focused runtime acceptance are
+partially complete as of 2026-09-01. The exact x4 case now reaches and previews
+the collision-free Home→PreEntry milestone in a clean ROS 2/MoveIt stack; the
+strict terminal PreEntry→Entry segment remains deferred. This is a truthful
+planning milestone, not permission to treat a partial Cartesian path as an
+Entry or drilling result.
+
+The implementation now contains the prerequisite Manual Simulation
+Base containment; per-segment collision payload/audit/overlay and guard-side
+PlanningScene acknowledgement; bounded partial-path candidate evidence with
+last-valid/first-invalid IK and collision-pair classification; an in-application
+diagnostic inspector; and explicit free-space, strict-axis, terminal-contact,
+and drilling stages. Runtime acceptance covers only the guarded PreEntry
+milestone; Entry/Goal 2 remain unaccepted.
+
+The current implementation remains a fail-closed baseline: new cases default
+to a 2 mm pre-entry standoff; the research guard uses 1 mm clearance; dense
+Cartesian samples are retained; and only configured burr-to-task-object contact
+may be suppressed in exploratory terminal/drilling phases. Every other world or
+self collision, joint bound, task/session mismatch, corridor escape,
+backtracking, and overshoot remains rejected. Execute stays hidden.
+
+### Runtime-first Task Home and workspace correction — accepted 2026-08-29
+
+**Status:** source implementation, focused static/package-build gate, and
+clean-stack runtime bootstrap completed 2026-09-01. The exact x4 run verified
+that 6.1–6.4 can reconstruct transient ROS/MoveIt state, validate Home and
+workspace evidence, and reach Goal 1 without leaving DENTOWorkflow. This
+unprioritized
+DENTO-NOTE is an ordering dependency for Priority-0 acceptance, so the
+superseded pre-ROS 6.2/6.3 flow is not verified further.
+
+Rebuild the Step 6 gates in this order:
+
+1. **6.1 Robot, Base, and Runtime:** after case preparation and a reviewed
+   Manual Simulation Base, connect ROS/MoveIt, align `base_link`, and require
+   exact collision-object ID/bounds acknowledgement. Do not require Home or
+   assisted limits merely to connect.
+2. **6.2 Collision-validated Task Home:** treat local/saved joint values as
+   display candidates. Query the synchronized MoveIt PlanningScene for joint
+   bounds, self/world collisions, and research clearance before allowing
+   **Commit and Save Task Home**. Applying a different Home from an accepted
+   current state requires a strict planned/guarded transition.
+3. **6.3 ROS-derived Workspace and Limits:** reproducibly sample joint
+   candidates, but accept them only through MoveIt state-validity/FCL and
+   MoveIt FK for `dentobot_drill_tip_provisional`. Retain each accepted TCP pose
+   with its producing vector and rejection diagnostics. Classify strict
+   Home-connected samples separately from merely static-valid samples. Present
+   min/max suggestions as a sampled exploration envelope, never as a globally
+   collision-free box.
+4. **6.4 Task Confirmation:** require active runtime, current scene audit,
+   runtime-validated Home, current workspace evidence, and explicit envelope
+   review. Connect is no longer owned here.
+
+Implemented source phases are: schema/invalidation; façade bootstrap split;
+Legacy and Shell UI reorder/gates; Task Home candidate validation/commit;
+explicit monitored-current-to-Home MoveIt planning followed by strict guarded
+waypoint application; bounded MoveIt FK/state-validity workspace generation;
+and deterministic Home-connectivity classification over the nearest sample,
+joint extrema, and bounded coverage samples. Every accepted static-valid sample
+persists its TCP pose, producing joint vector, FK/static-valid provenance, and
+one of `HomeConnected`, `PlanRejected`, or `NotEvaluated`. Saved evidence
+remains inspectable, while live validity never restores without an explicit
+compatible ROS session. Operator-approved focused verification is still
+required before this status becomes accepted runtime evidence.
+
+The first exact-x4 runtime trial on 2026-08-31 passed restore/open-mouth/base
+freshness, reconstructed all seven local links, acknowledged all 32 audited
+MoveIt collision objects, and live-validated the saved revision-6 Task Home at
+the already-matching monitored state with 1 mm research clearance. It first
+stopped at 6.3 sample zero because the new explicit state-validity/FK bridge
+called the shared native context with the interactive TCP-goal prerequisite
+still enabled. Source separated presentation state from explicit-state
+services, and the operator's manual retry then entered workspace generation
+and rendered accepted samples. That retry exposed the next ownership defect:
+native FK called `getCurrentState()` solely to acquire a RobotState/model even
+though the authoritative candidate was already an explicit six-joint vector.
+Native FK and explicit-start planning now construct independent RobotState
+instances from `MoveGroupInterface::getRobotModel()`, set only the submitted
+state, update it, and enforce group bounds. The UI also gives **Plan + Apply
+Task Home** a persistent detailed result, status-bar result, and explicit
+success dialog after live validation. These latest C++/Python changes are not
+yet rebuilt or statically/operator verified; approval is required before the
+focused build/check. 6.4 confirmation and 6.5 planning remain untested.
+
+The retained `dentobot-case-step6x4.dentocase` reaches only
+`44.44–45.34%` of its 15.77 mm Entry-to-Target line for all bounded roll
+candidates with Cartesian collision avoidance disabled. This is a negative
+diagnostic fixture, not yet proof of a mechanical workspace deficiency. The
+current request returns only a fraction and discards the partial trajectory;
+it does not expose the last valid state, first invalid state, joint margin,
+collision pair, IK error, continuity failure, or manipulability. In addition,
+the current mount-plane snap copies a base-derived plane directly back into
+`base_link`, so its forehead relationship is not a trustworthy placement
+datum.
+
+### Priority-0 dependency containment
+
+Before interpreting another reachability percentage:
+
+1. disable or clearly quarantine the circular **Snap Base to Mount Plane** path
+   from any workflow that claims a reviewed placement;
+2. permit an explicitly labelled `ManualSimulationBasePose` for bounded
+   operator trials, independent of the forehead proxy; and
+3. define only the minimal transform contracts needed now: source/opened
+   anatomy in world RAS millimetres, one explicit world-to-`base_link`
+   transform, and one provisional tool/TCP transform. Each direction, unit,
+   revision, and application count must be visible.
+
+This containment is a prerequisite of the Priority-0 motion work; it does not
+assign a numeric priority to the separate unprioritized forehead-mount
+DENTO-NOTE or authorize the full physical frame/registration redesign.
+
+### Track B — collision-geometry audit
+
+Keep the reviewed Slicer segmentation as geometry authority. Generate the
+per-segment VTK closed surface that is actually supplied to MoveIt without an
+STL round trip. For every object record source segment/revision/fingerprint,
+fixed-or-moving classification, applied jaw/world/base transforms, unit
+conversion, point/cell counts, bounds, connected components, topology status,
+padding, outgoing collision ID, and runtime planning-scene acknowledgement.
+
+The operator-facing audit overlays the authoritative Slicer surface and an
+exact display copy of the outgoing MoveIt payload, with independent opacity.
+It reports quantitative surface agreement and distinguishes prepared payload
+evidence from what the runtime planning scene acknowledges; it must not claim
+to visualize FCL's internal acceleration structure. A moved lower-jaw object
+must receive the accepted hinge exactly once, upper anatomy must remain
+unchanged, and padding must remain separate from anatomy. Mismatch, stale
+fingerprint, invalid transform/scale, missing object, or invalid required
+surface fails planning closed.
+
+Track B transport correctness may proceed with the existing provisional
+opening. Representative anatomical acceptance remains explicitly provisional
+until the Priority-1 condylar/crown and MPR safeguards are completed; do not
+conflate a correct mesh transfer with a clinically meaningful jaw pose.
+
+### Track C — structured motion diagnosis and operator trial loop
+
+Every planning attempt must produce a versioned diagnostic session rather than
+a generic percentage. Record case/task, robot/resource, base, tool/TCP,
+trajectory, collision-scene, planner, sampling, and axial-roll fingerprints.
+For each candidate and each stage retain success/error code, path size/time,
+joint vector and limit margins, Cartesian completion distance/fraction,
+collision/self-collision information, manipulability or Jacobian condition,
+and the last-valid/first-invalid adjacent samples.
+
+Use diagnostic-only shadow queries to classify collision-induced IK failure,
+pure kinematic failure, joint exhaustion, IK branch/continuity failure,
+singularity/low manipulability, interpolation failure, frame/transform failure,
+invalid collision scene, and unknown MoveIt failure. Removing a constraint in
+a shadow query never relaxes the accepted plan or authorizes preview.
+
+The 2026-09-01 Stage-1 increment adds bounded immediate evidence ahead of the
+full V2 record. It distinguishes requested from submitted joint goals,
+normalizes `2*pi` representation only for URDF-continuous joints, names the
+largest raw/effective Home-to-goal joint delta, tries distinct collision-aware
+axial-roll IK endpoints, and samples the direct joint chord at guard-scale
+increments to report its first MoveIt collision pair. The chord is diagnostic:
+a collision does not prove that no curved plan exists, while a clear chord is
+never promoted to a plan. Bounded full-turn revolute joints are not silently
+wrapped through their hard limits.
+
+The next schema is `MotionDiagnosticSessionV2`. It replaces the current
+partial Entry-to-Target-centric record with one immutable attempt containing
+Stage 1, Stage 2, Stage 3, and full-task outcomes. Every bounded axial-roll
+candidate records the MoveIt status/error code and planning time; path duration,
+waypoint count, completion distance/fraction; start, goal, last-valid and
+first-invalid joint/TCP states; joint-limit margins; minimum clearance;
+collision pairs and self-collision; manipulability/Jacobian condition when
+available; strict, configured-contact-relaxed, and kinematics-only shadow
+results; and a deterministic failure classification. A compatibility reader
+must preserve existing V1 evidence as legacy bounded diagnostics without
+inventing missing stage results.
+
+Expose this through a Step 6 Motion Diagnostics dock/popup with a candidate
+table, sample scrubber, ghost robot, exact TCP/depth/joint-margin readout,
+collision-pair highlighting, outgoing/anatomy surface overlay, and explicit
+strict/tool-contact-relaxed/kinematics-only diagnostic labels. Base changes are
+numeric/coarse-fine or deliberate 3D edits, followed by explicit Apply, stale
+invalidation, and re-run; selecting a diagnostic sample is display-only.
+
+Persist a bounded, schema-versioned diagnostic evidence record inside MRML and
+`.dentocase`: summaries, candidate outcomes, selected candidate, important
+samples, last-valid/first-invalid evidence, review state, and fingerprints.
+Do not serialize ROS nodes, services, publishers/subscribers, goal robots,
+MoveIt trajectories, guard sessions, or active flags. Reopen reconstructs the
+diagnostic view and marks evidence Stale after any relevant anatomy, base,
+trajectory, tool, robot-resource, collision, or planning-parameter change.
+
+### Track D — explicit three-stage simulation planner
+
+1. **Stage 1 — Task Home/current to PreEntry:** ordinary collision-aware
+   free-space MoveIt planning; aligned tool axis; bounded axial-roll search;
+   complete success only.
+2. **Stage 2 — PreEntry to Entry:** straight Cartesian motion on the approved
+   axis. All ordinary collisions remain prohibited. Plan strictly to an
+   explicit pre-contact epsilon and evaluate only the final Entry sample under
+   a narrow, reported tip-on-target terminal tolerance; do not enable a broad
+   burr-target exemption or anatomical penetration.
+3. **Stage 3 — Entry to Target:** the approved Cartesian centreline is the
+   task. Only the configured burr-to-selected-target pair may be accepted, and
+   only for the current task fingerprint inside the corridor. Every non-target,
+   other-link, jawbone, self, bounds, backtrack, and overshoot failure remains
+   rejected. Partial completion is diagnostic evidence, never success.
+
+Stage 2 is unavailable until Stage 1 succeeds; Stage 3 is unavailable until
+Stages 1 and 2 succeed. The existing two-phase façade is refactored only after
+Tracks B and the minimum Track C result schema are usable, so each stage can
+explain its own failure.
+
+### Track F0 — persistent reviewed-result ledger and manual aggregation
+
+**Entry gate:** runtime-first 6.1–6.4 is operator-accepted and one trajectory
+produces complete reviewed Stage 1/2/3 V2 evidence that survives
+`.dentocase` save/reopen. F0 is not part of Priority 0 and receives no inferred
+numeric priority.
+
+Keep the current reviewed single-attempt evidence in `.dentocase`. Add a
+separate versioned `.dentostudy` evidence package containing no MRML geometry
+and no live ROS/MoveIt object. Schema V1 contains `manifest.json`,
+`study/results.json`, integrity checksums, source-case references, and generated
+canonical JSON plus summary/candidate CSV exports. Each immutable result binds
+its source `.dentocase` package ID, checksum and lineage fingerprint to target
+FDI, trajectory, reviewed base, robot/tool/TCP, collision-scene, planning
+fingerprints, and complete stage/candidate evidence.
+
+The first accepted UI adds **Add Reviewed Result to Study** and one study
+window. It compares trajectories/teeth; groups by tooth, class, jaw and
+quadrant; reports success, best roll, drilling reach, limiting joint, dominant
+collision, minimum clearance, manipulability and planning time; and opens the
+existing retained failure boundary in the ghost/scrubber viewer. Every accepted
+addition is saved atomically. Initial acceptance is manual accumulation from
+the active case; cross-case accumulation is enabled only in the later expansion
+below.
+
+### Track F1 — automatic plan-only study for the current case
+
+**Entry gate:** F0 package/in-app aggregation is accepted, runtime-first state
+is current, and the active `.dentocase` contains at least two eligible Current,
+locked, complete trajectories. F1 is an in-application research feature, not a
+new broad verification script campaign.
+
+At one reviewed base pose and one acknowledged robot/tool/collision scene,
+enumerate every eligible trajectory and reject stale, unresolved or lineage-
+mismatched entries. Before each trajectory, reset transient planning state to
+the live-validated Task Home. Run bounded axial-roll evaluation and all three
+planning/independent-guard stages without viewport animation, preview playback,
+execution, or drilling commands. Atomically append one immutable result after
+each trajectory so interruption resumes without repeating fingerprint-identical
+work.
+
+Progress is truthful completed/total trajectory and candidate count, with the
+current tooth, trajectory and stage. Pause/cancel is exposed only at safe
+between-attempt boundaries. A trajectory failure is recorded and the study
+continues; a changed runtime-integrity, base, anatomy, collision-scene, robot,
+tool or planning fingerprint stops the run fail-closed and marks affected
+evidence stale. The final statistics window and JSON/CSV totals use the same
+records as F0. This feature depends on the Priority-2 shared long-running action
+contract or an equivalent bounded implementation; it must not show fabricated
+percentage progress.
+
+### Track F later expansion and F2 — cross-case and base-pose studies
+
+After F1 current-case automation is accepted, allow one `.dentostudy` to
+accumulate reviewed results from sequentially loaded `.dentocase` packages for
+different teeth. Automatic multi-package iteration remains blocked until warm
+active-ROS scene lifecycle and package rehydration are reliable.
+
+Track F2 begins only after Track E supplies stable, reviewable base-pose
+candidates. It evaluates trajectory × base-pose combinations and reports best
+base, best roll, success coverage, limiting joints/collisions and mechanical-
+design limitations. A Manual Simulation Base is sufficient for base-specific
+F0/F1 diagnostic evidence but must never be promoted into a stable physical
+mount or cross-base conclusion.
+
+### Verification policy and later work
+
+Do not add another broad smoke/diagnostic script campaign. The first acceptance
+loop is operator-led in the normal DENTOWorkflow window: audit collision
+surfaces, move one explicit simulation base, run one candidate/stage at a time,
+scrub to the failure boundary, and save/reopen the diagnostic evidence. Minimal
+static or focused checks may be proposed after implementation, but no automated
+run resumes without renewed operator authorization.
+
+Acceptance proceeds in this order: (1) runtime-first 6.1–6.4; (2) one complete
+Stage 1/2/3 V2 attempt that round-trips in `.dentocase`; (3) two manually
+reviewed results appended without overwrite to one `.dentostudy`; (4) one F1
+current-case run over at least two locked trajectories, including a retained
+success and failure and interruption/resume; (5) fail-closed stop/staleness on
+base, trajectory, anatomy, collision-scene or resource change; and (6) matching
+in-app/JSON/CSV totals with study load creating no ROS node, robot, callback or
+geometry. No check runs without the existing explain-and-approve gate.
+
+After B/C/D are trustworthy, implement F0 and then F1 at one reviewed,
+base-specific simulation pose. Track E remains the prerequisite for F2
+trajectory × base-pose studies, not for evidence-only F0 or single-base F1. A
+broad canonical frame architecture (Track A) and physical robot/patient
+registration (Track G) remain later work. The minimal transform declarations
+above are a correctness exception, not permission for either broad refactor.
+Separately, the saved 2.0 mm burr versus 1.5 mm guide bore remains an upstream
+Step 5C physical-fit defect and cannot be solved by collision suppression.
+
+## Modular saved-case continuation acceptance — active 2026-08-27
+
+`.dentocase` restore remains a whole-case integrity transaction; modularity is
+provided after commit by keeping every Step 1–6 workspace selectable. The
+recommended-next stage is advisory. A selected stage may be inspected at any
+time, while its mutation/generation actions remain disabled until that stage's
+saved prerequisites and lineage are Current. No per-step node extraction,
+coordinate conversion, or duplicate geometry package is introduced.
+
+The immediate software check reuses the retained Step 6 package, opens it
+twice, walks every internal Legacy stage and all six New GUI workspaces,
+confirms exactly one card/workspace is active, and rejects a restored/created
+live ROS robot. Closure additionally requires a
+de-identified package saved at each coarse Step 1–6 checkpoint and a matrix
+test proving: all workspaces remain selectable; the last completed checkpoint
+is Current; downstream actions explain missing/stale inputs; upstream
+backtracking retains normal dependency invalidation; geometry matches to
+`1e-6`; and ROS stays disconnected until explicit Step 6 initialization. Run
+the same acceptance in both Legacy and New GUI normal-window presentations.
+
+## Priority 3 New GUI aesthetic and interaction optimization — planned 2026-08-27
+
+**Status:** planning accepted; implementation deferred. Priority 3 follows the
+actionable Priority 1 TMJ logic/rigidity work and Priority 2 interaction/restore
+review items unless the user explicitly reprioritizes it.
+
+The increment will improve the opt-in six-workspace application shell without
+forking workflow logic or changing MRML truth. Legacy remains the functional
+comparison and fallback until normal-window parity is demonstrated. The work is
+sequenced as follows:
+
+1. **Baseline:** capture every workspace and substep at representative window
+   sizes, light/dark themes, and display scaling; record clipping, scrolling,
+   focus order, status comprehension, viewport allocation, widget counts,
+   callback counts, and measured navigation/refresh behavior.
+2. **Visual system:** define shared tokens and reusable shell components for
+   typography, spacing, color/contrast, status badges, cards, warnings,
+   disabled/hover/focus states, and primary/secondary/destructive actions.
+   Preserve the research-prototype warning and full hard-error visibility.
+3. **Information architecture:** keep one primary task visible, use progressive
+   disclosure for expert detail, stabilize workspace/substep headers and
+   Back/Next behavior, keep Views reachable, and prioritize anatomy/robot
+   viewport space over repeated explanatory text.
+4. **Presentation optimization:** lazily update hidden workspaces, coalesce
+   repeated parameter/MRML notifications, reuse item models/controllers, and
+   eliminate duplicate signal connections or widget reconstruction. No
+   optimization may cache stale workflow state or create renderers/ROS nodes
+   during navigation.
+5. **Acceptance:** compare every Legacy/New action and state; test keyboard and
+   focus navigation, contrast and scaling, normal-window screenshots,
+   package/scene restore, repeated workspace switching, developer reload, New
+   Case, bounded memory/widget/callback behavior, and absence of coordinate,
+   lineage, renderer, or ROS side effects.
+
+Implementation must be split into small visual or performance increments with
+before/after evidence. Aesthetic approval alone cannot establish functional,
+coordinate, safety, or clinical acceptance, and the New GUI does not become the
+default until the complete parity gate passes.
+
+## Active Step 6 closure gate — 2026-08-24
+
+The native placement-to-task implementation is complete through guarded
+simulation preview. Before any stronger robotics claim:
+
+1. repeat a representative normal-window case trial with a regenerated Current
+   Step 4C/5C package and record base placement, renderer/opacity review, Task
+   Home, assisted limits, Connect, task confirmation, both phase previews, and
+   save/reopen behavior;
+2. physically calibrate the TCP/tool axis and home source, define and measure
+   robot-base registration, and replace `ProvisionalLocked` only through a
+   traceable registered source;
+3. define controller ownership, force/stop logic, emergency handling, and a
+   verified safety procedure before exposing hardware homing or Execute; and
+4. validate the phase-guard corridor and target/non-target collision split on
+   representative anatomy and a physical phantom, not only synthetic meshes.
+
+The implementation must remain preview-only until all four gates are closed.
+Opacity/camera work is visualization state; it cannot be treated as coordinate,
+registration, or clearance evidence.
+
+## Step 6.0A anatomy-preserving hinge/collision redesign — partial; high-priority safeguard correction required
+
+**Status:** schema-v2 primary path and placement-only fallback implemented;
+host, synthetic Slicer save/restore, and retained-package gate verification
+pass. Patient-RAS laterality and explicit review of restored raw landmarks are
+now corrected and exact-package verified. Dedicated condylar/crown interaction
+regions and enforced MPR review are not yet implemented. These remain high-
+priority prerequisites to a normal-window operator anatomy trial and
+interactive gap slider.
+
+Goal: replace the imported-case reuse of the disposable phantom angular search
+with an anatomy-guided provisional hinge whose opened-mouth representation is
+usable as segmented physical obstacle geometry for the simulation-only robotic
+workflow.
+
+The reviewed source CBCT segmentation remains immutable and authoritative.
+Step 6 derives independently transformable `FixedUpperAnatomy` and
+`MovingLowerAnatomy` segmentations while retaining each upper/lower jawbone and
+individual tooth segment, including stable IDs, FDI metadata, terminology,
+color, and source fingerprints. The accepted world-RAS hinge transform parents
+only the moving lower anatomy and mandibular-attached trajectory/guide/dock/
+template proxies. It is not hardened into, or used to resample, the source
+CBCT or source masks.
+
+The implemented foundation isolates the complete intended source segment:
+`lower_jawbone` for both TMJ points and one target-side whole central-incisor
+segment for each incisal point. Three-dimensional snap is followed by exact-
+source projection, residual recording, and coarse bilateral/FOV validation.
+That is source-provenance evidence, not yet condylar-lateral-pole or incisal-
+edge evidence. The next increment must derive separate left/right condylar
+candidate surfaces and crown/incisal candidate regions and require orthogonal-
+MPR review. Patient-RAS laterality now requires anatomical `Left X < Right X`.
+These points will still define only a
+reproducible provisional hinge, not internal TMJ centres or a registered
+instantaneous axis.
+
+The case-specific solver canonicalizes the hinge axis and selects only the
+branch that moves the lower incisor inferiorly in patient RAS (`delta Z < 0`).
+Because straight-line incisor distance may initially decrease on that branch,
+the solver samples to the first target-gap crossing and then bisects it. It
+rejects a target already reached in the source pose and solves an adjustable
+final incisor gap (20–60 mm, default 40 mm) within 0.01 mm.
+Degenerate/cropped/ambiguous/unreachable inputs remain hard failures.
+Upper/lower surface intersections are reported as persistent warnings and need
+explicit `Accept with anatomy warning`; they do not silently become a PASS.
+Existing schema-v1 case openings restore Legacy/Stale and require new review.
+
+For robotic collision, Slicer generates one coordinate-preserving,
+triangulated, closed VTK surface per retained jaw/tooth segment. After applying
+the accepted lower-jaw transform, the bridge converts world-RAS millimetres to
+robot-base metres and publishes stable per-segment MoveIt collision-object IDs.
+Reviewed anatomy and configurable collision padding remain separate: padding
+is a safety margin, never anatomy. STL conversion is not part of this path;
+STL would discard segment identity and provenance and is allowed only as
+optional debugging output. ROS collision objects remain transient and rebuild
+after explicit Connect/base alignment.
+
+Acceptance requires pure direction/order/rigidity/reachability tests; Slicer
+surface-snap, no-resampling, transform-scope, warning/review, save/restore, and
+duplicate-lifecycle tests; per-segment MoveIt object and phase-contact tests;
+and one normal-window trial of `dentobot-case-step6.dentocase`. The accepted
+result remains `ProvisionalOpenProxy`, simulation-preview only. Registration,
+calibrated TCP, hardware motion, drilling, and clinical accuracy are excluded.
+
+The implemented backup is a governed placement-testing branch, not a second
+open-mouth solver. It becomes available only after the primary path records a
+valid case-anatomy/solver failure. It derives the target jawbone and every
+same-jaw tooth as separate world-RAS segments without applying a transform.
+This permits local robot/base placement, Task Home, assisted-limit review, and
+coarse workspace exploration for early simulation setup. ROS connection,
+collision-scene synchronization, task confirmation, approach planning, and
+drilling preview remain blocked because opposing-jaw clearance is unavailable.
+
+Completed verification on 2026-08-27 includes the pure solver suite, schema-v2
+primary/fallback MRB round trips, exact-source snap-state checks, immutable
+source-geometry checks, duplicate/reset lifecycle checks, and an exact retained
+`dentobot-case-step6.dentocase` import/gate smoke. The current x1 package also
+passes explicit four-point review, a `39.9964 mm` inferior opening at
+`-45.7813°`, reset/package switch,
+and a 31-derived/54-source Viewer stress. Per-segment live MoveIt
+contact behavior and the representative operator landmark/MPR review remain
+separate acceptance work and must not be inferred from these PASS results.
+
+High-priority next increment, in dependency order:
+
+1. retain the corrected RAS validator/fixtures and confirm the exact reviewed
+   points in a normal operator view;
+2. create source-fingerprinted left/right condylar candidate surfaces; after
+   Left TMJ placement show a contralateral guide ray/axis and live symmetry
+   metrics without overriding asymmetric anatomy;
+3. create upper/lower crown/incisal candidate surfaces and enforce MPR review;
+4. verify these safeguards on representative CBCT anatomy; and only then
+5. add a live, linear-in-gap preview slider backed by a transient display
+   transform. `Lock / Accept Opening` alone commits the persistent transform,
+   derived positions/lineage, and collision-ready MRML geometry. MoveIt objects
+   remain deferred to explicit runtime Connect/Sync.
+
+## Immediate fast-track PoC closure order — 2026-08-13
+
+The implementation has crossed the point where feature count is the useful
+progress measure. The current priority is to convert the working software and
+geometry into bounded representative, physical, and metrology evidence. A
+synthetic Slicer PASS remains valuable software evidence, but it is not a
+clinical-fit, manufacturing, mechanical, registration, or robot-execution
+claim.
+
+### Work package 1 — freeze the narrow clinical task and Template V0
+
+Record one sentence defining what the PoC automates and what it explicitly
+does not automate. With the clinical team, close the Entry/Target semantics,
+required anatomy, no-go structures, planning error tolerance, Template V0
+support surfaces, insertion/removal direction, acceptable undercut engagement,
+fit clearance, wall thickness, gingival/cervical margin, sleeve/docking role,
+bur/channel dimensions, and clinician approval/stop conditions. Every open
+item must become a numeric threshold, a bounded qualitative acceptance test,
+or an explicitly deferred question with a reason.
+
+### Work package 2 — representative end-to-end software acceptance
+
+Run one governed representative case from reviewed segmentation through
+manual/assisted trajectory review, Step 4B support-tooth selection/full-anatomy
+draft, Step 4C support-aware docks, Step 5A visible-support and undercut
+preparation, unified Step 5B fusion, Step 5C verification, scene reopen, and
+one STL. Use the active `TASKS.md` checklist to exercise the
+already implemented viewport selectors, saved-scene trajectory switching,
+reference-driven backtracking, oblique MPR correction, stale-state gates, and
+channel/dock preservation. Fix only failures that block or invalidate this
+bounded run; defer unrelated polish.
+
+### Work package 3 — print and seat Template V0
+
+Print one representative guide with recorded printer, material, orientation,
+layer/process, and post-processing settings. Measure terminal seating,
+insertion/removal force or bounded qualitative acceptability, rocking/gap,
+repeat pose over repeated cycles, visible flex under expected dock/drill load,
+dock/sleeve rigidity relative to the shell, and CAD-to-print critical
+dimensions. Physical seating is the first reality check for CBCT-only fitting
+surfaces and current undercut assumptions.
+
+### Work package 4 — formalize registration before robot motion
+
+Draw and directionally name the chain:
+
+```text
+CBCT/Slicer RAS
+  -> tooth/template planning frame
+  -> physical template/docking frame
+  -> robot base frame
+  -> end-effector frame
+  -> bur/tool frame
+```
+
+Identify how every transform is obtained and what invalidates it. Build a rigid
+phantom with independently known target points, select the first registration
+method, and make target registration error at/near the drilling target the
+primary metric. Repeat registration, template reseating, and robot redocking;
+report mean, standard deviation, and worst case rather than a single successful
+alignment.
+
+### Work package 5 — keep robot, tool, sensing, and metrology lanes alive
+
+In parallel with the template/registration closure, define the head-mounted
+and tooth-mounted robot functional architectures, required DOF, load path,
+actuation, workspace, packaging, emergency removal, tool-axis/TCP calibration,
+depth constraint, and safe-stop behavior. Treat pressure/acoustic sensing as a
+bounded experiment and potential research/IP lane, not as a blocker for the
+geometry PoC. Do not authorize powered drilling through this planning
+roadmap.
+
+### Work package 6 — maintain one total-system error budget
+
+Track CBCT/image geometry, segmentation boundary, trajectory planning,
+template manufacturing, template seating, template-to-robot docking,
+registration TRE, robot kinematics, and tool/TCP calibration separately.
+State units and the measurement method for each contributor. Replace assumed
+values with measured values as evidence becomes available, and identify the
+dominant uncertainty before optimization.
+
+### Evidence labels used by this plan
+
+- **Static:** source/document inspection only.
+- **Synthetic:** automated or generated-data verification.
+- **Developer-live:** observed in a live application by the developer.
+- **Representative anatomy:** exercised on a governed relevant CBCT/scene.
+- **Printed phantom:** fabricated and physically measured or seated.
+- **Clinician/expert:** reviewed against an explicit acceptance question.
+
+The strongest label actually achieved must accompany milestone status. One
+weekly end-to-end demonstration checklist should be maintained once the
+Template V0 boundary is frozen.
+
+## Current baseline: imaging plus external-process bridge
+
+**Status:** Step 0 and Bridge A/B work in the developer's Slicer workflow.
+Bridge C has completed a real-CBCT GPU inference and safe Slicer import/display
+with 60 validated segments in 2D and 3D. Its validated top-level dependency
+versions and reconstruction procedure are now documented. Five new WSL unit
+tests, cancellation/error paths, a complete transitive dependency lock,
+anatomical validation, and MRB scene persistence remain pending.
+
+The Extension Wizard scaffold and exploratory trajectory code exist, but the
+trajectory-first sequence has been superseded. The extension project is now
+named DENTOBOT, and all new module identifiers use the `DENTO` prefix. The
+project begins with the focused `DENTOWorkflow` shell, then establishes
+independent external inference before returning to segmentation review and
+trajectory planning.
+
+Acceptance criteria:
+
+- Project context, architecture, agent rules, and roadmap agree.
+- Early extension development and later custom-app packaging are distinct.
+- WSL2 inference is isolated from Slicer's Python environment.
+- Slicer controls inference through direct asynchronous `wsl.exe` process
+  execution rather than a watched-folder job system.
+- ROS is deferred to a documented robotics decision gate.
+- Timestamped low-level development history is maintained in `changelog.md`
+  and `logbook.md`.
+- Installed Slicer files and Slicer's embedded Python environment remain
+  unchanged.
+
+## Step 0: Minimal workflow shell and DICOM viewer
+
+**Status:** implemented; developer reports the current Step 0 workflow works
+
+Goal: provide a clean DENTOBOT entry point for loading and inspecting one
+CBCT series without requiring routine use of unrelated Slicer modules.
+
+Implementation:
+
+- Create `DENTOWorkflow` as the user-facing scripted module and extension
+  home.
+- Replace generated example controls with a minimal Imaging page.
+- Add New/Open Case, Import DICOM, selected-volume, Clear Case, and status
+  controls.
+- Use Slicer's DICOM browser and loader rather than implementing DICOM parsing.
+- Use a scalar-volume `qMRMLNodeComboBox` bound to a typed parameter node.
+- Display selected volume name, dimensions, spacing, scalar range, and basic
+  geometry/orientation status.
+- Show the loaded volume in standard slice views and fit slices to content.
+- Handle scene close/reopen and observer cleanup.
+- Decide during implementation whether to retire or migrate useful code from
+  the legacy `DentalNavPlanning`; do not retain threshold-example behavior in
+  the user UI or extension build.
+
+Acceptance criteria:
+
+1. A user starts in the DENTO Workflow module.
+2. One button opens the standard Slicer DICOM import/browser experience.
+3. A valid CBCT series loads as a scalar-volume MRML node.
+4. The workflow selects the loaded volume and displays its metadata.
+5. Axial, sagittal, and coronal views display the volume correctly.
+6. Invalid or malformed input produces an actionable message without altering
+   original files.
+7. The selected volume persists across module changes and scene save/reopen.
+8. No external Python, AI, registration, or robot dependency is introduced.
+
+## Step 1: Standalone WSL2 inference foundation
+
+**Status:** health, NIfTI round trip, and GPU-only `segment-teeth` are
+implemented. The three pre-Bridge-C WSL tests and CUDA health pass. Cached
+tasks 113/115 and a representative real-CBCT inference have now completed
+successfully; the five new segmentation unit tests remain pending. Exact
+validated top-level dependencies are now pinned, but a complete
+platform-specific transitive lock and clean-machine reconstruction remain
+pending.
+
+Goal: make dental segmentation independently runnable and testable without
+Slicer.
+
+Implementation:
+
+- Add the `Inference/` Python package and a minimal environment definition;
+  lock exact dependencies only after compatibility validation.
+- Implement `health --json --require-cuda` for interpreter identity, package
+  versions, PyTorch import health, CUDA availability, and GPU identity.
+- Define the versioned command-line, structured-stdout, exit-code, and result
+  metadata contracts.
+- Implement a geometry- and voxel-preserving NIfTI round-trip command so the
+  cross-interpreter boundary is tested before model inference.
+- Implement `segment-teeth --input ... --output ... --result-json ...`
+  using TotalSegmentator's `teeth` task and multilabel NIfTI output.
+- Preserve label mapping and NIfTI affine.
+- Emit machine-readable progress events without requiring a queue or worker
+  service.
+- Provide clear exit codes for invalid input, missing model, unavailable GPU,
+  out-of-memory, cancellation, and inference/import failure.
+- Add unit tests and a de-identified smoke-test fixture or documented fixture
+  acquisition process.
+
+Acceptance criteria:
+
+1. Backend tests run entirely inside WSL2.
+2. Health check identifies the RTX GPU and usable CUDA PyTorch runtime.
+3. A command segments a representative CBCT NIfTI without Slicer running.
+4. Output contains the expected dental label map and physical geometry.
+5. Complete result metadata is produced for success and failure.
+6. No package is installed into Slicer's embedded Python.
+
+### Bridge A/B integration checkpoint
+
+**Status:** passed, including Slicer-launched CUDA health and a round trip of
+the explicitly selected real CBCT
+
+These independently testable slices were the gate before Bridge C:
+
+1. Bridge A asynchronously launches the configured WSL distribution and exact
+   Conda Python, reports JSON health, and distinguishes missing packages,
+   broken PyTorch imports, unavailable CUDA, and a healthy GPU.
+2. Bridge B exports the selected MRML scalar volume, runs the backend NIfTI
+   round trip, validates backend JSON plus data/geometry, imports the returned
+   volume, and stores its parameter-node reference and `DENTOBOT.*` provenance.
+3. Slicer remains responsive while the process runs, and Cancel requests
+   termination without starting another process.
+4. No system Python executes Slicer code; no WSL/Slicer package is installed
+   automatically; no model is downloaded.
+
+Successful Bridge A/B verification authorized the current Bridge C source
+implementation; it does not count as Bridge C runtime acceptance.
+
+## Step 2: One-click segmentation bridge
+
+**Status:** core happy-path runtime verified; completion testing remains
+
+Goal: run the validated WSL backend from DENTOBOT and receive a segmentation
+in the MRML scene.
+
+Implementation:
+
+- Add output segmentation state, a GPU Run action, Cancel, progress, live log,
+  and compact metrics to the focused workflow UI.
+- Export the selected CBCT to an isolated run-artifact directory as NIfTI.
+- Invoke the configured WSL Python interpreter directly with an argument-safe,
+  asynchronous process call; do not create a watched-folder queue.
+- Stream progress without freezing the UI and support cancellation.
+- Handle the process exit code and validate result metadata and NIfTI geometry.
+- Import labels into a `vtkMRMLSegmentationNode` with names and source links.
+- Create binary-labelmap and closed-surface representations for immediate 2D
+  and 3D display.
+- Store backend metadata as `DENTOBOT.*` attributes and parameter-node state.
+- Require CUDA device 0; reject unavailable CUDA without CPU fallback.
+- Prevent implicit model acquisition by replacing TotalSegmentator's runtime
+  downloader with a cache-only guard for tasks 113 and 115.
+
+Acceptance criteria:
+
+1. One button runs the `teeth` task on the selected CBCT.
+2. Dependency, CUDA, model, process, cancellation, and inference failures are
+   distinguishable.
+3. A successful run creates a correctly aligned segmentation node.
+4. Label names and run metadata are available in the scene.
+5. Original CBCT/DICOM data and the Slicer installation remain unchanged.
+6. Scene save/reopen retains source and output node references.
+
+Current evidence satisfies criteria 1, 3, 4, and 5 for one representative
+CBCT. Dependency/model/CUDA happy-path handling is demonstrated, but the
+distinct failure cases in criterion 2 and scene save/reopen in criterion 6
+remain to be exercised. Visual alignment is not anatomical ground-truth
+validation.
+
+### Deferred Bridge C validation backlog
+
+The developer elected to continue beyond the verified happy path and return to
+the following work later. Deferral is non-blocking for Step 3, but these items
+remain required before a reproducible release or robustness claim:
+
+1. run the five new segmentation-focused WSL tests;
+2. exercise missing dependency, missing model, and unavailable CUDA paths;
+3. verify cancellation and descendant-process cleanup;
+4. verify out-of-memory, malformed-output, and partial-output behavior;
+5. verify source/output references after MRB save and reopen;
+6. establish anatomical ground truth and quantitative acceptance criteria;
+7. capture a complete transitive environment lock and perform a clean-machine
+   reconstruction.
+
+## Step 3: Segmentation review and visualization
+
+**Status:** Steps 3A, 3B, and 3C developer-verified in Slicer 5.12.2
+
+Goal: let the researcher inspect and curate dental labels before planning.
+
+Step 3A implemented scope:
+
+- segmentation selector bound to the existing persistent
+  `teethSegmentation` parameter-node reference
+- deterministic FDI-aware names and anatomical grouping
+- search by anatomy, category, source label, or FDI code
+- per-segment visibility checkboxes
+- selected-segment 2D/3D emphasis without mask modification
+- show all, hide all, and isolate selected actions
+- independent global 2D/3D visibility and opacity controls
+- authoritative-default **Native mask pixels** versus explicitly optional,
+  non-authoritative **Derived smooth preview** selection on the same
+  segmentation node
+- persisted preferred 2D display representation with automatic native-mask
+  handoff before Segment Editor correction
+- explicit referenced-CBCT automatic/manual window-level, standard/inverted
+  grayscale, viewport-interpolation, loaded-display restore, and current voxel
+  spacing/status controls, with no filtering, resampled volume, or mask created
+- observers rebound on selected-node replacement and removed during module
+  exit, cleanup, and scene close
+- automatic transition from a successful Bridge C run to the review panel
+
+Step 3B implemented scope:
+
+- selected-label anatomy, source name, FDI number, model label ID, voxel
+  count, and physical volume
+- compact run, source-volume, backend, TotalSegmentator, model/dataset,
+  device, timing, and completion provenance
+- proper MRML source-volume reference plus versioned per-segment metrics
+  persisted on the authoritative segmentation node
+- segmentation-level `Unreviewed`, `Needs Correction`, and `Reviewed`
+  workflow state with a UTC update timestamp
+- direct metadata enrichment for new Bridge C imports and non-fatal migration
+  of older imported results from retained `result.json`
+- explicit UI language that review state is not anatomical or clinical
+  validation
+- Slicer-native logic coverage for metadata mapping, node references,
+  provenance presentation, selected-label metrics, review-state transitions,
+  and invalid state rejection
+
+Step 3C implemented scope:
+
+- one-button handoff of the selected label to Slicer's built-in Segment Editor
+- strict validation and binding of the authoritative segmentation, persisted
+  source CBCT, and selected segment ID
+- conservative whole-segmentation transition to `Needs Correction` when a
+  correction revision starts
+- correction-start and mask-edit timestamps persisted as `DENTOBOT.*`
+  attributes
+- inference metrics retained as provenance but explicitly marked
+  baseline-only after correction starts
+- content-specific observers for source-representation edits and segment
+  addition/removal while DENTO Workflow is active
+- display, selection, naming, and provenance changes excluded from review
+  invalidation
+- Slicer-native logic coverage for correction validation, source-node
+  recovery, state transition, metric validity, timestamps, and invalid inputs
+
+Remaining Step 3 increments:
+
+- clinician acceptance of smooth-review legibility, contour location, and
+  interaction performance on representative CBCT in a physical Intel-`iris`
+  session; compare against the native mask and source slices at planned drill
+  regions
+- richer opacity/color presets, window/level presets, and optional anatomy
+  presets
+- optional corrected-mask metric recomputation
+- optional per-label review state, only if the research workflow later needs
+  tooth-by-tooth acceptance
+
+The developer reports that Steps 3A and 3B work as intended in Slicer 5.12.2
+and completed the Step 3C acceptance checklist. The exact segmentation,
+source CBCT, and selected segment were handed to Segment Editor; a small
+edit/undo cycle and return to DENTO Workflow produced the intended
+`Needs Correction` state, baseline-metric messaging, correction activity, and
+MRB scene persistence. Step 3 is therefore accepted at its current scope.
+Anatomical accuracy, corrected-mask metric recomputation, and optional
+per-label review state remain separate validation or enhancement problems.
+
+## Step 4: Procedure definition and minimal trajectory planning
+
+**Status:** manual and assisted creation are unified in Step 4A and
+Slicer-native verified. The Step 4B support-first dependency and Step 4C
+support-aware docking contract are implemented with synthetic Slicer-native
+coverage. Representative anatomy, clinician acceptance, and live viewport UX
+remain active work.
+
+Goal: define a procedure-specific entry-to-target drill trajectory against
+reviewed anatomy.
+
+Implementation themes:
+
+- procedure type and target tooth
+- explicit anatomical definitions of entry and target
+- two-point Markups line with Entry/Target labels
+- live world-RAS length and direction
+- bur diameter, maximum depth, and planning metadata
+- plan approval and invalidation rules
+- logic tests for geometry and invalid state
+
+The existing trajectory experiment may be reused only after it is reviewed
+against these requirements.
+
+The Step 4A lifecycle now distinguishes clearing and deletion. **Clear Both
+Points** retains the Markups line for reuse. **Delete Selected Trajectory**
+requires confirmation and DENTOBOT ownership, removes only the selected line
+and unshared display/storage auxiliaries, clears the workflow trajectory
+reference, and preserves its target segmentation, tooth selection, and bounds.
+Automated save/reload/recreate coverage has passed in Slicer.
+
+Saved trajectory selection now restores the authoritative segmentation,
+segment ID, target bounds ROI, target-tooth selector, visibility/highlight, and
+details from persisted MRML associations both during scene refresh and manual
+selection. Partial or mismatched associations are rejected rather than guessed
+from names. New and legacy default names are managed as informative labels such
+as `DENTO FDI 14 - Trajectory 2 [Complete]`; names never become identity keys.
+The complete Slicer-native suite now covers scene-load and selector restoration,
+MRB persistence, editable-name independence, and duplicate disambiguation.
+
+All DENTOBOT trajectories remain available in one selector and are grouped by
+their authoritative target tooth. Each tooth receives a deterministic
+persisted lineage color once its first trajectory exists; the same color is
+propagated by MRML-reference relationships to its Step 4A bounds, Step 4B full
+support draft, Step 5A visible-support surface, and Step 5B shell/guide
+outputs. Selecting a tooth emphasizes
+that group's trajectories while leaving other groups visible and preserving
+explicit visibility choices. Step 5A/5B also expose the inherited FDI/color in
+lineage badges, owned-node selector swatches, and Step 5B visibility-control
+stripes so the relation remains visible when geometry is hidden. Colors and
+names are display cues only.
+
+Switching the target-tooth control never rewrites an already-associated
+trajectory. An incompatible current trajectory is deselected, and the exact
+segmentation/segment pair resolves its own reusable target-bounds ROI. Every
+DENTOBOT trajectory is required to satisfy the Markups-line two-control-point
+contract, with the points labelled Entry and Target. Active-widget deletion
+coverage also verifies that workflow references are cleared before node
+removal so selectors cannot substitute unrelated nodes during destruction.
+
+### Step 4A extension — trajectory-aligned longitudinal oblique MPR
+
+**Status:** implemented in source with Slicer-native math/UI verification;
+live clinician and physical-session performance acceptance pending
+
+The compact **Trajectory Verification** control reuses the selected
+Entry/Target Markups line and its segmentation-to-source-CBCT MRML reference.
+It aligns one available native slice view with the trajectory vertically in
+plane, rotates the plane `-180°..+180°` about that fixed axis, updates after
+valid point edits, and temporarily projects the same Markups line as the 2D
+overlay. It creates neither a new trajectory nor an angle-specific volume.
+
+The frame/matrix logic is independently testable, handles vertical and
+near-reference trajectories, rejects degenerate/non-finite inputs, and uses
+the midpoint as slice origin. Slider and point events are coalesced. Disable,
+module exit, scene close, cleanup, Step 5C isolation, and scene saving restore
+the prior slice/composite/display presentation; saving then resumes the live
+view without serializing the transient override.
+
+The first live review found that recomputing the same numeric angle from a new
+world-reference basis made point correction jump to another circumferential
+view. The correction path now freezes the slice throughout a Markups drag and,
+at interaction end, minimally transports the prior plane normal onto the new
+trajectory. In-plane corrections preserve the exact plane, slider motion
+continues by relative angle from it, and Reset explicitly reconstructs the
+deterministic zero frame. Focused source tests cover in-plane preservation,
+off-plane transport, the parallel fallback, handedness, and finite geometry;
+live correction usability remains pending.
+
+The viewer now chooses Red when available, keeps the rotation slider
+mouse-wheel accessible, coalesces rapid slider/wheel events to approximately
+one 60 Hz refresh, and offers native linear CBCT display interpolation. This
+changes only the scalar-volume display setting while verification is active and
+restores its previous value afterward. Reset refits the target after rebuilding
+the deterministic zero plane. Slicer's existing slice reslice pipeline remains
+the only image operation.
+
+Live acceptance must confirm vertical overlay, circumferential anatomy change,
+point immutability under rotation, stable under-pointer point dragging, exact
+plane preservation after in-view correction, source-CBCT selection, state
+restoration, MRB save/reopen behavior, vertical-axis safety, and interactive
+FPS. Perpendicular cross-sections, depth scrolling,
+optimization, collision/wall-thickness analysis, bur volume, and warnings are
+future scope.
+
+### Step 4A optional mode — assisted one/two-root trajectory initialization
+
+**Status:** implemented as a narrow research V1; synthetic Slicer-native MRML
+and save/reload verification passed, representative anatomy acceptance pending
+
+The user chooses one or two expected root targets and places only the matching
+crown Entry point(s). A temporary role-owned Markups fiducial list stores these
+inputs. The logic reads the selected target tooth's authoritative closed surface
+in world RAS, estimates an entry-directed crown-to-root axis, and samples the
+root-side surface. One-root mode derives a remote-cap target. Two-root mode
+evaluates multiple cap depths, deterministically clusters transverse branches,
+rejects insufficiently separated results, and pairs targets to entries by
+minimum transverse travel.
+
+Generation creates the same existing two-point trajectory line nodes used by
+manual planning and all Step 5 consumers. It never overwrites existing plans;
+each line remains unlocked, references its entry markup and target bounds, and
+records the analysis plus `RequiresManualVerification`. The routine does not
+claim canal/apex detection or safety. Every target must be reviewed and corrected
+with CBCT/MPR before locking.
+
+Entry placement temporarily isolates the target-tooth mask, makes the immutable
+target bounds visible, centers slices, and fits the 3D view. Exact previous
+display state is restored after generation, explicit exit, save, module exit,
+or scene close. Live acceptance must cover real one-/two-root teeth, asymmetric
+roots, fused/poorly separated roots, rotated scans, bounds visibility, placement,
+manual correction, stale downstream behavior, and MRB persistence.
+
+### Step 4B — support-tooth selection and full-anatomy draft
+
+**Status:** implemented and Slicer-native synthetically verified; normal-GUI
+representative-case acceptance remains active
+
+After trajectory approval, select any positive number of distinct whole-tooth
+segments from the same reviewed jaw as the target. Append the unmodified
+world-RAS closed surfaces for the target and selected supports into one
+transform-free `TemplateSupportDraft` model. Persist the authoritative
+segmentation, target/support IDs, source names, geometry counts, update
+revision, and Current/Stale state without altering source masks.
+
+The Step 4B arch is the sole membership editor. Creating/updating the draft
+persists and locks the package; an explicit revision action unlocks it and
+immediately stales Step 4C and all Step 5 descendants, and rebuilding locks it
+again. Step 5A displays only the read-only target/support/draft/lock summary
+and a return-to-Step-4B action. Saved-scene recovery may rehydrate missing
+support parameter JSON from model provenance only while the parent is Current,
+locked, and source/target matching.
+
+This stage deliberately precedes docking. Step 4C requires a current Step 4B
+draft, prioritizes those selected supports during collision screening, and
+marks docking and final geometry stale when the selection or draft geometry
+changes. Step 5A later refines this complete anatomical draft to the visible,
+erupted fitting surface.
+
+### Step 4C — target-frame registration landmarks and robot docking rails
+
+**Status:** schema-v4 independent-dock, support-provenance, and collision-aware
+yaw workflow implemented and Slicer-native synthetically verified through
+2026-08-22;
+representative anatomy, dimensional, mechanical/kinematic, phantom, and live
+acceptance remain active
+
+After trajectory approval, derive an explicit target-tooth local frame from the
+accepted crown/occlusal plane and target centroid. Generate four hollow docking
+features around the target, with top faces coplanar to that plane, a shared
+depth input by default, and a UI unlock for four independent depths. Preserve
+separate semantics/provenance for registration landmarks and the intraoral
+robot's load-bearing docking interface. Support one or two source trajectories
+and pass the replaceable assembly to the existing cropped voxel clearance,
+reinforcement, union, and channel-restoration pipeline.
+
+The development implementation treats `15 mm` as a configurable centroid-to-
+dock radius and `1 mm` as a configurable bore, with a visible provisional
+3 mm outer diameter, 3.5 mm shell-attachment branch width, 2 mm endpoint
+overlap, and 5 mm common dock depth. All four individual depths can be
+unlocked. Mean approved Entry→Target supplies crown/root polarity; a
+target-crown-cap PCA normal defines occlusal frame `+Z`, a crown principal axis
+defines `+X`, and `+Y` completes the right-handed world-RAS frame. Each
+robot-facing top/opening lies on the stored plane and depth proceeds along
+crown-to-root `+Z`. The plane/assembly explicitly reference the authoritative
+segmentation, the current Step 4B support draft, its selected support IDs and
+update revision, and all one/two source trajectories.
+
+Schema v4 retains the deterministic 5-degree yaw sweep around frame `+Z` and
+adds direct support-anatomy provenance. It screens the four finite outer dock
+cylinders, expanded by a configurable development clearance, against selected
+Step 4B supports first and all remaining same-jaw whole teeth second. The
+selected yaw remains a Draft. The operator can set another yaw, rebuild,
+inspect 13 referenced read-only annotations (one assumed centroid normal plus
+radius, outer/bore diameter, and depth lines for each dock), and must explicitly
+confirm the current orientation before Step 5B fusion. Changing dimensions,
+yaw, trajectories, support selection/draft, or the assembly invalidates that
+confirmation. This sampling pass is not a substitute for continuous collision
+analysis, clinician review, or physical fit testing.
+
+These values remain provisional. Resolve the final wall thickness,
+manufacturing clearance, four-hole/profile semantics, depth reference,
+rail/channel mating profile, and structural/material constraints. Define how
+a Z-only final actuation can serve two non-parallel trajectories: reindex the
+robot, add angular adjustment, constrain trajectories parallel, or use
+separate docking poses/assemblies.
+
+Schema v2 removed the central hub and all radial spokes; schema v3 added yaw
+screening/confirmation; schema v4 adds the Step 4B support-first dependency and
+provenance. Step 5B builds four
+independent closest-surface attachments from the docks to the shell, keeps the
+annular trajectory drill-guide collar separate, clips attachment material
+against the guide envelope, and rejects any core robot dock that intersects
+that protected envelope. Final verification records these topology contracts.
+The attachment paths remain provisional geometric branches rather than a
+mechanically approved rail/load path; representative-case and physical
+validation must determine whether their positions and cross-sections are
+usable.
+
+### Cross-stage viewport navigation and remaining placement QoL
+
+**Status:** first viewport slice implemented on 2026-08-12; remaining
+dentist-guided placement/layout work is deferred
+
+Preserved implementation sequence:
+
+1. Add **Focus on Target Tooth** to center and fit the primary slice view on
+   the selected target and bounds without silently changing orientation.
+2. Represent the planning plane explicitly. Begin with user-captured current
+   slice orientation; scanner axial, dental occlusal, and tooth-local planes
+   remain distinct future modes requiring explicit definitions.
+3. Lock slice rotation while allowing deliberate slice-offset scrolling
+   through the target; provide explicit unlock/reorient controls and show the
+   active plane mode.
+4. Make 2D Entry/Target placement primary, keep the two-point and target-bounds
+   invariants, distinguish on-slice from projected points, and retain 3D as
+   contextual verification.
+5. Synchronize cross-reference position across the other slice views without
+   unexpectedly rotating them.
+6. Persist plane mode/orientation and target/trajectory associations; warn and
+   invalidate safely when stored references or orientation are unavailable.
+
+Live usability acceptance remains developer/dentist-run in Slicer. Static and
+ordinary-Python coverage should address plane validation, lock transitions,
+association/persistence, stale references, and UI callback integrity. This
+plan is preserved. The current increment replaces scattered focus/Step 5
+visibility controls with one scene-wide viewport panel available at every
+workflow stage. It exposes
+recommended and explicit target-only, planning, support, docking, undercut,
+shell-only, shell-and-guide, final-only, all, and custom views as applicable;
+adds one-click upper/lower/all permanent-tooth mask views in 2D, 3D, or both;
+groups the remaining anatomy and workflow objects; and frames their combined
+world-RAS bounds. The Advanced list may expose an already-existing CBCT volume
+renderer with an explicit **not a mask** label, but inventory refresh no longer
+creates rendering nodes and recommended views exclude them. It
+captures/restores exact display state and excludes
+transient filtering from MRB save state. These operations do not alter MRML
+identity, masks, or geometry. Dedicated planning layouts, click-selected
+node-to-Subject-Hierarchy routing, additional semantic role-color variants,
+and dentist acceptance remain future increments.
+
+## Step 5: Target-region modeling and template research
+
+**Status:** renovated research vertical slice implemented through provisional
+Step 4C fusion, final verification, and one-STL export. Visible-support ROI,
+explicit insertion direction, undercut/blockout, patient-contact shell,
+trajectory guide holes, four docks/rails, one occupied unified model, and the
+PASS/WARNING/FAIL gate are Slicer-native synthetically verified. Live anatomy,
+dimensional, phantom, clinician, and mechanical acceptance remain active.
+
+### Step 5A — visible erupted support surface and insertion preparation
+
+Goal: refine the complete Step 4B anatomy draft to the accessible fitting
+surface used by shell generation, without changing authoritative masks or
+claiming clinical fit.
+
+Implemented behavior:
+
+- require the current Step 4B full support-anatomy draft and its authoritative
+  segmentation/target/support provenance;
+- present that Step 4B package read-only and route every membership change
+  back to the exclusive Step 4B editor;
+- create an editable role-owned closed boundary around only the erupted,
+  accessible support surfaces and preview the selected patch distinctly;
+- map the single boundary to authoritative tooth segment IDs, treating extra
+  connected mesh islands as per-tooth diagnostics rather than additional
+  teeth;
+- evaluate both SlicerFSP-style Dijkstra clip candidates per addressed tooth
+  and select the crown-side candidate from the selected target trajectory's
+  Entry→Target direction, independent of candidate surface area;
+- expose one optional polarity-reversal button for exceptional cases and apply
+  its result consistently to every target/support tooth;
+- persist explicit source/boundary/segmentation references, world-RAS control
+  points, selection side, processing resolution, revisions, metrics, and stale
+  state; delete the owned boundary/preview safely while preserving authority.
+
+Developer-run acceptance in Slicer must cover automatic-plane and editable-
+boundary refinement, target/support mapping, polarity, save/reopen persistence,
+source-edit invalidation, and clear Current/Stale presentation. Step 4B owns
+small/large support selection and full-draft create/update acceptance. The
+Slicer-native lifecycle test covers trajectory/model deletion, retained inputs
+and selections, save/reload, recreation, and the Step 4B→4C→5A dependency.
+
+The visible preview is not an undercut-corrected fitting surface, final shell,
+printable guide, clinical validation, or drilling authorization.
+
+### Step 5B — patient-contact shell and guide integration
+
+Current renovation behavior:
+
+- present routine work as one ordered unified-template build: approved
+  Step 4A/4B/4C/5A inputs and lineage, every shell/guide/dock-fusion dimension,
+  collapsed Advanced fit/intermediate diagnostics, the generated result, and
+  a final action footer. The footer owns the only routine Build/Update action,
+  three display-only inspection actions, and the subordinate delete action;
+- reuse Current cached intermediates and regenerate only missing/stale stages.
+  A Current final result disables the build action instead of changing that
+  button into an inspection shortcut. Step 5C remains the separate verification
+  and export gate;
+- require a Current visible support preview explicitly linked to the Current
+  full support model and authoritative segmentation;
+- expose fit clearance, wall thickness, and tight-domain processing resolution;
+- run native Dynamic Modeler Margin followed by Hollow, retaining both tools
+  and their fitting/candidate outputs as hidden role-owned referenced nodes;
+- generate a lifted, closed structural collar from the clinician boundary so
+  separate selected tooth shells bridge interdental gaps without inventing
+  fitting/contact surfaces there;
+- voxel-union the candidate and boundary collar inside a cropped support
+  domain, subtract residual material within the directional-blockout
+  clearance, and reconstruct invalid Hollow candidates from the validated
+  fitting-surface distance band;
+- reject empty/open/non-manifold results and record topology, sample-domain,
+  minimum-clearance, source-revision, warning, and parameter metadata;
+- persist/reload and cleanly delete the shell plus five owned processing nodes;
+- derive and persist a locked Approach→Seat Markups line from the selected
+  target trajectory in world RAS, using the opposite vector for removal and
+  allowing only the Step 5A polarity-reversal override in the routine UI;
+- classify retentive surface triangles by normal/removal angle tolerance and
+  construct a cropped insertion-frame directional height-field blockout rather
+  than assuming anatomical direction from world axes;
+- expose/persist blockout safety and voxel-closing values, re-enforce fit
+  clearance after smoothing, and invalidate shell/final geometry after any
+  insertion, ROI, support, or parameter change;
+- select multiple complete locked trajectories by explicit repeated MRML
+  references, rejecting trajectories outside the selected target/support
+  anatomy;
+- keep the current annular docking profile explicitly provisional and
+  replaceable because no final robot rail/channel specification exists;
+- adapt the SlicerFSP integration order in a tight voxel domain: docking
+  clearance subtraction → reinforcement union → docking union → trajectory
+  channel restoration;
+- generate/persist/reload one `FinalPrintableTemplate` with explicit patient
+  shell, all trajectory, docking, clearance, reinforcement, and channel
+  references. The focused two-tooth/two-trajectory regression produces one
+  connected watertight component;
+- initialize that unified model as `NotVerified`; Step 5C now computes and
+  persists the dedicated PASS/WARNING/FAIL gate and only permits one atomic
+  STL on PASS/WARNING.
+
+The older model-independent raw research shell/sleeve behavior below is now a
+labelled provisional developer path, not the target clinical/research flow:
+
+Implemented behavior:
+
+- require the current role-gated Step 4B support draft and a complete locked
+  Step 4A Entry/Target trajectory;
+- create/reset a locked, non-selectable, axis-aligned world-RAS Markups ROI
+  automatically around the support model and recompute it before generation;
+  the ROI is a visible reference, not a user coverage control;
+- list only role-owned Step 5B automatic ROIs in its selector, reject Step 4A bounds
+  and unrelated ROIs at the logic boundary, and require the ROI's source
+  reference to match the current Step 4B draft before reset or generation;
+- repair a legacy cross-role Step 4A bounds node in place and clear any invalid
+  Step 5B parameter reference without deleting the Step 4A node;
+- disable selection and all translation/rotation/scale interaction handles on
+  both Step 4A and Step 5B workflow-owned ROI roles, including loaded scenes;
+- provide a dedicated confirmed, role-gated delete action for the shell ROI;
+  preserve the Step 4B draft, trajectory, dimensions, shell, and sleeve while marking
+  retained Step 5B outputs Stale so a fresh ROI can be created;
+- provide one Scene visibility panel for the selected Step 4A target box and
+  trajectory, Step 4B support draft, Step 5A visible support surface, and Step
+  5B ROI/shell/sleeve; hiding is
+  display-only, persists through MRB save/reopen, and is preserved by ordinary
+  refresh, reset, update, and regeneration;
+- prefix workflow-owned scene-node names with their Step 4A/4B/5A/5B tag for
+  consistent identification in both DENTO Workflow and Slicer's Data view;
+- sample signed distance from the world-RAS anatomy and extract an exterior
+  clearance/thickness band inside the ROI;
+- subtract a trajectory-aligned channel and generate a separate watertight
+  annular sleeve extending outward from Entry;
+- expose clearance, thickness, sampling, channel diameter, sleeve diameters,
+  and sleeve height as persisted research parameters;
+- cap voxel sampling to prevent accidental excessive memory use;
+- validate finite geometry and boundary/non-manifold edges, report surface
+  regions and sleeve/anatomy overlap warnings, and retain source/trajectory/
+  ROI references plus parameters and metrics on the MRML output models;
+- mark outputs stale when source anatomy, trajectory points, ROI bounds, or
+  parameters change;
+- save/reload both models in MRB and delete only role-owned outputs. Step 5B
+  deliberately does not export its unfinalized raw shell.
+
+Slicer-native synthetic verification passed for geometry generation,
+watertight topology, binary STL output, MRB save/reload, output deletion,
+shell-ROI deletion/recreation state, strict ROI role/source isolation, legacy
+cross-role repair, and all pre-existing DENTO Workflow tests. The reported
+2026-07-23 legacy MRB also loads through DENTO Workflow without recursive
+refresh or a cross-role ROI; that compatibility check was read-only.
+This is research geometry only. The public
+EndoPlanner preview informed the workflow comparison but could not be reused
+directly because its model weights and several called implementation helpers
+are absent.
+
+### Step 5C — final verification and one-STL export
+
+**Active behavior (implemented 2026-08-12):**
+
+- select only the explicit `FinalPrintableTemplate` generated by the active
+  Step 5B patient-shell/trajectory-guide/four-dock fusion;
+- verify current MRML references and source revisions, selected visible-support
+  provenance, insertion-direction and undercut snapshots, one/two locked
+  trajectory geometry and guide-axis agreement, four coplanar docks, non-empty
+  watertight topology, exactly one occupied printable volume, non-empty
+  docking/reinforcement/channel masks, and requested wall/bore sampling;
+- classify every check as PASS, WARNING, or FAIL and persist the report on the
+  final model; retain an unavoidable research WARNING for clinical fit,
+  anatomy collision, material strength, and robot safety review;
+- disable normal export on FAIL or stale/unverified state, rerun verification
+  at export time, and write exactly one atomic binary
+  `DENTO_Final_Printable_Template.stl`;
+- retain old scene-node readers but hide and stop executing the superseded
+  automatic ROI/raw research shell/separate sleeve/trim/two-STL controller.
+
+The following older dentist-directed shell-trim implementation is retained as
+compatibility code, not the active post-5B workflow:
+
+Implemented behavior:
+
+- preserve the current Step 5B shell as a non-destructive source and create a
+  separate role-owned finalized shell;
+- provide **Isolate Shell in ROI-Aligned 3D View**, which saves layout,
+  camera, crosshair, and display visibility; switches to one 3D view; shows
+  the source shell alone; and restores the complete previous presentation for
+  later 2D verification;
+- at zero yaw look along ROI `+Y`, put ROI `+X` to viewport right and ROI `+Z`
+  upward, and use half the ROI Z size as parallel scale so its top/bottom meet
+  the viewport boundaries;
+- lock X/Y/Z translation, pitch, and roll by default while retaining a
+  360-degree yaw orbit around ROI `+Z` and interactive zoom; provide a second
+  checkbox to freeze yaw while still allowing zoom, and allow a fully free
+  camera when the first lock is deliberately cleared;
+- keep the simple plane parallel to the ROI top/bottom faces with normal ROI
+  `+Z`; use exactly one origin point, project it onto the ROI Z axis, and hide
+  all translation/rotation/scale handles so signed Z height is the only cut
+  input. Reapply and validate this constraint after reload and before cutting.
+  Isolation itself creates no markup and starts no placement; the plane/curve
+  buttons are separate deliberate actions;
+- implement the simple workflow as a one-click height placement of a Markups
+  plane followed by Dynamic Modeler **Plane cut** with capped surface and an
+  explicit choice to keep the inferior/negative or superior/positive side;
+- implement the uneven-margin workflow as a visible, adjustable Markups
+  closed curve whose control points snap to the shell, followed by Dynamic
+  Modeler **Curve cut** with an explicit inside/outside choice;
+- cap the open Curve Cut boundary, triangulate, clean, orient normals, and
+  reject empty or non-watertight finalized output;
+- persist the trim method, kept region, plane/curve, Dynamic Modeler node,
+  source reference/revision, edit geometry, topology metrics, and finalized
+  shell through MRB save/reopen;
+- mark the finalized shell Stale whenever its Step 5B source, trim method,
+  retained region, or markup geometry changes;
+- expose Slicer's full Dynamic Modeler module as an expert handoff while
+  keeping DENTOBOT STL export gated to its own traceable finalized shell;
+- delete the Step 5C plane, curve, finalized shell, Dynamic Modeler node, and
+  owned cut auxiliaries as one confirmed clean reset while retaining Step 5B;
+- move atomic binary STL export into Step 5C and require a Current,
+  source-matched, watertight finalized shell plus a Current Step 5B sleeve.
+
+Synthetic Slicer-native verification passed for both plane sides, curve cut
+and capping, source preservation, watertight output, clean auxiliary deletion,
+raw-shell export rejection, binary STL output, lineage propagation, MRB
+save/reload, and the complete pre-existing test class. The source-build
+process still reports its known VTK debug leaks after the explicit full-suite
+pass marker.
+
+The 2026-08-10 ROI-frame corrections passed Python compilation, UI XML
+parsing, repository static checks, and added camera-math, ROI-lock, and
+ROI-Z-only plane regressions. Live yaw/zoom interaction, constrained height
+placement, layout/camera restoration, initial viewport fit, and FPS remain
+pending developer-run Slicer acceptance; no new Slicer process was authorized
+or launched for these corrections.
+
+The plane starts without an anatomical default after the user requests a new
+height, and the earlier expert suggestion of roughly 70–80 percent tooth
+coverage is not encoded. A dental/occlusal frame, gingival-margin detection,
+fit/contact validation, and any automatic trim recommendation require
+representative data and dentist-approved definitions.
+
+### Later Step 5 increments
+
+Next, exercise Steps 5B/5C with representative reviewed anatomy and dentist
+input; define intended contact/removal behavior, cervical/gingival margin,
+dental orientation frame, Entry surface semantics, hard-invalid versus warning
+states, physical sleeve/bit fit, print orientation, material/process
+constraints, and a saved planning report. Parameter values and manual margins
+remain research inputs until the team supplies validation data.
+
+## Registration and calibration prerequisite
+
+**Status:** next active design/experiment package; no implementation or
+measured TRE evidence yet
+
+Goal: establish explicit transforms among image, patient/tooth, tool, tracker,
+and robot frames.
+
+Potential scope:
+
+- image and physical landmarks
+- paired-point registration
+- registration transform node and frame tree
+- FRE and independent target validation
+- tool-tip/pivot and hand-eye calibration as required
+- validity, timestamp, and invalidation state
+
+First closure milestone: a directionally named frame graph, one selected PoC
+registration method, a rigid target-point phantom, and a repeat protocol that
+separates template reseating, redocking, registration, robot pose, and tool/TCP
+errors. FRE may be reported where applicable, but TRE at/near the drilling
+target is the primary registration metric.
+
+## Step 6: Robot placement and simulated navigation
+
+**Status:** `dentobot_description`, MRML Step 6 placement, disposable open-mouth
+phantom, SlicerROS2 Motion Control bridge (`DENTOROS2Bridge.py`,
+`joint_state_mode:=slicer`), and planning sub-workflow **6.0–6.3**
+(`DENTOStep6Planning.py`) are implemented and **synthetically verified** (host
+and container pytest through 2026-08-19). Connect hardening fixed SlicerROS2
+discovery, `PYTHONHOME`/ros2 CLI, sanitized PATH for description Python nodes,
+and stale node-list cache (commits through 19:55 IST on branch
+`cursor/step6-runtime-case-limits-06d8`). **Developer-live** graphical Connect,
+import on a representative MRB, and Plan/Preview with live `/slicer` remain
+operator-pending after DENTOBOT extension reload. Preview does not yet
+consistently stream planned joints to `/joint_states` when ROS is active.
+MoveIt, navigation metrics, registration bridging, and hardware motion remain
+unimplemented/unauthorized.
+
+Goal: validate navigation metrics without physical hardware.
+
+Potential scope:
+
+- virtual bur and robot geometry
+- simulated transform streams
+- drill-tip and axis visualization
+- depth, lateral, angular, and target error
+- sequence recording and deterministic playback
+- fault and stale-transform simulation
+
+The current bounded slice is `dentobot_description`: a package-resolvable
+URDF, the supplied visual/collision meshes, a KDL-compatible massless root,
+neutral/manual/external joint-state modes, robot-state publication, TF, and
+RViz. The package-owned manual window exposes the six URDF joints individually
+without a command or hardware path. A Jazzy runtime probe independently moved
+each joint and verified upstream-frame invariance, correct child motion type,
+and downstream tool response; neutral and nonzero configurations rendered in
+RViz without mesh/resource errors. Manual mode now adds advisory 5 mm
+non-adjacent link AABBs and the current CAD burr-origin coordinates for early
+workspace/flexibility exploration. The neutral pose visibly reports two coarse
+box overlaps. The photographed manual pose is now draft q=0, the link-1
+mounting face is parallel to RViz XY with the robot above the grid, and J4
+positive travel is reversed into negative base X. This is synthetic forward-
+kinematics and conservative bounding-
+box visualization evidence only.
+
+The bounded Slicer slice is **6 · Robot Placement** with an optional **SlicerROS2
+Motion Control** path and a **6.0–6.3 planning sub-workflow**. It reuses the
+tracked URDF/STLs, builds seven link-pose transforms under one editable MRML
+base transform (or loads the same URDF via ROS TF when connected), exposes task
+joint limits and coarse simulated motion planning along the approved trajectory,
+and streams slider values to simulated `/joint_states` through
+`dentobot_slicer_joint_state_publisher`. Explicit snapping aligns the base to
+the orthonormalized plane frame. This is scene-local manual visualization and
+simulated joint streaming, **not** physical registration, MoveIt execution, or
+hardware command.
+
+The current disposable head/mouth trial loads aligned BodyParts3D
+neurocranium, maxilla, and mandible meshes under a disposable workspace
+transform that relocates them beside the robot on first load. Four approximate
+researcher-placed points define a TMJ hinge and an incisor pair; landmarks are
+placed one at a time so the operator can pan between them. Only the mandible
+rotates until the final straight-line incisor gap is approximately 40 mm. The
+hinge solver returns a world-RAS matrix that must be expressed in workspace-
+parent local coordinates when the jaw transform parents under the workspace node.
+The researcher can then snap/fine-place the base on a provisional forehead plane
+and articulate all six joints beside the open mouth. Only one phantom set and one
+robot placement set may exist in the scene. This is an intentionally temporary
+design-iteration aid, not a 40 mm mandibular translation, clinical jaw model,
+head-mount registration, or reach/collision acceptance result.
+
+Physical joint/frame calibration and graphical direction/scale acceptance,
+exact/swept/environment collision, governed head/mouth/head-mount geometry,
+virtual-bur/TCP semantics, registration, end-effector IK, live transform
+streams, metrics, sequences, faults, and controller/hardware integration remain
+unimplemented.
+
+## Step 7: Robot adapter and motion simulation
+
+**Status:** description foundation only; adapter, motion simulation, and
+transport remain planned/undecided
+
+Goal: define high-level robot interaction independently of vendor transport.
+
+Potential scope:
+
+- `RobotAdapter` interface and capabilities
+- connection/state/fault model
+- approved-plan transfer
+- motion simulation and collision checks
+- request/cancel semantics
+- command/event logging
+
+ROS decision gate:
+
+- Identify robot/vendor APIs and timing requirements.
+- Compare direct SDK/IPC/TCP against ROS2 and MoveIt.
+- Adopt ROS only if existing drivers, motion-planning integration,
+  distributed-node needs, or tooling justify its operational cost.
+
+## Step 9: Supervised hardware integration
+
+**Status:** future research scope
+
+Goal: connect the validated adapter to research hardware while keeping
+safety-critical behavior outside Slicer.
+
+This step requires a separate hazard analysis, emergency-stop design,
+workspace/limit enforcement, communication-loss behavior, and supervised
+bench validation before any specimen or patient-context work.
+
+## Step 10: Reproducibility, validation, and custom application packaging
+
+**Status:** planned overall; case-package schema V1 implemented 2026-08-24
+
+Goal: turn the stable workflow into a reproducible DENTOBOT research
+application.
+
+Implementation themes:
+
+- representative de-identified datasets and ground truth
+- segmentation, planning, registration, and navigation metrics
+- automated Slicer/backend contract tests
+- validated top-level manifests, complete transitive environment lock, model
+  inventory/hashes, and clean-machine reconstruction
+- case/procedure audit bundle
+- extension packaging and backend setup tooling
+- Slicer Custom Application Template integration
+- DENTOBOT branding, home module, reduced module set, simplified chrome
+- installer and clean-machine acceptance testing
+
+The custom application must reuse the validated extension and contracts; it
+must not introduce a second workflow implementation.
+
+### 2026-08-24 case-persistence V1 increment
+
+Step 0 now offers **Save Case Package** and **Open Case Package** for a
+versioned `.dentocase` archive. The package contains a sanitized authoritative
+MRB plus checksums, a workflow-lineage record, and a portable robot-resource
+fingerprint. Save validates before atomic replacement. Open preflights before
+scene mutation, keeps a recovery snapshot, loads with clear semantics,
+cross-checks restored world-RAS/mm geometry and workflow records, and rolls
+back on a post-load failure. ROS runtime nodes and connection state are never
+restored; Step 6 connection remains explicit.
+
+Pure-Python integrity tests and Slicer-native round trips of the operator
+Step 5C and Step 6 samples passed. Both samples are correctly retained as
+stale—not promoted—because their Step 4B support draft changed after the saved
+Step 4C docking assembly and Step 5C template. Remaining work is normal-window
+operator acceptance, regeneration of those downstream artifacts followed by
+a fresh package, an offline legacy contaminated-scene migrator, schema
+migration policy, and clean-machine/custom-application packaging.
+
+## 2026-08-21 Step 6 simulation-planning status
+
+The first Step 7-enabling slice is now implemented inside Step 6: an external
+ROS 2 description/TF/status stack, a plan-only MoveIt configuration, a thin
+Slicer adapter, manual joint streaming, provisional tool-axis poses, 5 mm
+padded planning-scene collision surfaces, and preview of returned joint
+waypoints. This replaces the ROS-active SciPy planner path; the old
+position-only SciPy/AABB algorithm remains only as an MRML fallback.
+
+Completed acceptance evidence includes the generic three-part skull, 40 mm
+TMJ-hinge opening, forehead base snap, six-joint robot load, J2/J4 manual
+translations, state/TF checks, obstacle publication, and a successful embedded
+Slicer Cartesian plan. The next design-test activity is operator-driven
+placement and reachable Entry→Target trials in the physical desktop viewport.
+
+Still future: calibrated TCP, head-mount contact model, validated collision
+geometry and continuous/swept checks, representative dental trajectories,
+trajectory metrics, fault/state recording, controller/hardware adapter,
+emergency-stop and safety architecture, and all supervised hardware work.
+
+### 2026-08-21 collision-gated IK increment
+
+The economical follow-up keeps the external stack and adds a single ownership
+boundary rather than rewriting Step 6: candidate joint vectors are interpolated
+and accepted/rejected by a MoveIt PlanningScene guard before the sole simulated
+joint-state publisher sees them. Direct `/compute_ik` and collision-aware
+Cartesian service probes now form the IK acceptance test. KDL derives solutions
+from the URDF/SRDF serial chain at runtime; DENTOBOT does not duplicate the
+robot with explicit DH or symbolic IK equations.
+
+Next operator work is graphical design testing: place and lock the base,
+confirm the published phantom/case collision proxies, exercise all six joints,
+and record which disposable mouth trajectories are reachable or rejected.
+Physical calibration, validated collision meshes, continuous hardware safety,
+controllers, execution, and drilling remain later gates.
+
+The developer loop no longer requires a container or Slicer restart after each
+Python/UI edit. The persistent reload action replaces the main module and all
+DENTO helper modules while keeping the scene and external stack alive. Because
+the Slicer-side ROS robot is deliberately torn down to avoid stale publishers,
+observers, and collision proxies, reconnecting it is part of each Step 6 reload
+test cycle.
+
+### 2026-08-22 Step 6 interaction increment
+
+Completed the first operator-facing MoveIt repair: aligned current/goal roots,
+detected readiness, explicit planning group/TCP, visible IK and plan feedback,
+and fail-closed execution controls. Added the separate draft filtered-TCP
+workspace cloud so joint-range coverage can be inspected before selecting
+individual intra-oral targets.
+
+Next design-test work remains operator driven: use a normal graphical session
+to place the base on the forehead, regenerate the cloud after the final base
+pose, manually exercise each joint, drag the TCP probe to several disposable
+mouth poses, and record accepted/rejected IK and trajectories. Later work must
+replace the provisional TCP and draft visual/AABB geometry with calibrated and
+validated models before any hardware or safety claim.
+
+## 2026-08-24 parallel Step 6 / custom-GUI milestone status
+
+The approved two-track plan is now operating on branch
+`integration/gui-step6` with one source tree. Milestones 0–2 and the first
+Case/Robot Simulation vertical slice of Milestone 3 are implemented.
+
+- **Milestone 0 — baseline:** completed. The accepted starting branch was
+  clean at `23ea572`; the pre-change host suite returned 67 passed. Current
+  launcher, ROS, MoveIt, UI, and known VTK shutdown behavior were recorded.
+- **Milestone 1 — shared seam:** completed for the present Step 6 surface.
+  Legacy connect/load/joint/base/workspace/plan/preview handlers use the robot
+  façade. Pure contract tests run without constructing the complete widget.
+- **Milestone 2 — shell foundation:** completed and synthetically verified in
+  real Slicer. Both modes launch from one module; the shell provides six
+  workspaces, dual themes, Focus/Expert mode, stable stage mapping, and cleanup.
+- **Milestone 3 — vertical slice:** foundation completed. Case uses the exact
+  authoritative Step 0 controls inside the shell. Robot Simulation exposes six
+  task-focused substeps and façade-backed capability, TCP-goal/IK, collision,
+  and plan actions while retaining tested placement/joint/trajectory controls.
+  Normal-window operator acceptance remains active before this becomes the
+  primary Step 6 interface.
+- **Shared viewer increment (2026-08-25):** implemented the compact
+  `ViewComposition` controller and hierarchical Advanced inventory for both
+  presentation modes. Step 6 adds an explicit scene/robot/jaw/base context,
+  enforces case/phantom and MRML/ROS view-source exclusivity, and makes all
+  non-owning workflow markups read-only. Explicit CBCT intensity rendering is
+  view-session-owned and reversible; recommendations remain non-creating.
+  Synthetic Slicer verification passed, while representative-case visual and
+  interaction acceptance remains part of the Milestone 3 gate.
+- **Milestone 4:** pending. Imaging, Segmentation, Drill Planning, and Guide
+  Design still use compatibility presentation inside the shell and must be
+  migrated incrementally with cloned-scene parity checks.
+- **Milestone 5:** pending. Do not make the shell default or remove Legacy
+  presentation code until parity and one stabilization cycle pass.
+
+Track 1 remains active behind the façade. The next bounded acceptance is the
+normal graphical phantom/case trial: place and lock the forehead base, move all
+six joints, manipulate a TCP goal, solve through KDL/MoveIt, synchronize scene
+objects, plan and preview, reload/reconnect, then save/reopen. No controller,
+hardware execution, drilling, or patient-facing motion is authorized.
+
+### 2026-08-25 economical modularization checkpoint
+
+The shared implementation seam is now physically enforceable: the public
+Slicer entrypoint is 117 lines and focused domain modules hold the widget/logic
+implementation. No copied workflow version, alternate state store, transport,
+worker, or algorithm rewrite was introduced. A compact agent context and
+package routing map make narrow changes require only the relevant domain plus
+today's evidence. The public API manifest and 1,500-line test gate prevent the
+monolith from silently returning.
+
+This closes the code-organization foundation, not Milestone 3 operator
+acceptance. Legacy and Shell still share one backend and continue in parallel.
+The currently failing active-ROS New Case lifecycle smoke is a Track 1 defect
+and must be repaired before warm scene-replacement acceptance; UI shell,
+viewer, bounded Step 6 case view, and five-cycle source reload are verified.
+
+## 2026-08-29 — Step 6 runtime/state-ownership implementation paused
+
+Implementation was deliberately paused at the operator's request before any
+build or verification. The source now contains an **unverified partial** of the
+runtime-first 6.1–6.4 redesign and the Priority-0 Goal 1 state-handoff repair:
+
+- SlicerROS2 has a new explicit-start joint planner intended to submit the
+  immutable Task Home vector as the MoveIt start state and the returned
+  PreEntry IK vector as the goal. The legacy current-state planner remains for
+  generic non-DENTOBOT use.
+- The DENTOBOT bridge now keeps its native joint vector ahead of optional
+  expert-widget sliders, reads the monitored `/joint_states` vector separately,
+  performs a bounded Task Home convergence handshake, rejects effectively
+  equal explicit start/goal requests, and retains submitted/observed planner
+  evidence in the result.
+- Step 6.5 now asks the explicit planner for `Task Home -> PreEntry` and refuses
+  to plan unless the live monitored state equals the reviewed Home.
+- Connect prerequisites were moved toward 6.1: a prepared scene, local robot,
+  and locked reviewed base are required; a pre-ROS Home and assisted limits are
+  no longer prerequisites. Step 6.2 Home save/apply now requires live strict
+  collision acceptance plus monitored-state agreement. Optional persistent
+  Home runtime provenance fields were added while old records parse as
+  `Unreviewed`.
+- A read-only SlicerROS2 `/check_state_validity` interface and a partial 6.3
+  filtering path were added so deterministic FK candidates can be checked
+  against the synchronized MoveIt PlanningScene without commanding the robot.
+  Both presentation modes were relabelled/gated for the runtime-first order.
+
+This increment is **not ready for use or acceptance**. The following work must
+resume before proposing a check:
+
+1. finish the transient workspace-validation key and reconnect/revalidation
+   gates (the key is declared/reset but is not yet committed after generation
+   or required consistently by confirmation/UI);
+2. complete workspace provenance/count handling and the planned separate
+   `HomeConnected` classification; current code checks static MoveIt validity
+   after local URDF FK but does not yet prove a path from Home or use ROS FK;
+3. decide and implement collision-free Home application from another accepted
+   state rather than treating strict sampled-command acceptance as a plan;
+4. inspect the edited C++/Python interfaces for wrapper/compile/syntax issues,
+   finish failure diagnostics, and update any remaining Legacy/Shell gates;
+5. only after the feature is complete, describe the exact focused build and
+   operator check and obtain explicit approval before running it.
+
+No test, build, parser, Graphify refresh, Slicer reload, ROS query, planning
+request, preview, or motion action was run for this paused increment.
+
+## 2026-08-31 — Step 6 runtime/state-ownership source continuation
+
+The paused runtime-first increment has now been completed in source, still
+without running a build, parser, test, Graphify refresh, Slicer, ROS, planning
+request, preview, or motion action. The implementation resolves the five
+outstanding source items above:
+
+1. transient Home/workspace session keys are committed only after compatible
+   live evidence and are cleared on disconnect, scene/base invalidation,
+   workspace deletion, or incompatible policy/fingerprint state;
+2. every retained static-valid workspace sample stores MoveIt FK TCP and its
+   six-joint vector, while a deterministic bounded 13-sample set separately
+   records explicit `Task Home -> sample` MoveIt outcomes;
+3. applying a different saved Home now plans from the monitored current state
+   in MoveIt and submits every returned waypoint to the strict simulation
+   guard; an already-matching Home is revalidated without an artificial
+   equal-start/goal plan;
+4. Legacy and Shell labels/gates now expose the same runtime-first order and
+   refresh immediately after Home/workspace success or failure; and
+5. the native explicit-start planner retains bounded context and human-readable
+   early/MoveIt failure diagnostics rather than returning only an empty path or
+   numeric code.
+
+The approved focused gate then passed: both repositories passed
+`git diff --check`, the five edited Step 6 Python files passed `py_compile`, and
+`slicer_ros2_module` built and installed successfully. The first two native
+build attempts exposed the earlier FK wrapper's use of unavailable
+`hasVariable()` APIs; the final implementation checks membership against
+`RobotState::getVariableNames()` and the rebuild passed. The next action is a
+separately approved normal-window operator trial of 6.1 through 6.5. Execute
+and hardware motion remain unavailable.

@@ -12,6 +12,7 @@ import math
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import slicer
@@ -149,19 +150,32 @@ def run() -> dict[str, object]:
         for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
         if node.GetAttribute("DENTOBOT.Step6PhasePlanPath") == "true"
     ]
-    if len(planned_path_nodes) != 1:
+    if not 1 <= len(planned_path_nodes) <= 3:
         raise RuntimeError(
-            "Goal 1 did not create exactly one transient TCP trajectory view."
+            "Goal 1 did not create the expected bounded set of stage paths."
         )
-    planned_path_polydata = planned_path_nodes[0].GetPolyData()
-    if (
-        planned_path_polydata is None
-        or planned_path_polydata.GetNumberOfPoints() < 2
-        or planned_path_polydata.GetNumberOfLines() < 1
+    for planned_path_node in planned_path_nodes:
+        planned_path_polydata = planned_path_node.GetPolyData()
+        if (
+            planned_path_polydata is None
+            or planned_path_polydata.GetNumberOfPoints() < 2
+            or planned_path_polydata.GetNumberOfLines() < 1
+        ):
+            raise RuntimeError(
+                "A Goal 1 stage path is empty or has no rendered path cells."
+            )
+    for waypoint in approach_plan.waypoint_joint_vectors_si:
+        if abs(float(waypoint[bridge.ROS2_JOINT_SI_ORDER[-1]])) > 1.0e-9:
+            raise RuntimeError("Goal 1 moved the externally driven spindle joint")
+    if not approach_plan.tool_orientation_fingerprint:
+        raise RuntimeError("Goal 1 did not commit a Stage-1 drilling frame")
+    if len(approach_plan.tool_axis_ras) != 3 or not math.isclose(
+        sum(float(value) ** 2 for value in approach_plan.tool_axis_ras),
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1.0e-9,
     ):
-        raise RuntimeError(
-            "Goal 1 trajectory view is empty or has no rendered path cells."
-        )
+        raise RuntimeError("Goal 1 committed an invalid drilling-axis vector")
     if approach_plan.cartesian_fraction < 0.99:
         raise RuntimeError(
             f"Goal 1 terminal fraction is {approach_plan.cartesian_fraction}"
@@ -239,12 +253,44 @@ def run() -> dict[str, object]:
                 approach_outcome.details.get("suppressedToolContactSampleCount", 0)
             ),
             "goal1_preview_complete": True,
+            "goal1_result_code": approach.code,
+            "full_task_status": str(
+                approach.details.get("fullTaskStatus") or "Provisional"
+            ),
+            "full_task_blocked_stage": str(
+                approach.details.get("blockedStage") or ""
+            ),
+            "full_task_blocker": str(
+                approach.details.get("firstInvalidCause")
+                or approach.details.get("terminalPlanningError")
+                or approach.details.get("drillingPreflightError")
+                or ""
+            ),
+            "terminal_planning_fraction": approach.details.get(
+                "terminalPlanningFraction"
+            ),
+            "stage_path_count": len(planned_path_nodes),
+            "spindle_locked_rad": float(
+                accepted[bridge.ROS2_JOINT_SI_ORDER[-1]]
+            ),
+            "tool_orientation_fingerprint": (
+                approach_plan.tool_orientation_fingerprint
+            ),
+            "tool_axis_ras": tuple(approach_plan.tool_axis_ras),
             "goal2_deferred": True,
             "hardware_execution_enabled": False,
         }
 
     drilling = require_success(facade.planDrillingPhase(), "plan Goal 2")
     drilling_plan = drilling.payload
+    if (
+        drilling_plan.tool_orientation_fingerprint
+        != approach_plan.tool_orientation_fingerprint
+        or tuple(drilling_plan.tool_axis_ras) != tuple(approach_plan.tool_axis_ras)
+    ):
+        raise RuntimeError(
+            "Goal 2 did not inherit the exact Stage-1 drilling-frame commitment"
+        )
     if drilling_plan.cartesian_fraction < 0.99:
         raise RuntimeError(
             f"Goal 2 Cartesian fraction is {drilling_plan.cartesian_fraction}"
@@ -361,6 +407,7 @@ try:
     slicer.util.exit(0)
 except Exception as exc:
     print(f"DENTOBOT_STEP65_EXACT_CASE_FAILED: {exc}", file=sys.stderr, flush=True)
+    traceback.print_exc(file=sys.stderr)
     try:
         bridge.disconnect_dentobot_motion_control([])
         bridge.shutdown_slicer_adapter()

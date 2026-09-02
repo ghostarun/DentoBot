@@ -1,0 +1,11 @@
+---
+description: Shared DENTOBOT subagent verification, approval, resource-lock, and evidence protocol
+alwaysApply: true
+---
+
+For verification, testing, building, Slicer/ROS/MoveIt diagnosis, or a
+`DENTO-VERIFY` keyword, follow `Workspace/docs/AGENTIC_VERIFICATION_PROTOCOL.md`
+and select checks only from `Testing/verification_matrix.json`. Use
+self-contained read-only subagents, resume workers for retries, and serialize
+every runtime resource. The coordinator alone edits production source.
+
