@@ -4,10 +4,16 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-09-02
+## Current engineering state — 2026-09-03
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
-- Authoritative development branch: `main`, tracking `origin/main`.
+- Authoritative development branch: `main`, tracking `origin/main`. Freeze
+  and lab tag `lab/2026-09-02` are `17af3d8`. Remote `integration/gui-step6`
+  is a same-SHA alias only. Overlay root `~/dentobot` is not a git
+  repository; map: `Workspace/HOST_LAYOUT.md`. Windows lab ROS uses WSL2
+  Linux SlicerROS2 (`PLAT-U-04`); its private Linux/amd64 GHCR image is
+  published and authenticated-pull verified. Windows WSLg GUI acceptance is
+  pending. Native Windows Slicer stays `PLAT-U-02` / ROS `none`.
 - `DENTOWorkflow.py` is a thin public Slicer entrypoint. Production UI and
   logic live in `DENTOWorkflow/Resources/Python/dentobot_workflow/`.
 - Legacy and six-workspace Shell presentations share the same MRML parameter

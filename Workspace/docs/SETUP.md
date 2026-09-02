@@ -1,6 +1,9 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
-Last verified: 2026-08-28
+Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
+`main` / `lab/2026-09-02`, and Windows-lab *source* install path reconciled
+2026-09-02. The published GHCR image passed an authenticated Ubuntu pull;
+Windows WSLg+Docker GUI acceptance (`PLAT-U-04`) remains pending.
 
 ## Scope
 
@@ -118,10 +121,10 @@ load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
 WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
 `launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
 SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
-implemented, and `lab/2026-09-02` is published at the frozen source commit.
-The GHCR image remains unpublished, so installation currently fails closed at
-the image pull. This path is not Windows-lab-verified and is not a substitute
-for native Windows Slicer.
+implemented, and both `lab/2026-09-02` and its pinned Linux/amd64 GHCR image
+are published. The image is private, so Docker must authenticate to GHCR before
+installation. This path is not Windows-lab-verified and is not a substitute for
+native Windows Slicer.
 
 Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
 source-built Slicer 5.10/5.12. The published CI image is Linux.
@@ -138,65 +141,68 @@ Use this profile when a lab PC must run DENTOWorkflow **including Step 6
 ROS/MoveIt simulation**. It is not native Windows Slicer. Simulation/preview
 only: no hardware motion, drilling, or patient-facing use.
 
-**Prerequisites**
+Do **not** zip `~/dentobot`. Recreate the overlay inside WSL
+(`Workspace/HOST_LAYOUT.md`).
 
-- Windows 11 with WSLg, WSL2 Ubuntu 24.04, Git, and Docker Desktop (WSL2
-  backend) or Docker Engine in WSL;
-- a GitHub account added as a collaborator on the private DentoBot repository
-  (this is the approval model; scripts store no password);
-- tens of GB free for the image, `ros2_ws`, and the TotalSegmentator cache;
-- CPU inference matching the Ubuntu pin (`DENTOBOT_BACKEND_DEVICE=cpu`).
+#### What arrives from where
 
-**Do not zip or copy the Ubuntu overlay.** `~/dentobot` is not a git root.
-Do not ship `ros2_ws/build`, `ros2_ws/install`, `ros2_ws/log`, `data/` cases,
-or `graphify-out/`. Recreate the overlay inside WSL (see
-`Workspace/HOST_LAYOUT.md`).
+| Piece | Source | First machine |
+|---|---|---|
+| DentoBot at tag `lab/2026-09-02` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
+| `slicer_ros2_module` pinned SHA | public `rosmed/slicer_ros2_module` | installer |
+| Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` | Authenticate GHCR, then `docker pull` |
+| CPU inference env | `Inference/` manifests in that git tag | Conda/pip once |
+| TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` |
+| Overlay `~/dentobot` symlinks, `.dentobot.env`, `slicer-user/`, colcon `build/` | created locally | bootstrap + launch |
 
-**First-time install** (from PowerShell, after collaborator access and
-`wsl` / `gh auth login` or SSH in WSL):
+Native Windows Slicer is **not** installed for this profile.
+
+#### Operator steps
+
+1. Windows 11 + WSLg. `wsl --install -d Ubuntu-24.04`. Install Docker Desktop
+   with the WSL2 engine and Ubuntu integration. In Ubuntu:
+   `sudo apt install -y git gh`.
+2. Use a GitHub account with **Read** access to the private GHCR package. In
+   WSL, run `gh auth login -h github.com -s read:packages`, then
+   `gh auth token | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin`.
+   Repository collaboration alone is insufficient while the package is private
+   and unlinked. Scripts store no password or token.
+3. Clone and install (PowerShell, or the same commands in WSL):
 
 ```bat
-Workspace\scripts\install-lab-wsl.bat
+wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p ~/dentobot/ros2_ws/src && git clone https://github.com/ghostarun/DentoBot.git ~/dentobot/ros2_ws/src/DentoBot && bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/install-lab-wsl.bash"
 ```
 
-Or in WSL after cloning DentoBot:
+   Equivalent after the clone exists: `Workspace\scripts\install-lab-wsl.bat`.
+   The installer checks out `Workspace/LAB_RELEASE` (`DENTOBOT_TAG=lab/2026-09-02`,
+   published at `17af3d8`), pins `slicer_ros2_module`, runs
+   `bootstrap-workspace.bash`, and attempts `docker pull` of the GHCR image
+   (then tags it as Compose `dentobot/slicerros2:jazzy-moveit-sim-20260821`).
+   The published Linux/amd64 image requires the GHCR login from Step 2.
+4. Once per PC: edit `~/dentobot/.dentobot.env` (`DENTOBOT_BACKEND_PYTHON`,
+   `DENTOBOT_BACKEND_DEVICE=cpu`). Create the Ubuntu CPU backend from
+   `Inference/`. Copy the model cache. No patient identifiers in git.
+5. Launch: `Workspace\scripts\launch-lab-workflow.bat` (calls
+   `launch-dentoworkflow.bash` in WSL). Treat WSLg/llvmpipe like the CRD
+   session: functional checks, not FPS acceptance.
+6. Later updates: `Workspace\scripts\update-lab-release.bat` (pinned tag only).
+
+Maintainer only: build from the repository root with the exact tag identity,
+then publish after GHCR `write:packages` authentication:
 
 ```bash
-bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/install-lab-wsl.bash
+release_tag=lab/2026-09-02
+release_revision="$(git rev-list -n 1 "refs/tags/${release_tag}")"
+docker build \
+  --build-arg DENTOBOT_IMAGE_REVISION="${release_revision}" \
+  --build-arg DENTOBOT_IMAGE_VERSION="${release_tag}" \
+  -t dentobot/slicerros2:jazzy-moveit-sim-20260821 \
+  -f Workspace/Dockerfile.slicerros2 Workspace
+Workspace/scripts/publish-lab-image.bash --push
 ```
 
-The installer checks out the tag in `Workspace/LAB_RELEASE`, pins
-`slicer_ros2_module`, runs `bootstrap-workspace.bash`, and pulls
-`ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` (tagged
-locally as `dentobot/slicerros2:jazzy-moveit-sim-20260821` for Compose).
-It fails closed if that git tag is not on origin yet.
-
-Then, once per machine: edit `~/dentobot/.dentobot.env`, create the Ubuntu CPU
-backend from `Inference/` (same pin as this workstation), and copy
-TotalSegmentator tasks 113, 115, and 298 into
-`data/model-cache/totalsegmentator` by USB/rsync. Do not download weights as a
-Slicer launch side effect. Do not copy patient identifiers.
-
-**Launch**
-
-```bat
-Workspace\scripts\launch-lab-workflow.bat
-```
-
-That wrapper calls `scripts/launch-dentoworkflow.bash` inside WSL. Treat WSLg
-software/llvmpipe rendering like the CRD session: functional checks only, not
-FPS acceptance.
-
-**Update** (pinned tag only; never `main` or `integration/gui-step6`)
-
-```bat
-Workspace\scripts\update-lab-release.bat
-```
-
-Maintainer: after an explicit Git authorization, tag `lab/YYYY-MM-DD`, push
-the tag, and publish the image with
-`scripts/publish-lab-image.bash --push`. Lab PCs must not rebuild
-`Dockerfile.slicerros2` from scratch.
+The publisher refuses source, revision, or version label mismatches. Lab PCs
+must not rebuild `Dockerfile.slicerros2`.
 
 ## Ubuntu workspace
 
@@ -206,15 +212,29 @@ the tag, and publish the image with
 - Slicer user configuration: `/home/light-tarun/dentobot/slicer-user`, bound
   to the container's active `/root/.config/slicer.org` directory
 - Container definition: `/home/light-tarun/dentobot/compose.yaml`
-- Git checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`
+- Git checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot` on **`main`**
+  (`origin/main`). Tag `lab/2026-09-02` = freeze `17af3d8`. Remote
+  `integration/gui-step6` is a same-SHA alias only.
+- Overlay map: `Workspace/HOST_LAYOUT.md`. Shortcuts: `docs/`, `scripts/`,
+  `compose.yaml`, `tools/` → in-repo Arduino bench.
 - Git-tracked workspace layer:
   `/home/light-tarun/dentobot/ros2_ws/src/DentoBot/Workspace`
 
 The workspace root remains a runtime wrapper around the ROS 2 checkout. Its
-`AGENTS.md`, `compose.yaml`, `docs`, and `scripts` paths are relative symlinks
-to the tracked `Workspace/` directory. This keeps the established top-level
+`AGENTS.md`, `compose.yaml`, `docs`, `scripts`, and `tools` paths are
+overlay shortcuts into the tracked DentoBot tree (`Workspace/` for host
+notes/launchers, `tools/` for the Arduino bench). This keeps the established top-level
 commands while giving the existing DentoBot repository version control over
-the launcher, Compose definition, active Ubuntu notes, and helper scripts.
+the launcher, Compose definition, active Ubuntu notes, helper scripts, and
+the pressure bench.
+
+`ros2_ws/src` contains `DentoBot`, `slicer_ros2_module`, and the
+`dentobot_description` symlink. Stale in-checkout notes are `docs-legacy/`.
+The frozen demo checkout lives at `~/dentobot/archive/DentoBot-demo-aff8b2e/`
+and is not on the colcon path. Do not recreate overlay `arduino-pressure/`
+or `ros2_ws/src/Arduino/`. Do not zip `~/dentobot` or copy
+`ros2_ws/build|install|log`, `data/` cases, or `graphify-out/`. Recreate the
+overlay with `bootstrap-workspace.bash` (`Workspace/HOST_LAYOUT.md`).
 
 Run Git from the checkout or through the top-level helper:
 
@@ -967,6 +987,31 @@ DentoBot git checkout:
   prints that fs line and can redetect from the Pipeline tab. After flashing
   the paced sketch, confirm measured Hz ≈ set Hz on the strip. Do not flash
   while another PC is recording.
+
+### Sampling rate vs host filters (noise)
+
+`fs` is how often the UNO reads A0. It is **not** the analog anti-alias
+cutoff. MPX5700 tR = 1 ms ⇒ analog BW ~350 Hz (datasheet, read-only). Nyquist
+requires `fs ≥ ~700 Hz`; a 4× rule of thumb is `fs ≥ ~1400 Hz` (cap 1500 Hz).
+Default 1000 Hz already clears 2×.
+
+Host Fast/Slow/dP/dt **τ** and median N are the editable digital filters.
+Fast τ default 15 ms is `fc ≈ 1/(2πτ) ≈ 11 Hz` and is the live pressure
+trace. Raising `fs` by trial and error does **not** remove 50 Hz pickup, USB
+jitter, or a noisy 5 V rail. Lengthening Fast τ and/or median N **does**
+smooth the plot; too much τ blunts dentin ΔP.
+
+Tune one change per short air-on run, Apply only when not recording:
+
+1. Confirm set fs ≈ measured fs (else flash the `.ino` above and check USB).
+2. Compare **raw** vs **filtered**. Messy raw + quiet filtered is analog/EMI.
+3. Fast τ 15 → 25 → 40 ms until idle air-on is usable and steps remain visible.
+4. Spikes: median N 5 → 7 → 9. Hiss: τ, not median.
+5. Leave fs at 1000 Hz until 3–4 settle; try ~1400 Hz only if structure
+   *moves* when fs changes (aliasing).
+
+Remaining analog noise is hardware (Vs, ground, A0 lead, motor EMI), not a
+missing GUI cutoff. Each run’s `pipeline.json` is the reconstruction record.
 
 Do not install these packages into Slicer, the `dentobot` Conda environment, or
 the SlicerROS2 container. Cursor workspace settings select `pressure-env` and

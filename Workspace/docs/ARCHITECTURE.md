@@ -885,6 +885,10 @@ DentalDrillNav/                 # current workspace directory; project is DENTOB
 `-- CMakeLists.txt
 ```
 
+That tree is the historical Windows working-copy shape. The current Ubuntu
+overlay is `~/dentobot` with git only in `ros2_ws/src/DentoBot`; see
+`Workspace/HOST_LAYOUT.md`. Dated logbook files live under `docs/logbook/`.
+
 The uppercase documents are controlled, concise sources for accepted context,
 architecture, roadmap, and the formal inference reproducibility procedure. The
 two lowercase raw records are append-oriented sources of detail:
@@ -1387,7 +1391,13 @@ Python process.
 - Windows planning development: native pinned Slicer, source extension path,
   WSL2 backend, and no Docker requirement.
 - Windows lab ROS: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
-  `lab/*` git releases, GHCR image pull, collaborator access (no script password).
+  `lab/*` git releases (`Workspace/LAB_RELEASE`), private GHCR image pull, and
+  an account explicitly authorized to read that package; repository
+  collaboration alone does not grant access while the package is unlinked.
+  Scripts store no password. Recreate the overlay inside WSL; do not zip
+  `~/dentobot`. Native
+  `launch-dentoworkflow.ps1` is not this profile. GUI unaccepted until
+  `PLAT-U-04`.
 - Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
   extension path.
 - AI backend: isolated Linux environment, platform-specific locked Python

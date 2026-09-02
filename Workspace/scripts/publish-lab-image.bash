@@ -38,10 +38,32 @@ while (( $# > 0 )); do
 done
 
 load_lab_release "$(lab_release_default_path)"
+repository_root="$(cd -- "${script_directory}/../.." && pwd -P)"
+release_revision="$(git -C "${repository_root}" rev-list -n 1 \
+  "refs/tags/${DENTOBOT_TAG}" 2>/dev/null || true)"
+if [[ -z ${release_revision} ]]; then
+  lab_unpublished_tag_message
+  exit 2
+fi
 
 if ! docker image inspect "${COMPOSE_IMAGE}" >/dev/null 2>&1; then
   printf 'Local compose image is missing: %s\n' "${COMPOSE_IMAGE}" >&2
   printf 'Build it on the Ubuntu workstation with docker compose build, then retry.\n' >&2
+  exit 2
+fi
+
+IFS='|' read -r image_source image_revision image_version < <(
+  docker image inspect "${COMPOSE_IMAGE}" --format \
+    '{{ index .Config.Labels "org.opencontainers.image.source" }}|{{ index .Config.Labels "org.opencontainers.image.revision" }}|{{ index .Config.Labels "org.opencontainers.image.version" }}'
+)
+if [[ ${image_source} != "https://github.com/ghostarun/DentoBot" \
+  || ${image_revision} != "${release_revision}" \
+  || ${image_version} != "${DENTOBOT_TAG}" ]]; then
+  printf 'Local image OCI release identity is wrong.\n' >&2
+  printf '  source:   %s\n' "${image_source}" >&2
+  printf '  revision: %s (expected %s)\n' "${image_revision}" "${release_revision}" >&2
+  printf '  version:  %s (expected %s)\n' "${image_version}" "${DENTOBOT_TAG}" >&2
+  printf 'Rebuild Workspace/Dockerfile.slicerros2 with the pinned release metadata.\n' >&2
   exit 2
 fi
 
@@ -57,5 +79,4 @@ fi
 
 docker push "${IMAGE}"
 printf 'Pushed %s\n' "${IMAGE}"
-printf 'Create and push git tag %s only after an explicit commit authorization.\n' \
-  "${DENTOBOT_TAG}"
+printf 'Keep published git tag %s immutable with this image.\n' "${DENTOBOT_TAG}"

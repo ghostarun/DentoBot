@@ -36,12 +36,14 @@ Lab PCs recreate this overlay **inside WSL**, never by zipping `~/dentobot`.
   compose.yaml -> ros2_ws/src/DentoBot/Workspace/compose.yaml
   scripts/     -> ros2_ws/src/DentoBot/Workspace/scripts/
   docs/        -> ros2_ws/src/DentoBot/Workspace/docs/
+  tools/       -> ros2_ws/src/DentoBot/tools/
   .dentobot.env                      # local; not in git
   data/                              # local model cache and cases; not in git
   slicer-user/                       # local Slicer settings; not in git
   ros2_ws/
-    src/DentoBot/                    # private git; detached lab/* tag
+    src/DentoBot/                    # git at detached lab/* tag (not main)
     src/slicer_ros2_module/          # public rosmed git; pinned SHA
+    src/dentobot_description -> DentoBot/dentobot_description
     build/ install/ log/             # local colcon products; do not copy
 ```
 

@@ -1,5 +1,39 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-03 — Finalize Git/GHCR Windows-lab release metadata
+
+- **Why:** The frozen source tag was installable, but the derived image first
+  lacked GHCR authentication and inherited the upstream repository's OCI source
+  label. Current documents also contained pre-publication status alongside the
+  external agent's fuller reconstruction notes.
+- **Change:** Published the private Linux/amd64 runtime with DENTOBOT
+  source/revision/version labels, made future publisher runs reject a wrong
+  source label, and reconciled current setup/architecture/task status without
+  deleting the earlier chronological record.
+- **Verification:** GHCR index digest is
+  `sha256:46da2708dee8ecb764555e236a25b91a7b88e3a973ca79eeaa9527be4a2c468d`;
+  authenticated pull passed. A clean temporary install detached DENTOBOT at
+  `17af3d8`, detached SlicerROS2 at `4ef3d5b`, and reconstructed the overlay.
+  Windows WSLg/Slicer/ROS remains the next operator trial. Package visibility
+  remains private; no hardware action or Drive sync occurred.
+
+## 2026-09-02 21:10 IST — Overlay, Windows-lab, and pressure reconstruction docs
+
+- **Why:** Operator notes on the overlay restructure, GitHub `main` retarget,
+  Windows WSL lab conversion, and pressure `fs` vs host filters were split
+  across chat and dated logbook entries; SETUP/REPRO needed a single
+  reconstruction path.
+- **Change:** SETUP now has a numbered Windows 11 lab procedure and a
+  source/image/cache table; Ubuntu overlay bullets name `main`, tag
+  `lab/2026-09-02`, `docs-legacy/`, archive demo, and the in-repo Arduino
+  bench. REPRO records overlay reconstruction, Windows-lab pins, and
+  `pipeline.json` reconstruction. DECISIONS record `main`/lab-tag authority
+  and that digital τ—not `fs`—quiets EMI. HOST_LAYOUT remains the overlay
+  map. No Drive sync.
+- **Verification:** Documentation-only. No GHCR push, Windows lab PC trial,
+  Arduino flash, serial open, Slicer/ROS runtime, robot motion, or Git
+  commit.
+
 ## 2026-09-02 20:26 IST — `main` authority and lab tag publication
 
 - **Why:** The accepted Step 6/export tree replaced the obsolete GitHub

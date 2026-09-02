@@ -1,7 +1,7 @@
 # Pinned Windows-lab / WSL2 release. Lab PCs check out DENTOBOT_TAG only.
 # Do not follow main, integration/gui-step6, or a dirty maintainer worktree.
-# The tag is published at the frozen source commit. The GHCR image remains
-# unpublished; install/update fail closed at docker pull until it is pushed.
+# Tag lab/2026-09-02 and its Linux/amd64 GHCR IMAGE are published.
+# The image is private; authenticate Docker to GHCR before install/update.
 
 DENTOBOT_TAG=lab/2026-09-02
 DENTOBOT_GIT_URL=https://github.com/ghostarun/DentoBot.git

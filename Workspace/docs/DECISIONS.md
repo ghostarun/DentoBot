@@ -1,5 +1,21 @@
 # Dentobot Technical Decisions
 
+## 2026-09-02 — Authoritative Git branch is `main`; lab PCs use a dated tag
+
+Status: applied; GitHub default retargeted; obsolete public `main` deleted
+
+GitHub's default branch and the Ubuntu development checkout are `main`. The
+accepted Step 6 / overlay / WSL-export freeze is
+`17af3d8a7790f86e7a85965693107e92b0d2165b`. Tag `lab/2026-09-02` pins that
+SHA for lab PCs. Remote `integration/gui-step6` is a same-SHA compatibility
+alias, not the development branch. The previous GitHub `main` (`81836a7`)
+was deleted as obsolete. Lab install/update check out `Workspace/LAB_RELEASE`
+only; they refuse a maintainer `main` or `integration/gui-step6` worktree
+unless `DENTOBOT_LAB_ALLOW_MAINTAINER=1`.
+
+Reason: the freeze replaced an obsolete public `main`. Labmates must not
+track a mutable maintainer branch or a dirty worktree.
+
 ## 2026-09-02 — One verification contract serves Codex, Cursor, and Claude
 
 **Status:** adopted; protocol, matrix, and tool entrypoints implemented; pure
@@ -23,7 +39,7 @@ second test harness.
 
 ## 2026-09-02 — Windows lab ROS uses WSL2 Linux SlicerROS2, not native Slicer
 
-Status: scripts and pin file added; tag published; GHCR image and lab GUI/ROS
+Status: scripts, pin, tag, and private GHCR image published; lab GUI/ROS
 acceptance pending
 
 Lab PCs that need DENTOWorkflow including Step 6 ROS/MoveIt run the same
@@ -31,12 +47,16 @@ Linux `dentobot-slicerros2` stack as Ubuntu, hosted by WSL2 + Docker, with
 the GUI on WSLg. Native `launch-dentoworkflow.ps1` stays the Steps 0–5
 profile (`DENTOBOT_ROS_PROFILE=none`) and is not this export.
 
-Access is GitHub collaborator approval plus GHCR package read. Update scripts
-check out only the tag in `Workspace/LAB_RELEASE`. They store no password.
-Do not zip the overlay or copy `ros2_ws/build|install|log` or `data/` cases.
-The first tag, `lab/2026-09-02`, is published at the frozen source commit.
-Publishing the pinned GHCR image still waits for separate explicit
-authorization. Simulation/preview only.
+Access is GitHub login plus GHCR package read (collaborator if the repo or
+package is not world-readable). Scripts store no password. Update scripts
+check out only the tag in `Workspace/LAB_RELEASE`. Do not zip the overlay
+or copy `ros2_ws/build|install|log` or `data/` cases. Recreate
+`~/dentobot` with `bootstrap-workspace.bash` (`Workspace/HOST_LAYOUT.md`).
+The first tag, `lab/2026-09-02`, and its pinned Linux/amd64 GHCR image are
+published at the frozen release identity. The image stays private; authorized
+lab accounts authenticate to GHCR before pulling it. Native PowerShell Slicer
+is a different profile. Simulation/preview only. Operator steps are in
+`SETUP.md`.
 
 Reason: SlicerROS2 is Linux-only; a shared password in a batch file cannot be
 revoked; labmates must not track a mutable maintainer `main`,
@@ -96,9 +116,18 @@ host-side and are editable on a Config tab; they are not a sample rate.
 Each recording writes `pipeline.json`. Do not treat display downsample as
 `fs`. Cite the datasheet; do not vendor-copy it into git.
 
+Host Fast/Slow/dP/dt **τ** and median N are the editable digital filters.
+Fast τ default 15 ms is `fc ≈ 11 Hz` and is the live pressure trace.
+Raising `fs` by trial and error does **not** remove 50 Hz pickup, USB
+jitter, or a noisy 5 V rail. Lengthening Fast τ and/or median N **does**
+smooth the plot; too much τ blunts dentin ΔP. Analog BW is datasheet
+physics, not a GUI cutoff slider. Tune set≈measured fs, then raw vs
+filtered, then τ, then median; leave fs at 1000 Hz until those settle.
+
 Reason: a presentation question about sampling rate was unanswerable from
 the screen because the rate was neither commanded nor displayed, and the
-live `.ino` still printed 10-bit kPa at ~100 Hz.
+live `.ino` still printed 10-bit kPa at ~100 Hz. A later noise question
+treated `fs` as if it were the analog anti-alias cutoff.
 
 ## 2026-09-02 — Stage 2 contact ownership belongs to the independent phase guard
 
@@ -374,7 +403,7 @@ serialized.
 
 ## 2026-08-31 — Arduino pressure tools ship as a portable folder copy
 
-Status: package syntax verified; live serial on a second PC pending
+Status: superseded 2026-09-02 by in-repo `tools/arduino-pressure/`
 
 Keep a self-contained snapshot at repository-root `arduino-pressure/` for
 Windows/Ubuntu setup on another PC. The live experiment path remains

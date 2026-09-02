@@ -13,12 +13,81 @@
 - Published tag `lab/2026-09-02` resolves to the same frozen commit. The remote
   `integration/gui-step6` branch remains a compatibility alias at that commit;
   it is not the authoritative development branch.
-- The pinned GHCR image remains unpublished. The first authorized
-  `publish-lab-image.bash --push` attempt reached GHCR and was rejected with
-  `denied`; Docker was unauthenticated and the configured GitHub CLI token was
-  invalid. Windows-lab install therefore clones and checks out the tag, then
-  fails closed at `docker pull`. No image publication or Windows WSLg runtime
-  acceptance is claimed here.
+- The previous GitHub `main` at `81836a7` was deleted as obsolete when the
+  freeze became the default. Do not reconstruct from that SHA.
+- The first unauthenticated `publish-lab-image.bash --push` attempt was rejected
+  with `denied`. Standard GitHub web authorization with `write:packages` and
+  Docker password-stdin login then succeeded; no credential was printed.
+- Published private image
+  `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` resolves to
+  OCI index digest
+  `sha256:46da2708dee8ecb764555e236a25b91a7b88e3a973ca79eeaa9527be4a2c468d`.
+  Its executable manifest is Linux/amd64, and its OCI labels bind source
+  `https://github.com/ghostarun/DentoBot`, revision
+  `17af3d8a7790f86e7a85965693107e92b0d2165b`, and version
+  `lab/2026-09-02`.
+- A clean temporary installer rehearsal cloned the public repository, checked
+  out DENTOBOT at that detached tag, checked out SlicerROS2 at
+  `4ef3d5b427ff2846d3a79246bfc089df9f1cfe8b`, and recreated the overlay links.
+  A separate authenticated `docker pull` returned the same index digest.
+  Windows WSLg GUI/ROS runtime acceptance remains pending.
+
+### Overlay reconstruction (Ubuntu or WSL)
+
+`~/dentobot` is not a git repository. Git lives only in
+`ros2_ws/src/DentoBot`. Do not zip or copy the overlay. Recreate it:
+
+1. Place DentoBot at `~/dentobot/ros2_ws/src/DentoBot` (`main` for
+   development, or detached tag `lab/2026-09-02` for a lab PC).
+2. Run `Workspace/bootstrap-workspace.bash`. That creates non-overwriting
+   shortcuts (`docs/`, `scripts/`, `compose.yaml`, `AGENTS.md`, `tools/`)
+   and `ros2_ws/src/dentobot_description` → `DentoBot/dentobot_description`.
+3. Clone `slicer_ros2_module` at the SHA in `Workspace/LAB_RELEASE`
+   (`4ef3d5b427ff2846d3a79246bfc089df9f1cfe8b`).
+4. Keep local-only: `.dentobot.env`, `data/`, `slicer-user/`,
+   `ros2_ws/build|install|log/`, overlay `graphify-out/`,
+   `tools/arduino-pressure/pressure_runs/`.
+5. Do not restore deleted trees: overlay `arduino-pressure/`,
+   `ros2_ws/src/Arduino/`, nested `DentoBot/graphify-out/`. Stale notes are
+   `docs-legacy/` inside the checkout. The frozen demo is
+   `~/dentobot/archive/DentoBot-demo-aff8b2e/` (own git; not on the colcon
+   path). Map: `Workspace/HOST_LAYOUT.md`.
+
+### Windows-lab reconstruction
+
+This is the WSL2 Linux SlicerROS2 profile, not native Windows Slicer
+(`PLAT-U-02` stays `DENTOBOT_ROS_PROFILE=none`). Operator procedure and the
+source/image/cache table are in `SETUP.md` (Windows 11 lab). Identity:
+
+| Pin | Value |
+|---|---|
+| Git URL | `https://github.com/ghostarun/DentoBot.git` |
+| Tag | `lab/2026-09-02` at `17af3d8` |
+| File | `Workspace/LAB_RELEASE` |
+| Install | `Workspace/scripts/install-lab-wsl.bash` (or `.bat` from Windows) |
+| Update | `Workspace/scripts/update-lab-release.bash` (tag only; refuses `main` / `integration/gui-step6` unless `DENTOBOT_LAB_ALLOW_MAINTAINER=1`) |
+| Launch | `Workspace/scripts/launch-lab-workflow.bat` → `launch-dentoworkflow.bash` in WSL |
+| Image | `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` tagged locally as `dentobot/slicerros2:jazzy-moveit-sim-20260821` |
+
+The private GHCR image is published and passed an authenticated Ubuntu pull.
+Clone/checkout/pull evidence is not Windows-lab GUI acceptance.
+Simulation/preview only.
+
+### Pressure-pipeline reconstruction
+
+Firmware to flash:
+`tools/arduino-pressure/firmware/pressure_monitor/pressure_monitor.ino`
+(UNO R4 WiFi, 14-bit, 460800, `seq,micros,raw_adc`, paced default 1000 Hz,
+host `RATE <hz>` 200–1500). Host Python is
+`/home/light-tarun/pressure-env/bin/python`; do not import
+`pressure_monitor.py` in tests (opens serial). Each recording writes
+`pipeline.json` (set/measured `fs`, transfer-function scale/offset, host
+LPF τ and median N). Reconstruct a run from that file plus `samples.csv`.
+`fs` is firmware pacing, not analog anti-alias cutoff. Host Fast/Slow/dP/dt
+τ and median N are the editable digital filters. Raising `fs` by trial and
+error does not quiet EMI/USB/5 V noise. Analog BW ~350 Hz is datasheet
+physics (MPX5700 tR = 1 ms), not a GUI slider. Sensing-only; no robot
+motion. Live flash/Hz click is not claimed.
 
 ## 2026-09-02 Cross-tool agentic verification boundary
 
