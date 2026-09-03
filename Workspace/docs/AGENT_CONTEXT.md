@@ -231,10 +231,12 @@ implementation evidence into the controlled changelog, development plan, and
 dated logbook, then perform the requested Git diff-check, commit, and push for
 that documentation checkpoint. The generated summary is generic and
 evidence-based: what changed, why, what was superseded, verification,
-limitations, and the next bounded work. Do not update Google Drive, the
-personal journal/Daily Compass, or `TASKS.md`/the project tracker unless the
-operator separately approves each destination. Drive synchronization always
-requires explicit approval. Preserve unrelated dirty-worktree files and
+limitations, and the next bounded work. Do not update Google Drive or any
+engineer-owned record unless the operator separately approves each
+destination. Drive synchronization always requires explicit approval. The
+Daily Compass, `IITM Personal Work Journal`, and Drive project tracker are
+excluded even from this keyword; generic approval to sync development
+documentation does not include them. Preserve unrelated dirty-worktree files and
 never include credentials, patient identifiers, or transient ROS/runtime
 objects in the summary.
 
@@ -255,7 +257,8 @@ Also read the controlled file matching the change:
 | Environment, launcher, paths, dependencies | `SETUP.md` |
 | Milestone priority or acceptance status | `DEVELOPMENT_PLAN.md`, `TASKS.md` |
 | Persistence, evidence, hashes, releases | `REPRODUCIBILITY_AND_TRACEABILITY.md` |
-| Resume/reconcile/mental-model work | `DENTOBOT_Daily_Compass.docx` plus `CONTEXT_SYNC.md` |
+| Resume/reconcile development work | controlled Markdown selected by scope; engineer-owned records remain excluded |
+| Explicitly requested engineer-record action | `engineer-owned/README.md`, then only the named artifact |
 | Documentation checkpoint or release | all controlled files required by `Workspace/AGENTS.md` |
 
 Do not reread every historical logbook or the 7k-line Slicer regression archive

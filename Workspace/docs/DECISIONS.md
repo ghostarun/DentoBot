@@ -3417,3 +3417,33 @@ existing guard step scale and report the first exact MoveIt collision pair.
 This is a non-authorizing shadow observation: a colliding chord does not rule
 out a curved path, and a clear chord is not a MoveIt plan. Collision margins,
 anatomy objects and non-tool contacts remain unchanged and fail-closed.
+
+# 2026-09-03 — Engineer-owned records are outside default agent context
+
+## Decision
+
+The Daily Compass, `IITM Personal Work Journal`, and `IITM Dental Drilling
+Robot — Project Tracker` are engineer-owned, non-developmental records. Agents
+must not read, edit, reconcile, move, export, or synchronize them unless the
+operator explicitly names the artifact and action in the current request.
+Generic development, documentation, close-day, postmortem, and Drive-sync
+instructions do not authorize access.
+
+The local Daily Compass resides under `Workspace/docs/engineer-owned/`; the
+three Drive artifacts reside under `IITM Dentobot/Engineer-owned — manual
+only`. Their existing Drive file IDs are preserved. `Workspace/docs/TASKS.md`
+remains the AI-maintained engineering work order and is intentionally distinct
+from the engineer-owned spreadsheet.
+
+## Rationale
+
+The operator wants personal planning and reflection records kept available but
+not silently treated as development requirements or modified during routine AI
+maintenance. This boundary prevents accidental authority inversion while
+retaining a clear, explicitly requested reconciliation route.
+
+## Logbook consequence
+
+Dated development logbooks become the detailed AI-maintained narrative. They
+must distinguish operator observations and stated reasoning from engineering
+interpretation, implementation, verification, limitations, and next actions.

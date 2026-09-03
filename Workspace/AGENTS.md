@@ -11,17 +11,19 @@ For every substantial task:
    `docs/DECISIONS.md`, `docs/DEVELOPMENT_PLAN.md`, and `docs/TASKS.md`
    together when resuming broad work, changing architecture/environment or
    milestone policy, reconciling evidence, or preparing a documentation/release
-   checkpoint. When the user asks to resume, plan, reconcile notes, or update
-   the daily mental model, also read `docs/DENTOBOT_Daily_Compass.docx`. Treat
-   its unreconciled entries as editable working memory, not accepted
-   requirements or verification claims.
+   checkpoint. Engineer-owned records are excluded from this default context;
+   see rule 16.
 2. Consult `docs/ARCHITECTURE.md` and
    `docs/REPRODUCIBILITY_AND_TRACEABILITY.md` when the task touches their
    scope.
 3. Treat Windows/WSL commands and paths in imported documents as historical
    context until they are explicitly migrated and verified on Ubuntu.
 4. Record commands executed, files changed, results, errors, and unresolved
-   issues in today's file under `docs/logbook/`.
+   issues in today's file under `docs/logbook/`. For substantial work, also
+   record the operator's stated observations and reasoning, decisions made,
+   evidence boundaries, and the next bounded action. Keep operator statements,
+   agent interpretation, implementation, and verification visibly distinct;
+   never invent or imply unspoken operator reasoning.
 5. Update `docs/SETUP.md` whenever the environment, paths, dependencies,
    Docker configuration, Slicer, or ROS 2 setup changes.
 6. Update `docs/DECISIONS.md` whenever an architectural or technical decision
@@ -36,10 +38,9 @@ For every substantial task:
 11. Do not run robot motion, drilling, patient-facing, or safety-critical
     operations without explicit authorization and an appropriate verified
     safety procedure.
-12. At an approved documentation checkpoint, reconcile confirmed Daily Compass
-    entries into the applicable controlled Markdown documents and dated
-    logbook. Do not sync Git or Google Drive merely because the workbook was
-    edited; retain the existing batched approval rule.
+12. A documentation checkpoint updates only development-controlled records.
+    It does not authorize reading, editing, reconciling, moving, exporting, or
+    synchronizing any engineer-owned record described by rule 16.
 13. Treat any user message beginning with `DENTO-NOTE:` as a durable issue or
     mental-note capture. Triage it during the same turn as one of: fix now,
     active investigation, blocked, or backlog. Fix it immediately when safe,
@@ -65,6 +66,17 @@ For every substantial task:
     `../Testing/verification_matrix.json`. The coordinator is the sole editor;
     workers are read-only, runtime resources are serialized, and execution
     remains approval-gated.
+
+16. Treat the Daily Compass, `IITM Personal Work Journal`, and `IITM Dental
+    Drilling Robot — Project Tracker` as engineer-owned, non-developmental
+    records. Their local holding area is `docs/engineer-owned/`; Drive uses
+    `IITM Dentobot/Engineer-owned — manual only`. Do not read, edit, reconcile,
+    move, export, or sync any of these three artifacts unless the user
+    explicitly names the artifact and requested action in the current message.
+    Generic requests such as `resume`, `plan`, `reconcile`, `update docs`,
+    `sync Drive`, a documentation checkpoint, or `DENTO-POSTMORTEM-SYNC` do not
+    authorize them. `docs/TASKS.md` remains the AI-maintained engineering work
+    order and is not the engineer-owned Drive project tracker.
 
 ## graphify
 

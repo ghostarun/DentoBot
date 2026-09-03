@@ -23,9 +23,11 @@
 - Change history: `docs/changelog.md`.
 - Platform history: `docs/logbook/logbook-windows-history.md`.
 - Active chronological evidence: dated files under `docs/logbook/`.
-- Personal operating workbook: `docs/DENTOBOT_Daily_Compass.docx`. It is the
-  researcher's editable daily capture and mental-model document, not a
-  controlled source for acceptance claims until reconciled.
+- Engineer-owned records: local `docs/engineer-owned/` and Drive
+  `IITM Dentobot/Engineer-owned — manual only`. This class contains
+  `DENTOBOT_Daily_Compass.docx`, `IITM Personal Work Journal`, and
+  `IITM Dental Drilling Robot — Project Tracker`. These are not development
+  controls or sources for acceptance claims.
 
 Imported design documents remain applicable at the product/design level.
 Windows/WSL paths, commands, runtime boundaries, and validation claims are
@@ -35,10 +37,16 @@ The Drive mirror is not automatically authoritative merely because it has a
 newer timestamp. A chat must first retrieve it, compare it with the local
 record, and resolve conflicts explicitly.
 
-## Daily Compass reconciliation
+## Engineer-owned record boundary
 
-The researcher may edit `DENTOBOT_Daily_Compass.docx` directly between Codex
-sessions. When asked to reconcile it:
+Do not read, edit, reconcile, move, export, or synchronize an engineer-owned
+record unless the user explicitly names that artifact and action in the
+current request. Generic requests such as `resume`, `plan`, `reconcile`,
+`update docs`, `sync Drive`, a documentation checkpoint, `close my day`, or
+`DENTO-POSTMORTEM-SYNC` are insufficient. A Drive development sync excludes
+the engineer-owned folder by default.
+
+When the user explicitly requests Daily Compass reconciliation:
 
 1. read the complete workbook and compare its entries with repository state;
 2. identify contradictions, unsafe assumptions, and clinical thresholds that
@@ -49,7 +57,7 @@ sessions. When asked to reconcile it:
    accepts them; and
 5. update the workbook's reconciliation date and current operating picture.
 
-Reconciliation is a local documentation action. It does not by itself
+Engineer-record reconciliation is a local documentation action. It does not by itself
 authorize Git publication or Google Drive synchronization. Those remain
 explicit batched operations under the existing approval rule.
 
@@ -65,6 +73,9 @@ After a substantial Codex CLI development session:
    their existing Drive file IDs after checking names and parent folders.
    Never upload a second file with the same logical path.
 4. Tell the browser chat the Drive sync time and which files changed.
+
+The three engineer-owned records are excluded from this sequence unless the
+current request explicitly names the record and requested Drive action.
 
 Git and Drive have different scopes. Git now tracks both `docs/` and
 `Workspace/docs/`; Drive keeps their two established folder/file-ID sets.
@@ -92,3 +103,17 @@ authoritative and future syncs update the existing Drive file ID in place.
 
 Never sync passwords, tokens, API keys, patient identifiers, or
 non-anonymized medical data.
+
+## Dated logbook standard
+
+For every substantial development turn, today's dated logbook separates:
+
+1. the operator's reported observation and stated reasoning;
+2. the engineering interpretation or decision;
+3. work performed and files changed;
+4. commands and verification evidence;
+5. failures, limitations, and evidence boundaries; and
+6. the next bounded action.
+
+Record only reasoning the operator actually stated. Label agent inference as
+interpretation, and never present inferred motivation as the operator's own.
