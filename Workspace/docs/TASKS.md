@@ -14,7 +14,7 @@ behavior and acceptance contract; this file records only work order and state.
 | 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected | Runtime trial must confirm every Stage 1/2/3 waypoint, narrow burr exception, and external-spindle boundary |
 | 4 | `S6-LIVE-03` | 0 | Implemented: endpoint checks, consumed stop state, guarded Return Home/replan loop, and diagnostic/live-preview overlap guard | Runtime trial must complete Goal 1→Goal 2→Return Home→replan without Slicer restart |
 | 5 | `S6-LIVE-04` | 0 | Implemented: timestamp/speed playback, 30 Hz display coalescing, progress UI, static phase paths | Runtime trial must confirm selectable speed preserves ordered acknowledgements and visible paths |
-| 6 | `S6-LIVE-05` | 0 | Blocked only on the approved normal-window trial; source correction is complete | Accept one complete x4 Home-to-Target-to-Home loop, then unlock Track B |
+| 6 | `S6-LIVE-05` | 0 | Blocked at Goal 1: current canonical five-DOF TCP has no collision-aware PreEntry IK endpoint in the x4 scene | Diagnose canonical TCP goal/scene/seed mapping; then rerun one complete x4 Home-to-Target-to-Home loop |
 
 ### Current Track-A correction checkpoint — 2026-09-04
 
@@ -27,6 +27,11 @@ roll-dependent evidence is stale by fingerprint. Focused pure tests, the
 SlicerROS2 rebuild, the ROS/MoveIt smoke, and the phase-guard smoke are
 complete. The normal-window x4 Home→PreEntry→Entry→Target→Home acceptance,
 including Return Home and repeat, is still the only Track-A gate outstanding.
+The first post-correction trial started ROS/Slicer cleanly and loaded the x4
+case, but stopped before preview because MoveIt returned no collision-aware
+PreEntry IK endpoint for the canonical non-spinning TCP. No partial path or
+relaxed tolerance was accepted; the next action is focused diagnosis rather
+than more retry/sampling tuning. Track B remains blocked.
 
 ## Track B — blocked by `S6-LIVE-05`
 
