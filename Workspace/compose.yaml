@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.slicerros2
-    image: dentobot/slicerros2:jazzy-moveit-sim-20260821
+    image: dentobot/slicerros2:jazzy-moveit-sim-20260903
     container_name: dentobot-slicerros2
     network_mode: host
     ipc: host

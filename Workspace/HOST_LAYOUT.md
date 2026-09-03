@@ -42,12 +42,13 @@ Lab PCs recreate this overlay **inside WSL**, never by zipping `~/dentobot`.
   slicer-user/                       # local Slicer settings; not in git
   ros2_ws/
     src/DentoBot/                    # git at detached lab/* tag (not main)
-    src/slicer_ros2_module/          # public rosmed git; pinned SHA
+    src/slicer_ros2_module/          # DentoBot fork; pinned SHA
     src/dentobot_description -> DentoBot/dentobot_description
     build/ install/ log/             # local colcon products; do not copy
 ```
 
-Pin file: `ros2_ws/src/DentoBot/Workspace/LAB_RELEASE`.
+Pin file: `ros2_ws/src/DentoBot/Workspace/LAB_RELEASE` (current candidate:
+`lab/2026-09-03`, SlicerROS2 `17f99931f54f`).
 First-time: `scripts/install-lab-wsl.bash` (or `install-lab-wsl.bat` from Windows).
 Updates: `scripts/update-lab-release.bash` (or `update-lab-release.bat`).
 Launch: `scripts/launch-dentoworkflow.bash` (or `launch-lab-workflow.bat`).

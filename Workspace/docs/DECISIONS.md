@@ -1,5 +1,22 @@
 # Dentobot Technical Decisions
 
+## 2026-09-03 — Pin the native SlicerROS2 repair from a controlled fork
+
+Status: applied in the release candidate; image publication pending
+
+The lab release uses `https://github.com/ghostarun/slicer_ros2_module.git` at
+immutable commit `17f99931f54f1e7941d7a66b30a849d2a37baccd` rather than the
+upstream `rosmed` repository. The commit is published on the fork's
+`dentobot/slicer-ros2-step6-20260903` branch and is consumed by the installer
+through the full SHA in `Workspace/LAB_RELEASE`. The container image records
+the same source and SHA as OCI labels; it still does not persist ROS runtime
+objects or replace the source checkout.
+
+Reason: the native scene-lifetime and explicit-planning fixes must be
+reproducible on a lab machine. Pinning both source and image metadata prevents
+an installer from silently rebuilding against mutable upstream code while
+keeping the forked dependency separate from the DentoBot repository.
+
 ## 2026-09-03 — Diagnostic route playback is transient and display-only
 
 Status: source implemented; verification pending

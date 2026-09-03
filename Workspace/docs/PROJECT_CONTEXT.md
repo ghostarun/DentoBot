@@ -41,6 +41,15 @@ custom branding.
 
 ## Active Step 6 stabilization checkpoint — 2026-09-02
 
+## 2026-09-03 release candidate boundary
+
+The current development candidate is `lab/2026-09-03`. It pins the native
+SlicerROS2 repair to the DentoBot-controlled fork commit
+`17f99931f54f1e7941d7a66b30a849d2a37baccd` and uses a new GHCR image name. The
+prior `lab/2026-09-02` image remains the last published release until the
+candidate image is built and accepted. Windows WSLg acceptance is still an
+external workstation gate.
+
 Priority-0 source implementation now separates a diagnostic Manual Simulation
 Base from the deferred physical forehead/mount problem, audits exact
 per-segment collision payloads against the guard's monitored MoveIt scene,

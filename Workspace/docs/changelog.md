@@ -1,5 +1,19 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-03 — Pin and package the controlled SlicerROS2 repair
+
+- **Why:** The native scene-lifetime and explicit-planning fixes were
+  committed in a separate SlicerROS2 worktree, while the lab release still
+  pointed at mutable upstream code and the old runtime image.
+- **Change:** Published the repair on the DentoBot fork at
+  `17f99931f54f1e7941d7a66b30a849d2a37baccd`, moved `Workspace/LAB_RELEASE` to
+  `lab/2026-09-03`, and changed Compose to the matching candidate image name.
+  The Dockerfile now records both DentoBot and SlicerROS2 source identities as
+  OCI labels; the publisher rejects mismatches before a push.
+- **Verification boundary:** Shell syntax and whitespace checks are complete.
+  Image build, GHCR publication, and Windows WSLg acceptance remain pending;
+  the previous `lab/2026-09-02` image remains the last published baseline.
+
 ## 2026-09-03 — Make Goal 1 candidate evidence inspectable
 
 - **Why:** The operator could see 12 planner rows with equal Stage-1 waypoint

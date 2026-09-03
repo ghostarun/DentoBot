@@ -1,8 +1,9 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
 Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
-`main` / `lab/2026-09-02`, and Windows-lab *source* install path reconciled
-2026-09-02. The published GHCR image passed an authenticated Ubuntu pull;
+`main` / `lab/2026-09-03`, and Windows-lab *source* install path reconciled
+2026-09-03. The previous published GHCR image passed an authenticated Ubuntu
+pull; the `lab/2026-09-03` candidate still requires build/publish verification.
 Windows WSLg+Docker GUI acceptance (`PLAT-U-04`) remains pending.
 
 ## Scope
@@ -121,10 +122,11 @@ load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
 WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
 `launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
 SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
-implemented, and both `lab/2026-09-02` and its pinned Linux/amd64 GHCR image
-are published. The image is private, so Docker must authenticate to GHCR before
-installation. This path is not Windows-lab-verified and is not a substitute for
-native Windows Slicer.
+implemented. The previous `lab/2026-09-02` image remains the last published
+release; `lab/2026-09-03` is the current release candidate and is not
+consumable until its image is built and published. The image is private, so
+Docker must authenticate to GHCR before installation. This path is not
+Windows-lab-verified and is not a substitute for native Windows Slicer.
 
 Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
 source-built Slicer 5.10/5.12. The published CI image is Linux.
@@ -148,9 +150,9 @@ Do **not** zip `~/dentobot`. Recreate the overlay inside WSL
 
 | Piece | Source | First machine |
 |---|---|---|
-| DentoBot at tag `lab/2026-09-02` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
-| `slicer_ros2_module` pinned SHA | public `rosmed/slicer_ros2_module` | installer |
-| Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821` | Authenticate GHCR, then `docker pull` |
+| DentoBot at tag `lab/2026-09-03` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
+| `slicer_ros2_module` pinned SHA | `https://github.com/ghostarun/slicer_ros2_module.git` at `17f99931f54f` | installer |
+| Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903` (candidate) | Authenticate GHCR, then `docker pull` after publication |
 | CPU inference env | `Inference/` manifests in that git tag | Conda/pip once |
 | TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` |
 | Overlay `~/dentobot` symlinks, `.dentobot.env`, `slicer-user/`, colcon `build/` | created locally | bootstrap + launch |
@@ -174,11 +176,11 @@ wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p ~/dentobot/ros2_ws/src && git clone ht
 ```
 
    Equivalent after the clone exists: `Workspace\scripts\install-lab-wsl.bat`.
-   The installer checks out `Workspace/LAB_RELEASE` (`DENTOBOT_TAG=lab/2026-09-02`,
-   published at `17af3d8`), pins `slicer_ros2_module`, runs
+   The installer checks out `Workspace/LAB_RELEASE` (`DENTOBOT_TAG=lab/2026-09-03`),
+   pins the DentoBot fork of `slicer_ros2_module`, runs
    `bootstrap-workspace.bash`, and attempts `docker pull` of the GHCR image
-   (then tags it as Compose `dentobot/slicerros2:jazzy-moveit-sim-20260821`).
-   The published Linux/amd64 image requires the GHCR login from Step 2.
+   (then tags it as Compose `dentobot/slicerros2:jazzy-moveit-sim-20260903`).
+   The private published Linux/amd64 image requires the GHCR login from Step 2.
 4. Once per PC: edit `~/dentobot/.dentobot.env` (`DENTOBOT_BACKEND_PYTHON`,
    `DENTOBOT_BACKEND_DEVICE=cpu`). Create the Ubuntu CPU backend from
    `Inference/`. Copy the model cache. No patient identifiers in git.
@@ -191,12 +193,16 @@ Maintainer only: build from the repository root with the exact tag identity,
 then publish after GHCR `write:packages` authentication:
 
 ```bash
-release_tag=lab/2026-09-02
+release_tag=lab/2026-09-03
 release_revision="$(git rev-list -n 1 "refs/tags/${release_tag}")"
+source_slicerros2="https://github.com/ghostarun/slicer_ros2_module.git"
+source_slicerros2_sha="17f99931f54f1e7941d7a66b30a849d2a37baccd"
 docker build \
   --build-arg DENTOBOT_IMAGE_REVISION="${release_revision}" \
   --build-arg DENTOBOT_IMAGE_VERSION="${release_tag}" \
-  -t dentobot/slicerros2:jazzy-moveit-sim-20260821 \
+  --build-arg SLICERROS2_GIT_URL="${source_slicerros2}" \
+  --build-arg SLICERROS2_SHA="${source_slicerros2_sha}" \
+  -t dentobot/slicerros2:jazzy-moveit-sim-20260903 \
   -f Workspace/Dockerfile.slicerros2 Workspace
 Workspace/scripts/publish-lab-image.bash --push
 ```

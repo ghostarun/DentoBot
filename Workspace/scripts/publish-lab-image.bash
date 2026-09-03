@@ -56,13 +56,21 @@ IFS='|' read -r image_source image_revision image_version < <(
   docker image inspect "${COMPOSE_IMAGE}" --format \
     '{{ index .Config.Labels "org.opencontainers.image.source" }}|{{ index .Config.Labels "org.opencontainers.image.revision" }}|{{ index .Config.Labels "org.opencontainers.image.version" }}'
 )
+image_slicer_source="$(docker image inspect "${COMPOSE_IMAGE}" --format \
+  '{{ index .Config.Labels "org.dentobot.slicerros2.source" }}')"
+image_slicer_revision="$(docker image inspect "${COMPOSE_IMAGE}" --format \
+  '{{ index .Config.Labels "org.dentobot.slicerros2.revision" }}')"
 if [[ ${image_source} != "https://github.com/ghostarun/DentoBot" \
   || ${image_revision} != "${release_revision}" \
-  || ${image_version} != "${DENTOBOT_TAG}" ]]; then
+  || ${image_version} != "${DENTOBOT_TAG}" \
+  || ${image_slicer_source} != "${SLICERROS2_GIT_URL}" \
+  || ${image_slicer_revision} != "${SLICERROS2_SHA}" ]]; then
   printf 'Local image OCI release identity is wrong.\n' >&2
   printf '  source:   %s\n' "${image_source}" >&2
   printf '  revision: %s (expected %s)\n' "${image_revision}" "${release_revision}" >&2
   printf '  version:  %s (expected %s)\n' "${image_version}" "${DENTOBOT_TAG}" >&2
+  printf '  slicer source: %s (expected %s)\n' "${image_slicer_source}" "${SLICERROS2_GIT_URL}" >&2
+  printf '  slicer revision: %s (expected %s)\n' "${image_slicer_revision}" "${SLICERROS2_SHA}" >&2
   printf 'Rebuild Workspace/Dockerfile.slicerros2 with the pinned release metadata.\n' >&2
   exit 2
 fi

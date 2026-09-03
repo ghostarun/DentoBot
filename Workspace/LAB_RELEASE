@@ -1,11 +1,12 @@
 # Pinned Windows-lab / WSL2 release. Lab PCs check out DENTOBOT_TAG only.
 # Do not follow main, integration/gui-step6, or a dirty maintainer worktree.
-# Tag lab/2026-09-02 and its Linux/amd64 GHCR IMAGE are published.
+# The native SlicerROS2 dependency is pinned to the published DentoBot fork
+# commit below; the GHCR image contains the matching runtime dependencies.
 # The image is private; authenticate Docker to GHCR before install/update.
 
-DENTOBOT_TAG=lab/2026-09-02
+DENTOBOT_TAG=lab/2026-09-03
 DENTOBOT_GIT_URL=https://github.com/ghostarun/DentoBot.git
-SLICERROS2_GIT_URL=https://github.com/rosmed/slicer_ros2_module.git
-SLICERROS2_SHA=4ef3d5b427ff2846d3a79246bfc089df9f1cfe8b
-IMAGE=ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260821
-COMPOSE_IMAGE=dentobot/slicerros2:jazzy-moveit-sim-20260821
+SLICERROS2_GIT_URL=https://github.com/ghostarun/slicer_ros2_module.git
+SLICERROS2_SHA=17f99931f54f1e7941d7a66b30a849d2a37baccd
+IMAGE=ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903
+COMPOSE_IMAGE=dentobot/slicerros2:jazzy-moveit-sim-20260903

@@ -15,8 +15,12 @@ RUN apt-get update \
 
 ARG DENTOBOT_IMAGE_REVISION=development
 ARG DENTOBOT_IMAGE_VERSION=development
+ARG SLICERROS2_GIT_URL=development
+ARG SLICERROS2_SHA=development
 LABEL org.opencontainers.image.source="https://github.com/ghostarun/DentoBot" \
       org.opencontainers.image.revision="${DENTOBOT_IMAGE_REVISION}" \
       org.opencontainers.image.version="${DENTOBOT_IMAGE_VERSION}" \
+      org.dentobot.slicerros2.source="${SLICERROS2_GIT_URL}" \
+      org.dentobot.slicerros2.revision="${SLICERROS2_SHA}" \
       org.opencontainers.image.title="DENTOBOT SlicerROS2 Lab Runtime" \
       org.opencontainers.image.description="Ubuntu SlicerROS2 and MoveIt simulation runtime for DENTOBOT"

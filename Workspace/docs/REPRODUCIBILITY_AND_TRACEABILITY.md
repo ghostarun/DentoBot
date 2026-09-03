@@ -1,5 +1,20 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-03 release-candidate source pin
+
+- `Workspace/LAB_RELEASE` now names candidate tag `lab/2026-09-03` and image
+  `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903`.
+- The native SlicerROS2 dependency is the DentoBot-controlled fork
+  `https://github.com/ghostarun/slicer_ros2_module.git` at immutable commit
+  `17f99931f54f1e7941d7a66b30a849d2a37baccd` (published branch
+  `dentobot/slicer-ros2-step6-20260903`).
+- `Dockerfile.slicerros2` records the DentoBot release revision/version and
+  the exact SlicerROS2 source/SHA as OCI labels. The publisher refuses a
+  mismatch before tagging or pushing.
+- The candidate tag and image digest are not claimed as published until the
+  approved build/publish check completes. The previous `lab/2026-09-02`
+  release remains the reproducible lab baseline in the meantime.
+
 ## 2026-09-03 operator Goal 1 and Stage 3 evidence
 
 - Loading `dentobot-case-step6x4.dentocase` reconstructed ROS/MoveIt, but the
