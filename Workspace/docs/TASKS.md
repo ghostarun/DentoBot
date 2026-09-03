@@ -14,7 +14,7 @@ behavior and acceptance contract; this file records only work order and state.
 | 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected | Runtime trial must confirm every Stage 1/2/3 waypoint, narrow burr exception, and external-spindle boundary |
 | 4 | `S6-LIVE-03` | 0 | Implemented: endpoint checks, consumed stop state, guarded Return Home/replan loop, and diagnostic/live-preview overlap guard | Runtime trial must complete Goal 1→Goal 2→Return Home→replan without Slicer restart |
 | 5 | `S6-LIVE-04` | 0 | Implemented: timestamp/speed playback, 30 Hz display coalescing, progress UI, static phase paths | Runtime trial must confirm selectable speed preserves ordered acknowledgements and visible paths |
-| 6 | `S6-LIVE-05` | 0 | Blocked at Goal 1: current canonical five-DOF TCP has no collision-aware PreEntry IK endpoint in the x4 scene | Diagnose canonical TCP goal/scene/seed mapping; then rerun one complete x4 Home-to-Target-to-Home loop |
+| 6 | `S6-LIVE-05` | 0 | Blocked at Goal 1: all 12 exact PreEntry axial-roll candidates fail both collision-aware and collision-disabled J1–J5 IK | Diagnose the canonical TCP target-frame/solver constraint; do not tune retries or relax collision/tolerance policy |
 
 ### Current Track-A correction checkpoint — 2026-09-04
 
@@ -29,9 +29,11 @@ complete. The normal-window x4 Home→PreEntry→Entry→Target→Home acceptanc
 including Return Home and repeat, is still the only Track-A gate outstanding.
 The first post-correction trial started ROS/Slicer cleanly and loaded the x4
 case, but stopped before preview because MoveIt returned no collision-aware
-PreEntry IK endpoint for the canonical non-spinning TCP. No partial path or
-relaxed tolerance was accepted; the next action is focused diagnosis rather
-than more retry/sampling tuning. Track B remains blocked.
+PreEntry IK endpoint for the canonical non-spinning TCP. The focused twelve-
+roll comparison then returned no J1–J5 IK solution even with collision
+checking disabled. No partial path or relaxed tolerance was accepted; the
+next action is focused canonical target-frame/solver diagnosis rather than
+more retry/sampling tuning. Track B remains blocked.
 
 ## Track B — blocked by `S6-LIVE-05`
 
