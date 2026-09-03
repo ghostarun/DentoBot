@@ -32,6 +32,7 @@ from DENTOStep6Planning import (
     step6_motion_plan_robot_ready,
     validate_planning_context,
 )
+from DENTORobotPlacement import link_transforms_base_m
 
 
 URDF_PATH = REPOSITORY_ROOT / "dentobot_description" / "urdf" / "dentobot.urdf"
@@ -235,6 +236,32 @@ def test_sample_trajectory_world_mm_linear_interpolation() -> None:
     assert np.allclose(samples[2], (10.0, 0.0, 0.0))
 
 
+def test_canonical_drill_tcp_matches_reference_tip_at_zero_and_ignores_j6() -> None:
+    """The planning frame is upstream of the uncontrolled air rotor."""
+
+    zero = link_transforms_base_m(URDF_PATH, DESCRIPTION_ROOT, {})
+    spinning = link_transforms_base_m(
+        URDF_PATH,
+        DESCRIPTION_ROOT,
+        {"pneumatic_spindle-Copy_Revolute-6": 1.1},
+    )
+    assert np.allclose(
+        zero["dentobot_drill_tcp"],
+        zero["dentobot_drill_tip_provisional"],
+        atol=1.0e-12,
+    )
+    assert np.allclose(
+        zero["dentobot_drill_tcp"],
+        spinning["dentobot_drill_tcp"],
+        atol=1.0e-12,
+    )
+    assert not np.allclose(
+        zero["dentobot_drill_tip_provisional"],
+        spinning["dentobot_drill_tip_provisional"],
+        atol=1.0e-6,
+    )
+
+
 def test_halton_workspace_sampling_is_deterministic_and_bounded() -> None:
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
     first = deterministic_joint_workspace_samples_display(
@@ -280,11 +307,11 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     assert all(len(point) == 3 for point in result.accepted_tcp_base_mm)
     assert len(result.accepted_samples) == 10
     assert all(len(sample.joint_display) == 6 for sample in result.accepted_samples)
-    assert all(len(sample.joint_positions_si) == 6 for sample in result.accepted_samples)
+    assert all(len(sample.joint_positions_si) == 5 for sample in result.accepted_samples)
 
 
 def test_workspace_sample_normalizes_transition_build_ordered_joint_values() -> None:
-    names = (
+    legacy_names = (
         "link-1_Revolute-1",
         "link-2_Slider-2",
         "link-3_Revolute-3",
@@ -296,15 +323,15 @@ def test_workspace_sample_normalizes_transition_build_ordered_joint_values() -> 
     canonical = WorkspaceAcceptedSample(
         tcp_base_mm=(1.0, 2.0, 3.0),
         joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        joint_positions_si=tuple(zip(names, values)),
+        joint_positions_si=tuple(zip(legacy_names[:5], values[:5])),
     )
     transition = WorkspaceAcceptedSample(
         tcp_base_mm=(1.0, 2.0, 3.0),
         joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         joint_positions_si=values,
     )
-    assert canonical.joint_positions_si_dict() == dict(zip(names, values))
-    assert transition.joint_positions_si_dict() == dict(zip(names, values))
+    assert canonical.joint_positions_si_dict() == dict(zip(legacy_names[:5], values[:5]))
+    assert transition.joint_positions_si_dict() == dict(zip(legacy_names, values))
 
 
 def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others() -> None:
@@ -313,7 +340,7 @@ def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others
         urdf_path=URDF_PATH,
         package_root=DESCRIPTION_ROOT,
         base_world_matrix=np.eye(4, dtype=float),
-        coarse_clearance_mm=5.0,
+        coarse_clearance_mm=0.0,
         environment_points_mm=None,
         environment_clearance_mm=2.0,
     )

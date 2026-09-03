@@ -14,6 +14,7 @@ if str(HELPERS) not in sys.path:
     sys.path.insert(0, str(HELPERS))
 
 from DENTOROS2Bridge import ROS2_JOINT_SI_ORDER  # noqa: E402
+from DENTOStep6State import SPINDLE_JOINT_NAME  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
     DENTORobotWorkflowFacade,
     _compact_guarded_waypoints,
@@ -69,7 +70,7 @@ class FakeParameterNode:
 
 class FakeBridge:
     ROS2_PLANNING_GROUP = "dentobot_arm"
-    ROS2_TOOL_TCP_LINK = "dentobot_drill_tip_provisional"
+    ROS2_TOOL_TCP_LINK = "dentobot_drill_tcp"
     ROS2_TASK_GUARD_INITIAL_SEQUENCE = 1
     ROS2_GUARD_MAX_REVOLUTE_STEP_RAD = 0.017453292519943295
     ROS2_GUARD_MAX_PRISMATIC_STEP_M = 0.0005
@@ -182,7 +183,7 @@ def test_capabilities_expose_fixed_moveit_contract_without_saved_ui_state():
     assert capabilities.single_joint_state_source
     assert capabilities.move_group_available
     assert capabilities.planning_group == "dentobot_arm"
-    assert capabilities.tcp_link == "dentobot_drill_tip_provisional"
+    assert capabilities.tcp_link == "dentobot_drill_tcp"
 
 
 def test_current_state_uses_operator_units_and_ros_si_values():
@@ -366,7 +367,7 @@ def test_terminal_and_drilling_keep_dense_cartesian_samples_uncompacted():
     assert "waypoints = source_waypoints" in drilling
 
 
-def test_drilling_uses_one_spindle_locked_cartesian_orientation():
+def test_drilling_uses_one_external_spindle_independent_cartesian_orientation():
     source = (
         ROOT
         / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
@@ -379,7 +380,7 @@ def test_drilling_uses_one_spindle_locked_cartesian_orientation():
     assert "axial_roll_start_deg=fixed_roll_deg" in drilling
     assert "axial_roll_end_deg=fixed_roll_deg" in drilling
     assert "del start_axial_roll_deg" not in drilling
-    assert "spindle locked at 0 rad" in drilling
+    assert "non-spinning TCP" in drilling
     assert "partial joint path" in drilling
 
 
@@ -398,7 +399,7 @@ def test_stage1_selects_one_fixed_frame_after_full_chain_preflight():
     assert "selected_roll_deg" in approach
 
 
-def test_stage1_uses_every_bounded_home_connected_seed_with_j6_locked():
+def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
     class SeedBridge(FakeBridge):
         def __init__(self):
             super().__init__()
@@ -429,16 +430,11 @@ def test_stage1_uses_every_bounded_home_connected_seed_with_j6_locked():
             self.audited.append(dict(positions))
             return True, "valid", True
 
-        @staticmethod
-        def spindle_locked_tcp_roll_deg(*_args, **_kwargs):
-            return True, "roll", 0.0
-
     parameter_node = FakeParameterNode()
     evidence = []
     for sample_index in range(8):
         positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
         positions[ROS2_JOINT_SI_ORDER[0]] = 0.1 * (sample_index + 1)
-        positions[ROS2_JOINT_SI_ORDER[-1]] = 1.0
         evidence.append(
             {
                 "sample_index": sample_index,
@@ -474,10 +470,7 @@ def test_stage1_uses_every_bounded_home_connected_seed_with_j6_locked():
         *range(8),
     }
     assert len(bridge.audited) == 9
-    assert all(
-        positions[ROS2_JOINT_SI_ORDER[-1]] == 0.0
-        for positions in bridge.audited
-    )
+    assert all(set(positions) == set(ROS2_JOINT_SI_ORDER) for positions in bridge.audited)
 
 
 def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation():
@@ -508,7 +501,7 @@ def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation()
 def test_post_preentry_motion_cost_ignores_external_spindle_rotation():
     first = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
     spindle_only = dict(first)
-    spindle_only[ROS2_JOINT_SI_ORDER[-1]] = 2.0
+    spindle_only[SPINDLE_JOINT_NAME] = 2.0
     arm_move = dict(spindle_only)
     arm_move[ROS2_JOINT_SI_ORDER[0]] = 0.5
     assert DENTORobotWorkflowFacade._arm_path_motion_cost(
@@ -589,10 +582,10 @@ def test_goal1_diagnostics_are_arm_routes_not_spindle_roll_rows():
     assert '"geometrically_distinct"' in source
 
 
-def test_collision_guard_rejects_spindle_motion_and_supports_validate_only():
+def test_collision_guard_uses_group_joint_count_and_supports_validate_only():
     source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text(
         encoding="utf-8"
     )
-    assert "SPINDLE_LOCKED_VALUE_RAD" in source
+    assert "SPINDLE_LOCKED_VALUE_RAD" not in source
     assert "validate_only" in source
     assert "preflight_positions_" in source

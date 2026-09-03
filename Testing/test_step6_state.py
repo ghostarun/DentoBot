@@ -15,10 +15,9 @@ if str(HELPERS) not in sys.path:
 from DENTOStep6State import (  # noqa: E402
     BasePlacementStatus,
     JOINT_NAMES,
+    LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
-    SPINDLE_JOINT_NAME,
-    SPINDLE_LOCKED_VALUE_RAD,
     SPINDLE_PLANNING_POLICY,
     approach_points,
     base_placement_source_issue,
@@ -102,7 +101,7 @@ def test_task_home_round_trip_is_versioned_and_case_base_specific():
     assert restored == record
     assert restored.revision == 3
     assert restored.joint_names == JOINT_NAMES
-    assert restored.joint_positions_si[-1] == SPINDLE_LOCKED_VALUE_RAD
+    assert len(restored.joint_positions_si) == 5
     assert restored.spindle_planning_policy == SPINDLE_PLANNING_POLICY
 
 
@@ -112,13 +111,16 @@ def test_legacy_nonzero_spindle_home_migrates_without_changing_arm_pose():
         base_fingerprint="base-a",
         robot_profile_fingerprint="robot-a",
     ).to_dict()
+    legacy["joint_names"] = list(LEGACY_JOINT_NAMES)
+    legacy["joint_positions_si"] = [
+        *legacy["joint_positions_si"],
+        2.75,
+    ]
     legacy.pop("spindle_planning_policy")
     legacy.pop("spindle_locked_value_rad")
-    legacy["joint_positions_si"][-1] = 2.75
     restored = parse_task_home(legacy)
-    assert restored.joint_positions_si[:-1] == tuple(legacy["joint_positions_si"][:-1])
-    assert restored.joint_positions_si[-1] == 0.0
-    assert restored.joint_names[-1] == SPINDLE_JOINT_NAME
+    assert restored.joint_positions_si == tuple(legacy["joint_positions_si"][:-1])
+    assert restored.joint_names == JOINT_NAMES
 
 
 def test_workspace_limit_suggestion_retains_observed_range_and_needs_review():
@@ -144,7 +146,7 @@ def test_task_dependency_changes_invalidate_confirmation_but_display_does_not():
         home_fingerprint=confirmed.home_fingerprint,
         limits_fingerprint="limits-a",
         robot_profile_fingerprint="robot-a",
-        tool_frame="dentobot_drill_tip_provisional",
+        tool_frame="dentobot_drill_tcp",
     ) == ()
     reasons = task_snapshot_invalidation_reasons(
         confirmed,
@@ -184,7 +186,8 @@ def test_phase_schema_binds_commands_to_one_immutable_task():
     assert command.phase is MotionPhase.DRILLING
     assert command.task_fingerprint == config.task_fingerprint
     assert command.to_dict()["phase"] == "drilling"
-    assert command.joint_positions_si[-1] == SPINDLE_LOCKED_VALUE_RAD
+    assert command.joint_names == JOINT_NAMES
+    assert len(command.joint_positions_si) == 5
     with pytest.raises(ValueError, match="task fingerprint"):
         build_phase_joint_command(
             task_fingerprint="",

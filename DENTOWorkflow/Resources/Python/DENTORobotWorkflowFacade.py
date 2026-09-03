@@ -12,7 +12,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from math import degrees, isfinite, pi
+from math import degrees, isfinite, pi, sqrt
+from time import monotonic
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import DENTOROS2Bridge as _default_bridge
@@ -48,6 +49,7 @@ JOINT_LIMIT_FIELDS = (
 )
 JOINT_DISPLAY_UNITS = ("deg", "mm", "deg", "mm", "deg", "deg")
 JOINT_NAMES = tuple(_default_bridge.ROS2_JOINT_SI_ORDER)
+DISPLAY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
 WORKSPACE_RUNTIME_VALIDATION_MAX_SAMPLES = 400
 WORKSPACE_HOME_CONNECTIVITY_MAX_SAMPLES = 13
 WORKSPACE_RUNTIME_VALIDATION_STATUS = (
@@ -64,6 +66,10 @@ GOAL1_MAX_PLANNED_IK_CANDIDATES = GOAL1_MAX_IK_SEEDS
 GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
 GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
+# The current CAD burr mesh is approximately 2 mm across.  This is a physical
+# fit check only; exploratory guard policy may still suppress burr-to-guide
+# contact so simulation can inspect the arm path independently.
+PROVISIONAL_BURR_DIAMETER_MM = 2.0
 
 
 def _bounded_text(value: object, maximum_length: int = 600) -> str:
@@ -135,6 +141,7 @@ class RobotWorkflowState:
     ros_motion_active: bool
     has_motion_plan: bool
     preview_active: bool
+    return_home_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -228,14 +235,12 @@ def _compact_guarded_waypoints(
         float(revolute_deviation_rad),
         float(prismatic_deviation_m),
         float(revolute_deviation_rad),
-        float(revolute_deviation_rad),
     )
     spans = (
         float(maximum_revolute_span_rad),
         float(maximum_prismatic_span_m),
         float(maximum_revolute_span_rad),
         float(maximum_prismatic_span_m),
-        float(maximum_revolute_span_rad),
         float(maximum_revolute_span_rad),
     )
     if any(value <= 0.0 or not isfinite(value) for value in (*deviations, *spans)):
@@ -251,27 +256,38 @@ def _compact_guarded_waypoints(
     def follows_segment(start: int, end: int) -> bool:
         if end <= start + 1:
             return True
-        a = tuple(vectors[start][joint] / deviations[joint] for joint in range(6))
-        b = tuple(vectors[end][joint] / deviations[joint] for joint in range(6))
-        direction = tuple(b[joint] - a[joint] for joint in range(6))
+        a = tuple(
+            vectors[start][joint] / deviations[joint]
+            for joint in range(len(JOINT_NAMES))
+        )
+        b = tuple(
+            vectors[end][joint] / deviations[joint]
+            for joint in range(len(JOINT_NAMES))
+        )
+        direction = tuple(
+            b[joint] - a[joint] for joint in range(len(JOINT_NAMES))
+        )
         length_squared = sum(value * value for value in direction)
         for index in range(start + 1, end):
             point = tuple(
-                vectors[index][joint] / deviations[joint] for joint in range(6)
+                vectors[index][joint] / deviations[joint]
+                for joint in range(len(JOINT_NAMES))
             )
             if length_squared <= 1e-18:
                 projection = a
             else:
                 fraction = sum(
                     (point[joint] - a[joint]) * direction[joint]
-                    for joint in range(6)
+                    for joint in range(len(JOINT_NAMES))
                 ) / length_squared
                 fraction = min(1.0, max(0.0, fraction))
                 projection = tuple(
-                    a[joint] + fraction * direction[joint] for joint in range(6)
+                    a[joint] + fraction * direction[joint]
+                    for joint in range(len(JOINT_NAMES))
                 )
             if sum(
-                (point[joint] - projection[joint]) ** 2 for joint in range(6)
+                (point[joint] - projection[joint]) ** 2
+                for joint in range(len(JOINT_NAMES))
             ) > 1.0 + 1e-12:
                 return False
         return True
@@ -315,6 +331,8 @@ class DENTORobotWorkflowFacade:
         self._preview_timer = None
         self._preview_index = 0
         self._preview_waypoint_in_flight = False
+        self._preview_last_display_monotonic = 0.0
+        self._robot_away_from_home = False
         self._display_sync_depth = 0
         self._planning_scene_object_count = 0
         self._planning_scene_synchronized = False
@@ -347,6 +365,24 @@ class DENTORobotWorkflowFacade:
         return self._completed_phase
 
     @property
+    def returnHomeRequired(self) -> bool:
+        """Whether the robot has accepted motion away from Task Home."""
+
+        return bool(self._robot_away_from_home)
+
+    @property
+    def previewIndex(self) -> int:
+        return int(self._preview_index)
+
+    @property
+    def currentPreviewPhase(self) -> str:
+        plan = self._motion_plan
+        if isinstance(plan, PhasePlan) and plan.waypoint_phases:
+            index = min(max(0, self._preview_index), len(plan.waypoint_phases) - 1)
+            return str(plan.waypoint_phases[index])
+        return ""
+
+    @property
     def drillingPreflightReady(self) -> bool:
         return self._preflight_drilling_plan is not None
 
@@ -369,6 +405,7 @@ class DENTORobotWorkflowFacade:
         self._runtime_validated_task_home_key = ""
         self._runtime_task_home_evidence = {}
         self._runtime_validated_workspace_key = ""
+        self._robot_away_from_home = False
 
     def invalidateMotionPlan(self) -> None:
         """Drop task/phase plans without discarding the connected scene audit."""
@@ -432,6 +469,46 @@ class DENTORobotWorkflowFacade:
         issues = checker(parameter_node)
         return " ".join(str(issue) for issue in issues if issue)
 
+
+    @staticmethod
+    def _guide_fit_evidence(parameter_node) -> dict[str, object]:
+        """Report guide/burr dimensional fit separately from simulation safety."""
+
+        bore_values = []
+        for field_name in ("templateChannelDiameterMm", "templateSleeveInnerDiameterMm"):
+            try:
+                value = float(getattr(parameter_node, field_name))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if isfinite(value) and value > 0.0:
+                bore_values.append((field_name, value))
+        if not bore_values:
+            return {
+                "status": "Unknown",
+                "burrDiameterMm": PROVISIONAL_BURR_DIAMETER_MM,
+                "guideBoreDiameterMm": None,
+                "physicalFitFailure": False,
+                "message": "Guide bore is unavailable; physical fit was not evaluated.",
+            }
+        source, bore = min(bore_values, key=lambda item: item[1])
+        fits = PROVISIONAL_BURR_DIAMETER_MM <= bore + 1.0e-9
+        return {
+            "status": "Pass" if fits else "PhysicalFitFailure",
+            "burrDiameterMm": PROVISIONAL_BURR_DIAMETER_MM,
+            "guideBoreDiameterMm": bore,
+            "guideBoreSource": source,
+            "physicalFitFailure": not fits,
+            "message": (
+                f"Physical fit pass: {PROVISIONAL_BURR_DIAMETER_MM:.2f} mm burr "
+                f"≤ {bore:.2f} mm guide bore."
+                if fits
+                else
+                f"PHYSICAL-FIT FAILURE: {PROVISIONAL_BURR_DIAMETER_MM:.2f} mm "
+                f"burr exceeds the {bore:.2f} mm guide bore ({source}). "
+                "Exploratory simulation may continue under the explicit burr/guide "
+                "exception, but this is not a printable or executable fit."
+            ),
+        }
     def _scene_placement_issue(self, parameter_node) -> str:
         """Allow a governed target-jaw fallback only for placement operations."""
         if self._scene_kind(parameter_node) != "case":
@@ -721,7 +798,7 @@ class DENTORobotWorkflowFacade:
             degrees(float(positions_si[JOINT_NAMES[2]])),
             float(positions_si[JOINT_NAMES[3]]) * 1000.0,
             degrees(float(positions_si[JOINT_NAMES[4]])),
-            degrees(float(positions_si[JOINT_NAMES[5]])),
+            degrees(float(positions_si.get(SPINDLE_JOINT_NAME, 0.0))),
         )
 
     def capabilities(self) -> RobotCapabilities:
@@ -761,7 +838,7 @@ class DENTORobotWorkflowFacade:
         base_id = base.GetID() if base is not None and hasattr(base, "GetID") else ""
         return RobotWorkflowState(
             scene_kind=self._scene_kind(parameter_node),
-            joint_names=JOINT_NAMES,
+            joint_names=DISPLAY_JOINT_NAMES,
             joint_display_values=display_values,
             joint_display_units=JOINT_DISPLAY_UNITS,
             joint_positions_si=self._positions_si(display_values),
@@ -775,6 +852,7 @@ class DENTORobotWorkflowFacade:
                 and getattr(self._motion_plan, "success", False)
             ),
             preview_active=self._preview_timer is not None,
+            return_home_required=self._robot_away_from_home,
         )
 
     def connect(self, *, open_motion_module: bool = False) -> RobotActionResult:
@@ -997,6 +1075,12 @@ class DENTORobotWorkflowFacade:
     def requestJointValue(self, joint_id: int | str, display_value: float) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
+            if joint_id == SPINDLE_JOINT_NAME or joint_id == len(JOINT_NAMES) + 1:
+                return RobotActionResult(
+                    False,
+                    "external_spindle",
+                    "J6 is an externally driven pneumatic spindle, not a Step 6 planning or positioning joint.",
+                )
             if isinstance(joint_id, str):
                 try:
                     index = JOINT_NAMES.index(joint_id)
@@ -1061,6 +1145,12 @@ class DENTORobotWorkflowFacade:
         try:
             parameter_node = self._require_context()
             requested_display = self._display_values(parameter_node)
+            if abs(float(requested_display[-1])) > 1.0e-12:
+                # MRML GUI bindings can still emit the legacy sixth spin-box
+                # value. It has no planning meaning and must not leave the UI
+                # claiming that a rotor angle was accepted as arm motion.
+                requested_display = (*requested_display[: len(JOINT_NAMES)], 0.0)
+                self._write_display_values(parameter_node, requested_display)
             positions_si = self._positions_si(requested_display)
             base = parameter_node.robotBaseTransform
             if base is not None and self._logic.isRos2MotionControlActive(base):
@@ -1081,7 +1171,7 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(
                 True,
                 "joint_state_accepted",
-                "Accepted the current six-joint simulation state.",
+                "Accepted the current five-joint planning state; spindle is external.",
                 payload=positions_si,
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
@@ -1324,6 +1414,7 @@ class DENTORobotWorkflowFacade:
                 ),
             }
             self._clear_phase_session()
+            self._robot_away_from_home = False
             return RobotActionResult(
                 True,
                 "task_home_saved",
@@ -1688,7 +1779,7 @@ class DENTORobotWorkflowFacade:
                 values = tuple(sample.get("joint_positions_si", ()))
                 if len(names) != len(JOINT_NAMES) or len(values) != len(JOINT_NAMES):
                     raise ValueError(
-                        f"Saved workspace sample {evidence_index} lacks six joints."
+                        f"Saved workspace sample {evidence_index} lacks five planning joints."
                     )
                 positions = {
                     str(name): float(value) for name, value in zip(names, values)
@@ -2008,6 +2099,85 @@ class DENTORobotWorkflowFacade:
     def planAlongTrajectory(self) -> RobotActionResult:
         return self.planDrillingPhase()
 
+    def _verify_preview_endpoint(self, plan: PhasePlan) -> RobotActionResult:
+        """Confirm monitored joints and FK TCP endpoint after every preview."""
+
+        parameter_node = self._require_context()
+        expected = dict(plan.waypoint_joint_vectors_si[-1])
+        ok, message, monitored, maximum_error = (
+            self._bridge.wait_for_monitored_joint_positions_si(expected)
+        )
+        if not ok:
+            return RobotActionResult(
+                False,
+                "preview_endpoint_monitor_mismatch",
+                "Preview accepted its final guard waypoint, but the monitored "
+                "MoveIt state did not converge. " + str(message),
+                details={
+                    "expectedJointPositionsSi": expected,
+                    "monitoredJointPositionsSi": monitored,
+                    "maximumJointError": maximum_error,
+                },
+            )
+        snapshot = self._logic.confirmedTaskRecord(parameter_node)
+        expected_ras = (
+            tuple(snapshot.entry_ras_mm)
+            if str(plan.requested_phase) == "approach"
+            else tuple(snapshot.target_ras_mm)
+        )
+        fk = getattr(self._bridge, "compute_tcp_position_world_ras_mm", None)
+        if not callable(fk):
+            return RobotActionResult(
+                False,
+                "preview_endpoint_fk_unavailable",
+                "The preview endpoint cannot be confirmed because authoritative "
+                "world-RAS TCP FK is unavailable.",
+            )
+        fk_ok, fk_message, actual_ras = fk(
+            expected,
+            base_transform=parameter_node.robotBaseTransform,
+        )
+        if not fk_ok or actual_ras is None:
+            return RobotActionResult(
+                False,
+                "preview_endpoint_fk_failed",
+                str(fk_message),
+            )
+        error_mm = sqrt(
+            sum(
+                (float(actual_ras[index]) - float(expected_ras[index])) ** 2
+                for index in range(3)
+            )
+        )
+        tolerance_mm = float(
+            getattr(_default_bridge, "CARTESIAN_START_POSITION_TOLERANCE_MM", 0.25)
+        )
+        if error_mm > tolerance_mm:
+            return RobotActionResult(
+                False,
+                "preview_endpoint_tcp_mismatch",
+                f"Preview endpoint TCP is {error_mm:.3f} mm from the requested "
+                f"{str(plan.requested_phase)} endpoint (limit {tolerance_mm:.3f} mm).",
+                details={
+                    "actualTcpRasMm": tuple(actual_ras),
+                    "expectedTcpRasMm": expected_ras,
+                    "tcpPositionErrorMm": error_mm,
+                },
+            )
+        return RobotActionResult(
+            True,
+            "preview_endpoint_verified",
+            f"Monitored joints and TCP endpoint verified at {error_mm:.3f} mm "
+            f"from the requested {str(plan.requested_phase)} point.",
+            details={
+                "actualTcpRasMm": tuple(actual_ras),
+                "expectedTcpRasMm": expected_ras,
+                "tcpPositionErrorMm": error_mm,
+                "monitoredJointPositionsSi": monitored,
+                "maximumJointError": maximum_error,
+            },
+        )
+
     def showDiagnosticCandidate(self, candidate_index: int) -> RobotActionResult:
         """Show one retained last-valid state on the translucent goal robot."""
         try:
@@ -2084,6 +2254,12 @@ class DENTORobotWorkflowFacade:
         interval_ms: int = 50,
     ) -> RobotActionResult:
         """Animate one retained route on the translucent goal robot only."""
+        if self.previewActive:
+            return RobotActionResult(
+                False,
+                "guarded_preview_active",
+                "Stop or finish the guarded live preview before starting a diagnostic leg preview.",
+            )
         paths = self._diagnostic_candidate_paths.get(int(candidate_index), {})
         waypoints = tuple(
             waypoint
@@ -2301,6 +2477,13 @@ class DENTORobotWorkflowFacade:
             "first_invalid_collision_pairs": [
                 list(pair) for pair in result.first_invalid_collision_pairs
             ],
+            "sequential_ik_recovery_attempted": bool(
+                result.sequential_ik_recovery_attempted
+            ),
+            "sequential_ik_failure_index": int(result.sequential_ik_failure_index),
+            "sequential_ik_failure_message": _bounded_text(
+                result.sequential_ik_failure_message
+            ),
             "collision_evidence": (
                 "Kinematics-only IK succeeded while collision-aware IK failed."
                 if result.failure_classification == "collision_induced_ik_failure"
@@ -2393,8 +2576,8 @@ class DENTORobotWorkflowFacade:
             )
         if not result.success:
             raise RuntimeError(
-                "Full Entry-to-Target reachability failed with the external "
-                "spindle locked at 0 rad. "
+                "Full Entry-to-Target reachability failed for the canonical "
+                "non-spinning TCP. "
                 + result.message
                 + " The partial joint path and its last-valid/first-invalid "
                 "boundary remain diagnostic evidence; this result does not "
@@ -2413,9 +2596,9 @@ class DENTORobotWorkflowFacade:
     ) -> dict[str, object]:
         """Describe the immutable drilling frame selected by Stage 1.
 
-        The trajectory fixes the tool Z axis.  The remaining rotation about
-        that axis is obtained from the J6-locked FK solution and is important
-        to the posture of arm joints 1–5 even though burr spin is external.
+        The trajectory fixes the tool Z axis and a deterministic roll. The
+        canonical TCP is rigidly attached upstream of the external spindle,
+        so its orientation does not depend on an uncontrolled rotor angle.
         """
 
         direction = tuple(
@@ -2451,7 +2634,7 @@ class DENTORobotWorkflowFacade:
             for waypoint in plan.waypoint_joint_vectors_si:
                 if waypoints and all(
                     abs(float(waypoints[-1][name]) - float(waypoint[name])) <= 1.0e-12
-                    for name in JOINT_NAMES[:-1]
+                    for name in JOINT_NAMES
                 ):
                     continue
                 waypoints.append(waypoint)
@@ -2465,7 +2648,7 @@ class DENTORobotWorkflowFacade:
                     if name == "link-4_Slider-4"
                     else 2.0 * pi
                 )
-                for name in JOINT_NAMES[:-1]
+                for name in JOINT_NAMES
             )
             for previous, current in zip(waypoints, waypoints[1:])
         )
@@ -2701,47 +2884,29 @@ class DENTORobotWorkflowFacade:
             )[0]
             ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
             if not ok:
-                failures.append(f"spindle-locked goal: {message}")
+                failures.append(f"canonical TCP goal: {message}")
                 continue
             ok, message, positions = self._bridge.solve_moveit_tcp_goal(
                 seed_joint_positions_si=seed_positions
             )
             if not ok:
-                failures.append(f"spindle-locked IK: {message}")
+                failures.append(f"canonical TCP IK: {message}")
                 continue
             valid, validity_message, authoritative = (
                 self._bridge.check_moveit_static_joint_state(positions)
             )
             if not authoritative:
                 failures.append(
-                    "spindle-locked IK state could not be audited: "
+                    "canonical TCP IK state could not be audited: "
                     + validity_message
                 )
                 continue
             if not valid:
                 failures.append(
-                    "spindle-locked IK state is invalid after fixing J6 at 0 rad: "
+                    "canonical TCP IK state is invalid: "
                     + validity_message
                 )
                 continue
-            ok, message, axial_roll_deg = (
-                self._bridge.spindle_locked_tcp_roll_deg(
-                    positions,
-                    entry_ras_mm=pre_entry,
-                    target_ras_mm=entry,
-                    base_transform=parameter_node.robotBaseTransform,
-                )
-            )
-            if not ok:
-                failures.append(message)
-                continue
-            pose = self._bridge.tool_pose_matrices_world_mm(
-                pre_entry,
-                entry,
-                2,
-                axial_roll_start_deg=axial_roll_deg,
-                axial_roll_end_deg=axial_roll_deg,
-            )[0]
             orientation_commitment = self._tool_orientation_commitment(
                 pose,
                 pre_entry_ras_mm=pre_entry,
@@ -2753,7 +2918,7 @@ class DENTORobotWorkflowFacade:
                 joint_diagnostic["submitted_goal"]
             )
             solution_identity = tuple(
-                round(canonical_solution[name], 9) for name in JOINT_NAMES[:-1]
+                round(canonical_solution[name], 9) for name in JOINT_NAMES
             )
             if solution_identity in seen_solutions:
                 continue
@@ -2986,7 +3151,7 @@ class DENTORobotWorkflowFacade:
             "path_length_joint_si": sum(
                 sum(
                     abs(float(current[name]) - float(previous[name]))
-                    for name in JOINT_NAMES[:-1]
+                    for name in JOINT_NAMES
                 )
                 for previous, current in zip(
                     result.waypoint_joint_vectors_si,
@@ -3261,6 +3426,15 @@ class DENTORobotWorkflowFacade:
                     "requested_distance_mm": float(
                         failed_plan.requested_path_length_mm
                     ),
+                    "sequential_ik_recovery_attempted": bool(
+                        getattr(failed_plan, "sequential_ik_recovery_attempted", False)
+                    ),
+                    "sequential_ik_failure_index": int(
+                        getattr(failed_plan, "sequential_ik_failure_index", -1)
+                    ),
+                    "sequential_ik_failure_message": _bounded_text(
+                        getattr(failed_plan, "sequential_ik_failure_message", "")
+                    ),
                 }
             )
         return result
@@ -3272,6 +3446,11 @@ class DENTORobotWorkflowFacade:
             parameter_node = self._require_context()
             self.stopPreview()
             self._diagnostic_candidate_paths = {}
+            if self._robot_away_from_home:
+                raise ValueError(
+                    "The robot is away from Task Home. Use guarded Return Home "
+                    "before replanning Goal 1."
+                )
             issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
             if issues:
                 raise ValueError("Task confirmation is missing or stale: " + ", ".join(issues))
@@ -3289,6 +3468,7 @@ class DENTORobotWorkflowFacade:
                     "and confirm the task again."
                 )
             snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            guide_fit = self._guide_fit_evidence(parameter_node)
             home_record = self._logic.taskHomeRecord(parameter_node)
             home_positions = dict(
                 zip(home_record.joint_names, home_record.joint_positions_si)
@@ -3336,7 +3516,7 @@ class DENTORobotWorkflowFacade:
             if not ik_candidates:
                 raise RuntimeError(
                     "Goal 1 found no collision-aware PreEntry IK endpoint for "
-                    "the canonical arm orientation with the external spindle locked. "
+                    "the canonical non-spinning drill TCP. "
                     + "; ".join(ik_failures)
                 )
             strict_plan = None
@@ -4242,8 +4422,8 @@ class DENTORobotWorkflowFacade:
                     "The independent phase guard keeps all non-tool collision "
                     "rules strict while suppressing only configured burr-to-task "
                     "contact; every suppression will be reported. "
-                    "The pneumatic spindle remained locked at 0 rad; route "
-                    "selection used only controllable arm joints"
+                    "Route selection used only controllable arm joints; the "
+                    "pneumatic spindle is external and not planned."
                     + (
                         " through previously validated workspace clearance "
                         f"sample {int(selected_clearance['sampleIndex'])}. "
@@ -4252,7 +4432,7 @@ class DENTORobotWorkflowFacade:
                     )
                     + (
                         "The complete Entry-to-Target drilling line passed the "
-                        "spindle-locked reachability preflight."
+                        "canonical TCP reachability preflight."
                         if drilling_preflight is not None
                         else (
                             "Full-task status is Blocked at Stage 3; the provisional "
@@ -4260,6 +4440,7 @@ class DENTORobotWorkflowFacade:
                             "evidence and is not a drilling authorization."
                         )
                     )
+                    + " " + str(guide_fit["message"])
                 ),
                 task_fingerprint=snapshot.snapshot_fingerprint,
                 requested_phase="approach",
@@ -4367,6 +4548,7 @@ class DENTORobotWorkflowFacade:
                     "toolOrientationFingerprint": selected_orientation[
                         "fingerprint"
                     ],
+                    "guideFit": guide_fit,
                     "trajectoryPathDisplayed": bool(path_view_ok),
                     "trajectoryPathDisplayMessage": path_view_message,
                     "plannerStartSource": strict_plan.planner_start_source,
@@ -4427,6 +4609,7 @@ class DENTORobotWorkflowFacade:
                     "Complete the guarded Goal 1 approach preview before planning Goal 2."
                 )
             snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            guide_fit = self._guide_fit_evidence(parameter_node)
             if self._phase_guard_task_fingerprint != snapshot.snapshot_fingerprint:
                 raise ValueError(
                     "The Goal 1 guard session is missing or belongs to another task. "
@@ -4475,7 +4658,8 @@ class DENTORobotWorkflowFacade:
                     "Solver collision avoidance is disabled for this exploratory "
                     "Cartesian check. The independent guard may suppress only "
                     "configured burr-to-task-object contacts; non-tool collisions, "
-                    "bounds, and corridor violations remain rejected."
+                    "bounds, and corridor violations remain rejected. "
+                    + str(guide_fit["message"])
                 ),
                 task_fingerprint=snapshot.snapshot_fingerprint,
                 requested_phase="drilling",
@@ -4508,6 +4692,7 @@ class DENTORobotWorkflowFacade:
                     "drillToolFramePolicy": DRILL_TOOL_FRAME_POLICY,
                     "toolAxisRas": tuple(orientation["toolAxisRas"]),
                     "toolOrientationFingerprint": orientation["fingerprint"],
+                    "guideFit": guide_fit,
                 },
                 payload=plan,
             )
@@ -4519,7 +4704,8 @@ class DENTORobotWorkflowFacade:
         self,
         requested_phase: str,
         *,
-        interval_ms: int = 250,
+        speed_multiplier: float = 1.0,
+        interval_ms: Optional[int] = None,
         on_progress: Optional[Callable[[int, int], None]] = None,
         on_finished: Optional[Callable[[RobotActionResult], None]] = None,
     ) -> RobotActionResult:
@@ -4571,8 +4757,42 @@ class DENTORobotWorkflowFacade:
         self._preview_index = 0
         self._preview_exploratory_tool_contact = False
         self._preview_suppressed_tool_contact_samples = 0
+        self._preview_last_display_monotonic = 0.0
         timer = qt.QTimer()
-        timer.setInterval(max(20, int(interval_ms)))
+        try:
+            speed_multiplier = float(speed_multiplier)
+        except (TypeError, ValueError):
+            speed_multiplier = 1.0
+        speed_multiplier = min(8.0, max(0.25, speed_multiplier))
+        legacy_interval = (
+            max(20, int(interval_ms)) if interval_ms is not None else None
+        )
+        timer.setSingleShot(True)
+
+        def schedule_next() -> None:
+            if self._preview_index >= len(plan.waypoint_joint_vectors_si):
+                # The final accepted waypoint still needs one event-loop turn
+                # to enter the completion branch, where endpoint FK and the
+                # finish callback are evaluated.  A single-shot timer avoids
+                # leaving the preview permanently active at N/N.
+                timer.start(1)
+                return
+            if legacy_interval is not None:
+                delay_ms = legacy_interval
+            elif self._preview_index == 0:
+                delay_ms = 1
+            else:
+                times = tuple(plan.waypoint_times_sec or ())
+                if len(times) == len(plan.waypoint_joint_vectors_si):
+                    delta_sec = max(
+                        0.001,
+                        float(times[self._preview_index])
+                        - float(times[self._preview_index - 1]),
+                    )
+                    delay_ms = max(1, round(delta_sec * 1000.0 / speed_multiplier))
+                else:
+                    delay_ms = max(1, round(50.0 / speed_multiplier))
+            timer.start(int(delay_ms))
 
         def advance() -> None:
             if self._preview_waypoint_in_flight:
@@ -4580,7 +4800,15 @@ class DENTORobotWorkflowFacade:
             if self._preview_index >= len(plan.waypoint_joint_vectors_si):
                 completed_phase = plan.requested_phase
                 self.stopPreview()
+                endpoint = self._verify_preview_endpoint(plan)
+                if not endpoint.success:
+                    self._clear_phase_session()
+                    self._robot_away_from_home = True
+                    if on_finished:
+                        on_finished(endpoint)
+                    return
                 self._completed_phase = completed_phase
+                self._robot_away_from_home = True
                 if on_finished:
                     if self._preview_exploratory_tool_contact:
                         on_finished(
@@ -4682,10 +4910,17 @@ class DENTORobotWorkflowFacade:
                 # the same guarded sequence to be published twice.
                 self._preview_index += 1
                 self._phase_sequence += 1
-                self._write_display_values(
-                    parameter_node,
-                    self._display_values_from_si(positions),
-                )
+                self._robot_away_from_home = True
+                now = monotonic()
+                if (
+                    self._preview_index == len(plan.waypoint_joint_vectors_si)
+                    or now - self._preview_last_display_monotonic >= 1.0 / 30.0
+                ):
+                    self._write_display_values(
+                        parameter_node,
+                        self._display_values_from_si(positions),
+                    )
+                    self._preview_last_display_monotonic = now
                 if on_progress:
                     on_progress(
                         self._preview_index,
@@ -4693,10 +4928,11 @@ class DENTORobotWorkflowFacade:
                     )
             finally:
                 self._preview_waypoint_in_flight = False
+            schedule_next()
 
         timer.timeout.connect(advance)
-        timer.start()
         self._preview_timer = timer
+        schedule_next()
         return RobotActionResult(
             True,
             "phase_preview_started",
@@ -4779,6 +5015,50 @@ class DENTORobotWorkflowFacade:
         self._preview_index = 0
         self._preview_waypoint_in_flight = False
         return RobotActionResult(True, "preview_stopped", "Simulated preview stopped.")
+
+    def stopGuardedPreview(self) -> RobotActionResult:
+        """Stop a live preview and consume it once any waypoint was accepted."""
+
+        had_timer = self._preview_timer is not None
+        accepted_count = int(self._preview_index)
+        result = self.stopPreview()
+        if had_timer and accepted_count > 0:
+            self._clear_phase_session()
+            self._robot_away_from_home = True
+            return RobotActionResult(
+                True,
+                "preview_stopped_return_required",
+                "Preview stopped after accepted motion. The guarded session was "
+                "consumed; return to Task Home before replanning.",
+                details={"acceptedWaypointCount": accepted_count},
+            )
+        return result
+
+    def returnToTaskHome(self) -> RobotActionResult:
+        """Use the strict MoveIt/guard path to return after a preview or stop."""
+
+        self.stopGuardedPreview()
+        self._clear_phase_session()
+        result = self.applyTaskHome()
+        if result.success:
+            self._robot_away_from_home = False
+            return RobotActionResult(
+                True,
+                "task_home_returned",
+                "Guarded Return Home completed and the monitored MoveIt state "
+                "matches Task Home. Replanning is available.",
+                details=result.details,
+                payload=result.payload,
+            )
+        self._robot_away_from_home = True
+        return RobotActionResult(
+            False,
+            "task_home_return_failed",
+            "Guarded Return Home failed; the robot remains away from Task Home. "
+            + result.message,
+            details=result.details,
+            payload=result.payload,
+        )
 
     def generateWorkspaceCloud(self) -> RobotActionResult:
         try:

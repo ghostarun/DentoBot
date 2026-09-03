@@ -19,7 +19,7 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
 
-UNDER_CLEARANCE_JOINTS = [0.1, 0.08, 0.2, 0.075, 0.1, 0.0]
+UNDER_CLEARANCE_JOINTS = [0.1, 0.08, 0.2, 0.075, 0.1]
 TASK = "phase-smoke-task-v1"
 TARGET_ID = "[Mask] DENTOBOT phase-smoke target — FDI 14"
 FORBIDDEN_ID = "dentobot_phase_smoke_forbidden"
@@ -127,10 +127,14 @@ def publish_sphere(
         message.primitive_poses = [pose]
     if spin_until(
         node,
-        lambda: node.collision_publisher.get_subscription_count() > 0,
+        # Both MoveIt and the independent guard own a planning-scene monitor.
+        # Waiting for both subscribers prevents an ADD from reaching only the
+        # first monitor during startup and makes the guard-side evidence
+        # deterministic.
+        lambda: node.collision_publisher.get_subscription_count() >= 2,
         5.0,
     ) is None:
-        raise RuntimeError("MoveIt collision-object subscriber is unavailable")
+        raise RuntimeError("MoveIt/guard collision-object subscribers are unavailable")
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         node.collision_publisher.publish(message)
@@ -151,7 +155,7 @@ def config_payload(entry, target, guard_session_id):
         "target_object_id": TARGET_ID,
         "allowed_robot_link": "burr",
         "clearance_exempt_object_ids": [GUIDE_ID],
-        "tool_tip_frame": "dentobot_drill_tip_provisional",
+        "tool_tip_frame": "dentobot_drill_tcp",
         "entry_base_m": list(entry),
         "target_base_m": list(target),
         "corridor_radius_m": 0.00075,
@@ -237,20 +241,30 @@ def main() -> None:
     try:
         if spin_until(node, lambda: node.joint_state, 10.0) is None:
             raise RuntimeError("/joint_states unavailable")
-        safe_joints = list(node.joint_state.position)
+        planning_joint_names = (
+            "link-1_Revolute-1",
+            "link-2_Slider-2",
+            "link-3_Revolute-3",
+            "link-4_Slider-4",
+            "link-5_Revolute-5",
+        )
+        joint_values_by_name = dict(zip(node.joint_state.name, node.joint_state.position))
+        if any(name not in joint_values_by_name for name in planning_joint_names):
+            raise RuntimeError("/joint_states does not contain all planning joints")
+        safe_joints = [float(joint_values_by_name[name]) for name in planning_joint_names]
         transform = spin_until(
             node,
             lambda: node.tf_buffer.lookup_transform(
-                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
+                "base_link", "dentobot_drill_tcp", rclpy.time.Time()
             )
             if node.tf_buffer.can_transform(
-                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
+                "base_link", "dentobot_drill_tcp", rclpy.time.Time()
             )
             else None,
             10.0,
         )
         if transform is None:
-            raise RuntimeError("provisional drill-tip TF unavailable")
+            raise RuntimeError("canonical drill TCP TF unavailable")
         tip = transform.transform.translation
         direction = quaternion_rotate(transform.transform.rotation, (0.0, 0.0, 1.0))
         direction_norm = math.sqrt(sum(value * value for value in direction))
@@ -260,7 +274,11 @@ def main() -> None:
         contact_centre = tuple(
             entry[index] - 0.0004 * direction[index] for index in range(3)
         )
-        publish_sphere(node, TARGET_ID, contact_centre)
+        # The canonical TCP is a fixed frame at the burr tip; the burr mesh
+        # ends about 1 mm behind that frame.  Use a small 2 mm diagnostic
+        # sphere so the intended burr-target contact is deterministic without
+        # changing the production collision policy.
+        publish_sphere(node, TARGET_ID, contact_centre, radius_m=0.002)
         publish_sphere(node, GUIDE_ID, (tip.x + 1.0, tip.y, tip.z))
         config = config_payload(entry, target, "phase-smoke-main")
 
@@ -424,10 +442,25 @@ def main() -> None:
         require(overshoot, False, "overshoot", "overshot")
         report["overshoot_rejected"] = True
 
+        # A legacy six-value command attempts to address the external spindle.
+        # The guard rejects it because only J1-J5 are planning DOFs.
+        spindle = list(safe_joints) + [0.1]
+        spindle_result = task_command(
+            node,
+            config=config_payload(entry, target, "phase-smoke-spindle"),
+            joints=spindle,
+            phase="drilling",
+            sequence=0,
+        )
+        require(spindle_result, False, "spindle movement", "five")
+        report["spindle_motion_rejected"] = True
+
         bounds = task_command(
             node,
             config=config_payload(entry, target, "phase-smoke-bounds"),
-            joints=[99.0] * 6,
+            # Keep the externally driven spindle at its fixed value so this
+            # assertion exercises the independent J1–J5 joint-bound path.
+            joints=[99.0] * 5,
             phase="drilling",
             sequence=0,
         )

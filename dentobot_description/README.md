@@ -45,8 +45,10 @@ The same simulation-profile revision declares J5 continuous. The former
 finite interval `-1.08–358.92 deg` covered one full revolution but forced a
 pose just below zero to be represented as an almost-complete positive turn.
 MoveIt and DENTOWorkflow now use the shortest representation relative to the
-accepted start state for J5 and J6. This is a simulation configuration pending
-physical joint-stop confirmation; it is not an actuator or hardware claim.
+accepted start state for J5. J6 is different: it is the pneumatic air-rotor
+spindle and is not a positioning degree of freedom. Its visual/collision
+branch remains in the URDF and publishes a neutral `0 rad` display state, but
+it is absent from the MoveIt `dentobot_arm` planning group.
 
 The received source URDF remains unchanged under `data/ROS/assembly`. Mesh
 bytes, link frames/geometries, masses, inertias, and the other joint axes are
@@ -95,7 +97,7 @@ metres):
 | `link-3_Revolute-3` | revolute | -62.46–297.54 deg |
 | `link-4_Slider-4` | prismatic | 0–75 mm |
 | `link-5_Revolute-5` | continuous | -180–180 deg display window |
-| `pneumatic_spindle-Copy_Revolute-6` | continuous | -180–180 deg |
+| `pneumatic_spindle-Copy_Revolute-6` | continuous visual spindle | fixed 0 deg in planning |
 
 All six displayed values start at zero. **Reset all joints to zero** restores
 the photographed pose, not the original CAD-export pose.
@@ -159,9 +161,23 @@ collision planning, calibration, or hardware integration, the team must verify:
 - simplified, conservative collision geometry instead of reusing every visual
   mesh verbatim;
 - self-collision pairs, transmissions/actuators, controller interfaces, and
-  the robot-control/safety boundary;
+the robot-control/safety boundary;
 - the explicit transform chain from Slicer RAS through the physical docking
   and robot frames.
 
 No powered motion, drilling, patient use, or safety claim is authorized by
 this package.
+
+## Step 6 planning frame
+
+MoveIt group `dentobot_arm` plans five commandable joints (`link-1` through
+`link-5`) to the fixed `dentobot_drill_tcp` frame. The frame is a fixed sibling
+of the spindle joint at the CAD burr-tip reference pose, so its position and
+tool axis do not rotate when the uncontrolled J6 air rotor turns. The older
+`dentobot_drill_tip_provisional` and `dentobot_tool_tcp` links remain downstream
+of J6 for visual/collision compatibility and are not Step 6 planning TCPs.
+Task Home, IK, workspace samples, trajectories, phase-guard commands, and
+previews therefore use five SI values. Older six-value saved vectors are read
+at the compatibility boundary by retaining J1–J5 and discarding the historical
+spindle slot; old roll-dependent evidence is stale under the new robot-profile
+fingerprint.

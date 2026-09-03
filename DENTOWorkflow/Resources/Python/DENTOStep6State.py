@@ -24,34 +24,46 @@ MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
 SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
+"""Commandable robot joints used by MoveIt and the Step 6 guard.
+
+The pneumatic spindle remains in the URDF as a visual/collision branch, but it
+is deliberately absent from this planning order: its angular position is not a
+robot command.  ``LEGACY_JOINT_NAMES`` is retained only to migrate old saved
+six-value records at the persistence boundary.
+"""
 JOINT_NAMES = (
     "link-1_Revolute-1",
     "link-2_Slider-2",
     "link-3_Revolute-3",
     "link-4_Slider-4",
     "link-5_Revolute-5",
-    "pneumatic_spindle-Copy_Revolute-6",
 )
-SPINDLE_JOINT_NAME = JOINT_NAMES[-1]
+SPINDLE_JOINT_NAME = "pneumatic_spindle-Copy_Revolute-6"
+LEGACY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
 SPINDLE_LOCKED_VALUE_RAD = 0.0
 SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
-SPINDLE_PLANNING_POLICY = "external-pressure-spindle-locked-v1"
+SPINDLE_PLANNING_POLICY = "external-pressure-spindle-nonplanning-v2"
 DRILL_TOOL_FRAME_POLICY = "stage1-fixed-entry-target-frame-v1"
 
 
 def canonicalize_planning_joint_positions(
     joint_positions_si: Mapping[str, float],
 ) -> dict[str, float]:
-    """Return the compatible six-joint vector with the external spindle locked."""
+    """Return a finite commandable J1–J5 vector.
+
+    An optional historical spindle key is ignored at this boundary.  It is not
+    canonicalized, constrained, or sent to MoveIt; old records are migrated by
+    their parser and their pre-migration evidence is stale by fingerprint.
+    """
 
     result = {name: float(joint_positions_si[name]) for name in JOINT_NAMES}
     if not all(isfinite(value) for value in result.values()):
-        raise ValueError("planning joint vector must contain six finite values")
-    result[SPINDLE_JOINT_NAME] = SPINDLE_LOCKED_VALUE_RAD
+        raise ValueError("planning joint vector must contain five finite values")
     return result
 
 
 def spindle_is_locked(joint_positions_si: Mapping[str, float]) -> bool:
+    """Compatibility check for legacy records; never used for planning."""
     try:
         value = float(joint_positions_si[SPINDLE_JOINT_NAME])
     except (KeyError, TypeError, ValueError):
@@ -225,10 +237,16 @@ def parse_task_home(payload: str | Mapping[str, object]) -> TaskHomeRecord:
     if data.get("schema_version") != STATE_SCHEMA_VERSION:
         raise ValueError("unsupported Task Home schema")
     names = tuple(str(value) for value in data.get("joint_names", ()))
-    if names != JOINT_NAMES:
-        raise ValueError("Task Home joint order does not match the DENTOBOT profile")
+    values = tuple(data.get("joint_positions_si", ()))
+    if names == LEGACY_JOINT_NAMES:
+        # Old six-joint homes are read as J1–J5 only.  Their old planning
+        # evidence is invalidated by the new robot-profile/TCP fingerprint.
+        names = JOINT_NAMES
+        values = values[: len(JOINT_NAMES)]
+    if names != JOINT_NAMES or len(values) != len(JOINT_NAMES):
+        raise ValueError("Task Home joint order does not match the J1–J5 planning profile")
     return build_task_home(
-        dict(zip(names, data.get("joint_positions_si", ()))),
+        dict(zip(names, values)),
         base_fingerprint=str(data.get("base_fingerprint") or ""),
         robot_profile_fingerprint=str(data.get("robot_profile_fingerprint") or ""),
         revision=int(data.get("revision", 0)),
@@ -272,14 +290,19 @@ def build_assisted_limit_proposal(
     revision: int = 1,
     reviewed: bool = False,
 ) -> AssistedLimitProposal:
-    samples = tuple(
-        _finite_tuple(vector, len(JOINT_NAMES), "workspace joint vector")
-        for vector in accepted_display_vectors
-    )
+    def planning_display_vector(vector: Sequence[float]) -> tuple[float, ...]:
+        values = tuple(float(value) for value in vector)
+        # Workspace/UI compatibility vectors may still carry the fixed visual
+        # spindle slot. Only J1–J5 participate in the proposal.
+        if len(values) == len(JOINT_NAMES) + 1:
+            values = values[: len(JOINT_NAMES)]
+        return _finite_tuple(values, len(JOINT_NAMES), "workspace joint vector")
+
+    samples = tuple(planning_display_vector(vector) for vector in accepted_display_vectors)
     if not samples:
         raise ValueError("assisted limits require at least one accepted workspace sample")
-    mechanical_min = _finite_tuple(mechanical_minimum, len(JOINT_NAMES), "mechanical minima")
-    mechanical_max = _finite_tuple(mechanical_maximum, len(JOINT_NAMES), "mechanical maxima")
+    mechanical_min = planning_display_vector(mechanical_minimum)
+    mechanical_max = planning_display_vector(mechanical_maximum)
     margin_fraction = float(margin_fraction)
     if not 0.0 <= margin_fraction <= 0.5:
         raise ValueError("assisted-limit margin fraction must be between 0 and 0.5")
@@ -344,7 +367,7 @@ def build_task_snapshot(
     home_fingerprint: str,
     limits_fingerprint: str,
     robot_profile_fingerprint: str,
-    tool_frame: str = "dentobot_drill_tip_provisional",
+    tool_frame: str = "dentobot_drill_tcp",
     tool_provenance: str = "CAD-derived/provisional/un-calibrated",
     corridor_radius_mm: float = 0.75,
 ) -> TaskSnapshot:

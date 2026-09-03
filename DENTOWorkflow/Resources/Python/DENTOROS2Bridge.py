@@ -11,15 +11,14 @@ import json
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import acos, atan2, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
+from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from DENTOStep6State import (
-    SPINDLE_JOINT_NAME,
+    JOINT_NAMES,
+    LEGACY_JOINT_NAMES,
     SPINDLE_LOCKED_VALUE_RAD,
-    SPINDLE_LOCK_TOLERANCE_RAD,
-    SPINDLE_PLANNING_POLICY,
     canonicalize_planning_joint_positions,
 )
 
@@ -30,7 +29,7 @@ ROS2_FIXED_FRAME = "base_link"
 ROS2_TF_PREFIX = ""
 ROS2_JOINT_STATES_TOPIC = "/joint_states"
 ROS2_PLANNING_GROUP = "dentobot_arm"
-ROS2_TOOL_TCP_LINK = "dentobot_drill_tip_provisional"
+ROS2_TOOL_TCP_LINK = "dentobot_drill_tcp"
 ROS2_SLICER_JOINT_COMMAND_TOPIC = "/dentobot/slicer_joint_positions"
 ROS2_JOINT_COMMAND_STATUS_TOPIC = "/dentobot/joint_command_status"
 ROS2_JOINT_COMMAND_STATUS_SCHEMA = "dentobot.joint_command_status.v1"
@@ -70,14 +69,8 @@ ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE = "DENTOBOT.MoveItObstaclePublishedId"
 ROS2_PHASE_PATH_ATTRIBUTE = "DENTOBOT.Step6PhasePlanPath"
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
-ROS2_JOINT_SI_ORDER = (
-    "link-1_Revolute-1",
-    "link-2_Slider-2",
-    "link-3_Revolute-3",
-    "link-4_Slider-4",
-    "link-5_Revolute-5",
-    "pneumatic_spindle-Copy_Revolute-6",
-)
+ROS2_JOINT_SI_ORDER = tuple(JOINT_NAMES)
+ROS2_LEGACY_JOINT_SI_ORDER = tuple(LEGACY_JOINT_NAMES)
 ROS2_CONTINUOUS_REVOLUTE_JOINTS = frozenset(
     {
         "link-5_Revolute-5",
@@ -154,6 +147,12 @@ class MoveItCartesianResult:
     maximum_monitored_start_error: Optional[float] = None
     planner_start_source: str = ""
     native_planner_message: str = ""
+    # When MoveIt's Cartesian interpolator stops, the bounded sequential IK
+    # fallback records the exact requested pose where continuity was lost.
+    # These fields keep that evidence separate from MoveIt's coarse fraction.
+    sequential_ik_recovery_attempted: bool = False
+    sequential_ik_failure_index: int = -1
+    sequential_ik_failure_message: str = ""
 
 
 @dataclass(frozen=True)
@@ -282,7 +281,7 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
     def positions(key: str) -> tuple[float, ...]:
         values = data.get(key)
         if not isinstance(values, list) or len(values) != len(ROS2_JOINT_SI_ORDER):
-            raise ValueError(f"{key} must contain six ordered joint values.")
+            raise ValueError(f"{key} must contain five ordered planning joint values.")
         parsed = tuple(float(value) for value in values)
         if not all(isfinite(value) for value in parsed):
             raise ValueError(f"{key} contains a non-finite joint value.")
@@ -361,7 +360,7 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
             len(values) != len(ROS2_JOINT_SI_ORDER)
             or not all(isfinite(value) for value in values)
         ):
-            raise ValueError(f"{key} must contain six finite values.")
+            raise ValueError(f"{key} must contain five finite planning values.")
         return values
 
     def optional_number(key: str) -> Optional[float]:
@@ -666,7 +665,10 @@ def _restore_motion_control_positions(values: Sequence[float]) -> None:
         setter = getattr(widget, "_setJointUi_SIToSlicer", None) if widget else None
         if widget is None or not callable(setter):
             return
-        restored = [float(value) for value in values]
+        # The visual robot retains the downstream spindle branch. Keep its
+        # display angle at the reference value while the command state remains
+        # the five-joint MoveIt vector.
+        restored = [float(value) for value in values] + [SPINDLE_LOCKED_VALUE_RAD]
         widget.jointPositionsRad = restored
         setter(restored)
     except Exception:
@@ -834,10 +836,6 @@ def _joint_state_error(
     maximum_error = 0.0
     mismatched: list[str] = []
     for name in ROS2_JOINT_SI_ORDER:
-        if name == SPINDLE_JOINT_NAME:
-            # The pneumatic spindle is represented for compatibility but its
-            # physical angle is neither monitored nor planned.
-            continue
         if name not in expected or name not in observed:
             mismatched.append(name)
             continue
@@ -1090,7 +1088,7 @@ def configure_task_phase_guard(
     _last_task_config_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     if len(_native_joint_positions) != len(ROS2_JOINT_SI_ORDER):
         _last_task_config_json = ""
-        return False, "The current six-joint state is unavailable for task-guard initialization."
+        return False, "The current five-joint planning state is unavailable for task-guard initialization."
     # Configuration and command use separate ROS topics, so DDS does not
     # guarantee cross-topic arrival order.  Sequence zero is a strict no-op
     # handshake at the already accepted state.  Only after the guard accepts
@@ -1421,6 +1419,11 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     return [canonical[name] for name in ROS2_JOINT_SI_ORDER]
 
 
+def visual_joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
+    """Append the fixed visual spindle angle for the expert robot display."""
+    return joint_si_vector(positions_si) + [SPINDLE_LOCKED_VALUE_RAD]
+
+
 def moveit_joint_goal_diagnostics(
     start_joint_positions_si: Mapping[str, float],
     goal_joint_positions_si: Mapping[str, float],
@@ -1575,7 +1578,7 @@ def show_moveit_joint_goal(
     if error or logic is None or robot_node is None:
         return False, error or "MoveIt goal-robot context is unavailable."
     try:
-        values = joint_si_vector(joint_positions_si)
+        values = visual_joint_si_vector(joint_positions_si)
         logic.last_ik_solution = list(values)
         logic.updategoalTransformsFromJointsKDL(robot_node, values)
     except Exception as exc:
@@ -1695,7 +1698,7 @@ def _ensure_dentobot_tcp_in_motion_widget(widget) -> None:
             break
     if selected_index < 0:
         combo.addItem(
-            f"DENTOBOT provisional TCP ({ROS2_TOOL_TCP_LINK})",
+            f"DENTOBOT canonical drill TCP ({ROS2_TOOL_TCP_LINK})",
             ROS2_TOOL_TCP_LINK,
         )
         selected_index = int(combo.count) - 1
@@ -1768,7 +1771,7 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
         if solution:
             _motion_ui_status(
                 widget,
-                "IK solution found for dentobot_drill_tip_provisional. Press Plan to compute "
+                "IK solution found for dentobot_drill_tcp. Press Plan to compute "
                 "a collision-aware path from the current state.",
             )
         else:
@@ -1836,8 +1839,8 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
     widget.ui.executeButton.visible = False
     _motion_ui_status(
         widget,
-        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tip_provisional · plan/preview "
-        "only. In 3D Control, drag the TCP probe to solve IK before Plan.",
+        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tcp · J1–J5 planning only; "
+        "the pneumatic spindle is external and not planned. Plan/preview only.",
     )
     _configured_motion_widget = widget
     return True
@@ -2053,7 +2056,7 @@ def show_goal_robot_joint_positions(
     if robot_node.GetNumberOfNodeReferences("goal_model") == 0:
         return False, "The transient goal robot is unavailable."
     try:
-        values = joint_si_vector(positions_si)
+        values = visual_joint_si_vector(positions_si)
         motion_logic.updategoalTransformsFromJointsKDL(robot_node, values)
         for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
             model = robot_node.GetNthNodeReference("goal_model", index)
@@ -2766,9 +2769,51 @@ def plan_moveit_cartesian_path(
         guard.  It must never turn a collision-aware partial path into a pass.
         """
         if avoid_collisions or start_joint_positions_si is None:
-            return None
+            return None, {
+                "attempted": False,
+                "failure_index": -1,
+                "failure_message": "Sequential IK is only used for collision-off Cartesian exploration.",
+                "waypoints": (),
+            }
         try:
             import vtk
+
+            # The saved Step 6 sample count is a planning/display preference,
+            # not a safe IK-continuation resolution.  A coarse twelve-pose
+            # request can jump across a narrow local IK basin even when every
+            # point on the same straight line is reachable.  Re-sample the
+            # unchanged rigid line at a bounded 0.25 mm spacing for the
+            # continuity solve.  The first and last poses remain exactly the
+            # requested endpoints; no geometry or orientation is altered.
+            line_length_mm = sqrt(
+                sum(
+                    (
+                        float(world_poses[-1].GetElement(axis, 3))
+                        - float(world_poses[0].GetElement(axis, 3))
+                    )
+                    ** 2
+                    for axis in range(3)
+                )
+            )
+            continuation_count = max(
+                len(poses),
+                min(801, int(ceil(line_length_mm / 0.25)) + 1),
+            )
+            if continuation_count > len(poses):
+                continuation_world_poses = tool_pose_matrices_world_mm(
+                    entry_ras_mm,
+                    target_ras_mm,
+                    continuation_count,
+                    axial_roll_start_deg=axial_roll_start_deg,
+                    axial_roll_end_deg=axial_roll_end_deg,
+                )
+                continuation_poses = _pose_matrices_world_to_base_mm(
+                    continuation_world_poses,
+                    base_transform,
+                )
+            else:
+                continuation_world_poses = world_poses
+                continuation_poses = poses
 
             seed = canonicalize_planning_joint_positions(
                 dict(zip(ROS2_JOINT_SI_ORDER, start_values))
@@ -2789,73 +2834,239 @@ def plan_moveit_cartesian_path(
                 ("link-4_Slider-4", 0.005),
                 ("link-4_Slider-4", -0.005),
             )
-            for pose in poses[1:]:
+            for pose_index, pose in enumerate(continuation_poses[1:], start=1):
                 seed_options = [dict(seed)]
                 for name, delta in perturbations:
                     candidate_seed = dict(seed)
                     candidate_seed[name] += float(delta)
                     seed_options.append(candidate_seed)
                 accepted = None
+                kinematic_candidate = None
+                kinematic_residual = None
+                candidate_collision_pairs = ()
                 for candidate_seed in seed_options:
-                    try:
-                        solution = robot_node.ComputeMoveItIK(
-                            pose,
-                            ROS2_TOOL_TCP_LINK,
-                            joint_si_vector(candidate_seed),
-                            0.2,
-                            False,
-                        )
-                        if solution is None:
+                    # A short query is normally sufficient.  If it returns no
+                    # solution or a solution just outside the authoritative FK
+                    # residual, make one bounded longer query for the same
+                    # deterministic seed before rejecting the requested pose.
+                    # A near-limit FK residual can be a KDL convergence
+                    # timeout rather than an unreachable pose.  One bounded
+                    # final retry on the same deterministic seed gives the
+                    # solver more time without changing the requested pose,
+                    # residual limits or collision policy.
+                    for ik_timeout_sec in (0.2, 1.0, 2.0):
+                        try:
+                            solution = robot_node.ComputeMoveItIK(
+                                pose,
+                                ROS2_TOOL_TCP_LINK,
+                                joint_si_vector(candidate_seed),
+                                ik_timeout_sec,
+                                False,
+                            )
+                            if solution is None:
+                                continue
+                            values = tuple(float(value) for value in solution)
+                            if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
+                                isfinite(value) for value in values
+                            ):
+                                continue
+                            candidate = canonicalize_planning_joint_positions(
+                                dict(zip(ROS2_JOINT_SI_ORDER, values))
+                            )
+                            candidate = dict(
+                                moveit_joint_goal_diagnostics(seed, candidate)[
+                                    "submitted_goal"
+                                ]
+                            )
+                            actual = vtk.vtkMatrix4x4()
+                            actual.Identity()
+                            if robot_node.ComputeKDLFK(
+                                joint_si_vector(candidate),
+                                actual,
+                                ROS2_TOOL_TCP_LINK,
+                            ) is None:
+                                continue
+                            position_error_mm, orientation_error_deg = (
+                                _pose_residual_mm_degrees(actual, pose)
+                            )
+                            residual = (
+                                float(position_error_mm),
+                                float(orientation_error_deg),
+                            )
+                            if kinematic_residual is None or (
+                                residual[0] + residual[1]
+                                < kinematic_residual[0] + kinematic_residual[1]
+                            ):
+                                kinematic_residual = residual
+                                kinematic_candidate = dict(candidate)
+                                try:
+                                    encoded_pairs = robot_node.GetMoveItCollidingBodyPairs(
+                                        ROS2_PLANNING_GROUP,
+                                        [
+                                            candidate[name]
+                                            for name in ROS2_JOINT_SI_ORDER
+                                        ],
+                                    )
+                                    candidate_collision_pairs = tuple(
+                                        tuple(str(value).split("\t", 1))
+                                        for value in encoded_pairs
+                                        if "\t" in str(value)
+                                    )
+                                except Exception:
+                                    candidate_collision_pairs = ()
+                            if (
+                                position_error_mm
+                                > CARTESIAN_START_POSITION_TOLERANCE_MM
+                                or orientation_error_deg
+                                > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                            ):
+                                continue
+                            accepted = candidate
+                            break
+                        except (KeyError, TypeError, ValueError, RuntimeError):
                             continue
-                        values = tuple(float(value) for value in solution)
-                        if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
-                            isfinite(value) for value in values
-                        ):
-                            continue
-                        candidate = canonicalize_planning_joint_positions(
-                            dict(zip(ROS2_JOINT_SI_ORDER, values))
-                        )
-                        candidate = dict(
-                            moveit_joint_goal_diagnostics(seed, candidate)[
-                                "submitted_goal"
-                            ]
-                        )
-                        actual = vtk.vtkMatrix4x4()
-                        actual.Identity()
-                        if robot_node.ComputeKDLFK(
-                            joint_si_vector(candidate),
-                            actual,
-                            ROS2_TOOL_TCP_LINK,
-                        ) is None:
-                            continue
-                        position_error_mm, orientation_error_deg = (
-                            _pose_residual_mm_degrees(actual, pose)
-                        )
-                        if (
-                            position_error_mm > CARTESIAN_START_POSITION_TOLERANCE_MM
-                            or orientation_error_deg
-                            > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
-                        ):
-                            continue
-                        accepted = candidate
+                    if accepted is not None:
                         break
-                    except (KeyError, TypeError, ValueError, RuntimeError):
-                        continue
                 if accepted is None:
-                    return None
+                    if kinematic_candidate is None:
+                        failure_classification = "sequential_ik_unsolved"
+                        failure_message = (
+                            f"Continuity IK found no finite solution at requested pose "
+                            f"{pose_index}/{len(continuation_poses) - 1}."
+                        )
+                    elif kinematic_residual is not None and (
+                        kinematic_residual[0] > CARTESIAN_START_POSITION_TOLERANCE_MM
+                        or kinematic_residual[1]
+                        > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                    ):
+                        failure_classification = "sequential_ik_fk_residual_failure"
+                        failure_message = (
+                            f"Continuity IK produced a candidate at requested pose "
+                            f"{pose_index}/{len(continuation_poses) - 1}, but authoritative FK "
+                            f"residual was {kinematic_residual[0]:.3f} mm and "
+                            f"{kinematic_residual[1]:.3f} deg (limits "
+                            f"{CARTESIAN_START_POSITION_TOLERANCE_MM:.3f} mm / "
+                            f"{CARTESIAN_START_ORIENTATION_TOLERANCE_DEG:.3f} deg)."
+                        )
+                    else:
+                        failure_classification = "sequential_ik_continuity_failure"
+                        failure_message = (
+                            f"Continuity IK could not accept requested pose "
+                            f"{pose_index}/{len(continuation_poses) - 1} from the preceding state."
+                        )
+                    ras = tuple(
+                        float(continuation_world_poses[pose_index].GetElement(axis, 3))
+                        for axis in range(3)
+                    )
+                    return tuple(recovered), {
+                        "attempted": True,
+                        "failure_index": int(pose_index),
+                        "failure_message": failure_message,
+                        "failure_classification": failure_classification,
+                        "first_invalid_ras_mm": ras,
+                        "first_invalid_joint_positions_si": kinematic_candidate,
+                        "first_invalid_collision_pairs": candidate_collision_pairs,
+                        "waypoints": tuple(recovered),
+                    }
                 recovered.append(dict(accepted))
                 seed = dict(accepted)
-            return tuple(recovered)
+            return tuple(recovered), {
+                "attempted": True,
+                "failure_index": -1,
+                "failure_message": "",
+                "failure_classification": "",
+                "first_invalid_ras_mm": None,
+                "first_invalid_joint_positions_si": None,
+                "first_invalid_collision_pairs": (),
+                "waypoints": tuple(recovered),
+            }
         except (ImportError, KeyError, TypeError, ValueError, RuntimeError):
-            return None
+            return (), {
+                "attempted": True,
+                "failure_index": -1,
+                "failure_message": "Sequential continuity IK could not be evaluated due to an internal kinematics query error.",
+                "failure_classification": "sequential_ik_query_failure",
+                "first_invalid_ras_mm": None,
+                "first_invalid_joint_positions_si": None,
+                "first_invalid_collision_pairs": (),
+                "waypoints": (),
+            }
 
     # MoveIt's Cartesian interpolator can stop at a local continuity boundary
     # even though the same fixed poses have individually valid IK solutions.
     # Recover the full requested line only for collision-off terminal/drilling
     # exploration; the independent phase guard still decides acceptance.
     if bounded_fraction < float(minimum_fraction) and not avoid_collisions:
-        recovered_waypoints = _sequential_ik_continuation()
-        if recovered_waypoints is not None and len(recovered_waypoints) >= 2:
+        recovered_waypoints, recovery = _sequential_ik_continuation()
+        if recovery.get("attempted") and recovery.get("failure_index", -1) >= 0:
+            # Return exact fallback evidence even when only the initial seed was
+            # accepted.  The caller will keep it diagnostic-only and report the
+            # requested pose that could not be solved.
+            return MoveItCartesianResult(
+                False,
+                recovery.get("failure_message")
+                or "Sequential fixed-frame IK could not recover the requested line.",
+                fraction=max(
+                    0.0,
+                    min(
+                        1.0,
+                        (float(recovery.get("failure_index", 1)) - 1.0)
+                        / max(1.0, float(len(poses) - 1)),
+                    ),
+                ),
+                waypoint_joint_vectors_si=tuple(recovered_waypoints),
+                waypoint_times_sec=tuple(
+                    float(index) * 0.05 for index in range(len(recovered_waypoints))
+                ),
+                coordinate_frame=ROS2_FIXED_FRAME,
+                start_position_error_mm=start_position_error_mm,
+                start_orientation_error_deg=start_orientation_error_deg,
+                axial_roll_deg=float(axial_roll_end_deg),
+                eef_step_m=used_eef_step_m,
+                requested_path_length_mm=requested_length_mm,
+                completed_distance_mm=requested_length_mm
+                * max(
+                    0.0,
+                    min(
+                        1.0,
+                        (float(recovery.get("failure_index", 1)) - 1.0)
+                        / max(1.0, float(len(poses) - 1)),
+                    ),
+                ),
+                last_valid_waypoint_index=len(recovered_waypoints) - 1,
+                first_invalid_requested_index=int(
+                    recovery.get("failure_index", -1)
+                ),
+                last_valid_joint_positions_si=(
+                    dict(recovered_waypoints[-1]) if recovered_waypoints else None
+                ),
+                first_invalid_ras_mm=recovery.get("first_invalid_ras_mm"),
+                failure_classification=str(
+                    recovery.get("failure_classification") or "sequential_ik_failure"
+                ),
+                first_invalid_joint_positions_si=recovery.get(
+                    "first_invalid_joint_positions_si"
+                ),
+                first_invalid_collision_pairs=tuple(
+                    recovery.get("first_invalid_collision_pairs") or ()
+                ),
+                planner_start_source="sequential_fixed_frame_ik_fallback",
+                native_planner_message=(
+                    "MoveIt Cartesian interpolation was partial; bounded sequential "
+                    "fixed-frame IK retained a diagnostic prefix and failed at the "
+                    f"requested pose {int(recovery.get('failure_index', -1))}."
+                ),
+                sequential_ik_recovery_attempted=True,
+                sequential_ik_failure_index=int(recovery.get("failure_index", -1)),
+                sequential_ik_failure_message=str(
+                    recovery.get("failure_message") or ""
+                ),
+            )
+        if (
+            recovered_waypoints is not None
+            and len(recovered_waypoints) >= 2
+            and recovery.get("failure_index", -1) < 0
+        ):
             return MoveItCartesianResult(
                 True,
                 "MoveIt Cartesian interpolation stopped early; recovered the "
@@ -2880,6 +3091,7 @@ def plan_moveit_cartesian_path(
                     "MoveIt Cartesian interpolation was partial; sequential "
                     "fixed-frame IK recovered every requested pose."
                 ),
+                sequential_ik_recovery_attempted=True,
             )
     first_invalid_index = -1
     first_invalid_ras = None
@@ -2894,24 +3106,21 @@ def plan_moveit_cartesian_path(
             float(first_invalid_pose.GetElement(axis, 3)) for axis in range(3)
         )
         seed_values = [float(waypoints[-1][name]) for name in ROS2_JOINT_SI_ORDER]
-        collision_solution = list(
-            robot_node.ComputeMoveItIK(
+
+        def _ik_values(avoid_collision: bool):
+            solution = robot_node.ComputeMoveItIK(
                 poses[first_invalid_index],
                 ROS2_TOOL_TCP_LINK,
                 seed_values,
                 0.2,
-                True,
+                avoid_collision,
             )
-        )
-        kinematics_solution = list(
-            robot_node.ComputeMoveItIK(
-                poses[first_invalid_index],
-                ROS2_TOOL_TCP_LINK,
-                seed_values,
-                0.2,
-                False,
-            )
-        )
+            if solution is None:
+                return []
+            return [float(value) for value in solution]
+
+        collision_solution = _ik_values(True)
+        kinematics_solution = _ik_values(False)
         if kinematics_solution and not collision_solution:
             classification = "collision_induced_ik_failure"
         elif not kinematics_solution:
@@ -3096,103 +3305,19 @@ def solve_moveit_tcp_goal(
             "MoveIt found no collision-aware IK solution for the requested TCP pose.",
             {},
         )
-    joint_names = [str(name) for name in robot_node.GetJoints()]
-    if len(joint_names) != len(solution):
-        return False, "MoveIt IK returned a joint-count mismatch.", {}
-    by_name = dict(zip(joint_names, map(float, solution)))
-    missing = [name for name in ROS2_JOINT_SI_ORDER if name not in by_name]
-    if missing:
-        return False, "MoveIt IK omitted: " + ", ".join(missing), {}
+    # MoveIt returns the variables in the configured planning-group order.
+    # The group is now J1–J5; the visual KDL chain may still expose the
+    # downstream six-joint branch, so do not derive this mapping from GetJoints().
+    if len(solution) != len(ROS2_JOINT_SI_ORDER):
+        return False, "MoveIt IK returned a planning-group joint-count mismatch.", {}
     ordered = canonicalize_planning_joint_positions(
-        {name: by_name[name] for name in ROS2_JOINT_SI_ORDER}
+        dict(zip(ROS2_JOINT_SI_ORDER, map(float, solution)))
     )
     return (
         True,
         f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
         ordered,
     )
-
-
-def spindle_locked_tcp_roll_deg(
-    joint_positions_si: Mapping[str, float],
-    *,
-    entry_ras_mm: Sequence[float],
-    target_ras_mm: Sequence[float],
-    base_transform,
-) -> tuple[bool, str, float]:
-    """Return the FK-derived tool-axis roll for a J6-locked IK endpoint."""
-
-    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
-    if robot_node is None:
-        return False, "The ROS robot is unavailable for spindle-locked FK.", 0.0
-    try:
-        canonical_world = tool_pose_matrices_world_mm(
-            entry_ras_mm,
-            target_ras_mm,
-            2,
-            axial_roll_start_deg=0.0,
-            axial_roll_end_deg=0.0,
-        )[0]
-        canonical_base = _pose_matrices_world_to_base_mm(
-            (canonical_world,), base_transform
-        )[0]
-        import vtk
-
-        actual_base = vtk.vtkMatrix4x4()
-        actual_base.Identity()
-        if robot_node.ComputeKDLFK(
-            joint_si_vector(joint_positions_si),
-            actual_base,
-            ROS2_TOOL_TCP_LINK,
-        ) is None:
-            return False, f"Could not compute {ROS2_TOOL_TCP_LINK} FK.", 0.0
-        position_error = sqrt(
-            sum(
-                (
-                    actual_base.GetElement(row, 3)
-                    - canonical_base.GetElement(row, 3)
-                )
-                ** 2
-                for row in range(3)
-            )
-        )
-        canonical_x = tuple(canonical_base.GetElement(row, 0) for row in range(3))
-        canonical_y = tuple(canonical_base.GetElement(row, 1) for row in range(3))
-        canonical_z = tuple(canonical_base.GetElement(row, 2) for row in range(3))
-        actual_x = tuple(actual_base.GetElement(row, 0) for row in range(3))
-        actual_z = tuple(actual_base.GetElement(row, 2) for row in range(3))
-        z_dot = max(
-            -1.0,
-            min(
-                1.0,
-                sum(a * b for a, b in zip(actual_z, canonical_z)),
-            ),
-        )
-        axis_error_deg = degrees(acos(z_dot))
-        if (
-            position_error > CARTESIAN_START_POSITION_TOLERANCE_MM
-            or axis_error_deg > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
-        ):
-            return (
-                False,
-                "The spindle-locked IK endpoint does not preserve the requested "
-                f"PreEntry position/axis ({position_error:.3f} mm, "
-                f"{axis_error_deg:.3f} deg axis error).",
-                0.0,
-            )
-        roll_deg = degrees(
-            atan2(
-                sum(a * b for a, b in zip(actual_x, canonical_y)),
-                sum(a * b for a, b in zip(actual_x, canonical_x)),
-            )
-        )
-        return (
-            True,
-            f"Derived spindle-locked TCP roll {roll_deg:.3f} deg from FK.",
-            float(roll_deg),
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        return False, f"Could not derive spindle-locked TCP roll: {exc}", 0.0
 
 
 def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
@@ -3635,6 +3760,45 @@ def compute_moveit_static_tcp_pose_base_mm(
     if len(position) != 3 or not all(isfinite(value) for value in position):
         return False, "MoveIt FK returned a non-finite TCP position.", None
     return True, message, position
+
+
+def compute_tcp_position_world_ras_mm(
+    positions_si: Mapping[str, float],
+    *,
+    base_transform,
+) -> tuple[bool, str, Optional[tuple[float, float, float]]]:
+    """Return the KDL drill-tip position in world RAS/mm for endpoint checks."""
+
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    if robot_node is None:
+        return False, "The ROS robot is unavailable for endpoint FK.", None
+    if base_transform is None:
+        return False, "The locked robot base is unavailable for endpoint FK.", None
+    try:
+        import vtk
+
+        pose_base = vtk.vtkMatrix4x4()
+        pose_base.Identity()
+        if (
+            robot_node.ComputeKDLFK(
+                joint_si_vector(positions_si),
+                pose_base,
+                ROS2_TOOL_TCP_LINK,
+            )
+            is None
+        ):
+            return False, f"Could not compute {ROS2_TOOL_TCP_LINK} endpoint FK.", None
+        base_world = vtk.vtkMatrix4x4()
+        if base_transform.GetMatrixTransformToWorld(base_world) is False:
+            return False, "Could not resolve the locked robot base in world RAS.", None
+        pose_world = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(base_world, pose_base, pose_world)
+        point = tuple(float(pose_world.GetElement(index, 3)) for index in range(3))
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        return False, f"Endpoint FK failed: {exc}", None
+    if not all(isfinite(value) for value in point):
+        return False, "Endpoint FK returned a non-finite world-RAS position.", None
+    return True, "Authoritative KDL endpoint FK returned a finite world-RAS position.", point
 
 
 def sync_moveit_obstacle_polydata(

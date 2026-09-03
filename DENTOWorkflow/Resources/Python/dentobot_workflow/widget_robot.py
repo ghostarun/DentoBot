@@ -516,17 +516,34 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 if task_ready
                 else " ".join(task_issues)
             )
+            preview_active = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.previewActive
+            )
+            away_from_home = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.returnHomeRequired
+            )
             panel.planApproachButton.enabled = bool(
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
                 and home_runtime_validated
                 and workspace_runtime_validated
+                and not away_from_home
             )
             panel.previewApproachButton.enabled = bool(
                 isinstance(facade_plan, PhasePlan)
                 and facade_plan.success
                 and facade_plan.requested_phase == MotionPhase.APPROACH.value
+            )
+            panel.stopPreviewButton.enabled = preview_active
+            panel.returnHomeButton.enabled = bool(
+                ros2_active and away_from_home and not preview_active
+            )
+            panel.stopPreviewDrillingButton.enabled = preview_active
+            panel.returnHomeDrillingButton.enabled = bool(
+                ros2_active and away_from_home and not preview_active
             )
             approach_complete = bool(
                 self._robotWorkflowFacade
@@ -543,6 +560,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and workspace_runtime_validated
                 and approach_complete
                 and drilling_preflight_ready
+                and not preview_active
             )
             panel.previewDrillingButton.enabled = bool(
                 approach_complete
@@ -582,6 +600,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             spinbox.setMinimum(minimum)
             spinbox.setMaximum(maximum)
             spinbox.setValue(value)
+        # The pneumatic spindle is intentionally still visible in the robot
+        # model, but it is an uncontrolled air rotor—not a Step 6 commandable
+        # axis. Keep the compatibility row as a fixed explanatory value.
+        self.ui.robotJoint6SpinBox.enabled = False
 
     def _onTaskJointLimitSpinBoxChanged(self, value: float = 0.0) -> None:
         del value
@@ -638,7 +660,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 joint_positions_si["link-5_Revolute-5"],
             )
             self._parameterNode.robotJoint6Deg = degrees(
-                joint_positions_si["pneumatic_spindle-Copy_Revolute-6"],
+                joint_positions_si.get("pneumatic_spindle-Copy_Revolute-6", 0.0),
             )
         finally:
             self._parameterNode.EndModify(was_modifying)

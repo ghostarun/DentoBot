@@ -15,6 +15,16 @@ from std_msgs.msg import Float64MultiArray, String
 from tf2_ros import Buffer, TransformListener
 
 
+PLANNING_JOINT_NAMES = (
+    "link-1_Revolute-1",
+    "link-2_Slider-2",
+    "link-3_Revolute-3",
+    "link-4_Slider-4",
+    "link-5_Revolute-5",
+)
+PLANNING_TCP = "dentobot_drill_tcp"
+
+
 class SmokeNode(Node):
     def __init__(self) -> None:
         super().__init__("dentobot_moveit_smoke")
@@ -93,6 +103,13 @@ def command_through_guard(node: SmokeNode, values, timeout_sec: float = 15.0):
     raise RuntimeError("collision guard did not answer the requested joint vector")
 
 
+def planning_joint_values(message: JointState):
+    values = dict(zip(message.name, message.position))
+    if any(name not in values for name in PLANNING_JOINT_NAMES):
+        return None
+    return [float(values[name]) for name in PLANNING_JOINT_NAMES]
+
+
 def main() -> None:
     rclpy.init()
     node = SmokeNode()
@@ -106,7 +123,7 @@ def main() -> None:
             raise RuntimeError("/compute_ik unavailable")
         if spin_until(node, lambda: node.joint_state, 10.0) is None:
             raise RuntimeError("/joint_states unavailable")
-        accepted_command = [0.1, 0.02, 0.2, 0.02, 0.1, 0.0]
+        accepted_command = [0.1, 0.02, 0.2, 0.02, 0.1]
         accepted_status = command_through_guard(node, accepted_command)
         if not accepted_status.get("accepted"):
             raise RuntimeError(
@@ -119,7 +136,7 @@ def main() -> None:
             and all(
                 abs(actual - expected) < 1e-6
                 for actual, expected in zip(
-                    node.joint_state.position, accepted_command
+                    planning_joint_values(node.joint_state) or (), accepted_command
                 )
             )
             else None,
@@ -134,34 +151,39 @@ def main() -> None:
         report["j2_m"] = float(node.joint_state.position[1])
         report["j4_m"] = float(node.joint_state.position[3])
 
-        rejected_command = [0.1, 0.08, 0.2, 0.075, 0.1, 0.0]
+        # The air-rotor spindle is not a planning DOF.  A legacy six-value
+        # payload must be rejected before it can reach MoveIt or the publisher.
+        rejected_command = accepted_command + [0.1]
         rejected_status = command_through_guard(node, rejected_command)
         if rejected_status.get("accepted"):
-            raise RuntimeError("known under-clearance command was accepted")
+            raise RuntimeError("legacy spindle command was accepted")
+        if "external spindle" not in str(rejected_status.get("reason", "")).lower():
+            raise RuntimeError(
+                "legacy spindle command was rejected without the expected reason: "
+                + str(rejected_status)
+            )
         if not all(
             abs(actual - expected) < 1e-6
-            for actual, expected in zip(node.joint_state.position, accepted_command)
+            for actual, expected in zip(
+                planning_joint_values(node.joint_state) or (), accepted_command
+            )
         ):
             raise RuntimeError("rejected command changed /joint_states")
-        report["under_clearance_rejected"] = True
-        report["rejected_pair"] = [
-            rejected_status.get("first_body", ""),
-            rejected_status.get("second_body", ""),
-        ]
+        report["legacy_spindle_command_rejected"] = True
         report["rejection_reason"] = rejected_status.get("reason", "")
         transform = spin_until(
             node,
             lambda: node.tf_buffer.lookup_transform(
-                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
+                "base_link", PLANNING_TCP, rclpy.time.Time()
             )
             if node.tf_buffer.can_transform(
-                "base_link", "dentobot_drill_tip_provisional", rclpy.time.Time()
+                "base_link", PLANNING_TCP, rclpy.time.Time()
             )
             else None,
             10.0,
         )
         if transform is None:
-            raise RuntimeError("base_link -> dentobot_drill_tip_provisional TF unavailable")
+            raise RuntimeError(f"base_link -> {PLANNING_TCP} TF unavailable")
 
         validity = GetStateValidity.Request()
         validity.group_name = "dentobot_arm"
@@ -182,9 +204,21 @@ def main() -> None:
 
         from geometry_msgs.msg import Pose
 
+        # Derive a one-millimetre probe along the canonical TCP +Z axis.  A
+        # world-axis translation is generally over-constrained for this
+        # five-DOF arm, while the tool-axis direction is the meaningful
+        # Cartesian motion for the drilling model.
+        q = transform.transform.rotation
+        tool_axis_offset = (
+            0.001 * (2.0 * (q.x * q.z + q.w * q.y)),
+            0.001 * (2.0 * (q.y * q.z - q.w * q.x)),
+            0.001 * (1.0 - 2.0 * (q.x * q.x + q.y * q.y)),
+        )
+
         ik_response = None
         ik_offset = None
         for offset in (
+            tool_axis_offset,
             (0.001, 0.0, 0.0),
             (-0.001, 0.0, 0.0),
             (0.0, 0.001, 0.0),
@@ -196,7 +230,7 @@ def main() -> None:
             ik_request.ik_request.group_name = "dentobot_arm"
             ik_request.ik_request.robot_state.joint_state = node.joint_state
             ik_request.ik_request.robot_state.is_diff = False
-            ik_request.ik_request.ik_link_name = "dentobot_drill_tip_provisional"
+            ik_request.ik_request.ik_link_name = PLANNING_TCP
             ik_request.ik_request.pose_stamped.header.frame_id = "base_link"
             ik_request.ik_request.pose_stamped.pose.position.x = (
                 transform.transform.translation.x + offset[0]
@@ -222,15 +256,28 @@ def main() -> None:
                 break
         if ik_response is None or int(ik_response.error_code.val) != 1:
             raise RuntimeError("KDL/MoveIt failed all 1 mm IK probes")
+        ik_solution_values = dict(
+            zip(
+                ik_response.solution.joint_state.name,
+                ik_response.solution.joint_state.position,
+            )
+        )
+        if any(name not in ik_solution_values for name in PLANNING_JOINT_NAMES):
+            raise RuntimeError("MoveIt IK response omitted a planning joint")
+        external_spindle = "pneumatic_spindle-Copy_Revolute-6"
+        if external_spindle in ik_solution_values and abs(
+            float(ik_solution_values[external_spindle])
+        ) > 1.0e-9:
+            raise RuntimeError("MoveIt IK response moved the external spindle")
         report["ik_success"] = True
         report["ik_offset_m"] = ik_offset
-        report["ik_solution_joint_count"] = len(
-            ik_response.solution.joint_state.position
-        )
+        report["ik_solution_joint_count"] = len(ik_response.solution.joint_state.position)
+        report["ik_solution_planning_joint_count"] = len(PLANNING_JOINT_NAMES)
 
         response = None
         selected_offset = None
         for offset in (
+            tool_axis_offset,
             (0.001, 0.0, 0.0),
             (-0.001, 0.0, 0.0),
             (0.0, 0.001, 0.0),
@@ -243,7 +290,7 @@ def main() -> None:
             request.start_state.joint_state = node.joint_state
             request.start_state.is_diff = False
             request.group_name = "dentobot_arm"
-            request.link_name = "dentobot_drill_tip_provisional"
+            request.link_name = PLANNING_TCP
             for scale in (0.0, 1.0):
                 pose = Pose()
                 pose.position.x = transform.transform.translation.x + scale * offset[0]

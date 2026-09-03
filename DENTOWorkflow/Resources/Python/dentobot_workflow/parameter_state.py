@@ -134,7 +134,7 @@ class DENTOWorkflowParameterNode:
     # the complete PreEntry→Entry line with the independent phase guard.
     step6TerminalContactToleranceMm: float = 0.25
     step6TrajectoryCorridorRadiusMm: float = 0.75
-    step6ToolFrame: str = "dentobot_drill_tip_provisional"
+    step6ToolFrame: str = "dentobot_drill_tcp"
     step6CbctVolumeRenderingNodeId: str = ""
     step6CbctOpacity: float = 0.18
     step6MasksOpacity: float = 0.45

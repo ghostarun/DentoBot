@@ -1340,7 +1340,8 @@ viewport does not load the full 4A–5C stack plus two robots.
 
 6. Each joint is one row: **min / current pose / max**. Changing min or max
    updates the value spinbox range immediately. **Apply Task Limits to
-   Controls** re-clamps all six rows to the URDF mechanical envelope.
+   Controls** re-clamps the five planning rows to the URDF mechanical
+   envelope and keeps the visual-only spindle slot fixed at zero.
    **Reset to URDF Limits** restores that envelope. **Reset All Joints to
    Selected Zero** is on the same row of buttons.
 
@@ -1357,8 +1358,9 @@ Use **View Controls → Frame Visible** on the active Elements selection instead
 of the old Frame Phantom + Robot control (kept only as fallback). Keyboard
 nudges remain opt-in and are disabled while the mount is locked.
 
-Step 6 remains simulation-only. The ROS bridge does not command hardware or
-solve MoveIt IK. The generic phantom is not clinical jaw kinematics.
+This legacy phantom subsection remains simulation-only and does not represent
+the native Track-A MoveIt path documented below. Neither path commands
+hardware; the generic phantom is not clinical jaw kinematics.
 
 ## Verification commands
 
@@ -1506,7 +1508,9 @@ Step 6 operator sequence:
    physical actuator homing.
 4. **6.3 ROS workspace and limits:** generate the deterministic candidate set.
    Each retained point uses MoveIt FK and static PlanningScene validity and
-   stores its six-joint vector. A bounded 13-sample representative set is also
+   stores its five-joint J1–J5 planning vector. The sixth UI slot is the
+   external, non-planning spindle and is always canonicalized to zero. A
+   bounded 13-sample representative set is also
    planned from Home; unevaluated static-valid points are not called connected.
    Inspect the proposed exploration envelope and explicitly **Review & Apply**;
    generation alone does not apply it.
@@ -1515,9 +1519,10 @@ Step 6 operator sequence:
 6. **6.5 Goal 1 — approach:** plan collision-free to the new-case default 2 mm
    pre-entry point (restored cases retain their recorded value), then plan the
    short guarded terminal move to Entry. Before enabling preview, Step 6 must
-   prove complete Entry-to-Target reachability. It may vary only cylindrical-
-   burr axial roll; failure requires base repositioning and cannot be accepted
-   as a partial trajectory.
+   prove complete Entry-to-Target reachability. The committed drill orientation
+   is fixed from Stage 1; only bounded J1–J5 route/IK alternatives are allowed.
+   Failure requires base repositioning and cannot be accepted as a partial
+   trajectory.
 7. **6.6 Goal 2 — drilling preview:** after Goal 1 completes, plan and preview
    Entry-to-Target strictly inside the approved corridor. The exploratory
    guard may suppress only the configured burr-to-task-anatomy/guide contacts
@@ -1531,9 +1536,12 @@ DENTOBOT toolbar returns to Robot Simulation with one click. Routine operation
 does not enter `ROS2MotionControl`.
 
 Do not press or script Execute. It is hidden and disabled, and `move_group` has
-no controller. `dentobot_drill_tip_provisional` is a CAD-derived fixed frame,
-not a physically calibrated TCP; the 2 mm standoff, 1 mm guard margin, contact
-suppression, and generic phantom/proxy are research simulation aids only.
+no controller. `dentobot_drill_tcp` is the canonical non-spinning planning
+frame at the burr tip, rigidly attached upstream of the external spindle;
+`dentobot_drill_tip_provisional` remains a visual-compatibility frame only.
+Neither is a physically calibrated TCP; the 2 mm standoff, 1 mm guard margin,
+contact suppression, and generic phantom/proxy are research simulation aids
+only.
 
 Manual and preview values use this ROS-only simulation chain:
 
@@ -1567,7 +1575,9 @@ No explicit IK formula must be entered. The required model configuration is:
 
 - URDF link/joint tree with correct origins, axes, joint types, and limits;
 - SRDF group `dentobot_arm`, serial chain `base_link` to
-  `dentobot_drill_tip_provisional`, and intentionally allowed adjacent contacts;
+  `dentobot_drill_tcp`, and intentionally allowed adjacent contacts. The
+  downstream `pneumatic_spindle-Copy_Revolute-6` remains in the visual and
+  collision model but is not a MoveIt planning joint;
 - `kinematics.yaml` selecting
   `kdl_kinematics_plugin/KDLKinematicsPlugin`.
 
@@ -1586,8 +1596,9 @@ Generic Motion Control interpretation:
   joint configuration, not a precalculated workspace. Both must remain mounted
   under the same Step 6 base.
 - **MoveIt:** `MoveIt ready (detected)` is read-only. The fixed group is
-  `dentobot_arm`; the end-effector selector shows the provisional
-  `dentobot_drill_tip_provisional`. Planning time is only an upper bound for a request.
+  `dentobot_arm` with J1–J5 as its planning joints; the end-effector selector
+  uses `dentobot_drill_tcp`. The spindle is external and not a commanded DOF.
+  Planning time is only an upper bound for a request.
 - **Manual Joint Control:** suitable for the present free-movement design test;
   every candidate still passes through the external transition guard.
 - **3D Control:** Home/Last Goal/Current State choose an initial goal state.
@@ -1600,15 +1611,17 @@ Generic Motion Control interpretation:
 - The lower SlicerROS2 Parameters/Topics/TF2/Robots panels are diagnostic; no
   normal Step 6 operator edit is required there.
 
-The workspace explorer is separate from IK. It maps a repeatable six-axis
-Halton sequence into the selected task limits and runs URDF FK. It filters
+The workspace explorer is separate from IK. It maps a repeatable five-dimensional
+Halton sequence over J1–J5 into the selected task limits and runs URDF FK. The
+visual spindle slot is appended as fixed zero only when a six-value display
+vector is needed. It filters
 other non-adjacent-link AABBs using 5 mm, excludes two displayed persistent
-CAD-box false positives, and filters only the provisional TCP origin against a
+CAD-box false positives, and filters only the canonical TCP origin against a
 subsampled environment point cloud. It does not perform exact mesh/swept-volume
 environment collision or prove orientation reachability; use MoveIt IK and
 planning for each candidate task pose.
 
-### Opt-in six-workspace application shell
+### Opt-in Step 6 application shell
 
 The development launcher and module path do not change. Legacy remains the
 default. In DENTO Workflow, press **Try New GUI** in developer controls to open
@@ -1640,7 +1653,7 @@ For the current Robot Simulation vertical slice:
 7. **6.6 Goal 2** plans guarded Entry-to-Target simulation preview.
 
 The capability rows must name `dentobot_arm` and
-`dentobot_drill_tip_provisional`. Generic Goal/IK/Plan is an optional façade
+`dentobot_drill_tcp`. Generic Goal/IK/Plan is an optional façade
 diagnostic; the routine sequence does not leave DENTOWorkflow.
 6. **Plan and Preview:** plan the approved Entry-to-Target path, preview only,
    and Stop. Hardware Execute is unavailable.

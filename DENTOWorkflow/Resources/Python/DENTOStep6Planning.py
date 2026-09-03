@@ -19,6 +19,7 @@ from DENTORobotPlacement import (
     drill_tip_origin_base_m,
     joint_positions_si_from_display,
 )
+from DENTOStep6State import JOINT_NAMES, canonicalize_planning_joint_positions
 
 
 REQUIRED_PLANNING_ROLES = (
@@ -133,7 +134,7 @@ class WorkspaceAcceptedSample:
             }
         except (TypeError, ValueError):
             # Compatibility for in-memory samples produced by the brief
-            # full-chain-v1 transition build, which stored six ordered values
+            # full-chain-v1 transition build, which stored ordered values
             # instead of (joint-name, value) pairs. These samples are transient
             # runtime evidence and are canonicalized on first use.
             if len(self.joint_positions_si) != 6:
@@ -156,7 +157,7 @@ class WorkspaceAcceptedSample:
 
 @dataclass(frozen=True)
 class WorkspaceSampleResult:
-    """Filtered provisional-TCP samples expressed in robot-base millimetres."""
+    """Filtered canonical-TCP samples expressed in robot-base millimetres."""
 
     requested_count: int
     accepted_samples: tuple[WorkspaceAcceptedSample, ...]
@@ -294,8 +295,14 @@ def _movable_joint_specs(robot_description: str) -> list[tuple[str, str, float, 
         if lower > upper:
             lower, upper = upper, lower
         specs.append((name, unit, lower, upper))
-    if len(specs) != 6:
-        raise ValueError(f"expected six movable joints, found {len(specs)}")
+    specs = [
+        spec for spec in specs
+        if spec[0] != "pneumatic_spindle-Copy_Revolute-6"
+    ]
+    if len(specs) != len(JOINT_NAMES):
+        raise ValueError(
+            f"expected {len(JOINT_NAMES)} commandable movable joints, found {len(specs)}"
+        )
     return specs
 
 
@@ -305,7 +312,9 @@ def default_task_joint_limits_from_urdf(urdf_path: str | Path) -> TaskJointLimit
         JointLimitPair(minimum=lo, maximum=hi, unit=unit)
         for _name, unit, lo, hi in specs
     )
-    return TaskJointLimits(*pairs)
+    # Keep the sixth UI row for visual compatibility, but make it a fixed
+    # display-only spindle value rather than a planning range.
+    return TaskJointLimits(*pairs, JointLimitPair(0.0, 0.0, "deg"))
 
 
 def build_task_joint_limits_from_parameter_values(
@@ -329,7 +338,7 @@ def build_task_joint_limits_from_parameter_values(
         JointLimitPair(j3_min, j3_max, "deg"),
         JointLimitPair(j4_min, j4_max, "mm"),
         JointLimitPair(j5_min, j5_max, "deg"),
-        JointLimitPair(j6_min, j6_max, "deg"),
+        JointLimitPair(0.0, 0.0, "deg"),
     )
 
 
@@ -408,23 +417,28 @@ def deterministic_joint_workspace_samples_display(
     sample_count: int,
     current_display_joints: Sequence[float] | None = None,
 ) -> tuple[tuple[float, float, float, float, float, float], ...]:
-    """Sample all six task ranges without random-state or repeated IK solves.
+    """Sample J1–J5 task ranges; retain a fixed zero J6 display slot.
 
     The current pose is included first when supplied. Remaining samples use a
-    six-dimensional Halton sequence, which spreads a small draft sample budget
-    more uniformly than a Cartesian grid or pseudorandom points.
+    A five-dimensional Halton sequence spreads a small draft sample budget more
+    uniformly than a Cartesian grid or pseudorandom points.
     """
     count = int(sample_count)
     if count < 1:
         raise ValueError("workspace sample_count must be at least 1")
-    minimums = np.asarray(limits.as_display_vector(), dtype=float)
-    maximums = np.asarray(limits.as_display_max_vector(), dtype=float)
+    # TaskJointLimits deliberately retains a sixth display slot for the
+    # visual spindle.  The Halton sequence and its bounds are strictly the
+    # five commandable joints; J6 is appended as the fixed visual value below.
+    minimums = np.asarray(limits.as_display_vector()[: len(JOINT_NAMES)], dtype=float)
+    maximums = np.asarray(
+        limits.as_display_max_vector()[: len(JOINT_NAMES)], dtype=float
+    )
     if not np.all(np.isfinite(minimums + maximums)) or np.any(maximums < minimums):
         raise ValueError("workspace task limits must be finite and ordered")
     samples: list[tuple[float, float, float, float, float, float]] = []
     if current_display_joints is not None:
         samples.append(_clamp_display_vector(current_display_joints, limits))
-    bases = (2, 3, 5, 7, 11, 13)
+    bases = (2, 3, 5, 7, 11)
     index = 1
     while len(samples) < count:
         unit = np.asarray(
@@ -432,7 +446,7 @@ def deterministic_joint_workspace_samples_display(
             dtype=float,
         )
         display = minimums + unit * (maximums - minimums)
-        samples.append(tuple(float(value) for value in display))
+        samples.append(tuple(float(value) for value in (*display, 0.0)))
         index += 1
     return tuple(samples)
 
@@ -497,7 +511,7 @@ def sample_filtered_tcp_workspace(
                 tcp_base_mm=tuple(float(value) for value in tcp_base[:3]),
                 joint_display=tuple(float(value) for value in display),
                 joint_positions_si=tuple(
-                    (name, float(joints_si[name])) for name in joints_si
+                    (name, float(joints_si[name])) for name in JOINT_NAMES
                 ),
             )
         )
@@ -631,17 +645,40 @@ def evaluate_motion_configuration(
 
 
 def _display_to_si_vector(values: Sequence[float]) -> dict[str, float]:
-    return joint_positions_si_from_display(*[float(value) for value in values])
+    values = tuple(float(value) for value in values)
+    if len(values) == len(JOINT_NAMES):
+        values = (*values, 0.0)
+    if len(values) != len(JOINT_NAMES) + 1:
+        raise ValueError(
+            f"display joint vector must contain {len(JOINT_NAMES)} planning values "
+            "or the six-value visual compatibility form"
+        )
+    return canonicalize_planning_joint_positions(
+        joint_positions_si_from_display(*values)
+    )
 
 
 def _clamp_display_vector(
     values: Sequence[float],
     limits: TaskJointLimits,
 ) -> tuple[float, float, float, float, float, float]:
+    values = tuple(float(value) for value in values)
+    if len(values) == len(JOINT_NAMES):
+        values = (*values, 0.0)
+    if len(values) != len(JOINT_NAMES) + 1:
+        raise ValueError(
+            f"display joint vector must contain {len(JOINT_NAMES)} planning values "
+            "or the six-value visual compatibility form"
+        )
     mins = limits.as_display_vector()
     maxs = limits.as_display_max_vector()
     clamped = []
-    for value, lo, hi in zip(values, mins, maxs):
+    for index, (value, lo, hi) in enumerate(zip(values, mins, maxs)):
+        if index == len(JOINT_NAMES):
+            # J6 is a visual-only, externally driven spindle.  Never let a
+            # stale UI value leak into a sampled/planned display vector.
+            clamped.append(0.0)
+            continue
         clamped.append(min(max(float(value), lo), hi))
     return tuple(clamped)  # type: ignore[return-value]
 

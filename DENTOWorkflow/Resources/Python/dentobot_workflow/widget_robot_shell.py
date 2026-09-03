@@ -37,6 +37,8 @@ class RobotShellWidgetMixin:
                 "show_motion_diagnostics": self._onStep6ShowMotionDiagnostics,
                 "plan_drilling": self._onStep6PlanDrilling,
                 "preview_drilling": self._onStep6PreviewDrilling,
+                "stop_preview": self._onStep6StopPreview,
+                "return_home": self._onStep6ReturnHome,
             },
         )
         self._setupStep6SubstepNavigator()
@@ -497,20 +499,29 @@ class RobotShellWidgetMixin:
 
     def _onStep6PhasePreviewFinished(self, label, result) -> None:
         self._setStep6PanelResult(label, result)
+        if self._robotSimulationPanel:
+            if result.success:
+                self._robotSimulationPanel.previewProgressLabel.text = (
+                    "Guarded preview complete; endpoint verified."
+                )
+            else:
+                self._robotSimulationPanel.resetPreviewProgress("Preview stopped or rejected.")
         self._updateStep6PlanningUi(result.message, error=not result.success)
 
     def _onStep6PreviewApproach(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
+        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Goal 1 preview...")
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.APPROACH.value,
-            interval_ms=self._robotSimulationPanel.previewIntervalMs(),
-            on_progress=lambda _index, _count: self._updateRobotPlacement(),
+            speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),
+            on_progress=lambda index, count: self._onStep6PreviewProgress(index, count),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
                 self._robotSimulationPanel.approachStatusLabel, outcome
             ),
         )
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
@@ -526,15 +537,43 @@ class RobotShellWidgetMixin:
     def _onStep6PreviewDrilling(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
+        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Goal 2 preview...")
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.DRILLING.value,
-            interval_ms=self._robotSimulationPanel.previewIntervalMs(),
-            on_progress=lambda _index, _count: self._updateRobotPlacement(),
+            speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),
+            on_progress=lambda index, count: self._onStep6PreviewProgress(index, count),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
                 self._robotSimulationPanel.drillingStatusLabel, outcome
             ),
         )
         self._setStep6PanelResult(self._robotSimulationPanel.drillingStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6PreviewProgress(self, index: int, count: int) -> None:
+        if self._robotSimulationPanel and self._robotWorkflowFacade:
+            self._robotSimulationPanel.setPreviewProgress(
+                index,
+                count,
+                self._robotWorkflowFacade.currentPreviewPhase,
+            )
+
+    def _onStep6StopPreview(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.stopGuardedPreview()
+        self._robotSimulationPanel.resetPreviewProgress(result.message)
+        self._robotSimulationPanel.approachStatusLabel.text = result.message
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+
+    def _onStep6ReturnHome(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.returnToTaskHome()
+        self._robotSimulationPanel.resetPreviewProgress(result.message)
+        self._robotSimulationPanel.runtimeStatusLabel.text = result.message
+        self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)
 

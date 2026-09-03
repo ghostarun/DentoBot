@@ -36,6 +36,8 @@ class DENTORobotSimulationPanel:
         "show_motion_diagnostics": 5,
         "plan_drilling": 6,
         "preview_drilling": 6,
+        "stop_preview": (5, 6),
+        "return_home": (5, 6),
         "create_goal": -1,
         "solve_ik": -1,
         "plan_goal": -1,
@@ -138,7 +140,7 @@ class DENTORobotSimulationPanel:
         home_layout = qt.QVBoxLayout(self.homeGroup)
         home_description = qt.QLabel(
             "With ROS/MoveIt and the audited collision scene active, save the "
-            "current accepted six-joint vector as the case/base-specific Task "
+            "current accepted five-joint vector as the case/base-specific Task "
             "Home. Applying a saved Home plans from the monitored current state "
             "in MoveIt, then sends every plan waypoint through the strict simulation "
             "guard. This is not physical actuator homing; hardware homing remains unavailable.",
@@ -394,12 +396,25 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
+        preview_controls = qt.QHBoxLayout()
+        self.stopPreviewButton = qt.QPushButton("Stop Preview", self.approachGroup)
+        self.returnHomeButton = qt.QPushButton("Guarded Return Home", self.approachGroup)
+        preview_controls.addWidget(self.stopPreviewButton)
+        preview_controls.addWidget(self.returnHomeButton)
+        approach_layout.addLayout(preview_controls)
         preview_settings = qt.QHBoxLayout()
         preview_settings.addWidget(qt.QLabel("Preview speed:", self.approachGroup))
         self.previewSpeedCombo = qt.QComboBox(self.approachGroup)
-        for label, multiplier in (("1×", 1.0), ("2×", 2.0), ("5×", 5.0), ("10×", 10.0)):
+        for label, multiplier in (
+            ("0.25×", 0.25),
+            ("0.5×", 0.5),
+            ("1×", 1.0),
+            ("2×", 2.0),
+            ("4×", 4.0),
+            ("8×", 8.0),
+        ):
             self.previewSpeedCombo.addItem(label, multiplier)
-        saved_speed = float(qt.QSettings().value("DENTOBOT/Step6PreviewSpeed", 10.0))
+        saved_speed = float(qt.QSettings().value("DENTOBOT/Step6PreviewSpeed", 8.0))
         speed_index = min(
             range(self.previewSpeedCombo.count),
             key=lambda index: abs(float(self.previewSpeedCombo.itemData(index)) - saved_speed),
@@ -417,6 +432,18 @@ class DENTORobotSimulationPanel:
         self.approachStatusLabel.wordWrap = True
         self.approachStatusLabel.setProperty("dentobotRole", "status")
         approach_layout.addWidget(self.approachStatusLabel)
+        self.previewProgressBar = qt.QProgressBar(self.approachGroup)
+        self.previewProgressBar.minimum = 0
+        self.previewProgressBar.maximum = 1
+        self.previewProgressBar.value = 0
+        self.previewProgressBar.format = "Preview: 0/0"
+        approach_layout.addWidget(self.previewProgressBar)
+        self.previewProgressLabel = qt.QLabel(
+            "No guarded preview is running.", self.approachGroup
+        )
+        self.previewProgressLabel.wordWrap = True
+        self.previewProgressLabel.setProperty("dentobotRole", "status")
+        approach_layout.addWidget(self.previewProgressLabel)
 
         self.drillingGroup = qt.QGroupBox("6.6 — Goal 2: Drilling Preview", parent)
         self.drillingGroup.objectName = "DENTOBOTDrillingPhaseGroupBox"
@@ -439,6 +466,16 @@ class DENTORobotSimulationPanel:
         drilling_buttons.addWidget(self.planDrillingButton)
         drilling_buttons.addWidget(self.previewDrillingButton)
         drilling_layout.addLayout(drilling_buttons)
+        drilling_controls = qt.QHBoxLayout()
+        self.stopPreviewDrillingButton = qt.QPushButton(
+            "Stop Preview", self.drillingGroup
+        )
+        self.returnHomeDrillingButton = qt.QPushButton(
+            "Guarded Return Home", self.drillingGroup
+        )
+        drilling_controls.addWidget(self.stopPreviewDrillingButton)
+        drilling_controls.addWidget(self.returnHomeDrillingButton)
+        drilling_layout.addLayout(drilling_controls)
         self.drillingStatusLabel = qt.QLabel("No Goal 2 plan.", self.drillingGroup)
         self.drillingStatusLabel.wordWrap = True
         self.drillingStatusLabel.setProperty("dentobotRole", "status")
@@ -523,6 +560,18 @@ class DENTORobotSimulationPanel:
         self.previewDrillingButton.clicked.connect(
             lambda checked=False: self._invoke("preview_drilling")
         )
+        self.stopPreviewButton.clicked.connect(
+            lambda checked=False: self._invoke("stop_preview")
+        )
+        self.returnHomeButton.clicked.connect(
+            lambda checked=False: self._invoke("return_home")
+        )
+        self.stopPreviewDrillingButton.clicked.connect(
+            lambda checked=False: self._invoke("stop_preview")
+        )
+        self.returnHomeDrillingButton.clicked.connect(
+            lambda checked=False: self._invoke("return_home")
+        )
         self.visualizationGroup.visible = False
         self.homeGroup.visible = False
         self.workspaceReviewGroup.visible = False
@@ -535,9 +584,11 @@ class DENTORobotSimulationPanel:
 
     def _invoke(self, name: str) -> None:
         owner = self.ACTION_OWNER_SUBSTEP.get(name)
-        if owner is not None and owner != self._activeSubstep:
+        owners = owner if isinstance(owner, tuple) else (owner,)
+        if owner is not None and self._activeSubstep not in owners:
             self.runtimeStatusLabel.text = (
-                f"Blocked stale Step 6 action '{name}': owner is 6.{owner}, "
+                f"Blocked stale Step 6 action '{name}': owner is "
+                f"{', '.join('6.' + str(value) for value in owners)}, "
                 f"active substep is 6.{self._activeSubstep}."
             )
             self.runtimeStatusLabel.setProperty("dentobotState", "error")
@@ -561,10 +612,29 @@ class DENTORobotSimulationPanel:
         return str(self.cbctPresetCombo.currentData or "current")
 
     def previewSpeedMultiplier(self) -> float:
-        return max(1.0, float(self.previewSpeedCombo.currentData or 1.0))
+        return min(8.0, max(0.25, float(self.previewSpeedCombo.currentData or 1.0)))
 
     def previewIntervalMs(self) -> int:
+        # Retained for expert/diagnostic preview callers; guarded previews use
+        # planned timestamps and previewSpeedMultiplier().
         return max(20, round(250.0 / self.previewSpeedMultiplier()))
+
+    def setPreviewProgress(self, current: int, total: int, phase: str = "") -> None:
+        current = max(0, int(current))
+        total = max(0, int(total))
+        self.previewProgressBar.maximum = max(1, total)
+        self.previewProgressBar.value = min(current, max(1, total))
+        self.previewProgressBar.format = f"Preview: {current}/{total}"
+        self.previewProgressLabel.text = (
+            f"Guarded preview progress: {current}/{total}"
+            + (f" — {str(phase).replace('_', ' ').title()}" if phase else ".")
+        )
+
+    def resetPreviewProgress(self, message: str = "No guarded preview is running.") -> None:
+        self.previewProgressBar.maximum = 1
+        self.previewProgressBar.value = 0
+        self.previewProgressBar.format = "Preview: 0/0"
+        self.previewProgressLabel.text = str(message)
 
     def setAppearance(self, key: str, visible: bool, opacity: float) -> None:
         controls = self.appearanceControls.get(key)

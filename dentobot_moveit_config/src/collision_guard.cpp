@@ -28,9 +28,6 @@ namespace
 constexpr char STATUS_SCHEMA[] = "dentobot.joint_command_status.v1";
 constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v2";
 constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v2";
-constexpr char SPINDLE_JOINT_NAME[] = "pneumatic_spindle-Copy_Revolute-6";
-constexpr double SPINDLE_LOCKED_VALUE_RAD = 0.0;
-constexpr double SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9;
 constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v2";
 constexpr double CLEARANCE_COMPARISON_EPSILON_M = 1e-9;
 constexpr double CORRIDOR_ENDPOINT_EPSILON_M = 0.00025;
@@ -339,15 +336,6 @@ public:
     {
       throw std::runtime_error("MoveIt group has no commandable joint variables");
     }
-    const auto spindle_it = std::find(
-      joint_names_.begin(), joint_names_.end(), SPINDLE_JOINT_NAME);
-    if (spindle_it == joint_names_.end())
-    {
-      throw std::runtime_error("MoveIt group omitted the compatible pneumatic spindle joint");
-    }
-    spindle_joint_index_ = static_cast<std::size_t>(
-      std::distance(joint_names_.begin(), spindle_it));
-
     moveit::core::RobotState initial_state(robot_model_);
     initial_state.setToDefaultValues();
     initial_state.copyJointGroupPositions(joint_model_group_, last_accepted_positions_);
@@ -412,19 +400,22 @@ private:
     GuardResult result;
     if (requested.size() != joint_names_.size())
     {
-      result.reason = "Expected " + std::to_string(joint_names_.size()) +
-                      " joint values, received " + std::to_string(requested.size()) + ".";
+      if (requested.size() == joint_names_.size() + 1)
+      {
+        result.reason =
+          "Received a legacy six-joint command; the external spindle is not a "
+          "planning DOF. Send five ordered planning joint values.";
+      }
+      else
+      {
+        result.reason = "Expected " + std::to_string(joint_names_.size()) +
+                        " joint values, received " + std::to_string(requested.size()) + ".";
+      }
     }
     else if (!std::all_of(requested.begin(), requested.end(),
                           [](double value) { return std::isfinite(value); }))
     {
       result.reason = "A requested joint value is not finite.";
-    }
-    else if (std::abs(requested[spindle_joint_index_] -
-                      SPINDLE_LOCKED_VALUE_RAD) > SPINDLE_LOCK_TOLERANCE_RAD)
-    {
-      result.reason =
-        "The pneumatic spindle is externally driven and must remain locked at 0 rad.";
     }
     else
     {
@@ -555,7 +546,16 @@ private:
         !std::all_of(command.joint_positions.begin(), command.joint_positions.end(),
                      [](double value) { return std::isfinite(value); }))
     {
-      reason = "Phased command must contain six finite ordered joint values.";
+      if (command.joint_positions.size() == joint_names_.size() + 1)
+      {
+        reason =
+          "Phased command contains a legacy spindle value; the external spindle is "
+          "not a planning DOF. Send five ordered planning joint values.";
+      }
+      else
+      {
+        reason = "Phased command must contain five finite ordered planning joint values.";
+      }
       return false;
     }
     if (document.isMember("validate_only"))
@@ -566,13 +566,6 @@ private:
         return false;
       }
       command.validate_only = document["validate_only"].asBool();
-    }
-    if (std::abs(command.joint_positions[spindle_joint_index_] -
-                 SPINDLE_LOCKED_VALUE_RAD) > SPINDLE_LOCK_TOLERANCE_RAD)
-    {
-      reason =
-        "The pneumatic spindle is externally driven and must remain locked at 0 rad during planning.";
-      return false;
     }
     return true;
   }
@@ -1190,7 +1183,6 @@ private:
   std::string task_config_topic_;
   std::string task_command_topic_;
   std::string task_status_topic_;
-  std::size_t spindle_joint_index_{ 0 };
   double minimum_clearance_m_{ 0.001 };
   double maximum_revolute_step_rad_{ 0.017453292519943295 };
   double maximum_prismatic_step_m_{ 0.0005 };

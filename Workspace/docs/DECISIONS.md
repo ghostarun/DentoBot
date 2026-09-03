@@ -1,5 +1,54 @@
 # Dentobot Technical Decisions
 
+## 2026-09-03 — Finish guarded live simulation before the Step 6 Studio revamp
+
+Status: adopted; source checkpoint `ea504349f99f`; implementation in progress
+
+The immediate Priority-0 gate is one complete, repeatable, simulation-only x4
+loop: strict Task Home-to-PreEntry, fixed-frame terminal Entry contact,
+fixed-frame Entry-to-Target drilling preview, and strict guarded Return Home.
+The accepted J6-zero tool frame is fixed at PreEntry and reused unchanged.
+MoveIt's collision-off Cartesian solver remains the primary Stage 2/3 planner;
+its bounded sequential-continuity IK recovery may recover the same requested
+poses, but only authoritative FK and the independent phase guard may accept
+them. A partial path remains diagnostic.
+
+Stage 2/3 may suppress only configured burr contact with the target tooth and
+matching final guide/template. Every suppression is reported as exploratory;
+all other contacts, bounds, corridor, backtracking, overshoot, identity, and J6
+checks remain strict. The known 2.0 mm burr / 1.5 mm bore discrepancy remains a
+separate visible physical-fit failure even if exploratory simulation proceeds.
+
+Only after the x4 chain plans, previews, returns Home, and repeats without a
+Slicer restart may the Robot Planning & Simulation Studio begin. The Studio
+will extend the existing `DENTORobotWorkflowFacade`, use `.dentocase` schema 2
+as the sole case/study package, support at most three manual trajectories per
+tooth, run non-moving repeated studies, and keep historical study evidence
+separate from fresh guarded preview authorization. The former separate
+`.dentostudy` decision is superseded for this project.
+
+Reason: reorganizing data ownership and GUI before the guarded motion loop is
+accepted risks preserving or multiplying an incomplete planner contract. A
+working, measurable loop provides the behavior that the later façade, schema,
+Studio, and study runner must preserve.
+
+## 2026-09-03 — Make live preview acknowledgement-driven and recoverable
+
+Status: source implemented; runtime acceptance pending
+
+Guarded preview submits every waypoint in order and schedules the next one only
+after the phase guard/ROS acknowledgement returns. Planned timestamps are
+scaled by an operator-selected 0.25×–8× multiplier; MRML display writes are
+coalesced to approximately 30 Hz without skipping guard submissions. Completion
+requires monitored-joint convergence and world-RAS KDL TCP endpoint tolerance.
+An accepted stop consumes the phase session, and only strict guarded Return Home
+can make replanning available again.
+
+Reason: fixed-delay playback obscured whether the simulated robot and guard had
+actually advanced, while a consumed session prevents stale phase sequence reuse.
+The physical burr/guide fit is reported independently so exploratory collision
+exceptions cannot be mistaken for printable or executable compatibility.
+
 ## 2026-09-03 — Pin the native SlicerROS2 repair from a controlled fork
 
 Status: applied and published in `lab/2026-09-03`
@@ -3464,3 +3513,37 @@ retaining a clear, explicitly requested reconciliation route.
 Dated development logbooks become the detailed AI-maintained narrative. They
 must distinguish operator observations and stated reasoning from engineering
 interpretation, implementation, verification, limitations, and next actions.
+
+## 2026-09-04 — Remove the pneumatic spindle from the MoveIt planning model
+
+Status: Track-A source implemented; focused static, build, and runtime smoke
+evidence passed; complete x4 normal-window acceptance remains pending
+
+`pneumatic_spindle-Copy_Revolute-6` is an externally pressure-driven air rotor,
+not a positioning actuator. It remains in the URDF and the visual/collision
+tree so the assembled robot can still be displayed, but it is removed from the
+`dentobot_arm` MoveIt planning group. Step 6 planning, IK, FK, workspace
+sampling, Task Home, trajectories, phase-guard commands, preview, and metrics
+operate on J1–J5 only. The guard rejects legacy six-value motion commands
+instead of silently commanding the spindle.
+
+The canonical planning TCP is the fixed `dentobot_drill_tcp` sibling attached
+to `pneumatic_spindle-Copy` upstream of J6. Its transform is the CAD burr-tip
+reference pose at neutral spindle angle, with a physical +Z drilling axis that
+does not change with air-rotor roll. The old downstream
+`dentobot_tool_tcp`/`dentobot_drill_tip_provisional` links remain visual and
+collision compatibility frames and are not planning targets. A direct FK
+compatibility call may accept a historical six-value vector only by discarding
+its sixth slot; it never passes J6 to MoveIt.
+
+Older Task Home/workspace/diagnostic records are read by retaining J1–J5 and
+marking roll-dependent evidence stale through the new robot-profile/policy
+fingerprint. No tolerance, collision exception, corridor, endpoint, or partial
+path rule was relaxed. The bounded correction intentionally leaves the full x4
+Home→PreEntry→Entry→Target→Home acceptance gate as the next operator-visible
+step.
+
+Reason: solving TCP orientation with a continuously rotating spindle made
+Stage-3 residuals depend on an actuator the robot cannot command. A fixed
+upstream frame makes the reachable task and its collision evidence physically
+meaningful while preserving the visual model and saved-file compatibility.

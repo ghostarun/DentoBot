@@ -4,7 +4,26 @@ Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
-## Current engineering state — 2026-09-03
+## Current engineering state — 2026-09-04
+
+- The current authoritative roadmap is guarded-live-first. Track A must finish
+  and operator-accept one repeatable x4 Task Home->PreEntry->Entry->Target->Home
+  simulation before any Robot Planning & Simulation Studio implementation.
+  Source baseline is `ea504349f99f`; `S6-LIVE-01..05` in `TASKS.md` are the
+  only immediate Step 6 work order. The Studio, `.dentocase` schema 2,
+  three-per-tooth manual registry, and non-moving studies are Track B and remain
+  blocked. The former `.dentostudy` plan is superseded.
+
+- The bounded kinematic correction is now source-complete: `dentobot_arm` plans
+  five joints (J1–J5) to fixed upstream `dentobot_drill_tcp`; J6 remains only a
+  visual/collision branch at neutral `0 rad`. Legacy six-value records are
+  accepted only at compatibility boundaries, where the spindle slot is
+  discarded; the guard rejects six-value motion commands. Focused Python and
+  ROS/MoveIt/phase-guard checks passed, and the Slicer façade assertions emitted
+  their functional JSON. The pinned SlicerROS2 process still exits nonzero at
+  shutdown with retained VTK-wrapper leak diagnostics. The complete normal-
+  window x4 Home→PreEntry→Entry→Target→Home trial is still pending; Track B is
+  not started.
 
 - Authoritative development checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`.
 - Authoritative development branch: `main`, tracking `origin/main`. The
@@ -19,7 +38,7 @@ reproducibility, or dated evidence documents.
   Native Windows Slicer stays `PLAT-U-02` / ROS `none`.
 - `DENTOWorkflow.py` is a thin public Slicer entrypoint. Production UI and
   logic live in `DENTOWorkflow/Resources/Python/dentobot_workflow/`.
-- Legacy and six-workspace Shell presentations share the same MRML parameter
+- Legacy and Step 6 Shell presentations share the same MRML parameter
   node, logic classes, helpers, and `DENTORobotWorkflowFacade`.
 - Step 6 is simulation/preview only. MoveIt provides configured IK, planning,
   FCL self/world collision, and planning-scene services. DENTOBOT does not

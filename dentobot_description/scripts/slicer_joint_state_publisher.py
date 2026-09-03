@@ -13,6 +13,7 @@ from typing import List, Sequence, Tuple
 from xml.etree import ElementTree
 
 JointSpec = Tuple[str, float, float]
+EXTERNAL_SPINDLE_JOINT = "pneumatic_spindle-Copy_Revolute-6"
 
 
 def movable_joints_from_urdf(robot_description: str) -> List[JointSpec]:
@@ -117,6 +118,11 @@ def main(args: List[str] | None = None) -> None:
                 raise ValueError("command_topic must be a non-empty topic name")
 
             self._joints = movable_joints_from_urdf(robot_description)
+            self._planning_joints = [
+                joint for joint in self._joints if joint[0] != EXTERNAL_SPINDLE_JOINT
+            ]
+            if not self._planning_joints:
+                raise ValueError("robot_description contains no commandable planning joints")
             self._positions = [
                 0.0
                 if not isfinite(lower) or not isfinite(upper)
@@ -139,7 +145,34 @@ def main(args: List[str] | None = None) -> None:
 
         def _on_command(self, message: Float64MultiArray) -> None:
             try:
-                self._positions = clamp_joint_positions(self._joints, message.data)
+                # DENTOWorkflow commands only the MoveIt planning group (J1–J5).
+                # The full six-value form is accepted only as a legacy UI
+                # compatibility payload; its sixth entry is discarded. J6 is
+                # never a commanded axis and is always published at zero for
+                # the visual downstream branch.
+                if len(message.data) not in {
+                    len(self._planning_joints),
+                    len(self._joints),
+                }:
+                    raise ValueError(
+                        "expected five planning values or the legacy six-value "
+                        "visual compatibility form"
+                    )
+                planning_values = clamp_joint_positions(
+                    self._planning_joints,
+                    message.data[: len(self._planning_joints)],
+                )
+                by_name = dict(
+                    zip((name for name, _lo, _hi in self._joints), self._positions)
+                )
+                by_name.update(
+                    zip(
+                        (name for name, _lo, _hi in self._planning_joints),
+                        planning_values,
+                    )
+                )
+                by_name[EXTERNAL_SPINDLE_JOINT] = 0.0
+                self._positions = [by_name[name] for name, _lo, _hi in self._joints]
             except ValueError as exc:
                 self.get_logger().warning(str(exc))
 

@@ -165,8 +165,8 @@ def run() -> dict[str, object]:
                 "A Goal 1 stage path is empty or has no rendered path cells."
             )
     for waypoint in approach_plan.waypoint_joint_vectors_si:
-        if abs(float(waypoint[bridge.ROS2_JOINT_SI_ORDER[-1]])) > 1.0e-9:
-            raise RuntimeError("Goal 1 moved the externally driven spindle joint")
+        if len(waypoint) != len(bridge.ROS2_JOINT_SI_ORDER):
+            raise RuntimeError("Goal 1 returned a non-planning joint vector")
     if not approach_plan.tool_orientation_fingerprint:
         raise RuntimeError("Goal 1 did not commit a Stage-1 drilling frame")
     if len(approach_plan.tool_axis_ras) != 3 or not math.isclose(
@@ -270,9 +270,7 @@ def run() -> dict[str, object]:
                 "terminalPlanningFraction"
             ),
             "stage_path_count": len(planned_path_nodes),
-            "spindle_locked_rad": float(
-                accepted[bridge.ROS2_JOINT_SI_ORDER[-1]]
-            ),
+            "planning_joint_count": len(bridge.ROS2_JOINT_SI_ORDER),
             "tool_orientation_fingerprint": (
                 approach_plan.tool_orientation_fingerprint
             ),
@@ -335,7 +333,7 @@ def run() -> dict[str, object]:
 
     accepted = bridge.last_accepted_joint_positions_si()
     if any(name not in accepted for name in bridge.ROS2_JOINT_SI_ORDER):
-        raise RuntimeError("final accepted six-joint state is unavailable")
+        raise RuntimeError("final accepted planning-joint state is unavailable")
     robot = connected.payload
     actual_target_base_mm = vtk.vtkMatrix4x4()
     if robot.ComputeKDLFK(

@@ -95,7 +95,11 @@ def joint_positions_si_from_display(
     joint_5_deg: float,
     joint_6_deg: float,
 ) -> dict[str, float]:
-    """Convert the Slicer controls into the tracked URDF joint names/units."""
+    """Convert Slicer controls into URDF units for visualisation.
+
+    The returned J6 value is retained only for the visual spindle branch;
+    Step 6 canonicalizes commandable planning state to J1–J5 before MoveIt.
+    """
     return {
         "link-1_Revolute-1": radians(float(joint_1_deg)),
         "link-2_Slider-2": float(joint_2_mm) / 1000.0,
@@ -199,7 +203,7 @@ def drill_tip_origin_base_m(
     """Return the CAD-derived provisional drill-tip in base_link metres."""
 
     transforms_m = link_transforms_base_m(urdf_path, package_root, joint_positions_si)
-    frame = "dentobot_drill_tip_provisional"
+    frame = "dentobot_drill_tcp"
     if frame not in transforms_m:
         raise ValueError(f"The tracked URDF does not contain {frame}.")
     return transforms_m[frame][:3, 3].copy()

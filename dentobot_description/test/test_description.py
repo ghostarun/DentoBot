@@ -88,8 +88,8 @@ def test_robot_tree_and_joint_contract() -> None:
     joints = root.findall("joint")
     link_names = [link.get("name") for link in links]
     joint_names = [joint.get("name") for joint in joints]
-    assert len(links) == len(set(link_names)) == 10
-    assert len(joints) == len(set(joint_names)) == 9
+    assert len(links) == len(set(link_names)) == 11
+    assert len(joints) == len(set(joint_names)) == 10
 
     parents: dict[str, str] = {}
     children: dict[str, list[str]] = {name: [] for name in link_names}
@@ -133,10 +133,10 @@ def test_robot_tree_and_joint_contract() -> None:
             assert velocity > 0.0
 
     assert joint_types == {
-        "fixed": 3,
-        "revolute": 3,
+        "fixed": 4,
+        "revolute": 2,
         "prismatic": 2,
-        "continuous": 1,
+        "continuous": 2,
     }
     roots = set(link_names) - set(parents)
     assert roots == {"base_link"}
@@ -160,6 +160,7 @@ def test_link_inertials_and_mesh_references() -> None:
             "base_link",
             "dentobot_tool_tcp",
             "dentobot_drill_tip_provisional",
+            "dentobot_drill_tcp",
         }:
             assert len(link) == 0
             continue
@@ -227,7 +228,7 @@ def test_manual_joint_controls_match_urdf_order_limits_and_units() -> None:
         ("link-2_Slider-2", "prismatic", 0.0, 80.0, "mm"),
         ("link-3_Revolute-3", "revolute", -62.46, 297.54, "deg"),
         ("link-4_Slider-4", "prismatic", 0.0, 75.0, "mm"),
-        ("link-5_Revolute-5", "revolute", -1.08, 358.92, "deg"),
+        ("link-5_Revolute-5", "continuous", -180.0, 180.0, "deg"),
         (
             "pneumatic_spindle-Copy_Revolute-6",
             "continuous",
@@ -330,7 +331,7 @@ def test_coarse_aabb_model_uses_mesh_bounds_fk_and_five_mm_clearance() -> None:
     )
     # The selected screenshot pose is now q=0, with the former XY mounting
     # plate rotated onto the RViz ground plane and the robot above it.
-    expected_burr_origin = (-0.049564540494, 0.001369804798, 0.197675185601)
+    expected_burr_origin = (-0.049564540494, 0.001369804798, 0.117675185601)
     for observed, expected in zip(neutral.burr_origin_m, expected_burr_origin):
         assert isclose(observed, expected, abs_tol=1e-6)
 

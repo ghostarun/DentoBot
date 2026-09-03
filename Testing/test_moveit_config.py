@@ -8,12 +8,17 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_urdf_has_provisional_tcp_after_burr():
+def test_urdf_has_non_spinning_tcp_sibling_and_retains_visual_burr_branch():
     robot = ElementTree.parse(
         ROOT / "dentobot_description/urdf/dentobot.urdf"
     ).getroot()
     assert robot.find("link[@name='dentobot_tool_tcp']") is not None
     assert robot.find("link[@name='dentobot_drill_tip_provisional']") is not None
+    assert robot.find("link[@name='dentobot_drill_tcp']") is not None
+    planning_tcp = robot.find("joint[@name='pneumatic_spindle-Copy_to_dentobot_drill_tcp']")
+    assert planning_tcp is not None
+    assert planning_tcp.get("type") == "fixed"
+    assert planning_tcp.find("parent").get("link") == "pneumatic_spindle-Copy"
     joint = robot.find("joint[@name='burr_to_dentobot_tool_tcp']")
     assert joint is not None
     assert joint.get("type") == "fixed"
@@ -28,7 +33,7 @@ def test_srdf_group_is_base_to_tcp_chain_and_only_adjacent_pairs_are_disabled():
     chain = robot.find("group[@name='dentobot_arm']/chain")
     assert chain is not None
     assert chain.get("base_link") == "base_link"
-    assert chain.get("tip_link") == "dentobot_drill_tip_provisional"
+    assert chain.get("tip_link") == "dentobot_drill_tcp"
     for collision in robot.findall("disable_collisions"):
         assert collision.get("reason") == "Adjacent"
 
@@ -48,7 +53,6 @@ def test_ompl_and_conservative_joint_limits_are_configured():
         "link-3_Revolute-3",
         "link-4_Slider-4",
         "link-5_Revolute-5",
-        "pneumatic_spindle-Copy_Revolute-6",
     }
     assert limits["link-4_Slider-4"]["max_velocity"] == 0.02
 

@@ -1,14 +1,62 @@
 # DENTOBOT Architecture
 
-## Step 6 spindle-lock and full-chain planning boundary — 2026-09-01
+## Guarded-live-first Step 6 architecture — 2026-09-03
 
-The pneumatic spindle joint remains in the six-joint URDF/SRDF/MRML
-compatibility chain and visible robot, but is not a controllable planning
-degree of freedom. `DENTOStep6State` owns the versioned policy
-`external-pressure-spindle-locked-v1` and fixed value `0 rad`; bridge, façade,
-restore and guard boundaries canonicalize to it. The collision guard also
-rejects nonzero ordinary or phased commands. J5 remains the only continuous
-arm joint in Step 6 planning.
+Step 6 development is split into two gated tracks. Track A completes the
+existing `DENTORobotWorkflowFacade` loop before any Studio reorganization:
+
+```text
+Task Home --strict MoveIt/guard--> PreEntry
+    --fixed frame/narrow burr exception--> Entry
+    --same fixed frame/narrow burr exception--> Target
+    --strict MoveIt/guard--> Task Home
+```
+
+MoveIt first attempts each collision-off fixed-frame terminal line. Its bounded
+sequential IK fallback may solve only those same poses from the preceding
+accepted J1-J5 state, with J6 fixed at zero and FK residual verification. The
+independent phase guard remains the final waypoint authority. A phase session
+is transient and single-use; stopping or completing it never creates reusable
+case authorization.
+
+After Track A acceptance, Track B keeps this backend and replaces Step 6 data
+and presentation ownership. `DENTORobotWorkflowFacade` remains the one façade.
+`.dentocase` schema 2 adds streaming attempt records and bounded display-only
+replays; it replaces the planned `.dentostudy`. Research studies use one frozen
+common-anatomy environment, never move the monitored robot, and cannot
+authorize Guarded Preview. Guarded Preview always reconstructs explicit runtime
+state, requires the matching current Step 5C guide/template, and plans afresh.
+
+The current Track-A source increment makes preview acknowledgement-driven: each
+guard-accepted waypoint is submitted in order, planned timestamps are scaled by
+a bounded speed preference, and display refreshes are coalesced without
+weakening guard coverage. Endpoint completion is confirmed against monitored
+joints and world-RAS KDL FK. A stopped or completed preview is transient; after
+accepted motion, strict guarded Return Home is the only path back to replanning.
+This implementation remains runtime-unverified until the x4 acceptance gate.
+
+## Step 6 spindle and full-chain planning boundary — 2026-09-04
+
+The pneumatic spindle joint remains in the URDF and visual/collision robot
+tree for compatibility, but it is not a controllable planning degree of
+freedom. `DENTOStep6State` owns the versioned policy
+`external-pressure-spindle-nonplanning-v2`; the visual branch is held at
+`0 rad` whenever a six-value compatibility vector is needed. The MoveIt
+`dentobot_arm` group, FK/IK, workspace, trajectories, guard commands, and
+previews contain only J1–J5. A six-value legacy vector is accepted only at a
+read/visual boundary, where its sixth slot is discarded; nonzero six-value
+motion commands are rejected by the guard. J5 remains the only continuous arm
+joint in Step 6 planning.
+
+The canonical planning frame is `dentobot_drill_tcp`, a fixed sibling of the
+J6 joint under `pneumatic_spindle-Copy`. Its transform is the CAD burr-tip
+reference pose evaluated at the neutral spindle angle, so its position and
+physical +Z drilling axis are independent of air-rotor roll. The historical
+`dentobot_tool_tcp` and `dentobot_drill_tip_provisional` links stay downstream
+of J6 for visualization and collision representation only. They are not
+planning TCPs. This separation prevents an uncontrolled rotor angle from
+being used to satisfy tool orientation and removes the former solve-with-J6,
+then-canonicalize production path.
 
 Goal 1 now owns a connected three-stage preflight: strict MoveIt
 Home→PreEntry; axis-constrained PreEntry→Entry with only terminal configured
@@ -22,8 +70,8 @@ failure is `Blocked` while retained Stage-1/approach evidence remains
 Planner diagnostics represent actual arm routes: canonical direct IK,
 geometrically distinct workspace-seeded IK, or a two-leg reviewed 6.3
 clearance detour. The compatibility `axial_roll_deg` field records the
-FK-derived orientation needed to keep a J6-locked endpoint continuous; it is
-not a spindle command or alternate route. Routine UI replaces Roll with
+FK-derived orientation of the fixed canonical TCP; it is not a spindle
+command or alternate route. Routine UI replaces Roll with
 Planner leg/Route and a separate Stage 1/2/3 summary. Three display-only,
 non-persistent KDL/world-RAS
 paths use distinct colors; none is a planning-scene object or execution path.
@@ -132,14 +180,16 @@ planned versioned diagnostic evidence records
 `DENTORobotWorkflowFacade` is the shared Legacy/New-GUI application seam. It
 loads the local MRML robot, owns runtime connection without changing modules,
 synchronizes split target/non-target planning objects, validates/saves Task Home,
-retains sampled TCP poses with their six-joint vectors, reviews assisted limits,
+retains sampled TCP poses with their five-joint J1–J5 planning vectors (the
+optional sixth display slot is fixed at zero), reviews assisted limits,
 confirms the task fingerprint, and builds the preview phases.
 Routine calls use SlicerROS2 logic/MRML APIs; the upstream widget is optional
 expert diagnostics and never a lifecycle prerequisite.
 
 Stage 1 owns one transient drilling-frame commitment for each planning
 attempt. The immutable task trajectory fixes the frame's +Z axis in world RAS;
-collision-aware FK with J6 locked fixes the remaining rotation. Direct and
+authoritative FK of the canonical upstream TCP fixes the complete rotation.
+Direct and
 seeded joints-1–5 branches are compared only after the exact same frame has
 been propagated through PreEntry→Entry and Entry→Target plus shadow-guard
 validation. The selected frame fingerprint is diagnostic evidence tied to the
@@ -151,7 +201,7 @@ The source implements a runtime-first gate. 6.1 requires prepared anatomy, a
 local robot, and a reviewed Manual Simulation Base, then aligns `base_link` and
 acknowledges the exact PlanningScene without requiring saved Home/workspace
 evidence. When a base/resource-current Task Home is present after restore, 6.1
-uses its six-joint vector as the transient robot bootstrap so the MRML and ROS
+uses its five-joint planning vector as the transient robot bootstrap so the MRML and ROS
 robots begin coincident; that persistent vector is still only a candidate and
 does not restore live validation. Only afterward may 6.2 commit or revalidate a
 MoveIt/FCL-validated Task Home. A
@@ -223,8 +273,10 @@ The explicit CBCT renderer is display-only and singleton-by-source. The former
 curved forehead proxy and base-derived mount plane remain excluded from
 planning-scene collision objects and registration evidence, and their
 create/edit/snap workflow is quarantined pending an independent patient/contact
-frame. The planning TCP is
-`dentobot_drill_tip_provisional`; its CAD offset is not physical calibration.
+frame. The planning TCP is the fixed, provisional
+`dentobot_drill_tcp`; its CAD placement is not physical calibration. The
+downstream `dentobot_drill_tip_provisional` link is retained for visual and
+collision compatibility only.
 
 The external guard preserves the ordinary strict channel and adds task/phase
 messages tied to the immutable fingerprint. Terminal contact and drilling may
@@ -233,13 +285,14 @@ All other robot/world/self contacts and joint violations remain fail-closed.
 No controller or hardware execution path is exposed.
 
 Goal 1 Stage 1 treats a translucent PreEntry robot as an IK endpoint view, not
-path evidence. `DENTORobotWorkflowFacade` constructs a bounded set of poses
-that share the exact approved drill axis and differ only by cylindrical-burr
-axial roll. `DENTOROS2Bridge` solves collision-aware IK from the immutable Task
-Home seed, canonicalizes only URDF-continuous joint representations, and ranks
-the resulting endpoints by normalized joint continuity before bounded strict
-planning. A successful endpoint's roll is carried unchanged into the axial and
-terminal segments and becomes the drilling-preflight start roll.
+path evidence. `DENTORobotWorkflowFacade` constructs a bounded set of arm-route
+candidates that share the exact approved non-spinning drill frame.
+`DENTOROS2Bridge` solves collision-aware IK from the immutable Task Home seed
+and distinct J1–J5 workspace seeds, canonicalizes only URDF-continuous arm
+representations, and ranks the resulting endpoints by normalized joint
+continuity before bounded strict planning. The same fixed frame is carried
+unchanged into the axial and terminal segments and becomes the
+drilling-preflight orientation.
 
 When every strict candidate fails, the bridge may query exact MoveIt collision
 pairs along a sampled direct joint chord. That read-only chord never replaces
@@ -1474,15 +1527,16 @@ Ownership and failure rules:
   applies the inverse placed-base transform and millimetres-to-metres
   conversion exactly once before passing a base-frame pose to SlicerROS2 or
   MoveIt; callers must not pre-convert the same world point.
-- `dentobot_drill_tip_provisional` is a provisional CAD-derived fixed frame
-  7 mm distal to the former burr-origin frame. Its +Z axis follows the spindle
-  axis. A Cartesian pose basis is built by setting
-  +Z to normalized Entry→Target, projecting a stable reference axis into the
-  normal plane, and completing a right-handed orthonormal basis with cross
-  products.
+- `dentobot_drill_tcp` is the current provisional CAD-derived planning frame.
+  It is a fixed sibling upstream of J6 at the burr-tip reference pose and its
+  +Z axis is independent of spindle roll. The historical
+  `dentobot_drill_tip_provisional` (7 mm distal) and `dentobot_tool_tcp` links
+  remain downstream visual/collision frames only. A Cartesian pose basis is
+  built by setting +Z to normalized Entry→Target, projecting a stable
+  reference axis into the normal plane, and completing a right-handed
+  orthonormal basis with cross products.
 - MoveIt builds the `dentobot_arm` serial chain from URDF joint origins, axes,
-  types, and limits plus the SRDF `base_link → dentobot_drill_tip_provisional`
-  group. The
+  types, and limits plus the SRDF `base_link → dentobot_drill_tcp` group. The
   configured KDL plugin solves numerical Jacobian-based IK at runtime; there is
   no handwritten DH table or robot-specific IK equation. OMPL RRTConnect is
   available for general planning; the current Entry-to-Target operation uses
@@ -1511,10 +1565,10 @@ Ownership and failure rules:
   three times so a plan cannot race ahead of newly published world geometry.
   The strict approach may be compacted within guard sampling bounds, but every
   0.25 mm Cartesian terminal/drilling sample is retained. Before Goal 1 preview,
-  Step 6 proves the complete Entry-to-Target line at fraction `>=0.99`, probing
-  only bounded cylindrical-burr axial roll while preserving the approved tool
-  axis and centreline. Failure reports the best fraction and requires base
-  repositioning. Step 6 preview streams accepted vectors through the single
+  Step 6 proves the complete Entry-to-Target line at fraction `>=0.99`, trying
+  only bounded deterministic J1–J5 route/IK seeds while preserving the approved
+  tool frame and centreline. Failure reports the best fraction and requires
+  base repositioning. Step 6 preview streams accepted vectors through the single
   simulation publisher; any failed publish stops the preview and reports an
   error. No trajectory execution call is exposed.
 
@@ -1621,9 +1675,9 @@ an actual point/status change still invalidates Step 5B/5C normally.
 optional adapter around the pinned generic Motion Control widget; the sibling
 SlicerROS2 checkout is not modified. After robot setup it parents both the first live `lookup` root and first
 `goal_transform` root to the Step 6 base. It derives operator-visible
-readiness from the versioned external-stack contract, fixes the planning group
-to `dentobot_arm`, injects the configured chain tip
-`dentobot_drill_tip_provisional` when no
+  readiness from the versioned external-stack contract, fixes the planning group
+  to `dentobot_arm`, injects the configured chain tip
+  `dentobot_drill_tcp` when no
 SRDF `<end_effector>` entry exists, wraps MoveIt IK and trajectory loading to
 show outcomes, and forces every trajectory load to `enableExecute=False`.
 Adapter callbacks and the added status widget are disconnected/deleted before
@@ -1634,8 +1688,8 @@ The two visual robots represent state, not workspace: current follows
 workspace is computed independently:
 
 ```text
-task min/max for J1..J6
-  → 6-D Halton low-discrepancy samples (current vector first)
+task min/max for J1..J5 (J6 visual slot fixed at zero)
+  → 5-D Halton low-discrepancy samples (current vector first)
   → display units to radians/metres
   → URDF FK to provisional TCP origin
   → non-adjacent-link AABB separation ≥ 5 mm

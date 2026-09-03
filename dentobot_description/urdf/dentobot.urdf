@@ -192,22 +192,32 @@
         <child link="burr" />
         <axis xyz="0.40465999999999996 0.432425 -0.805766" />
     </joint>
-    <!-- Provisional planning TCP. Its origin is the CAD burr-link origin, not a
-         calibrated physical burr tip. +Z is aligned with the spindle axis so
-         Step 6 Cartesian poses have an explicit approach-axis convention. -->
+    <!-- The downstream branch is retained for visualisation/collision.  Its
+         pose rotates with the pneumatic spindle and is never a planning TCP. -->
     <link name="dentobot_tool_tcp" />
     <joint name="burr_to_dentobot_tool_tcp" type="fixed">
         <origin xyz="0.0 0.0 0.0" rpy="-2.61089174 -0.36458195 -0.20627347" />
         <parent link="burr" />
         <child link="dentobot_tool_tcp" />
     </joint>
-    <!-- CAD-derived provisional drill-tip point. The burr STL spans 7.000 mm
-         along dentobot_tool_tcp +Z, so this child marks that distal mesh end.
-         It is not a physical TCP calibration and must not be treated as one. -->
+    <!-- Historical visual tip. It remains downstream of J6 for compatibility,
+         but is not used by MoveIt or Step 6 planning. -->
     <link name="dentobot_drill_tip_provisional" />
     <joint name="dentobot_tool_tcp_to_drill_tip_provisional" type="fixed">
         <origin xyz="0.0 0.0 0.007" rpy="0.0 0.0 0.0" />
         <parent link="dentobot_tool_tcp" />
         <child link="dentobot_drill_tip_provisional" />
+    </joint>
+    <!-- Canonical non-spinning planning TCP. This is the same CAD burr-tip
+         location evaluated at the reference spindle angle (J6=0), but is a
+         fixed sibling of the spindle joint. Its physical +Z drilling axis is
+         therefore independent of the air-rotor angle. The spinning burr branch
+         above remains available to robot_state_publisher and collision models. -->
+    <link name="dentobot_drill_tcp" />
+    <joint name="pneumatic_spindle-Copy_to_dentobot_drill_tcp" type="fixed">
+        <origin xyz="0.041042122156006 -0.000048165096147 0.042853759920214"
+                rpy="-2.224555444403231 0.842809592516694 -2.582877942399306" />
+        <parent link="pneumatic_spindle-Copy" />
+        <child link="dentobot_drill_tcp" />
     </joint>
 </robot>

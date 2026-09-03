@@ -1,5 +1,82 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-03 guarded-live-first source checkpoint
+
+- Clean DentoBot baseline before the two-track plan:
+  `ea504349f99f7604318130024b224aebd2e57170` on `main`.
+- Track A is now the only immediate Priority-0 implementation lane. It must
+  produce an approved normal-window x4 Task Home-to-Target-to-Home guarded
+  simulation loop before the Studio work begins.
+- Existing source already contains the fixed-frame J6-zero planner, partial
+  Cartesian diagnostics, bounded sequential-continuity IK recovery, transient
+  route display, and phase guard. None of those unverified source paths is
+  promoted to runtime acceptance by this documentation checkpoint.
+- The future `.dentocase` schema-2 Studio supersedes the separate
+  `.dentostudy` plan. It remains planned, not implemented.
+- No verification command, Slicer/ROS/MoveIt run, build, hardware action, Git
+  publication, or Drive synchronization was performed for this checkpoint.
+
+## 2026-09-04 five-DOF canonical TCP correction
+
+The bounded Track-A kinematic correction is recorded here so a future runtime
+trial can be reproduced against the same source boundaries:
+
+- URDF/SRDF: `dentobot_arm` is `base_link → dentobot_drill_tcp` with J1–J5;
+  J6 remains a downstream visual/collision branch and is not in the MoveIt
+  group. The fixed canonical TCP is upstream of the air-rotor joint.
+- Persistence/bridge: Task Home, workspace samples, IK/FK, plans, guards,
+  previews, and metrics use five SI values. Legacy six-value records preserve
+  J1–J5 only and invalidate roll-dependent evidence through the new policy
+  fingerprint.
+- Build command (inside `dentobot-slicerros2`):
+  `source /opt/ros/jazzy/setup.bash; cd /workspace/ros2_ws; colcon build
+  --packages-select slicer_ros2_module --cmake-args
+  -DCMAKE_BUILD_TYPE=Release --event-handlers console_direct+` — PASS,
+  `slicer_ros2_module` finished in 14.4 s.
+- Focused host suite:
+  `PYTHONPATH=DENTOWorkflow/Resources/Python pytest -q
+  Testing/test_step6_state.py Testing/test_step6_planning.py
+  Testing/test_moveit_config.py Testing/test_ros2_bridge.py
+  Testing/test_robot_workflow_facade.py
+  dentobot_description/test/test_description.py` — PASS, `86 passed`.
+- Clean ROS/MoveIt smoke (`ROS_DOMAIN_ID=73`) — PASS, `RC=0`: canonical
+  TCP IK and Cartesian probe succeeded, five planning values were applied,
+  the legacy six-value spindle command was rejected, and the strict guard
+  checked 40 interpolated samples with no contacts.
+- Clean phase-guard smoke — PASS, `RC=0`: all configured target-contact,
+  non-target/self/world collision, bounds, corridor, overshoot, wrong-task,
+  duplicate-sequence, and external-spindle rejection cases passed.
+- Slicer façade smoke emitted its functional JSON: native Connect and
+  Goal/IK/Plan stayed in DENTOWorkflow, the selected TCP was
+  `dentobot_drill_tcp`, `joint_count=5`, expert diagnostics retained Views and
+  returned to the workflow, Execute stayed disabled, and workspace assertions
+  passed. The process returned `RC=1` at shutdown because vtkDebugLeaks listed
+  retained SlicerROS2 wrapper objects; this is lifecycle evidence only, not a
+  failed façade assertion. Its disposable generic Cartesian probe remains
+  `diagnostic-only` at 33.3% and is not an acceptance gate.
+
+No full x4 Home→PreEntry→Entry→Target→Home runtime loop was run in this
+checkpoint. The normal-window acceptance gate remains open; no hardware,
+powered spindle, drilling, or patient-facing action occurred.
+
+### Track A source implementation continuation — 2026-09-03
+
+- The bridge now records exact sequential fixed-frame IK failure evidence when
+  MoveIt's collision-off Cartesian interpolation is partial: requested pose
+  index/RAS, retained accepted prefix, candidate joints, FK residual class,
+  and available collision pairs. Only a complete recovered line can be
+  returned as successful.
+- Live preview now uses planned timestamps scaled by the selected 0.25×, 0.5×,
+  1×, 2×, 4×, or 8× speed. Every guard acknowledgement remains serialized;
+  MRML display writes are coalesced to approximately 30 Hz.
+- Completion checks monitored joint convergence and authoritative world-RAS
+  KDL TCP endpoint tolerance. Accepted stops consume the transient phase
+  session; strict guarded Return Home is required before replanning. The
+  implementation is source-complete for this increment but runtime-unverified.
+- Planning results report a separate provisional 2.0 mm burr versus guide-bore
+  physical-fit status. Exploratory burr-contact suppression does not imply
+  printable or executable fit.
+
 ## 2026-09-03 release-candidate source pin
 
 - `Workspace/LAB_RELEASE` now names candidate tag `lab/2026-09-03` and image

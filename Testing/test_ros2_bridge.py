@@ -68,7 +68,7 @@ def test_status_schema_mismatch_is_explicit_error():
 
 def test_joint_vector_has_one_explicit_urdf_order():
     positions = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
-    assert joint_si_vector(positions) == [0.0, 1.0, 2.0, 3.0, 4.0, 0.0]
+    assert joint_si_vector(positions) == [0.0, 1.0, 2.0, 3.0, 4.0]
 
 
 def test_joint_guard_status_parses_accepted_state_and_clearances():
@@ -78,8 +78,8 @@ def test_joint_guard_status_parses_accepted_state_and_clearances():
             "mode": "simulation_only",
             "accepted": False,
             "reason": "Self-clearance is 3.00 mm",
-            "requested_positions": [0.1, 0.02, 0.2, 0.02, 0.1, 0.0],
-            "accepted_positions": [0.0] * 6,
+            "requested_positions": [0.1, 0.02, 0.2, 0.02, 0.1],
+            "accepted_positions": [0.0] * 5,
             "checked_samples": 20,
             "minimum_clearance_m": 0.005,
             "minimum_self_distance_m": 0.003,
@@ -92,7 +92,7 @@ def test_joint_guard_status_parses_accepted_state_and_clearances():
     status = parse_joint_command_status(payload)
     assert status.accepted is False
     assert status.minimum_self_distance_m == 0.003
-    assert status.accepted_positions == (0.0,) * 6
+    assert status.accepted_positions == (0.0,) * 5
     assert (status.first_body, status.second_body) == ("link-3", "link-5")
 
 
@@ -102,8 +102,8 @@ def test_joint_guard_status_rejects_wrong_mode_and_vector_length():
         "mode": "simulation_only",
         "accepted": True,
         "reason": "accepted",
-        "requested_positions": [0.0] * 6,
-        "accepted_positions": [0.0] * 6,
+        "requested_positions": [0.0] * 5,
+        "accepted_positions": [0.0] * 5,
     }
     wrong_mode = dict(base, mode="hardware")
     try:
@@ -112,11 +112,11 @@ def test_joint_guard_status_rejects_wrong_mode_and_vector_length():
         assert "simulation_only" in str(exc)
     else:
         raise AssertionError("hardware status was accepted")
-    malformed = dict(base, requested_positions=[0.0] * 5)
+    malformed = dict(base, requested_positions=[0.0] * 6)
     try:
         parse_joint_command_status(json.dumps(malformed))
     except ValueError as exc:
-        assert "six" in str(exc)
+        assert "five" in str(exc)
     else:
         raise AssertionError("five-joint status was accepted")
 
@@ -131,8 +131,8 @@ def test_task_guard_status_requires_and_preserves_transient_session_identity():
         "guard_session_id": "transient-session",
         "phase": "approach",
         "sequence": 1,
-        "requested_positions": [0.0] * 6,
-        "accepted_positions": [0.0] * 6,
+        "requested_positions": [0.0] * 5,
+        "accepted_positions": [0.0] * 5,
         "exploratory_tool_contact_suppressed": True,
         "suppressed_tool_contact_sample_count": 3,
     }
@@ -151,7 +151,7 @@ def test_task_guard_status_requires_and_preserves_transient_session_identity():
 
 def test_moveit_frame_contract_constants():
     assert ROS2_PLANNING_GROUP == "dentobot_arm"
-    assert ROS2_TOOL_TCP_LINK == "dentobot_drill_tip_provisional"
+    assert ROS2_TOOL_TCP_LINK == "dentobot_drill_tcp"
     assert ROS2_TASK_GUARD_INITIAL_SEQUENCE == 1
     assert CARTESIAN_START_POSITION_TOLERANCE_MM == 0.25
     assert CARTESIAN_START_ORIENTATION_TOLERANCE_DEG == 0.5

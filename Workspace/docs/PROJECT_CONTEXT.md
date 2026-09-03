@@ -39,7 +39,39 @@ custom branding.
 - AI outputs require human review and independent validation.
 - Planned trajectories do not authorize drilling.
 
+## 2026-09-04 Track-A kinematic-model correction
+
+The MoveIt planning group `dentobot_arm` now contains only the five
+commandable arm joints J1–J5 and targets the fixed, provisional
+`dentobot_drill_tcp` frame. The pneumatic J6 air-rotor remains in the URDF
+visual/collision tree but is not a positioning DOF; its visual compatibility
+value is neutral `0 rad`, and the phase guard rejects legacy six-value motion
+commands. The downstream `dentobot_tool_tcp` and
+`dentobot_drill_tip_provisional` frames remain display/collision resources,
+not planning TCPs. Older six-value case records migrate by retaining J1–J5 and
+their roll-dependent evidence is stale under the new robot-profile fingerprint.
+
+The source correction is focused and does not relax FK residuals, collision,
+corridor, endpoint, or partial-path rules. Focused static/runtime evidence is
+recorded in the 2026-09-04 logbook. The complete normal-window x4 guarded loop
+and repeat/Return-Home trial remain pending; Track B stays blocked.
+
 ## Active Step 6 stabilization checkpoint — 2026-09-02
+
+## 2026-09-03 guarded-live-first replacement roadmap
+
+The immediate product gate is no longer incremental Step 6 UI cleanup or a
+separate study package. DENTOBOT must first complete one repeatable, guarded,
+simulation-only x4 sequence from Task Home through PreEntry, Entry, and Target,
+then return to monitored Task Home. Only a 100% fixed-frame, J6-zero path whose
+every waypoint passes the independent phase guard can unlock drilling preview.
+The exact finite acceptance contract is in `DEVELOPMENT_PLAN.md`.
+
+After that gate, Step 6 becomes a Robot Planning & Simulation Studio. The
+Studio preserves the accepted robotics backend, makes `.dentocase` the sole
+case/study package, supports up to three manual trajectories per tooth,
+separates non-moving research studies from fresh guarded preview, and restores
+historical evidence without automatically reconnecting ROS.
 
 ## 2026-09-03 release candidate boundary
 

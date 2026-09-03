@@ -596,6 +596,12 @@ class RobotSceneSyncLogicMixin:
                 "lowerTeeth": (),
                 "upperJaw": (),
                 "lowerJaw": (),
+                # Keep the same normalized shape as step6CaseJawSegmentIds.
+                # A placement-only/phantom scene may have no segmentation;
+                # scene synchronization must remain a no-op for anatomy
+                # instead of raising while looking up these aggregate groups.
+                "upper": (),
+                "lower": (),
             }
         )
         lowerIds = set(jawGroups["lower"])

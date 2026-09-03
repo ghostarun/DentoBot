@@ -818,7 +818,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             raise ValueError(_("Generate an assisted-limit proposal first.")) from exc
         minima = tuple(float(value) for value in data.get("minimum_display", ()))
         maxima = tuple(float(value) for value in data.get("maximum_display", ()))
-        if len(minima) != 6 or len(maxima) != 6:
+        if len(minima) not in {5, 6} or len(maxima) != len(minima):
             raise ValueError(_("The assisted-limit proposal is invalid."))
         fields = (
             ("robotJoint1TaskMinDeg", "robotJoint1TaskMaxDeg"),
@@ -828,9 +828,11 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             ("robotJoint5TaskMinDeg", "robotJoint5TaskMaxDeg"),
             ("robotJoint6TaskMinDeg", "robotJoint6TaskMaxDeg"),
         )
-        for index, (minimum_field, maximum_field) in enumerate(fields):
+        for index, (minimum_field, maximum_field) in enumerate(fields[:5]):
             setattr(parameterNode, minimum_field, minima[index])
             setattr(parameterNode, maximum_field, maxima[index])
+        parameterNode.robotJoint6TaskMinDeg = 0.0
+        parameterNode.robotJoint6TaskMaxDeg = 0.0
         data["reviewed"] = True
         parameterNode.step6AssistedLimitProposalJson = canonical_json(data)
         self.invalidateStep6TaskConfirmation(parameterNode, _("Reviewed task limits changed."))
