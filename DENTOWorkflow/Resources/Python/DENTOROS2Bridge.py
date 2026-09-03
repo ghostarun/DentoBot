@@ -2756,6 +2756,131 @@ def plan_moveit_cartesian_path(
     if not waypoints:
         return MoveItCartesianResult(False, "MoveIt returned an empty trajectory.")
     bounded_fraction = max(0.0, min(1.0, fraction))
+
+    def _sequential_ik_continuation():
+        """Recover a fixed-frame line when MoveIt's Cartesian interpolator stalls.
+
+        This is only an exploratory, collision-off fallback.  It solves each
+        requested pose from the previous accepted arm state, verifies the FK
+        pose residual, and leaves all safety/corridor decisions to the phase
+        guard.  It must never turn a collision-aware partial path into a pass.
+        """
+        if avoid_collisions or start_joint_positions_si is None:
+            return None
+        try:
+            import vtk
+
+            seed = canonicalize_planning_joint_positions(
+                dict(zip(ROS2_JOINT_SI_ORDER, start_values))
+            )
+            recovered = [dict(seed)]
+            # Try the previous arm state first, then small deterministic
+            # perturbations to escape a local IK branch without changing the
+            # requested Cartesian frame or spindle policy.
+            perturbations = (
+                ("link-1_Revolute-1", 0.05),
+                ("link-1_Revolute-1", -0.05),
+                ("link-3_Revolute-3", 0.05),
+                ("link-3_Revolute-3", -0.05),
+                ("link-5_Revolute-5", 0.10),
+                ("link-5_Revolute-5", -0.10),
+                ("link-2_Slider-2", 0.005),
+                ("link-2_Slider-2", -0.005),
+                ("link-4_Slider-4", 0.005),
+                ("link-4_Slider-4", -0.005),
+            )
+            for pose in poses[1:]:
+                seed_options = [dict(seed)]
+                for name, delta in perturbations:
+                    candidate_seed = dict(seed)
+                    candidate_seed[name] += float(delta)
+                    seed_options.append(candidate_seed)
+                accepted = None
+                for candidate_seed in seed_options:
+                    try:
+                        solution = robot_node.ComputeMoveItIK(
+                            pose,
+                            ROS2_TOOL_TCP_LINK,
+                            joint_si_vector(candidate_seed),
+                            0.2,
+                            False,
+                        )
+                        if solution is None:
+                            continue
+                        values = tuple(float(value) for value in solution)
+                        if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
+                            isfinite(value) for value in values
+                        ):
+                            continue
+                        candidate = canonicalize_planning_joint_positions(
+                            dict(zip(ROS2_JOINT_SI_ORDER, values))
+                        )
+                        candidate = dict(
+                            moveit_joint_goal_diagnostics(seed, candidate)[
+                                "submitted_goal"
+                            ]
+                        )
+                        actual = vtk.vtkMatrix4x4()
+                        actual.Identity()
+                        if robot_node.ComputeKDLFK(
+                            joint_si_vector(candidate),
+                            actual,
+                            ROS2_TOOL_TCP_LINK,
+                        ) is None:
+                            continue
+                        position_error_mm, orientation_error_deg = (
+                            _pose_residual_mm_degrees(actual, pose)
+                        )
+                        if (
+                            position_error_mm > CARTESIAN_START_POSITION_TOLERANCE_MM
+                            or orientation_error_deg
+                            > CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                        ):
+                            continue
+                        accepted = candidate
+                        break
+                    except (KeyError, TypeError, ValueError, RuntimeError):
+                        continue
+                if accepted is None:
+                    return None
+                recovered.append(dict(accepted))
+                seed = dict(accepted)
+            return tuple(recovered)
+        except (ImportError, KeyError, TypeError, ValueError, RuntimeError):
+            return None
+
+    # MoveIt's Cartesian interpolator can stop at a local continuity boundary
+    # even though the same fixed poses have individually valid IK solutions.
+    # Recover the full requested line only for collision-off terminal/drilling
+    # exploration; the independent phase guard still decides acceptance.
+    if bounded_fraction < float(minimum_fraction) and not avoid_collisions:
+        recovered_waypoints = _sequential_ik_continuation()
+        if recovered_waypoints is not None and len(recovered_waypoints) >= 2:
+            return MoveItCartesianResult(
+                True,
+                "MoveIt Cartesian interpolation stopped early; recovered the "
+                "complete fixed-frame line with sequential continuity IK. "
+                "Collision and corridor acceptance remains phase-guarded.",
+                fraction=1.0,
+                waypoint_joint_vectors_si=recovered_waypoints,
+                waypoint_times_sec=tuple(
+                    float(index) * 0.05 for index in range(len(recovered_waypoints))
+                ),
+                coordinate_frame=ROS2_FIXED_FRAME,
+                start_position_error_mm=start_position_error_mm,
+                start_orientation_error_deg=start_orientation_error_deg,
+                axial_roll_deg=float(axial_roll_end_deg),
+                eef_step_m=used_eef_step_m,
+                requested_path_length_mm=requested_length_mm,
+                completed_distance_mm=requested_length_mm,
+                last_valid_waypoint_index=len(recovered_waypoints) - 1,
+                last_valid_joint_positions_si=dict(recovered_waypoints[-1]),
+                planner_start_source="sequential_fixed_frame_ik_fallback",
+                native_planner_message=(
+                    "MoveIt Cartesian interpolation was partial; sequential "
+                    "fixed-frame IK recovered every requested pose."
+                ),
+            )
     first_invalid_index = -1
     first_invalid_ras = None
     if fraction < float(minimum_fraction):

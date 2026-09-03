@@ -1,5 +1,22 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-03 — Add bounded fixed-frame IK recovery for P0 Stage 3
+
+- **Why:** MoveIt's collision-off Cartesian interpolator could stop near the
+  end of the fixed Entry→Target line even when individual poses remained
+  solvable, leaving Goal 1 at a truthful partial fraction.
+- **Change:** After a partial exploratory Cartesian result, the bridge now
+  retries the exact requested poses from the explicit start state with
+  continuity-seeded MoveIt IK, deterministic small arm-seed perturbations, FK
+  residual checks, continuous-joint canonicalization, and the existing J6-zero
+  policy. A recovered line is still independently phase-guarded; failed
+  recovery or guard validation remains blocked evidence.
+- **Verification boundary:** `py_compile` and `git diff --check` pass;
+  restore coverage passes 28/28. The scoped planning slice passes 50 tests and
+  retains one already-known unrelated draft-AABB neutral-pose assertion failure.
+  No Slicer/ROS/MoveIt runtime was run. The existing x4 91.7% result remains
+  historical evidence until the reloaded candidate is exercised.
+
 ## 2026-09-03 — Pin and package the controlled SlicerROS2 repair
 
 - **Why:** The native scene-lifetime and explicit-planning fixes were
@@ -10,9 +27,10 @@
   `lab/2026-09-03`, and changed Compose to the matching candidate image name.
   The Dockerfile now records both DentoBot and SlicerROS2 source identities as
   OCI labels; the publisher rejects mismatches before a push.
-- **Verification boundary:** Shell syntax and whitespace checks are complete.
-  Image build, GHCR publication, and Windows WSLg acceptance remain pending;
-  the previous `lab/2026-09-02` image remains the last published baseline.
+- **Verification:** The image built with the exact tag/fork metadata, passed
+  the publisher's fail-closed label check, and was pushed as OCI index digest
+  `sha256:f71da23aaa35161730536530ed18c594ccb7766ed8d3a35cfd68d0f385280faa`.
+  Windows WSLg acceptance remains pending and was intentionally not run.
 
 ## 2026-09-03 — Make Goal 1 candidate evidence inspectable
 

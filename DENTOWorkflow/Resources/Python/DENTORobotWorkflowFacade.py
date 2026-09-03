@@ -2335,7 +2335,7 @@ class DENTORobotWorkflowFacade:
                 "eefStepsM": tuple(self._bridge.ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M),
                 "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
                 "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
-                "routePlannerRevision": "full-chain-v1",
+                "routePlannerRevision": "full-chain-v2-sequential-ik",
             }
         )
         session = build_motion_diagnostic_session(
@@ -3068,7 +3068,7 @@ class DENTORobotWorkflowFacade:
                     "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
                     "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
                     "drillToolFramePolicy": DRILL_TOOL_FRAME_POLICY,
-                    "routePlannerRevision": "stage1-frame-full-chain-v4",
+                    "routePlannerRevision": "stage1-frame-full-chain-v5-sequential-ik",
                     "stage2ContactPolicy": "phase_guard_evidence_based",
                     "maximumClearanceWaypoints": GOAL1_MAX_CLEARANCE_WAYPOINTS,
                     "maximumIkSeeds": GOAL1_MAX_IK_SEEDS,

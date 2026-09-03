@@ -2,8 +2,9 @@
 
 Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
 `main` / `lab/2026-09-03`, and Windows-lab *source* install path reconciled
-2026-09-03. The previous published GHCR image passed an authenticated Ubuntu
-pull; the `lab/2026-09-03` candidate still requires build/publish verification.
+2026-09-03. The published `lab/2026-09-03` GHCR image passed the local
+fail-closed label check and registry push; Windows WSLg+Docker GUI acceptance
+remains pending.
 Windows WSLg+Docker GUI acceptance (`PLAT-U-04`) remains pending.
 
 ## Scope
@@ -122,11 +123,9 @@ load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
 WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
 `launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
 SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
-implemented. The previous `lab/2026-09-02` image remains the last published
-release; `lab/2026-09-03` is the current release candidate and is not
-consumable until its image is built and published. The image is private, so
-Docker must authenticate to GHCR before installation. This path is not
-Windows-lab-verified and is not a substitute for native Windows Slicer.
+implemented. `lab/2026-09-03` is the current published release and its image
+is private, so Docker must authenticate to GHCR before installation. This path
+is not Windows-lab-verified and is not a substitute for native Windows Slicer.
 
 Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
 source-built Slicer 5.10/5.12. The published CI image is Linux.

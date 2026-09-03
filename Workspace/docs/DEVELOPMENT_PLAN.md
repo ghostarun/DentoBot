@@ -120,6 +120,15 @@ sole failure is the known unrelated draft-AABB neutral-pose assertion. Goal 2
 remains correctly blocked pending normal-window acceptance and a complete
 Stage 3.
 
+The current P0 source increment adds a bounded sequential continuity-IK
+fallback after a partial collision-off Cartesian response. It solves the same
+fixed-frame poses from the explicit previous state, verifies FK residuals, and
+still requires the independent phase guard to accept every returned waypoint.
+Static and pure checks now pass for this increment (with the known unrelated
+draft-AABB neutral-pose planning assertion still failing); this remains source-
+only until the reloaded x4 runtime proves a complete Stage 3. The fallback
+cannot promote a partial or guard-rejected path.
+
 ## `S6-P0-02` — saved-checkpoint continuation
 
 `.dentocase` restore remains one atomic geometry/lineage transaction. After it

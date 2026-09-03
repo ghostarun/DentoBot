@@ -11,9 +11,11 @@
 - `Dockerfile.slicerros2` records the DentoBot release revision/version and
   the exact SlicerROS2 source/SHA as OCI labels. The publisher refuses a
   mismatch before tagging or pushing.
-- The candidate tag and image digest are not claimed as published until the
-  approved build/publish check completes. The previous `lab/2026-09-02`
-  release remains the reproducible lab baseline in the meantime.
+- The candidate was built and published after the fail-closed label check. Its
+  OCI index digest is
+  `sha256:f71da23aaa35161730536530ed18c594ccb7766ed8d3a35cfd68d0f385280faa`.
+  Windows WSLg installation/runtime acceptance remains a separate external
+  workstation gate; no Windows trial was run here.
 
 ## 2026-09-03 operator Goal 1 and Stage 3 evidence
 

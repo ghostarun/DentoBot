@@ -2,7 +2,7 @@
 
 ## 2026-09-03 — Pin the native SlicerROS2 repair from a controlled fork
 
-Status: applied in the release candidate; image publication pending
+Status: applied and published in `lab/2026-09-03`
 
 The lab release uses `https://github.com/ghostarun/slicer_ros2_module.git` at
 immutable commit `17f99931f54f1e7941d7a66b30a849d2a37baccd` rather than the
