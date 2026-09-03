@@ -85,18 +85,29 @@ def run() -> dict[str, object]:
     package_issues = logic.step6PlanningPackageFreshnessIssues(parameter_node)
     jaw_issues = logic.step6CaseJawOpeningFreshnessIssues(parameter_node)
     home_issues = logic.taskHomeFreshnessIssues(parameter_node)
+    # The historical x4 fixture predates the five-DOF/canonical-TCP robot
+    # profile.  Its geometry and base remain valid, but its persisted Home is
+    # expected to be stale at this migration boundary.  Exercise the explicit
+    # live revalidation path below instead of misclassifying that expected
+    # fingerprint change as a package-integrity failure.
+    migration_home_issues = tuple(
+        issue for issue in home_issues if "different robot resources" in str(issue).lower()
+    )
+    blocking_home_issues = tuple(
+        issue for issue in home_issues if issue not in migration_home_issues
+    )
     task_issues = logic.confirmedTaskFreshnessIssues(parameter_node)
     # A saved task snapshot may intentionally become stale after a robot-profile
     # migration (for example the J2/J5 URDF update).  Geometry/jaw/home
     # corruption is still a hard restore failure, but the immutable snapshot
     # is expected to be explicitly reconfirmed after the live runtime is
     # reconstructed below.
-    if package_issues or jaw_issues or home_issues:
+    if package_issues or jaw_issues or blocking_home_issues:
         raise RuntimeError(
             "restored x4 prerequisites are stale: "
             + " | ".join(
                 " ".join(group)
-                for group in (package_issues, jaw_issues, home_issues)
+                for group in (package_issues, jaw_issues, blocking_home_issues)
                 if group
             )
         )
@@ -240,6 +251,7 @@ def run() -> dict[str, object]:
                 snapshot.snapshot_fingerprint if snapshot is not None else ""
             ),
             "task_home_remediated": task_home_remediated,
+            "task_home_migrated": bool(migration_home_issues),
             "goal1_strict_points": approach_plan.strict_waypoint_count,
             "goal1_axis_points": approach_plan.axis_waypoint_count,
             "goal1_terminal_points": approach_plan.contact_waypoint_count,
@@ -365,6 +377,7 @@ def run() -> dict[str, object]:
         "restored_task_fingerprint": restored_task_before_runtime,
         "planned_task_fingerprint": snapshot.snapshot_fingerprint,
         "task_home_remediated": task_home_remediated,
+        "task_home_migrated": bool(migration_home_issues),
         "planning_frame": drilling_plan.coordinate_frame,
         "goal1_strict_points": approach_plan.strict_waypoint_count,
         "goal1_terminal_points": approach_plan.contact_waypoint_count,
