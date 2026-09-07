@@ -1,5 +1,14 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — DENTO-NOTE: viewer missing mask 2D/3D opacity sliders
+
+- **Why:** Operator reports mask 2D/3D opacity sliders gone from the viewer
+  path in use; wants a deeper UI/UX plan before restore.
+- **Change:** Logged as `VIEW-U-02`; annotated `VIEW-U-01`. Details in
+  logbook `2026-09-07`. No UI code change in this note.
+- **Verification boundary:** Observation only. Plan → implement → trial on
+  `main`.
+
 ## 2026-09-07 — DENTO-NOTE: Step 5B UX (dimensions, reset, viewing, Advanced)
 
 - **Why:** Operator found 5B dimensions couple badly to upstream steps, no
