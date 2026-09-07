@@ -12,7 +12,8 @@ Linux. Only the external-process and deployment adapters differ:
 | Host profile | Slicer process | Inference process | Docker | SlicerROS2 |
 |---|---|---|---|---|
 | Windows 11 | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required | Not in the supported Windows planning profile |
-| Ubuntu | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python | Required by the current verified profile | Included |
+| Ubuntu (CPU) | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python (`cpu`) | Required | Included |
+| Ubuntu + NVIDIA | Same container | Direct external Linux Python (`cuda:0`) | Required + NVIDIA Container Toolkit | Included |
 
 The inference stack is never installed into Slicer's embedded Python. Both
 profiles launch the exact external Linux interpreter, exchange NIfTI plus
@@ -49,24 +50,32 @@ Official references: [SlicerROS2 compatibility](https://slicer-ros2.readthedocs.
 
 ## Ubuntu workspace orchestration
 
-The existing repository remains at `ros2_ws/src/DentoBot`. Its tracked
-`Workspace/` directory now owns the Ubuntu launcher, Compose definition,
-helper scripts, active workspace notes, and top-level agent instructions.
-The surrounding workspace preserves the familiar `scripts`, `docs`,
-`tools`, `compose.yaml`, and `AGENTS.md` paths as relative symlinks.
-See `Workspace/HOST_LAYOUT.md` for the overlay map.
+The repository lives at `ros2_ws/src/DentoBot` under an overlay root such as
+`~/dentobot`. Tracked `Workspace/` owns the Ubuntu launcher, Compose
+definition, helper scripts, active workspace notes, and top-level agent
+instructions. The overlay preserves `scripts`, `docs`, `tools`,
+`compose.yaml`, and `AGENTS.md` as relative symlinks. See
+`Workspace/HOST_LAYOUT.md` for the overlay map.
 
 Create the compatibility links safely in a new workspace with:
 
 ```bash
-Workspace/bootstrap-workspace.bash
+mkdir -p ~/dentobot/ros2_ws/src
+git clone https://github.com/ghostarun/DentoBot.git ~/dentobot/ros2_ws/src/DentoBot
+# Pin slicer_ros2_module to Workspace/LAB_RELEASE (required for Slicer launch)
+git clone https://github.com/ghostarun/slicer_ros2_module.git \
+  ~/dentobot/ros2_ws/src/slicer_ros2_module
+git -C ~/dentobot/ros2_ws/src/slicer_ros2_module checkout \
+  "$(awk -F= '/^SLICERROS2_SHA=/{print $2}' \
+    ~/dentobot/ros2_ws/src/DentoBot/Workspace/LAB_RELEASE)"
+bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/bootstrap-workspace.bash
 ```
 
 Copy `Workspace/.dentobot.env.example` to the workspace root as
 `.dentobot.env` and edit only that untracked file for the local Conda
-interpreter and graphics device. DENTO Workflow receives those values from
-the launcher automatically; no machine path needs to be remembered or saved
-in an MRB scene.
+interpreter, device (`cpu` or `cuda:0`), and graphics render node. DENTO
+Workflow receives those values from the launcher automatically; no machine
+path needs to be remembered or saved in an MRB scene.
 
 From the surrounding workspace, Git can be addressed without remembering the
 nested checkout path:
@@ -74,6 +83,87 @@ nested checkout path:
 ```bash
 scripts/git-dentobot.bash status --short --branch
 ```
+
+### Ubuntu first-run checklist
+
+1. Install Docker Engine. For NVIDIA hosts also install the NVIDIA Container
+   Toolkit (`Workspace/scripts/install-host-nvidia-docker.bash` or equivalent)
+   and reboot if the kernel module and userspace driver versions disagree.
+2. Create the Conda `dentobot` environment from `Inference/` using either the
+   Ubuntu CPU manifests or the Bridge C CUDA pins
+   (`environment.yml` + `requirements/pytorch-cu130.txt` +
+   `requirements/runtime-validated.txt`). Install packages into the env with
+   `PYTHONNOUSERSITE=1` so nothing lands only under `~/.local` (user-site is
+   not bind-mounted into the container).
+3. Cache TotalSegmentator tasks **113**, **115**, and **298** under
+   `data/model-cache/totalsegmentator`. Prefer calling
+   `totalsegmentator.libs.download_pretrained_weights` for task IDs 115 and
+   113; the CLI `-t` choices do not currently expose `teeth` /
+   `craniofacial_structures` by name. Task 298 arrives with `total` /
+   `total_fast`.
+4. Build or pull the Compose image
+   `dentobot/slicerros2:jazzy-moveit-sim-20260903` (see
+   `Workspace/Dockerfile.slicerros2` / `Workspace/LAB_RELEASE`).
+5. On NVIDIA hosts, keep an untracked `compose.override.yaml` at the overlay
+   root with `gpus: all` (the host install script writes one). The launcher
+   merges that override when present.
+6. The launcher builds `dentobot_description`, `dentobot_moveit_config`, and
+   `slicer_ros2_module` inside the container. A missing
+   `slicer_ros2_module` install produces
+   `package 'slicer_ros2_module' not found` at GUI launch.
+
+```bash
+cd ~/dentobot
+./scripts/launch-dentoworkflow.bash --check-only
+./scripts/launch-dentoworkflow.bash
+```
+
+Long-form workstation notes remain in `Workspace/docs/SETUP.md`.
+
+## Ubuntu + NVIDIA (CUDA inference)
+
+Verified on Ubuntu 22.04 with an AMD iGPU + NVIDIA RTX 4060 Laptop (driver
+580.x, CUDA 13.0 wheels). Split responsibilities deliberately:
+
+- **Slicer OpenGL:** Mesa DRM render node (AMD/Intel), set
+  `DENTOBOT_RENDER_DEVICE` to the matching `/dev/dri/renderD*`.
+- **Segmentation CUDA:** host Conda Python with `torch==2.10.0+cu130`,
+  `DENTOBOT_BACKEND_DEVICE=cuda:0`, NVIDIA devices injected into the container
+  via Container Toolkit + `compose.override.yaml`.
+
+Example overlay `.dentobot.env` fragment:
+
+```bash
+DENTOBOT_BACKEND_PYTHON=/absolute/path/to/conda/envs/dentobot/bin/python
+DENTOBOT_BACKEND_EXECUTION_MODE=local
+DENTOBOT_BACKEND_DEVICE=cuda:0
+DENTOBOT_RENDER_DEVICE=/dev/dri/renderD128   # Mesa node, not nvidia
+```
+
+Example untracked `compose.override.yaml`:
+
+```yaml
+services:
+  slicerros2:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
+```
+
+Confirm before GUI launch:
+
+```bash
+nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
+"$DENTOBOT_BACKEND_PYTHON" -m dentobot_inference health --json --require-device cuda:0
+./scripts/launch-dentoworkflow.bash --check-only
+```
+
+Reject `llvmpipe` / `swrast` for interactive OpenGL acceptance unless software
+rendering is deliberate. A driver/library version mismatch
+(`NVML` vs loaded kernel module) requires reboot after cleaning duplicate
+driver packages.
 
 ## ROS 2 robot description
 
@@ -129,10 +219,11 @@ Inspect the host first:
 lspci -nnk | grep -A4 -Ei 'vga|3d|display'
 ls -l /dev/dri
 readlink -f /sys/class/drm/renderD128/device/driver
+readlink -f /sys/class/drm/renderD129/device/driver
 ```
 
-For Mesa-backed Intel or AMD graphics, map the actual non-modesetting render
-node into the service:
+For Mesa-backed Intel and AMD graphics, map the actual non-modesetting render
+node into the service (Compose already takes `DENTOBOT_RENDER_DEVICE`):
 
 ```yaml
 services:
@@ -143,8 +234,9 @@ services:
 
 The node number may differ on multi-GPU systems. Non-root container users also
 need the matching host render-group GID. AMD requires a compatible Mesa
-`radeonsi` driver. Proprietary NVIDIA deployments normally use NVIDIA
-Container Toolkit rather than this Intel/AMD DRM recipe.
+`radeonsi` driver. Proprietary NVIDIA CUDA for the *inference* process uses
+NVIDIA Container Toolkit and `compose.override.yaml`; do not copy the Intel/AMD
+DRM recipe blindly as a substitute for `/dev/nvidia*`.
 
 Slicer 5.10 may lower the entire Linux process priority when initializing its
 background threads. Preserve interactive priority with:
@@ -160,20 +252,13 @@ Save and close Slicer before recreating a container. Then verify both device
 access and renderer identity; reject `llvmpipe` or `swrast` unless software
 rendering is deliberately requested.
 
-### Verified workstation configuration
+### Verified workstation notes
 
-The active IITM workstation has Intel Arrow Lake-S integrated graphics using
-`i915` and `/dev/dri/renderD128`. Its verified Slicer renderer is
-`Mesa Intel(R) Graphics (ARL)`, OpenGL 4.6, with direct rendering enabled and
-Slicer running at nice level 0. The workspace launcher validates the render
-node and priority override before opening DENTO Workflow.
-
-From the Ubuntu workspace root:
-
-```bash
-/home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash --check-only
-/home/light-tarun/dentobot/scripts/launch-dentoworkflow.bash
-```
-
-The complete workstation procedure is maintained in
-`/home/light-tarun/dentobot/docs/SETUP.md`.
+- **IITM CPU/Intel profile:** Intel Arrow Lake-S (`i915`),
+  `/dev/dri/renderD128`, Mesa Intel OpenGL 4.6, Slicer nice 0,
+  `DENTOBOT_BACKEND_DEVICE=cpu`. Full procedure: `Workspace/docs/SETUP.md`.
+- **NVIDIA dual-GPU profile (2026-09-07):** Ubuntu 22.04, AMD Mesa render node
+  for Slicer + NVIDIA RTX 4060 for `cuda:0` inference; launcher
+  `--check-only` passed with CUDA health inside the container. Integration
+  branch: `plat/ubuntu-nvidia-cuda-workstation` (see logbook `2026-09-07` and
+  task `PLAT-U-05`).

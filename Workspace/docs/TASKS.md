@@ -1,6 +1,6 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-03
+Last reconciled: 2026-09-07
 
 This file is the single actionable queue. Each active item has one stable ID,
 one priority, one status, and one next acceptance action. Implementation order
@@ -45,6 +45,7 @@ preserved in `archive/2026-09-01/TASKS_HISTORY.md`.
 | `PLAT-U-01` | Blocked by clean-image acceptance | Rebuild the pinned Ubuntu inference image and accept dependency, backend, Bridge, Slicer import, and persistence behavior without mutable-container repair |
 | `PLAT-U-02` | Pending external workstation | Run Windows 11 **native Slicer** launcher, path, CUDA segmentation, cancellation, and scene-reopen acceptance |
 | `PLAT-U-04` | `lab/2026-09-03` and private Linux/amd64 GHCR image are published with the DentoBot SlicerROS2 fork pinned at `17f99931f54f`; Windows GUI remains unaccepted | On one Windows 11 lab PC authenticate Docker to GHCR, run the pinned WSL installer, launch through WSLg, open DENTOWorkflow, and connect Step 6 ROS/MoveIt simulation. No hardware motion. |
+| `PLAT-U-05` | **Handoff branch** `plat/ubuntu-nvidia-cuda-workstation` (2026-09-07). Laptop `--check-only` + in-container CUDA passed; not yet rebased onto busy `origin/main`. See logbook `2026-09-07` | On the primary development machine: `git fetch origin plat/ubuntu-nvidia-cuda-workstation`, rebase/merge onto current `main`, resolve any launcher conflicts, keep IITM on `cpu` unless CUDA is intentionally adopted, confirm `./scripts/launch-dentoworkflow.bash --check-only` still passes, then close this item |
 | `PLAT-U-03` | Deferred observation | After an approved reboot, record overnight CRD/GDM availability and resource behavior before closing workstation stability |
 | `QA-U-01` | Unresolved | Diagnose why the aggregate Slicer test wrapper returns nonzero although isolated members reach PASS; do not treat isolated PASS as aggregate closure |
 | `ROS-U-01` | Future design | Define geometry-preserving medical-image and transform semantics before broadening ROS scope beyond current bounded simulation interfaces |

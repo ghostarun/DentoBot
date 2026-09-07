@@ -9,13 +9,16 @@ default_workspace_root="$(cd -- "${repository_root}/../../.." && pwd -P)"
 workspace_root="${DENTOBOT_WORKSPACE_ROOT:-${default_workspace_root}}"
 workspace_config="${DENTOBOT_WORKSPACE_CONFIG:-${workspace_root}/.dentobot.env}"
 compose_file="${repository_root}/Workspace/compose.yaml"
+compose_override_file="${workspace_root}/compose.override.yaml"
 container_name="dentobot-slicerros2"
 
 backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
 module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
 endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
 slicer_module_paths="${module_path}"
-backend_dependency_probe='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
+# Verified Ubuntu CPU stack (Python 3.12) vs Bridge C CUDA stack (Python 3.10).
+backend_dependency_probe_cpu='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
+backend_dependency_probe_cuda='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cu130","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 10); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
 check_only=false
 print_backend_python=false
 x11_access_granted=false
@@ -92,12 +95,22 @@ if [[ ${backend_execution_mode} != "local" ]]; then
     "Use launch-dentoworkflow.ps1 for the Windows-to-WSL adapter." >&2
   exit 2
 fi
-if [[ ${backend_device} != "cpu" ]]; then
-  printf '%s\n' \
-    "The current Ubuntu environment is pinned and verified for CPU inference." \
-    "Set DENTOBOT_BACKEND_DEVICE=cpu; a Linux CUDA profile requires its own pinned manifest." >&2
-  exit 2
-fi
+case "${backend_device}" in
+  cpu)
+    backend_dependency_probe="${backend_dependency_probe_cpu}"
+    backend_stack_label="repository-pinned Python 3.12 CPU segmentation stack"
+    ;;
+  cuda:0)
+    backend_dependency_probe="${backend_dependency_probe_cuda}"
+    backend_stack_label="Bridge C Python 3.10 CUDA 13.0 segmentation stack"
+    ;;
+  *)
+    printf '%s\n' \
+      "Unsupported DENTOBOT_BACKEND_DEVICE=${backend_device}." \
+      "Use cpu or cuda:0." >&2
+    exit 2
+    ;;
+esac
 backend_environment_directory="$(dirname -- "$(dirname -- "${backend_python}")")"
 if [[ ! -d ${backend_environment_directory} ]]; then
   printf 'Backend environment directory is unavailable: %s\n' \
@@ -213,21 +226,21 @@ ensure_docker_daemon
 if [[ ! -x ${backend_python} ]]; then
   printf '%s\n' \
     "The dentobot Conda environment has no Python: ${backend_python}" \
-    'Install Python 3.12 in that environment before launching.' >&2
+    "Install the ${backend_stack_label} before launching." >&2
   exit 2
 fi
 if [[ ! -c ${render_device} ]]; then
   printf '%s\n' \
-    "Required Intel GPU render node is unavailable: ${render_device}" \
+    "Required GPU render node is unavailable: ${render_device}" \
     'DENTO Workflow is not launched with an implicit software-rendering fallback.' >&2
   exit 2
 fi
 
-if ! "${backend_python}" -c "${backend_dependency_probe}" \
+if ! PYTHONNOUSERSITE=1 "${backend_python}" -c "${backend_dependency_probe}" \
   >/dev/null 2>&1; then
   printf '%s\n' \
     'The dentobot Conda environment is incomplete or has unexpected versions.' \
-    'Expected the repository-pinned Python 3.12 CPU segmentation stack.' >&2
+    "Expected the ${backend_stack_label}." >&2
   exit 2
 fi
 
@@ -236,6 +249,9 @@ compose_command=(
   --project-directory "${workspace_root}"
   -f "${compose_file}"
 )
+if [[ -f ${compose_override_file} ]]; then
+  compose_command+=(-f "${compose_override_file}")
+fi
 "${compose_command[@]}" config -q
 
 if docker inspect "${container_name}" >/dev/null 2>&1; then
@@ -296,16 +312,19 @@ fi
 
 docker exec \
   -e PYTHONPATH="${backend_source}" \
+  -e PYTHONNOUSERSITE=1 \
   "${container_name}" \
-  "${backend_python}" -c "${backend_dependency_probe}; print('Conda CPU segmentation dependency check passed.')"
+  "${backend_python}" -c "${backend_dependency_probe}; print('Conda segmentation dependency check passed.')"
 docker exec "${container_name}" mkdir -p "${run_artifact_root}"
 docker exec "${container_name}" test -d "${totalseg_home_dir}"
 docker exec \
   -e PYTHONPATH="${backend_source}" \
+  -e PYTHONNOUSERSITE=1 \
+  -e TOTALSEG_HOME_DIR="${totalseg_home_dir}" \
   "${container_name}" \
   "${backend_python}" -m dentobot_inference health \
   --json \
-  --require-device cpu
+  --require-device "${backend_device}"
 docker exec "${container_name}" test -f "${module_path}/DENTOWorkflow.py"
 docker exec "${container_name}" test -f \
   "${module_path}/Resources/UI/DENTOWorkflow.ui"
@@ -315,15 +334,15 @@ if docker exec "${container_name}" test -f \
 fi
 docker exec "${container_name}" test -c "${render_device}"
 docker exec "${container_name}" bash -lc '
+  set +u
   source /opt/ros/jazzy/setup.bash
+  set -u
   python3 -c "import moveit_configs_utils"
   command -v xacro >/dev/null
   cd /workspace/ros2_ws
   colcon build --symlink-install \
-    --base-paths \
-      /workspace/ros2_ws/src/DentoBot/dentobot_description \
-      /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
-    --packages-select dentobot_description dentobot_moveit_config
+    --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module
+  test -d /workspace/ros2_ws/install/slicer_ros2_module
 '
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
@@ -418,6 +437,7 @@ fi
 docker exec "${docker_exec_options[@]}" \
   -e DISPLAY="${DISPLAY}" \
   -e DENTOBOT_SLICER_MODULE_PATHS="${slicer_module_paths}" \
+  -e PYTHONNOUSERSITE=1 \
   "${container_name}" \
   bash -lc '
     set -euo pipefail

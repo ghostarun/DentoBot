@@ -1,5 +1,19 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — Ubuntu NVIDIA CUDA workstation handoff (branch only)
+
+- **Why:** A second Ubuntu host (AMD Mesa + NVIDIA RTX 4060) needed a
+  documented CUDA inference path and launcher fixes without interrupting
+  active `main` Step 6 work on the IITM workstation.
+- **Change:** On branch `plat/ubuntu-nvidia-cuda-workstation`, the Ubuntu
+  launcher accepts `cpu` or `cuda:0`, merges local `compose.override.yaml`,
+  builds `slicer_ros2_module`, and forces `PYTHONNOUSERSITE=1` for backend
+  probes. README / env example / host NVIDIA Docker helper / logbook /
+  `PLAT-U-05` record the integration contract.
+- **Verification boundary:** Laptop `--check-only` and in-container CUDA
+  health passed. Not yet rebased onto current `origin/main`. IITM CPU profile
+  must be re-checked after merge.
+
 ## 2026-09-03 — Add bounded fixed-frame IK recovery for P0 Stage 3
 
 - **Why:** MoveIt's collision-off Cartesian interpolator could stop near the
