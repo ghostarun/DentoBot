@@ -33,8 +33,8 @@ private GHCR image, and collaborator access as required by package visibility.
 # Distro name must match `wsl -l -v` (often "Ubuntu", not "Ubuntu-24.04")
 $env:DENTOBOT_WSL_DISTRIBUTION = "Ubuntu"
 
-# First machine: GHCR login inside WSL, then install (see Workspace/docs/SETUP.md)
-# Prefer running the .bash installer from a WSL shell if the .bat mishandles $HOME.
+# 1) GHCR login inside WSL (private image), then install overlay at lab tag
+# Prefer WSL shell so $HOME is not eaten by cmd quoting (see SETUP.md).
 wsl -d $env:DENTOBOT_WSL_DISTRIBUTION --exec bash -lc "
   set -euo pipefail
   mkdir -p `$HOME/dentobot/ros2_ws/src
@@ -47,13 +47,17 @@ wsl -d $env:DENTOBOT_WSL_DISTRIBUTION --exec bash -lc "
   bash `$REPO/Workspace/scripts/install-lab-wsl.bash
 "
 
-# Once per PC: edit ~/dentobot/.dentobot.env
-#   CUDA (Bridge C cu130 pin): Python 3.10 env + DENTOBOT_BACKEND_DEVICE=cuda:0
-#   CPU (Ubuntu OpenVINO pin): Python 3.12 env + DENTOBOT_BACKEND_DEVICE=cpu
-#   DENTOBOT_GRAPHICS_MODE=wslg   # or leave auto on WSLg hosts
-# Optional: copy TotalSegmentator tasks 113/115/298 into
-#   ~/dentobot/data/model-cache/totalsegmentator
+# 2) Once per PC: edit ~/dentobot/.dentobot.env
+#   CUDA (Bridge C cu130): Python 3.10 env + DENTOBOT_BACKEND_DEVICE=cuda:0
+#   CPU (Ubuntu OpenVINO): Python 3.12 env + DENTOBOT_BACKEND_DEVICE=cpu
+#   DENTOBOT_GRAPHICS_MODE=wslg
 
+# 3) Explicit model-cache install (tasks 298, 115, 113). Idempotent.
+#    TotalSegmentator 2.16 does NOT accept CLI -t teeth|craniofacial_structures.
+#    Do not rely on Slicer to download weights.
+Workspace\scripts\install-lab-model-cache.bat
+
+# 4) Launch full Linux SlicerROS2 DENTOWorkflow on WSLg
 Workspace\scripts\launch-lab-workflow.bat
 ```
 

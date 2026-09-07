@@ -55,6 +55,7 @@ Launch: `scripts/launch-dentoworkflow.bash` (or `launch-lab-workflow.bat`).
 Do not use `launch-dentoworkflow.ps1` for this profile.
 
 WSLg hosts merge `Workspace/compose.wslg.yaml` (no `/dev/dri`). NVIDIA CUDA
-inference merges `Workspace/compose.cuda.yaml`. See
+inference merges `Workspace/compose.cuda.yaml`. Model weights:
+`Workspace/scripts/install-lab-model-cache.bash` (or `.bat`). See
 `Workspace/docs/logbook/2026-09-07.md` for the first Windows lab install
 deltas.

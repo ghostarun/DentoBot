@@ -76,11 +76,13 @@ python -m dentobot_inference health --json --require-device cuda:0
 ```
 
 Model acquisition is a separate explicit setup action, never a Slicer launch
-side effect:
+side effect. TotalSegmentator 2.16 rejects CLI `-t teeth|craniofacial_structures`;
+use the idempotent helper (or Python API task ids 298, 115, 113):
 
 ```bash
-totalseg_download_weights -t craniofacial_structures
-totalseg_download_weights -t teeth
+Workspace/scripts/install-lab-model-cache.bash
+# Windows lab:
+# Workspace\scripts\install-lab-model-cache.bat
 ```
 
 ### Windows launcher
@@ -205,9 +207,13 @@ wsl -d "$DENTOBOT_WSL_DISTRIBUTION" --exec bash -lc '
      `DENTOBOT_BACKEND_DEVICE=cpu`.
    - Set `DENTOBOT_GRAPHICS_MODE=wslg` (or `auto` on WSLg). There is no
      `/dev/dri/renderD128`; `compose.wslg.yaml` clears DRM devices.
-   - Optionally copy TotalSegmentator tasks 113/115/298 into
-     `~/dentobot/data/model-cache/totalsegmentator`. No patient identifiers
-     in git.
+   - Install TotalSegmentator tasks **298, 115, 113** with the idempotent
+     helper (required for Bridge C segmentation; not optional if you will
+     run AI):
+     `Workspace\scripts\install-lab-model-cache.bat` or
+     `~/dentobot/scripts/install-lab-model-cache.bash`.
+     Do not use `totalseg_download_weights -t teeth` on TS 2.16. No patient
+     identifiers in git.
 5. First launch builds `dentobot_description`, `dentobot_moveit_config`, and
    `slicer_ros2_module` under the bind-mounted `ros2_ws` (required because the
    mount hides the image install). Then:

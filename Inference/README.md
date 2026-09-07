@@ -79,16 +79,29 @@ capturing its specification.
 ## Model preparation
 
 Model acquisition is an explicit terminal action and never occurs when Slicer
-launches inference:
+launches inference. On TotalSegmentator **2.16**, the CLI task names
+`teeth` / `craniofacial_structures` are **not** accepted by
+`totalseg_download_weights -t`. Use the lab helper (preferred) or the Python
+API task IDs **298 → 115 → 113**:
 
 ```bash
-totalseg_download_weights -t craniofacial_structures
-totalseg_download_weights -t teeth
+# Lab / Ubuntu overlay (idempotent; reads .dentobot.env)
+Workspace/scripts/install-lab-model-cache.bash
+# Windows:
+# Workspace\scripts\install-lab-model-cache.bat
 ```
 
-TotalSegmentator normally stores weights below
-`~/.totalsegmentator/nnunet/results`. The DENTOBOT runtime replaces implicit
-downloading with a cache-only guard.
+```bash
+export TOTALSEG_HOME_DIR=/path/to/data/model-cache/totalsegmentator
+python - <<'PY'
+from totalsegmentator.python_api import download_pretrained_weights
+for task_id in (298, 115, 113):
+    download_pretrained_weights(task_id)
+PY
+```
+
+Weights land under `$TOTALSEG_HOME_DIR/nnunet/results/Dataset{113,115,298}_*`.
+The DENTOBOT runtime replaces implicit downloading with a cache-only guard.
 
 ## Verification
 

@@ -145,12 +145,30 @@ printf '%s\n' \
   'Do not copy ros2_ws/build, ros2_ws/install, ros2_ws/log, data/ cases, or graphify-out.' \
   '' \
   'Next (once per machine, not on every update):' \
-  "  1. Edit ${workspace_root}/.dentobot.env (CPU Conda interpreter path)." \
-  "  2. Create the Ubuntu CPU backend from Inference/ (see docs/SETUP.md)." \
-  '  3. Copy TotalSegmentator tasks 113, 115, and 298 into' \
-  "     ${workspace_root}/data/model-cache/totalsegmentator" \
-  '     (USB/rsync; never a Slicer launch side effect; no patient identifiers).' \
+  "  1. Edit ${workspace_root}/.dentobot.env (backend interpreter + cpu|cuda:0)." \
+  '  2. Create the Inference Conda env (CUDA cu130 or Ubuntu CPU pin).' \
+  "  3. Download model weights (idempotent; never a Slicer side effect):" \
+  "       ${dentobot_repo}/Workspace/scripts/install-lab-model-cache.bash" \
+  '     or from Windows: Workspace\\scripts\\install-lab-model-cache.bat' \
   '  4. From Windows: Workspace\\scripts\\launch-lab-workflow.bat' \
   '     or in WSL: scripts/launch-dentoworkflow.bash' \
   '' \
   'Step 6 remains simulation/preview. No hardware motion or drilling.'
+
+# Best-effort model cache when the backend env already exists.
+if [[ ${skip_docker:-false} != true ]]; then
+  model_cache_script="${dentobot_repo}/Workspace/scripts/install-lab-model-cache.bash"
+  if [[ -x ${model_cache_script} ]]; then
+    if DENTOBOT_WORKSPACE_ROOT="${workspace_root}" \
+      bash "${model_cache_script}" --check-only >/dev/null 2>&1; then
+      printf 'Model cache already complete under data/model-cache/totalsegmentator.\n'
+    elif DENTOBOT_WORKSPACE_ROOT="${workspace_root}" \
+      bash "${model_cache_script}"; then
+      printf 'Model cache install finished.\n'
+    else
+      printf '%s\n' \
+        'Model cache was not installed automatically (backend env may be missing).' \
+        "After creating the Conda env, run: ${model_cache_script}"
+    fi
+  fi
+fi

@@ -1,5 +1,18 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — Automate TotalSegmentator lab model-cache install
+
+- **Why:** Bridge C failed closed with `MODEL_WEIGHTS_NOT_CACHED`; README/SETUP
+  still showed `totalseg_download_weights -t teeth|craniofacial_structures`,
+  which TotalSegmentator 2.16 rejects.
+- **Change:** Added idempotent `install-lab-model-cache.bash` / `.bat` that
+  downloads tasks 298, 115, and 113 through the Python API into
+  `data/model-cache/totalsegmentator`. `install-lab-wsl.bash` best-effort
+  invokes it; README/SETUP/Inference README/logbook document the path.
+- **Verification:** On the Windows lab PC, the helper `--check-only` reports
+  complete Dataset113/115/298 caches after an explicit download; Slicer still
+  never downloads weights itself.
+
 ## 2026-09-07 — Windows lab WSLg + CUDA first-install path
 
 - **Why:** First real Windows 11 lab PC trial exposed gaps between the
