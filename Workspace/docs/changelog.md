@@ -1,5 +1,14 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — DENTO-NOTE: Step 5B UX (dimensions, reset, viewing, Advanced)
+
+- **Why:** Operator found 5B dimensions couple badly to upstream steps, no
+  Reset, no interactive viewing, and the Advanced section must be collapsed
+  manually every entry even though 5B is required.
+- **Change:** Logged as `W5-U-05` in TASKS; details in logbook `2026-09-07`.
+  No UI code change in this note.
+- **Verification boundary:** Observation only. Redesign/acceptance on `main`.
+
 ## 2026-09-07 — DENTO-NOTE: Step 5B dock connectors occlude bore holes
 
 - **Why:** Operator review of unified-template creation found branch
