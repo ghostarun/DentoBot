@@ -1,5 +1,16 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — DENTO-NOTE: Step 5B dock connectors occlude bore holes
+
+- **Why:** Operator review of unified-template creation found branch
+  connectors / dock guiderails covering the dock bore lumens; 5B needs
+  detailed testing beyond smoke.
+- **Change:** Logged as `W5-U-04` (major geometry/workflow fix) and annotated
+  `W5-U-03` in TASKS; details in logbook `2026-09-07`. No geometry code change
+  in this note-only commit path.
+- **Verification boundary:** Observation only on the laptop session. Fix and
+  acceptance belong on `main` after the primary machine integrates.
+
 ## 2026-09-07 — Ubuntu NVIDIA CUDA workstation handoff (branch only)
 
 - **Why:** A second Ubuntu host (AMD Mesa + NVIDIA RTX 4060) needed a
