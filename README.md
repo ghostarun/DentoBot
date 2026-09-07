@@ -92,9 +92,12 @@ scripts/git-dentobot.bash status --short --branch
 2. Create the Conda `dentobot` environment from `Inference/` using either the
    Ubuntu CPU manifests or the Bridge C CUDA pins
    (`environment.yml` + `requirements/pytorch-cu130.txt` +
-   `requirements/runtime-validated.txt`). Install packages into the env with
-   `PYTHONNOUSERSITE=1` so nothing lands only under `~/.local` (user-site is
-   not bind-mounted into the container).
+   `requirements/runtime-validated.txt`). Install CUDA torch **and**
+   torchvision from the same `cu130` index (`torchvision==0.25.0+cu130`); a
+   generic torchvision wheel breaks TotalSegmentator with
+   `operator torchvision::nms does not exist`. Install packages into the env
+   with `PYTHONNOUSERSITE=1` so nothing lands only under `~/.local` (user-site
+   is not bind-mounted into the container).
 3. Cache TotalSegmentator tasks **113**, **115**, and **298** under
    `data/model-cache/totalsegmentator`. Prefer calling
    `totalsegmentator.libs.download_pretrained_weights` for task IDs 115 and

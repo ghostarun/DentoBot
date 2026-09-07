@@ -18,7 +18,7 @@ endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenP
 slicer_module_paths="${module_path}"
 # Verified Ubuntu CPU stack (Python 3.12) vs Bridge C CUDA stack (Python 3.10).
 backend_dependency_probe_cpu='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
-backend_dependency_probe_cuda='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cu130","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 10); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
+backend_dependency_probe_cuda='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cu130","torchvision":"0.25.0+cu130","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 10); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
 check_only=false
 print_backend_python=false
 x11_access_granted=false
