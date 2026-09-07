@@ -11,14 +11,60 @@ Linux. Only the external-process and deployment adapters differ:
 
 | Host profile | Slicer process | Inference process | Docker | SlicerROS2 |
 |---|---|---|---|---|
-| Windows 11 | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required | Not in the supported Windows planning profile |
-| Ubuntu | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python | Required by the current verified profile | Included |
+| Windows 11 native | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required for planning | Not supported (`ROS_PROFILE=none`) |
+| Windows 11 lab (WSL2) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (`cpu` or `cuda:0`) | Required | Same Ubuntu container stack |
+| Ubuntu | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python | Required by the verified profile | Included |
 
 The inference stack is never installed into Slicer's embedded Python. Both
 profiles launch the exact external Linux interpreter, exchange NIfTI plus
 JSON in isolated run folders, and pass the device explicitly.
 
-### Windows 11 + WSL2
+### Windows 11 lab (full DENTOWorkflow + Step 6 simulation)
+
+This is the exportable Windows path that matches the Ubuntu Docker/SlicerROS2
+stack. GUI is on WSLg (functional checks only; not FPS/GL acceptance). Do
+**not** use `launch-dentoworkflow.ps1` here.
+
+Prerequisites: Windows 11 + WSLg, Docker Desktop (WSL2 engine + NVIDIA GPU
+support if using `cuda:0`), a WSL Ubuntu distro, GitHub auth that can pull the
+private GHCR image, and collaborator access as required by package visibility.
+
+```powershell
+# Distro name must match `wsl -l -v` (often "Ubuntu", not "Ubuntu-24.04")
+$env:DENTOBOT_WSL_DISTRIBUTION = "Ubuntu"
+
+# First machine: GHCR login inside WSL, then install (see Workspace/docs/SETUP.md)
+# Prefer running the .bash installer from a WSL shell if the .bat mishandles $HOME.
+wsl -d $env:DENTOBOT_WSL_DISTRIBUTION --exec bash -lc "
+  set -euo pipefail
+  mkdir -p `$HOME/dentobot/ros2_ws/src
+  REPO=`$HOME/dentobot/ros2_ws/src/DentoBot
+  if [ ! -d `$REPO/.git ]; then
+    git clone https://github.com/ghostarun/DentoBot.git `$REPO
+  fi
+  git -C `$REPO fetch --tags origin
+  git -C `$REPO checkout --detach refs/tags/lab/2026-09-03
+  bash `$REPO/Workspace/scripts/install-lab-wsl.bash
+"
+
+# Once per PC: edit ~/dentobot/.dentobot.env
+#   CUDA (Bridge C cu130 pin): Python 3.10 env + DENTOBOT_BACKEND_DEVICE=cuda:0
+#   CPU (Ubuntu OpenVINO pin): Python 3.12 env + DENTOBOT_BACKEND_DEVICE=cpu
+#   DENTOBOT_GRAPHICS_MODE=wslg   # or leave auto on WSLg hosts
+# Optional: copy TotalSegmentator tasks 113/115/298 into
+#   ~/dentobot/data/model-cache/totalsegmentator
+
+Workspace\scripts\launch-lab-workflow.bat
+```
+
+First launch builds `dentobot_description`, `dentobot_moveit_config`, and
+`slicer_ros2_module` into the bind-mounted `ros2_ws` (the host mount hides the
+image install tree). CUDA recreates the container with
+`Workspace/compose.cuda.yaml`. WSLg uses `Workspace/compose.wslg.yaml` (no
+`/dev/dri`). Recorded first-install deltas:
+`Workspace/docs/logbook/2026-09-07.md`.
+
+### Windows 11 native + WSL2 (planning only, no ROS)
 
 Copy and edit the machine-local example, then launch native Windows Slicer:
 
@@ -37,11 +83,9 @@ needed for segmentation, planning, template generation, verification, or STL
 export.
 
 Current upstream SlicerROS2 1.2 compatibility targets Ubuntu 24.04, ROS 2
-Jazzy, and source-built Slicer 5.10/5.12. A Linux CI image is provided, but a
-native Windows SlicerROS2 build is not an upstream tested target. Therefore,
-robot/ROS-integrated DENTOBOT work uses the verified Ubuntu profile. Running
-the Linux GUI image through Docker Desktop/WSL2 is possible to investigate,
-but it is not yet a supported or verified DENTOBOT Windows profile.
+Jazzy, and source-built Slicer 5.10/5.12. A native Windows SlicerROS2 build is
+not an upstream tested target. Robot/ROS-integrated work on Windows uses the
+**lab** profile above (or the verified Ubuntu workstation).
 
 Official references: [SlicerROS2 compatibility](https://slicer-ros2.readthedocs.io/en/devel/pages/compatibility.html),
 [SlicerROS2 getting started](https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html), and

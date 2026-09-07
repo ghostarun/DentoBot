@@ -2,10 +2,9 @@
 
 Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
 `main` / `lab/2026-09-03`, and Windows-lab *source* install path reconciled
-2026-09-03. The published `lab/2026-09-03` GHCR image passed the local
-fail-closed label check and registry push; Windows WSLg+Docker GUI acceptance
-remains pending.
-Windows WSLg+Docker GUI acceptance (`PLAT-U-04`) remains pending.
+2026-09-03. First Windows 11 WSLg + Docker + CUDA GUI trial recorded
+2026-09-07 (`Workspace/docs/logbook/2026-09-07.md`); treat that entry as the
+operator delta list versus this procedure.
 
 ## Scope
 
@@ -14,12 +13,14 @@ profiles. The active IITM workstation remains the fully verified Ubuntu
 profile. Native Windows Slicer with a WSL2 inference backend has a tracked
 launcher (`PLAT-U-02`); its runtime acceptance must be repeated on a Windows 11
 workstation. A third **lab** profile runs the same Linux SlicerROS2 Docker
-stack inside WSL2 (`PLAT-U-04`); GUI/ROS acceptance is pending a real lab PC.
+stack inside WSL2 (`PLAT-U-04`); a first WSLg + CUDA GUI trial landed
+2026-09-07 (see logbook). Model-cache/segmentation acceptance and broader lab
+PC roll-out remain open.
 
 | Host profile | Slicer | External inference | Docker | ROS/SlicerROS2 |
 |---|---|---|---|---|
 | Windows 11 native | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported (`DENTOBOT_ROS_PROFILE=none`) |
-| Windows 11 lab (WSL2) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (CPU pin) | Required | Same Ubuntu container stack; unaccepted until `PLAT-U-04` |
+| Windows 11 lab (WSL2) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (`cpu` or `cuda:0`) | Required | Same Ubuntu container stack; first WSLg+CUDA GUI trial 2026-09-07 |
 | Ubuntu | Pinned Linux SlicerROS2 image | Direct Linux Python | Required by the verified profile | Included and verified |
 
 The planning/template workflow is Slicer/MRML code and remains shared. Never
@@ -152,42 +153,72 @@ Do **not** zip `~/dentobot`. Recreate the overlay inside WSL
 | DentoBot at tag `lab/2026-09-03` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
 | `slicer_ros2_module` pinned SHA | `https://github.com/ghostarun/slicer_ros2_module.git` at `17f99931f54f` | installer |
 | Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903` (candidate) | Authenticate GHCR, then `docker pull` after publication |
-| CPU inference env | `Inference/` manifests in that git tag | Conda/pip once |
-| TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` |
+| CPU or CUDA inference env | `Inference/` CPU/OpenVINO pin **or** Bridge C `cu130` pin | Conda/pip once |
+| TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` (optional until segmentation) |
 | Overlay `~/dentobot` symlinks, `.dentobot.env`, `slicer-user/`, colcon `build/` | created locally | bootstrap + launch |
 
 Native Windows Slicer is **not** installed for this profile.
 
 #### Operator steps
 
-1. Windows 11 + WSLg. `wsl --install -d Ubuntu-24.04`. Install Docker Desktop
-   with the WSL2 engine and Ubuntu integration. In Ubuntu:
-   `sudo apt install -y git gh`.
+1. Windows 11 + WSLg. Install a WSL Ubuntu distro (`wsl -l -v` shows the
+   exact name; many PCs use `Ubuntu`, not `Ubuntu-24.04`). Install Docker
+   Desktop with the WSL2 engine, Ubuntu integration, and NVIDIA GPU support
+   when using `cuda:0`. In WSL: `sudo apt install -y git gh` (upgrade `gh` if
+   `gh auth token` is missing — Ubuntu 22.04’s `gh` 2.4 is too old).
 2. Use a GitHub account with **Read** access to the private GHCR package. In
    WSL, run `gh auth login -h github.com -s read:packages`, then
    `gh auth token | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin`.
-   Repository collaboration alone is insufficient while the package is private
-   and unlinked. Scripts store no password or token.
-3. Clone and install (PowerShell, or the same commands in WSL):
+   If `gh auth token` is unavailable, pipe the stored oauth token from
+   `~/.config/gh/hosts.yml` without printing it. Repository collaboration
+   alone is insufficient while the package is private and unlinked. Scripts
+   store no password or token.
+3. Clone and install. Prefer a WSL shell so `$HOME` is not eaten by `cmd`
+   quoting (see logbook 2026-09-07). Detach to the lab tag **before** or as
+   part of install — a fresh clone on `main` is refused until detached:
 
-```bat
-wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p ~/dentobot/ros2_ws/src && git clone https://github.com/ghostarun/DentoBot.git ~/dentobot/ros2_ws/src/DentoBot && bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/install-lab-wsl.bash"
+```bash
+export DENTOBOT_WSL_DISTRIBUTION="${DENTOBOT_WSL_DISTRIBUTION:-Ubuntu}"
+wsl -d "$DENTOBOT_WSL_DISTRIBUTION" --exec bash -lc '
+  set -euo pipefail
+  mkdir -p "$HOME/dentobot/ros2_ws/src"
+  REPO="$HOME/dentobot/ros2_ws/src/DentoBot"
+  if [ ! -d "$REPO/.git" ]; then
+    git clone https://github.com/ghostarun/DentoBot.git "$REPO"
+  fi
+  git -C "$REPO" fetch --tags origin
+  git -C "$REPO" checkout --detach "refs/tags/lab/2026-09-03"
+  bash "$REPO/Workspace/scripts/install-lab-wsl.bash"
+'
 ```
 
-   Equivalent after the clone exists: `Workspace\scripts\install-lab-wsl.bat`.
-   The installer checks out `Workspace/LAB_RELEASE` (`DENTOBOT_TAG=lab/2026-09-03`),
-   pins the DentoBot fork of `slicer_ros2_module`, runs
-   `bootstrap-workspace.bash`, and attempts `docker pull` of the GHCR image
-   (then tags it as Compose `dentobot/slicerros2:jazzy-moveit-sim-20260903`).
-   The private published Linux/amd64 image requires the GHCR login from Step 2.
-4. Once per PC: edit `~/dentobot/.dentobot.env` (`DENTOBOT_BACKEND_PYTHON`,
-   `DENTOBOT_BACKEND_DEVICE=cpu`). Create the Ubuntu CPU backend from
-   `Inference/`. Copy the model cache. No patient identifiers in git.
-5. Launch: `Workspace\scripts\launch-lab-workflow.bat` (calls
-   `launch-dentoworkflow.bash` in WSL). Treat WSLg/llvmpipe like the CRD
-   session: functional checks, not FPS acceptance.
+   Windows helper (after distro env is set): `Workspace\scripts\install-lab-wsl.bat`.
+   The installer pins `slicer_ros2_module`, runs `bootstrap-workspace.bash`,
+   and pulls/tags the GHCR image for Compose.
+4. Once per PC: edit `~/dentobot/.dentobot.env`.
+   - **CUDA (recommended on NVIDIA lab PCs):** Bridge C pin — Python 3.10
+     Conda env with `torch==2.10.0+cu130`, set
+     `DENTOBOT_BACKEND_DEVICE=cuda:0`. Launcher merges
+     `Workspace/compose.cuda.yaml` and force-recreates the container.
+   - **CPU:** Python 3.12 + `torch+cpu`/OpenVINO pin from
+     `Inference/requirements/ubuntu-cpu*.txt`, set
+     `DENTOBOT_BACKEND_DEVICE=cpu`.
+   - Set `DENTOBOT_GRAPHICS_MODE=wslg` (or `auto` on WSLg). There is no
+     `/dev/dri/renderD128`; `compose.wslg.yaml` clears DRM devices.
+   - Optionally copy TotalSegmentator tasks 113/115/298 into
+     `~/dentobot/data/model-cache/totalsegmentator`. No patient identifiers
+     in git.
+5. First launch builds `dentobot_description`, `dentobot_moveit_config`, and
+   `slicer_ros2_module` under the bind-mounted `ros2_ws` (required because the
+   mount hides the image install). Then:
+   `Workspace\scripts\launch-lab-workflow.bat` or
+   `~/dentobot/scripts/launch-dentoworkflow.bash`. Treat WSLg rendering like
+   CRD/`llvmpipe`: functional checks, not FPS acceptance. `xhost` is optional
+   on WSLg; Docker Desktop needs `docker restart -t` (not `--timeout`).
 6. Later updates: `Workspace\scripts\update-lab-release.bat` (pinned tag only).
 
+See `Workspace/docs/logbook/2026-09-07.md` for the full first-install delta
+list from the initial Windows GPU lab PC.
 Maintainer only: build from the repository root with the exact tag identity,
 then publish after GHCR `write:packages` authentication:
 

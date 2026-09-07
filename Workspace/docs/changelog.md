@@ -1,5 +1,23 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — Windows lab WSLg + CUDA first-install path
+
+- **Why:** First real Windows 11 lab PC trial exposed gaps between the
+  published README/SETUP lab procedure and a working WSLg + Docker + CUDA
+  launch (distro naming, bat/`$HOME` quoting, missing `/dev/dri`, GHCR/`gh`
+  age, bind-mounted `slicer_ros2_module`, CPU-only launcher pin).
+- **Change:** Added `Workspace/compose.wslg.yaml` and
+  `compose.cuda.yaml`; extended `launch-dentoworkflow.bash` for
+  `DENTOBOT_GRAPHICS_MODE=wslg|auto`, optional `xhost` on WSLg,
+  `cpu|cuda:0` backend probes, NVIDIA force-recreate, `docker restart -t`,
+  and `slicer_ros2_module` in the routine colcon select list. Lab bats default
+  to distro `Ubuntu` and use `wsl --exec`. README/SETUP/logbook record the
+  operator procedure deltas.
+- **Verification:** On one Windows 11 + WSL `Ubuntu` + Docker Desktop + RTX
+  4060 host: GHCR pull, overlay at `lab/2026-09-03`, CUDA health
+  `status=ok` inside the container, and GUI launch to DENTOWorkflow with the
+  MoveIt simulation stack. Model cache skipped. No hardware motion.
+
 ## 2026-09-03 — Add bounded fixed-frame IK recovery for P0 Stage 3
 
 - **Why:** MoveIt's collision-off Cartesian interpolator could stop near the

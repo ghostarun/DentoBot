@@ -1,0 +1,13 @@
+# WSLg / Docker Desktop override: no Intel DRM render node.
+# Merged by launch-dentoworkflow.bash when graphics mode is wslg.
+# Requires Compose that supports YAML tag !reset (Compose V2.24+).
+
+services:
+  slicerros2:
+    devices: !reset []
+    environment:
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/mnt/wslg/runtime-dir}
+      PULSE_SERVER: ${PULSE_SERVER:-unix:/mnt/wslg/PulseServer}
+    volumes:
+      - /mnt/wslg:/mnt/wslg:rw
