@@ -1,5 +1,48 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — DENTO-NOTE: viewer missing mask 2D/3D opacity sliders
+
+- **Why:** Operator reports mask 2D/3D opacity sliders gone from the viewer
+  path in use; wants a deeper UI/UX plan before restore.
+- **Change:** Logged as `VIEW-U-02`; annotated `VIEW-U-01`. Details in
+  logbook `2026-09-07`. No UI code change in this note.
+- **Verification boundary:** Observation only. Plan → implement → trial on
+  `main`.
+
+## 2026-09-07 — DENTO-NOTE: Step 5B UX (dimensions, reset, viewing, Advanced)
+
+- **Why:** Operator found 5B dimensions couple badly to upstream steps, no
+  Reset, no interactive viewing, and the Advanced section must be collapsed
+  manually every entry even though 5B is required.
+- **Change:** Logged as `W5-U-05` in TASKS; details in logbook `2026-09-07`.
+  No UI code change in this note.
+- **Verification boundary:** Observation only. Redesign/acceptance on `main`.
+
+## 2026-09-07 — DENTO-NOTE: Step 5B dock connectors occlude bore holes
+
+- **Why:** Operator review of unified-template creation found branch
+  connectors / dock guiderails covering the dock bore lumens; 5B needs
+  detailed testing beyond smoke.
+- **Change:** Logged as `W5-U-04` (major geometry/workflow fix) and annotated
+  `W5-U-03` in TASKS; details in logbook `2026-09-07`. No geometry code change
+  in this note-only commit path.
+- **Verification boundary:** Observation only on the laptop session. Fix and
+  acceptance belong on `main` after the primary machine integrates.
+
+## 2026-09-07 — Ubuntu NVIDIA CUDA workstation handoff (branch only)
+
+- **Why:** A second Ubuntu host (AMD Mesa + NVIDIA RTX 4060) needed a
+  documented CUDA inference path and launcher fixes without interrupting
+  active `main` Step 6 work on the IITM workstation.
+- **Change:** On branch `plat/ubuntu-nvidia-cuda-workstation`, the Ubuntu
+  launcher accepts `cpu` or `cuda:0`, merges local `compose.override.yaml`,
+  builds `slicer_ros2_module`, and forces `PYTHONNOUSERSITE=1` for backend
+  probes. README / env example / host NVIDIA Docker helper / logbook /
+  `PLAT-U-05` record the integration contract.
+- **Verification boundary:** Laptop `--check-only` and in-container CUDA
+  health passed. Not yet rebased onto current `origin/main`. IITM CPU profile
+  must be re-checked after merge.
+
 ## 2026-09-03 — Add bounded fixed-frame IK recovery for P0 Stage 3
 
 - **Why:** MoveIt's collision-off Cartesian interpolator could stop near the
