@@ -34,7 +34,8 @@ JSON remains bounded summaries; candidate waypoint arrays never enter MRML or
 `.dentocase`.
 
 > Cross-platform update (2026-09-02): the Slicer/MRML workflow is shared.
-> Native Windows Slicer uses a WSL2 inference adapter without ROS. Ubuntu uses
+> Native Windows Slicer is a legacy Steps 0–5 fallback using a WSL2 inference
+> adapter without ROS; its runtime profile removes Step 6. Ubuntu uses
 > the direct Linux adapter inside the verified SlicerROS2 container. Windows
 > lab PCs that need Step 6 ROS run that same Linux container in WSL2 (WSLg);
 > that lab GUI path is not Ubuntu-verified and is not native Windows SlicerROS2.
@@ -48,8 +49,8 @@ JSON remains bounded summaries; candidate waypoint arrays never enter MRML or
 |-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
 `-- Platform process adapter
 |   |
-|   +-- Windows native: native Slicer -> wsl.exe -> Linux backend Python
-|   +-- Windows lab (WSL2): container Slicer via WSLg -> direct Linux backend Python
+|   +-- Windows fallback (Steps 0–5): native Slicer -> wsl.exe -> Linux backend Python
+|   +-- Windows primary: container Slicer via WSLg -> direct Linux backend Python
 |   `-- Ubuntu: container Slicer -> direct Linux backend Python
 |       +-- NIfTI payloads in an adapter-visible artifact root
 |       +-- structured stdout + exit status
@@ -395,9 +396,10 @@ WSL `/mnt/<drive>` paths, and builds shell-free argument arrays. Launcher
 paths are never required as MRML identity and are not persisted into new
 scenes. The advanced manual fields remain for recovery and legacy scenes.
 
-On Windows, `launch-dentoworkflow.ps1` starts native Windows Slicer and the
-backend adapter prepends `wsl.exe`. Docker is not part of core planning. On
-Ubuntu, `launch-dentoworkflow.bash` starts the pinned Linux SlicerROS2 image
+For the native Windows Steps 0–5 fallback,
+`launch-native-windows-steps0-5.ps1` starts Slicer and the backend adapter
+prepends `wsl.exe`. The primary Windows profile and Ubuntu both use
+`launch-dentoworkflow.bash` to start the pinned Linux SlicerROS2 image
 and the adapter calls the mounted external Linux interpreter directly.
 
 The reusable Ubuntu container has an explicit host-stability boundary. Docker
@@ -1382,10 +1384,10 @@ ROS 2 now provides the narrow robot-description/TF simulation foundation on
 Ubuntu; SlicerROS2 remains an optional integration capability and Steps 0–5
 do not depend on either. The verified ROS profile is the Ubuntu
 24.04/Jazzy/Linux SlicerROS2 container. Current upstream SlicerROS2 1.2 does
-not list Windows as a supported build target, so native Windows Slicer remains
-a planning client without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux
-GUI image is the Windows **lab** profile (`PLAT-U-04`): same container as
-Ubuntu, not native Windows module support, unaccepted until a lab PC trial.
+not list Windows as a supported build target, so native Windows Slicer is
+limited to the Steps 0–5 fallback without SlicerROS2. Docker Desktop/WSL2
+hosting of the Linux GUI image is the primary Windows profile (`PLAT-U-04`):
+the same container as Ubuntu, not native Windows module support.
 The description package does not decide whether the
 future adapter uses ROS, MoveIt, a vendor SDK, or another transport. Regardless
 of host or transport, low-level motion and safety never run in the Slicer
@@ -1393,16 +1395,14 @@ Python process.
 
 ## Packaging and deployment
 
-- Windows planning development: native pinned Slicer, source extension path,
-  WSL2 backend, and no Docker requirement.
-- Windows lab ROS: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
+- Legacy Windows Steps 0–5 fallback: native pinned Slicer, source extension
+  path, WSL2 backend, no Docker requirement, and no Step 6.
+- Primary Windows full workflow: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
   `lab/*` git releases (`Workspace/LAB_RELEASE`), private GHCR image pull, and
   an account explicitly authorized to read that package; repository
   collaboration alone does not grant access while the package is unlinked.
   Scripts store no password. Recreate the overlay inside WSL; do not zip
-  `~/dentobot`. Native
-  `launch-dentoworkflow.ps1` is not this profile. GUI unaccepted until
-  `PLAT-U-04`.
+  `~/dentobot`. The native Steps 0–5 launcher is not this profile.
 - Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
   extension path.
 - AI backend: isolated Linux environment, platform-specific locked Python

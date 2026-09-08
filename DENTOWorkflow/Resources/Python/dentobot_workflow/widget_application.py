@@ -8,6 +8,8 @@ from .runtime import *
 class ApplicationWidgetMixin:
     def _setupApplicationShell(self) -> None:
         """Install the opt-in six-workspace shell without duplicating controls."""
+        if not step6_enabled():
+            return
         if self._applicationShell is not None:
             return
         self._setupRobotSimulationShellPanel()

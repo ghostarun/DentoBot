@@ -14,28 +14,17 @@ REAL_USER="${SUDO_USER:-${USER}}"
 REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6)"
 WORKSPACE_ROOT="${DENTOBOT_WORKSPACE_ROOT:-${REAL_HOME}/dentobot}"
 
-echo "==> Ensuring NVIDIA driver metapackage is installed (prefer 580 line)"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y nvidia-driver-580 nvidia-utils-580 || \
-  apt-get install -y nvidia-driver-550 nvidia-utils-550
-# Remove a conflicting older 550 userspace/kernel set when 580 is present.
-if dpkg -l 'nvidia-driver-580' 2>/dev/null | grep -q '^ii'; then
-  apt-get remove -y --purge \
-    'nvidia-driver-550' \
-    'nvidia-utils-550' \
-    'nvidia-compute-utils-550' \
-    'libnvidia-*-550' \
-    'linux-modules-nvidia-550-*' \
-    'linux-objects-nvidia-550-*' \
-    'nvidia-firmware-550-*' \
-    'nvidia-kernel-source-550' \
-    'nvidia-kernel-common-550' \
-    2>/dev/null || true
-  apt-get autoremove -y
+if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi >/dev/null 2>&1; then
+  printf '%s\n' \
+    'A working host NVIDIA driver is required before this installer.' \
+    'Install the Ubuntu-recommended driver for this GPU, reboot, verify' \
+    '`nvidia-smi`, then rerun. This script does not replace or purge drivers.' >&2
+  exit 2
 fi
 
 echo "==> Installing Docker Engine (official apt repo)"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
 if ! command -v docker >/dev/null 2>&1; then
   apt-get install -y ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
@@ -68,27 +57,8 @@ systemctl restart docker
 
 usermod -aG docker,render,video "${REAL_USER}"
 
-mkdir -p "${WORKSPACE_ROOT}"
-OVERRIDE="${WORKSPACE_ROOT}/compose.override.yaml"
-REPO_WORKSPACE="${WORKSPACE_ROOT}/ros2_ws/src/DentoBot/Workspace"
-cat > "${OVERRIDE}" <<EOF
-# Local NVIDIA GPU override for DENTOBOT (not committed).
-# Inference runs host Conda Python via docker exec and needs /dev/nvidia*.
-services:
-  slicerros2:
-    build:
-      context: ${REPO_WORKSPACE}
-      dockerfile: Dockerfile.slicerros2
-    gpus: all
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
-EOF
-chown "${REAL_USER}:${REAL_USER}" "${OVERRIDE}"
-
 echo
 echo "Host packages installed."
-echo "If nvidia-smi reports a Driver/library version mismatch, reboot once."
 echo "After a new login (docker group), verify:"
 echo "  nvidia-smi"
 echo "  docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi"

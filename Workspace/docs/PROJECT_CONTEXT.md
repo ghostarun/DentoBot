@@ -1,9 +1,9 @@
 # DENTOBOT Project Context
 
 > Cross-platform note (2026-08-11): product and safety decisions are shared.
-> Native Windows Slicer + WSL2 inference and Ubuntu SlicerROS2 + direct Linux
-> inference now use one explicit launcher contract. Ubuntu is runtime verified;
-> the new Windows launcher still requires Windows 11 acceptance.
+> The primary Windows installation is the WSLg Linux SlicerROS2 profile.
+> Native Windows Slicer + WSL2 inference is retained only as an explicitly
+> named Steps 0–5 fallback; Step 6 and native Windows ROS are excluded.
 
 ## Project goal
 

@@ -19,12 +19,9 @@ environments, and build/install trees local to each device. Record the active
 branch, commit, outstanding work, and verification limits in the dated logbook
 at handoff. Each machine retains its own CPU/CUDA and graphics configuration.
 
-**CUDA integration status (2026-09-07):** The workstation documentation below
-was imported from `plat/ubuntu-nvidia-cuda-workstation` at `5dee4da`.
-Its launcher changes, NVIDIA installation helper, environment example, and
-matching torchvision pin remain on that branch pending code integration.
-The CUDA instructions describe that branch's observed setup; they do not
-establish CUDA support in the current `main` launcher. See task `PLAT-U-05`.
+The Ubuntu NVIDIA and Windows WSLg/CUDA setup paths are integrated in `main`.
+Each remains tied to its documented host profile and recorded verification;
+installation on a new machine still ends with the profile's check-only gate.
 
 ## Supported runtime profiles
 
@@ -33,7 +30,8 @@ Linux. Only the external-process and deployment adapters differ:
 
 | Host profile | Slicer process | Inference process | Docker | SlicerROS2 |
 |---|---|---|---|---|
-| Windows 11 | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required | Not in the supported Windows planning profile |
+| Windows 11 + WSLg (primary) | Linux Slicer 5.10 in `dentobot-slicerros2` through WSLg | Direct Linux Python in WSL (`cpu` or `cuda:0`) | Required | Included; Steps 0–6 simulation |
+| Native Windows fallback | Native Windows Slicer | WSL2 Linux (`wsl.exe`) | Not required | Unavailable; Steps 0–5 only |
 | Ubuntu (CPU) | Linux Slicer in the pinned SlicerROS2 container | Direct external Linux Python (`cpu`) | Required | Included |
 | Ubuntu + NVIDIA | Same container | Direct external Linux Python (`cuda:0`) | Required + NVIDIA Container Toolkit | Included |
 
@@ -41,30 +39,66 @@ The inference stack is never installed into Slicer's embedded Python. Both
 profiles launch the exact external Linux interpreter, exchange NIfTI plus
 JSON in isolated run folders, and pass the device explicitly.
 
-### Windows 11 + WSL2
+### Windows 11 + WSLg: primary full workflow and Step 6 simulation
+
+Use this profile when Windows must run the same Linux SlicerROS2 simulation
+stack as Ubuntu. It requires Windows 11 with WSLg, Docker Desktop using the
+WSL2 engine, a WSL Ubuntu distribution, and NVIDIA container support when
+using `cuda:0`. WSLg is accepted for functional GUI checks, not rendering
+performance acceptance.
+
+```powershell
+# Use the exact name printed by: wsl -l -v
+$env:DENTOBOT_WSL_DISTRIBUTION = "Ubuntu"
+
+# From a clone checked out at the intended lab tag or integration revision:
+Workspace\scripts\install-lab-wsl.bat
+
+# Cache TotalSegmentator tasks 298, 115, and 113. Safe to rerun.
+Workspace\scripts\install-lab-model-cache.bat
+
+# Launch Linux SlicerROS2 through WSLg.
+Workspace\scripts\launch-lab-workflow.bat
+```
+
+The installer creates the WSL overlay and pins the SlicerROS2 dependency. Set
+`DENTOBOT_GRAPHICS_MODE=wslg` in `~/dentobot/.dentobot.env`; select `cpu` with
+the Python 3.12 CPU environment or `cuda:0` with the Python 3.10 cu130
+environment. The launcher merges the tracked WSLg and CUDA Compose overlays,
+builds the three required ROS packages in the bind-mounted workspace, checks
+the selected inference device, and fails before GUI launch when prerequisites
+are missing. See `Workspace/docs/SETUP.md` for GHCR authentication, environment
+creation, first-install recovery, and exact verification commands.
+
+### Legacy fallback: native Windows Slicer, Steps 0–5 only
+
+This is a limited compatibility workaround. It deliberately hides Step 6,
+does not load SlicerROS2, and must not be used when the full Windows
+installation is intended. Native Windows Slicer plus native Windows ROS is
+outside the current project scope.
 
 Copy and edit the machine-local example, then launch native Windows Slicer:
 
 ```powershell
 Copy-Item Workspace\.dentobot.windows.env.example .dentobot.windows.env
 powershell -ExecutionPolicy Bypass -File `
-  Workspace\scripts\launch-dentoworkflow.ps1 -CheckOnly
+  Workspace\scripts\launch-native-windows-steps0-5.ps1 -CheckOnly
 powershell -ExecutionPolicy Bypass -File `
-  Workspace\scripts\launch-dentoworkflow.ps1
+  Workspace\scripts\launch-native-windows-steps0-5.ps1
 ```
 
 The Windows launcher validates Slicer, the named WSL distribution, the exact
 Linux backend interpreter, the requested CPU/CUDA device, and a local Windows
 run-record directory before opening DENTO Workflow. Docker Desktop is not
-needed for segmentation, planning, template generation, verification, or STL
-export.
+needed for Steps 0–5 segmentation, planning, template generation,
+verification, or STL export. The launcher sets an explicit workflow profile
+that removes Step 6 and disables its saved-checkpoint runtime restoration.
 
 Current upstream SlicerROS2 1.2 compatibility targets Ubuntu 24.04, ROS 2
-Jazzy, and source-built Slicer 5.10/5.12. A Linux CI image is provided, but a
-native Windows SlicerROS2 build is not an upstream tested target. Therefore,
-robot/ROS-integrated DENTOBOT work uses the verified Ubuntu profile. Running
-the Linux GUI image through Docker Desktop/WSL2 is possible to investigate,
-but it is not yet a supported or verified DENTOBOT Windows profile.
+Jazzy, and source-built Slicer 5.10/5.12. A native Windows SlicerROS2 build is
+not an upstream tested target. Robot/ROS-integrated Windows work uses the
+primary Windows WSLg profile above. Native Windows Slicer remains the
+Steps 0–5 fallback only.
 
 Official references: [SlicerROS2 compatibility](https://slicer-ros2.readthedocs.io/en/devel/pages/compatibility.html),
 [SlicerROS2 getting started](https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html), and
@@ -129,9 +163,9 @@ scripts/git-dentobot.bash status --short --branch
 4. Build or pull the Compose image
    `dentobot/slicerros2:jazzy-moveit-sim-20260903` (see
    `Workspace/Dockerfile.slicerros2` / `Workspace/LAB_RELEASE`).
-5. On NVIDIA hosts, keep an untracked `compose.override.yaml` at the overlay
-   root with `gpus: all` (the host install script writes one). The launcher
-   merges that override when present.
+5. On NVIDIA hosts, the launcher automatically merges the tracked
+   `Workspace/compose.cuda.yaml` when `DENTOBOT_BACKEND_DEVICE=cuda:0`.
+   Reserve an untracked `compose.override.yaml` for machine-specific changes.
 6. The launcher builds `dentobot_description`, `dentobot_moveit_config`, and
    `slicer_ros2_module` inside the container. A missing
    `slicer_ros2_module` install produces
@@ -154,7 +188,7 @@ Verified on Ubuntu 22.04 with an AMD iGPU + NVIDIA RTX 4060 Laptop (driver
   `DENTOBOT_RENDER_DEVICE` to the matching `/dev/dri/renderD*`.
 - **Segmentation CUDA:** host Conda Python with `torch==2.10.0+cu130`,
   `DENTOBOT_BACKEND_DEVICE=cuda:0`, NVIDIA devices injected into the container
-  via Container Toolkit + `compose.override.yaml`.
+  through Container Toolkit and the tracked CUDA Compose overlay.
 
 Example overlay `.dentobot.env` fragment:
 
@@ -163,17 +197,6 @@ DENTOBOT_BACKEND_PYTHON=/absolute/path/to/conda/envs/dentobot/bin/python
 DENTOBOT_BACKEND_EXECUTION_MODE=local
 DENTOBOT_BACKEND_DEVICE=cuda:0
 DENTOBOT_RENDER_DEVICE=/dev/dri/renderD128   # Mesa node, not nvidia
-```
-
-Example untracked `compose.override.yaml`:
-
-```yaml
-services:
-  slicerros2:
-    gpus: all
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
 ```
 
 Confirm before GUI launch:
@@ -260,8 +283,8 @@ services:
 The node number may differ on multi-GPU systems. Non-root container users also
 need the matching host render-group GID. AMD requires a compatible Mesa
 `radeonsi` driver. Proprietary NVIDIA CUDA for the *inference* process uses
-NVIDIA Container Toolkit and `compose.override.yaml`; do not copy the Intel/AMD
-DRM recipe blindly as a substitute for `/dev/nvidia*`.
+NVIDIA Container Toolkit and `Workspace/compose.cuda.yaml`; do not copy the
+Intel/AMD DRM recipe blindly as a substitute for `/dev/nvidia*`.
 
 Slicer 5.10 may lower the entire Linux process priority when initializing its
 background threads. Preserve interactive priority with:
@@ -284,6 +307,5 @@ rendering is deliberately requested.
   `DENTOBOT_BACKEND_DEVICE=cpu`. Full procedure: `Workspace/docs/SETUP.md`.
 - **NVIDIA dual-GPU profile (2026-09-07):** Ubuntu 22.04, AMD Mesa render node
   for Slicer + NVIDIA RTX 4060 for `cuda:0` inference; launcher
-  `--check-only` passed with CUDA health inside the container. Integration
-  branch: `plat/ubuntu-nvidia-cuda-workstation` (see logbook `2026-09-07` and
-  task `PLAT-U-05`).
+  `--check-only` passed with CUDA health inside the container. See logbook
+  `2026-09-07` and task `PLAT-U-05`.

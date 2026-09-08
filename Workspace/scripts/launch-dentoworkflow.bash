@@ -16,9 +16,9 @@ backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
 module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
 endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
 slicer_module_paths="${module_path}"
-# Verified Ubuntu CPU stack (Python 3.12) vs Bridge C CUDA stack (Python 3.10).
-backend_dependency_probe_cpu='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
-backend_dependency_probe_cuda='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cu130","torchvision":"0.25.0+cu130","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 10); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
+# Selected after DENTOBOT_BACKEND_DEVICE is resolved.
+backend_dependency_probe=""
+backend_dependency_label=""
 check_only=false
 print_backend_python=false
 x11_access_granted=false
@@ -70,8 +70,27 @@ backend_python="${DENTOBOT_BACKEND_PYTHON:-}"
 backend_execution_mode="${DENTOBOT_BACKEND_EXECUTION_MODE:-local}"
 backend_device="${DENTOBOT_BACKEND_DEVICE:-cpu}"
 render_device="${DENTOBOT_RENDER_DEVICE:-/dev/dri/renderD128}"
+graphics_mode="${DENTOBOT_GRAPHICS_MODE:-auto}"
 run_artifact_root="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}"
 totalseg_home_dir="${DENTOBOT_TOTALSEG_HOME_DIR:-/workspace/data/model-cache/totalsegmentator}"
+compose_wslg_file="${repository_root}/Workspace/compose.wslg.yaml"
+compose_cuda_file="${repository_root}/Workspace/compose.cuda.yaml"
+
+if [[ ${graphics_mode} == "auto" ]]; then
+  if [[ -c ${render_device} ]]; then
+    graphics_mode="mesa"
+  elif [[ -e /dev/dxg || -d /mnt/wslg ]]; then
+    graphics_mode="wslg"
+  else
+    graphics_mode="missing"
+  fi
+fi
+if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" ]]; then
+  printf '%s\n' \
+    "Unsupported DENTOBOT_GRAPHICS_MODE=${graphics_mode}." \
+    'Use mesa (Intel/AMD /dev/dri render node), wslg (Windows lab), or auto.' >&2
+  exit 2
+fi
 
 if [[ -z ${backend_python} ]]; then
   printf '%s\n' \
@@ -92,25 +111,21 @@ fi
 if [[ ${backend_execution_mode} != "local" ]]; then
   printf '%s\n' \
     "The Linux launcher requires DENTOBOT_BACKEND_EXECUTION_MODE=local." \
-    "Use launch-dentoworkflow.ps1 for the Windows-to-WSL adapter." >&2
+    "Use launch-native-windows-steps0-5.ps1 for the legacy Windows Steps 0-5 adapter." >&2
   exit 2
 fi
-case "${backend_device}" in
-  cpu)
-    backend_dependency_probe="${backend_dependency_probe_cpu}"
-    backend_stack_label="repository-pinned Python 3.12 CPU segmentation stack"
-    ;;
-  cuda:0)
-    backend_dependency_probe="${backend_dependency_probe_cuda}"
-    backend_stack_label="Bridge C Python 3.10 CUDA 13.0 segmentation stack"
-    ;;
-  *)
-    printf '%s\n' \
-      "Unsupported DENTOBOT_BACKEND_DEVICE=${backend_device}." \
-      "Use cpu or cuda:0." >&2
-    exit 2
-    ;;
-esac
+if [[ ${backend_device} == "cpu" ]]; then
+  backend_dependency_label="Python 3.12 CPU/OpenVINO segmentation stack"
+  backend_dependency_probe='import importlib.metadata as m; import sys; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cpu","torchvision":"0.25.0+cpu","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","openvino":"2026.2.0","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 12); actual={name:m.version(name) for name in expected}; assert actual == expected, actual'
+elif [[ ${backend_device} == "cuda:0" ]]; then
+  backend_dependency_label="Python 3.10 CUDA 13.0 (cu130) segmentation stack"
+  backend_dependency_probe='import importlib.metadata as m; import sys; import torch; expected={"dentobot-inference":"0.2.0","numpy":"2.2.6","nibabel":"5.4.2","torch":"2.10.0+cu130","torchvision":"0.25.0+cu130","TotalSegmentator":"2.16.0","nnunetv2":"2.8.1","pytest":"8.4.2"}; assert sys.version_info[:2] == (3, 10); actual={name:m.version(name) for name in expected}; assert actual == expected, actual; assert torch.cuda.is_available(), "torch.cuda.is_available() is False"; assert torch.cuda.device_count() >= 1'
+else
+  printf '%s\n' \
+    "DENTOBOT_BACKEND_DEVICE must be cpu or cuda:0 (got: ${backend_device})." \
+    'CPU uses the Ubuntu OpenVINO pin; cuda:0 uses the Bridge C cu130 pin.' >&2
+  exit 2
+fi
 backend_environment_directory="$(dirname -- "$(dirname -- "${backend_python}")")"
 if [[ ! -d ${backend_environment_directory} ]]; then
   printf 'Backend environment directory is unavailable: %s\n' \
@@ -226,21 +241,36 @@ ensure_docker_daemon
 if [[ ! -x ${backend_python} ]]; then
   printf '%s\n' \
     "The dentobot Conda environment has no Python: ${backend_python}" \
-    "Install the ${backend_stack_label} before launching." >&2
+    "Install the repository-pinned ${backend_dependency_label}." >&2
   exit 2
 fi
-if [[ ! -c ${render_device} ]]; then
+if [[ ${graphics_mode} == "mesa" && ! -c ${render_device} ]]; then
   printf '%s\n' \
-    "Required GPU render node is unavailable: ${render_device}" \
+    "Required Intel GPU render node is unavailable: ${render_device}" \
     'DENTO Workflow is not launched with an implicit software-rendering fallback.' >&2
   exit 2
 fi
+if [[ ${graphics_mode} == "wslg" ]]; then
+  if [[ ! -f ${compose_wslg_file} ]]; then
+    printf 'WSLg Compose override is missing: %s\n' "${compose_wslg_file}" >&2
+    exit 2
+  fi
+  printf '%s\n' \
+    'Graphics mode: wslg (no /dev/dri render node).' \
+    'GUI is for functional checks only; treat rendering like CRD/llvmpipe.'
+fi
 
-if ! PYTHONNOUSERSITE=1 "${backend_python}" -c "${backend_dependency_probe}" \
+if ! "${backend_python}" -c "${backend_dependency_probe}" \
   >/dev/null 2>&1; then
   printf '%s\n' \
     'The dentobot Conda environment is incomplete or has unexpected versions.' \
-    "Expected the ${backend_stack_label}." >&2
+    "Expected the repository-pinned ${backend_dependency_label}." >&2
+  "${backend_python}" -c "${backend_dependency_probe}" >&2 || true
+  exit 2
+fi
+
+if [[ ${backend_device} == "cuda:0" && ! -f ${compose_cuda_file} ]]; then
+  printf 'CUDA Compose override is missing: %s\n' "${compose_cuda_file}" >&2
   exit 2
 fi
 
@@ -249,9 +279,21 @@ compose_command=(
   --project-directory "${workspace_root}"
   -f "${compose_file}"
 )
+if [[ ${graphics_mode} == "wslg" ]]; then
+  compose_command+=(-f "${compose_wslg_file}")
+fi
+if [[ ${backend_device} == "cuda:0" ]]; then
+  compose_command+=(-f "${compose_cuda_file}")
+  printf '%s\n' \
+    'Backend device: cuda:0 (NVIDIA GPU requested for container inference).'
+fi
 if [[ -f ${compose_override_file} ]]; then
   compose_command+=(-f "${compose_override_file}")
 fi
+# compose.yaml still interpolates DENTOBOT_RENDER_DEVICE before the WSLg
+# !reset clears devices; keep a concrete placeholder when the node is absent.
+export DENTOBOT_RENDER_DEVICE="${render_device}"
+export DENTOBOT_GRAPHICS_MODE="${graphics_mode}"
 "${compose_command[@]}" config -q
 
 if docker inspect "${container_name}" >/dev/null 2>&1; then
@@ -261,16 +303,16 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
     docker unpause "${container_name}" >/dev/null
     container_status="running"
   fi
-  if [[ ${check_only} == false ]]; then
+  if [[ ${check_only} == false && ${backend_device} != "cuda:0" ]]; then
     if [[ ${container_status} == "running" ]]; then
       printf '%s\n' \
         "Restarting the dedicated ${container_name} container for a clean GUI session..." \
         'Existing DENTOBOT Slicer, ROS, MoveIt, and test processes will be stopped.' \
         'Save open Slicer scenes first; unsaved in-container UI state cannot be recovered.'
-      docker restart --timeout 30 "${container_name}" >/dev/null
+      docker restart -t 30 "${container_name}" >/dev/null
       container_status="running"
     fi
-  elif [[ ${container_status} == "running" ]]; then
+  elif [[ ${check_only} == true && ${container_status} == "running" ]]; then
     active_slicer_processes="$(
       docker exec "${container_name}" ps -eo pid=,stat=,comm=,args= 2>/dev/null \
         | awk '
@@ -295,7 +337,13 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 fi
 
 printf 'Starting the DENTOBOT development container...\n'
-"${compose_command[@]}" up -d
+if [[ ${backend_device} == "cuda:0" ]]; then
+  printf '%s\n' \
+    'Recreating the container so NVIDIA GPU device requests are applied...'
+  "${compose_command[@]}" up -d --force-recreate
+else
+  "${compose_command[@]}" up -d
+fi
 
 container_runtime_safeguards="$(
   docker inspect --format \
@@ -313,8 +361,9 @@ fi
 docker exec \
   -e PYTHONPATH="${backend_source}" \
   -e PYTHONNOUSERSITE=1 \
+  -e TOTALSEG_HOME_DIR="${totalseg_home_dir}" \
   "${container_name}" \
-  "${backend_python}" -c "${backend_dependency_probe}; print('Conda segmentation dependency check passed.')"
+  "${backend_python}" -c "${backend_dependency_probe}; print('Conda ${backend_device} segmentation dependency check passed.')"
 docker exec "${container_name}" mkdir -p "${run_artifact_root}"
 docker exec "${container_name}" test -d "${totalseg_home_dir}"
 docker exec \
@@ -332,7 +381,9 @@ if docker exec "${container_name}" test -f \
   "${endoplanner_module_path}/PulpChamberOpenPlanning.py"; then
   slicer_module_paths+=" ${endoplanner_module_path}"
 fi
-docker exec "${container_name}" test -c "${render_device}"
+if [[ ${graphics_mode} == "mesa" ]]; then
+  docker exec "${container_name}" test -c "${render_device}"
+fi
 docker exec "${container_name}" bash -lc '
   set +u
   source /opt/ros/jazzy/setup.bash
@@ -341,6 +392,10 @@ docker exec "${container_name}" bash -lc '
   command -v xacro >/dev/null
   cd /workspace/ros2_ws
   colcon build --symlink-install \
+    --base-paths \
+      /workspace/ros2_ws/src/DentoBot/dentobot_description \
+      /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
+      /workspace/ros2_ws/src/slicer_ros2_module \
     --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module
   test -d /workspace/ros2_ws/install/slicer_ros2_module
 '
@@ -365,6 +420,7 @@ printf '%s\n' \
   "TotalSegmentator cache: ${totalseg_home_dir}" \
   "DENTO Workflow: ${module_path}" \
   "Slicer module paths: ${slicer_module_paths}" \
+  "Graphics mode: ${graphics_mode}" \
   "GPU render node: ${render_device}" \
   "Slicer background priority: ${container_slicer_priority}" \
   "Runtime safeguards (init/PIDs/CPU-shares/OOM-score): ${container_runtime_safeguards}"
@@ -375,16 +431,31 @@ if [[ ${check_only} == true ]]; then
 fi
 
 if [[ -z ${DISPLAY:-} ]]; then
-  printf '%s\n' \
-    'DISPLAY is empty. Run this launcher from an Ubuntu desktop terminal, not SSH.' >&2
-  exit 2
+  if [[ ${graphics_mode} == "wslg" ]]; then
+    export DISPLAY=:0
+    printf 'DISPLAY was empty; defaulting to DISPLAY=:0 for WSLg.\n'
+  else
+    printf '%s\n' \
+      'DISPLAY is empty. Run this launcher from an Ubuntu desktop terminal, not SSH.' >&2
+    exit 2
+  fi
 fi
-if ! command -v xhost >/dev/null 2>&1; then
+
+grant_x11_with_xhost=false
+if command -v xhost >/dev/null 2>&1; then
+  grant_x11_with_xhost=true
+elif [[ ${graphics_mode} != "wslg" ]]; then
   printf 'Required GUI command is unavailable: xhost\n' >&2
   exit 2
+else
+  printf '%s\n' \
+    'xhost is not installed; continuing with WSLg default X11 access.'
 fi
 
 x11_access_available() {
+  if [[ ${grant_x11_with_xhost} != true ]]; then
+    return 0
+  fi
   xhost >/dev/null 2>&1
 }
 
@@ -406,6 +477,12 @@ resolve_x11_authority() {
     fi
   done
 
+  if [[ ${graphics_mode} == "wslg" ]]; then
+    printf '%s\n' \
+      "xhost could not verify DISPLAY=${DISPLAY}; continuing for WSLg."
+    return 0
+  fi
+
   printf '%s\n' \
     "Cannot open DISPLAY=${DISPLAY} for scoped xhost access." \
     'Run this launcher from the desktop session that owns that display.' \
@@ -419,25 +496,40 @@ if ! resolve_x11_authority; then
 fi
 
 cleanup_x11() {
-  if [[ ${x11_access_granted} == true ]]; then
+  if [[ ${x11_access_granted} == true && ${grant_x11_with_xhost} == true ]]; then
     xhost -SI:localuser:root >/dev/null 2>&1 || true
   fi
 }
 trap cleanup_x11 EXIT INT TERM
 
-printf 'Granting local container root temporary access to DISPLAY=%s...\n' "${DISPLAY}"
-xhost +SI:localuser:root >/dev/null
-x11_access_granted=true
+if [[ ${grant_x11_with_xhost} == true ]]; then
+  printf 'Granting local container root temporary access to DISPLAY=%s...\n' "${DISPLAY}"
+  xhost +SI:localuser:root >/dev/null
+  x11_access_granted=true
+fi
 
 printf 'Opening 3D Slicer directly on DENTO Workflow.\n'
 docker_exec_options=()
 if [[ -t 0 && -t 1 ]]; then
   docker_exec_options=(-it)
 fi
+docker_exec_env=(
+  -e "DISPLAY=${DISPLAY}"
+  -e "DENTOBOT_SLICER_MODULE_PATHS=${slicer_module_paths}"
+  -e "PYTHONNOUSERSITE=1"
+)
+if [[ ${graphics_mode} == "wslg" ]]; then
+  docker_exec_env+=(
+    -e "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}"
+    -e "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/mnt/wslg/runtime-dir}"
+    -e "PULSE_SERVER=${PULSE_SERVER:-unix:/mnt/wslg/PulseServer}"
+  )
+fi
+if [[ -n ${XAUTHORITY:-} ]]; then
+  docker_exec_env+=(-e "XAUTHORITY=${XAUTHORITY}")
+fi
 docker exec "${docker_exec_options[@]}" \
-  -e DISPLAY="${DISPLAY}" \
-  -e DENTOBOT_SLICER_MODULE_PATHS="${slicer_module_paths}" \
-  -e PYTHONNOUSERSITE=1 \
+  "${docker_exec_env[@]}" \
   "${container_name}" \
   bash -lc '
     set -euo pipefail

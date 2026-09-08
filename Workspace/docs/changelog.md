@@ -1,5 +1,20 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-09 — Integrate Ubuntu and Windows installation profiles
+
+- **Why:** The verified Ubuntu NVIDIA and Windows WSLg/CUDA setup work lived
+  on separate branches, leaving `main` incomplete for new installations.
+- **Change:** Integrated both profiles, made WSLg the primary full Windows
+  path, retained native Windows only as an explicitly named Steps 0–5
+  fallback, added tracked WSLg/CUDA Compose overlays and model-cache
+  installation, and kept the optional Ubuntu machine override compatible.
+- **Safety/UX:** The native fallback removes Step 6 and suppresses its saved
+  runtime restore. The former ambiguous PowerShell launcher fails with
+  directions to the full WSLg or Steps 0–5 entrypoint.
+- **Verification boundary:** Static script/Compose/document checks are recorded
+  in the September 9 logbook. Existing host trials remain the runtime evidence;
+  a fresh-machine install is still required for each new workstation.
+
 ## 2026-09-07 — DENTO-NOTE: viewer missing mask 2D/3D opacity sliders
 
 - **Why:** Operator reports mask 2D/3D opacity sliders gone from the viewer

@@ -14,9 +14,10 @@ reproducibility, or dated evidence documents.
   digest `sha256:f71da23aaa35161730536530ed18c594ccb7766ed8d3a35cfd68d0f385280faa`.
   Remote `integration/gui-step6` is a
   same-SHA alias only. Overlay root `~/dentobot` is not a git
-  repository; map: `Workspace/HOST_LAYOUT.md`. Windows lab ROS uses WSL2
-  Linux SlicerROS2 (`PLAT-U-04`); Windows WSLg GUI acceptance is pending.
-  Native Windows Slicer stays `PLAT-U-02` / ROS `none`.
+  repository; map: `Workspace/HOST_LAYOUT.md`. The primary Windows profile
+  uses WSL2 Linux SlicerROS2 through WSLg (`PLAT-U-04`) and has one recorded
+  CUDA GUI startup trial. Native Windows Slicer is the explicitly named
+  `PLAT-U-02` Steps 0–5 fallback; Step 6/SlicerROS2 are disabled.
 - `DENTOWorkflow.py` is a thin public Slicer entrypoint. Production UI and
   logic live in `DENTOWorkflow/Resources/Python/dentobot_workflow/`.
 - Legacy and six-workspace Shell presentations share the same MRML parameter

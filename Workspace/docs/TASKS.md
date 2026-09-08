@@ -1,6 +1,6 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-07
+Last reconciled: 2026-09-09
 
 This file is the single actionable queue. Each active item has one stable ID,
 one priority, one status, and one next acceptance action. Implementation order
@@ -46,9 +46,9 @@ preserved in `archive/2026-09-01/TASKS_HISTORY.md`.
 | `S6-U-03` | Experimental design; not planning authority | Derive only confidence-labelled observed oral-air surfaces when suitable open-mouth/phantom data exists; keep unobserved space occupied/unknown |
 | `CASE-U-01` | Backlog | Define and implement an offline no-ROS migrator for contaminated historical MRML/MRB scenes; never load them into a live ROS process |
 | `PLAT-U-01` | Blocked by clean-image acceptance | Rebuild the pinned Ubuntu inference image and accept dependency, backend, Bridge, Slicer import, and persistence behavior without mutable-container repair |
-| `PLAT-U-02` | Pending external workstation | Run Windows 11 **native Slicer** launcher, path, CUDA segmentation, cancellation, and scene-reopen acceptance |
-| `PLAT-U-04` | `lab/2026-09-03` and private Linux/amd64 GHCR image are published with the DentoBot SlicerROS2 fork pinned at `17f99931f54f`; Windows GUI remains unaccepted | On one Windows 11 lab PC authenticate Docker to GHCR, run the pinned WSL installer, launch through WSLg, open DENTOWorkflow, and connect Step 6 ROS/MoveIt simulation. No hardware motion. |
-| `PLAT-U-05` | **Documentation imported; code integration pending.** Source `plat/ubuntu-nvidia-cuda-workstation` at `5dee4da` (2026-09-07). Laptop `--check-only` + in-container CUDA are historical branch evidence. Alternating-device development uses a commit/push then fetch/fast-forward handoff. See logbook `2026-09-07` | On the primary development machine: `git fetch origin plat/ubuntu-nvidia-cuda-workstation`, rebase/merge onto current `main`, resolve any launcher conflicts, keep IITM on `cpu` unless CUDA is intentionally adopted, confirm `./scripts/launch-dentoworkflow.bash --check-only` still passes, then close this item |
+| `PLAT-U-02` | Retired as a primary install; retained as an explicit native Windows Steps 0–5 fallback. Source hides Step 6 and blocks its automatic runtime restore; real-host regression pending | On a Windows workstation, run the renamed fallback check and verify Steps 0–5 plus absence of Robot Simulation; keep native Windows ROS out of scope |
+| `PLAT-U-04` | Windows 11 WSLg+CUDA first installation passed check-only, CUDA health, and GUI startup with the MoveIt simulation stack; setup source integrated, hardware/rendering acceptance excluded | Repeat the documented installer and model-cache check on the next lab PC; record its revision and check-only result before use. No hardware motion. |
+| `PLAT-U-05` | Ubuntu NVIDIA dual-GPU setup and launcher support integrated; laptop `--check-only` and in-container CUDA passed, while IITM CPU regression remains pending | Run the documented check-only gate on the IITM CPU workstation after updating to the integration commit; retain CPU configuration unless CUDA is intentionally adopted |
 | `PLAT-U-03` | Deferred observation | After an approved reboot, record overnight CRD/GDM availability and resource behavior before closing workstation stability |
 | `QA-U-01` | Unresolved | Diagnose why the aggregate Slicer test wrapper returns nonzero although isolated members reach PASS; do not treat isolated PASS as aggregate closure |
 | `ROS-U-01` | Future design | Define geometry-preserving medical-image and transform semantics before broadening ROS scope beyond current bounded simulation interfaces |
@@ -73,7 +73,7 @@ reproducibility record, changelog, and dated logbook.
 | Item | Disposition |
 |---|---|
 | Cross-tool agentic verification protocol | V1 source/pure-contract complete 2026-09-02: one canonical protocol and resource-aware matrix serve Codex, Cursor, and Claude; runtime execution remains approval-gated and serialized |
-| GitHub default / overlay / Windows-lab conversion docs | Reconciled 2026-09-02: `main` is authoritative; tag `lab/2026-09-02` and its private Linux/amd64 GHCR image are published; obsolete `81836a7` `main` was deleted; clean tag/overlay rehearsal and authenticated image pull passed. Windows WSLg GUI remains `PLAT-U-04` |
+| GitHub default / overlay / Windows-lab conversion docs | `main` is authoritative; the pinned lab release and private Linux/amd64 GHCR image are published. First Windows WSLg/CUDA functional startup passed on 2026-09-07; repeatability on the next clean lab PC remains `PLAT-U-04` |
 | Overlay Drive/MCP temps and nested `DentoBot/graphify-out/` | Deleted 2026-09-02; live graph stays at overlay `graphify-out/`. Launch scripts kept |
 | Portable overlay `arduino-pressure/` package | Superseded; live bench is `tools/arduino-pressure/` in the DentoBot git tree |
 | Host Arduino pressure fs / pipeline Config tab | Source complete 2026-09-02; `py_compile` and `--no-gui` verified; live flash/Hz click pending. Sensing-only |

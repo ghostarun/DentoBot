@@ -211,7 +211,7 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
 | `S6-U-03` | Experimental observed oral-air/unknown-space representation | Open-mouth/phantom acquisition and validation reference available |
 | `CASE-U-01` | Offline migration of legacy scenes contaminated with serialized ROS objects | Migration schema and isolated no-ROS process defined |
 | `PLAT-U-01` | Rebuild and accept the clean Ubuntu inference/runtime image | Clean Docker build and governed inference data available |
-| `PLAT-U-02` | Accept the Windows 11 native-Slicer/WSL launcher | Windows workstation available |
+| `PLAT-U-02` | Regress the legacy Windows native-Slicer/WSL Steps 0–5 fallback; Step 6 and native Windows ROS remain excluded | Windows workstation available |
 | `PLAT-U-03` | Close CRD/GDM workstation stability observation | Saved local work and an approved reboot/overnight observation window |
 | `QA-U-01` | Resolve the Slicer aggregate-runner nonzero-exit discrepancy | Focused lifecycle diagnosis approved |
 | `ROS-U-01` | Define the narrow medical-image/transform interoperability contract | Current Step 6 and imaging frame requirements stable |
