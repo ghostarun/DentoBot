@@ -3,4 +3,8 @@
 #   -r requirements/pytorch-cu130.txt
 #
 # This is the PyTorch build verified by DENTOBOT Bridge C on 2026-07-23.
+# Install torch and torchvision together from the same cu130 index. A generic
+# torchvision wheel (no +cu130 tag) raises:
+#   RuntimeError: operator torchvision::nms does not exist
 torch==2.10.0+cu130
+torchvision==0.25.0+cu130
