@@ -1,55 +1,211 @@
 # DENTOBOT Development Plan
 
-## Slicer 5.12 platform migration — active investigation
+Last reconciled: 2026-09-10.
 
-Prepare Slicer 5.12.0 as an isolated candidate while current 5.10 releases stay
-available. The ordered phases are source reconstruction, clean derivative-image
-build, compatibility gates, representative workflow and simulation gates,
-same-host performance comparison, then operator acceptance and release
-promotion. The authoritative phase plan is
-`Workspace/docs/SLICERROS2_5_12_UPGRADE.md`.
+TASKS.md owns the one active work order. The current P0 is main-workflow
+recovery and PreparedBranch integrity. The correction plan is approved for a
+read-only audit; that audit is complete below, and product implementation is
+paused for audit review and final coding approval. Earlier implementation
+fragments are not accepted behavior.
 
-## 2026-09-08 — Bounded FDI11 simulation retry
+The main workflow has one target tooth and one trajectory, or an explicitly
+paired two. The optional 32 × 3 testing foundation is an alternative workflow,
+not a replacement for or expansion of routine case preparation.
 
-Operator's latest policy caps the confirmed simulation drilling path at 6 mm,
-preserving Entry, direction and shorter paths. Retain physical insertion and
-collision guards. The newer FDI11 step6x4x2 package matches the manual 7.977207
-mm source trajectory. Implement and verify cap/reconfirmation first, then
-exercise Home→PreEntry→Entry→effective Target→axial withdrawal→Home with
-explicit runtime approval. Existing strict Return Home is not proof of the
-requested axial withdrawal. Full Track-A acceptance and Track B remain pending.
+Stage 3 / Track A remains incomplete and follows this integrity correction.
+The remaining P1 Case Platform/Studio roadmap stays behind Track-A acceptance.
+Slicer 5.12 migration remains the separate `PLAT-U-06` plan in
+[SLICERROS2_5_12_UPGRADE.md](SLICERROS2_5_12_UPGRADE.md); it is not an action
+for this task. Reviewed clean/post-surgery anatomy is the acceptance baseline;
+retired pre-surgery/x4 cases remain negative diagnostics.
 
-## 2026-09-07 — Production baseline correction after case reset/cleanup review
+## Immediate gate and next implementation package
 
-The pre-surgery/x4 package is retired as a development baseline. Its observed
-non-target contacts, guide-bore mismatch, and provisional base placement remain
-historical diagnostics only; they are not reasons to relax collision policy or
-add case-specific planner branches. The next Track-A acceptance case must be a
-reviewed post-surgery/clean anatomy package with a verified Step 5C tool/guide
-fit.
+The live blocker state and work order are in
+[TASKS.md](TASKS.md#immediate-blockers-and-next-task). The read-only
+PreparedBranch caller/ownership audit is complete below and is the final gate
+before coding. If the audit boundary is accepted, the next product package has
+exactly three deliverables: one persisted authoritative selected-branch ID; one
+centralized branch-eligibility result; and atomic activation of trajectory
+selection, pairing intent, shell, template, guide references and matching Step
+5C verification. The first acceptance path is 4A→4B→4C→5A→5B→5C→6 with one
+target and one trajectory.
 
-The baseline guard now grants the narrow burr-contact policy only to the
-selected target tooth. Adjacent anatomy and the guide/template remain in the
-authoritative collision scene and retain the research clearance margin. The
-retired template-collision bypass and session anatomy-review proxy are
-quarantined behind explicit, process-only historical diagnostic environment
-variables and are never package state or acceptance evidence.
+This package stops when the reviewable diff and focused single-target evidence
+exist. Explicit pairing follows; optional 32 × 3 testing follows that. Stage 3,
+collision-policy or geometry-algorithm changes, Studio, database, batch and
+platform work are outside this package.
 
-This correction is intentionally bounded: the accepted five-joint canonical TCP
-planner, spindle-outside-planning invariant, independent phase guard, endpoint
-checks, and full-chain promotion rules are preserved. Verification and a clean
-case runtime review are the next actions; Track B remains blocked by the Track-A
-full-loop gate.
+## S6-REUSABLE-CASE-SETUP correction plan
 
-Last replaced: 2026-09-04
-Last updated: 2026-09-07
+**2026-09-10 — audit complete; review before product implementation.**
+This is the existing P0 task, not a new roadmap. The previous source-complete
+claim is withdrawn: operator reports show unified-template and Step 6 import
+regressions. TASKS.md alone owns current work order and status.
 
-This is the authoritative implementation order. The former incremental Step 6
-wizard renovation and the separate `.dentostudy` proposal are superseded by two
-tracks: first finish one complete guarded live-simulation loop on a reviewed
-clean/post-surgery case; only then build the case-centric Robot Planning &
-Simulation Studio. The abnormal pre-surgery/x4 package remains a negative
-diagnostic fixture and is not an acceptance target.
+### 1. Separate the main workflow from optional testing
+
+- Main workflow defaults to one target tooth and one trajectory. An explicit
+  paired-canal action may select two trajectories of that same tooth. A third
+  trajectory or another target is never implicitly included by scene inventory.
+- Multi-trajectory testing is an explicit opt-in presentation using the same
+  MRML geometry, registry and branch preparation service. Its capacity remains
+  32 teeth × three explicit slots; it does not alter routine main-workflow
+  selection, preparation or default UI. Preserve existing inactive records when
+  entering/leaving this mode; never delete them to make a single-target view.
+- First restore the normal single-target 4A→4B→4C→5A→5B→5C→6 path.
+  Optional testing controls follow only after that regression gate passes.
+  No batch runner, Results UI, SQLite, platform upgrade or full Studio redesign
+  belongs to this correction.
+
+### 2. Audit and correct one PreparedBranch ownership boundary
+
+Inspection of the current dirty source found raw-trajectory activation in
+`logic_case_bundle.py`, copied per-slot guide dictionaries without pairing
+intent in `DENTOStep6State.py`, and Step 5C checks tied to model state/update
+metadata rather than a complete branch identity. These are audit findings;
+they do not establish the cause of every reported geometry defect.
+
+The 2026-09-10 read-only audit traced the production routes. No product source
+was changed and no runtime check was run.
+
+| Operation | Existing route | Audit result |
+|---|---|---|
+| Build | Step 5B handlers → `_createOrUpdateFinalPrintableTemplate` | Checkbox selection is persisted, but the builder consumes only `trajectoryLine`; explicit pairing intent is therefore not authoritative. |
+| Save / registry | `_createCaseBundle` → `prepareDentoCaseSchema2ForSave` → `syncDentoCaseTrajectoryRegistry` | Scene inventory rebuilds copied per-slot guide dictionaries, infers pairing from model references and derives selection from the raw trajectory pointer. |
+| Load | `_openCaseBundle` → schema-2 hydration / registry comparison | Offline load is correctly preserved, but hydration does not activate one validated selected PreparedBranch. |
+| Select | target/trajectory/Step 5B UI handlers → `activateDentoCaseTrajectory` | Selection partially swaps global pointers, permits a same-target docking fallback and has no prevalidated all-or-nothing branch transaction. Independent selectors can still split branch state. |
+| Import | `importStep6PlanningContext` → `validate_planning_context` plus freshness checks | Import validates raw global node presence and scattered state tokens, not one centralized branch identity and matching Step 5C revision. |
+| Delete / invalidate | `deleteTrajectoryNode`, `_activePlanningDownstreamEntries`, dependency impact and node observers | Traversal is rooted in active global pointers; inactive branch records and all of their revisions are not one centralized invalidation domain. |
+| Step 4C / insertion | `targetDockingTrajectoriesForTarget`, `createOrUpdateTargetDockingAssembly`, insertion-direction builders | Step 4C can consume all complete same-target trajectories, up to three. Both docking and insertion depend on exact branch inputs and must not be classified as shared merely because active storage is global. |
+
+This ownership table is the coding contract:
+
+| State | Authoritative owner / reuse rule |
+|---|---|
+| CBCT / anatomy | Case-shared. |
+| Target tooth | Case-target identity referenced by each PreparedBranch; active target switches with the branch. |
+| Trajectory / trajectories | PreparedBranch. |
+| Pairing intent | PreparedBranch and explicit; never inferred from scene inventory alone. |
+| Step 4B support / Step 5A visible surface | Case-target-derived upstream state; reusable only when exact source, target, support and dependency fingerprints match. |
+| Insertion direction / Step 4C docking | Branch-dependent upstream state. Reuse only for the exact branch dependencies; never treat it as case-shared because the current pointer is global. |
+| Patient shell | PreparedBranch. |
+| Unified template | PreparedBranch. |
+| Guide geometry / references | PreparedBranch. |
+| Step 5C evidence | PreparedBranch revision. |
+| Jaw opening | Shared runtime setup only while its inputs are unchanged. |
+| Landmarks / base transform / Home | Shared runtime setup only while their inputs are unchanged; saved configuration never restores live validity. |
+| Collision acknowledgement / plans / previews / guards / diagnostics | Branch-runtime state; invalidate on branch switch. |
+
+Before changing code, review this audit against the current source and accept or
+correct its boundary. Retain the serializer and mask-display repairs; do not
+broadly revert collision/planner/diagnostic work.
+
+- Define PreparedBranch by extending the existing guide-set record and stable
+  guide ID. Each branch has one owner tooth, one trajectory ID or an explicitly
+  approved pair, exact patient-shell/template/guide MRML references, source
+  fingerprints and a Step 5C verification identity.
+- Store each branch once in the existing registry; slots reference branch IDs.
+  A paired branch references T1 and T2 explicitly, with no copied mutable branch
+  records. Independent A/B/C branches may coexist with AB without silently
+  overwriting any association. No second registry or persistence file.
+- Use a persisted selected branch ID as the Step 6 selection authority.
+  `trajectoryLine` remains the primary trajectory compatibility pointer;
+  the existing repeated trajectory references carry the whole selection.
+  A pair's primary trajectory is selected explicitly for a planning attempt;
+  this does not authorize a two-trajectory drilling cycle or change the planner.
+- Keep the shell and unified-template geometry authoritative in MRML. Branch
+  identity is stable across rebuilds; geometry/evidence fingerprints change.
+  Names, UI selection order, timestamps alone and scene enumeration cannot
+  determine ownership or establish current verification.
+
+### 3. Enforce upstream and downstream gates
+
+- Step 5B shows the selected target/trajectory with an optional explicit
+  pairing action. Validate complete locked lines, source segmentation/target,
+  current support/visible surface, insertion direction, confirmed docking,
+  dimensions and dependency fingerprints before any geometry generation.
+- Step 4B/5A anatomy preparation may be reused when its dependencies match.
+  Audit Step 4C and insertion-direction dependencies instead of assuming they
+  are trajectory-independent. Reuse only a matching compatible result; otherwise
+  fail with the precise upstream action needed. Do not silently relax docking
+  provenance checks or rebuild unrelated geometry when selecting a slot.
+- Build outputs are staged until all existing geometry checks succeed, then
+  published together to the selected branch. Failure leaves the prior valid
+  branch intact and reports the first failing prerequisite/stage. No partially
+  swapped shell/template pointers and no overwrite of another branch's models.
+- Step 5C evidence binds the exact branch, trajectories, shell/template geometry,
+  relevant source/parameter fingerprints and verification policy identity.
+  Preserve existing PASS/WARNING/FAIL semantics and warning approvals.
+  Missing/mismatched evidence blocks Step 6 eligibility; an STL is not authority.
+- Centralize branch eligibility so 5C, Step 6 import, branch selection and load
+  call one result, conceptually `evaluatePreparedBranchEligibility(branchId)`.
+  Its minimum stable reason vocabulary is `VALID`, `MISSING_TRAJECTORY`,
+  `PAIRING_NOT_CONFIRMED`, `STALE_4C`, `MISSING_TEMPLATE`, `STEP5C_MISMATCH`,
+  `UPSTREAM_CHANGED` and `LEGACY_UNVERIFIED`; add another reason only for an
+  observed state that cannot be represented by these. Saving may retain drafts
+  or stale evidence for repair, but never promote them to eligible branches.
+- Any template with three trajectories is ineligible. Existing safe-to-load
+  packages retain such geometry as historical/requires repair; they do not
+  become active branches, get silently split, or prevent unrelated valid
+  branches from being inspected. Structural archive corruption still fails
+  integrity validation. Legacy two-trajectory geometry requires explicit
+  pairing confirmation if intent cannot be proven, followed by current 5C checks.
+
+### 4. Switch a complete branch and invalidate actual dependencies
+
+Resolve and validate the entire destination before changing the active state.
+One transaction swaps the exact trajectory set/primary pointer, explicit
+pairing intent, matching branch-dependent 4C/insertion references, patient
+shell, unified template, guide references and matching 5C evidence. This stays
+inside the one atomic-activation deliverable; it is not a fourth workstream.
+Re-entrant UI observers must not see or invalidate a half-selected branch. On
+validation or publication failure, switch nothing. Selecting the already active
+branch is a no-op.
+
+| Trigger | Preserve | Invalidate / refresh |
+|---|---|---|
+| Select another eligible branch with unchanged environment | Accepted jaw transform/gap, landmarks, anatomy, base matrix/lock, Task Home configuration, all stored branch geometry and evidence | Branch task confirmation, collision acknowledgement, plans, previews, guards, diagnostics; replace/hide only outgoing branch display proxies |
+| Edit T1 | T2/T3 and branches not referencing T1; shared setup | T1 evidence and A/AB dependents; 5C must reverify after rebuild |
+| Edit support, docking, shell or template | Unreferenced branches; unrelated shared state | Every branch that actually references the changed input and its 5C/runtime evidence |
+| Change source jaw/anatomy frame, opening landmarks or mouth-gap configuration | Recoverable stored values | Affected shared opening/base/Home and branch/runtime dependents, with explicit reason |
+| Change robot/tool identity or base | Source anatomy and independent branch geometry | Existing robot/base/Home/runtime dependencies as appropriate; guide/tool verification when actual fit dependencies change |
+| Load/reopen or reconnect | Valid saved geometry/configuration and historical evidence | All live runtime validity; load remains offline |
+
+Branch switching cannot move the robot or erase a pending Return Home/recovery
+obligation. Block switching while an action/preview is active or recovery is
+required; use existing stop/recovery handling. Home configuration is preserved,
+but validity against the newly selected guide scene must be freshly established.
+This is runtime validation, not a reason to stale the accepted shared setup.
+
+### 5. Migration, verification and stopping gates
+
+1. Pure/state checks: single, explicit pair, reject implicit pair/three-way merge;
+   32 × 3 capacity/fourth rejection only in testing; stable branch IDs,
+   correct ownership, unrelated branch preservation and transaction rollback.
+2. Package checks: schema-1 deterministic migration, existing schema-2 input,
+   newer save round trip, A/B/C and AB preservation, missing/mismatched 5C
+   identity, inspectable but ineligible legacy three-trajectory geometry.
+   No package rewrite until explicit save; no ROS/live-plan restoration.
+3. Focused Slicer checks under the existing protocol: default single-target
+   build→5C→6 import first; explicit pair next; optional T1/A→T2/B→T3/C
+   switching and save/reopen last. Assert unchanged jaw/base/lock/Home values,
+   exact reference/evidence swaps and no visible outgoing proxies.
+4. Exercise real dependency edits, failed builds, incomplete branches and
+   repeated selection/import. A build passing alone does not prove 5C/import
+   acceptance. Preserve existing geometry/connectivity/bore checks, including
+   the FDI11 terminal-collar regression, without tuning geometry algorithms.
+5. Normal-window operator review closes usability and stale-state acceptance.
+   Report implementation, unit/package, Slicer runtime and operator evidence
+   separately. Keep retry history and exclusive-runtime rules from the protocol.
+   Then update TASKS.md and refresh Graphify after code changes.
+
+Stop after this correction's reviewable diff and focused acceptance evidence.
+Do not proceed into Stage 3 planning during this milestone. After workflow
+integrity, resume `S6-LIVE-01..05` against a current reviewed branch and its
+recorded case constraints; exact Target, axial withdrawal, guarded Home and a
+fresh repeat remain required. Major Studio work stays behind that acceptance.
+
 
 ## Non-negotiable boundary
 
@@ -112,62 +268,13 @@ format or database is introduced.
 
 Track B cannot start until `S6-LIVE-05` is operator/runtime accepted.
 
-### 2026-09-05 immediate P0 correction — physical insertion and anatomy review
+### Existing physical and collision prerequisites
 
-The current x4 functional chain is not accepted merely because its five-joint
-kinematics reach Target. Before the final Track-A loop, enforce a provisional
-tool-only insertion constraint:
-
-```text
-requested Entry->Target depth <= effectiveToolProtrusionMm - 0.1 mm
-```
-
-The value represents the axial distance from `dentobot_drill_tcp` to the first
-upstream tool/housing geometry that cannot enter the access path. A violation
-is `TRAJECTORY_TOOL_INSERTION_LIMIT_EXCEEDED`; it must block preflight without
-shortening the approved line, moving either endpoint, or relaxing a tolerance.
-The result is explicitly *Provisional tool-only insertion limit — final guide
-geometry not included* and is displayed with requested depth, protrusion,
-reserved clearance, maximum depth, and remaining margin.
-
-The present CAD/URDF provisional value is `7.0 mm`: the nearest upstream
-`pneumatic_spindle-Copy` housing mesh is 7.0 mm behind the canonical tip along
-the tool axis. With the `0.1 mm` reserve, maximum requested depth is `6.9 mm`.
-The x4 line (`15.760533814 mm`) is therefore intentionally blocked as an
-insertion-capacity failure until the physical tool/access configuration or the
-approved trajectory is changed upstream.
-
-Collision semantics remain separate. The x4 template-excluded diagnostic has
-complete Stage 1/2/3 kinematic branches but presently rejects the best retained
-Stage-3 point because its FCL minimum distance from
-`pneumatic_spindle-Copy` to FDI15 is `0.998041065511 mm`, below the additional
-`1.0 mm` research clearance margin. That inspected housing point is a margin
-violation, not a reported housing mesh intersection. The completed read-only
-actual-contact audit, however, establishes a separate hard blocker: every
-auditable candidate reaches an actual FDI15↔`burr` contact at Stage 2 waypoint
-14 and again from Stage 3 waypoint 0 (alongside the expected target↔burr
-contact). Thus the complete x4 chain is neither physically collision-valid nor
-eligible for a margin-only reclassification. Neither base placement nor the
-margin policy changes from this evidence.
-
-If a reviewed FDI15 region is plausibly a segmentation artifact, the only
-permitted Track-A remedy is a manual, session-local derived collision proxy:
-source segmentation stays untouched, the reviewed region is local, and the UI
-labels it `Research simulation anatomy override`. It is never an automatic
-whole-tooth exclusion or a silent `.dentocase` authority change. The approved
-temporary Step-5C template/guide exclusion remains a separate, explicit,
-non-default functional-simulation override and cannot support a physical-fit
-claim.
-
-Source implementation now provides this review route in Step 6.5. It creates
-one disposable copy of an explicitly selected non-target whole-tooth segment,
-opens that copy—not source anatomy—in Segment Editor, and requires the
-operator's explicit artifact confirmation before a collision-scene re-sync can
-use it. Activation discards transient plans, marks confirmation/diagnostics
-stale, and requires a fresh acknowledgement and confirmation. The copy is
-`SaveWithSceneOff`; it is not a DentoCase/MRML authority. This source checkpoint
-does **not** establish that FDI15 is an artifact, does not add exact contact
-point visualization, and has not yet received a Slicer runtime verification.
+The recorded insertion, anatomy, tool/guide fit, exact-endpoint and independent
+guard checks remain in force. Use the current case-specific TASKS.md entry and
+dated evidence; do not transplant old x4 parameters or diagnoses into another
+case. Historical `S6-P0-DEPTH`, `S6-P0-CLEARANCE` and anatomy-review
+attempts are retained in the 2026-09-04–09 logbooks.
 
 ### `S6-LIVE-00` — documentation and source checkpoint
 
@@ -199,80 +306,13 @@ last-valid and first-invalid joint state, collision/kinematic classification,
 and MoveIt collision pairs where available. The requested depth is never
 shortened. Full-chain state is `Complete` only when every stage reaches 100%.
 
-### Track-A kinematic-model correction — 2026-09-04
+### Established model and evidence boundary
 
-The bounded spindle correction is now source-complete. The MoveIt
-`dentobot_arm` group and all Step 6 planning APIs use five commandable joints
-(J1–J5) and the fixed upstream `dentobot_drill_tcp`. J6 remains only in the
-URDF visual/collision branch and is held at `0 rad` for six-value display
-compatibility; the guard rejects six-value motion commands rather than
-commanding it. The canonical TCP is a fixed sibling of
-`pneumatic_spindle-Copy`, evaluated at the CAD reference spindle angle, so
-orientation and position do not depend on air-rotor roll.
-
-The correction removed production solve-with-J6-then-canonicalize behavior.
-Task Home, workspace samples, IK/FK, trajectories, Goal 1/Goal 2, Return Home,
-phase commands, previews, and metrics now carry J1–J5 only. Older six-value
-saved records retain their first five arm values at the persistence boundary;
-old roll-dependent evidence is stale under the new robot-profile/policy
-fingerprint. Direct canonical FK accepts a legacy six-value vector only by
-discarding its sixth slot. No residual tolerance, collision policy, corridor,
-endpoint, or partial-path rule changed.
-
-Focused source/build evidence is recorded in the 2026-09-04 logbook:
-86/86 pure tests passed, the SlicerROS2 package rebuilt successfully, the ROS
-MoveIt smoke passed with five planning values and explicit legacy-spindle
-rejection, and the phase-guard smoke passed all listed acceptance/rejection
-cases. The façade smoke emitted its functional JSON (canonical TCP, five-joint
-state, native Goal/IK/Plan, expert return, and workspace assertions); its
-process still exits nonzero at shutdown because pinned SlicerROS2 reports
-retained VTK wrappers. The required complete x4 Home→PreEntry→Entry→Target→Home
-normal-window trial remains the next gate, and Track B remains blocked.
-
-### Track-A five-constraint IK correction — source implemented 2026-09-04
-
-The exact x4 diagnosis showed that the fixed `dentobot_drill_tcp` transform is
-correct, but the KDL MoveIt IK entrypoint still demanded XYZ plus a complete
-quaternion from the five-DOF arm. A historical x4 J1–J5 endpoint evaluated
-against the corrected TCP reaches PreEntry within about `0.099 mm` and the
-Entry→Target axis within `0.0068 deg`, proving the required position-plus-axis
-task is reachable independently of axial housing roll.
-
-Source now adds one bounded native MoveIt-model Jacobian solve for XYZ plus
-tool +Z. It uses only J1–J5, leaves axial housing roll out of the task error,
-enforces existing bounds, validates endpoints against the current Planning
-Scene, and retains best residual evidence on failure. Goal 1 uses the existing
-Task Home/Home-connected seed set and records the authoritative FK frame as a
-display/fingerprint scaffold. Stage 2 and Stage 3 preserve the exact
-Entry/Target points and drill axis; the continuity fallback does not invent a
-sixth roll constraint. When local continuity reaches a joint boundary it may
-try only the already accepted 6.3 Home-connected arm postures, with no new
-samples, tolerance changes, endpoint substitution, or partial-path promotion.
-The policy is `stage1-position-axis-authoritative-fk-v3`; older full-frame
-orientation evidence is stale. Every complete Stage-3 plan also receives an
-independent authoritative final-target FK check.
-
-### Track-A Stage-3 boundary diagnosis — 2026-09-04
-
-The approved x4 focused run now reaches the exact Stage-3 line through pose
-`59/64`. At pose `60/64`, all bounded J1–J5 continuity attempts retain a
-finite state at the J2 lower bound with about `0.25 mm` position residual and
-`0 deg` drill-axis residual; no collision pair is reported. The separate
-guide-fit audit still reports the physical `2.0 mm` burr versus `1.5 mm` bore
-mismatch, but that is not the kinematic cause. The source therefore tries only
-verified 6.3 Home-connected branch seeds at the first local boundary, keeps the
-exact line/tolerances/guard unchanged, reports the native best residual, and
-keeps the full task `Blocked` until Stage 3 reaches the exact Target. The
-retained Stage-1/Stage-2 preview is explicitly provisional; no partial drilling
-path is promoted.
-
-Focused FK evidence now classifies this boundary explicitly as
-`sequential_position_axis_joint_limit`: the best state is pinned at
-`link-2_Slider-2`'s lower mechanical limit and the exact pose is approximately
-`0.2510335 mm` beyond it along the J2 axis. The diagnostic-only out-of-range
-probe is not a valid plan. The next action is operator base/case-placement
-correction followed by normal Task Home/workspace/task revalidation; no URDF
-limit, tolerance, target, or collision-policy change is permitted.
+J1–J5 plan to the canonical non-spinning TCP. Exact position and tool axis are
+the task constraints; housing roll is not a commanded degree of freedom.
+Existing FK, joint-limit, corridor, endpoint and full-path promotion checks
+remain mandatory. Historical x4 fractions and J2 limit diagnoses live in dated
+evidence; the latest FDI11/FDI21 result is summarized once in TASKS.md.
 
 ### `S6-LIVE-02` — independent full-chain guard
 
@@ -339,7 +379,7 @@ must prove:
 - correct static paths and adjustable preview speed without skipped/reordered
   commands;
 - endpoint TCP verification at Entry and Target;
-- guarded Return Home and monitored Home confirmation;
+- guarded axial withdrawal, then Return Home and monitored Home confirmation;
 - replan and second preview without restarting Slicer;
 - safe stop/recovery; and
 - no hardware/controller command path.
@@ -415,28 +455,29 @@ integrity/checksums.sha256
   environment-fingerprint revalidation. Unsaved crash-time work is not
   reconstructed.
 
+The P0 reusable-case foundation emits the schema-2 fixed members above with an
+empty validated study index/NDJSON ledger; dynamic attempt/replay inventory is
+deferred to the separately scoped study runner. The complete 32 × 3 registry,
+shared environment, landmarks/transforms, base lock and Task Home live in the
+authoritative MRB parameter state and node graph. Schema-1 packages migrate
+deterministically in memory and retain schema 1 until a later explicit user
+save. Package load clears runtime validity, plans, guards and callbacks and
+does not auto-connect ROS/MoveIt.
+
 ### Trajectory and planning identity
 
-Each tooth owns zero to three stable registry records. New candidates are
-manual; existing assisted nodes migrate with `legacy-assisted` provenance.
-The existing MRML line remains the geometry and the current `trajectoryLine`
-reference temporarily remains the active compatibility pointer. A fourth
-trajectory is rejected. Editing one trajectory stales only its dependent
-evidence.
+The current P0 PreparedBranch contract above owns trajectory/guide selection.
+The 32 × 3 capacity applies to optional testing; normal preparation stays
+single-target. Do not rebuild this foundation during P1.
 
-Manual Entry placement snaps to a reviewed visible crown surface of the
-selected tooth and retains exact source/MPR provenance.
+`RobotEnvironmentSnapshotV1` identifies shared case/anatomy, jaw, robot/tool,
+base, Home and other actual shared dependencies. `AttemptContextV1` binds
+that environment to the selected prepared branch, active member trajectory,
+planner/start-state and phase/contact policy. Geometry stays in existing MRML.
 
-Planning identity is split into:
-
-- `RobotEnvironmentSnapshotV1`: case/anatomy, accepted jaw, robot/tool, base,
-  Task Home, common collision scene, limits, and workspace fingerprints;
-- `AttemptContextV1`: environment plus tooth, trajectory, planner settings,
-  explicit start, guide/contact mode, and phase policy.
-
-Research studies use common jaw/all-teeth anatomy without trajectory-specific
-guide/template/dock geometry. Guarded Preview requires the current matching
-Step 5C guide/template and a fresh Track-A-quality plan.
+Future non-moving research studies and fresh guarded previews retain distinct
+eligibility/collision modes. Study results never authorize a guarded preview;
+the exact matching current branch and independently accepted plan are required.
 
 ### Study evidence
 
@@ -474,15 +515,15 @@ accepted Track-A backend intact rather than rebuilding it.
 |---:|---|---:|---|
 | 1 | `DCP-00` | 1 | Freeze Track A and publish its backend handoff |
 | 2 | `DCP-01` | 1 | Controlled roadmap/documentation supersession |
-| 3 | `DCP-02..08` | 1 | Domain objects, IDs/fingerprints, schema migration, trajectory registry, robot environment, sessions, cross-session x4 proof |
+| 3 | `DCP-02..08` | 1 | Remaining domain/session work and cross-session proof; reuse the accepted P0 registry/environment/persistence subset |
 | 4 | `DCP-09..10` | 1 | SQLite DentoLibrary backend and case browser |
 | 5 | `DSS-01..05` | 1 | Studio shell, Robot/Environment, Workspace, Trajectories, and frozen guarded-preview migration |
 | 6 | `DSS-06..12` | 1 | Studies, results, replay, and Procedure/Research separation |
 | 7 | `DHW-01..02` | 1 | Hardware-session data boundary and digital-twin interface preparation only |
 
-P1 is blocked until the complete Track-A x4 loop passes. It has no authority
-to start schema, database, multi-tooth, Studio, or GUI-rearchitecture work
-early. Visual-only polish remains after functional acceptance.
+P1 is blocked until the reviewed clean-case Track-A loop and repeat pass.
+Only the specifically promoted P0 PreparedBranch/shared-environment correction
+precedes that gate. Database, batch studies and GUI rearchitecture remain P1.
 
 ## Verification and evidence
 
@@ -491,7 +532,6 @@ state the smallest check and what it proves; obtain approval for Slicer, ROS,
 MoveIt, build, or runtime execution; record the exact command/revision/result
 and first failure; and proceed only after acceptance. No synthetic result is a
 clinical, manufacturing, physical-placement, or hardware-safety claim.
-Last reconciled: 2026-09-03
 
 This file defines implementation order, milestone gates, and workflow ownership.
 Actionable status is tracked once in `TASKS.md`; architectural rationale belongs
@@ -518,18 +558,12 @@ pre-cleanup plan is preserved in
   `../../Testing/verification_matrix.json`: read-only workers, bounded evidence,
   and one serialized Slicer/ROS/MoveIt runtime lane.
 
-## Current implementation order
+## Work-order ownership
 
-| Order | Task ID | Outcome | Exit gate |
-|---:|---|---|---|
-| 1 | `S6-P0-01` | Complete spindle-locked, fixed-frame Home→PreEntry→Entry→Target planning | One collision-valid complete chain; identical frame fingerprint through all stages; guarded previews available; no non-tool collision relaxation |
-| 2 | `S6-P0-02` | Resume valid saved Step 6 checkpoints at the highest truthful substep | Normal-window complete/partial/ROS-unavailable/repeated-load acceptance; 6.6 still requires a fresh complete plan |
-| 3 | `S6-P1-01` | Finish anatomically constrained Step 6A landmarks and hinge review | Condylar/crown regions, exact-source snapping, MPR review, guide metrics, and representative anatomy acceptance |
-| 4 | `S6-P2-01` | Add progressive restored-case integrity review | Steps 1–6 show one integrity state, reason, and recommended action without partial archive hydration |
-| 5 | `S6-P2-02` | Add transient incisor-gap preview | Smooth preview; one explicit lock commits and invalidates descendants once |
-| 6 | `S6-P2-03` | Add shared progress/completion feedback | Truthful busy/progress/result feedback without fabricated percentages or duplicate callbacks |
-| 7 | `UI-P3-01` | Refine the New GUI after correctness gates close | Legacy parity, viewport-first layout, accessibility, and no new MRML/ROS side effects |
-| 8 | `S6-U-01` | Finish clean native SlicerROS2 shutdown | Zero-exit lifecycle with no retained SlicerROS2/MoveIt wrappers; may advance only if the defect again disrupts normal workflow |
+Use TASKS.md. The former `S6-P0-01` planner queue is continued under
+`S6-LIVE-01..05`; the `S6-P0-02` restore queue is continued under
+`S6-RESTORE-ROBOT-ROS` and the P0 PreparedBranch acceptance checks.
+No parallel queue or automatic checkpoint-reconnect sequence remains active.
 
 ## Step 6 ownership contract
 
@@ -548,99 +582,14 @@ confirmation, plans, and guard sessions. ROS nodes, MoveIt plans, publishers,
 subscribers, goal robots, guard sessions, and active flags are transient and
 must never be stored in `.dentocase`.
 
-## `S6-P0-01` — fixed-frame full-chain planning
+## Saved-case continuation
 
-The pneumatic spindle remains in the six-joint compatibility schema and visual
-robot but is planning-locked at `0 rad`. Stage 1 commits one immutable drilling
-frame at PreEntry: tool +Z follows Entry→Target and the remaining rotation about
-that axis comes from the selected collision-aware arm solution. Stages 2 and 3
-must use the identical frame.
-
-Candidate selection evaluates distinct arm routes, not spindle-roll variants:
-
-1. strict collision-free Task Home→PreEntry planning;
-2. one fixed-axis PreEntry→Entry Cartesian path generated without MoveIt's
-   coarse collision stop, then independently phase-guarded so only configured
-   burr-to-task contact is suppressed and every non-tool rule remains strict;
-3. fixed-frame Entry→Target Cartesian drilling preview; and
-4. non-mutating independent guard validation of every returned waypoint.
-
-Complete guarded chains rank first, then minimum normalized joints-1–5 motion
-after PreEntry. A valid Stage-1 plan may remain a clearly labelled provisional
-preview when a later stage blocks, but no partial Stage 2 or Stage 3 path can be
-promoted. Diagnostics must retain route identity, frame fingerprint, per-stage
-fraction/waypoint count, composed and stage-local first-invalid indices, guard
-cause, joint margin, collision pair, and the provisional/complete/blocked
-classification. A blocked attempt opens the existing bounded inspector with a
-stage-specific explanation and recovery action; this feedback is evidence-only
-and cannot authorize collision relaxation or execution.
-
-The 2026-09-01 exact-x4 trial after expanding the arm seeds remained truthful
-but incomplete: Stage 1 retained 55 guarded waypoints with J6 fixed while the
-old guessed-split Stage 2 again stopped at 50% (11 retained waypoints). Earlier
-diagnostics identified forbidden `link-3`↔tooth contact at that boundary. This
-is a diagnostic fixture, not authority to relax non-tool collision.
-
-The bounded source increment is Python/pure-test verified but has not had a
-normal-window Slicer/MoveIt trial. Stage 1 now
-uses every bounded 6.3 Home-connected representative, removes duplicate
-joints-1–5 solutions, and rechecks each canonical J6-zero endpoint through
-MoveIt validity. Planner revision v4 replaces the guessed terminal-distance
-split with one full fixed-axis Stage-2 path and gives each candidate an isolated
-validate-only guard session. A Stage-2 guard failure preserves only the valid
-Stage-1 preview and reports its first rejected waypoint/cause. The production
-inspector now reports all three stage outcomes, per-stage progress, first
-invalid location, exact retained cause, and the appropriate operator next
-action. A false-positive completion path was also closed: a failed Stage-3
-preflight is cleared and cannot be persisted or advertised as complete. Motion
-diagnostic schema 2.1 retains read-only schema-2.0 compatibility. `py_compile`
-passed and the scoped state/façade suites passed `33/33`; runtime evidence is
-still required before claiming a complete x4 chain.
-
-The 2026-09-03 operator trial supersedes that pending-runtime statement for
-the current x4 attempt: Stage 1 passed with 328 waypoints and Stage 2 passed
-with 18, while every inspected fixed-frame candidate stopped at 91.7% of
-Stage 3 with 42 retained waypoints. Because Stage 3 requested MoveIt with
-collision avoidance disabled and reported no collision pair, this is presently
-a Cartesian kinematic/continuity failure, not collision evidence. Source now
-propagates the first invalid requested pose and classification, retains each
-live candidate path for display-only static/animated inspection, and adds a
-workstation preview-speed control. Compilation and restore tests pass; the new
-diagnostic regression passes within a `50 passed, 1 failed` planning gate whose
-sole failure is the known unrelated draft-AABB neutral-pose assertion. Goal 2
-remains correctly blocked pending normal-window acceptance and a complete
-Stage 3.
-
-The current P0 source increment adds a bounded sequential continuity-IK
-fallback after a partial collision-off Cartesian response. It solves the same
-fixed-frame poses from the explicit previous state, verifies FK residuals, and
-still requires the independent phase guard to accept every returned waypoint.
-Static and pure checks now pass for this increment (with the known unrelated
-draft-AABB neutral-pose planning assertion still failing); this remains source-
-only until the reloaded x4 runtime proves a complete Stage 3. The fallback
-cannot promote a partial or guard-rejected path.
-
-## `S6-P0-02` — saved-checkpoint continuation
-
-`.dentocase` restore remains one atomic geometry/lineage transaction. After it
-passes integrity validation, a package saved after 6.2–6.5 may best-effort
-reconstruct the local robot and transient ROS/MoveIt runtime, reapply and
-revalidate Home, replay saved workspace evidence, reconfirm the immutable task,
-and select the highest truthful substep. It must stop at the first missing,
-stale, incompatible, or unavailable prerequisite and explain why.
-
-All workflow steps remain freely selectable for inspection after restore;
-mutation actions remain gated by current prerequisites. A complete checkpoint
-may land at 6.5, while 6.6 remains blocked until a fresh complete Goal 1 plan is
-generated in the new runtime. Current source/pure verification is not a
-substitute for normal-window acceptance.
-
-The same operator trial proved automatic runtime reconstruction begins, but
-the workflow visibly remained at 5C until Step 6 was selected and truthful
-revalidation stopped at 6.3. Source now switches to Step 6 before reconstruction
-starts; it still stops at 6.3 when saved workspace evidence cannot be replayed.
-This landing change passed compilation and the `28/28` pure restore gate;
-normal-window behavior remains unaccepted.
+Case load is an atomic, offline geometry/configuration transaction. All stages
+remain navigable for inspection; actions require current local prerequisites.
+Explicit runtime activation later reconstructs runtime objects and validates
+the selected PreparedBranch, current scene and Home. It does not restore
+plans, guards or live validity from package contents. The former best-effort
+automatic ROS reconnect/task reconfirmation sequence is superseded.
 
 ## Remaining correctness work
 

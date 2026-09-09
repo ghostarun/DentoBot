@@ -1,18 +1,13 @@
 # DENTOBOT Project Context
 
-> Windows/release checkpoint (2026-09-09): Direct Docker Engine inside WSL2 is
-> the default full Windows provider; Docker Desktop WSL integration is an
-> exclusive alternative. `Workspace/docs/WINDOWS_SETUP.md` is canonical.
-> `main` remains
-> active development, a `stable/lab` moving accepted branch is planned for the
-> next isolated release checkpoint, and only immutable `lab/YYYY-MM-DD` tags
-> identify lab installations. SlicerROS2 stays independently pinned by commit
-> SHA, and reusable runtime images require an independently accepted digest.
+Current routing (2026-09-10): [AGENT_CONTEXT.md](AGENT_CONTEXT.md) is the
+compact entrypoint; TASKS.md owns current work and DEVELOPMENT_PLAN.md owns
+the acceptance contract. This file describes product purpose, not a live queue.
 
-> Cross-platform note (2026-08-11): product and safety decisions are shared.
-> The primary Windows installation is the WSLg Linux SlicerROS2 profile.
-> Native Windows Slicer + WSL2 inference is retained only as an explicitly
-> named Steps 0–5 fallback; Step 6 and native Windows ROS are excluded.
+Main case preparation uses one target tooth and one trajectory, or an explicit
+pair. The 32 × 3 testing foundation is an optional alternative. The current P0
+is PreparedBranch/workflow integrity; Stage 3 and the major Studio revamp remain
+pending. No historical checkpoint authorizes new work.
 
 ## Project goal
 
@@ -48,124 +43,7 @@ custom branding.
 - AI outputs require human review and independent validation.
 - Planned trajectories do not authorize drilling.
 
-## 2026-09-04 Track-A kinematic-model correction
 
-The MoveIt planning group `dentobot_arm` now contains only the five
-commandable arm joints J1–J5 and targets the fixed, provisional
-`dentobot_drill_tcp` frame. The pneumatic J6 air-rotor remains in the URDF
-visual/collision tree but is not a positioning DOF; its visual compatibility
-value is neutral `0 rad`, and the phase guard rejects legacy six-value motion
-commands. The downstream `dentobot_tool_tcp` and
-`dentobot_drill_tip_provisional` frames remain display/collision resources,
-not planning TCPs. Older six-value case records migrate by retaining J1–J5 and
-their roll-dependent evidence is stale under the new robot-profile fingerprint.
-
-The source correction is focused and does not relax FK residuals, collision,
-corridor, endpoint, or partial-path rules. Focused static/runtime evidence is
-recorded in the 2026-09-04 logbook. The complete normal-window x4 guarded loop
-and repeat/Return-Home trial remain pending; Track B stays blocked.
-
-## Active Step 6 stabilization checkpoint — 2026-09-02
-
-## 2026-09-03 guarded-live-first replacement roadmap
-
-The immediate product gate is no longer incremental Step 6 UI cleanup or a
-separate study package. DENTOBOT must first complete one repeatable, guarded,
-simulation-only x4 sequence from Task Home through PreEntry, Entry, and Target,
-then return to monitored Task Home. Only a 100% fixed-frame, J6-zero path whose
-every waypoint passes the independent phase guard can unlock drilling preview.
-The exact finite acceptance contract is in `DEVELOPMENT_PLAN.md`.
-
-After that gate, Step 6 becomes a Robot Planning & Simulation Studio. The
-Studio preserves the accepted robotics backend, makes `.dentocase` the sole
-case/study package, supports up to three manual trajectories per tooth,
-separates non-moving research studies from fresh guarded preview, and restores
-historical evidence without automatically reconnecting ROS.
-
-## 2026-09-03 release candidate boundary
-
-The current published release is `lab/2026-09-03`. It pins the native
-SlicerROS2 repair to the DentoBot-controlled fork commit
-`17f99931f54f1e7941d7a66b30a849d2a37baccd` and the GHCR image
-`ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903` at digest
-`sha256:f71da23aaa35161730536530ed18c594ccb7766ed8d3a35cfd68d0f385280faa`.
-Windows WSLg acceptance is still an external workstation gate.
-
-Priority-0 source implementation now separates a diagnostic Manual Simulation
-Base from the deferred physical forehead/mount problem, audits exact
-per-segment collision payloads against the guard's monitored MoveIt scene,
-retains bounded partial-path evidence with first-invalid classification, and
-uses explicit free-space, fixed-axis terminal-contact, and drilling stages.
-The 2026-08-31 runtime-first continuation also makes 6.1 own ROS/scene
-bootstrap, plans and guards any different current-to-Home transition in 6.2,
-and makes 6.3 persist MoveIt FK/static-valid samples separately from a bounded
-Home-connectivity classification. The latest focused native/UI build and
-static gate passed, but the checkpoint is not yet operator-runtime accepted;
-no hardware or execution path is enabled.
-
-The current renovation is now locked to one action owner per substep. 6.1 alone
-owns Connect/Disconnect, runtime diagnostics, and collision-scene audit; 6.4
-is confirmation-only. The earlier shared card that displayed those runtime
-actions in both substeps was an incomplete presentation refactor, not a second
-accepted connection path. Source has been split and the hidden XML runtime
-buttons are disabled. The expanded native/UI batch passed the isolated
-`slicer_ros2_module` rebuild, four-module Python syntax check, and both
-repository whitespace/conflict checks; it remains operator-runtime-unverified.
-- Robot execution and safety require a separate control architecture,
-  hazard analysis, and verification program.
-
-## 2026-08-24 native Step 6 placement-to-task checkpoint
-
-Step 6 is now one seven-gate simulation workflow inside DENTOWorkflow rather
-than a handoff to the generic Motion Control module. It restores only persistent
-operator intent: case/trajectory lineage, the robot-base state, optional
-provisional forehead proxy, Task Home, reviewed assisted limits, immutable task
-confirmation, and display preferences. Live ROS/TF robots, goal controls,
-plans, publishers/subscribers, guard sessions, and connection flags remain
-transient and are rebuilt after an explicit gated Connect.
-
-The operator can explicitly enable one display-only CBCT volume renderer and
-review CBCT/masks, robot, guides, trajectory, mount plane, goal, and optional
-curved forehead envelope together. Renderer creation and appearance controls do
-not change voxel data or IJK-to-RAS. The forehead envelope and current
-`dentobot_drill_tip_provisional` frame are visualization/design inputs, not
-registered anatomy or a physically calibrated TCP.
-
-The external MoveIt guard now distinguishes strict approach, terminal Entry
-contact, and drilling preview. Intentional contact is limited to the burr and
-selected target tooth inside the confirmed Entry-to-Target corridor; every
-other contact, wrong/stale task, corridor escape, overshoot, self-collision, or
-joint-bound violation remains rejected. Hardware homing, controller ownership,
-force/stop behavior, powered motion, drilling, and Execute remain unavailable.
-
-## 2026-08-28 Step 6 stabilization direction
-
-The immediate robotics objective is now trustworthy diagnosis rather than
-planner success on one retained case. In order, DENTOBOT will audit the exact
-per-segment collision geometry and transforms supplied to MoveIt, expose
-structured last-valid/first-invalid candidate diagnostics, and implement three
-explicit simulation stages: strict free-space motion to PreEntry, one
-fixed-frame PreEntry→Entry path whose selective burr contact is independently
-phase-guarded, and guarded Entry-to-Target drilling. A guessed TCP-distance
-split is no longer planning authority. Diagnostic evidence is persistent;
-active ROS/MoveIt objects remain transient.
-
-The recovered post-stabilization roadmap preserves three distinct study
-increments. F0 manually aggregates reviewed single-attempt evidence into an
-evidence-only `.dentostudy`; F1 automatically evaluates every eligible
-trajectory in the active case at one reviewed base without animation or
-execution; F2 compares trajectory × base pose only after Track E supplies a
-stable base contract. Case geometry and the current attempt remain in
-`.dentocase`; studies reference source package identity and never restore
-geometry or ROS runtime state.
-
-The existing base-derived mount plane cannot be interpreted as forehead truth
-or a robot mount interface. Its snap path is quarantined for this work and
-immediate trials use a clearly labelled manual simulation-base pose. Full
-mount-frame design, automatic base optimization, system-wide frame
-formalization, and physical registration remain separate later work. The
-retained partial Cartesian result is therefore a negative diagnostic fixture,
-not yet evidence of collision, mechanical workspace, or placement failure.
 
 ## Developer context
 
@@ -312,49 +190,17 @@ Linux Python cannot import each other's runtime objects. Slicer exports and
 imports MRML-compatible data while the backend package remains independently
 executable and testable across the `wsl` and `local` adapters.
 
-### Use ROS 2 narrowly for description/simulation; retain the robot transport gate
+### Current robotics boundary
 
-The verified Ubuntu/Jazzy environment now owns a simulation-only
-`dentobot_description` package for the supplied URDF, meshes, neutral/manual
-joint states, and TF publication. The bounded manual mode moves one URDF joint
-at a time in RViz so joint order, motion type, and downstream forward-TF
-behavior can be checked before end-effector control is defined. A draft 5 mm
-AABB warning compares non-adjacent link boxes and reports the CAD burr-link
-origin for early reach/flexibility exploration. The developer-selected
-photographed pose is the current draft joint zero; the link-1 mounting face is
-parallel to the RViz XY plane and positive J4 motion is reversed into negative
-base X. These are design coordinates, not calibrated mechanical/encoder zeros.
-This establishes a
-reproducible robot-description and articulation foundation; it does not
-perform exact or swept collision checking, include the head/mouth/head-mount
-geometry, create a live Slicer/ROS transform bridge, solve inverse kinematics,
-expose a command interface, or select the hardware-control transport.
+Step 6 is simulation/preview only. The existing robot façade and ROS/MoveIt
+bridge own planning/runtime orchestration; the independent phase guard owns
+acceptance. Planning uses J1–J5 and the canonical non-spinning TCP; J6 remains
+a visual/collision compatibility branch. Steps 0–5 remain independent of ROS.
+Hardware transport, calibration and physical control remain separate gates.
 
-DENTOWorkflow Step 6 is now simulation-only Robot Placement. It loads the
-tracked URDF/STLs into an MRML transform hierarchy, permits manual joint
-changes, and places the whole robot with an editable/snappable mount plane plus
-fine local-axis controls. This is a scene-local design experiment, not
-registration, a calibrated head mount/TCP, or a connection to robot state or
-hardware.
-
-For the current disposable workspace trial, Step 6 can also load aligned
-BodyParts3D neurocranium, maxilla, and mandible meshes under a disposable
-workspace transform that co-locates them with the robot. Four manually placed
-landmarks define an approximate left/right TMJ hinge and upper/lower central
-incisor pair; each landmark is placed one at a time. The mandible is rigidly
-rotated about that hinge until the straight-line incisor gap is approximately
-40 mm; 40 mm is the requested final gap, not a literal mandible translation.
-The hinge matrix is solved in world RAS and stored in workspace-parent local
-coordinates. Only one phantom set and one robot placement set are allowed. This
-is a generic visual design aid, not clinically accurate jaw mechanics, anatomy,
-registration, or collision evidence.
-
-The baseline control design still uses a small transport-neutral robot adapter
-and simulation-first development. At the robotics architecture gate, broader
-ROS/MoveIt adoption will occur only if concrete benefits such as vendor
-drivers, motion-planning integration, multi-process coordination, transform
-tooling, or ecosystem reuse outweigh deployment complexity. Steps 0–5 remain
-independent of ROS.
+Historical phantom, draft-AABB and old-TCP implementations are recorded in
+dated evidence. They do not define current planning or collision authority.
+The active behavior and acceptance sequence is DEVELOPMENT_PLAN.md.
 
 ## Core Slicer data model
 
@@ -389,94 +235,12 @@ independent of ROS.
 
 ## Documentation and traceability
 
-The documentation has three levels:
+Use the ownership/routing table in AGENT_CONTEXT.md. Implementation chronology,
+failed attempts and superseded checkpoints belong in dated logbooks; keep them
+out of active task summaries. Historical release/runtime values are evidence
+for their recorded revision only. Current deployment instructions are SETUP.md,
+WINDOWS_SETUP.md and Workspace/LAB_RELEASE.
 
-- `PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, and `DEVELOPMENT_PLAN.md` describe
-  the accepted high-level product, architecture, and roadmap.
-- `REPRODUCIBILITY_AND_TRACEABILITY.md` is the formal, controlled operating
-  procedure for inference installation, environment identity, evidence
-  capture, failure traces, and reconstruction.
-- `changelog.md` and `logbook.md` preserve low-level development history from
-  which later reports, methods sections, retrospectives, and higher-level
-  documentation can be produced.
-
-The changelog records actual repository and specification changes. The
-logbook records the reasoning around them, including failed attempts and
-superseded decisions. Both are timestamped, append-oriented records and must
-exclude patient-identifying data and secrets.
-
-The local repository remains authoritative. For cross-chat project context,
-the seven Markdown files in `docs/` are mirrored as raw `.md` files in the
-connected Google Drive folder `IITM Dentobot/docs`. Changelog/logbook update
-requests include an in-place Drive sync of the corresponding files and any
-other design documents changed in the same batch. This mirror is strictly for
-documentation and never includes patient data, inference artifacts, or
-credentials.
-
-## 2026-08-21 Step 6 robot-simulation checkpoint
-
-Step 6 now has a verified **simulation-only** ROS 2/MoveIt planning baseline.
-The DENTOBOT launcher owns `robot_state_publisher`, one guarded simulated
-`/joint_states` source, `move_group`, a collision-guard node, and a versioned
-readiness publisher.
-Slicer does not start, inspect, or kill ROS processes; it subscribes to the
-readiness contract, loads the URDF, aligns `base_link` to the manually placed
-forehead mount transform, submits manual joint candidates to the guard, and
-requests plans.
-
-The 2026-08-21 provisional planning frame was `dentobot_tool_tcp` at the CAD
-burr-link origin. It was superseded on 2026-08-24 by
-`dentobot_drill_tip_provisional`, fixed 7 mm distally with +Z aligned to the
-spindle axis. It remains explicitly **not** a calibrated burr tip. MoveIt
-trajectory execution, controllers, hardware
-interfaces, drilling, and clinical safety claims remain disabled. The generic
-open-mouth phantom and 5 mm draft clearance policy remain disposable design
-checks, not patient registration or validated collision safety. Every manual
-or preview joint transition is interpolated and screened with MoveIt's exact
-URDF collision geometry before the accepted state reaches `/joint_states`.
-
-The fixed workflow header now includes **Reload Module (Dev)** for rapid source
-iteration. It preserves Slicer, the loaded MRML scene, the container, and the
-launcher-owned ROS stack while replacing `DENTOWorkflow.py` and all
-`Resources/Python/DENTO*.py` helper modules. To prevent stale callbacks and ROS
-MRML nodes, it cancels active inference work and disconnects the Slicer-side
-robot before replacement; Step 6 must reconnect afterward.
-
-## 2026-08-22 Motion Control usability and workspace checkpoint
-
-The generic SlicerROS2 Motion Control module is now adapted at runtime to the
-DENTOBOT simulation contract. The grey/current and red/goal robot hierarchies
-share the same Step 6 base parent, so a goal is a second joint
-configuration of the mounted robot rather than a second world-origin robot.
-The UI displays detected MoveIt readiness, fixes the planning group to
-`dentobot_arm`, exposes `dentobot_drill_tip_provisional` even though the
-SRDF has no separate end-effector group, and reports IK/plan results beside the
-controls. Execute remains hidden and disabled.
-
-Step 6 also has a separate draft TCP Workspace Explorer. It maps a
-deterministic six-dimensional Halton sequence into the selected task joint
-limits, evaluates each vector using URDF forward kinematics, and renders the
-accepted provisional-TCP origins as a base-parented point cloud. The coarse
-fallback rejects non-adjacent robot AABBs below 5 mm and TCP origins below the
-configured subsampled environment clearance. Two documented CAD-AABB pairs
-that overlap at every pose but are accepted by MoveIt/FCL are excluded only
-from this draft box gate; MoveIt remains authoritative for ROS-active motion.
-The cloud is a design-coverage aid, not an IK proof, exact mesh/swept collision
-result, calibrated tool workspace, or clinical validation.
-
-## 2026-08-24 application-shell development checkpoint
-
-DENTOBOT now has an opt-in six-workspace application shell inside stock Slicer
-while the eleven-stage interface remains the default fallback. Both
-presentations use the same MRML/parameter state and backend. The shell adds
-Case, Imaging, Segmentation, Drill Planning, Guide Design, and Robot Simulation
-navigation, light/dark themes, and Focus/Expert mode; it is the foundation for
-the later custom Slicer package, not a separate Qt application.
-
-Step 6 UI orchestration now passes through one robot workflow façade. Legacy
-and new Robot Simulation controls share the same ROS bridge, MoveIt/KDL IK,
-PlanningScene/FCL collision guard, base placement, and plan-preview code. The
-current vertical slice is developer-runtime verified, but normal-window
-operator acceptance and the visual migration of Imaging through Guide Design
-remain active. Legacy must not be removed or cease to be the default until
-those parity checks and one stabilization cycle pass.
+No documentation update implies Git publication or Drive synchronization.
+External sync requires explicit scope under CONTEXT_SYNC.md. Engineer-owned
+records remain excluded from development cleanup and generic sync requests.

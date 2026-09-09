@@ -1,5 +1,63 @@
 # Dentobot Technical Decisions
 
+## 2026-09-10 — PreparedBranch correction and documentation ownership
+
+**Status:** Correction plan approved for a read-only audit. The audit is
+complete and awaits operator review/final coding approval. Implementation and
+runtime acceptance are not claimed.
+
+`S6-REUSABLE-CASE-SETUP` is reopened. The main workflow is single-target:
+one trajectory normally, two only through explicit pairing. Multi-target/
+three-slot testing is an opt-in alternative using the same backend. It must
+not redefine routine preparation or silently generate three-way templates.
+
+A PreparedBranch binds the exact one/pair selection, patient shell, unified
+template, guide references and matching Step 5C evidence. Step 6 activates
+that complete branch. Unchanged shared jaw/landmarks/base/Home/anatomy remain;
+branch runtime acknowledgement, confirmation, plans, previews, guards and
+diagnostics are invalidated. Changed real dependencies still invalidate their
+dependents. Saved Home configuration does not restore live scene validity.
+
+Existing safe-to-load three-trajectory templates remain historical/ineligible
+and require repair; do not auto-split geometry or reject unrelated valid case
+content solely for that semantic legacy condition. Loading remains offline.
+
+The next code change is limited to three deliverables: persist one authoritative
+selected-branch ID in the existing registry; route selection, Step 5C, load and
+Step 6 import through one centralized eligibility result; and activate the
+trajectory selection, pairing intent, shell, template, guide references and
+matching Step 5C revision atomically or not at all. `trajectoryLine` may remain
+a compatibility/UI projection, but it is not Step 6 selection authority.
+
+The audit classifies insertion direction and Step 4C docking as branch-dependent
+upstream state. They may be reused only when exact dependencies match and must
+not be classified as case-shared merely because current storage is global. The
+current Step 4C all-complete-same-target scan, including a possible third
+trajectory, is outside the accepted one/explicit-pair ownership contract.
+Resolving and switching the matching 4C/insertion references is part of atomic
+activation, not an additional implementation deliverable.
+
+This supersedes the 2026-09-09 tooth-owned and copied-per-slot guide ownership,
+raw-trajectory Step 6 activation, implicit pairing, and any three-trajectory
+fusion interpretation. Earlier automatic checkpoint ROS reconnect guidance is
+also superseded. Existing MRML, registry and .dentocase remain authority; no
+second registry/package or new shell/planner/collision algorithm is approved.
+
+Documentation has one owner per concern: TASKS for status/order,
+DEVELOPMENT_PLAN for the correction/acceptance plan, ARCHITECTURE for actual
+implementation versus intended changes, DECISIONS for rationale, dated
+logbooks for evidence, and AGENT_CONTEXT for a short routing/handoff.
+Remove duplicate active narratives rather than appending another competing
+"latest" paragraph. Keep unique diagnostic evidence and failure history;
+historical documents are not task instructions.
+
+The bounded plan is in
+[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#s6-reusable-case-setup-correction-plan).
+This audit turn changes controlled documentation only; its caller table and
+ownership table are the final gate before coding. Stage 3, 32 × 3 testing,
+collision/geometry policy and major Studio work remain pending behind the
+stated gates.
+
 ## 2026-09-09 — Begin Slicer 5.12 migration on an isolated candidate
 
 **Status:** Recommended assessment decision. Implementation, builds, runtime
@@ -3257,6 +3315,13 @@ state, and the selected trajectory's display/projection state. Restore before
 scene save, module exit, scene close, cleanup, or Step 5C isolation, then
 resume after save. Event-loop-coalesce point/slider updates and write only
 changed MRML properties.
+
+The verification smoothing control applies to both visible anatomy layers:
+native linear interpolation for the source CBCT and the segmentation's derived
+closed-surface representation for smooth mask contours. Capture and restore
+the prior CBCT interpolation and segmentation 2D representation on disable or
+view exit. This remains display-only; the authoritative source voxels and
+binary-labelmap masks are not resampled or modified.
 
 Point correction must preserve the clinician-selected view. Freeze the slice
 matrix while a Markups control point is actively dragged. At interaction end,

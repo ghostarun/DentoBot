@@ -1227,10 +1227,11 @@ are excluded.
 - `DENTOGuideGeometry.py` owns replaceable trajectory-guide and target-frame
   docking primitives plus cropped voxel fusion. The current annular guide and
   four-dock/attachment profile remain provisional because no final robot
-  mating/load contract exists. Step 4C consumes the complete set of one or two
-  locked trajectories for the target tooth and persists them as repeated MRML
-  references plus the current Step 4B support draft; Step 5B reuses exactly
-  that trajectory set.
+  mating/load contract exists. The unaccepted multi-trajectory patch made Step
+  4C collect up to three target trajectories. This is a correction target, not
+  the intended main workflow: branch preparation must use one trajectory or
+  an explicitly paired two, with exact docking provenance checked. The current
+  Step 5B singleton selection does not by itself establish this upstream contract.
 - Step 4C schema v4 derives a right-handed target frame in world RAS. Mean
   Entry→Target establishes crown/root polarity. The fitted target-crown-cap
   occlusal normal is `+Z`, a crown principal direction projected into that
@@ -1785,6 +1786,58 @@ does not override Current/Stale state: Step 4C and Step 5C freshness checks run
 after import and the ROS connection remains off until an explicit Step 6
 action. Legacy MRML/MRB loading remains available as a clearly labelled
 compatibility path.
+
+### Reusable case foundation — implementation under correction
+
+The dirty source contains a schema-2 shared-environment/32 × 3 registry,
+per-slot guide dictionaries, raw-trajectory activation, model compatibility
+pointer swaps and offline package hydration. It does not yet implement the
+accepted PreparedBranch boundary. Prior pure/package tests are limited
+evidence; operator reports of faulty templates/staleness remain unresolved.
+
+The 2026-09-10 caller audit found these concrete ownership gaps. Step 5B stores
+its checked trajectory references, but the production final-template builder
+reads only the global `trajectoryLine`. Registry synchronization reconstructs
+guide data from scene inventory, copies the same guide dictionary into each
+slot, infers pairing from model references and derives selection from that raw
+trajectory pointer. `activateDentoCaseTrajectory` swaps a subset of global
+pointers and can fall back to a same-target docking model; its MRML modify block
+batches observer events but is not a prevalidated rollback transaction. Step 6
+import checks raw node presence plus scattered freshness tokens, not one branch
+eligibility result and exact Step 5C revision. Delete/invalidation traversal is
+rooted in current global pointers rather than every stored branch revision.
+
+Step 4C currently gathers every complete trajectory for the target tooth, up to
+three. Docking stores those trajectory/support dependencies, and insertion
+direction stores its support surface plus a source trajectory when derived.
+Therefore insertion direction and Step 4C docking are branch-dependent upstream
+state. They may be reused only for exact dependency matches; global storage does
+not make them case-shared.
+
+The required hierarchy is case → shared environment/jaw → tooth → trajectories
+and prepared branches. A branch is the existing guide-set concept extended to
+bind one trajectory or an explicitly paired two, explicit pairing intent,
+matching docking/insertion dependencies, shell, unified template, guide
+references and Step 5C verification identity. Store it once and reference it
+from slots. Main workflow stays single-target; multi-target/three-slot capacity
+is an opt-in testing workflow. Step 6 selects one persisted branch ID; the raw
+trajectory pointer remains compatibility state only.
+
+Branch activation must prevalidate and atomically swap all references/evidence,
+including trajectory selection, pairing intent, shell, template, guides and the
+matching branch-dependent 4C/insertion references and Step 5C revision, or swap
+nothing. A single centralized eligibility result must serve selection, 5C, load
+and Step 6 import. Preserve unchanged shared setup and invalidate runtime branch
+state only. Source MRML remains geometry authority. UI node addition/removal/
+filtering cannot be another writer of the active selection. A legacy three-
+trajectory template stays inspectable but ineligible; do not split its geometry
+implicitly.
+
+Schema-1 migration remains in memory until explicit user save; current
+schema-2 files must remain readable through versioned compatibility. Load
+never recreates ROS/MoveIt validity, plans, guards, callbacks or goal robots.
+Detailed correction and acceptance live only in
+[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#s6-reusable-case-setup-correction-plan).
 
 Editable planning trajectories are observed using a cached control-point
 geometry snapshot: point count, point status, and defined world-RAS coordinates

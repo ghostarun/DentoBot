@@ -1,5 +1,8 @@
 # DENTOBOT Project Checkpoint — 2026-08-12
 
+> Historical checkpoint, archived during the 2026-09-10 context cleanup.
+> Use `../../AGENT_CONTEXT.md` and `../../TASKS.md` for current work.
+
 ## Purpose and evidence boundary
 
 This checkpoint separates implemented software capability from demonstrated

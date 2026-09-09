@@ -59,10 +59,12 @@ second ROS, IK, collision, or kinematic implementation.
    only when the shared service/algorithm contract itself changes.
 3. Preserve public method signatures; `Testing/contracts/dentoworkflow_api.json`
    detects accidental API drift or duplicated owners.
-4. Run `pytest -q Testing` and `git diff --check`.
-5. For UI/lifecycle changes, run the focused Slicer smoke. For reload changes,
-   run `Testing/run_dentobot_slicer_reload_smoke.py` through Slicer; it performs
-   five reload cycles and checks both helper and internal-module replacement.
+4. Select the smallest relevant checks from `Testing/verification_matrix.json`
+   under `Workspace/docs/AGENTIC_VERIFICATION_PROTOCOL.md`; a whole-suite run
+   is not the default. Use `git diff --check` for the patch boundary.
+5. For UI/lifecycle changes, select the focused Slicer check under that same
+   protocol. Reload changes use `Testing/run_dentobot_slicer_reload_smoke.py`
+   only within the applicable runtime approval and serialized resource scope.
 6. Record commands, evidence, failures, and unresolved risks in today's
    logbook. A synthetic pass is not clinical or hardware evidence.
 
