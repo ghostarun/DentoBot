@@ -1,5 +1,15 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-09 — Lab update channel + WSL distro autodetection
+
+- `update-lab-release` now reads `Workspace/LAB_RELEASE` from `origin/main`
+  before detaching to `DENTOBOT_TAG`, so lab PCs can move to a newer `lab/*`
+  pin without rebuilding the GHCR image when only source changed.
+- Lab `.bat` launchers auto-detect the WSL distro (`Ubuntu` preferred over
+  hard-coded `Ubuntu-24.04`) via `resolve-wsl-distribution.bat`.
+- Published pin `lab/2026-09-09` (same GHCR image `jazzy-moveit-sim-20260903`
+  for this source-only update). WSLg compose prefers D3D12/NVIDIA GL.
+
 ## 2026-09-09 — Integrate Ubuntu and Windows installation profiles
 
 - **Why:** The verified Ubuntu NVIDIA and Windows WSLg/CUDA setup work lived
