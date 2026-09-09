@@ -23,17 +23,18 @@ case data, model caches, or credentials through Git.
 
 ## Release status
 
-Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-09-09` and GHCR
-image `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909`. Lab and
-test machines must install or update to that pin (via `install-lab-wsl` /
-`Update Dentobot Lab.bat`), not follow `main` or a dirty development checkout.
+Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-09-10` and GHCR
+image `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909` (same
+published image identity; this pin advances the source/checkout freeze to the
+September 9 stable checkpoint on `main`, including guarded Step 6 work and
+canonical Windows setup). Lab and test machines must install or update to that
+pin (via `install-lab-wsl` / `Update Dentobot Lab.bat`), not follow `main` or a
+dirty development checkout.
 
-`origin/main` can still be ahead of the dated lab tag with additional Compose
-identity and setup-doc changes (for example host UID/GID, `slicer-home`, and
-this canonical `WINDOWS_SETUP.md`). Do not describe a clone of `main` as a lab
-release. Machines on an integration revision must record their exact source SHA
-and remain test installations until the next accepted `lab/YYYY-MM-DD` freeze
-and matching GHCR image identity.
+Do not describe a clone of `main` as a lab release. Machines on an integration
+revision must record their exact source SHA and remain test installations until
+the next accepted `lab/YYYY-MM-DD` freeze (and a new GHCR image if
+`Dockerfile.slicerros2` changes).
 
 ## 1. Prepare Windows and WSL
 
