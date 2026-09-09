@@ -6,7 +6,7 @@ set -euo pipefail
 
 canonical_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${canonical_script}")" && pwd -P)"
-repository_root="$(cd -- "${script_directory}/../.." && pwd -P)"
+repository_root="${DENTOBOT_REPO:-$(cd -- "${script_directory}/../.." && pwd -P)}"
 default_workspace_root="$(cd -- "${repository_root}/../../.." && pwd -P)"
 # shellcheck source=lab-release-lib.bash
 source "${script_directory}/lab-release-lib.bash"
@@ -54,7 +54,6 @@ while (( $# > 0 )); do
   esac
 done
 
-load_lab_release "$(lab_release_default_path)"
 workspace_root="$(cd -- "${workspace_root}" && pwd -P)"
 dentobot_repo="${workspace_root}/ros2_ws/src/DentoBot"
 slicer_repo="${workspace_root}/ros2_ws/src/slicer_ros2_module"
@@ -72,9 +71,6 @@ if [[ "$(readlink -f -- "${dentobot_repo}")" != "$(readlink -f -- "${repository_
   exit 2
 fi
 
-printf 'Lab pin: tag=%s image=%s slicer_ros2=%s\n' \
-  "${DENTOBOT_TAG}" "${IMAGE}" "${SLICERROS2_SHA:0:12}"
-
 if [[ ${DENTOBOT_LAB_ALLOW_MAINTAINER:-} != 1 ]]; then
   refuse_maintainer_worktree "${dentobot_repo}"
 fi
@@ -83,12 +79,27 @@ if [[ -d ${slicer_repo}/.git ]]; then
   require_clean_git_worktree "${slicer_repo}"
 fi
 
+# Discover the published pin from origin/main. A frozen lab/* checkout's own
+# LAB_RELEASE cannot name a newer tag than itself, so updates must read the
+# channel file from main without checking out the maintainer branch.
+git -C "${dentobot_repo}" fetch origin main
+git -C "${dentobot_repo}" fetch --tags origin
+tmp_release="$(mktemp)"
+trap 'rm -f "${tmp_release}"' EXIT
+if ! git -C "${dentobot_repo}" show "origin/main:Workspace/LAB_RELEASE" >"${tmp_release}"; then
+  printf 'Could not read Workspace/LAB_RELEASE from origin/main.\n' >&2
+  exit 2
+fi
+load_lab_release "${tmp_release}"
+
+printf 'Lab pin: tag=%s image=%s slicer_ros2=%s\n' \
+  "${DENTOBOT_TAG}" "${IMAGE}" "${SLICERROS2_SHA:0:12}"
+
 if [[ ${check_only} == true ]]; then
-  printf 'Worktree is clean enough to update. Check-only: no fetch or docker pull.\n'
+  printf 'Worktree is clean enough to update. Check-only: no checkout or docker pull.\n'
   exit 0
 fi
 
-git -C "${dentobot_repo}" fetch --tags origin
 if ! git -C "${dentobot_repo}" fetch origin \
   "refs/tags/${DENTOBOT_TAG}:refs/tags/${DENTOBOT_TAG}" 2>/dev/null \
   && ! git -C "${dentobot_repo}" show-ref --verify --quiet "refs/tags/${DENTOBOT_TAG}"; then

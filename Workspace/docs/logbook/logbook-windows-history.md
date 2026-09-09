@@ -25,6 +25,56 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-09-09 06:42:00 IST (UTC+05:30) — Tarun-X1 lab bring-up (docker-ce + CUDA + WSLg GUI)
+
+### Session objective
+
+Complete the Windows 11 **lab** profile on Tarun-X1 (`G:\IITM\Dentobot`):
+WSLg + SlicerROS2 container, CUDA inference, Desktop launchers. Record
+challenges and discrepancies vs README/SETUP for the logbook and
+`WINDOWS_LAB_SETUP_DISCREPANCIES.md`.
+
+### Host facts
+
+- Windows 11 desktop, NVIDIA GeForce RTX 3060
+- WSL distro name **`Ubuntu`** (Ubuntu **26.04** Resolute), not `Ubuntu-24.04`
+- Overlay at `G:\IITM\Dentobot` (`/mnt/g/IITM/Dentobot`), not `~/dentobot`
+- Branch/worktree: `windows/lab-wslg-cuda` (started from lab pin / tag family)
+- Docker Desktop **uninstalled** after OOM; **docker-ce 29.x** in WSL only
+- Real Desktop path: `E:\OneDrive\Desktop` (not `C:\Users\tarun\Desktop`)
+
+### Challenges
+
+1. Docker Desktop memory balloon (~49–63 GB private) → Safe Mode; switched to
+   docker-ce-in-WSL; `.wslconfig` caps; keep Desktop off forever on this PC.
+2. Lab bat defaults (`Ubuntu-24.04`, `~/dentobot`) miss this machine.
+3. Installer does not create Conda / model cache / real `.dentobot.env`;
+   `--skip-docker` still requires `docker`.
+4. GHCR auth broke after Desktop removal (`credsStore: desktop` leftover).
+5. CUDA: need `dentobot-cuda` (Py 3.10 + cu130), install `pytest` for launcher
+   pins, install `nvidia-container-toolkit` for container GPU.
+6. GUI: Slicer ran (DENTOWorkflow) but window off-screen / taskbar-only until
+   `/usr/lib/wsl` mount, `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir`, and software
+   GL (`LIBGL_ALWAYS_SOFTWARE`, llvmpipe, `QT_OPENGL=software`). Black
+   viewports expected. Desktop `.bat` must not embed bash `${...}` (cmd
+   mangles it) — use `launch-from-windows.sh`.
+7. Slicer pip-as-root WARNING is unrelated to the healthy host conda backend.
+
+### Discrepancies vs repo instructions (summary)
+
+Docker Desktop assumption; distro/path hard-codes; README vs SETUP profile
+confusion; incomplete post-install automation; understated WSLg GL
+requirements; nvidia toolkit not documented for docker-ce; PLAT-U-04 still
+not stranger-clean. Detail table lives in today's dated logbook and in
+`WINDOWS_LAB_SETUP_DISCREPANCIES.md`.
+
+### Disposition
+
+- CUDA launcher `--check-only` green; operator confirmed GUI visible.
+- Not a claim of full Ubuntu GUI/render parity or clinical validation.
+- Next: stranger-facing README fold-in; optional move to `~/dentobot` on ext4.
+
+
 ## 2026-07-24 16:11:03 IST (UTC+05:30) — Step 3C accepted in Slicer
 
 ### Developer evidence

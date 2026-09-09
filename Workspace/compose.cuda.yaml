@@ -1,0 +1,15 @@
+# NVIDIA GPU access for CUDA inference inside the SlicerROS2 container.
+# Merged by launch-dentoworkflow.bash when DENTOBOT_BACKEND_DEVICE=cuda:0.
+
+services:
+  slicerros2:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -514,6 +514,22 @@ Reason: fixed-delay playback obscured whether the simulated robot and guard had
 actually advanced, while a consumed session prevents stale phase sequence reuse.
 The physical burr/guide fit is reported independently so exploratory collision
 exceptions cannot be mistaken for printable or executable compatibility.
+## 2026-09-09 — Windows WSLg is primary; native Windows is Steps 0–5 fallback
+
+Status: implemented; real-host regression pending
+
+The supported full Windows installation is WSL2 + Docker + WSLg running the
+same Linux SlicerROS2 stack as Ubuntu. Native Windows Slicer is retained only
+as an explicitly named DENTOWorkflow Steps 0–5 fallback. Its launcher sets
+`DENTOBOT_WORKFLOW_PROFILE=native-windows-steps-0-5`, removes Step 6 from
+navigation, suppresses the application shell that contains Robot Simulation,
+and does not restore saved Step 6 runtime state. The ambiguous former launcher
+name fails with directions to the two explicit profiles. Native Windows
+Slicer plus native Windows ROS remains outside scope.
+
+Reason: the former profile names were similar enough that an operator nearly
+installed the limited native path when intending the full WSLg workflow.
+Names and runtime behavior must make that mistake difficult.
 
 ## 2026-09-03 — Pin the native SlicerROS2 repair from a controlled fork
 
@@ -611,8 +627,9 @@ acceptance pending
 
 Lab PCs that need DENTOWorkflow including Step 6 ROS/MoveIt run the same
 Linux `dentobot-slicerros2` stack as Ubuntu, hosted by WSL2 + Docker, with
-the GUI on WSLg. Native `launch-dentoworkflow.ps1` stays the Steps 0–5
-profile (`DENTOBOT_ROS_PROFILE=none`) and is not this export.
+the GUI on WSLg. The native fallback is explicitly named
+`launch-native-windows-steps0-5.ps1`, sets `DENTOBOT_ROS_PROFILE=none`, and is
+not this export.
 
 Access is GitHub login plus GHCR package read (collaborator if the repo or
 package is not world-readable). Scripts store no password. Update scripts

@@ -96,6 +96,7 @@ from DENTOApplicationShell import (
     DENTOApplicationShell,
     GUI_MODE_LEGACY,
     GUI_MODE_SHELL,
+    step6_enabled,
     workspace_for_stage,
 )
 from DENTOViewPresets import (

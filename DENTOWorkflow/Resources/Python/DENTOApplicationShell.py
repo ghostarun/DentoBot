@@ -8,6 +8,7 @@ incremental migration.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -82,6 +83,10 @@ WORKSPACE_SPECS = (
         ),
     ),
 )
+
+
+def step6_enabled() -> bool:
+    return os.environ.get("DENTOBOT_WORKFLOW_PROFILE") != "native-windows-steps-0-5"
 
 
 def normalize_gui_mode(value: object) -> str:

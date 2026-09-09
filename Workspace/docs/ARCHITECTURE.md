@@ -198,7 +198,8 @@ serialized, and activation invalidates task/diagnostic state before collision
 re-synchronization.
 
 > Cross-platform update (2026-09-02): the Slicer/MRML workflow is shared.
-> Native Windows Slicer uses a WSL2 inference adapter without ROS. Ubuntu uses
+> Native Windows Slicer is a legacy Steps 0–5 fallback using a WSL2 inference
+> adapter without ROS; its runtime profile removes Step 6. Ubuntu uses
 > the direct Linux adapter inside the verified SlicerROS2 container. Windows
 > lab PCs that need Step 6 ROS run that same Linux container in WSL2 (WSLg);
 > that lab GUI path is not Ubuntu-verified and is not native Windows SlicerROS2.
@@ -212,8 +213,8 @@ re-synchronization.
 |-- Slicer DICOM, MRML, slice/3D views, segmentations, markups
 `-- Platform process adapter
 |   |
-|   +-- Windows native: native Slicer -> wsl.exe -> Linux backend Python
-|   +-- Windows lab (WSL2): container Slicer via WSLg -> direct Linux backend Python
+|   +-- Windows fallback (Steps 0–5): native Slicer -> wsl.exe -> Linux backend Python
+|   +-- Windows primary: container Slicer via WSLg -> direct Linux backend Python
 |   `-- Ubuntu: container Slicer -> direct Linux backend Python
 |       +-- NIfTI payloads in an adapter-visible artifact root
 |       +-- structured stdout + exit status
@@ -564,9 +565,10 @@ WSL `/mnt/<drive>` paths, and builds shell-free argument arrays. Launcher
 paths are never required as MRML identity and are not persisted into new
 scenes. The advanced manual fields remain for recovery and legacy scenes.
 
-On Windows, `launch-dentoworkflow.ps1` starts native Windows Slicer and the
-backend adapter prepends `wsl.exe`. Docker is not part of core planning. On
-Ubuntu, `launch-dentoworkflow.bash` starts the pinned Linux SlicerROS2 image
+For the native Windows Steps 0–5 fallback,
+`launch-native-windows-steps0-5.ps1` starts Slicer and the backend adapter
+prepends `wsl.exe`. The primary Windows profile and Ubuntu both use
+`launch-dentoworkflow.bash` to start the pinned Linux SlicerROS2 image
 and the adapter calls the mounted external Linux interpreter directly.
 
 The reusable Ubuntu container has an explicit host-stability boundary. Docker
@@ -1571,9 +1573,9 @@ Python process.
 
 ## Packaging and deployment
 
-- Windows planning development: native pinned Slicer, source extension path,
-  WSL2 backend, and no Docker requirement.
-- Windows lab ROS: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
+- Legacy Windows Steps 0–5 fallback: native pinned Slicer, source extension
+  path, WSL2 backend, no Docker requirement, and no Step 6.
+- Primary Windows full workflow: WSL2 + Docker running the Ubuntu SlicerROS2 image, tagged
   `lab/*` git releases (`Workspace/LAB_RELEASE`), private GHCR image pull, and
   an account explicitly authorized to read that package; repository
   collaboration alone does not grant access while the package is unlinked.

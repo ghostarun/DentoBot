@@ -13,7 +13,7 @@ class WorkflowNavigationWidgetMixin:
         navigation layer does not duplicate controls or MRML state.
         """
 
-        return [
+        entries = [
             (_("0 · Case"), self.ui.caseCollapsibleButton),
             (_("1 · Scan"), self.ui.imagingCollapsibleButton),
             (_("2 · Segmentation"), self.ui.backendCollapsibleButton),
@@ -26,6 +26,9 @@ class WorkflowNavigationWidgetMixin:
             (_("5C · Verify and Export"), self.ui.templateFinalizationCollapsibleButton),
             (_("6 · Robot Placement"), self.ui.robotPlacementCollapsibleButton),
         ]
+        if not step6_enabled():
+            return entries[:-1]
+        return entries
 
     def _setupWorkflowNavigation(self) -> None:
         """Initialize the one-visible-stage wizard over the existing controls."""

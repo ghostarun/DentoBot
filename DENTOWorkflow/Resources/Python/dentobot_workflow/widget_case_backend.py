@@ -446,7 +446,11 @@ class CaseBackendWidgetMixin:
         # best-effort reconstruction only after the integrity checks and GUI
         # hydration above have completed; the callback is simulation-only and
         # stops at the first missing operator-owned prerequisite.
-        if self._parameterNode and self._parameterNode.step6PlanningContextImported:
+        if (
+            step6_enabled()
+            and self._parameterNode
+            and self._parameterNode.step6PlanningContextImported
+        ):
             resumePath = str(self._loadedCaseBundlePath or "")
             if resumePath:
                 # Enter Step 6 before the transient reconstruction starts so a

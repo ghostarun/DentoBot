@@ -59,4 +59,11 @@ Pin file: `ros2_ws/src/DentoBot/Workspace/LAB_RELEASE` (current candidate:
 First-time: `scripts/install-lab-wsl.bash` (or `install-lab-wsl.bat` from Windows).
 Updates: `scripts/update-lab-release.bash` (or `update-lab-release.bat`).
 Launch: `scripts/launch-dentoworkflow.bash` (or `launch-lab-workflow.bat`).
-Do not use `launch-dentoworkflow.ps1` for this profile.
+Use `launch-lab-workflow.bat` for this profile. The retired ambiguous
+`launch-dentoworkflow.ps1` exits with profile-selection guidance.
+
+WSLg hosts merge `Workspace/compose.wslg.yaml` (no `/dev/dri`). NVIDIA CUDA
+inference merges `Workspace/compose.cuda.yaml`. Model weights:
+`Workspace/scripts/install-lab-model-cache.bash` (or `.bat`). See
+`Workspace/docs/logbook/2026-09-07.md` for the first Windows lab install
+deltas.

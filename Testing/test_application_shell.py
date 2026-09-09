@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -17,9 +18,24 @@ from DENTOApplicationShell import (  # noqa: E402
     WORKSPACE_SPECS,
     normalize_gui_mode,
     normalize_theme,
+    step6_enabled,
     workspace_for_stage,
     workspace_index_for_stage,
 )
+
+
+def test_native_windows_fallback_disables_step6():
+    previous = os.environ.get("DENTOBOT_WORKFLOW_PROFILE")
+    try:
+        os.environ["DENTOBOT_WORKFLOW_PROFILE"] = "native-windows-steps-0-5"
+        assert not step6_enabled()
+        os.environ["DENTOBOT_WORKFLOW_PROFILE"] = ""
+        assert step6_enabled()
+    finally:
+        if previous is None:
+            os.environ.pop("DENTOBOT_WORKFLOW_PROFILE", None)
+        else:
+            os.environ["DENTOBOT_WORKFLOW_PROFILE"] = previous
 
 
 def test_six_workspaces_cover_every_legacy_stage_once():

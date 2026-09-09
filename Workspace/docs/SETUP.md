@@ -12,13 +12,13 @@ initial direct Slicer launch reported a ROS module loader warning, but later
 connected to ROS/MoveIt and submitted planning requests; retain that warning
 separately from task results. Original case files remain unchanged.
 
-Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
-`main` / `lab/2026-09-03`, and Windows-lab *source* install path reconciled
-2026-09-03. The published `lab/2026-09-03` GHCR image passed the local
-fail-closed label check and registry push. A Docker Desktop Windows install
-passed recorded WSLg/CUDA startup; a second install succeeded with Docker
-Engine inside WSL after Desktop failed, but its exact acceptance evidence is
-still pending under `PLAT-U-04`.
+Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout and the
+Windows-lab source install path were reconciled on 2026-09-03. The current
+release and image are pinned in `Workspace/LAB_RELEASE`. A Docker Desktop
+Windows install passed a recorded WSLg/CUDA startup; a second install succeeded
+with Docker Engine inside WSL after Desktop failed, but its exact acceptance
+evidence remains pending under `PLAT-U-04`. See the 2026-09-07 logbook for the
+operator delta list versus this procedure.
 
 ## Scope
 
@@ -31,16 +31,16 @@ This is a simulation model, not a calibrated hardware/tool configuration.
 
 This file defines the shared deployment contract and the supported host
 profiles. The active IITM workstation remains the fully verified Ubuntu
-profile. Native Windows Slicer with a WSL2 inference backend has a tracked
-launcher (`PLAT-U-02`); its runtime acceptance must be repeated on a Windows 11
-workstation. A third **lab** profile runs the same Linux SlicerROS2 Docker
-stack inside WSL2 (`PLAT-U-04`); its provider and acceptance rules are in the
-canonical Windows guide below.
+profile. The primary Windows profile runs the same Linux SlicerROS2 Docker
+stack inside WSL2 (`PLAT-U-04`) using Docker Engine inside WSL by default or
+Docker Desktop WSL integration as an exclusive alternative. Native Windows
+Slicer remains the Steps 0–5 fallback (`PLAT-U-02`) with Step 6 and SlicerROS2
+disabled.
 
 | Host profile | Slicer | External inference | Docker | ROS/SlicerROS2 |
 |---|---|---|---|---|
-| Windows 11 full (WSL2 + WSLg) | Linux Slicer 5.10 in `dentobot-slicerros2` | Direct Linux Python in WSL (release CPU or CUDA pin) | Docker Engine inside WSL by default; Docker Desktop WSL integration as an exclusive alternative | Same Linux container stack; exact direct-Engine acceptance pending under `PLAT-U-04` |
-| Windows 11 native fallback | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported (`DENTOBOT_ROS_PROFILE=none`) |
+| Windows 11 + WSLg (primary) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (`cpu` or `cuda:0`) | Docker Engine inside WSL by default; Docker Desktop WSL integration as an exclusive alternative | Same Ubuntu container stack; Steps 0–6 simulation |
+| Native Windows fallback | Native Windows Slicer | WSL2 Linux | Not required | Disabled; Steps 0–5 only |
 | Ubuntu | Pinned Linux SlicerROS2 image | Direct Linux Python | Required by the verified profile | Included and verified |
 
 The planning/template workflow is Slicer/MRML code and remains shared. Never
@@ -48,14 +48,23 @@ install PyTorch, TotalSegmentator, nnU-Net, or the DENTOBOT inference package
 into Slicer's embedded Python on either platform.
 
 > **Canonical Windows instructions:** use `Workspace/docs/WINDOWS_SETUP.md`.
-> The default
-> full Windows profile is Docker Engine running directly inside the selected
-> WSL2 Ubuntu distribution, with Linux Slicer displayed through WSLg. Docker
-> Desktop WSL integration is a mutually exclusive alternative. The older
-> Windows subsections below preserve historical profile detail and are not the
-> installation checklist.
+> The full Windows profile uses Docker Engine inside the selected WSL2 Ubuntu
+> distribution by default. Docker Desktop WSL integration is a mutually
+> exclusive alternative. The older subsections below preserve historical
+> detail and are not the installation checklist.
 
-## Windows 11 + WSL2 profile
+For a full Windows installation, go directly to **Windows 11 + WSLg Linux
+SlicerROS2 (primary Windows profile)** and use
+`Workspace\scripts\install-lab-wsl.bat`,
+`install-lab-model-cache.bat`, and `launch-lab-workflow.bat` in that order.
+
+## Legacy native Windows fallback (Steps 0–5 only)
+
+> **Do not use this section for the full Windows installation.** The primary
+> Windows path is **Windows 11 + WSLg Linux SlicerROS2** below. This fallback
+> runs only DENTOWorkflow Steps 0–5 in native Windows Slicer; Step 6 and
+> SlicerROS2 are deliberately unavailable. Native Windows Slicer plus native
+> Windows ROS is outside the current scope.
 
 ### Boundary and prerequisites
 
@@ -104,14 +113,16 @@ python -m dentobot_inference health --json --require-device cuda:0
 ```
 
 Model acquisition is a separate explicit setup action, never a Slicer launch
-side effect:
+side effect. TotalSegmentator 2.16 rejects CLI `-t teeth|craniofacial_structures`;
+use the idempotent helper (or Python API task ids 298, 115, 113):
 
 ```bash
-totalseg_download_weights -t craniofacial_structures
-totalseg_download_weights -t teeth
+Workspace/scripts/install-lab-model-cache.bash
+# Windows lab:
+# Workspace\scripts\install-lab-model-cache.bat
 ```
 
-### Windows launcher
+### Steps 0–5 fallback launcher
 
 From PowerShell in the repository root:
 
@@ -120,9 +131,9 @@ Copy-Item Workspace\.dentobot.windows.env.example .dentobot.windows.env
 notepad .dentobot.windows.env
 
 powershell -ExecutionPolicy Bypass -File `
-  Workspace\scripts\launch-dentoworkflow.ps1 -CheckOnly
+  Workspace\scripts\launch-native-windows-steps0-5.ps1 -CheckOnly
 powershell -ExecutionPolicy Bypass -File `
-  Workspace\scripts\launch-dentoworkflow.ps1
+  Workspace\scripts\launch-native-windows-steps0-5.ps1
 ```
 
 The launcher reads the configuration as data (it does not execute it), checks
@@ -136,6 +147,7 @@ DENTOBOT_WSL_DISTRIBUTION=<exact distro>
 DENTOBOT_BACKEND_PYTHON=<absolute WSL Linux path>
 DENTOBOT_RUN_ARTIFACT_ROOT=<absolute local Windows path>
 DENTOBOT_BACKEND_DEVICE=cpu|cuda:0
+DENTOBOT_WORKFLOW_PROFILE=native-windows-steps-0-5
 ```
 
 Machine paths are not written into new MRB scenes when launcher configuration
@@ -143,18 +155,21 @@ is active. The UI retains a visible advanced manual override for recovery.
 
 ### Does Windows require Docker for SlicerROS2?
 
-**Native Windows Slicer profile:** no. Imaging, segmentation, planning,
-template, verification, and export do not use ROS APIs. Use
-`Workspace/scripts/launch-dentoworkflow.ps1` with `DENTOBOT_ROS_PROFILE=none`.
+**Native Windows fallback:** no. Steps 0–5 imaging, segmentation, planning,
+template, verification, and export do not use ROS APIs. Use the explicitly
+named `Workspace/scripts/launch-native-windows-steps0-5.ps1`; it hides Step 6
+and suppresses saved Step 6 runtime restoration.
 
 **Windows 11 lab profile (Step 6 with ROS):** yes. Native Windows Slicer cannot
 load SlicerROS2. Lab PCs run the same Linux container as Ubuntu, hosted by
 WSL2 + Docker, with the GUI on WSLg. Use `install-lab-wsl.bat` /
 `launch-lab-workflow.bat` / `update-lab-release.bat`. Do not load Linux
 SlicerROS2 binaries into native Windows Slicer. This lab GUI path is
-implemented. `lab/2026-09-03` is the current published release and its image
-is private, so Docker must authenticate to GHCR before installation. This path
-is not Windows-lab-verified and is not a substitute for native Windows Slicer.
+implemented. `Workspace/LAB_RELEASE` identifies the current release and its
+private image, so Docker must authenticate to GHCR before installation. One
+Windows WSLg/CUDA installation passed the recorded functional startup gate;
+repeat the check-only gate on every new machine. It is a separate profile from
+native Windows Slicer.
 
 Current upstream SlicerROS2 1.2 targets Ubuntu 24.04, ROS 2 Jazzy, and
 source-built Slicer 5.10/5.12. The published CI image is Linux.
@@ -165,7 +180,7 @@ References:
 - https://slicer-ros2.readthedocs.io/en/devel/pages/getting-started.html
 - https://slicer-ros2.readthedocs.io/en/devel/pages/ci-docker-image.html
 
-### Windows 11 lab — WSL2 Linux SlicerROS2
+## Windows 11 + WSLg Linux SlicerROS2 (primary Windows profile)
 
 Use this profile when a lab PC must run DENTOWorkflow **including Step 6
 ROS/MoveIt simulation**. It is not native Windows Slicer. Simulation/preview
@@ -178,48 +193,81 @@ Do **not** zip `~/dentobot`. Recreate the overlay inside WSL
 
 | Piece | Source | First machine |
 |---|---|---|
-| DentoBot at tag `lab/2026-09-03` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
+| DentoBot at the tag pinned by `Workspace/LAB_RELEASE` | `https://github.com/ghostarun/DentoBot.git` | `git clone` / installer |
 | `slicer_ros2_module` pinned SHA | `https://github.com/ghostarun/slicer_ros2_module.git` at `17f99931f54f` | installer |
-| Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903` (candidate) | Authenticate GHCR, then `docker pull` after publication |
-| CPU inference env | `Inference/` manifests in that git tag | Conda/pip once |
-| TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` |
+| Slicer 5.10 + ROS 2 Jazzy + MoveIt image | Private GHCR image pinned by `Workspace/LAB_RELEASE` | Authenticate GHCR, then `docker pull` |
+| CPU or CUDA inference env | `Inference/` CPU/OpenVINO pin **or** Bridge C `cu130` pin | Conda/pip once |
+| TotalSegmentator weights 113/115/298 | USB/rsync (or a separate download, never a Slicer side effect) | copy into `data/model-cache/totalsegmentator` (optional until segmentation) |
 | Overlay `~/dentobot` symlinks, `.dentobot.env`, `slicer-user/`, colcon `build/` | created locally | bootstrap + launch |
 
 Native Windows Slicer is **not** installed for this profile.
 
 #### Operator steps
 
-1. Windows 11 + WSLg. `wsl --install -d Ubuntu-24.04`. By default install
-   Docker Engine and Compose inside that WSL Ubuntu distribution and manage it
-   with systemd. Docker Desktop WSL integration is an alternative, never a
-   second daemon in the same distribution. Follow
-   `Workspace/docs/WINDOWS_SETUP.md`.
-   In Ubuntu: `sudo apt install -y git gh`.
+1. Windows 11 + WSLg. Install a WSL Ubuntu distribution; use the exact name
+   printed by `wsl -l -v`. Install Docker Engine and Compose inside that
+   distribution by default and manage it with systemd. Docker Desktop WSL
+   integration is an alternative, never a second daemon in the same
+   distribution. Follow `Workspace/docs/WINDOWS_SETUP.md`. In Ubuntu, install
+   `git` and `gh`; upgrade `gh` if `gh auth token` is unavailable.
 2. Use a GitHub account with **Read** access to the private GHCR package. In
    WSL, run `gh auth login -h github.com -s read:packages`, then
    `gh auth token | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin`.
-   Repository collaboration alone is insufficient while the package is private
-   and unlinked. Scripts store no password or token.
-3. Clone and install (PowerShell, or the same commands in WSL):
+   If `gh auth token` is unavailable, pipe the stored oauth token from
+   `~/.config/gh/hosts.yml` without printing it. Repository collaboration
+   alone is insufficient while the package is private and unlinked. Scripts
+   store no password or token.
+3. Clone and install. Prefer a WSL shell so `$HOME` is not eaten by `cmd`
+   quoting (see logbook 2026-09-07). Detach to the lab tag **before** or as
+   part of install — a fresh clone on `main` is refused until detached:
 
-```bat
-wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p ~/dentobot/ros2_ws/src && git clone https://github.com/ghostarun/DentoBot.git ~/dentobot/ros2_ws/src/DentoBot && bash ~/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/install-lab-wsl.bash"
+```bash
+export DENTOBOT_WSL_DISTRIBUTION="${DENTOBOT_WSL_DISTRIBUTION:-Ubuntu}"
+wsl -d "$DENTOBOT_WSL_DISTRIBUTION" --exec bash -lc '
+  set -euo pipefail
+  mkdir -p "$HOME/dentobot/ros2_ws/src"
+  REPO="$HOME/dentobot/ros2_ws/src/DentoBot"
+  if [ ! -d "$REPO/.git" ]; then
+    git clone https://github.com/ghostarun/DentoBot.git "$REPO"
+  fi
+  git -C "$REPO" fetch --tags origin
+  release_tag="$(sed -n 's/^DENTOBOT_TAG=//p' "$REPO/Workspace/LAB_RELEASE")"
+  git -C "$REPO" checkout --detach "refs/tags/$release_tag"
+  bash "$REPO/Workspace/scripts/install-lab-wsl.bash"
+'
 ```
 
-   Equivalent after the clone exists: `Workspace\scripts\install-lab-wsl.bat`.
-   The installer checks out `Workspace/LAB_RELEASE` (`DENTOBOT_TAG=lab/2026-09-03`),
-   pins the DentoBot fork of `slicer_ros2_module`, runs
-   `bootstrap-workspace.bash`, and attempts `docker pull` of the GHCR image
-   (then tags it as Compose `dentobot/slicerros2:jazzy-moveit-sim-20260903`).
-   The private published Linux/amd64 image requires the GHCR login from Step 2.
-4. Once per PC: edit `~/dentobot/.dentobot.env` (`DENTOBOT_BACKEND_PYTHON`,
-   `DENTOBOT_BACKEND_DEVICE=cpu`). Create the Ubuntu CPU backend from
-   `Inference/`. Copy the model cache. No patient identifiers in git.
-5. Launch: `Workspace\scripts\launch-lab-workflow.bat` (calls
-   `launch-dentoworkflow.bash` in WSL). Treat WSLg/llvmpipe like the CRD
-   session: functional checks, not FPS acceptance.
+   Windows helper (after distro env is set): `Workspace\scripts\install-lab-wsl.bat`.
+   The installer pins `slicer_ros2_module`, runs `bootstrap-workspace.bash`,
+   and pulls/tags the GHCR image for Compose.
+4. Once per PC: edit `~/dentobot/.dentobot.env`.
+   - **CUDA (recommended on NVIDIA lab PCs):** Bridge C pin — Python 3.10
+     Conda env with `torch==2.10.0+cu130`, set
+     `DENTOBOT_BACKEND_DEVICE=cuda:0`. Launcher merges
+     `Workspace/compose.cuda.yaml` and force-recreates the container.
+   - **CPU:** Python 3.12 + `torch+cpu`/OpenVINO pin from
+     `Inference/requirements/ubuntu-cpu*.txt`, set
+     `DENTOBOT_BACKEND_DEVICE=cpu`.
+   - Set `DENTOBOT_GRAPHICS_MODE=wslg` (or `auto` on WSLg). There is no
+     `/dev/dri/renderD128`; `compose.wslg.yaml` clears DRM devices.
+   - Install TotalSegmentator tasks **298, 115, 113** with the idempotent
+     helper (required for Bridge C segmentation; not optional if you will
+     run AI):
+     `Workspace\scripts\install-lab-model-cache.bat` or
+     `~/dentobot/scripts/install-lab-model-cache.bash`.
+     Do not use `totalseg_download_weights -t teeth` on TS 2.16. No patient
+     identifiers in git.
+5. First launch builds `dentobot_description`, `dentobot_moveit_config`, and
+   `slicer_ros2_module` under the bind-mounted `ros2_ws` (required because the
+   mount hides the image install). Then:
+   `Workspace\scripts\launch-lab-workflow.bat` or
+   `~/dentobot/scripts/launch-dentoworkflow.bash`. Treat WSLg rendering like
+   CRD/`llvmpipe`: functional checks, not FPS acceptance. `xhost` is optional
+   on WSLg; Docker Desktop needs `docker restart -t` (not `--timeout`).
 6. Later updates: `Workspace\scripts\update-lab-release.bat` (pinned tag only).
 
+See `Workspace/docs/logbook/2026-09-07.md` for the full first-install delta
+list from the initial Windows GPU lab PC.
 Maintainer only: build from the repository root with the exact tag identity,
 then publish after GHCR `write:packages` authentication:
 
