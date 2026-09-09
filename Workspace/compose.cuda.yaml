@@ -1,12 +1,11 @@
 # NVIDIA GPU access for CUDA inference inside the SlicerROS2 container.
 # Merged by launch-dentoworkflow.bash when DENTOBOT_BACKEND_DEVICE=cuda:0.
-# Requires Docker Desktop / nvidia-container-toolkit GPU support.
 
 services:
   slicerros2:
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
     deploy:
       resources:
         reservations:
