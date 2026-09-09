@@ -77,8 +77,9 @@ safe capture is available, report that limitation immediately with the retained
 diagnostic and a concrete capture/manual-inspection request; do not replace
 missing visual evidence with repeated runtime guesses. Exclude patient identity.
 
-For UI ambiguity, retain substep, target, readiness/button states and visible
-versus hidden relevant objects; ask for the missing workflow observation.
+For UI ambiguity, capture a screenshot when available under the same ownership
+and approval rules, and retain substep, target, readiness/button states and
+visible versus hidden relevant objects; ask for the missing workflow observation.
 Escalate early when a short operator visual review can settle the question.
 Send one compact blocker package:
 
@@ -171,7 +172,7 @@ full-cycle simulation evidence is not hardware/clinical acceptance.
 The coordinator is the sole controlled-document editor and owns integration
 and final acceptance. Under the operator's corrected model policy in
 `Workspace/AGENTS.md`, a Luna Max implementation worker may edit only explicitly
-assigned code/test files after Astra light supplies the complete plan. This
+assigned code/test files after the coordinator supplies the complete plan. This
 exception does not apply to verification workers and does not authorize tests
 or runtime execution. Do not overlap writes or check actively changing files.
 
@@ -179,8 +180,9 @@ Verification workers are read-only. A verification worker discovering a defect r
 it; it does not patch source, change parameters, relax collision rules, or
 silently retry with different inputs.
 
-For Codex model/effort selection, follow `Workspace/AGENTS.md` (Astra light
-ceiling applies only to Astra; Luna Max implements, Terra High verifies).
+For Codex model/effort selection, follow `Workspace/AGENTS.md`: Sol at High or
+lower for roughly 90% of Sol work, justified Extra High for up to 10%; Luna Max
+and Terra High remain implementation and verification auxiliary options.
 Default to solo, or one justified auxiliary. The three workers below are available responsibilities, not a
 mandatory team. More than one requires an explicit operator request or approved
 verification plan. The matrix limit is a hard maximum, not a target.

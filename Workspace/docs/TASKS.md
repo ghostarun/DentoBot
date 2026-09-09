@@ -1,5 +1,12 @@
 # DENTOBOT Tasks
 
+## Sol routing correction — 2026-09-09
+
+- **ID:** `AGENT-SOL-RESTORE`; **Priority:** Unprioritized; **State:** Agent policy updated; saved-default outcome recorded in today's logbook.
+- **Requested:** Restore recommended Sol use, approximately 90% High-or-lower and 10% Extra High as needed; confirm visual debugging/user-expertise requirements.
+- **Changed:** Sol replaces Astra as preferred coordinator; old avoid-Sol rule superseded, Luna Max/Terra High auxiliaries retained. Canonical protocol confirms collision visuals and now explicitly names UI screenshots.
+- **Evidence/next:** Policy readback and saved-default result in today's logbook. Apply the routing and visual escalation contract to the next development task; no model benchmark or runtime verification authorized by this correction.
+
 ## Agent verification policy integration — 2026-09-09
 
 - **ID:** `AGENT-VERIFY-ECONOMY`; **Priority:** Unprioritized; **State:** Completed — instruction integration and documentation readback; runtime effectiveness unmeasured.

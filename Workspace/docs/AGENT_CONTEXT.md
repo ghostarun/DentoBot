@@ -1,5 +1,14 @@
 # DENTOBOT compact agent context
 
+## Model routing update — 2026-09-09
+
+Sol is restored as the preferred development/coordinator model: `gpt-5.6-sol`,
+default `high`, roughly 90% of Sol work at High or lower and up to 10% justified
+`xhigh`. This supersedes the earlier avoid-Sol/Astra-coordinator rule. Luna Max
+and Terra High remain economical auxiliaries; no mandatory review pipeline.
+See Workspace/AGENTS.md for ownership and effort limits. Historical Astra-only
+records below and in dated decisions do not override this operator correction.
+
 ## Verification routing update — 2026-09-09
 
 Read `AGENTIC_VERIFICATION_PROTOCOL.md` before testing or SlicerROS2 diagnosis.

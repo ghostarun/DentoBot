@@ -1,5 +1,27 @@
 # Dentobot Technical Decisions
 
+## 2026-09-09 — Restore Sol as preferred development coordinator
+
+**Operator decision:** Bring Sol back wherever recommended; approximately 90%
+of usage at High or lower and 10% Extra High when needed. Operator reports Sol
+works significantly better for their development because of Astra's token burn.
+This is recorded operator experience, not an independently measured comparison.
+
+Supersede the avoid-Sol/Astra-coordinator policy with `gpt-5.6-sol`, default
+`high`; use lower effort for routine work and `xhigh` only for a named unresolved
+reasoning risk. Treat 90/10 as approximate Sol effort allocation, not an enforced
+token quota or mandatory spend. Preserve Luna Max/Terra High auxiliary options,
+coordinator document/acceptance ownership, selective delegation and all testing
+approval/retry limits. No automatic Astra fallback; its Low ceiling remains if
+explicitly requested. Current-task model switching is separate from saved defaults.
+
+The operator also asks whether debugging requires screenshots/visual evidence
+and their expertise. Confirmed: the canonical protocol requires context/close-up
+collision evidence, early visual escalation and one narrow question for the
+operator. Made UI screenshots explicit as well. Capture uses existing approved
+runtime/artifacts; missing capture capability is reported with a concrete request,
+not replaced by speculative retries. Numerical guard evidence stays authoritative.
+
 ## 2026-09-09 — Direct WSL Docker and separated release identities
 
 **Status:** Operator-approved documentation and release policy. The next lab

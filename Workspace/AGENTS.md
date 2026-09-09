@@ -106,75 +106,58 @@ and model presets are project policy. See the dated sources in
 `docs/DECISIONS.md` (2026-09-09 verification economy). This update does not
 change model defaults or authorize runtime execution.
 
-## Model selection and delegation — 2026-09-07 (corrected)
+## Model selection and delegation — 2026-09-09 (Sol restored)
 
-**The light/low ceiling applies to Astra only.** Use `gpt-6-astra` with `low`
-reasoning for the coordinator, planning, theory, architecture, difficult
-reasoning, and final acceptance. Never select Astra above `low` or Astra Pro.
-Avoid Sol entirely; use Astra light instead. The approved auxiliary presets
-are **Luna Max** and **Terra High**, not low-effort variants. Task difficulty,
-failed attempts, and quota exhaustion never authorize increasing Astra effort.
-Only an explicit later operator instruction may change these model limits.
+**Prefer `gpt-5.6-sol` for development, coordination, planning, diagnosis and
+acceptance.** This supersedes the 2026-09-07 instruction to avoid Sol and use
+Astra as coordinator. The operator reports higher token burn with Astra and
+prefers Sol for this workflow; this is operator experience, not a benchmark.
+
+Target approximately **90% of Sol work at `high` or lower** (`low`/`medium`
+for routine tasks) and **up to 10% at `xhigh` when needed**. Default to `high`.
+These are effort-allocation guidelines, not a measured token quota or a reason
+to manufacture Extra High work. Use `xhigh` only for a specific unresolved
+reasoning/design/correctness risk; state the reason before selecting it. Do
+not select Sol `max`/`ultra`. Repeated failed tests do not by themselves justify
+higher effort or bypass the verification retry ceiling.
 
 | Task nature | Model / effort | Responsibility |
 |---|---|---|
-| Plan, theory, architecture, ambiguous diagnosis, safety-sensitive judgment | `gpt-6-astra` / `low` | Coordinator owns decisions and acceptance |
-| Coding with a complete plan, settled interfaces, and bounded ownership | `gpt-5.6-luna` / `max` | Preferred implementer; edit only assigned code/test files |
-| Mechanical development support, approved tests, log triage, read-heavy exploration | `gpt-5.6-terra` / `high` | Evidence collection and verification; production source and controlled docs remain read-only |
-| Tiny edit, one command, short lookup, or inseparable sequential task | Existing Astra / `low` coordinator | Do directly; avoid agent setup/context overhead |
-| Independent review of a specific unresolved design or correctness risk | `gpt-6-astra` / `low` | Optional read-only audit; no Sol reviewer |
+| Coordination, design, diagnosis, integration and final acceptance | `gpt-5.6-sol` / `high` or lower | Default coordinator |
+| Exceptional unresolved reasoning or independent high-risk audit | `gpt-5.6-sol` / `xhigh` | Bounded, justified minority of work |
+| Bounded coding with settled interfaces and complete specification | `gpt-5.6-luna` / `max` | Preferred implementation auxiliary when delegation saves work |
+| Approved tests, log triage, read-heavy support | `gpt-5.6-terra` / `high` | Read-only verification/evidence auxiliary |
+| Tiny or inseparable task | Existing coordinator | Work directly; avoid agent overhead |
 
-Delegate substantial bounded coding to Luna Max after Astra has written the
-objective, design/rationale, exact owned files, interfaces, invariants, edge
-cases, forbidden changes, and acceptance checks. Delegate independent testing
-or read-heavy support to Terra High when this replaces coordinator work and
-useful local work can proceed alongside it. These instructions authorize
-selective delegation on future in-scope tasks; they do not authorize runtime
-execution or broaden the user's implementation scope.
+Sol is permitted wherever the applicable task/skill recommends it, including
+optional review; no mandatory reviewer or fixed multi-model pipeline. Preserve
+Luna Max and Terra High as economical auxiliary options. Astra is no longer the
+default or an automatic escalation route. If explicitly requested later, keep
+Astra at `low` unless the operator separately changes that ceiling.
 
-Default to solo for small or inseparable tasks. One auxiliary is the normal
-maximum; do not create a mandatory Astra→Luna→Terra→reviewer pipeline. More than
-one auxiliary requires an explicit operator request or approved verification
-plan and remains within the matrix's three-worker maximum. Workers must not
-recursively delegate. Never edit the same files concurrently or run tests
-against files an implementer is actively changing.
+Default to solo; one auxiliary is the normal maximum. More than one requires
+an explicit operator request or approved verification plan within the matrix's
+three-worker maximum. Workers must not recursively delegate. Before spawning,
+state the task, benefit, exact model/effort and worker count. Use scoped context
+without inherited history where supported and reuse agents for related work.
+If a preset is unavailable, report it; do not silently substitute Astra or a
+higher effort. Markdown cannot switch the already-running task's model.
 
-Astra remains the sole controlled-document editor and integration/acceptance
-owner. A Luna implementation worker may edit its explicitly assigned code/test
-files only; this is the narrow exception to the former coordinator-only editing
-rule. Verification workers remain read-only, including when using Luna for a
-verification-only role. Follow `docs/AGENTIC_VERIFICATION_PROTOCOL.md` for
-execution approvals and serialized runtime resources. A worker discovering
-unsettled theory, an interface change, or a safety-policy question must report
-it to Astra rather than invent a design or relax a constraint.
+The coordinator owns controlled documents, design decisions and acceptance.
+Implementation workers may edit only explicitly assigned code/test files after
+the coordinator supplies objective, rationale, files, interfaces, invariants,
+edge cases, forbidden changes and acceptance checks. Tell them they share the
+codebase and must preserve others' work. Verification workers remain read-only;
+no checks against files being edited and no overlapping runtime resources.
+Inspect the actual diff/evidence before acceptance. Unsettled interfaces, theory
+or safety policy return to the coordinator rather than being invented by workers.
 
-Before spawning, state the bounded task, delegation benefit, exact model/effort,
-and worker count. Use configurable native agents with explicit model and effort,
-without inherited conversation where supported. Pass only scoped context and
-return compact findings, changed files, check results, and evidence paths.
-Tell implementers they share the codebase and must preserve others' changes.
-Reuse an agent for related follow-ups. Inspect the actual diff and evidence
-before acceptance; avoid repeating unchanged successful checks without cause.
-
-This policy supersedes Sol Advisor's Sol High prerequisite, Terra-as-architect
-escalation, and mandatory Sol reviewer rules. Do not invoke a fixed role whose
-model, effort, or behavioral contract conflicts with the assignment. If the
-requested preset is unavailable or cannot be established, keep the work with
-Astra light; never silently substitute a model/effort. Markdown does not change
-the current task's model; saved defaults live in `~/.codex/config.toml`.
-
-On failure, distinguish an incomplete specification (Astra clarifies; reuse
-Luna) from unresolved reasoning (Astra investigates at light). Do not loop
-workers, launch quota benchmarks, or increase effort. Narrow evidence and
-context before adding agents. Run only meaningful checks appropriate to the
-change, preserve all safety/approval gates, and continue authorized work using
-reasonable assumptions unless missing input materially affects correctness,
-safety, or scope.
-
-Sources checked 2026-09-07: [OpenAI Astra guidance](https://developers.openai.com/api/docs/guides/latest-model)
-and [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents).
-OpenAI supports task-specific models and bounded delegation; these exact effort
-presets are the operator's policy, not a measured quota-optimal combination.
+Follow `docs/AGENTIC_VERIFICATION_PROTOCOL.md` for approval, retry limits,
+visual escalation and serialized runtime. A specification failure calls for a
+clearer specification, not a model loop. This policy supersedes conflicting
+Sol Advisor model prerequisites or mandatory-review rules while permitting its
+compatible Sol recommendations. Saved defaults live in `~/.codex/config.toml`;
+the 90/10 guideline is applied through task selection, not a config quota.
 
 ## graphify
 
