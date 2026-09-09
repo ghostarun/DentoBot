@@ -1,5 +1,22 @@
 # DENTOBOT compact agent context
 
+## Existing plans first — mandatory
+
+For every new-work, TODO/backlog, continuation/resume, blocker-follow-up, or
+priority request, search `TASKS.md` before proposing or starting work. Use the
+matched task ID, priority, dependencies, scope boundaries, acceptance evidence,
+and next action; then follow its references into `DEVELOPMENT_PLAN.md`,
+`DECISIONS.md`, and the relevant logbook. This file routes that lookup and does
+not override a later task-specific record. Only create a new plan when no
+applicable task exists, or amend one when the operator explicitly changes it.
+
+Current task-specific routing: `S6-REUSABLE-CASE-SETUP` is the Priority-0
+foundation for reusable Step 6 mouth opening, base/Task Home setup, and the
+32-tooth × 3-slot trajectory/shell registry. That recorded subset is promoted
+ahead of continued FDI11 collision-loop work and unrelated Priority-1 Studio
+features; the rest of the Studio/study runner remains gated by its recorded
+dependencies.
+
 ## Slicer 5.12 migration routing — 2026-09-09
 
 The accepted runtime remains Slicer 5.10. Begin the 5.12.0 migration now only

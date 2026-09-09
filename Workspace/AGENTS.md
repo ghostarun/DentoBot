@@ -84,6 +84,36 @@ For every substantial task:
     authorize them. `docs/TASKS.md` remains the AI-maintained engineering work
     order and is not the engineer-owned Drive project tracker.
 
+## Existing-plan-first gate — mandatory
+
+Before scoping, planning, implementing, diagnosing, reprioritizing, or
+delegating any request framed as new work, a TODO/backlog item, continuation or
+resume, blocker follow-up, or milestone change:
+
+1. Search `docs/TASKS.md` first using the operator's terms, likely synonyms,
+   workflow step, affected component, and known task IDs. Read every relevant
+   entry in full, including its priority, state, dependencies, boundaries,
+   acceptance evidence, and next action.
+2. Follow that entry's references into `docs/DEVELOPMENT_PLAN.md`,
+   `docs/DECISIONS.md`, and the relevant dated logbook evidence.
+   `docs/AGENT_CONTEXT.md` is a routing aid and must not replace this lookup.
+3. When a match exists, use its task ID and recorded contract. Do not create a
+   parallel plan, rename or silently rescope the task, reorder its dependencies,
+   or ask the operator to repeat settled decisions. For backlog work, compare
+   the priorities and dependencies of all actionable matches before selecting
+   the next item.
+4. A current explicit operator change supersedes the recorded plan. Record the
+   exact delta in the canonical task, decision, and logbook records. If records
+   conflict, surface the conflict and apply the latest explicit superseding
+   decision; do not let an older general summary override a later task-specific
+   plan.
+5. Treat a newly observed runtime failure as evidence under the active task
+   until inspection proves it is independent. Do not automatically create a
+   new task, tune parameters, change geometry or policy, or restart an expensive
+   cycle merely because another downstream error appeared.
+6. Create a new plan only when the lookup finds no applicable recorded task;
+   record that result in today's logbook.
+
 ## Efficient task prompts — 2026-09-09
 
 For a substantial task, establish a compact contract: outcome, routed context,

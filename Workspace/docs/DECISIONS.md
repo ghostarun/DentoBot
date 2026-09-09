@@ -4140,3 +4140,29 @@ Comparison is temporary display state: same-source overlays and cross-source
 side-by-side slice backgrounds are reversible and cannot become planning
 authority. This prevents the prior failure mode in which reviewing postDental
 left preDental anatomy or a sibling segmentation visible over the wrong CBCT.
+
+## 2026-09-09 — Retrieve recorded plans before task scoping or execution
+
+Status: accepted repository operating policy
+
+Before any new-work, TODO/backlog, continuation/resume, blocker-follow-up,
+reprioritization, diagnosis, or delegation action, the agent must search
+`TASKS.md` first and use the matching recorded task contract. It must then
+follow that task's references into `DEVELOPMENT_PLAN.md`, this decision record,
+and the relevant dated logbook evidence. `AGENT_CONTEXT.md` remains a compact
+routing aid; an older general summary cannot displace a later task-specific
+plan.
+
+The current operator message may explicitly amend or supersede a recorded
+plan, and that delta must be written back to the canonical records. Without
+such a change, the agent must preserve the task ID, priority, dependencies,
+scope boundaries, acceptance evidence, and next action. A new runtime failure
+is evidence inside the active task until inspection establishes an independent
+issue; it is not automatic authority to replan, tune geometry or policy, or
+repeat an expensive cycle. A new plan is created only after the lookup finds no
+applicable task.
+
+Reason: the already accepted `S6-REUSABLE-CASE-SETUP` plan and its 32 × 3
+registry foundation were missed when implementation started in a new task.
+Making retrieval an explicit gate prevents parallel plans and preserves the
+operator's recorded priority and dependency decisions across task boundaries.

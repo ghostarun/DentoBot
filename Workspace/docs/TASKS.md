@@ -2,6 +2,14 @@
 
 Last reconciled: 2026-09-09
 
+## Mandatory existing-plan-first agent gate — 2026-09-09
+
+- **ID:** `AGENT-PLAN-FIRST`; **Priority:** Not applicable — mandatory process gate; **State:** Implemented in repository instructions and compact routing context.
+- **Operator observation:** A new implementation task began without retrieving the already recorded reusable Step 6 / 32 × 3 trajectory plan. Replanning or clearing backlog without consulting canonical plans is detrimental to development continuity.
+- **Required behavior:** Before new work, TODO/backlog clearance, continuation/resume, blocker follow-up, reprioritization, diagnosis, or delegation, search this file first and read every applicable task contract. Follow its references into the development plan, decisions, and dated evidence; use the existing task ID and scope unless the operator explicitly changes it.
+- **Failure boundary:** A newly exposed runtime failure remains evidence under the active task until inspection proves it independent. It does not by itself authorize another plan, parameter/geometry/policy change, or expensive retry.
+- **Evidence:** Instruction readback verifies the mandatory triggers, source order, precedence rule, no-match behavior, and current `S6-REUSABLE-CASE-SETUP` routing. This documentation-only correction did not run product tests or simulation.
+
 ## Sol routing correction — 2026-09-09
 
 - **ID:** `AGENT-SOL-RESTORE`; **Priority:** Unprioritized; **State:** Agent policy updated; saved-default outcome recorded in today's logbook.
