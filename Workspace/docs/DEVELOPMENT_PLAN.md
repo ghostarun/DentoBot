@@ -1,5 +1,14 @@
 # DENTOBOT Development Plan
 
+## Slicer 5.12 platform migration — active investigation
+
+Prepare Slicer 5.12.0 as an isolated candidate while current 5.10 releases stay
+available. The ordered phases are source reconstruction, clean derivative-image
+build, compatibility gates, representative workflow and simulation gates,
+same-host performance comparison, then operator acceptance and release
+promotion. The authoritative phase plan is
+`Workspace/docs/SLICERROS2_5_12_UPGRADE.md`.
+
 ## 2026-09-08 — Bounded FDI11 simulation retry
 
 Operator's latest policy caps the confirmed simulation drilling path at 6 mm,

@@ -1,5 +1,13 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## 2026-09-09 Slicer 5.12 migration status
+
+The accepted runtime remains Slicer 5.10.0. A controlled Slicer 5.12.0
+candidate is planned in `Workspace/docs/SLICERROS2_5_12_UPGRADE.md`. Do not
+change the current image, generated ROS products, or lab manifest in place.
+The candidate must use a clean rebuild against the new Slicer superbuild and
+pass the approved compatibility and workflow gates before promotion.
+
 ## 2026-09-08 provisional simulation verification restart
 
 The existing `dentobot-slicerros2` container was restarted for operator-approved

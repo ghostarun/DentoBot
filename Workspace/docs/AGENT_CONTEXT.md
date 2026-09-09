@@ -1,5 +1,15 @@
 # DENTOBOT compact agent context
 
+## Slicer 5.12 migration routing — 2026-09-09
+
+The accepted runtime remains Slicer 5.10. Begin the 5.12.0 migration now only
+on an isolated candidate: merge current upstream SlicerROS2, preserve and audit
+the DentoBot fork patches, derive from the upstream 5.12 image, and rebuild all
+compiled products cleanly. Keep 5.10 as rollback and do not promote until the
+approved compatibility, representative workflow, simulation-only, lifecycle,
+and same-host performance gates pass. Route details through
+`Workspace/docs/SLICERROS2_5_12_UPGRADE.md`.
+
 ## Model routing update — 2026-09-09
 
 Sol is restored as the preferred development/coordinator model: `gpt-5.6-sol`,

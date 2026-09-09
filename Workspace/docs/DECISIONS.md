@@ -1,5 +1,23 @@
 # Dentobot Technical Decisions
 
+## 2026-09-09 — Begin Slicer 5.12 migration on an isolated candidate
+
+**Status:** Recommended assessment decision. Implementation, builds, runtime
+checks, operator acceptance, and release promotion remain pending.
+
+Begin migration now without replacing the accepted Slicer 5.10 runtime. Merge
+current upstream SlicerROS2 into the DentoBot fork on an isolated upgrade
+branch, preserve the necessary DentoBot native patches, and build a clean
+DentoBot derivative of the upstream SlicerROS2 5.12.0 image. Do not mutate the
+existing container in place or assemble a hybrid from selected 5.12 libraries.
+
+Use Slicer 5.12.0 first because SlicerROS2 1.2 explicitly tests it and the
+upstream image uses it. Evaluate Slicer 5.12.3 only after that supported
+baseline passes. Keep the Slicer 5.10 image immutable for rollback until full
+compatibility, representative workflow, simulation-only, lifecycle, and
+same-host performance evidence is accepted. Detailed evidence and phases are
+in `SLICERROS2_5_12_UPGRADE.md`.
+
 ## 2026-09-09 — Restore Sol as preferred development coordinator
 
 **Operator decision:** Bring Sol back wherever recommended; approximately 90%
