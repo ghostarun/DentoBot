@@ -25,6 +25,16 @@ Suggested entry fields are:
 - fix, reversion, or current disposition;
 - unresolved questions and next action.
 
+## 2026-09-09 afternoon IST (UTC+05:30) — lab update + GHCR + GHA plan
+
+Brief pointer: lab update-channel (bootstrap from `origin/main`, chicken/egg
+fix), GHCR thin re-label publish of `jazzy-moveit-sim-20260909`, and a
+docs-only GitHub Actions image-publish **plan** (no workflow YAML).
+
+Full detail: [2026-09-09.md](./2026-09-09.md) — section
+**Afternoon: lab update channel, GHCR publish, and GHA lessons**.
+Plan doc: [`GITHUB_ACTIONS_LAB_IMAGE_PUBLISH_PLAN.md`](../GITHUB_ACTIONS_LAB_IMAGE_PUBLISH_PLAN.md).
+
 ## 2026-09-09 06:42:00 IST (UTC+05:30) — Tarun-X1 lab bring-up (docker-ce + CUDA + WSLg GUI)
 
 ### Session objective
