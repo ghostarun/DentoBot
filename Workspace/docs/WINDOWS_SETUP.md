@@ -23,16 +23,17 @@ case data, model caches, or credentials through Git.
 
 ## Release status
 
-`origin/main` contains the September 9 Windows WSLg/CUDA integration, but the
-current `Workspace/LAB_RELEASE` still selects `lab/2026-09-03`. That older tag
-does not contain the complete WSLg/CUDA Compose and model-cache integration.
-Do not describe a clone of `main` as a lab release, and do not install another
-machine from a dirty development checkout.
+Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-09-09` and GHCR
+image `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909`. Lab and
+test machines must install or update to that pin (via `install-lab-wsl` /
+`Update Dentobot Lab.bat`), not follow `main` or a dirty development checkout.
 
-The next reproducible Windows rollout must use a new accepted `lab/YYYY-MM-DD`
-tag and its matching GHCR image. Until that freeze exists, record the exact
-source SHA on machines using an integration revision and treat them as test
-installations.
+`origin/main` can still be ahead of the dated lab tag with additional Compose
+identity and setup-doc changes (for example host UID/GID, `slicer-home`, and
+this canonical `WINDOWS_SETUP.md`). Do not describe a clone of `main` as a lab
+release. Machines on an integration revision must record their exact source SHA
+and remain test installations until the next accepted `lab/YYYY-MM-DD` freeze
+and matching GHCR image identity.
 
 ## 1. Prepare Windows and WSL
 
