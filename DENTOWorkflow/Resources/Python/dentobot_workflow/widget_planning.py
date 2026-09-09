@@ -100,7 +100,20 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             associatedSegmentation = association["segmentationNode"]
             associatedTargetId = association["targetRecord"]["segmentId"]
             associatedRoi = association["targetBoundsRoi"]
-            if (
+            activeTargetMismatch = bool(
+                self._parameterNode.teethSegmentation
+                and self._parameterNode.targetToothSegmentId
+                and (
+                    self._parameterNode.teethSegmentation is not associatedSegmentation
+                    or self._parameterNode.targetToothSegmentId != associatedTargetId
+                )
+            )
+            if activeTargetMismatch:
+                trajectoryAssociationError = _(
+                    "The saved trajectory belongs to another target tooth; "
+                    "select or regenerate the trajectory for the active target."
+                )
+            elif (
                 self._parameterNode.teethSegmentation is not associatedSegmentation
                 or self._parameterNode.targetToothSegmentId != associatedTargetId
                 or self._parameterNode.targetToothBoundsRoi is not associatedRoi
@@ -514,6 +527,38 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
         self._refreshAfterPlanningDownstreamDeletion()
         return True
 
+    def _resetStep6CaseJawOpeningBeforeInputChange(self) -> bool:
+        parameterNode = self._parameterNode
+        if not parameterNode or not self.logic:
+            return True
+        if not parameterNode.step6PlanningContextImported:
+            return True
+        hasTransientOpening = bool(
+            str(parameterNode.step6CaseJawPreparationMode or "ClosedSource")
+            != "ClosedSource"
+            or any(
+                getattr(parameterNode, fieldName, None)
+                for fieldName in (
+                    "step6CaseJawTransform",
+                    "step6OpenedLowerJawModel",
+                    "step6FixedUpperAnatomy",
+                    "step6MovingLowerAnatomy",
+                    "step6TargetJawFallbackAnatomy",
+                    "step6CaseJawGapLine",
+                    "step6OpenedTargetGeometryModel",
+                    "step6OpenedTrajectoryLine",
+                )
+            )
+        )
+        if not hasTransientOpening:
+            return True
+        try:
+            self.logic.resetStep6CaseJawOpening(parameterNode)
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
+            return False
+        return True
+
     def _confirmAndDeleteActivePlanningDownstream(
         self,
         actionText: str,
@@ -522,6 +567,8 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             return True
         impact = self.logic.getActivePlanningDownstreamImpact()
         if not impact["hasDependents"]:
+            if not self._resetStep6CaseJawOpeningBeforeInputChange():
+                return False
             if impact.get("flags", {}).get("selectedGuideReference"):
                 try:
                     self.logic.deleteActivePlanningDownstreamWorkflow(
@@ -541,6 +588,8 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             ),
             windowTitle=_("Backtrack current target workflow"),
         ):
+            return False
+        if not self._resetStep6CaseJawOpeningBeforeInputChange():
             return False
         try:
             result = self.logic.deleteActivePlanningDownstreamWorkflow(

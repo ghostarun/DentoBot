@@ -393,6 +393,15 @@ class BootstrapWidgetMixin:
             "currentNodeChanged(vtkMRMLNode*)",
             self.onReviewSegmentationSelectionChanged,
         )
+        self.ui.showSelectedSegmentationOnlyButton.connect(
+            "clicked(bool)", self.onShowSelectedSegmentationOnly
+        )
+        self.ui.showAllSegmentationRunsButton.connect(
+            "clicked(bool)", self.onShowAllSegmentationRuns
+        )
+        self.ui.renameSelectedSegmentationButton.connect(
+            "clicked(bool)", self.onRenameSelectedSegmentation
+        )
         self.ui.segmentSearchLineEdit.connect(
             "textChanged(QString)",
             self.onSegmentSearchTextChanged,
@@ -1083,5 +1092,6 @@ class BootstrapWidgetMixin:
         self._hideLegacyPost5BControls()
 
         self._addSceneObservers()
+        self._setupScanContext()
         self.initializeParameterNode()
         self._setupApplicationShell()

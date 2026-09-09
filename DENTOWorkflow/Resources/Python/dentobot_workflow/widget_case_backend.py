@@ -23,22 +23,17 @@ class CaseBackendWidgetMixin:
         self._lastDisplayedVolumeId = volumeNode.GetID()
 
     def onShowSelectedVolume(self) -> None:
-        if not self._parameterNode or not self._parameterNode.inputVolume:
+        if not self._parameterNode or not self._parameterNode.inspectedVolume:
             return
         with slicer.util.tryWithErrorDisplay(_("Could not display the selected volume.")):
-            self._showVolumeInSliceViews(self._parameterNode.inputVolume)
+            self._showVolumeInSliceViews(self._parameterNode.inspectedVolume)
 
     def onInputVolumeSelectionChanged(self, volumeNode) -> None:
         """Keep the visible selector authoritative and persist its exact node."""
 
         if not self._parameterNode:
             return
-        parameterVolume = self._parameterNode.inputVolume
-        parameterVolumeId = parameterVolume.GetID() if parameterVolume else None
-        selectedVolumeId = volumeNode.GetID() if volumeNode else None
-        if parameterVolumeId != selectedVolumeId:
-            self._parameterNode.inputVolume = volumeNode
-        self._updateBackendControls()
+        self.selectInspectionContext(volumeNode)
 
     def onOpenDicomBrowser(self) -> None:
         if not self.logic:
@@ -727,13 +722,13 @@ class CaseBackendWidgetMixin:
         self.ui.roundTripButton.enabled = bool(
             configured
             and stagingRoot
-            and self._parameterNode.inputVolume
+            and self._parameterNode.inspectedVolume
             and not running
         )
         self.ui.segmentTeethButton.enabled = bool(
             configured
             and stagingRoot
-            and self._parameterNode.inputVolume
+            and self._parameterNode.inspectedVolume
             and not running
         )
         self.ui.segmentTeethButton.text = (
@@ -752,7 +747,7 @@ class CaseBackendWidgetMixin:
         self.ui.roundTripOutputValueLabel.text = (
             roundTripVolume.GetName() if roundTripVolume else _("--")
         )
-        teethSegmentation = self._parameterNode.teethSegmentation
+        teethSegmentation = self._parameterNode.inspectedSegmentation
         self.ui.teethSegmentationValueLabel.text = (
             teethSegmentation.GetName() if teethSegmentation else _("--")
         )
@@ -1022,10 +1017,10 @@ class CaseBackendWidgetMixin:
             if not volumeNode or not volumeNode.IsA("vtkMRMLScalarVolumeNode"):
                 raise ValueError(_("Select a scalar CBCT volume first."))
             if (
-                not self._parameterNode.inputVolume
-                or self._parameterNode.inputVolume.GetID() != volumeNode.GetID()
+                not self._parameterNode.inspectedVolume
+                or self._parameterNode.inspectedVolume.GetID() != volumeNode.GetID()
             ):
-                self._parameterNode.inputVolume = volumeNode
+                self.selectInspectionContext(volumeNode)
             if volumeNode.GetParentTransformNode():
                 raise ValueError(
                     _(
@@ -1082,10 +1077,10 @@ class CaseBackendWidgetMixin:
             if not volumeNode or not volumeNode.IsA("vtkMRMLScalarVolumeNode"):
                 raise ValueError(_("Select a scalar CBCT volume first."))
             if (
-                not self._parameterNode.inputVolume
-                or self._parameterNode.inputVolume.GetID() != volumeNode.GetID()
+                not self._parameterNode.inspectedVolume
+                or self._parameterNode.inspectedVolume.GetID() != volumeNode.GetID()
             ):
-                self._parameterNode.inputVolume = volumeNode
+                self.selectInspectionContext(volumeNode)
             if volumeNode.GetParentTransformNode():
                 raise ValueError(
                     _(
@@ -1281,9 +1276,13 @@ class CaseBackendWidgetMixin:
                 colorTableNode.GetID()
             )
 
+            sourceName = str(sourceVolume.GetName() or "CBCT").strip()
+            segmentationName = slicer.mrmlScene.GenerateUniqueName(
+                f"[Teeth] {sourceName} — run {runContext['runId'][:8]}"
+            )
             segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
                 "vtkMRMLSegmentationNode",
-                f"DENTOsegmentation_Teeth_{runContext['runId'][:8]}",
+                segmentationName,
             )
             segmentationNode.CreateDefaultDisplayNodes()
             segmentationNode.SetReferenceImageGeometryParameterFromVolumeNode(
@@ -1332,12 +1331,16 @@ class CaseBackendWidgetMixin:
                 logging.warning(reviewMetadataWarning)
 
             parameterNode = self.logic.getParameterNode()
-            parameterNode.teethSegmentation = segmentationNode
+            sourceWasInspected = parameterNode.inspectedVolume == sourceVolume
+            sourceVolume.SetNodeReferenceID("DENTOBOT.InspectedRun", segmentationNode.GetID())
+            if sourceWasInspected:
+                self.selectInspectionContext(sourceVolume, segmentationNode)
+            else:
+                segmentationNode.GetDisplayNode().SetVisibility(False)
             if self._parameterNode:
                 self._updateBackendControls()
                 self.ui.backendCollapsibleButton.collapsed = True
                 self.ui.segmentationReviewCollapsibleButton.collapsed = False
-            slicer.util.setSliceViewerLayers(background=sourceVolume, fit=False)
         except Exception:
             if segmentationNode:
                 slicer.mrmlScene.RemoveNode(segmentationNode)
@@ -1348,15 +1351,14 @@ class CaseBackendWidgetMixin:
             if colorTableNode:
                 slicer.mrmlScene.RemoveNode(colorTableNode)
 
-        self._setBackendStatus(
-            _(
-                "Teeth segmentation completed on %1: %2 validated segments are "
-                "visible in 2D and 3D. Review this research output before use."
-            )
-            .replace("%1", str(report["device"]["actual"]))
-            .replace("%2", str(report["metrics"]["segmentCount"])),
-            "success",
+        completion = _(
+            "Completed for %1 — %2 validated segments. Review result before use."
+        ).replace("%1", sourceVolume.GetName() or _("Unnamed scan")).replace(
+            "%2", str(report["metrics"]["segmentCount"])
         )
+        if not sourceWasInspected:
+            completion += _(" Current inspection was preserved; select this scan to review it.")
+        self._setBackendStatus(completion, "success")
 
     def _completeRoundTrip(self, runContext: dict, returnCode: int) -> None:
         runPaths = runContext["paths"]

@@ -25,6 +25,8 @@ TARGET_ID = "[Mask] DENTOBOT phase-smoke target — FDI 14"
 FORBIDDEN_ID = "dentobot_phase_smoke_forbidden"
 ROBOT_OBSTACLE_ID = "dentobot_phase_smoke_non_tool_obstacle"
 GUIDE_ID = "[Step 5C] DENTOBOT phase-smoke guide — final"
+GUIDE_NEAR_ID = "dentobot_phase_smoke_guide_near"
+GUIDE_UNRELATED_ID = "dentobot_phase_smoke_guide_unrelated"
 
 
 class PhaseSmokeNode(Node):
@@ -91,6 +93,17 @@ def quaternion_rotate(q, vector):
     )
 
 
+def perpendicular_unit(vector):
+    reference = (0.0, 0.0, 1.0) if abs(vector[2]) < 0.9 else (0.0, 1.0, 0.0)
+    cross = (
+        vector[1] * reference[2] - vector[2] * reference[1],
+        vector[2] * reference[0] - vector[0] * reference[2],
+        vector[0] * reference[1] - vector[1] * reference[0],
+    )
+    length = math.sqrt(sum(value * value for value in cross))
+    return tuple(value / length for value in cross)
+
+
 def planning_scene_world_ids(node: PhaseSmokeNode):
     if not node.planning_scene_client.wait_for_service(timeout_sec=2.0):
         return None
@@ -146,15 +159,16 @@ def publish_sphere(
     raise RuntimeError(f"planning scene did not {action} {object_id}")
 
 
-def config_payload(entry, target, guard_session_id):
+def config_payload(entry, target, guard_session_id, *, guide_ids=()):
     return {
-        "schema": "dentobot.task_guard_config.v2",
+        "schema": "dentobot.task_guard_config.v3",
         "mode": "simulation_only",
         "task_fingerprint": TASK,
         "guard_session_id": guard_session_id,
         "target_object_id": TARGET_ID,
         "allowed_robot_link": "burr",
-        "clearance_exempt_object_ids": [GUIDE_ID],
+        "clearance_exempt_object_ids": [TARGET_ID],
+        "simulation_guide_clearance_object_ids": list(guide_ids),
         "tool_tip_frame": "dentobot_drill_tcp",
         "entry_base_m": list(entry),
         "target_base_m": list(target),
@@ -172,6 +186,7 @@ def task_command(
     sequence,
     fingerprint=TASK,
     publish_config=True,
+    expect_invalid_config=False,
     timeout_sec=5.0,
 ):
     config_message = String()
@@ -214,6 +229,7 @@ def task_command(
         if status is not None:
             if (
                 publish_config
+                and not expect_invalid_config
                 and (
                     "No valid simulation task-guard configuration"
                     in str(status.get("reason", ""))
@@ -337,6 +353,171 @@ def main() -> None:
         require(duplicate, False, "duplicate sequence", "stale or duplicated")
         report["duplicate_sequence_rejected_without_config_reset"] = True
 
+        retraction = task_command(
+            node,
+            config=config,
+            joints=safe_joints,
+            phase="retraction",
+            sequence=2,
+            publish_config=False,
+        )
+        require(retraction, True, "guarded retraction phase")
+        if not retraction.get("corridor_ok"):
+            raise RuntimeError("guarded retraction did not retain corridor evidence")
+        report["retraction_phase_accepted_and_reported"] = True
+
+        # Exercise the narrower simulation-only guide margin in approach. Keep
+        # the selected target object present for the task configuration, but
+        # move it away so this section tests guide distance rather than target
+        # contact. The 0.5 mm unrelated object verifies that re-querying after
+        # an allowed guide pair cannot hide a second offending pair.
+        guide_axis = perpendicular_unit(direction)
+
+        def guide_centre(gap_m):
+            radial_offset = 0.0005 + 0.00005 + float(gap_m)
+            return tuple(
+                entry[index] + radial_offset * guide_axis[index]
+                for index in range(3)
+            )
+
+        publish_sphere(
+            node,
+            TARGET_ID,
+            tuple(entry[index] + direction[index] for index in range(3)),
+            radius_m=0.0001,
+        )
+        publish_sphere(node, GUIDE_ID, guide_centre(0.0002), radius_m=0.00005)
+        guide_allowed = task_command(
+            node,
+            config=config_payload(
+                entry,
+                target,
+                "phase-smoke-guide-0p2",
+                guide_ids=(GUIDE_ID,),
+            ),
+            joints=safe_joints,
+            phase="approach",
+            sequence=0,
+        )
+        require(guide_allowed, True, "0.2 mm configured guide clearance")
+        report["configured_guide_0p2mm_accepted"] = True
+
+        publish_sphere(node, GUIDE_ID, guide_centre(0.00005), radius_m=0.00005)
+        guide_too_close = task_command(
+            node,
+            config=config_payload(
+                entry,
+                target,
+                "phase-smoke-guide-0p05",
+                guide_ids=(GUIDE_ID,),
+            ),
+            joints=safe_joints,
+            phase="approach",
+            sequence=0,
+        )
+        require(guide_too_close, True, "0.05 mm configured guide clearance")
+        if guide_too_close.get("guide_warning_kind") != "clearance":
+            raise RuntimeError(f"0.05 mm guide warning missing: {guide_too_close}")
+        report["configured_guide_0p05mm_warned"] = True
+
+        publish_sphere(node, GUIDE_ID, guide_centre(0.0002), radius_m=0.00005)
+        publish_sphere(
+            node,
+            GUIDE_UNRELATED_ID,
+            guide_centre(0.0005),
+            radius_m=0.00005,
+        )
+        unrelated_guide = task_command(
+            node,
+            config=config_payload(
+                entry,
+                target,
+                "phase-smoke-guide-unrelated",
+                guide_ids=(GUIDE_ID,),
+            ),
+            joints=safe_joints,
+            phase="approach",
+            sequence=0,
+        )
+        require(unrelated_guide, True, "unrelated 0.5 mm world clearance")
+        if GUIDE_UNRELATED_ID not in {
+            unrelated_guide.get("first_body"),
+            unrelated_guide.get("second_body"),
+        }:
+            raise RuntimeError(f"unrelated near pair was not reported: {unrelated_guide}")
+        if unrelated_guide.get("guide_warning_kind") != "clearance":
+            raise RuntimeError(f"unrelated world warning missing: {unrelated_guide}")
+        report["unrelated_0p5mm_world_pair_warned"] = True
+        publish_sphere(node, GUIDE_ID, guide_centre(0.0002), remove=True)
+        publish_sphere(node, GUIDE_UNRELATED_ID, guide_centre(0.0005), remove=True)
+        publish_sphere(node, TARGET_ID, contact_centre, radius_m=0.002)
+
+        housing_transform = spin_until(
+            node,
+            lambda: node.tf_buffer.lookup_transform(
+                "base_link", "pneumatic_spindle-Copy", rclpy.time.Time()
+            )
+            if node.tf_buffer.can_transform(
+                "base_link", "pneumatic_spindle-Copy", rclpy.time.Time()
+            )
+            else None,
+            5.0,
+        )
+        if housing_transform is None:
+            raise RuntimeError("pneumatic spindle housing TF unavailable")
+        housing_origin = housing_transform.transform.translation
+        # A point 0.1 mm inside a broad CAD face in the housing-link frame.
+        # The 0.2 mm sphere creates a bounded contact; placing it at the link
+        # origin misses this offset collision mesh.
+        housing_guide_local = (0.0059581754, 0.0095281562, 0.0008275214)
+        housing_guide_offset = quaternion_rotate(
+            housing_transform.transform.rotation, housing_guide_local
+        )
+        housing_guide_centre = (
+            housing_origin.x + housing_guide_offset[0],
+            housing_origin.y + housing_guide_offset[1],
+            housing_origin.z + housing_guide_offset[2],
+        )
+        publish_sphere(node, GUIDE_ID, housing_guide_centre, radius_m=0.0002)
+        housing_approach = task_command(
+            node,
+            config=config_payload(
+                entry,
+                target,
+                "phase-smoke-housing-approach",
+                guide_ids=(GUIDE_ID,),
+            ),
+            joints=safe_joints,
+            phase="approach",
+            sequence=0,
+        )
+        require(housing_approach, False, "approach housing-guide contact", "collision")
+        housing_contact = task_command(
+            node,
+            config=config_payload(
+                entry,
+                target,
+                "phase-smoke-housing-contact",
+                guide_ids=(GUIDE_ID,),
+            ),
+            joints=safe_joints,
+            phase="drilling",
+            sequence=0,
+        )
+        require(housing_contact, True, "bounded housing-guide contact")
+        if housing_contact.get("guide_warning_kind") != "contact":
+            raise RuntimeError(f"housing contact warning kind missing: {housing_contact}")
+        if float(housing_contact.get("guide_clearance_warning_contact_penetration_m", 1.0)) > 0.0005:
+            raise RuntimeError(f"housing contact exceeded 0.5 mm: {housing_contact}")
+        report["housing_guide_contact_warning_accepted"] = True
+        report["housing_guide_contact_warning_kind"] = housing_contact.get(
+            "guide_warning_kind"
+        )
+        report["housing_guide_contact_penetration_m"] = housing_contact.get(
+            "guide_clearance_warning_contact_penetration_m"
+        )
+        publish_sphere(node, GUIDE_ID, housing_guide_centre, remove=True)
+
         publish_sphere(node, FORBIDDEN_ID, contact_centre)
         unconfigured = task_command(
             node,
@@ -349,7 +530,7 @@ def main() -> None:
             unconfigured,
             False,
             "unconfigured task-object collision",
-            "unconfigured collision",
+            "non-approved collision",
         )
         report["unconfigured_tool_contact_rejected"] = True
 
@@ -363,17 +544,13 @@ def main() -> None:
             joints=safe_joints,
             phase="drilling",
             sequence=0,
+            expect_invalid_config=True,
         )
-        require(exploratory, True, "configured exploratory tool contact")
-        if not exploratory.get("exploratory_tool_contact_suppressed"):
-            raise RuntimeError(
-                f"configured tool contact was not reported: {exploratory}"
-            )
-        if int(exploratory.get("suppressed_tool_contact_sample_count", 0)) < 1:
-            raise RuntimeError(
-                f"configured tool contact did not count suppressed samples: {exploratory}"
-            )
-        report["configured_tool_contact_suppressed_and_reported"] = True
+        require(
+            exploratory, False, "non-target exemption configuration",
+            "No valid simulation task-guard configuration",
+        )
+        report["non_target_exemption_configuration_rejected"] = True
         publish_sphere(node, FORBIDDEN_ID, contact_centre, remove=True)
 
         link_transform = spin_until(
@@ -403,7 +580,7 @@ def main() -> None:
             phase="drilling",
             sequence=0,
         )
-        require(non_tool, False, "non-tool collision", "non-tool")
+        require(non_tool, False, "non-tool collision", "non-approved collision")
         if ROBOT_OBSTACLE_ID not in {
             non_tool.get("first_body"),
             non_tool.get("second_body"),
@@ -467,7 +644,8 @@ def main() -> None:
         require(bounds, False, "joint bounds", "bounds")
         report["joint_bounds_rejected"] = True
 
-        publish_sphere(node, TARGET_ID, contact_centre, remove=True)
+        # Retain the required target identity, away from the clearance probe.
+        publish_sphere(node, TARGET_ID, (2.0, 2.0, 2.0))
         one_mm_clearance = task_command(
             node,
             config=config_payload(entry, target, "phase-smoke-self"),

@@ -1,5 +1,84 @@
 # DENTOBOT Architecture
 
+## 2026-09-09 Windows Docker provider boundary
+
+The full Windows profile runs the Linux SlicerROS2 stack inside WSL2 and shows
+its GUI through WSLg. Docker Engine inside that WSL distribution is the default
+Docker API provider. Docker Desktop WSL integration is an exclusive supported
+alternative. Everything above the Docker API uses the same Compose overlays,
+launcher, paths, and release manifest; product code must not branch on provider
+name. Provider setup and capability checks live in
+`Workspace/docs/WINDOWS_SETUP.md`.
+
+## 2026-09-08 bounded guide-shell contact warning
+
+The phased simulation guard may admit contact only between the stationary
+`pneumatic_spindle-Copy` housing and an explicitly configured guide/template
+object. The contact is limited to 0.5 mm penetration and to
+`terminal_contact`, `drilling`, and `retraction`; it is rejected during
+approach. The rotating burr retains 0.1 mm positive guide clearance. Self
+collision, unrelated world collisions, joint bounds, task identity, corridor,
+endpoint, forward-drilling and reverse-retraction checks remain hard gates.
+
+An admitted housing-guide contact does not end collision evaluation. The guard
+allows that exact pair in a temporary collision matrix and evaluates the scene
+again so another contact cannot be hidden. It records contact kind, penetration,
+pair, phase and sequence as warning evidence. This models a housing touch for
+functional simulation only; it does not model shell force, deformation,
+friction, spindle runout, or trajectory deflection.
+
+## 2026-09-08 phased guide-clearance warning channel
+
+The phased simulation guard reuses the exact guide/template object IDs already
+present in its immutable task configuration. Actual collision is checked first
+and remains authoritative. Its distance pass treats a positive sub-1 mm
+non-burr-link-to-guide distance as a warning, then removes only that exact pair
+from a temporary distance matrix and queries again. Burr-to-guide distance keeps
+the 0.1 mm threshold; self and unrelated world pairs keep 1 mm. Manual and
+unconfigured commands do not receive the warning policy.
+
+Warning evidence flows with the task-joint acknowledgement into the full-chain
+candidate and `MotionDiagnosticSession`, and is accumulated during preview and
+guarded retraction. A completed plan with any such evidence is explicitly
+reported as completed with warnings. The drilling endpoint remains 6 mm; the
+insertion preflight separately records a provisional 0.5 mm guide/shell
+allowance inside a 6.5 mm combined envelope and 0.5 mm remaining from the
+modeled 7 mm protrusion.
+
+## 2026-09-08 approved provisional simulation geometry
+
+Step 6 retains actual guide/template collision geometry. A separately named
+1 mm simulation burr mesh preserves the original axial geometry; confirmed
+simulation depth is capped at 6 mm. The explicitly approved 0.1 mm guide-pair
+clearance belongs only to the transient task guard and exact scene guide IDs.
+Strict/manual commands and all other pairs retain their existing 1 mm margin.
+The world-distance check must inspect remaining pairs after admitting a close
+burr–guide pair, so the narrower threshold cannot hide another violation.
+Measured tool/guide constraints and calibration requirements are recorded in
+DECISIONS.md under the 2026-09-08 provisional simulation decision. This is an
+active implementation/verification checkpoint, not full-cycle acceptance.
+
+## 2026-09-08 simulation endpoint cap
+
+Step 6 confirmation derives an effective Target at at most 6 mm from Entry on
+the source trajectory axis. The source trajectory remains unchanged. The
+confirmed snapshot owns the effective endpoint and cap-policy identity for
+planning, phase guards and endpoint FK; older confirmation policies require
+reconfirmation. This cap does not identify pulp or bypass physical insertion
+and collision checks. Full approach, withdrawal and Home acceptance is separate.
+
+## 2026-09-07 baseline correction
+
+The abnormal pre-surgery/x4 package is a historical diagnostic fixture, not a
+production acceptance case. The default Step 6 collision policy grants the
+narrow terminal burr-contact allowance only to the selected target tooth;
+adjacent anatomy and guide/template geometry remain authoritative for both
+collision and the research clearance margin. Historical template exclusion and
+session anatomy-review collision proxies are process-local opt-ins only and are
+never persisted or treated as acceptance evidence. The accepted five-joint
+canonical TCP, J6-outside-planning model, independent guard, and full-chain
+promotion rules are unchanged.
+
 ## Guarded-live-first Step 6 architecture — 2026-09-03
 
 Step 6 development is split into two gated tracks. Track A completes the
@@ -7,12 +86,12 @@ existing `DENTORobotWorkflowFacade` loop before any Studio reorganization:
 
 ```text
 Task Home --strict MoveIt/guard--> PreEntry
-    --fixed frame/narrow burr exception--> Entry
-    --same fixed frame/narrow burr exception--> Target
+    --fixed drill axis/narrow burr exception--> Entry
+    --same fixed drill axis/narrow burr exception--> Target
     --strict MoveIt/guard--> Task Home
 ```
 
-MoveIt first attempts each collision-off fixed-frame terminal line. Its bounded
+MoveIt first attempts each collision-off fixed-axis terminal line. Its bounded
 sequential IK fallback may solve only those same poses from the preceding
 accepted J1-J5 state, with J6 fixed at zero and FK residual verification. The
 independent phase guard remains the final waypoint authority. A phase session
@@ -80,6 +159,43 @@ next plan/disconnect. The diagnostics panel draws or animates those vectors
 only on transient TCP models and the translucent goal robot. Saved diagnostic
 JSON remains bounded summaries; candidate waypoint arrays never enter MRML or
 `.dentocase`.
+
+PreEntry and the terminal stages are a five-dimensional drilling task: exact
+TCP XYZ plus the two independent angular constraints defining tool +Z. The
+native SlicerROS2 robot node evaluates this task with the existing MoveIt
+`RobotState`, Jacobian, joint bounds, and PlanningScene; it does not pass an
+invented sixth pose constraint to KDL and never introduces J6. The
+authoritative Stage-1 FK frame is retained as a display/fingerprint scaffold,
+while the bounded continuity fallback checks only XYZ and +Z because housing
+roll is not a commanded degree of freedom. Stage 2/3 therefore preserve the
+exact Entry/Target points and drill axis; any partial or near-boundary result
+remains blocked and cannot be promoted as a drilling preview.
+
+When the authoritative best state is pinned at a mechanical J1–J5 limit, the
+bridge records a `sequential_position_axis_joint_limit` diagnostic rather than
+silently changing the target or tolerances. The current x4 evidence is a
+0.2510335 mm J2 lower-bound miss at pose 60/64; the valid remedy is explicit
+provisional-base/case-placement correction followed by normal invalidation and
+revalidation. Out-of-range FK probes are diagnostic-only and never enter
+MoveIt, the guard, persistence, or preview.
+
+Before full-chain authorization, Step 6 also evaluates a separate provisional
+physical insertion contract: requested Entry→Target depth must be no greater
+than `effectiveToolProtrusionMm - 0.1 mm`. This is tool-only, is not a guide
+fit calculation, and never changes the trajectory. Guard collision results
+remain distinct from the 1 mm research clearance margin: a margin violation
+must retain its nearest robot/anatomy points and is not reported as a mesh
+intersection. A reviewed session-local anatomy collision proxy, when explicitly
+created by the operator, replaces only the affected collision object and never
+the source segmentation.
+
+The review proxy is a disposable `vtkMRMLSegmentationNode` marked
+`DENTOBOT.Step6AnatomyReviewProxy=true` and `SaveWithSceneOff`. It preserves the
+canonical source collision-object ID for PlanningScene/audit continuity, while
+the outgoing prepared-mesh fingerprint proves that a reviewed local proxy—not
+source anatomy—was published. It cannot be created as an active proxy, is not
+serialized, and activation invalidates task/diagnostic state before collision
+re-synchronization.
 
 > Cross-platform update (2026-09-02): the Slicer/MRML workflow is shared.
 > Native Windows Slicer uses a WSL2 inference adapter without ROS. Ubuntu uses
@@ -973,7 +1089,11 @@ are excluded.
   not an alternative trajectory. Geometry math runs separately from the UI:
   entry-directed tooth-axis estimation, multi-depth root-side surface caps,
   deterministic transverse two-cluster analysis for the two-root case, and
-  Entry↔Target pairing. The only planning outputs are the same ordinary
+  Entry↔Target pairing. Assisted generation preserves those directions but
+  shortens each Target to the first occupied-voxel boundary of the selected
+  tooth's FDI-matched pulp mask along Entry→inferred rootward target. A missing,
+  ambiguous, empty, or missed pulp mask rejects generation before creating any
+  trajectories. The only planning outputs are the same ordinary
   Entry→Target line nodes consumed everywhere else.
 - Assisted lines reference the authoritative target segmentation/segment,
   immutable target bounds, and input-entry markup; record their analysis; stay
@@ -1073,7 +1193,10 @@ are excluded.
   authoritative selected teeth remain separate surfaces, a lifted closed
   collar derived from the clinician's continuous boundary bridges their shell
   rims on the removal side; it does not create a new patient-contact patch in
-  interdental gaps. A cropped, resolution-limited voxel Boolean unions the
+  interdental gaps. Its boundary is clipped and reclosed at the retained
+  terminal-tooth coverage planes before the collar is constructed, preserving
+  end connections when the final union is clipped to those same planes.
+  A cropped, resolution-limited voxel Boolean unions the
   pieces and collar and removes residual material inside the directional
   blockout clearance before extracting a watertight surface. If Hollow leaves
   invalid edges, that cropped domain reconstructs the shell from an
@@ -1436,9 +1559,11 @@ Ubuntu; SlicerROS2 remains an optional integration capability and Steps 0–5
 do not depend on either. The verified ROS profile is the Ubuntu
 24.04/Jazzy/Linux SlicerROS2 container. Current upstream SlicerROS2 1.2 does
 not list Windows as a supported build target, so native Windows Slicer remains
-a planning client without SlicerROS2. Docker Desktop/WSL2 hosting of the Linux
-GUI image is the Windows **lab** profile (`PLAT-U-04`): same container as
-Ubuntu, not native Windows module support, unaccepted until a lab PC trial.
+a planning client without SlicerROS2. The Windows **lab** profile (`PLAT-U-04`)
+hosts the Linux GUI image in WSL2 using direct Docker Engine by default or
+Docker Desktop WSL integration as an exclusive alternative. It is the same
+container contract as Ubuntu, not native Windows module support. Direct-Engine
+acceptance evidence remains pending.
 The description package does not decide whether the
 future adapter uses ROS, MoveIt, a vendor SDK, or another transport. Regardless
 of host or transport, low-level motion and safety never run in the Slicer
@@ -1453,8 +1578,8 @@ Python process.
   an account explicitly authorized to read that package; repository
   collaboration alone does not grant access while the package is unlinked.
   Scripts store no password. Recreate the overlay inside WSL; do not zip
-  `~/dentobot`. Native
-  `launch-dentoworkflow.ps1` is not this profile. GUI unaccepted until
+  `~/dentobot`. Native `launch-dentoworkflow.ps1` is not this profile. Follow
+  `Workspace/docs/WINDOWS_SETUP.md`; record provider-specific evidence under
   `PLAT-U-04`.
 - Ubuntu ROS development: pinned Linux SlicerROS2 container plus source
   extension path.

@@ -34,6 +34,55 @@
   },
   "checks": [
     {
+      "id": "runtime.pulp_shell_fdi11",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["pure.assisted_pulp_endpoint", "pure.support_boundary_bridge", "static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 900,
+      "evidence_level": "synthetic_slicer_and_saved_case",
+      "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 sh -lc 'timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
+      "pass_condition": "DENTOBOT_ASSISTED_PULP_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "pure.support_boundary_bridge",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "synthetic_vtk",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m pytest -q -p no:cacheprovider Testing/test_support_boundary_bridge.py",
+      "pass_condition": "exit_code_zero; old collar has two regions, terminal-closed collar has one watertight region"
+    },
+    {
+      "id": "pure.assisted_pulp_endpoint",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "pure_test",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m pytest -q -p no:cacheprovider Testing/test_assisted_pulp_endpoint.py",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "static.assisted_pulp_pycompile",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "static",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile DENTOWorkflow/Resources/Python/DENTOTrajectoryGeometry.py DENTOWorkflow/Resources/Python/dentobot_workflow/logic_workflow.py DENTOWorkflow/Resources/Python/dentobot_workflow/runtime.py DENTOWorkflow/Resources/Python/dentobot_workflow/widget_planning_focus.py DENTOWorkflow/Resources/Python/dentobot_workflow/slicer_tests.py Testing/test_assisted_pulp_endpoint.py",
+      "pass_condition": "exit_code_zero"
+    },
+    {
       "id": "static.step6_pycompile",
       "execution_kind": "host",
       "parallel_safe": true,
@@ -139,7 +188,7 @@
       "evidence_level": "simulation_exact_case",
       "entrypoint": "Testing/run_dentobot_step65_exact_case_smoke.py",
       "command_template": null,
-      "pass_condition": "marker:DENTOBOT_STEP65_EXACT_CASE_PASS; report shutdown exit separately"
+      "pass_condition": "marker:DENTOBOT_STEP65_EXACT_CASE_PASS and report fields guarded_preview_complete, guarded_return_home_complete, repeat_guarded_preview_complete are true; report shutdown exit separately"
     },
     {
       "id": "runtime.step6_restore",
@@ -224,6 +273,26 @@
       "pass_condition": "marker:DENTOBOT_SCENE_LIFECYCLE_PASS"
     },
     {
+      "id": "runtime.step3_segmentation_runs",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 90,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_segmentation_runs_smoke.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_SEGMENTATION_RUNS_PASS"
+    },
+    {
       "id": "manual.step6_normal_window",
       "execution_kind": "manual",
       "parallel_safe": false,
@@ -243,4 +312,3 @@
     }
   ]
 }
-

@@ -39,6 +39,39 @@ def _unit(vector: np.ndarray, label: str, epsilon: float = 1e-8) -> np.ndarray:
     return vector / length
 
 
+def first_mask_intersection(mask_kji, entry_ijk, target_ijk, extent_min_ijk=(0, 0, 0)) -> float:
+    """Return the first occupied voxel-box hit on the finite Entry→Target line."""
+    mask = np.asarray(mask_kji)
+    endpoints = _points([entry_ijk, target_ijk], "Mask line", minimum_count=2)
+    origin = _points([extent_min_ijk], "Mask extent", minimum_count=1)[0]
+    if mask.ndim != 3 or not np.any(mask):
+        raise ValueError("The selected tooth's pulp mask is empty or invalid.")
+    entry, target = endpoints
+    direction = target - entry
+    if float(np.linalg.norm(direction)) <= 1e-8:
+        raise ValueError("The assisted trajectory is degenerate.")
+    # ponytail: scan occupied pulp voxels; use grid traversal if large masks become slow.
+    centers = np.argwhere(mask)[:, ::-1] + origin
+    near = np.zeros(len(centers), dtype=float)
+    far = np.ones(len(centers), dtype=float)
+    for axis in range(3):
+        low, high = centers[:, axis] - 0.5, centers[:, axis] + 0.5
+        if direction[axis] == 0.0:
+            far[(entry[axis] < low) | (entry[axis] > high)] = -1.0
+        else:
+            a = (low - entry[axis]) / direction[axis]
+            b = (high - entry[axis]) / direction[axis]
+            near = np.maximum(near, np.minimum(a, b))
+            far = np.minimum(far, np.maximum(a, b))
+    hits = near[near <= far]
+    if not len(hits):
+        raise ValueError("The assisted trajectory does not intersect the selected tooth's pulp mask.")
+    first = float(np.min(hits))
+    if first <= 1e-8:
+        raise ValueError("The assisted Entry is already inside or touching the pulp mask.")
+    return first
+
+
 def _transverse_basis(axis: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     references = np.eye(3, dtype=float)
     reference = references[int(np.argmin(np.abs(references @ axis)))]

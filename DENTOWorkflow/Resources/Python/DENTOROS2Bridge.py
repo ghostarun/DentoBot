@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, replace
 from enum import Enum
 from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
+from types import MappingProxyType
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
@@ -36,7 +37,7 @@ ROS2_JOINT_COMMAND_STATUS_SCHEMA = "dentobot.joint_command_status.v1"
 ROS2_TASK_GUARD_CONFIG_TOPIC = "/dentobot/task_guard_config"
 ROS2_TASK_JOINT_COMMAND_TOPIC = "/dentobot/task_joint_command"
 ROS2_TASK_JOINT_STATUS_TOPIC = "/dentobot/task_joint_status"
-ROS2_TASK_GUARD_CONFIG_SCHEMA = "dentobot.task_guard_config.v2"
+ROS2_TASK_GUARD_CONFIG_SCHEMA = "dentobot.task_guard_config.v3"
 ROS2_TASK_JOINT_COMMAND_SCHEMA = "dentobot.task_joint_command.v2"
 ROS2_TASK_JOINT_STATUS_SCHEMA = "dentobot.task_joint_status.v2"
 ROS2_SIMULATION_STATUS_TOPIC = "/dentobot/simulation_status"
@@ -54,6 +55,7 @@ ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC = 8.0
 ROS2_CARTESIAN_EEF_STEP_ATTEMPTS_M = (0.001, 0.0005, 0.00025)
 CARTESIAN_START_POSITION_TOLERANCE_MM = 0.25
 CARTESIAN_START_ORIENTATION_TOLERANCE_DEG = 0.5
+POSITION_AXIS_JOINT_LIMIT_EPSILON_SI = 1.0e-8
 ROS2_MONITORED_STATE_TIMEOUT_SEC = 3.0
 ROS2_MONITORED_REVOLUTE_TOLERANCE_RAD = 0.001
 ROS2_MONITORED_PRISMATIC_TOLERANCE_M = 0.0001
@@ -133,6 +135,7 @@ class MoveItCartesianResult:
     collision_aware_ik_at_first_invalid: Optional[bool] = None
     kinematics_only_ik_at_first_invalid: Optional[bool] = None
     first_invalid_joint_positions_si: Optional[dict[str, float]] = None
+    first_invalid_joint_limit_blockers: tuple[dict[str, object], ...] = ()
     first_invalid_collision_pairs: tuple[tuple[str, str], ...] = ()
     submitted_start_joint_positions_si: Optional[dict[str, float]] = None
     submitted_goal_joint_positions_si: Optional[dict[str, float]] = None
@@ -178,6 +181,8 @@ class JointCommandStatus:
     minimum_world_distance_m: Optional[float] = None
     first_body: str = ""
     second_body: str = ""
+    nearest_point_first_base_m: Optional[tuple[float, float, float]] = None
+    nearest_point_second_base_m: Optional[tuple[float, float, float]] = None
     world_object_count: int = 0
     world_objects: tuple[dict[str, object], ...] = ()
     world_object_evidence_present: bool = False
@@ -202,10 +207,21 @@ class TaskJointStatus:
     minimum_world_distance_m: Optional[float] = None
     first_body: str = ""
     second_body: str = ""
+    nearest_point_first_base_m: Optional[tuple[float, float, float]] = None
+    nearest_point_second_base_m: Optional[tuple[float, float, float]] = None
     world_object_count: int = 0
     world_objects: tuple[dict[str, object], ...] = ()
     exploratory_tool_contact_suppressed: bool = False
     suppressed_tool_contact_sample_count: int = 0
+    guide_clearance_warning: bool = False
+    guide_clearance_warning_sample_count: int = 0
+    minimum_guide_clearance_warning_m: Optional[float] = None
+    guide_clearance_warning_robot_link: str = ""
+    guide_clearance_warning_object_id: str = ""
+    guide_warning_kind: str = ""
+    guide_clearance_warning_contact_penetration_m: Optional[float] = None
+    guide_clearance_warning_contact_sample_count: int = 0
+    guide_clearance_warning_contact_position_base_m: Optional[tuple[float, float, float]] = None
 
 
 _status_subscriber = None
@@ -228,6 +244,7 @@ _task_status_observer = None
 _last_task_status = None
 _last_task_status_at = 0.0
 _last_task_config_json = ""
+_last_task_phase_validation_warnings: tuple[Mapping[str, object], ...] = ()
 
 
 def parse_simulation_status(payload: str) -> SimulationStackStatus:
@@ -296,6 +313,15 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
             raise ValueError(f"{key} must be finite or null.")
         return parsed
 
+    def optional_point(key: str) -> Optional[tuple[float, float, float]]:
+        values = data.get(key)
+        if values is None:
+            return None
+        point = tuple(float(value) for value in values)
+        if len(point) != 3 or not all(isfinite(value) for value in point):
+            raise ValueError(f"{key} must contain three finite values or null.")
+        return point
+
     def world_objects() -> tuple[dict[str, object], ...]:
         records = data.get("world_objects", [])
         if not isinstance(records, list):
@@ -341,6 +367,12 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
         minimum_world_distance_m=optional_distance("minimum_world_distance_m"),
         first_body=str(data.get("first_body", "") or ""),
         second_body=str(data.get("second_body", "") or ""),
+        nearest_point_first_base_m=optional_point(
+            "nearest_point_first_base_m"
+        ),
+        nearest_point_second_base_m=optional_point(
+            "nearest_point_second_base_m"
+        ),
         world_object_count=max(0, int(data.get("world_object_count", 0))),
         world_objects=world_objects(),
         world_object_evidence_present="world_objects" in data,
@@ -367,10 +399,47 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         value = data.get(key)
         if value is None:
             return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{key} must be a JSON number or null.")
         result = float(value)
         if not isfinite(result):
             raise ValueError(f"{key} must be finite or null.")
         return result
+
+    def optional_nonnegative_number(key: str) -> Optional[float]:
+        result = optional_number(key)
+        if result is not None and result < 0.0:
+            raise ValueError(f"{key} must be finite and non-negative or null.")
+        return result
+
+    def nonnegative_integer(key: str, default: int = 0) -> int:
+        value = data.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer.")
+        return int(value)
+
+    def optional_string(key: str) -> str:
+        value = data.get(key, "")
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string.")
+        return value
+
+    def warning_kind() -> str:
+        value = data.get("guide_warning_kind", "")
+        if not isinstance(value, str) or value not in ("", "clearance", "contact"):
+            raise ValueError(
+                "guide_warning_kind must be clearance, contact, or an empty string."
+            )
+        return value
+
+    def optional_point(key: str) -> Optional[tuple[float, float, float]]:
+        values = data.get(key)
+        if values is None:
+            return None
+        point = tuple(float(value) for value in values)
+        if len(point) != 3 or not all(isfinite(value) for value in point):
+            raise ValueError(f"{key} must contain three finite values or null.")
+        return point
 
     def world_objects() -> tuple[dict[str, object], ...]:
         records = data.get("world_objects", [])
@@ -412,6 +481,12 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         raise ValueError(
             "exploratory_tool_contact_suppressed must be a boolean."
         )
+    guide_warning = data.get("guide_clearance_warning", False)
+    if not isinstance(guide_warning, bool):
+        raise ValueError("guide_clearance_warning must be a boolean.")
+    minimum_clearance_m = optional_nonnegative_number("minimum_clearance_m")
+    if minimum_clearance_m is None:
+        minimum_clearance_m = ROS2_RESEARCH_MINIMUM_CLEARANCE_M
     return TaskJointStatus(
         accepted=bool(data["accepted"]),
         reason=str(data.get("reason") or ""),
@@ -425,18 +500,45 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         corridor_ok=bool(data.get("corridor_ok", False)),
         corridor_progress=optional_number("corridor_progress"),
         corridor_distance_m=optional_number("corridor_distance_m"),
-        minimum_clearance_m=float(
-            data.get("minimum_clearance_m", ROS2_RESEARCH_MINIMUM_CLEARANCE_M)
-        ),
+        minimum_clearance_m=minimum_clearance_m,
         minimum_self_distance_m=optional_number("minimum_self_distance_m"),
         minimum_world_distance_m=optional_number("minimum_world_distance_m"),
         first_body=str(data.get("first_body") or ""),
         second_body=str(data.get("second_body") or ""),
+        nearest_point_first_base_m=optional_point(
+            "nearest_point_first_base_m"
+        ),
+        nearest_point_second_base_m=optional_point(
+            "nearest_point_second_base_m"
+        ),
         world_object_count=max(0, int(data.get("world_object_count", 0))),
         world_objects=world_objects(),
         exploratory_tool_contact_suppressed=exploratory_suppressed,
         suppressed_tool_contact_sample_count=max(
             0, int(data.get("suppressed_tool_contact_sample_count", 0))
+        ),
+        guide_clearance_warning=guide_warning,
+        guide_clearance_warning_sample_count=nonnegative_integer(
+            "guide_clearance_warning_sample_count"
+        ),
+        minimum_guide_clearance_warning_m=optional_nonnegative_number(
+            "minimum_guide_clearance_warning_m"
+        ),
+        guide_clearance_warning_robot_link=optional_string(
+            "guide_clearance_warning_robot_link"
+        ),
+        guide_clearance_warning_object_id=optional_string(
+            "guide_clearance_warning_object_id"
+        ),
+        guide_warning_kind=warning_kind(),
+        guide_clearance_warning_contact_penetration_m=optional_nonnegative_number(
+            "guide_clearance_warning_contact_penetration_m"
+        ),
+        guide_clearance_warning_contact_sample_count=nonnegative_integer(
+            "guide_clearance_warning_contact_sample_count"
+        ),
+        guide_clearance_warning_contact_position_base_m=optional_point(
+            "guide_clearance_warning_contact_position_base_m"
         ),
     )
 
@@ -920,6 +1022,12 @@ def last_task_joint_status() -> Optional[TaskJointStatus]:
     return _last_task_status
 
 
+def last_task_phase_validation_warnings() -> tuple[Mapping[str, object], ...]:
+    """Return bounded immutable warning records from the latest chain preflight."""
+
+    return _last_task_phase_validation_warnings
+
+
 def _on_task_status_modified(caller=None, event=None) -> None:
     del event
     global _last_task_status, _last_task_status_at
@@ -1048,8 +1156,14 @@ def configure_task_phase_guard(
     target_ras_mm: Sequence[float],
     corridor_radius_mm: float,
     approach_standoff_mm: float,
+    simulation_guide_clearance_object_ids: Sequence[str] = (),
 ) -> Tuple[bool, str]:
     global _last_task_config_json, _native_joint_positions
+    if not target_object_id or any(
+        str(value) != str(target_object_id)
+        for value in (clearance_exempt_object_ids or ())
+    ):
+        return False, "Only the selected target may receive a burr-contact allowance."
     config_publisher, command_publisher = _ensure_task_publishers()
     if (
         config_publisher is None
@@ -1068,14 +1182,16 @@ def configure_task_phase_guard(
         "guard_session_id": uuid4().hex,
         "target_object_id": str(target_object_id),
         "allowed_robot_link": "burr",
-        # Approved task anatomy and guide objects omit only their burr-to-object
-        # *distance* pairs in all phased states. Approach collision remains
-        # strict. During terminal-contact/drilling preview, the C++ phase guard
-        # suppresses only these configured burr pairs and reports every such
-        # sample explicitly. Other robot links retain the 1 mm research margin
-        # and strict collision checking.
+        # Production callers pass only the selected target object here. The
+        # bridge keeps the explicit list for compatibility, while adjacent
+        # anatomy and guide/template geometry remain authoritative.
         "clearance_exempt_object_ids": [
             str(value) for value in clearance_exempt_object_ids if str(value)
+        ],
+        "simulation_guide_clearance_object_ids": [
+            str(value)
+            for value in simulation_guide_clearance_object_ids
+            if str(value)
         ],
         "tool_tip_frame": ROS2_TOOL_TCP_LINK,
         "entry_base_m": world_ras_mm_to_base_m(entry_ras_mm, base_transform),
@@ -1248,10 +1364,14 @@ def validate_task_phase_waypoints(
 ) -> Tuple[bool, str, int]:
     """Validate an ordered plan without moving or consuming the preview state."""
 
+    global _last_task_phase_validation_warnings
+    _last_task_phase_validation_warnings = ()
+
     waypoints = tuple(waypoint_joint_vectors_si or ())
     phases = tuple(str(value) for value in waypoint_phases or ())
     if not waypoints or len(waypoints) != len(phases):
         return False, "Phase-guard preflight requires one phase per waypoint.", -1
+    warnings: list[Mapping[str, object]] = []
     for index, (waypoint, phase) in enumerate(zip(waypoints, phases)):
         ok, message = apply_task_phase_joint_positions(
             waypoint,
@@ -1261,11 +1381,67 @@ def validate_task_phase_waypoints(
             validate_only=True,
         )
         if not ok:
+            _last_task_phase_validation_warnings = tuple(warnings)
             return (
                 False,
                 f"Full-chain guard rejected waypoint {index} ({phase}): {message}",
                 index,
             )
+        status = _last_task_status
+        if status is not None and status.guide_clearance_warning:
+            if len(warnings) < 256:
+                warnings.append(
+                    MappingProxyType(
+                        {
+                            "phase": str(phase),
+                            "sequence": int(first_sequence) + index,
+                            "waypoint_index": index,
+                            "guide_clearance_warning_sample_count": int(
+                                status.guide_clearance_warning_sample_count
+                            ),
+                            "minimum_guide_clearance_warning_m": status.minimum_guide_clearance_warning_m,
+                            "guide_clearance_warning_robot_link": str(
+                                status.guide_clearance_warning_robot_link
+                            ),
+                            "guide_clearance_warning_object_id": str(
+                                status.guide_clearance_warning_object_id
+                            ),
+                            "guide_warning_kind": str(
+                                getattr(status, "guide_warning_kind", "")
+                            ),
+                            "guide_clearance_warning_contact_penetration_m": (
+                                getattr(
+                                    status,
+                                    "guide_clearance_warning_contact_penetration_m",
+                                    None,
+                                )
+                            ),
+                            "guide_clearance_warning_contact_sample_count": int(
+                                getattr(
+                                    status,
+                                    "guide_clearance_warning_contact_sample_count",
+                                    0,
+                                )
+                            ),
+                            "guide_clearance_warning_contact_position_base_m": (
+                                getattr(
+                                    status,
+                                    "guide_clearance_warning_contact_position_base_m",
+                                    None,
+                                )
+                            ),
+                            "reason": str(status.reason),
+                        }
+                    )
+                )
+    _last_task_phase_validation_warnings = tuple(warnings)
+    if warnings:
+        return (
+            True,
+            f"Phase guard accepted all {len(waypoints)} full-chain waypoints with "
+            f"{len(warnings)} guide-clearance warning(s).",
+            -1,
+        )
     return True, f"Phase guard accepted all {len(waypoints)} full-chain waypoints.", -1
 
 
@@ -1422,6 +1598,78 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
 def visual_joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     """Append the fixed visual spindle angle for the expert robot display."""
     return joint_si_vector(positions_si) + [SPINDLE_LOCKED_VALUE_RAD]
+
+
+def position_axis_joint_limit_blockers(
+    joint_values_si: Sequence[float],
+    lower_limits_si: Sequence[float],
+    upper_limits_si: Sequence[float],
+    *,
+    epsilon_si: float = POSITION_AXIS_JOINT_LIMIT_EPSILON_SI,
+) -> tuple[dict[str, object], ...]:
+    """Identify commandable joints pinning a finite position-axis IK result.
+
+    This is evidence only.  It never changes a mechanical bound or treats an
+    out-of-range probe as a valid robot state.
+    """
+
+    values = tuple(float(value) for value in joint_values_si)
+    lower = tuple(float(value) for value in lower_limits_si)
+    upper = tuple(float(value) for value in upper_limits_si)
+    planning_count = len(ROS2_JOINT_SI_ORDER)
+    if (
+        len(values) < planning_count
+        or len(lower) < planning_count
+        or len(upper) < planning_count
+    ):
+        return ()
+    if not all(
+        isfinite(value)
+        for value in (
+            values[:planning_count]
+            + lower[:planning_count]
+            + upper[:planning_count]
+        )
+    ):
+        return ()
+    tolerance = max(0.0, float(epsilon_si))
+    blockers = []
+    for index, name in enumerate(ROS2_JOINT_SI_ORDER):
+        value = values[index]
+        if abs(value - lower[index]) <= tolerance:
+            blockers.append(
+                {
+                    "joint": name,
+                    "bound": "lower",
+                    "value_si": value,
+                    "limit_si": lower[index],
+                }
+            )
+        if abs(value - upper[index]) <= tolerance:
+            blockers.append(
+                {
+                    "joint": name,
+                    "bound": "upper",
+                    "value_si": value,
+                    "limit_si": upper[index],
+                }
+            )
+    return tuple(blockers)
+
+
+def _position_axis_joint_limit_evidence(
+    robot_node, joint_values_si
+) -> tuple[dict[str, object], ...]:
+    """Read authoritative MoveIt/KDL limits for diagnostic classification."""
+
+    if not joint_values_si:
+        return ()
+    try:
+        lower = robot_node.GetJointLowerPositionLimits()
+        upper = robot_node.GetJointUpperPositionLimits()
+        return position_axis_joint_limit_blockers(joint_values_si, lower, upper)
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return ()
 
 
 def moveit_joint_goal_diagnostics(
@@ -2503,6 +2751,45 @@ def _pose_residual_mm_degrees(
     return float(position_error), float(degrees(acos(cosine)))
 
 
+def _position_axis_residual_mm_degrees(
+    actual,
+    expected,
+) -> tuple[float, float]:
+    """Return translation and drill-axis residual, leaving housing roll free.
+
+    The robot has five controllable positioning joints.  Cartesian Stage 2/3
+    therefore constrain the physical burr position and its drilling axis, but
+    deliberately do not constrain rotation about that axis (the pneumatic
+    spindle is external and uncommanded).
+    """
+
+    actual_rows = _matrix4_rows(actual)
+    expected_rows = _matrix4_rows(expected)
+    _validate_rigid_pose_rows(actual_rows, label="Actual TCP pose")
+    _validate_rigid_pose_rows(expected_rows, label="Requested TCP pose")
+    position_error = sqrt(
+        sum(
+            (actual_rows[row][3] - expected_rows[row][3]) ** 2
+            for row in range(3)
+        )
+    )
+    actual_axis = tuple(actual_rows[row][2] for row in range(3))
+    expected_axis = tuple(expected_rows[row][2] for row in range(3))
+    actual_norm = sqrt(sum(value * value for value in actual_axis))
+    expected_norm = sqrt(sum(value * value for value in expected_axis))
+    if actual_norm <= 1.0e-12 or expected_norm <= 1.0e-12:
+        raise ValueError("TCP drill axis is degenerate.")
+    cosine = max(
+        -1.0,
+        min(
+            1.0,
+            sum(actual_axis[index] * expected_axis[index] for index in range(3))
+            / (actual_norm * expected_norm),
+        ),
+    )
+    return float(position_error), float(degrees(acos(cosine)))
+
+
 def _pose_matrices_world_to_base_mm(pose_matrices, base_transform):
     """Convert explicit world-RAS/mm poses once into base-link/mm poses."""
 
@@ -2550,6 +2837,378 @@ def _cartesian_start_continuity(
     return _pose_residual_mm_degrees(actual_pose, first_pose_base_mm)
 
 
+def _position_axis_continuity_fallback(
+    *,
+    robot_node,
+    world_poses,
+    poses,
+    base_transform,
+    start_values,
+    entry_ras_mm,
+    target_ras_mm,
+    axial_roll_start_deg,
+    axial_roll_end_deg,
+    fixed_rotation_ras,
+    continuity_seed_positions_si=None,
+):
+    """Recover a collision-off line using only the five-DOF task constraints.
+
+    MoveIt's pose-based Cartesian service can return an empty solution when the
+    requested matrices overconstrain a five-DOF arm with an arbitrary housing
+    roll.  This bounded continuity path keeps the exact XYZ/axis samples and
+    uses the preceding accepted J1-J5 vector as the next seed.  The independent
+    phase guard remains the sole collision/corridor authority.
+    """
+
+    try:
+        import vtk
+
+        line_length_mm = sqrt(
+            sum(
+                (
+                    float(world_poses[-1].GetElement(axis, 3))
+                    - float(world_poses[0].GetElement(axis, 3))
+                )
+                ** 2
+                for axis in range(3)
+            )
+        )
+        continuation_count = max(
+            len(poses),
+            min(801, int(ceil(line_length_mm / 0.25)) + 1),
+        )
+        if continuation_count > len(poses):
+            continuation_world_poses = tool_pose_matrices_world_mm(
+                entry_ras_mm,
+                target_ras_mm,
+                continuation_count,
+                axial_roll_start_deg=axial_roll_start_deg,
+                axial_roll_end_deg=axial_roll_end_deg,
+                fixed_rotation_ras=fixed_rotation_ras,
+            )
+            continuation_poses = _pose_matrices_world_to_base_mm(
+                continuation_world_poses,
+                base_transform,
+            )
+        else:
+            continuation_world_poses = world_poses
+            continuation_poses = poses
+
+        seed = canonicalize_planning_joint_positions(
+            dict(zip(ROS2_JOINT_SI_ORDER, start_values))
+        )
+        recovered = [dict(seed)]
+        perturbations = (
+            ("link-1_Revolute-1", 0.05),
+            ("link-1_Revolute-1", -0.05),
+            ("link-3_Revolute-3", 0.05),
+            ("link-3_Revolute-3", -0.05),
+            ("link-5_Revolute-5", 0.10),
+            ("link-5_Revolute-5", -0.10),
+            ("link-2_Slider-2", 0.005),
+            ("link-2_Slider-2", -0.005),
+            ("link-4_Slider-4", 0.005),
+            ("link-4_Slider-4", -0.005),
+            # One bounded branch escape is useful near a prismatic end stop;
+            # it does not alter the requested Cartesian line or any limits.
+            ("link-1_Revolute-1", 0.25),
+            ("link-1_Revolute-1", -0.25),
+            ("link-3_Revolute-3", 0.25),
+            ("link-3_Revolute-3", -0.25),
+            ("link-5_Revolute-5", 0.25),
+            ("link-5_Revolute-5", -0.25),
+            ("link-2_Slider-2", 0.02),
+            ("link-4_Slider-4", 0.02),
+        )
+        for pose_index, pose in enumerate(continuation_poses[1:], start=1):
+            seed_options = [dict(seed)]
+            for name, delta in perturbations:
+                candidate_seed = dict(seed)
+                candidate_seed[name] += float(delta)
+                seed_options.append(candidate_seed)
+            accepted = None
+            best_candidate = None
+            best_residual = None
+            native_best_overall = None
+            native_best_position_error = None
+            native_best_axis_error = None
+
+            def record_native_solver_evidence():
+                nonlocal native_best_overall
+                nonlocal native_best_position_error
+                nonlocal native_best_axis_error
+                try:
+                    position_error = float(
+                        robot_node.GetLastMoveItPositionAxisIKPositionResidualMm()
+                    )
+                    axis_error = float(
+                        robot_node.GetLastMoveItPositionAxisIKAxisResidualDeg()
+                    )
+                    values = tuple(
+                        float(value)
+                        for value in robot_node.GetLastMoveItPositionAxisIKBestJointValues()
+                    )
+                    if (
+                        position_error < 0.0
+                        or axis_error < 0.0
+                        or len(values) != len(ROS2_JOINT_SI_ORDER)
+                        or not all(isfinite(value) for value in values)
+                    ):
+                        return
+                    if native_best_position_error is None or (
+                        position_error + axis_error
+                        < native_best_position_error + native_best_axis_error
+                    ):
+                        native_best_position_error = position_error
+                        native_best_axis_error = axis_error
+                        native_best_overall = canonicalize_planning_joint_positions(
+                            dict(zip(ROS2_JOINT_SI_ORDER, values))
+                        )
+                except Exception:
+                    return
+
+            for candidate_seed in seed_options:
+                for ik_timeout_sec in (0.2, 1.0, 2.0):
+                    try:
+                        solution = robot_node.ComputeMoveItPositionAxisIK(
+                            pose,
+                            ROS2_TOOL_TCP_LINK,
+                            joint_si_vector(candidate_seed),
+                            ik_timeout_sec,
+                            False,
+                        )
+                        record_native_solver_evidence()
+                        if solution is None:
+                            continue
+                        values = tuple(float(value) for value in solution)
+                        if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
+                            isfinite(value) for value in values
+                        ):
+                            continue
+                        candidate = canonicalize_planning_joint_positions(
+                            dict(zip(ROS2_JOINT_SI_ORDER, values))
+                        )
+                        candidate = dict(
+                            moveit_joint_goal_diagnostics(seed, candidate)[
+                                "submitted_goal"
+                            ]
+                        )
+                        actual = vtk.vtkMatrix4x4()
+                        actual.Identity()
+                        if (
+                            robot_node.ComputeKDLFK(
+                                joint_si_vector(candidate),
+                                actual,
+                                ROS2_TOOL_TCP_LINK,
+                            )
+                            is None
+                        ):
+                            continue
+                        residual = _position_axis_residual_mm_degrees(actual, pose)
+                        if best_residual is None or sum(residual) < sum(best_residual):
+                            best_residual = residual
+                            best_candidate = dict(candidate)
+                        if (
+                            residual[0] <= CARTESIAN_START_POSITION_TOLERANCE_MM
+                            and residual[1] <= CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                        ):
+                            accepted = candidate
+                            break
+                    except (KeyError, TypeError, ValueError, RuntimeError):
+                        continue
+                if accepted is not None:
+                    break
+            if accepted is None and continuity_seed_positions_si:
+                # A local branch can terminate at a prismatic end stop even
+                # when a different, already Home-connected 6.3 posture can
+                # continue the same exact Cartesian line. Try those verified
+                # postures only after local continuity fails, and rank them by
+                # the same bounded FK/residual rules.
+                seen_external = set()
+                for raw_seed in continuity_seed_positions_si:
+                    try:
+                        external_seed = canonicalize_planning_joint_positions(
+                            dict(raw_seed)
+                        )
+                        identity = tuple(
+                            round(float(external_seed[name]), 12)
+                            for name in ROS2_JOINT_SI_ORDER
+                        )
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if identity in seen_external:
+                        continue
+                    seen_external.add(identity)
+                    for ik_timeout_sec in (0.2, 1.0, 2.0):
+                        try:
+                            solution = robot_node.ComputeMoveItPositionAxisIK(
+                                pose,
+                                ROS2_TOOL_TCP_LINK,
+                                joint_si_vector(external_seed),
+                                ik_timeout_sec,
+                                False,
+                            )
+                            record_native_solver_evidence()
+                            if solution is None:
+                                continue
+                            values = tuple(float(value) for value in solution)
+                            if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
+                                isfinite(value) for value in values
+                            ):
+                                continue
+                            external_candidate = canonicalize_planning_joint_positions(
+                                dict(zip(ROS2_JOINT_SI_ORDER, values))
+                            )
+                            external_candidate = dict(
+                                moveit_joint_goal_diagnostics(seed, external_candidate)[
+                                    "submitted_goal"
+                                ]
+                            )
+                            actual = vtk.vtkMatrix4x4()
+                            actual.Identity()
+                            if (
+                                robot_node.ComputeKDLFK(
+                                    joint_si_vector(external_candidate),
+                                    actual,
+                                    ROS2_TOOL_TCP_LINK,
+                                )
+                                is None
+                            ):
+                                continue
+                            external_residual = _position_axis_residual_mm_degrees(
+                                actual, pose
+                            )
+                            if best_residual is None or sum(external_residual) < sum(
+                                best_residual
+                            ):
+                                best_residual = external_residual
+                                best_candidate = dict(external_candidate)
+                            if (
+                                external_residual[0]
+                                <= CARTESIAN_START_POSITION_TOLERANCE_MM
+                                and external_residual[1]
+                                <= CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                            ):
+                                accepted = external_candidate
+                                break
+                        except (KeyError, TypeError, ValueError, RuntimeError):
+                            continue
+                    if accepted is not None:
+                        break
+            if accepted is None:
+                # Keep the native solver's final evidence when no accepted
+                # vector was returned. This distinguishes a finite near-limit
+                # convergence miss from an actually unsolved pose without
+                # changing the requested line, tolerances, or retry policy.
+                native_message = ""
+                try:
+                    native_message = str(
+                        robot_node.GetLastMoveItPositionAxisIKMessage() or ""
+                    )
+                except Exception:
+                    pass
+                native_best = native_best_overall
+                native_position_error = native_best_position_error
+                native_axis_error = native_best_axis_error
+                limit_probe = best_candidate or native_best
+                joint_limit_blockers = _position_axis_joint_limit_evidence(
+                    robot_node, joint_si_vector(limit_probe) if limit_probe else ()
+                )
+                if best_candidate is None:
+                    failure_classification = "sequential_position_axis_ik_unsolved"
+                    failure_message = (
+                        f"Position-axis continuity IK found no finite solution at "
+                        f"requested pose {pose_index}/{len(continuation_poses) - 1}."
+                    )
+                    if native_best is not None:
+                        failure_classification = "sequential_position_axis_solver_stalled"
+                        failure_message += (
+                            " Native solver retained its best finite state at "
+                            f"{native_position_error:.3f} mm / "
+                            f"{native_axis_error:.3f} deg."
+                        )
+                        if joint_limit_blockers:
+                            labels = ", ".join(
+                                f"{item['joint']} {item['bound']} bound"
+                                for item in joint_limit_blockers
+                            )
+                            failure_classification = (
+                                "sequential_position_axis_joint_limit"
+                            )
+                            failure_message += (
+                                " The best finite state is pinned at a mechanical "
+                                f"joint limit ({labels}); the exact requested pose "
+                                "is unreachable with the current base and limits. "
+                                "Reposition the provisional base or revise the case "
+                                "placement; no endpoint or tolerance was changed."
+                            )
+                else:
+                    failure_classification = "sequential_position_axis_fk_residual_failure"
+                    failure_message = (
+                        f"Position-axis continuity IK exceeded residual at requested "
+                        f"pose {pose_index}/{len(continuation_poses) - 1}: "
+                        f"{best_residual[0]:.3f} mm and {best_residual[1]:.3f} deg."
+                    )
+                    if joint_limit_blockers:
+                        labels = ", ".join(
+                            f"{item['joint']} {item['bound']} bound"
+                            for item in joint_limit_blockers
+                        )
+                        failure_classification = "sequential_position_axis_joint_limit"
+                        failure_message += (
+                            " The best candidate is pinned at a mechanical joint "
+                            f"limit ({labels}); the exact requested pose is "
+                            "unreachable with the current base and limits. "
+                            "Reposition the provisional base or revise the case "
+                            "placement; no endpoint or tolerance was changed."
+                        )
+                ras = tuple(
+                    float(continuation_world_poses[pose_index].GetElement(axis, 3))
+                    for axis in range(3)
+                )
+                return tuple(recovered), {
+                    "attempted": True,
+                    "failure_index": int(pose_index),
+                    "failure_message": failure_message,
+                    "failure_classification": failure_classification,
+                    "first_invalid_ras_mm": ras,
+                    "first_invalid_joint_positions_si": best_candidate or native_best,
+                    "joint_limit_blockers": joint_limit_blockers,
+                    "first_invalid_collision_pairs": (),
+                    "native_ik_message": native_message,
+                    "native_position_residual_mm": native_position_error,
+                    "native_axis_residual_deg": native_axis_error,
+                    "requested_pose_count": len(continuation_poses),
+                    "waypoints": tuple(recovered),
+                }
+            recovered.append(dict(accepted))
+            seed = dict(accepted)
+        return tuple(recovered), {
+            "attempted": True,
+            "failure_index": -1,
+            "failure_message": "",
+            "failure_classification": "",
+            "first_invalid_ras_mm": None,
+            "first_invalid_joint_positions_si": None,
+            "joint_limit_blockers": (),
+            "first_invalid_collision_pairs": (),
+            "requested_pose_count": len(continuation_poses),
+            "waypoints": tuple(recovered),
+        }
+    except (ImportError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+        return (), {
+            "attempted": True,
+            "failure_index": -1,
+            "failure_message": f"Position-axis continuity IK query failed: {exc}",
+            "failure_classification": "sequential_position_axis_query_failure",
+            "first_invalid_ras_mm": None,
+            "first_invalid_joint_positions_si": None,
+            "joint_limit_blockers": (),
+            "first_invalid_collision_pairs": (),
+            "waypoints": (),
+        }
+
+
 def tool_pose_matrices_world_mm(
     entry_ras_mm: Sequence[float],
     target_ras_mm: Sequence[float],
@@ -2557,6 +3216,7 @@ def tool_pose_matrices_world_mm(
     *,
     axial_roll_start_deg: float = 0.0,
     axial_roll_end_deg: float = 0.0,
+    fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
 ):
     """Create right-handed poses whose +Z axis follows Entry-to-Target."""
     import numpy as np
@@ -2571,14 +3231,37 @@ def tool_pose_matrices_world_mm(
     if length <= 1e-6:
         raise ValueError("Entry and Target must define a non-zero trajectory.")
     z_axis = direction / length
-    reference = np.array([1.0, 0.0, 0.0])
-    if abs(float(np.dot(reference, z_axis))) > 0.9:
-        reference = np.array([0.0, 1.0, 0.0])
-    x_axis = reference - np.dot(reference, z_axis) * z_axis
-    x_axis /= np.linalg.norm(x_axis)
-    y_axis = np.cross(z_axis, x_axis)
-    y_axis /= np.linalg.norm(y_axis)
-    x_axis = np.cross(y_axis, z_axis)
+    fixed_rotation = None
+    if fixed_rotation_ras is not None:
+        fixed_rotation = np.asarray(fixed_rotation_ras, dtype=float)
+        if (
+            fixed_rotation.shape != (3, 3)
+            or not np.all(np.isfinite(fixed_rotation))
+            or not np.allclose(
+                fixed_rotation.T @ fixed_rotation,
+                np.eye(3),
+                atol=1.0e-6,
+            )
+            or float(np.linalg.det(fixed_rotation)) <= 0.0
+        ):
+            raise ValueError("Fixed tool rotation must be a right-handed 3x3 rotation.")
+        fixed_axis = fixed_rotation[:, 2]
+        axis_cosine = float(np.clip(np.dot(fixed_axis, z_axis), -1.0, 1.0))
+        if axis_cosine < cos(radians(CARTESIAN_START_ORIENTATION_TOLERANCE_DEG)):
+            raise ValueError("Fixed tool rotation does not match the Entry-to-Target axis.")
+        x_axis = fixed_rotation[:, 0]
+        y_axis = fixed_rotation[:, 1]
+        pose_z_axis = fixed_rotation[:, 2]
+    else:
+        reference = np.array([1.0, 0.0, 0.0])
+        if abs(float(np.dot(reference, z_axis))) > 0.9:
+            reference = np.array([0.0, 1.0, 0.0])
+        x_axis = reference - np.dot(reference, z_axis) * z_axis
+        x_axis /= np.linalg.norm(x_axis)
+        y_axis = np.cross(z_axis, x_axis)
+        y_axis /= np.linalg.norm(y_axis)
+        x_axis = np.cross(y_axis, z_axis)
+        pose_z_axis = z_axis
 
     roll_start = float(axial_roll_start_deg)
     roll_end = float(axial_roll_end_deg)
@@ -2588,15 +3271,19 @@ def tool_pose_matrices_world_mm(
     rolls = np.linspace(roll_start, roll_end, len(points))
     matrices = []
     for point, roll_deg in zip(points, rolls):
-        angle = radians(float(roll_deg))
-        rolled_x = cos(angle) * x_axis + sin(angle) * y_axis
-        rolled_y = -sin(angle) * x_axis + cos(angle) * y_axis
+        if fixed_rotation is None:
+            angle = radians(float(roll_deg))
+            rolled_x = cos(angle) * x_axis + sin(angle) * y_axis
+            rolled_y = -sin(angle) * x_axis + cos(angle) * y_axis
+        else:
+            rolled_x = x_axis
+            rolled_y = y_axis
         matrix = vtk.vtkMatrix4x4()
         matrix.Identity()
         for row in range(3):
             matrix.SetElement(row, 0, float(rolled_x[row]))
             matrix.SetElement(row, 1, float(rolled_y[row]))
-            matrix.SetElement(row, 2, float(z_axis[row]))
+            matrix.SetElement(row, 2, float(pose_z_axis[row]))
             matrix.SetElement(row, 3, float(point[row]))
         matrices.append(matrix)
     return matrices
@@ -2613,8 +3300,17 @@ def plan_moveit_cartesian_path(
     start_joint_positions_si: Optional[Mapping[str, float]] = None,
     axial_roll_start_deg: float = 0.0,
     axial_roll_end_deg: float = 0.0,
+    fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
+    position_axis_only: bool = False,
+    continuity_seed_positions_si: Optional[Sequence[Mapping[str, float]]] = None,
 ) -> MoveItCartesianResult:
-    """Plan a collision-aware TCP path and convert it for Step 6 preview."""
+    """Plan a Cartesian TCP path and convert it for Step 6 preview.
+
+    When ``position_axis_only`` is true, the fallback continuity solver uses
+    the five-DOF position-plus-drill-axis task.  Housing roll is intentionally
+    free; this is required for the non-spinning canonical TCP and does not
+    relax the existing position/axis tolerances or phase guard.
+    """
     status = simulation_stack_status()
     if not status.ready:
         return MoveItCartesianResult(False, status.reason or EXTERNAL_STACK_MESSAGE)
@@ -2639,6 +3335,7 @@ def plan_moveit_cartesian_path(
             sample_count,
             axial_roll_start_deg=axial_roll_start_deg,
             axial_roll_end_deg=axial_roll_end_deg,
+            fixed_rotation_ras=fixed_rotation_ras,
         )
         poses = _pose_matrices_world_to_base_mm(world_poses, base_transform)
         start_names = None
@@ -2648,14 +3345,35 @@ def plan_moveit_cartesian_path(
         if start_joint_positions_si is not None:
             start_names = list(ROS2_JOINT_SI_ORDER)
             start_values = joint_si_vector(start_joint_positions_si)
-            (
-                start_position_error_mm,
-                start_orientation_error_deg,
-            ) = _cartesian_start_continuity(
-                robot_node,
-                start_joint_positions_si,
-                poses[0],
-            )
+            if position_axis_only:
+                import vtk
+
+                actual_start = vtk.vtkMatrix4x4()
+                actual_start.Identity()
+                if (
+                    robot_node.ComputeKDLFK(
+                        joint_si_vector(start_joint_positions_si),
+                        actual_start,
+                        ROS2_TOOL_TCP_LINK,
+                    )
+                    is None
+                ):
+                    raise ValueError(
+                        f"Could not compute {ROS2_TOOL_TCP_LINK} FK for the Cartesian start state."
+                    )
+                (
+                    start_position_error_mm,
+                    start_orientation_error_deg,
+                ) = _position_axis_residual_mm_degrees(actual_start, poses[0])
+            else:
+                (
+                    start_position_error_mm,
+                    start_orientation_error_deg,
+                ) = _cartesian_start_continuity(
+                    robot_node,
+                    start_joint_positions_si,
+                    poses[0],
+                )
             if (
                 start_position_error_mm > CARTESIAN_START_POSITION_TOLERANCE_MM
                 or start_orientation_error_deg
@@ -2725,6 +3443,118 @@ def plan_moveit_cartesian_path(
         sum((target - entry) ** 2 for entry, target in zip(requested_entry, requested_target))
     )
     if trajectory is None:
+        requested_length_mm = sqrt(
+            sum(
+                (float(target_ras_mm[index]) - float(entry_ras_mm[index])) ** 2
+                for index in range(3)
+            )
+        )
+        if (
+            position_axis_only
+            and not avoid_collisions
+            and start_joint_positions_si is not None
+        ):
+            recovered_waypoints, recovery = _position_axis_continuity_fallback(
+                robot_node=robot_node,
+                world_poses=world_poses,
+                poses=poses,
+                base_transform=base_transform,
+                start_values=start_values,
+                entry_ras_mm=entry_ras_mm,
+                target_ras_mm=target_ras_mm,
+                axial_roll_start_deg=axial_roll_start_deg,
+                axial_roll_end_deg=axial_roll_end_deg,
+                fixed_rotation_ras=fixed_rotation_ras,
+                continuity_seed_positions_si=continuity_seed_positions_si,
+            )
+            if recovery.get("failure_index", -1) >= 0:
+                failure_index = int(recovery["failure_index"])
+                requested_pose_count = max(
+                    2,
+                    int(
+                        recovery.get(
+                            "requested_pose_count",
+                            len(poses),
+                        )
+                    ),
+                )
+                fraction_at_failure = max(
+                    0.0,
+                    min(
+                        1.0,
+                        (float(failure_index) - 1.0)
+                        / max(1.0, float(requested_pose_count - 1)),
+                    ),
+                )
+                return MoveItCartesianResult(
+                    False,
+                    str(recovery.get("failure_message") or "Position-axis continuity IK failed."),
+                    fraction=fraction_at_failure,
+                    waypoint_joint_vectors_si=tuple(recovered_waypoints),
+                    waypoint_times_sec=tuple(
+                        float(index) * 0.05 for index in range(len(recovered_waypoints))
+                    ),
+                    coordinate_frame=ROS2_FIXED_FRAME,
+                    start_position_error_mm=start_position_error_mm,
+                    start_orientation_error_deg=start_orientation_error_deg,
+                    axial_roll_deg=float(axial_roll_end_deg),
+                    eef_step_m=used_eef_step_m,
+                    requested_path_length_mm=requested_length_mm,
+                    completed_distance_mm=requested_length_mm * fraction_at_failure,
+                    last_valid_waypoint_index=len(recovered_waypoints) - 1,
+                    first_invalid_requested_index=failure_index,
+                    last_valid_joint_positions_si=(
+                        dict(recovered_waypoints[-1]) if recovered_waypoints else None
+                    ),
+                    first_invalid_ras_mm=recovery.get("first_invalid_ras_mm"),
+                    failure_classification=str(
+                        recovery.get("failure_classification") or "sequential_position_axis_ik_failure"
+                    ),
+                    first_invalid_joint_positions_si=recovery.get(
+                        "first_invalid_joint_positions_si"
+                    ),
+                    first_invalid_collision_pairs=tuple(
+                        recovery.get("first_invalid_collision_pairs") or ()
+                    ),
+                    planner_start_source="sequential_position_axis_ik_fallback",
+                    native_planner_message=(
+                        "MoveIt Cartesian interpolation returned no trajectory; "
+                        f"position-axis IK failed at requested pose {failure_index}."
+                    ),
+                    sequential_ik_recovery_attempted=True,
+                    sequential_ik_failure_index=failure_index,
+                    sequential_ik_failure_message=str(
+                        recovery.get("failure_message") or ""
+                    ),
+                )
+            if len(recovered_waypoints) >= 2:
+                return MoveItCartesianResult(
+                    True,
+                    "MoveIt Cartesian interpolation returned no trajectory; "
+                    "bounded position-axis continuity IK recovered the complete "
+                    "fixed-axis line. Collision and corridor acceptance remains "
+                    "phase-guarded.",
+                    fraction=1.0,
+                    waypoint_joint_vectors_si=tuple(recovered_waypoints),
+                    waypoint_times_sec=tuple(
+                        float(index) * 0.05 for index in range(len(recovered_waypoints))
+                    ),
+                    coordinate_frame=ROS2_FIXED_FRAME,
+                    start_position_error_mm=start_position_error_mm,
+                    start_orientation_error_deg=start_orientation_error_deg,
+                    axial_roll_deg=float(axial_roll_end_deg),
+                    eef_step_m=used_eef_step_m,
+                    requested_path_length_mm=requested_length_mm,
+                    completed_distance_mm=requested_length_mm,
+                    last_valid_waypoint_index=len(recovered_waypoints) - 1,
+                    last_valid_joint_positions_si=dict(recovered_waypoints[-1]),
+                    planner_start_source="sequential_position_axis_ik_fallback",
+                    native_planner_message=(
+                        "MoveIt Cartesian interpolation returned no trajectory; "
+                        "position-axis IK recovered every requested pose."
+                    ),
+                    sequential_ik_recovery_attempted=True,
+                )
         return MoveItCartesianResult(
             False,
             f"MoveIt returned no Cartesian trajectory (fraction {fraction:.3f}).",
@@ -2806,6 +3636,7 @@ def plan_moveit_cartesian_path(
                     continuation_count,
                     axial_roll_start_deg=axial_roll_start_deg,
                     axial_roll_end_deg=axial_roll_end_deg,
+                    fixed_rotation_ras=fixed_rotation_ras,
                 )
                 continuation_poses = _pose_matrices_world_to_base_mm(
                     continuation_world_poses,
@@ -2833,6 +3664,14 @@ def plan_moveit_cartesian_path(
                 ("link-2_Slider-2", -0.005),
                 ("link-4_Slider-4", 0.005),
                 ("link-4_Slider-4", -0.005),
+                ("link-1_Revolute-1", 0.25),
+                ("link-1_Revolute-1", -0.25),
+                ("link-3_Revolute-3", 0.25),
+                ("link-3_Revolute-3", -0.25),
+                ("link-5_Revolute-5", 0.25),
+                ("link-5_Revolute-5", -0.25),
+                ("link-2_Slider-2", 0.02),
+                ("link-4_Slider-4", 0.02),
             )
             for pose_index, pose in enumerate(continuation_poses[1:], start=1):
                 seed_options = [dict(seed)]
@@ -2856,13 +3695,22 @@ def plan_moveit_cartesian_path(
                     # residual limits or collision policy.
                     for ik_timeout_sec in (0.2, 1.0, 2.0):
                         try:
-                            solution = robot_node.ComputeMoveItIK(
-                                pose,
-                                ROS2_TOOL_TCP_LINK,
-                                joint_si_vector(candidate_seed),
-                                ik_timeout_sec,
-                                False,
-                            )
+                            if position_axis_only:
+                                solution = robot_node.ComputeMoveItPositionAxisIK(
+                                    pose,
+                                    ROS2_TOOL_TCP_LINK,
+                                    joint_si_vector(candidate_seed),
+                                    ik_timeout_sec,
+                                    False,
+                                )
+                            else:
+                                solution = robot_node.ComputeMoveItIK(
+                                    pose,
+                                    ROS2_TOOL_TCP_LINK,
+                                    joint_si_vector(candidate_seed),
+                                    ik_timeout_sec,
+                                    False,
+                                )
                             if solution is None:
                                 continue
                             values = tuple(float(value) for value in solution)
@@ -2886,9 +3734,14 @@ def plan_moveit_cartesian_path(
                                 ROS2_TOOL_TCP_LINK,
                             ) is None:
                                 continue
-                            position_error_mm, orientation_error_deg = (
-                                _pose_residual_mm_degrees(actual, pose)
-                            )
+                            if position_axis_only:
+                                position_error_mm, orientation_error_deg = (
+                                    _position_axis_residual_mm_degrees(actual, pose)
+                                )
+                            else:
+                                position_error_mm, orientation_error_deg = (
+                                    _pose_residual_mm_degrees(actual, pose)
+                                )
                             residual = (
                                 float(position_error_mm),
                                 float(orientation_error_deg),
@@ -2927,7 +3780,102 @@ def plan_moveit_cartesian_path(
                             continue
                     if accepted is not None:
                         break
+                if accepted is None and continuity_seed_positions_si:
+                    # Reuse only verified Home-connected 6.3 postures when
+                    # local continuity reaches a branch boundary. This is a
+                    # bounded branch recovery, not a new sample/tolerance
+                    # policy; the requested pose and guard remain unchanged.
+                    seen_external = set()
+                    for raw_seed in continuity_seed_positions_si:
+                        try:
+                            external_seed = canonicalize_planning_joint_positions(
+                                dict(raw_seed)
+                            )
+                            identity = tuple(
+                                round(float(external_seed[name]), 12)
+                                for name in ROS2_JOINT_SI_ORDER
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        if identity in seen_external:
+                            continue
+                        seen_external.add(identity)
+                        for ik_timeout_sec in (0.2, 1.0, 2.0):
+                            try:
+                                if position_axis_only:
+                                    solution = robot_node.ComputeMoveItPositionAxisIK(
+                                        pose,
+                                        ROS2_TOOL_TCP_LINK,
+                                        joint_si_vector(external_seed),
+                                        ik_timeout_sec,
+                                        False,
+                                    )
+                                else:
+                                    solution = robot_node.ComputeMoveItIK(
+                                        pose,
+                                        ROS2_TOOL_TCP_LINK,
+                                        joint_si_vector(external_seed),
+                                        ik_timeout_sec,
+                                        False,
+                                    )
+                                if solution is None:
+                                    continue
+                                values = tuple(float(value) for value in solution)
+                                if len(values) != len(ROS2_JOINT_SI_ORDER) or not all(
+                                    isfinite(value) for value in values
+                                ):
+                                    continue
+                                external_candidate = canonicalize_planning_joint_positions(
+                                    dict(zip(ROS2_JOINT_SI_ORDER, values))
+                                )
+                                external_candidate = dict(
+                                    moveit_joint_goal_diagnostics(seed, external_candidate)[
+                                        "submitted_goal"
+                                    ]
+                                )
+                                actual = vtk.vtkMatrix4x4()
+                                actual.Identity()
+                                if (
+                                    robot_node.ComputeKDLFK(
+                                        joint_si_vector(external_candidate),
+                                        actual,
+                                        ROS2_TOOL_TCP_LINK,
+                                    )
+                                    is None
+                                ):
+                                    continue
+                                if position_axis_only:
+                                    external_residual = _position_axis_residual_mm_degrees(
+                                        actual, pose
+                                    )
+                                else:
+                                    external_residual = _pose_residual_mm_degrees(
+                                        actual, pose
+                                    )
+                                if kinematic_residual is None or sum(external_residual) < sum(
+                                    kinematic_residual
+                                ):
+                                    kinematic_residual = external_residual
+                                    kinematic_candidate = dict(external_candidate)
+                                if (
+                                    external_residual[0]
+                                    <= CARTESIAN_START_POSITION_TOLERANCE_MM
+                                    and external_residual[1]
+                                    <= CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                                ):
+                                    accepted = external_candidate
+                                    break
+                            except (KeyError, TypeError, ValueError, RuntimeError):
+                                continue
+                        if accepted is not None:
+                            break
                 if accepted is None:
+                    joint_limit_blockers = _position_axis_joint_limit_evidence(
+                        robot_node,
+                        joint_si_vector(kinematic_candidate)
+                        if kinematic_candidate
+                        else (),
+                    )
                     if kinematic_candidate is None:
                         failure_classification = "sequential_ik_unsolved"
                         failure_message = (
@@ -2948,6 +3896,19 @@ def plan_moveit_cartesian_path(
                             f"{CARTESIAN_START_POSITION_TOLERANCE_MM:.3f} mm / "
                             f"{CARTESIAN_START_ORIENTATION_TOLERANCE_DEG:.3f} deg)."
                         )
+                        if joint_limit_blockers:
+                            labels = ", ".join(
+                                f"{item['joint']} {item['bound']} bound"
+                                for item in joint_limit_blockers
+                            )
+                            failure_classification = "sequential_position_axis_joint_limit"
+                            failure_message += (
+                                " The candidate is pinned at a mechanical joint limit "
+                                f"({labels}); the exact requested pose is unreachable "
+                                "with the current base and limits. Reposition the "
+                                "provisional base or revise the case placement; no "
+                                "endpoint or tolerance was changed."
+                            )
                     else:
                         failure_classification = "sequential_ik_continuity_failure"
                         failure_message = (
@@ -2965,7 +3926,9 @@ def plan_moveit_cartesian_path(
                         "failure_classification": failure_classification,
                         "first_invalid_ras_mm": ras,
                         "first_invalid_joint_positions_si": kinematic_candidate,
+                        "joint_limit_blockers": joint_limit_blockers,
                         "first_invalid_collision_pairs": candidate_collision_pairs,
+                        "requested_pose_count": len(continuation_poses),
                         "waypoints": tuple(recovered),
                     }
                 recovered.append(dict(accepted))
@@ -2978,6 +3941,7 @@ def plan_moveit_cartesian_path(
                 "first_invalid_ras_mm": None,
                 "first_invalid_joint_positions_si": None,
                 "first_invalid_collision_pairs": (),
+                "requested_pose_count": len(continuation_poses),
                 "waypoints": tuple(recovered),
             }
         except (ImportError, KeyError, TypeError, ValueError, RuntimeError):
@@ -3002,18 +3966,23 @@ def plan_moveit_cartesian_path(
             # Return exact fallback evidence even when only the initial seed was
             # accepted.  The caller will keep it diagnostic-only and report the
             # requested pose that could not be solved.
+            requested_pose_count = max(
+                2,
+                int(recovery.get("requested_pose_count", len(poses))),
+            )
+            failure_fraction = max(
+                0.0,
+                min(
+                    1.0,
+                    (float(recovery.get("failure_index", 1)) - 1.0)
+                    / max(1.0, float(requested_pose_count - 1)),
+                ),
+            )
             return MoveItCartesianResult(
                 False,
                 recovery.get("failure_message")
                 or "Sequential fixed-frame IK could not recover the requested line.",
-                fraction=max(
-                    0.0,
-                    min(
-                        1.0,
-                        (float(recovery.get("failure_index", 1)) - 1.0)
-                        / max(1.0, float(len(poses) - 1)),
-                    ),
-                ),
+                fraction=failure_fraction,
                 waypoint_joint_vectors_si=tuple(recovered_waypoints),
                 waypoint_times_sec=tuple(
                     float(index) * 0.05 for index in range(len(recovered_waypoints))
@@ -3024,15 +3993,7 @@ def plan_moveit_cartesian_path(
                 axial_roll_deg=float(axial_roll_end_deg),
                 eef_step_m=used_eef_step_m,
                 requested_path_length_mm=requested_length_mm,
-                completed_distance_mm=requested_length_mm
-                * max(
-                    0.0,
-                    min(
-                        1.0,
-                        (float(recovery.get("failure_index", 1)) - 1.0)
-                        / max(1.0, float(len(poses) - 1)),
-                    ),
-                ),
+                completed_distance_mm=requested_length_mm * failure_fraction,
                 last_valid_waypoint_index=len(recovered_waypoints) - 1,
                 first_invalid_requested_index=int(
                     recovery.get("failure_index", -1)
@@ -3046,6 +4007,9 @@ def plan_moveit_cartesian_path(
                 ),
                 first_invalid_joint_positions_si=recovery.get(
                     "first_invalid_joint_positions_si"
+                ),
+                first_invalid_joint_limit_blockers=tuple(
+                    recovery.get("joint_limit_blockers") or ()
                 ),
                 first_invalid_collision_pairs=tuple(
                     recovery.get("first_invalid_collision_pairs") or ()
@@ -3318,6 +4282,88 @@ def solve_moveit_tcp_goal(
         f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
         ordered,
     )
+
+
+def solve_moveit_tcp_position_axis_goal(
+    *,
+    seed_joint_positions_si: Optional[Mapping[str, float]] = None,
+    avoid_collisions: bool = True,
+):
+    """Solve exact TCP XYZ and drill-axis direction with axial roll free."""
+
+    logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False
+    )
+    if error or logic is None or robot_node is None:
+        return False, error or "TCP goal control is unavailable.", {}, {}
+    solver = getattr(robot_node, "ComputeMoveItPositionAxisIK", None)
+    if solver is None:
+        return (
+            False,
+            "The loaded SlicerROS2 build lacks position-axis IK; rebuild and restart it.",
+            {},
+            {},
+        )
+    try:
+        kwargs = {
+            "robotmodel": robot_node,
+            "tipLink": ROS2_TOOL_TCP_LINK,
+            "positionAxisOnly": True,
+            "avoidCollisions": bool(avoid_collisions),
+        }
+        if seed_joint_positions_si is not None:
+            kwargs["seedJointValues"] = joint_si_vector(seed_joint_positions_si)
+        solution = logic.computeIKWithMoveIt(**kwargs)
+        message = str(robot_node.GetLastMoveItPositionAxisIKMessage() or "")
+        position_residual = float(
+            robot_node.GetLastMoveItPositionAxisIKPositionResidualMm()
+        )
+        axis_residual = float(
+            robot_node.GetLastMoveItPositionAxisIKAxisResidualDeg()
+        )
+        best_values = [
+            float(value)
+            for value in robot_node.GetLastMoveItPositionAxisIKBestJointValues()
+        ]
+    except Exception as exc:
+        return False, f"MoveIt position-axis IK request failed: {exc}", {}, {}
+    diagnostic = {
+        "position_residual_mm": (
+            position_residual if position_residual >= 0.0 else None
+        ),
+        "drilling_axis_residual_deg": (
+            axis_residual if axis_residual >= 0.0 else None
+        ),
+        "best_joint_positions_si": (
+            canonicalize_planning_joint_positions(
+                dict(zip(ROS2_JOINT_SI_ORDER, best_values))
+            )
+            if len(best_values) == len(ROS2_JOINT_SI_ORDER)
+            else None
+        ),
+        "collision_pairs": (),
+    }
+    best = diagnostic["best_joint_positions_si"]
+    if best is not None and "colliding" in message.lower():
+        try:
+            diagnostic["collision_pairs"] = tuple(
+                tuple(str(value).split("\t", 1))
+                for value in robot_node.GetMoveItCollidingBodyPairs(
+                    ROS2_PLANNING_GROUP,
+                    joint_si_vector(best),
+                )
+                if "\t" in str(value)
+            )
+        except Exception:
+            pass
+    if not solution:
+        return False, message or "MoveIt found no position-axis IK solution.", {}, diagnostic
+    if len(solution) != len(ROS2_JOINT_SI_ORDER):
+        return False, "MoveIt position-axis IK returned a joint-count mismatch.", {}, diagnostic
+    ordered = canonicalize_planning_joint_positions(
+        dict(zip(ROS2_JOINT_SI_ORDER, map(float, solution)))
+    )
+    return True, message or "MoveIt position-axis IK solved the canonical TCP.", ordered, diagnostic
 
 
 def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
@@ -3762,12 +4808,12 @@ def compute_moveit_static_tcp_pose_base_mm(
     return True, message, position
 
 
-def compute_tcp_position_world_ras_mm(
+def compute_tcp_pose_world_ras_mm(
     positions_si: Mapping[str, float],
     *,
     base_transform,
-) -> tuple[bool, str, Optional[tuple[float, float, float]]]:
-    """Return the KDL drill-tip position in world RAS/mm for endpoint checks."""
+) -> tuple[bool, str, Optional[tuple[tuple[float, ...], ...]]]:
+    """Return authoritative canonical-TCP pose in world RAS/mm."""
 
     robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
     if robot_node is None:
@@ -3793,12 +4839,28 @@ def compute_tcp_position_world_ras_mm(
             return False, "Could not resolve the locked robot base in world RAS.", None
         pose_world = vtk.vtkMatrix4x4()
         vtk.vtkMatrix4x4.Multiply4x4(base_world, pose_base, pose_world)
-        point = tuple(float(pose_world.GetElement(index, 3)) for index in range(3))
+        rows = _matrix4_rows(pose_world)
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         return False, f"Endpoint FK failed: {exc}", None
-    if not all(isfinite(value) for value in point):
-        return False, "Endpoint FK returned a non-finite world-RAS position.", None
-    return True, "Authoritative KDL endpoint FK returned a finite world-RAS position.", point
+    if not all(isfinite(value) for row in rows for value in row):
+        return False, "Endpoint FK returned a non-finite world-RAS pose.", None
+    return True, "Authoritative MoveIt endpoint FK returned a finite world-RAS pose.", rows
+
+
+def compute_tcp_position_world_ras_mm(
+    positions_si: Mapping[str, float],
+    *,
+    base_transform,
+) -> tuple[bool, str, Optional[tuple[float, float, float]]]:
+    """Return the canonical drill-tip position in world RAS/mm."""
+
+    ok, message, pose = compute_tcp_pose_world_ras_mm(
+        positions_si,
+        base_transform=base_transform,
+    )
+    if not ok or pose is None:
+        return False, message, None
+    return True, message, tuple(float(pose[index][3]) for index in range(3))
 
 
 def sync_moveit_obstacle_polydata(
@@ -3881,6 +4943,82 @@ def sync_moveit_obstacle_polydata(
     proxy.SetAttribute(ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE, source_name)
     mark_slicer_ros2_runtime_nodes_transient()
     return True, ""
+
+
+def exclude_moveit_collision_objects_for_simulation(
+    object_ids: Sequence[str],
+    *,
+    timeout_sec: float = ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC,
+) -> Tuple[bool, str, tuple[str, ...]]:
+    """Temporarily remove named objects from MoveIt's world, not from MRML.
+
+    This is deliberately a transient runtime operation.  The hidden MRML
+    publisher proxies and their source models remain intact, so the next
+    ordinary planning-scene sync restores the complete authoritative scene.
+    """
+
+    requested = tuple(sorted({str(value) for value in object_ids if str(value)}))
+    if not requested:
+        return False, "No collision-object identity was supplied for exclusion.", ()
+    try:
+        import slicer
+    except ImportError:
+        return False, ROS2_UNAVAILABLE_MESSAGE, ()
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    motion_logic = get_motion_control_logic()
+    if robot_node is None or motion_logic is None:
+        return False, "Connect DENTOBOT Motion Control before excluding an object.", ()
+    proxies = {
+        str(node.GetName() or ""): node
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+        if node.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) == "true"
+    }
+    missing = tuple(value for value in requested if value not in proxies)
+    if missing:
+        return (
+            False,
+            "Collision-object exclusion could not resolve proxy ID(s): "
+            + ", ".join(missing),
+            (),
+        )
+    publisher = motion_logic._getCollisionObjectPublisher(robot_node, create=False)
+    if publisher is None:
+        return False, "The MoveIt collision-object publisher is unavailable.", ()
+    publisher.SetFrameId(ROS2_FIXED_FRAME)
+    for object_id in requested:
+        publisher.PublishRemove(proxies[object_id])
+
+    deadline = time.monotonic() + max(0.1, float(timeout_sec))
+    present = set(requested)
+    while time.monotonic() < deadline:
+        if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
+            # Re-submit the unchanged accepted state only to obtain fresh
+            # PlanningScene evidence after the REMOVE publication.
+            apply_joint_positions_si_to_motion_control(_native_joint_positions)
+        status = joint_command_status(max_age_sec=1.0)
+        if status is not None and status.world_object_evidence_present:
+            runtime_ids = {
+                str(record.get("id") or "") for record in status.world_objects
+            }
+            present = set(requested).intersection(runtime_ids)
+            if not present:
+                return (
+                    True,
+                    "MoveIt acknowledged transient exclusion of: "
+                    + ", ".join(requested),
+                    requested,
+                )
+        try:
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        time.sleep(0.02)
+    return (
+        False,
+        "MoveIt did not acknowledge transient collision-object exclusion; "
+        "still present: " + ", ".join(sorted(present)),
+        (),
+    )
 
 
 def acknowledge_moveit_collision_scene(

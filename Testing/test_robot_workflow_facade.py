@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,10 +14,36 @@ HELPERS = ROOT / "DENTOWorkflow" / "Resources" / "Python"
 if str(HELPERS) not in sys.path:
     sys.path.insert(0, str(HELPERS))
 
+
+def test_route_selection_allows_direct_winner_after_detours():
+    source = HELPERS / "DENTORobotWorkflowFacade.py"
+    tree = ast.parse(source.read_text())
+    block = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+                 and isinstance(node.test, ast.Name)
+                 and node.test.id == "clearance_candidate_routes")
+    code = compile(ast.Module(body=block.body, type_ignores=[]), str(source), "exec")
+    direct = {"strictPlan": "direct", "candidate": "direct",
+              "chain": {"score": (0,), "axisPlan": "axis"}, "diagnosticIndex": 0}
+    detour = {"strictPlan": "detour", "candidate": "detour",
+              "chain": {"score": (1,), "axisPlan": "axis"}, "diagnosticIndex": 1,
+              "clearance": {"sampleIndex": 3}}
+    state = {"planned_candidate_routes": [direct], "clearance_candidate_routes": [detour]}
+    exec(code, state)
+    assert state["strict_plan"] == "direct"
+    assert state["selected_clearance"] is None
+    detour["chain"]["score"] = (-1,)
+    exec(code, state)
+    assert state["strict_plan"] == "detour"
+    assert state["selected_clearance"] == {"sampleIndex": 3}
+
 from DENTOROS2Bridge import ROS2_JOINT_SI_ORDER  # noqa: E402
 from DENTOStep6State import SPINDLE_JOINT_NAME  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
     DENTORobotWorkflowFacade,
+    PROVISIONAL_EFFECTIVE_TOOL_PROTRUSION_MM,
+    PROVISIONAL_GUIDE_SHELL_TRAVERSAL_ALLOWANCE_MM,
+    PROVISIONAL_MAXIMUM_COMBINED_INSERTION_MM,
+    RobotActionResult,
     _compact_guarded_waypoints,
     _concatenate_waypoint_times,
 )
@@ -41,9 +68,20 @@ class FakeBase:
 class FakePoseMatrix:
     def __init__(self, rotation):
         self.rotation = rotation
+        self.values = [
+            [
+                float(rotation[row][column]) if row < 3 and column < 3 else
+                1.0 if row == column else 0.0
+                for column in range(4)
+            ]
+            for row in range(4)
+        ]
 
     def GetElement(self, row, column):
-        return self.rotation[row][column]
+        return self.values[row][column]
+
+    def SetElement(self, row, column, value):
+        self.values[row][column] = float(value)
 
 
 class FakeParameterNode:
@@ -75,10 +113,15 @@ class FakeBridge:
     ROS2_GUARD_MAX_REVOLUTE_STEP_RAD = 0.017453292519943295
     ROS2_GUARD_MAX_PRISMATIC_STEP_M = 0.0005
     ROS2_GUARD_PREVIEW_MAX_INTERPOLATION_SAMPLES = 4
+    ROS2_MONITORED_PRISMATIC_TOLERANCE_M = 0.0002
+    ROS2_MONITORED_REVOLUTE_TOLERANCE_RAD = 0.002
 
     def __init__(self):
         self.reject = False
         self.applied = []
+        self.accepted = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+        self.phase_calls = []
+        self.task_status = None
 
     @staticmethod
     def simulation_stack_status():
@@ -94,9 +137,31 @@ class FakeBridge:
         self.applied.append(dict(positions))
         return (False, "collision") if self.reject else (True, "accepted")
 
-    @staticmethod
-    def last_accepted_joint_positions_si():
-        return {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    def last_accepted_joint_positions_si(self):
+        return dict(self.accepted)
+
+    def apply_task_phase_joint_positions(
+        self, positions, *, task_fingerprint, phase, sequence
+    ):
+        self.accepted = dict(positions)
+        self.phase_calls.append((str(phase), int(sequence), dict(positions)))
+        self.task_status = SimpleNamespace(
+            guide_clearance_warning=(phase == "retraction"),
+            guide_clearance_warning_sample_count=1,
+            minimum_guide_clearance_warning_m=0.0008,
+            guide_clearance_warning_robot_link="pneumatic_spindle-Copy",
+            guide_clearance_warning_object_id="guide",
+            reason="accepted with warning",
+        )
+        return True, "accepted"
+
+    def last_task_joint_status(self):
+        return self.task_status
+
+    def wait_for_monitored_joint_positions_si(self, expected, timeout_sec=1.5):
+        del timeout_sec
+        self.accepted = dict(expected)
+        return True, "matched", dict(expected), 0.0
 
     @staticmethod
     def joint_command_status():
@@ -105,6 +170,60 @@ class FakeBridge:
     @staticmethod
     def wait_for_collision_guard_world(minimum_object_count):
         return True, f"acknowledged {minimum_object_count}"
+
+
+def test_provisional_tool_insertion_limit_preserves_requested_depth():
+    maximum = (
+        PROVISIONAL_MAXIMUM_COMBINED_INSERTION_MM
+        - PROVISIONAL_GUIDE_SHELL_TRAVERSAL_ALLOWANCE_MM
+    )
+    passing = DENTORobotWorkflowFacade._tool_insertion_evidence(
+        (0.0, 0.0, 0.0), (0.0, 0.0, maximum)
+    )
+    blocked = DENTORobotWorkflowFacade._tool_insertion_evidence(
+        (0.0, 0.0, 0.0), (0.0, 0.0, maximum + 0.001)
+    )
+    assert passing["status"] == "Pass"
+    assert abs(passing["remainingInsertionMarginMm"]) <= 1.0e-12
+    assert blocked["status"] == "Blocked"
+    assert blocked["code"] == "TRAJECTORY_COMBINED_INSERTION_LIMIT_EXCEEDED"
+    assert abs(blocked["requestedDrillingDepthMm"] - (maximum + 0.001)) <= 1.0e-12
+    assert passing["requestedCombinedInsertionMm"] == 6.5
+    assert passing["remainingVisibleProtrusionMm"] == 0.5
+
+
+def test_guarded_return_reverses_accepted_contact_history_before_home_check():
+    facade, _parameter_node, logic, bridge = make_facade()
+    home = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    entry = dict(home, **{ROS2_JOINT_SI_ORDER[0]: 0.1})
+    target = dict(home, **{ROS2_JOINT_SI_ORDER[0]: 0.2})
+    bridge.accepted = dict(target)
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: SimpleNamespace(
+        snapshot_fingerprint="task"
+    )
+    facade.applyTaskHome = lambda: RobotActionResult(
+        True, "task_home_applied", "matched", details={"runtimeValidated": True}
+    )
+    facade._robot_away_from_home = True
+    facade._completed_phase = "drilling"
+    facade._phase_sequence = 12
+    facade._motion_history_task_fingerprint = "task"
+    facade._accepted_motion_history = [
+        {"positions": home, "phase": "home"},
+        {"positions": entry, "phase": "terminal_contact"},
+        {"positions": target, "phase": "drilling"},
+    ]
+
+    result = facade.returnToTaskHome()
+
+    assert result.success and result.details["axialRetractionCompleted"]
+    assert [call[:2] for call in bridge.phase_calls] == [
+        ("retraction", 12),
+        ("retraction", 13),
+    ]
+    assert result.details["acceptedReverseWaypointCount"] == 2
+    assert result.details["guideClearanceWarningCount"] == 2
 
 
 class FakeLogic:
@@ -326,6 +445,8 @@ def test_phase_guard_separates_burr_proximity_from_contact_permission():
     assert "step6BurrProximityCollisionObjectIds" in configure
     assert "target_object_id not in burr_proximity_object_ids" in configure
     assert "clearance_exempt_object_ids=burr_proximity_object_ids" in configure
+    assert "simulation_guide_clearance_object_ids=guidance_object_ids" in configure
+    assert "_template_collision_excluded_object_ids" not in configure
 
     logic_source = (
         ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
@@ -333,9 +454,9 @@ def test_phase_guard_separates_burr_proximity_from_contact_permission():
     proximity = logic_source.split(
         "def step6BurrProximityCollisionObjectIds", 1
     )[1].split("def importStep6PlanningContext", 1)[0]
-    assert '":target:" in sourceId' in proximity
-    assert '":anatomy:" in sourceId' in proximity
-    assert "isGuidance or isCaseAnatomy" in proximity
+    assert "target_object_id = self.step6TargetCollisionObjectId(parameterNode)" in proximity
+    assert "return (target_object_id,) if target_object_id else ()" in proximity
+    assert "isGuidance or isCaseAnatomy" not in proximity
 
 
 def test_phase_preview_keeps_one_monotonic_sequence_across_both_goals():
@@ -423,8 +544,21 @@ def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
             return True, "goal", pose
 
         @staticmethod
-        def solve_moveit_tcp_goal(*, seed_joint_positions_si=None):
-            return True, "ik", dict(seed_joint_positions_si)
+        def solve_moveit_tcp_position_axis_goal(*, seed_joint_positions_si=None):
+            return True, "ik", dict(seed_joint_positions_si), {
+                "position_residual_mm": 0.0,
+                "drilling_axis_residual_deg": 0.0,
+            }
+
+        @staticmethod
+        def compute_tcp_pose_world_ras_mm(_positions, *, base_transform):
+            assert base_transform is not None
+            return True, "fk", (
+                (1.0, 0.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0, 0.0),
+                (0.0, 0.0, 1.0, -2.0),
+                (0.0, 0.0, 0.0, 1.0),
+            )
 
         def check_moveit_static_joint_state(self, positions):
             self.audited.append(dict(positions))
@@ -460,6 +594,7 @@ def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
         parameter_node,
         (0.0, 0.0, -2.0),
         (0.0, 0.0, 0.0),
+        (0.0, 0.0, 10.0),
         home,
     )
 
@@ -471,6 +606,17 @@ def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
     }
     assert len(bridge.audited) == 9
     assert all(set(positions) == set(ROS2_JOINT_SI_ORDER) for positions in bridge.audited)
+    assert all(
+        candidate["positionAxisIkDiagnostic"][
+            "authoritative_position_residual_mm"
+        ]
+        == 0.0
+        and candidate["positionAxisIkDiagnostic"][
+            "authoritative_drilling_axis_residual_deg"
+        ]
+        == 0.0
+        for candidate in candidates
+    )
 
 
 def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation():
@@ -483,14 +629,14 @@ def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation()
     )
     first = DENTORobotWorkflowFacade._tool_orientation_commitment(
         pose,
-        pre_entry_ras_mm=(0.0, 0.0, -5.0),
         entry_ras_mm=(0.0, 0.0, 0.0),
+        target_ras_mm=(0.0, 0.0, 5.0),
         axial_roll_deg=90.0,
     )
     second = DENTORobotWorkflowFacade._tool_orientation_commitment(
         pose,
-        pre_entry_ras_mm=(0.0, 0.0, -5.0),
         entry_ras_mm=(0.0, 0.0, 0.0),
+        target_ras_mm=(0.0, 0.0, 5.0),
         axial_roll_deg=90.0,
     )
     assert first["toolAxisRas"] == (0.0, 0.0, 1.0)

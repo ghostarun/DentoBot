@@ -401,9 +401,28 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           <property name="removeEnabled">
            <bool>false</bool>
           </property>
-          <property name="SlicerParameterName" stdset="0">
-           <string>inputVolume</string>
-          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="segmentationRunVisibilityLayout">
+        <item>
+         <widget class="QPushButton" name="showSelectedSegmentationOnlyButton">
+          <property name="text"><string>Show Selected Run Only</string></property>
+          <property name="toolTip"><string>Hide other DENTOBOT teeth segmentation runs and show only the selected run.</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="showAllSegmentationRunsButton">
+          <property name="text"><string>Show All Runs Together</string></property>
+          <property name="toolTip"><string>Show all DENTOBOT teeth segmentation runs for visual comparison.</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="renameSelectedSegmentationButton">
+          <property name="text"><string>Rename Selected Run</string></property>
+          <property name="toolTip"><string>Give the selected segmentation run a descriptive case or scan name.</string></property>
          </widget>
         </item>
        </layout>
@@ -921,9 +940,6 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </property>
           <property name="removeEnabled">
            <bool>false</bool>
-          </property>
-          <property name="SlicerParameterName" stdset="0">
-           <string>teethSegmentation</string>
           </property>
          </widget>
         </item>

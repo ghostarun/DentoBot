@@ -14,9 +14,9 @@ class WorkflowNavigationWidgetMixin:
         """
 
         return [
-            (_("Case"), self.ui.caseCollapsibleButton),
-            (_("1 · CBCT Imaging"), self.ui.imagingCollapsibleButton),
-            (_("2 · AI Segmentation"), self.ui.backendCollapsibleButton),
+            (_("0 · Case"), self.ui.caseCollapsibleButton),
+            (_("1 · Scan"), self.ui.imagingCollapsibleButton),
+            (_("2 · Segmentation"), self.ui.backendCollapsibleButton),
             (_("3 · Review and Correct"), self.ui.segmentationReviewCollapsibleButton),
             (_("4A · Trajectory Planning"), self.ui.planningCollapsibleButton),
             (_("4B · Support Teeth and Draft"), self.ui.templateModelingCollapsibleButton),
@@ -340,6 +340,9 @@ class WorkflowNavigationWidgetMixin:
     ) -> None:
         active = bool(self._parameterNode and self.logic)
         self._workflowViewStageIndex = stageIndex
+        if stageIndex <= 3:
+            self._displayInspectionContext()
+            return
         if stageIndex == 4:
             try:
                 self._enableCrossViewNavigation()
@@ -373,6 +376,9 @@ class WorkflowNavigationWidgetMixin:
         """Keep an active display preset authoritative as MRML inputs change."""
 
         stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+        if stageIndex <= 3:
+            self._displayInspectionContext()
+            return
         self._updateWorkflowViewControls()
         if not self._workflowViewPriorState:
             return
@@ -426,6 +432,9 @@ class WorkflowNavigationWidgetMixin:
         self._updateTrajectoryPlacementModeControls()
         self._updateWorkflowNavigationButtons()
         self._activateWorkflowViewStage(index, stageChanged=stageChanged)
+        self._syncScanContext()
+        if index <= 3:
+            self._displayInspectionContext()
         self._updateWorkflowNavigationRecommendation()
         if self._applicationShell and self._applicationShell.active:
             self._applicationShell.syncStage(
@@ -556,14 +565,14 @@ class WorkflowNavigationWidgetMixin:
     def _recommendedWorkflowStageIndex(self) -> int:
         if not self._parameterNode:
             return 0
-        if not self._parameterNode.inputVolume:
+        if not self._parameterNode.inputVolume and not self._parameterNode.inspectedVolume:
             # A brand-new empty scene must open on the Case stage so the
             # operator can deliberately create a de-identified case or open a
             # saved scene. Once a case label exists, imaging is the next
             # recommendation, but the navigator never skips Case at first
             # initialization merely because no volume is loaded yet.
             return 1 if self._parameterNode.caseName.strip() else 0
-        segmentationNode = self._parameterNode.teethSegmentation
+        segmentationNode = self._parameterNode.teethSegmentation or self._parameterNode.inspectedSegmentation
         if not segmentationNode:
             return 2
         if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":

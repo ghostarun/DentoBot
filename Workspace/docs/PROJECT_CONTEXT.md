@@ -1,5 +1,14 @@
 # DENTOBOT Project Context
 
+> Windows/release checkpoint (2026-09-09): Direct Docker Engine inside WSL2 is
+> the default full Windows provider; Docker Desktop WSL integration is an
+> exclusive alternative. `Workspace/docs/WINDOWS_SETUP.md` is canonical.
+> `main` remains
+> active development, a `stable/lab` moving accepted branch is planned for the
+> next isolated release checkpoint, and only immutable `lab/YYYY-MM-DD` tags
+> identify lab installations. SlicerROS2 stays independently pinned by commit
+> SHA, and reusable runtime images require an independently accepted digest.
+
 > Cross-platform note (2026-08-11): product and safety decisions are shared.
 > Native Windows Slicer + WSL2 inference and Ubuntu SlicerROS2 + direct Linux
 > inference now use one explicit launcher contract. Ubuntu is runtime verified;

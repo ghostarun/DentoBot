@@ -1,18 +1,61 @@
 # DENTOBOT compact agent context
 
+## Verification routing update — 2026-09-09
+
+Read `AGENTIC_VERIFICATION_PROTOCOL.md` before testing or SlicerROS2 diagnosis.
+Choose existing evidence/isolated logic before runtime; full workflow is final
+validation. Stop at three failed attempts on the same blocker, sooner for
+ambiguous geometry/UI or no new runtime evidence; present a compact visual
+blocker package. No repeated builds/smokes without a changed reason. Preserve
+current approval scope, serialized runtime ownership and precise evidence
+levels. The matrix is `Testing/verification_matrix.json` relative to the
+DentoBot checkout, not `../Testing` relative to the Ubuntu overlay root.
+
+## Current cleanup checkpoint — 2026-09-07
+
+The abnormal pre-surgery/x4 fixture is retired from the production baseline.
+The default Step 6 guard grants the narrow burr-contact policy only to the
+selected target tooth; adjacent anatomy and guide/template geometry remain
+authoritative. Historical template exclusion and anatomy-review collision
+proxies are process-gated opt-ins and are not acceptance evidence. The next
+runtime case must be a reviewed clean/post-surgery package. See the matching
+decision and logbook entry for the bounded implementation and evidence boundary.
+
 Use this file as the low-context entrypoint for routine implementation. It is
 a routing aid, not a replacement for controlled architecture, safety,
 reproducibility, or dated evidence documents.
 
 ## Current engineering state — 2026-09-04
 
+- **2026-09-05 historical P0 evidence:** Before clean-case acceptance, the hard
+  provisional insertion limit (`effectiveToolProtrusionMm - 0.1 mm`) remains
+  active. The completed template-excluded actual-contact audit separates the
+  `0.998041065511 mm` FDI15-to-`pneumatic_spindle-Copy` margin shortfall from a
+  second hard blocker: every auditable route has actual non-target FDI15↔burr
+  contact in Stage 2 and Stage 3. Do not change base, tolerances, endpoints,
+  margin, or exemptions. Manual local collision-proxy review is conditional on
+  operator CBCT/segmentation assessment. The P1 Case Platform/Studio roadmap
+  (`DCP-*`, `DSS-*`, `DHW-*`) replaces `S6R-*` but remains blocked by Track A.
+
 - The current authoritative roadmap is guarded-live-first. Track A must finish
-  and operator-accept one repeatable x4 Task Home->PreEntry->Entry->Target->Home
-  simulation before any Robot Planning & Simulation Studio implementation.
+  and operator-accept one repeatable reviewed clean/post-surgery
+  Task Home->PreEntry->Entry->Target->Home simulation before any Robot Planning
+  & Simulation Studio implementation. The abnormal pre-surgery/x4 package is a
+  negative diagnostic fixture only.
   Source baseline is `ea504349f99f`; `S6-LIVE-01..05` in `TASKS.md` are the
   only immediate Step 6 work order. The Studio, `.dentocase` schema 2,
   three-per-tooth manual registry, and non-moving studies are Track B and remain
   blocked. The former `.dentostudy` plan is superseded.
+
+- The current Goal 1 blocker is no longer treated as collision-only or missing
+  reach. The canonical TCP transform audit passed, and a historical x4 J1–J5
+  endpoint meets the `0.25 mm` position and `0.5 deg` drill-axis tolerances.
+  Current source uses bounded position-plus-tool-axis IK (`stage1-position-axis-
+  authoritative-fk-v3`); housing roll is not a commanded task constraint. The
+  approved x4 run reaches Stage 3 pose `59/64`, then stalls at J2's lower bound
+  with about `0.251 mm` position residual and `0 deg` axis residual, with no
+  collision pair. Only verified 6.3 branch seeds are tried at that boundary;
+  the full task remains blocked until exact Target FK passes.
 
 - The bounded kinematic correction is now source-complete: `dentobot_arm` plans
   five joints (J1–J5) to fixed upstream `dentobot_drill_tcp`; J6 remains only a
@@ -34,8 +77,11 @@ reproducibility, or dated evidence documents.
   Remote `integration/gui-step6` is a
   same-SHA alias only. Overlay root `~/dentobot` is not a git
   repository; map: `Workspace/HOST_LAYOUT.md`. Windows lab ROS uses WSL2
-  Linux SlicerROS2 (`PLAT-U-04`); Windows WSLg GUI acceptance is pending.
-  Native Windows Slicer stays `PLAT-U-02` / ROS `none`.
+  Linux SlicerROS2 (`PLAT-U-04`); `Workspace/docs/WINDOWS_SETUP.md` is the
+  canonical installation guide, with direct Docker Engine inside WSL2 as the
+  default and Docker Desktop WSL integration as an exclusive alternative. The
+  direct-Engine machine's exact acceptance evidence is pending. Native Windows
+  Slicer stays `PLAT-U-02` / ROS `none`.
 - `DENTOWorkflow.py` is a thin public Slicer entrypoint. Production UI and
   logic live in `DENTOWorkflow/Resources/Python/dentobot_workflow/`.
 - Legacy and Step 6 Shell presentations share the same MRML parameter
@@ -83,7 +129,7 @@ reproducibility, or dated evidence documents.
   normal-window operator retry remains separate evidence.
 - Current Step 6 motion policy uses a 2 mm new-case pre-entry standoff and
   1 mm research guard margin. Stage 1 remains collision checked to PreEntry.
-  Planner-v4 generates one fixed-frame PreEntry→Entry Cartesian line and lets
+  Planner-v4 generates one fixed-axis PreEntry→Entry Cartesian line and lets
   the independent phase guard suppress only configured burr-to-task contact;
   all non-tool/self/bounds/session/corridor/backtrack/overshoot checks remain
   fail-closed. The old 0.25 mm guessed split is package compatibility state,
@@ -104,17 +150,10 @@ reproducibility, or dated evidence documents.
   records the deferred terminal fraction; it never promotes the partial path.
   The saved 2.0 mm burr versus 1.5 mm guide bore remains a separate
   upstream physical-fit defect.
-- The newest Priority-0 source makes Stage 1 the immutable drilling-
-  frame owner. Entry→Target fixes tool +Z; J6-locked FK fixes the remaining
-  rotation, which is fingerprinted and reused unchanged in Stages 2 and 3.
-  Direct/seeded PreEntry branches are ranked only after bounded full-chain and
-  shadow-guard evaluation; complete chains win, then minimum normalized
-  joints-1–5 post-PreEntry motion. Stage 3 and diagnostics no longer reset the
-  selected frame to canonical `0°`. The approved focused suite passed `45`
-  tests with one unrelated draft-AABB assertion deselected, and the isolated
-  x4 runtime emitted the exact-case PASS marker with a fixed-frame fingerprint
-  and unit axis. Full-chain acceptance remains blocked at Stage 2 as described
-  below.
+- The earlier v2 Priority-0 record treated the complete Stage-1 FK rotation as
+  immutable; that policy is superseded by v3 because a continuously driven
+  spindle cannot be a roll constraint. Current diagnostics retain the FK frame
+  for evidence while Stage 2/3 enforce only exact XYZ and the drill axis.
 - The superseding exact x4 runtime now exercises this policy. Package hydration
   is read-only, workspace samples retain named SI vectors, and the selected
   J6-locked PreEntry roll is derived from FK instead of being reset to the old
@@ -316,15 +355,13 @@ for a routine local change. Search by method, MRML role, stage, or error first.
 - The Reload button must reload both helper and internal package modules; use
   the five-cycle Slicer smoke after lifecycle/reload changes.
 
-## Fast verification
+## Scoped verification
 
-```bash
-cd /home/light-tarun/dentobot/ros2_ws/src/DentoBot
-pytest -q Testing
-git diff --check
-```
-
-Use the focused `Testing/run_dentobot_*_smoke.py` matching the domain. Slicer,
+Select the smallest applicable matrix checks under the canonical protocol;
+`pytest -q Testing` is not the default after every edit. Existing test/build
+commands require their prescribed plan and approval. Use the focused
+`Testing/run_dentobot_*_smoke.py` matching the domain only when its evidence is
+needed. Slicer,
 ROS, and MoveIt checks must run in the pinned container and remain
 simulation-only. Full inference tests require the configured inference
 environment; a host `pytest` collection failure for missing `nibabel` or the

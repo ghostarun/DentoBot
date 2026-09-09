@@ -114,7 +114,7 @@ from DENTOViewPresets import (
     recommended_view_composition,
     recommended_view_description,
 )
-from DENTOTrajectoryGeometry import infer_root_targets
+from DENTOTrajectoryGeometry import infer_root_targets, first_mask_intersection
 from DENTORobotPlacement import (
     solve_anatomy_directed_hinge_rotation_for_gap,
     validate_patient_ras_condylar_landmarks,

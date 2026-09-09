@@ -1,8 +1,11 @@
 """Pure tests for the persistent Step 6 state and phase contracts."""
 
+import ast
 from dataclasses import replace
+import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +21,8 @@ from DENTOStep6State import (  # noqa: E402
     LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
+    SIMULATION_TARGET_DEPTH_CAP_MM,
+    SIMULATION_TOOL_PROVENANCE,
     SPINDLE_PLANNING_POLICY,
     approach_points,
     base_placement_source_issue,
@@ -27,8 +32,10 @@ from DENTOStep6State import (  # noqa: E402
     build_phase_joint_command,
     build_task_home,
     build_task_snapshot,
+    cap_simulation_target,
     fingerprint,
     parse_task_home,
+    parse_task_snapshot,
     parse_motion_diagnostic_session,
     task_snapshot_invalidation_reasons,
     transition_base_status,
@@ -207,6 +214,125 @@ def test_approach_uses_two_mm_research_default_for_new_cases():
     pre_entry, entry = approach_points((0, 0, 0), (0, 0, -10))
     assert pre_entry == pytest.approx((0, 0, 2))
     assert entry == (0.0, 0.0, 0.0)
+
+
+def test_simulation_target_cap_preserves_axis_round_trip_and_rejects_invalid_inputs():
+    entry = (1.0, 2.0, 3.0)
+    long_target = (4.0, 6.0, 15.0)  # 13 mm, non-axis aligned
+    capped = cap_simulation_target(entry, long_target)
+    assert capped == pytest.approx(
+        tuple(
+            entry[index]
+            + (SIMULATION_TARGET_DEPTH_CAP_MM / 13.0)
+            * (long_target[index] - entry[index])
+            for index in range(3)
+        )
+    )
+    assert sum((capped[index] - entry[index]) ** 2 for index in range(3)) ** 0.5 == pytest.approx(
+        SIMULATION_TARGET_DEPTH_CAP_MM
+    )
+
+    short_target = (1.0, 2.0, -3.0)
+    assert cap_simulation_target(entry, short_target) == tuple(
+        float(value) for value in short_target
+    )
+    assert cap_simulation_target(entry, (1.0, 2.0, 5.0)) == (1.0, 2.0, 5.0)
+    seven_point_nine_target = (1.0, 2.0, 3.0 + 7.977207292891484)
+    clipped = cap_simulation_target(entry, seven_point_nine_target)
+    assert sum((clipped[index] - entry[index]) ** 2 for index in range(3)) ** 0.5 == pytest.approx(
+        SIMULATION_TARGET_DEPTH_CAP_MM
+    )
+
+    home = build_task_home(
+        joints(), base_fingerprint="base-a", robot_profile_fingerprint="robot-a"
+    )
+    snapshot_record = build_task_snapshot(
+        target_segment_id="FDI11",
+        trajectory_revision="trajectory-a",
+        entry_ras_mm=entry,
+        target_ras_mm=capped,
+        base_fingerprint="base-a",
+        home_fingerprint=fingerprint(home.to_dict()),
+        limits_fingerprint="limits-a",
+        robot_profile_fingerprint="robot-a",
+        tool_provenance=SIMULATION_TOOL_PROVENANCE,
+    )
+    assert parse_task_snapshot(snapshot_record.to_dict()) == snapshot_record
+    guard = build_phase_guard_configuration(snapshot_record, target_object_id="FDI11")
+    assert guard.target_ras_mm == capped
+    assert guard.task_fingerprint == snapshot_record.snapshot_fingerprint
+    legacy_record = build_task_snapshot(
+        target_segment_id="FDI11",
+        trajectory_revision="trajectory-a",
+        entry_ras_mm=entry,
+        target_ras_mm=seven_point_nine_target,
+        base_fingerprint="base-a",
+        home_fingerprint=fingerprint(home.to_dict()),
+        limits_fingerprint="limits-a",
+        robot_profile_fingerprint="robot-a",
+        tool_provenance="CAD-derived/provisional/un-calibrated",
+    )
+    assert parse_task_snapshot(legacy_record.to_dict()).target_ras_mm == tuple(
+        float(value) for value in seven_point_nine_target
+    )
+
+    invalid = (
+        ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        ((0.0, 0.0, 0.0), (float("nan"), 1.0, 1.0)),
+        ((0.0, 0.0, 0.0), (float("inf"), 1.0, 1.0)),
+        ((1.0e308, 0.0, 0.0), (-1.0e308, 0.0, 0.0)),
+        ((0.0, 0.0), (1.0, 2.0, 3.0)),
+        ((0.0, 0.0, 0.0), (1.0, 2.0, 3.0, 4.0)),
+    )
+    for bad_entry, bad_target in invalid:
+        with pytest.raises(ValueError):
+            cap_simulation_target(bad_entry, bad_target)
+
+
+def test_confirmed_task_freshness_rejects_legacy_tool_policy():
+    legacy = snapshot()
+    source_path = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "confirmedTaskFreshnessIssues"
+    )
+    namespace = {
+        "_": lambda value: value,
+        "json": json,
+        "SIMULATION_TARGET_DEPTH_CAP_MM": SIMULATION_TARGET_DEPTH_CAP_MM,
+        "SIMULATION_TOOL_PROVENANCE": SIMULATION_TOOL_PROVENANCE,
+        "task_snapshot_invalidation_reasons": task_snapshot_invalidation_reasons,
+    }
+    exec(compile(ast.Module([method], type_ignores=[]), str(source_path), "exec"), namespace)
+
+    class Probe:
+        @staticmethod
+        def step6AnatomyReviewFreshnessIssues(_parameter):
+            return ()
+
+        @staticmethod
+        def step6BasePlacementFreshnessIssues(_parameter):
+            return ()
+
+        @staticmethod
+        def confirmedTaskRecord(_parameter):
+            return legacy
+
+    parameter_node = SimpleNamespace(
+        targetToothSegmentId="FDI14",
+        step6ToolFrame="dentobot_drill_tcp",
+    )
+    issues = namespace["confirmedTaskFreshnessIssues"](Probe(), parameter_node)
+    assert issues == (
+        "Confirmed Step 6 task uses an older simulation Target policy; "
+        "reconfirm the Step 6 task for the 6 mm cap.",
+    )
 
 
 def _motion_candidate():

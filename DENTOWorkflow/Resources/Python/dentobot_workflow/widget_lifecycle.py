@@ -250,6 +250,17 @@ class LifecycleWidgetMixin:
             self._parameterNode
         )
         if packageIssues:
+            try:
+                # A stale saved package may still contain an opened jaw and
+                # target-attached proxies from a different target. Clear only
+                # those transient Step 6A derivatives before deactivating the
+                # imported context; source anatomy and upstream nodes remain.
+                self.logic.resetStep6CaseJawOpening(self._parameterNode)
+            except (RuntimeError, ValueError) as exc:
+                logging.warning(
+                    "Could not clear stale Step 6A transient geometry after restore: %s",
+                    exc,
+                )
             self.logic.invalidateStep6TaskConfirmation(
                 self._parameterNode,
                 _("The restored Steps 0–5 planning package is stale."),
@@ -557,18 +568,17 @@ class LifecycleWidgetMixin:
                 self._parameterNode.inferenceDevice = "cpu"
 
         newlyLoadedVolume = self._newlyLoadedDicomVolume()
-        if newlyLoadedVolume:
-            self._parameterNode.inputVolume = newlyLoadedVolume
-        elif not self._parameterNode.inputVolume:
-            latestVolume = self.logic.getLatestScalarVolumeNode()
-            if latestVolume:
-                self._parameterNode.inputVolume = latestVolume
-        if not self._parameterNode.teethSegmentation:
-            latestSegmentation = self.logic.getLatestTeethSegmentationNode()
-            if latestSegmentation:
-                self._parameterNode.teethSegmentation = latestSegmentation
-
-        self._reconcileAuthoritativeSegmentationSourceVolume()
+        for candidate in self.logic.getScalarVolumeNodes():
+            if not candidate.GetAttribute("DENTOBOT.SourceVolumeID"):
+                candidate.SetAttribute("DENTOBOT.CaseScan", "true")
+        volume = newlyLoadedVolume or self._parameterNode.inspectedVolume or self._parameterNode.inputVolume
+        if not volume:
+            volumes = self.logic.getScalarVolumeNodes()
+            volume = volumes[0] if len(volumes) == 1 else None
+        run = self._parameterNode.inspectedSegmentation or self._parameterNode.teethSegmentation
+        if run and run.GetNodeReference(self.logic.SOURCE_VOLUME_REFERENCE_ROLE) != volume:
+            run = None
+        self.selectInspectionContext(volume, run)
 
         self._updateFromParameterNode()
 
@@ -644,7 +654,7 @@ class LifecycleWidgetMixin:
             node for node in self.logic.getScalarVolumeNodes()
             if node.GetID() not in previousNodeIds
         ]
-        return newVolumes[-1] if newVolumes else None
+        return newVolumes[0] if len(newVolumes) == 1 else None
 
     def _updateFromParameterNode(self, caller=None, event=None) -> None:
         del caller, event
@@ -664,10 +674,11 @@ class LifecycleWidgetMixin:
     def _updateFromParameterNodeOnce(self) -> None:
         """Perform one non-reentrant parameter-to-widget synchronization."""
 
-        volumeNode = self._parameterNode.inputVolume
+        volumeNode = self._parameterNode.inspectedVolume if self._inspectionActive() else self._parameterNode.inputVolume
         self.ui.showVolumeButton.enabled = volumeNode is not None
         self._updateBackendControls()
-        self._bindSegmentationReviewNode(self._parameterNode.teethSegmentation)
+        self._bindSegmentationReviewNode(self._parameterNode.inspectedSegmentation)
+        self._syncScanContext()
         self._updateSegmentationReview()
         self._bindPlanningTrajectoryNode(self._parameterNode.trajectoryLine)
         self._bindAssistedTrajectoryEntryNode(

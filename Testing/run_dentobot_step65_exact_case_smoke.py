@@ -1,4 +1,4 @@
-"""Exact saved-case acceptance test for guarded Step 6.5/6.6 simulation.
+"""Explicit saved-case simulation check, with opt-in historical x4 diagnosis.
 
 This test restores the operator's x4 case, reconstructs only transient ROS 2
 state, and exercises planning plus guarded preview.  It never exposes or calls
@@ -18,6 +18,12 @@ from pathlib import Path
 import slicer
 import vtk
 
+EXPLICIT_CASE = os.environ.get("DENTOBOT_EXACT_CASE", "")
+if not EXPLICIT_CASE and os.environ.get("DENTOBOT_ENABLE_HISTORICAL_X4_DIAGNOSTIC") != "1":
+    raise RuntimeError(
+        "Retired pre-surgery x4 fixture: select a reviewed clean case for acceptance. "
+        "Historical diagnosis requires DENTOBOT_ENABLE_HISTORICAL_X4_DIAGNOSTIC=1."
+    )
 
 ROOT = Path("/workspace/ros2_ws/src/DentoBot")
 HELPERS = ROOT / "DENTOWorkflow/Resources/Python"
@@ -29,12 +35,25 @@ for path in (HELPERS, MODULE):
 import DENTOROS2Bridge as bridge  # noqa: E402
 
 
-PACKAGE = Path(
+if EXPLICIT_CASE and any(os.environ.get(name, "") == "1" for name in (
+    "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE",
+    "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW",
+    "DENTOBOT_AUDIT_ACTUAL_CONTACT_ONLY",
+    "DENTOBOT_PLAN_ONLY",
+    "DENTOBOT_GOAL1_ONLY",
+    "DENTOBOT_FOCUSED_STAGE3_DIAG",
+)):
+    raise RuntimeError("Explicit full-case run cannot use historical overrides or partial-run modes.")
+
+PACKAGE = Path(EXPLICIT_CASE or (
     "/workspace/data/Slicer_Saved/SampleStudy1/"
     "dentobot-case-step6x4.dentocase"
-)
+))
 EXPECTED_TASK = "39201d8f79a4a9ebee2290dfe7f2f37415123187b8b654aee038dba27584c27c"
 PREVIEW_TIMEOUT_SEC = float(os.environ.get("DENTOBOT_PREVIEW_TIMEOUT_SEC", "240"))
+BASE_LOCAL_Z_OFFSET_MM = float(
+    os.environ.get("DENTOBOT_BASE_LOCAL_Z_OFFSET_MM", "0")
+)
 
 
 def process_events(seconds: float = 0.25) -> None:
@@ -61,6 +80,111 @@ def require_success(result, stage: str):
     if not result.success:
         raise RuntimeError(f"{stage}: {result.message}")
     return result
+
+
+def base_point_m_to_world_ras_mm(point, base_transform):
+    if point is None:
+        return None
+    matrix = vtk.vtkMatrix4x4()
+    if base_transform.GetMatrixTransformToWorld(matrix) is False:
+        return None
+    source = [1000.0 * float(value) for value in point] + [1.0]
+    target = [0.0, 0.0, 0.0, 0.0]
+    matrix.MultiplyPoint(source, target)
+    return [float(target[index]) for index in range(3)]
+
+
+def preview_repeat_phase(facade, phase: str, waypoint_count: int):
+    """Run one acknowledged repeat preview and retain bounded failure context."""
+
+    finished = []
+    progress = []
+    require_success(
+        facade.previewPhase(
+            phase,
+            interval_ms=50,
+            on_progress=lambda index, total: progress.append((int(index), int(total))),
+            on_finished=finished.append,
+        ),
+        f"start repeated {phase} preview",
+    )
+    if wait_until(lambda: finished, PREVIEW_TIMEOUT_SEC) is None:
+        raise RuntimeError(
+            f"Repeated {phase} preview timed out at "
+            f"{progress[-1] if progress else (0, waypoint_count)}; "
+            f"previewActive={facade.previewActive}, sequence={facade._phase_sequence}, "
+            f"lastGuardStatus={bridge._last_task_status}"
+        )
+    return require_success(finished[-1], f"repeat {phase} preview")
+
+
+def audit_actual_moveit_contacts(facade, diagnostic_payload: dict[str, object]):
+    """Audit retained candidate paths without the separate 1 mm phase margin.
+
+    This is intentionally a harness-only diagnostic.  It asks MoveIt to check
+    each already-generated explicit joint state against its synchronized scene;
+    it neither applies a waypoint nor starts guarded preview.  The normal
+    Step-6 phase guard is deliberately *not* called here because its provisional
+    non-target-tooth clearance envelope is the condition being classified.
+    """
+
+    records = diagnostic_payload.get("candidate_records", ())
+    if not isinstance(records, list):
+        records = ()
+    outcomes = []
+    for candidate_index, paths in sorted(facade._diagnostic_candidate_paths.items()):
+        record = (
+            records[candidate_index]
+            if 0 <= int(candidate_index) < len(records)
+            and isinstance(records[candidate_index], dict)
+            else {}
+        )
+        stages = {}
+        for stage in ("stage1", "stage2", "stage3"):
+            waypoints = tuple(paths.get(stage, ()))
+            valid_count = 0
+            first_invalid = None
+            for waypoint_index, positions in enumerate(waypoints):
+                valid, message, authoritative = bridge.check_moveit_static_joint_state(
+                    positions,
+                    timeout_sec=2.0,
+                )
+                if not authoritative or not valid:
+                    first_invalid = {
+                        "waypoint_index": waypoint_index,
+                        "authoritative": authoritative,
+                        "message": message,
+                    }
+                    break
+                valid_count += 1
+            stages[stage] = {
+                "waypoint_count": len(waypoints),
+                "moveit_actual_mesh_valid_count": valid_count,
+                "first_moveit_actual_mesh_invalid": first_invalid,
+                "all_moveit_actual_mesh_valid": (
+                    bool(waypoints) and first_invalid is None
+                ),
+            }
+        outcomes.append(
+            {
+                "candidate_index": int(candidate_index),
+                "route_type": record.get("route_type"),
+                "ik_seed_sample_index": record.get("ik_seed_sample_index"),
+                "housing_roll_deg": record.get("axial_roll_deg"),
+                "full_chain_status": record.get("full_chain_candidate_status"),
+                "stage2_fraction": record.get("stage2_fraction"),
+                "stage3_fraction": record.get("stage3_fraction"),
+                "phase_guard_margin_first_body": record.get("guard_first_body"),
+                "phase_guard_margin_second_body": record.get("guard_second_body"),
+                "phase_guard_minimum_distance_mm": (
+                    None
+                    if record.get("guard_minimum_world_distance_m") is None
+                    else 1000.0 * float(record["guard_minimum_world_distance_m"])
+                ),
+                "stages": stages,
+            }
+        )
+    return outcomes
 
 
 def run() -> dict[str, object]:
@@ -119,6 +243,28 @@ def run() -> dict[str, object]:
         raise RuntimeError("restored x4 robot base is not provisionally locked")
 
     require_success(facade.loadRobot(), "load local robot")
+    if abs(BASE_LOCAL_Z_OFFSET_MM) > 1.0e-12:
+        require_success(facade.unlockBase(), "unlock base for diagnostic offset")
+        logic.nudgeRobotBase(
+            parameter_node.robotBaseTransform,
+            translationLocalMm=(0.0, 0.0, BASE_LOCAL_Z_OFFSET_MM),
+        )
+        # Let the placement observer consume the pose change while the base is
+        # still intentionally unlocked.  Locking before this event is handled
+        # can make the observer correctly treat the delayed change as stale.
+        process_events(0.25)
+        # The normal-window operator naturally leaves an event-loop turn
+        # between clicking Nudge and Lock.  The headless harness must make the
+        # placement observer's pose baseline explicit before issuing Lock;
+        # otherwise a queued ModifiedEvent can invalidate the newly locked
+        # state after the fact.
+        widget._lastRobotBasePoseFingerprint = logic.robotBasePoseFingerprint(
+            parameter_node.robotBaseTransform
+        )
+        require_success(facade.lockBase(), "lock diagnostically offset base")
+        process_events(0.25)
+        if not parameter_node.robotBaseMountLocked:
+            raise RuntimeError("diagnostically offset robot base did not remain locked")
     selected_before_connect = slicer.util.selectedModule()
     connection = facade.connect(open_motion_module=False)
     task_home_remediated = False
@@ -151,11 +297,198 @@ def run() -> dict[str, object]:
     if task_issues or logic.confirmedTaskRecord(parameter_node) is None:
         require_success(facade.confirmTask(), "reconfirm restored task")
     snapshot = logic.confirmedTaskRecord(parameter_node)
+    template_collision_override = (
+        os.environ.get("DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE", "")
+        == "1"
+    )
+    if template_collision_override:
+        require_success(
+            facade.setTemplateCollisionExclusionForFunctionalSimulation(True),
+            "enable explicit x4 template collision exclusion",
+        )
+    if os.environ.get("DENTOBOT_FOCUSED_STAGE3_DIAG", "") == "1":
+        home_record = logic.taskHomeRecord(parameter_node)
+        if home_record is None:
+            raise RuntimeError("focused Stage-3 diagnostic has no Task Home")
+        home_positions = bridge.canonicalize_planning_joint_positions(
+            dict(zip(home_record.joint_names, home_record.joint_positions_si))
+        )
+        robot_node = bridge.find_ros2_robot_by_name(bridge.ROS2_ROBOT_NAME)
+        if robot_node is None:
+            raise RuntimeError("focused Stage-3 diagnostic could not find the ROS robot")
+        dense_world = bridge.tool_pose_matrices_world_mm(
+            snapshot.entry_ras_mm,
+            snapshot.target_ras_mm,
+            65,
+        )
+        dense_base = bridge._pose_matrices_world_to_base_mm(
+            dense_world,
+            parameter_node.robotBaseTransform,
+        )
+        seeds = [dict(home_positions)]
+        try:
+            proposal = json.loads(str(parameter_node.step6AssistedLimitProposalJson or ""))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            proposal = {}
+        for evidence in proposal.get("accepted_sample_evidence", ()):
+            if not isinstance(evidence, dict):
+                continue
+            names = tuple(evidence.get("joint_names", ()))
+            values = tuple(evidence.get("joint_positions_si", ()))
+            if len(values) not in (5, 6):
+                continue
+            try:
+                seed = bridge.canonicalize_planning_joint_positions(
+                    dict(zip(names, (float(value) for value in values)))
+                )
+            except (TypeError, ValueError, KeyError):
+                continue
+            if seed not in seeds:
+                seeds.append(seed)
+            if len(seeds) >= 40:
+                break
+        pose = dense_base[60]
+        def probe(seed):
+            solution = robot_node.ComputeMoveItPositionAxisIK(
+                pose,
+                bridge.ROS2_TOOL_TCP_LINK,
+                bridge.joint_si_vector(seed),
+                2.0,
+                False,
+            )
+            return {
+                "solution": list(solution) if solution else None,
+                "message": robot_node.GetLastMoveItPositionAxisIKMessage(),
+                "position_residual_mm": robot_node.GetLastMoveItPositionAxisIKPositionResidualMm(),
+                "axis_residual_deg": robot_node.GetLastMoveItPositionAxisIKAxisResidualDeg(),
+                "best_joint_values": list(robot_node.GetLastMoveItPositionAxisIKBestJointValues()),
+            }
+
+        print("DENTOBOT_STAGE3_POSE60_DIAGNOSTIC", flush=True)
+        print(json.dumps({
+            "pose_index": 60,
+            "pose_count": len(dense_base),
+            "entry_ras_mm": list(snapshot.entry_ras_mm),
+            "target_ras_mm": list(snapshot.target_ras_mm),
+            "seed_count": len(seeds),
+            "results": [
+                {"seed_index": index, "seed": dict(seed), **probe(seed)}
+                for index, seed in enumerate(seeds)
+            ],
+        }, indent=2, sort_keys=True), flush=True)
+        slicer.util.exit(0)
     if slicer.util.selectedModule() != selected_before_connect:
         raise RuntimeError("routine Step 6 Connect left DENTOWorkflow")
 
-    approach = require_success(facade.planApproachPhase(), "plan Goal 1")
+    actual_contact_audit = (
+        os.environ.get("DENTOBOT_AUDIT_ACTUAL_CONTACT_ONLY", "") == "1"
+    )
+    original_tool_insertion_evidence = None
+    if actual_contact_audit:
+        # The production P0 insertion limit is intentionally a hard block.  A
+        # historical x4 path cannot be regenerated after that correction, so
+        # this test-local bypass exists solely to classify *already requested*
+        # candidate poses against MoveIt's mesh scene.  It is never persisted,
+        # never exposed by the workflow UI, and never permits preview.
+        original_tool_insertion_evidence = facade._tool_insertion_evidence
+        facade._tool_insertion_evidence = lambda _entry, _target: {
+            "status": "Pass",
+            "code": "TEST_ONLY_INSERTION_LIMIT_BYPASS",
+            "message": (
+                "TEST ONLY: the production insertion hard-block was bypassed "
+                "to audit historical x4 candidate geometry; no preview is allowed."
+            ),
+        }
+    try:
+        approach = facade.planApproachPhase()
+    finally:
+        if original_tool_insertion_evidence is not None:
+            facade._tool_insertion_evidence = original_tool_insertion_evidence
+    if EXPLICIT_CASE:
+        Path("/tmp/dentobot-exact-case-diagnostic.json").write_text(json.dumps({
+            "case": str(PACKAGE),
+            "code": approach.code,
+            "message": approach.message,
+            "details": approach.details,
+            "task": snapshot.to_dict(),
+            "motion": json.loads(str(parameter_node.step6MotionDiagnosticJson or "{}")),
+        }, indent=2, default=str))
+    if not (
+        approach.success
+        or (
+            os.environ.get("DENTOBOT_PLAN_ONLY", "") == "1"
+            and approach.code == "approach_full_chain_blocked"
+            and approach.payload is not None
+        )
+    ):
+        require_success(approach, "plan Goal 1")
     approach_plan = approach.payload
+    if actual_contact_audit:
+        try:
+            diagnostic_payload = json.loads(
+                str(parameter_node.step6MotionDiagnosticJson or "")
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"actual-contact audit has no candidate diagnostic: {exc}"
+            ) from exc
+        outcomes = audit_actual_moveit_contacts(facade, diagnostic_payload)
+        return {
+            "diagnostic_only": True,
+            "actual_contact_audit": True,
+            "production_insertion_block_bypassed": True,
+            "template_collision_exclusion_active": bool(
+                facade.templateCollisionExclusionActive
+            ),
+            "planner_result_code": approach.code,
+            "planner_full_task_status": approach.details.get("fullTaskStatus"),
+            "candidate_outcomes": outcomes,
+        }
+    if os.environ.get("DENTOBOT_DIAG_APPROACH_ENDPOINT", "") == "1":
+        endpoint = approach_plan.waypoint_joint_vectors_si[-1]
+        fk_ok, fk_message, actual = bridge.compute_tcp_position_world_ras_mm(
+            endpoint,
+            base_transform=parameter_node.robotBaseTransform,
+        )
+        snapshot_for_diag = logic.confirmedTaskRecord(parameter_node)
+        expected_entry = tuple(snapshot_for_diag.entry_ras_mm)
+        try:
+            diagnostic_session = json.loads(
+                str(parameter_node.step6MotionDiagnosticJson or "")
+            )
+            diagnostic_records = diagnostic_session.get("candidate_records", [])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            diagnostic_session = {}
+            diagnostic_records = []
+        error = (
+            math.sqrt(sum((float(actual[index]) - expected_entry[index]) ** 2 for index in range(3)))
+            if fk_ok and actual is not None
+            else None
+        )
+        print("DENTOBOT_APPROACH_ENDPOINT_DIAGNOSTIC", flush=True)
+        print(json.dumps({
+            "planCode": approach.code,
+            "planDetails": dict(approach.details),
+            "waypointCount": len(approach_plan.waypoint_joint_vectors_si),
+            "strictWaypointCount": approach_plan.strict_waypoint_count,
+            "axisWaypointCount": approach_plan.axis_waypoint_count,
+            "contactWaypointCount": approach_plan.contact_waypoint_count,
+            "lastJoint": dict(endpoint),
+            "fkOk": fk_ok,
+            "fkMessage": fk_message,
+            "actualTcpRasMm": actual,
+            "expectedEntryRasMm": expected_entry,
+            "endpointErrorMm": error,
+            "selectedDiagnostic": (
+                diagnostic_records[
+                    int(diagnostic_session.get("selected_candidate_index", 0))
+                ]
+                if diagnostic_records
+                and 0 <= int(diagnostic_session.get("selected_candidate_index", 0)) < len(diagnostic_records)
+                else (diagnostic_records[0] if diagnostic_records else None)
+            ),
+        }, indent=2, sort_keys=True), flush=True)
+        raise RuntimeError("diagnostic-only endpoint inspection")
     planned_path_nodes = [
         node
         for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
@@ -209,6 +542,89 @@ def run() -> dict[str, object]:
             f"{approach_plan.start_position_error_mm} mm, "
             f"{approach_plan.start_orientation_error_deg} deg"
         )
+    if os.environ.get("DENTOBOT_PLAN_ONLY", "") == "1":
+        try:
+            diagnostic_payload = json.loads(
+                str(parameter_node.step6MotionDiagnosticJson or "")
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            diagnostic_payload = {}
+        candidate_outcomes = []
+        for record in diagnostic_payload.get("candidate_records", ()):
+            if not isinstance(record, dict):
+                continue
+            nearest_first_base = record.get(
+                "guard_nearest_point_first_base_m"
+            )
+            nearest_second_base = record.get(
+                "guard_nearest_point_second_base_m"
+            )
+            candidate_outcomes.append(
+                {
+                    "candidate_index": record.get("candidate_index"),
+                    "route_type": record.get("route_type"),
+                    "ik_seed_sample_index": record.get("ik_seed_sample_index"),
+                    "axial_roll_deg": record.get("axial_roll_deg"),
+                    "full_chain_status": record.get("full_chain_candidate_status"),
+                    "failure_stage": record.get("full_chain_failure_stage"),
+                    "first_invalid_stage_index": record.get(
+                        "full_chain_first_invalid_stage_index"
+                    ),
+                    "stage2_fraction": record.get("stage2_fraction"),
+                    "stage3_fraction": record.get("stage3_fraction"),
+                    "first_cause": record.get("full_chain_failure_reason"),
+                    "stage1_success": record.get("success"),
+                    "stage1_waypoint_count": record.get("stage1_waypoint_count"),
+                    "stage2_waypoint_count": record.get("stage2_waypoint_count"),
+                    "stage3_waypoint_count": record.get("stage3_waypoint_count"),
+                    "failure_classification": record.get("failure_classification"),
+                    "first_invalid_collision_pairs": record.get(
+                        "first_invalid_collision_pairs"
+                    ),
+                    "completed_distance_mm": record.get("completed_distance_mm"),
+                    "requested_distance_mm": record.get("requested_distance_mm"),
+                    "first_invalid_tcp_ras_mm": record.get(
+                        "first_invalid_ras_mm"
+                    ),
+                    "first_invalid_joint_positions_si": record.get(
+                        "first_invalid_joint_positions_si"
+                    ),
+                    "guard_first_body": record.get("guard_first_body"),
+                    "guard_second_body": record.get("guard_second_body"),
+                    "guard_minimum_world_distance_m": record.get(
+                        "guard_minimum_world_distance_m"
+                    ),
+                    "guard_nearest_point_first_base_m": nearest_first_base,
+                    "guard_nearest_point_second_base_m": nearest_second_base,
+                    "guard_nearest_point_first_world_ras_mm": (
+                        base_point_m_to_world_ras_mm(
+                            nearest_first_base,
+                            parameter_node.robotBaseTransform,
+                        )
+                    ),
+                    "guard_nearest_point_second_world_ras_mm": (
+                        base_point_m_to_world_ras_mm(
+                            nearest_second_base,
+                            parameter_node.robotBaseTransform,
+                        )
+                    ),
+                }
+            )
+        return {
+            "diagnostic_only": True,
+            "base_local_z_offset_mm": BASE_LOCAL_Z_OFFSET_MM,
+            "result_code": approach.code,
+            "full_task_status": str(approach.details.get("fullTaskStatus") or ""),
+            "blocked_stage": str(approach.details.get("blockedStage") or ""),
+            "first_invalid_cause": str(approach.details.get("firstInvalidCause") or ""),
+            "stage3_fraction": approach.details.get("drillingPreflightFraction"),
+            "planning_joint_count": len(bridge.ROS2_JOINT_SI_ORDER),
+            "stage_path_count": len(planned_path_nodes),
+            "candidate_chain_outcomes": candidate_outcomes,
+            "template_collision_exclusion_active": bool(
+                facade.templateCollisionExclusionActive
+            ),
+        }
     approach_finished = []
     approach_progress = []
     require_success(
@@ -372,6 +788,76 @@ def run() -> dict[str, object]:
         raise RuntimeError(
             f"final TCP missed Target by {final_position_error_mm:.6f} mm"
         )
+
+    first_return = require_success(
+        facade.returnToTaskHome(), "guarded Return Home"
+    )
+    if not first_return.details.get("axialRetractionCompleted"):
+        raise RuntimeError("first guarded return did not complete axial retraction")
+    repeated_approach = require_success(
+        facade.planApproachPhase(),
+        "repeat Goal 1 planning",
+    )
+    repeated_approach_plan = repeated_approach.payload
+    repeated_approach_outcome = preview_repeat_phase(
+        facade,
+        "approach",
+        len(repeated_approach_plan.waypoint_joint_vectors_si),
+    )
+    if facade.completedPhase != "approach":
+        raise RuntimeError("Repeated Goal 1 did not establish the accepted Entry state")
+    repeated_drilling = require_success(
+        facade.planDrillingPhase(),
+        "repeat Goal 2 planning",
+    )
+    repeated_drilling_plan = repeated_drilling.payload
+    if (
+        repeated_drilling_plan.tool_orientation_fingerprint
+        != repeated_approach_plan.tool_orientation_fingerprint
+    ):
+        raise RuntimeError("Repeated drilling did not retain its Stage-1 tool frame")
+    repeated_drilling_outcome = preview_repeat_phase(
+        facade,
+        "drilling",
+        len(repeated_drilling_plan.waypoint_joint_vectors_si),
+    )
+    if facade.completedPhase != "drilling":
+        raise RuntimeError("Repeated Goal 2 did not complete under the phase guard")
+    repeated_accepted = bridge.last_accepted_joint_positions_si()
+    repeated_target_base_mm = vtk.vtkMatrix4x4()
+    if robot.ComputeKDLFK(
+        bridge.joint_si_vector(repeated_accepted),
+        repeated_target_base_mm,
+        bridge.ROS2_TOOL_TCP_LINK,
+    ) is None:
+        raise RuntimeError("Repeated final canonical-TCP FK failed")
+    repeated_target_error_mm = math.sqrt(
+        sum(
+            (
+                repeated_target_base_mm.GetElement(axis, 3)
+                - expected_target_base_m[axis] * 1000.0
+            )
+            ** 2
+            for axis in range(3)
+        )
+    )
+    if repeated_target_error_mm > bridge.CARTESIAN_START_POSITION_TOLERANCE_MM:
+        raise RuntimeError(
+            "Repeated final TCP missed Target by "
+            f"{repeated_target_error_mm:.6f} mm"
+        )
+    final_return = require_success(
+        facade.returnToTaskHome(), "final guarded Return Home"
+    )
+    if not final_return.details.get("axialRetractionCompleted"):
+        raise RuntimeError("final guarded return did not complete axial retraction")
+    preflight_warning_count = int(
+        approach.details.get("guideClearanceWarningCount", 0)
+    )
+    if preflight_warning_count <= 0:
+        raise RuntimeError(
+            "the exact case did not persist its expected guide-clearance warning"
+        )
     return {
         "package": PACKAGE.name,
         "restored_task_fingerprint": restored_task_before_runtime,
@@ -401,15 +887,84 @@ def run() -> dict[str, object]:
         "goal2_suppressed_tool_contact_samples": int(
             drilling_outcome.details.get("suppressedToolContactSampleCount", 0)
         ),
+        "preflight_guide_clearance_warning_count": preflight_warning_count,
+        "preflight_minimum_guide_clearance_warning_m": approach.details.get(
+            "minimumGuideClearanceWarningM"
+        ),
+        "preflight_guide_warning_kinds": list(
+            approach.details.get("guideClearanceWarningKinds", ())
+        ),
+        "preflight_guide_contact_penetration_mm": list(
+            approach.details.get("guideClearanceWarningContactPenetrationMm", ())
+        ),
+        "goal1_guide_clearance_warning_count": int(
+            approach_outcome.details.get("guideClearanceWarningCount", 0)
+        ),
+        "goal1_guide_warning_kinds": list(
+            approach_outcome.details.get("guideClearanceWarningKinds", ())
+        ),
+        "goal2_guide_clearance_warning_count": int(
+            drilling_outcome.details.get("guideClearanceWarningCount", 0)
+        ),
+        "goal2_guide_warning_kinds": list(
+            drilling_outcome.details.get("guideClearanceWarningKinds", ())
+        ),
+        "first_return_axial_retraction_complete": bool(
+            first_return.details.get("axialRetractionCompleted")
+        ),
+        "first_return_reverse_waypoint_count": int(
+            first_return.details.get("acceptedReverseWaypointCount", 0)
+        ),
+        "first_return_guide_clearance_warning_count": int(
+            first_return.details.get("guideClearanceWarningCount", 0)
+        ),
+        "first_return_guide_warning_kinds": list(
+            first_return.details.get("guideClearanceWarningKinds", ())
+        ),
+        "repeat_goal1_guide_clearance_warning_count": int(
+            repeated_approach_outcome.details.get(
+                "guideClearanceWarningCount", 0
+            )
+        ),
+        "repeat_goal2_guide_clearance_warning_count": int(
+            repeated_drilling_outcome.details.get(
+                "guideClearanceWarningCount", 0
+            )
+        ),
+        "final_return_axial_retraction_complete": bool(
+            final_return.details.get("axialRetractionCompleted")
+        ),
+        "final_return_reverse_waypoint_count": int(
+            final_return.details.get("acceptedReverseWaypointCount", 0)
+        ),
+        "final_return_guide_clearance_warning_count": int(
+            final_return.details.get("guideClearanceWarningCount", 0)
+        ),
+        "final_return_guide_warning_kinds": list(
+            final_return.details.get("guideClearanceWarningKinds", ())
+        ),
         "final_target_position_error_mm": final_position_error_mm,
+        "repeat_final_target_position_error_mm": repeated_target_error_mm,
         "guarded_preview_complete": True,
+        "guarded_return_home_complete": True,
+        "repeat_guarded_preview_complete": True,
         "hardware_execution_enabled": False,
+        "template_collision_exclusion_active": bool(
+            facade.templateCollisionExclusionActive
+        ),
     }
 
 
 try:
     report = run()
-    print("DENTOBOT_STEP65_EXACT_CASE_PASS", flush=True)
+    print(
+        "DENTOBOT_STAGE3_ACTUAL_CONTACT_AUDIT"
+        if os.environ.get("DENTOBOT_AUDIT_ACTUAL_CONTACT_ONLY", "") == "1"
+        else "DENTOBOT_STEP65_PLAN_DIAGNOSTIC"
+        if os.environ.get("DENTOBOT_PLAN_ONLY", "") == "1"
+        else "DENTOBOT_STEP65_EXACT_CASE_PASS",
+        flush=True,
+    )
     print(json.dumps(report, indent=2, sort_keys=True), flush=True)
     bridge.disconnect_dentobot_motion_control([])
     bridge.shutdown_slicer_adapter()

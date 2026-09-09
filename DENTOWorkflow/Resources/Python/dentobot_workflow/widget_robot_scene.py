@@ -201,6 +201,17 @@ class RobotSceneWidgetMixin:
                 self._parameterNode.robotBaseTransform
             )
         )
+        hasTransientOpening = any(
+            node is not None
+            for node in (
+                self._parameterNode.step6CaseJawTransform,
+                self._parameterNode.step6OpenedLowerJawModel,
+                self._parameterNode.step6TargetJawFallbackAnatomy,
+                self._parameterNode.step6CaseJawGapLine,
+                self._parameterNode.step6OpenedTargetGeometryModel,
+                self._parameterNode.step6OpenedTrajectoryLine,
+            )
+        )
         blocked = bool(self._parameterNode.robotBaseMountLocked or rosActive)
         node = self._parameterNode.step6CaseJawLandmarks
         summary = None
@@ -231,7 +242,9 @@ class RobotSceneWidgetMixin:
         labels = self.logic.draftJawLandmarkButtonLabels()
         self._updatingRobotPlacementUI = True
         try:
-            self.ui.step6CaseJawOpeningGroupBox.enabled = imported
+            self.ui.step6CaseJawOpeningGroupBox.enabled = bool(
+                imported or hasTransientOpening
+            )
             self.ui.createStep6CaseJawLandmarksButton.enabled = bool(
                 imported
                 and not blocked
@@ -270,20 +283,7 @@ class RobotSceneWidgetMixin:
                 and not inFallback
             )
             self.ui.resetStep6CaseJawOpeningButton.enabled = bool(
-                imported
-                and not rosActive
-                and (
-                    self.logic.isStep6CaseJawTransformNode(
-                        self._parameterNode.step6CaseJawTransform
-                    )
-                    or self.logic.isStep6OpenedLowerJawModelNode(
-                        self._parameterNode.step6OpenedLowerJawModel
-                    )
-                    or self.logic.isStep6DerivedAnatomyNode(
-                        self._parameterNode.step6TargetJawFallbackAnatomy,
-                        self.logic.STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE,
-                    )
-                )
+                not rosActive and hasTransientOpening
             )
             self.ui.resetStep6CaseJawOpeningButton.text = (
                 _("Exit Fallback and Retry Primary 6A…")

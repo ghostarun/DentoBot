@@ -26,10 +26,12 @@
 namespace
 {
 constexpr char STATUS_SCHEMA[] = "dentobot.joint_command_status.v1";
-constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v2";
+constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v3";
 constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v2";
 constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v2";
 constexpr double CLEARANCE_COMPARISON_EPSILON_M = 1e-9;
+constexpr double SIMULATION_GUIDE_CLEARANCE_M = 0.0001;
+constexpr double SIMULATION_GUIDE_CONTACT_MAX_PENETRATION_M = 0.0005;
 constexpr double CORRIDOR_ENDPOINT_EPSILON_M = 0.00025;
 // Match the Step 6 provisional-TCP/FK acceptance tolerance. Smaller values
 // reject harmless KDL/trajectory-parameterization jitter below the 0.3 mm case
@@ -90,6 +92,17 @@ std::string json_array(const std::vector<double>& values)
   }
   output << ']';
   return output.str();
+}
+
+std::string json_point_or_null(
+  const std::array<double, 3>& point, const bool available)
+{
+  if (!available)
+  {
+    return "null";
+  }
+  return "[" + json_number(point[0]) + "," + json_number(point[1]) + "," +
+         json_number(point[2]) + "]";
 }
 
 bool json_string_field(
@@ -219,6 +232,7 @@ struct TaskGuardConfig
   std::string target_object_id;
   std::string allowed_robot_link;
   std::vector<std::string> clearance_exempt_object_ids;
+  std::vector<std::string> simulation_guide_clearance_object_ids;
   std::string tool_tip_frame;
   Eigen::Vector3d entry_base_m{ Eigen::Vector3d::Zero() };
   Eigen::Vector3d target_base_m{ Eigen::Vector3d::Zero() };
@@ -261,6 +275,9 @@ struct GuardResult
   double minimum_world_distance_m{ std::numeric_limits<double>::infinity() };
   std::string first_body;
   std::string second_body;
+  std::array<double, 3> nearest_point_first_base_m{ { 0.0, 0.0, 0.0 } };
+  std::array<double, 3> nearest_point_second_base_m{ { 0.0, 0.0, 0.0 } };
+  bool nearest_points_available{ false };
   std::size_t world_object_count{ 0 };
   std::vector<WorldObjectEvidence> world_objects;
   bool corridor_ok{ false };
@@ -268,6 +285,18 @@ struct GuardResult
   double corridor_distance_m{ std::numeric_limits<double>::quiet_NaN() };
   bool exploratory_tool_contact_suppressed{ false };
   std::size_t suppressed_tool_contact_sample_count{ 0 };
+  bool guide_clearance_warning{ false };
+  std::size_t guide_clearance_warning_sample_count{ 0 };
+  double minimum_guide_clearance_warning_m{ std::numeric_limits<double>::quiet_NaN() };
+  std::string guide_clearance_warning_robot_link;
+  std::string guide_clearance_warning_object_id;
+  std::string guide_warning_kind;
+  double guide_clearance_warning_contact_penetration_m{
+    std::numeric_limits<double>::quiet_NaN() };
+  std::size_t guide_clearance_warning_contact_sample_count{ 0 };
+  std::array<double, 3> guide_clearance_warning_contact_position_base_m{
+    { 0.0, 0.0, 0.0 } };
+  bool guide_clearance_warning_contact_position_available{ false };
 };
 }  // namespace
 
@@ -462,6 +491,38 @@ private:
     if (!json_string_array_field(
           document, "clearance_exempt_object_ids", config.clearance_exempt_object_ids))
       return malformed("clearance_exempt_object_ids");
+    if (config.allowed_robot_link != "burr" ||
+        std::any_of(config.clearance_exempt_object_ids.begin(),
+                    config.clearance_exempt_object_ids.end(),
+                    [&config](const std::string& id) {
+                      return id != config.target_object_id;
+                    }))
+    {
+      reason = "Only the selected target may receive a burr-contact allowance.";
+      return false;
+    }
+    std::vector<std::string> retired_guide_links;
+    std::vector<std::string> retired_guide_objects;
+    if (document.isMember("guide_clearance_exempt_robot_links") &&
+        !json_string_array_field(
+          document, "guide_clearance_exempt_robot_links", retired_guide_links))
+      return malformed("guide_clearance_exempt_robot_links");
+    if (document.isMember("guide_clearance_exempt_object_ids") &&
+        !json_string_array_field(
+          document, "guide_clearance_exempt_object_ids", retired_guide_objects))
+      return malformed("guide_clearance_exempt_object_ids");
+    if (!retired_guide_links.empty() || !retired_guide_objects.empty())
+    {
+      reason =
+        "Task-guard guide/template clearance exemption fields are retired and "
+        "rejected; use simulation_guide_clearance_object_ids.";
+      return false;
+    }
+    if (document.isMember("simulation_guide_clearance_object_ids") &&
+        !json_string_array_field(
+          document, "simulation_guide_clearance_object_ids",
+          config.simulation_guide_clearance_object_ids))
+      return malformed("simulation_guide_clearance_object_ids");
     if (!json_string_field(document, "tool_tip_frame", config.tool_tip_frame))
       return malformed("tool_tip_frame");
     if (!json_number_array_field(document, "entry_base_m", entry) || entry.size() != 3)
@@ -492,6 +553,36 @@ private:
           [](const std::string& value) { return value.empty(); }))
     {
       reason = "Task-guard clearance-exempt object identities must be non-empty.";
+      return false;
+    }
+    if (std::any_of(
+          config.simulation_guide_clearance_object_ids.begin(),
+          config.simulation_guide_clearance_object_ids.end(),
+          [](const std::string& value) { return value.empty(); }))
+    {
+      reason = "Task-guard simulation guide-clearance object identities must be non-empty.";
+      return false;
+    }
+    if (std::any_of(
+          config.simulation_guide_clearance_object_ids.begin(),
+          config.simulation_guide_clearance_object_ids.end(),
+          [&config](const std::string& value) {
+            return value == config.target_object_id;
+          }))
+    {
+      reason =
+        "Task-guard simulation guide-clearance objects must not include the selected target.";
+      return false;
+    }
+    std::sort(
+      config.simulation_guide_clearance_object_ids.begin(),
+      config.simulation_guide_clearance_object_ids.end());
+    if (std::adjacent_find(
+          config.simulation_guide_clearance_object_ids.begin(),
+          config.simulation_guide_clearance_object_ids.end()) !=
+        config.simulation_guide_clearance_object_ids.end())
+    {
+      reason = "Task-guard simulation guide-clearance object identities must be unique.";
       return false;
     }
     std::sort(
@@ -537,7 +628,7 @@ private:
     if (command.task_fingerprint.empty() || command.guard_session_id.empty() ||
         command.sequence < 0 ||
         (command.phase != "approach" && command.phase != "terminal_contact" &&
-         command.phase != "drilling"))
+         command.phase != "drilling" && command.phase != "retraction"))
     {
       reason = "Phased command identity, phase, or sequence is invalid.";
       return false;
@@ -657,7 +748,8 @@ private:
       {
         preflight_positions_ = command.joint_positions;
         last_preflight_sequence_ = command.sequence;
-        if (command.phase == "terminal_contact" || command.phase == "drilling")
+        if (command.phase == "terminal_contact" || command.phase == "drilling" ||
+            command.phase == "retraction")
         {
           last_preflight_corridor_progress_m_ = result.corridor_progress;
         }
@@ -666,7 +758,8 @@ private:
       {
         last_accepted_positions_ = command.joint_positions;
         last_task_sequence_ = command.sequence;
-        if (command.phase == "terminal_contact" || command.phase == "drilling")
+        if (command.phase == "terminal_contact" || command.phase == "drilling" ||
+            command.phase == "retraction")
         {
           last_corridor_progress_m_ = result.corridor_progress;
         }
@@ -685,7 +778,9 @@ private:
   {
     GuardResult result;
     const bool contact_phase =
-      task_config != nullptr && (phase == "terminal_contact" || phase == "drilling");
+      task_config != nullptr && (phase == "terminal_contact" || phase == "drilling" ||
+                                 phase == "retraction");
+    const bool retraction_phase = task_config != nullptr && phase == "retraction";
     Eigen::Vector3d corridor_axis = Eigen::Vector3d::Zero();
     double corridor_length_m = 0.0;
     if (!std::isfinite(prior_corridor_progress_m))
@@ -787,42 +882,43 @@ private:
           return result;
         }
       }
+      for (const std::string& object_id : task_config->simulation_guide_clearance_object_ids)
+      {
+        if (!scene->getWorld()->hasObject(object_id))
+        {
+          result.reason =
+            "A configured simulation guide-clearance collision object is missing.";
+          result.second_body = object_id;
+          return result;
+        }
+      }
     }
     const auto& allowed_collision_matrix = scene->getAllowedCollisionMatrix();
     collision_detection::AllowedCollisionMatrix clearance_collision_matrix(
-      allowed_collision_matrix);
-    collision_detection::AllowedCollisionMatrix phase_collision_matrix(
       allowed_collision_matrix);
     if (task_config != nullptr)
     {
       for (const std::string& object_id : task_config->clearance_exempt_object_ids)
       {
-        // Every phased state omits only the configured burr-to-task-object
-        // pair from the research clearance-distance query. Collision remains
-        // strict during approach. Terminal-contact and drilling additionally
-        // use phase_collision_matrix below to suppress that same tool-only
-        // pair for exploratory simulation.
+        // Every phased state omits only the explicitly configured burr-to-task
+        // object pair from the research clearance-distance query. Production
+        // publishes the selected target only; adjacent anatomy and guides are
+        // not clearance exemptions. Collision remains strict during approach.
+        // Terminal-contact and drilling additionally use phase_collision_matrix
+        // below to suppress that same selected-target pair for exploratory
+        // simulation.
         clearance_collision_matrix.setEntry(
           task_config->allowed_robot_link, object_id, true);
-        if (contact_phase)
-        {
-          phase_collision_matrix.setEntry(
-            task_config->allowed_robot_link, object_id, true);
-        }
       }
     }
     if (contact_phase)
     {
       clearance_collision_matrix.setEntry(
         task_config->allowed_robot_link, task_config->target_object_id, true);
-      phase_collision_matrix.setEntry(
-        task_config->allowed_robot_link, task_config->target_object_id, true);
     }
-    // Every phased task state may place the burr near task anatomy or inside
-    // the approved guide bore, including the collision-free approach to
-    // pre-entry. Exempt only configured burr-to-object pairs from the research
-    // *distance* test. Ordinary/manual commands remain globally strict;
-    // collision queries below always use the original ACM.
+    // Only the explicitly configured selected-target pair may omit the
+    // research *distance* test. Ordinary/manual commands remain globally
+    // strict; collision queries below always use the original ACM.
     const auto& clearance_acm =
       task_config != nullptr ? clearance_collision_matrix : allowed_collision_matrix;
     const auto& collision_environment = scene->getCollisionEnvUnpadded();
@@ -845,13 +941,15 @@ private:
       collision_detection::CollisionRequest collision_request;
       collision_request.group_name = group_name_;
       collision_request.contacts = true;
-      collision_request.max_contacts = 20;
-      collision_request.max_contacts_per_pair = 1;
+      collision_request.max_contacts = 100;
+      collision_request.max_contacts_per_pair = 20;
       collision_request.pad_environment_collisions = false;
       collision_request.pad_self_collisions = false;
       collision_detection::CollisionResult collision_result;
       scene->checkCollision(
         collision_request, collision_result, sample, allowed_collision_matrix);
+      std::vector<std::pair<std::string, std::string>> admitted_housing_pairs;
+      bool sample_housing_contact_warning = false;
       if (collision_result.collision)
       {
         if (!contact_phase)
@@ -865,17 +963,188 @@ private:
           }
           return result;
         }
-        // The exploratory terminal/drilling policy suppresses only collisions
-        // between the configured burr link and explicitly configured task
-        // anatomy/guide objects. Re-run MoveIt's complete collision predicate
-        // with those exact pairs allowed. This is safer than accepting based on
-        // the truncated diagnostic contact list: any self collision, other
-        // robot-link/world collision, or unconfigured world collision remains.
+        // Suppress only the configured burr-target pair and exact
+        // pneumatic_spindle-Copy-to-guide contacts after classifying every
+        // reported contact. The complete predicate is then rerun with only
+        // those exact pairs allowed so a second collision cannot be hidden.
+        collision_detection::AllowedCollisionMatrix phase_collision_matrix(
+          allowed_collision_matrix);
+        phase_collision_matrix.setEntry(
+          task_config->allowed_robot_link, task_config->target_object_id, true);
+        const auto is_configured_guide = [task_config](const std::string& value) {
+          return std::find(
+                   task_config->simulation_guide_clearance_object_ids.begin(),
+                   task_config->simulation_guide_clearance_object_ids.end(), value) !=
+                 task_config->simulation_guide_clearance_object_ids.end();
+        };
+        const auto is_burr_target_pair = [task_config](
+                                           const std::string& first,
+                                           const std::string& second) {
+          return (first == task_config->allowed_robot_link &&
+                  second == task_config->target_object_id) ||
+                 (second == task_config->allowed_robot_link &&
+                  first == task_config->target_object_id);
+        };
+        const auto housing_guide_pair = [&is_configured_guide](
+                                          const std::string& first,
+                                          const std::string& second) {
+          if (first == "pneumatic_spindle-Copy" && is_configured_guide(second))
+          {
+            return std::make_pair(first, second);
+          }
+          if (second == "pneumatic_spindle-Copy" && is_configured_guide(first))
+          {
+            return std::make_pair(second, first);
+          }
+          return std::make_pair(std::string(), std::string());
+        };
+        for (const auto& contact_entry : collision_result.contacts)
+        {
+          const std::string& first = contact_entry.first.first;
+          const std::string& second = contact_entry.first.second;
+          const bool burr_target = is_burr_target_pair(first, second);
+          const auto housing_pair = housing_guide_pair(first, second);
+          const bool housing_guide = !housing_pair.first.empty();
+          if (!burr_target && !housing_guide)
+          {
+            result.reason =
+              "MoveIt detected a non-approved collision at interpolated sample " +
+              std::to_string(index) + "/" + std::to_string(sample_count) + ".";
+            result.first_body = first;
+            result.second_body = second;
+            return result;
+          }
+          if (burr_target)
+          {
+            result.exploratory_tool_contact_suppressed = true;
+          }
+          if (!housing_guide)
+          {
+            continue;
+          }
+          bool has_finite_position = false;
+          for (const auto& contact : contact_entry.second)
+          {
+            if (!std::isfinite(contact.depth))
+            {
+              result.reason =
+                "Configured pneumatic_spindle-Copy guide contact has non-finite depth evidence.";
+              result.first_body = first;
+              result.second_body = second;
+              return result;
+            }
+            if (!std::isfinite(contact.pos[0]) || !std::isfinite(contact.pos[1]) ||
+                !std::isfinite(contact.pos[2]))
+            {
+              result.reason =
+                "Configured pneumatic_spindle-Copy guide contact has no finite position evidence.";
+              result.first_body = first;
+              result.second_body = second;
+              return result;
+            }
+            if (!has_finite_position)
+            {
+              for (std::size_t coordinate = 0; coordinate < 3; ++coordinate)
+              {
+                result.guide_clearance_warning_contact_position_base_m[coordinate] =
+                  contact.pos[coordinate];
+              }
+              result.guide_clearance_warning_contact_position_available = true;
+              has_finite_position = true;
+            }
+          }
+          if (!has_finite_position)
+          {
+            result.reason =
+              "Configured pneumatic_spindle-Copy guide contact had no finite contact evidence.";
+            result.first_body = first;
+            result.second_body = second;
+            return result;
+          }
+
+          // FCL contact.depth is not reliable for every mesh/primitive pair.
+          // Isolate this exact robot-guide pair and use the signed distance as
+          // the authoritative penetration measurement.
+          collision_detection::AllowedCollisionMatrix pair_distance_acm(
+            allowed_collision_matrix);
+          pair_distance_acm.setEntry(
+            robot_model_->getLinkModelNames(), scene->getWorld()->getObjectIds(), true);
+          pair_distance_acm.setEntry(housing_pair.first, housing_pair.second, false);
+          collision_detection::DistanceRequest pair_distance_request;
+          pair_distance_request.acm = &pair_distance_acm;
+          pair_distance_request.enable_nearest_points = true;
+          pair_distance_request.enable_signed_distance = true;
+          pair_distance_request.distance_threshold = minimum_clearance_m_;
+          collision_detection::DistanceResult pair_distance_result;
+          collision_environment->distanceRobot(
+            pair_distance_request, pair_distance_result, sample);
+          const double signed_pair_distance_m =
+            pair_distance_result.minimum_distance.distance;
+          const auto measured_pair = std::make_pair(
+            pair_distance_result.minimum_distance.link_names[0],
+            pair_distance_result.minimum_distance.link_names[1]);
+          const bool measured_exact_pair =
+            (measured_pair.first == housing_pair.first &&
+             measured_pair.second == housing_pair.second) ||
+            (measured_pair.second == housing_pair.first &&
+             measured_pair.first == housing_pair.second);
+          if (!std::isfinite(signed_pair_distance_m) || !measured_exact_pair)
+          {
+            result.reason =
+              "Configured pneumatic_spindle-Copy guide contact could not be isolated "
+              "for signed penetration measurement (distance " +
+              distance_mm_text(signed_pair_distance_m) + " mm, pair " +
+              measured_pair.first + " / " + measured_pair.second + ").";
+            result.first_body = first;
+            result.second_body = second;
+            return result;
+          }
+          const double maximum_penetration_m =
+            std::abs(signed_pair_distance_m);
+          if (maximum_penetration_m > SIMULATION_GUIDE_CONTACT_MAX_PENETRATION_M +
+              CLEARANCE_COMPARISON_EPSILON_M)
+          {
+            result.guide_clearance_warning_contact_penetration_m = maximum_penetration_m;
+            result.guide_clearance_warning_robot_link = housing_pair.first;
+            result.guide_clearance_warning_object_id = housing_pair.second;
+            result.reason =
+              "Configured pneumatic_spindle-Copy guide contact penetration is " +
+              distance_mm_text(maximum_penetration_m) +
+              " mm; the simulation contact limit is 0.500000 mm.";
+            result.first_body = first;
+            result.second_body = second;
+            return result;
+          }
+          phase_collision_matrix.setEntry(housing_pair.first, housing_pair.second, true);
+          if (std::find(admitted_housing_pairs.begin(), admitted_housing_pairs.end(),
+                        housing_pair) == admitted_housing_pairs.end())
+          {
+            admitted_housing_pairs.push_back(housing_pair);
+          }
+          sample_housing_contact_warning = true;
+          if (!std::isfinite(result.guide_clearance_warning_contact_penetration_m) ||
+              maximum_penetration_m > result.guide_clearance_warning_contact_penetration_m)
+          {
+            result.guide_clearance_warning_contact_penetration_m = maximum_penetration_m;
+          }
+          result.guide_clearance_warning_robot_link = housing_pair.first;
+          result.guide_clearance_warning_object_id = housing_pair.second;
+          // Keep the legacy minimum-warning field non-negative for old
+          // consumers; the signed contact evidence is carried explicitly by
+          // the contact penetration field below.
+          result.minimum_guide_clearance_warning_m =
+            result.guide_clearance_warning_contact_penetration_m;
+        }
+        if (collision_result.contacts.empty())
+        {
+          result.reason = "MoveIt reported a collision without contact evidence.";
+          return result;
+        }
         collision_detection::CollisionRequest phase_request;
         phase_request.group_name = group_name_;
         phase_request.contacts = true;
-        phase_request.max_contacts = 20;
-        phase_request.max_contacts_per_pair = 1;
+        phase_request.max_contacts = 100;
+        phase_request.max_contacts_per_pair = 20;
         phase_request.pad_environment_collisions = false;
         phase_request.pad_self_collisions = false;
         collision_detection::CollisionResult phase_result;
@@ -890,11 +1159,32 @@ private:
           {
             result.first_body = phase_result.contacts.begin()->first.first;
             result.second_body = phase_result.contacts.begin()->first.second;
+            const auto& contacts = phase_result.contacts.begin()->second;
+            if (!contacts.empty())
+            {
+              const auto& contact = contacts.front();
+              result.minimum_world_distance_m = -contact.depth;
+              for (std::size_t coordinate = 0; coordinate < 3; ++coordinate)
+              {
+                result.nearest_point_first_base_m[coordinate] = contact.pos[coordinate];
+                result.nearest_point_second_base_m[coordinate] = contact.pos[coordinate];
+              }
+              result.nearest_points_available = true;
+            }
           }
           return result;
         }
-        result.exploratory_tool_contact_suppressed = true;
-        ++result.suppressed_tool_contact_sample_count;
+        if (result.exploratory_tool_contact_suppressed)
+        {
+          ++result.suppressed_tool_contact_sample_count;
+        }
+        if (sample_housing_contact_warning)
+        {
+          result.guide_clearance_warning = true;
+          result.guide_warning_kind = "contact";
+          ++result.guide_clearance_warning_sample_count;
+          ++result.guide_clearance_warning_contact_sample_count;
+        }
         if (!collision_result.contacts.empty())
         {
           result.first_body = collision_result.contacts.begin()->first.first;
@@ -918,36 +1208,211 @@ private:
       {
         result.first_body = self_result.minimum_distance.link_names[0];
         result.second_body = self_result.minimum_distance.link_names[1];
+        for (std::size_t coordinate = 0; coordinate < 3; ++coordinate)
+        {
+          result.nearest_point_first_base_m[coordinate] =
+            self_result.minimum_distance.nearest_points[0][coordinate];
+          result.nearest_point_second_base_m[coordinate] =
+            self_result.minimum_distance.nearest_points[1][coordinate];
+        }
+        result.nearest_points_available = true;
         result.reason = "Self-clearance is " +
                         distance_mm_text(self_result.minimum_distance.distance) +
-                        " mm; the draft minimum is " +
+                        " mm; required minimum clearance is " +
                         distance_mm_text(minimum_clearance_m_) + " mm.";
         return result;
       }
 
       if (result.world_object_count > 0)
       {
+        // Keep the reported minimum as the actual scene minimum.  Policy ACMs
+        // below may omit the selected burr-target contact or a warned guide
+        // pair, but those omissions must never rewrite the evidence field.
+        collision_detection::DistanceRequest actual_world_request;
+        actual_world_request.group_name = group_name_;
+        actual_world_request.acm = &allowed_collision_matrix;
+        actual_world_request.enable_nearest_points = true;
+        actual_world_request.enable_signed_distance = true;
+        actual_world_request.distance_threshold = minimum_clearance_m_;
+        actual_world_request.enableGroup(robot_model_);
+        collision_detection::DistanceResult actual_world_result;
+        collision_environment->distanceRobot(
+          actual_world_request, actual_world_result, sample);
+        result.minimum_world_distance_m = std::min(
+          result.minimum_world_distance_m, actual_world_result.minimum_distance.distance);
+
+        // Start with the normal task clearance ACM.  A configured burr-guide
+        // pair keeps its historical 0.1 mm requirement.  A configured guide
+        // pair involving any other robot link may pass with a warning when
+        // the distance is positive but below the 1 mm research margin.  Each
+        // exact pair is then omitted and the bounded re-query looks for an
+        // unrelated offending pair before accepting the sample.
+        collision_detection::AllowedCollisionMatrix world_clearance_acm(
+          clearance_acm);
+        for (const auto& housing_pair : admitted_housing_pairs)
+        {
+          world_clearance_acm.setEntry(housing_pair.first, housing_pair.second, true);
+        }
+        const std::size_t guide_pair_limit = result.world_object_count *
+          std::max<std::size_t>(1, robot_model_->getLinkModelNames().size());
+        std::vector<std::pair<std::string, std::string>> skipped_guide_pairs;
+        bool sample_guide_warning = false;
         collision_detection::DistanceRequest world_request;
         world_request.group_name = group_name_;
-        world_request.acm = &clearance_acm;
         world_request.enable_nearest_points = true;
         world_request.enable_signed_distance = true;
         world_request.distance_threshold = minimum_clearance_m_;
         world_request.enableGroup(robot_model_);
-        collision_detection::DistanceResult world_result;
-        collision_environment->distanceRobot(world_request, world_result, sample);
-        result.minimum_world_distance_m = std::min(
-          result.minimum_world_distance_m, world_result.minimum_distance.distance);
-        if (world_result.minimum_distance.distance <
-            minimum_clearance_m_ - CLEARANCE_COMPARISON_EPSILON_M)
+        for (;;)
         {
+          world_request.acm = &world_clearance_acm;
+          collision_detection::DistanceResult world_result;
+          collision_environment->distanceRobot(world_request, world_result, sample);
+          if (world_result.minimum_distance.distance >=
+              minimum_clearance_m_ - CLEARANCE_COMPARISON_EPSILON_M)
+          {
+            break;
+          }
+
           result.first_body = world_result.minimum_distance.link_names[0];
           result.second_body = world_result.minimum_distance.link_names[1];
+          for (std::size_t coordinate = 0; coordinate < 3; ++coordinate)
+          {
+            result.nearest_point_first_base_m[coordinate] =
+              world_result.minimum_distance.nearest_points[0][coordinate];
+            result.nearest_point_second_base_m[coordinate] =
+              world_result.minimum_distance.nearest_points[1][coordinate];
+          }
+          result.nearest_points_available = true;
+
+          std::string guide_object_id;
+          std::string guide_robot_link;
+          if (task_config != nullptr)
+          {
+            const auto guide_pair = [this, &task_config](
+                                      const std::string& first,
+                                      const std::string& second) {
+              const auto is_guide = [&task_config](const std::string& value) {
+                return std::find(
+                         task_config->simulation_guide_clearance_object_ids.begin(),
+                         task_config->simulation_guide_clearance_object_ids.end(),
+                         value) !=
+                       task_config->simulation_guide_clearance_object_ids.end();
+              };
+              if (is_guide(first) && robot_model_->hasLinkModel(second))
+              {
+                return std::make_pair(first, second);
+              }
+              if (is_guide(second) && robot_model_->hasLinkModel(first))
+              {
+                return std::make_pair(second, first);
+              }
+              return std::make_pair(std::string(), std::string());
+            }(result.first_body, result.second_body);
+            guide_object_id = guide_pair.first;
+            guide_robot_link = guide_pair.second;
+          }
+          if (!guide_object_id.empty())
+          {
+            const auto exact_pair = std::make_pair(guide_object_id, guide_robot_link);
+            const double distance = world_result.minimum_distance.distance;
+            if (distance <= CLEARANCE_COMPARISON_EPSILON_M)
+            {
+              result.reason = "Robot-to-world guide clearance is " +
+                              distance_mm_text(distance) +
+                              " mm; non-contact requires a positive distance.";
+              return result;
+            }
+            const double guide_warning_threshold_m =
+              guide_robot_link == "burr" ? SIMULATION_GUIDE_CLEARANCE_M :
+                                             minimum_clearance_m_;
+            if (distance < guide_warning_threshold_m)
+            {
+              result.guide_clearance_warning = true;
+              if (result.guide_warning_kind.empty())
+              {
+                result.guide_warning_kind = "clearance";
+              }
+              sample_guide_warning = true;
+              if (!std::isfinite(result.minimum_guide_clearance_warning_m) ||
+                  distance < result.minimum_guide_clearance_warning_m)
+              {
+                result.minimum_guide_clearance_warning_m = distance;
+                result.guide_clearance_warning_robot_link = guide_robot_link;
+                result.guide_clearance_warning_object_id = guide_object_id;
+              }
+            }
+
+            if (std::find(skipped_guide_pairs.begin(), skipped_guide_pairs.end(), exact_pair) !=
+                skipped_guide_pairs.end())
+            {
+              result.reason =
+                "Robot-to-world guide clearance could not be isolated safely; "
+                "the exact configured guide pair remained the nearest offending pair.";
+              return result;
+            }
+            if (skipped_guide_pairs.size() >= guide_pair_limit)
+            {
+              result.reason =
+                "Robot-to-world guide clearance could not be isolated safely; "
+                "the bounded configured guide-pair re-query was exhausted.";
+              return result;
+            }
+            world_clearance_acm.setEntry(guide_robot_link, guide_object_id, true);
+            skipped_guide_pairs.push_back(exact_pair);
+            continue;
+          }
+
+          const double distance = world_result.minimum_distance.distance;
+          if (distance > CLEARANCE_COMPARISON_EPSILON_M)
+          {
+            const bool first_is_robot = robot_model_->hasLinkModel(result.first_body);
+            const bool second_is_robot = robot_model_->hasLinkModel(result.second_body);
+            if (first_is_robot == second_is_robot)
+            {
+              result.reason =
+                "Robot-to-world clearance warning pair could not be classified safely.";
+              return result;
+            }
+            const std::string warning_robot_link =
+              first_is_robot ? result.first_body : result.second_body;
+            const std::string warning_object_id =
+              first_is_robot ? result.second_body : result.first_body;
+            const auto exact_pair = std::make_pair(warning_object_id, warning_robot_link);
+            result.guide_clearance_warning = true;
+            if (result.guide_warning_kind.empty())
+            {
+              result.guide_warning_kind = "clearance";
+            }
+            sample_guide_warning = true;
+            if (!std::isfinite(result.minimum_guide_clearance_warning_m) ||
+                distance < result.minimum_guide_clearance_warning_m)
+            {
+              result.minimum_guide_clearance_warning_m = distance;
+              result.guide_clearance_warning_robot_link = warning_robot_link;
+              result.guide_clearance_warning_object_id = warning_object_id;
+            }
+            if (std::find(skipped_guide_pairs.begin(), skipped_guide_pairs.end(), exact_pair) !=
+                skipped_guide_pairs.end() || skipped_guide_pairs.size() >= guide_pair_limit)
+            {
+              result.reason =
+                "Robot-to-world clearance warning pairs could not be isolated safely.";
+              return result;
+            }
+            world_clearance_acm.setEntry(warning_robot_link, warning_object_id, true);
+            skipped_guide_pairs.push_back(exact_pair);
+            continue;
+          }
+
           result.reason = "Robot-to-world clearance is " +
                           distance_mm_text(world_result.minimum_distance.distance) +
-                          " mm; the draft minimum is " +
+                          " mm; required minimum clearance is " +
                           distance_mm_text(minimum_clearance_m_) + " mm.";
           return result;
+        }
+        if (sample_guide_warning)
+        {
+          ++result.guide_clearance_warning_sample_count;
         }
       }
 
@@ -968,7 +1433,7 @@ private:
           return result;
         }
         const double minimum_progress_m =
-          phase == "terminal_contact" ? -task_config->approach_standoff_m : 0.0;
+          phase == "drilling" ? 0.0 : -task_config->approach_standoff_m;
         const double maximum_progress_m =
           phase == "terminal_contact" ? 0.0 : corridor_length_m;
         if (progress_m < minimum_progress_m - CORRIDOR_ENDPOINT_EPSILON_M ||
@@ -979,12 +1444,21 @@ private:
             "The terminal approach moved outside the pre-entry-to-Entry corridor.";
           return result;
         }
-        if (progress_m + CORRIDOR_MONOTONIC_EPSILON_M < prior_corridor_progress_m)
+        if (!retraction_phase &&
+            progress_m + CORRIDOR_MONOTONIC_EPSILON_M < prior_corridor_progress_m)
         {
           result.reason =
             "The provisional drill tip moved backwards along the approved corridor "
             "(current " + distance_mm_text(progress_m) + " mm, prior " +
             distance_mm_text(prior_corridor_progress_m) + " mm).";
+          return result;
+        }
+        if (retraction_phase &&
+            progress_m > prior_corridor_progress_m + CORRIDOR_MONOTONIC_EPSILON_M)
+        {
+          result.reason =
+            "The provisional drill tip moved inward during guarded retraction "
+            "along the approved corridor.";
           return result;
         }
         prior_corridor_progress_m = progress_m;
@@ -993,7 +1467,46 @@ private:
     }
 
     result.accepted = true;
-    if (result.exploratory_tool_contact_suppressed)
+    if (result.guide_clearance_warning)
+    {
+      if (result.guide_warning_kind == "contact")
+      {
+        result.reason =
+          "Accepted with warning: non-rotating pneumatic_spindle-Copy contact with "
+          "configured simulation guide " + result.guide_clearance_warning_object_id +
+          " has " + distance_mm_text(result.guide_clearance_warning_contact_penetration_m) +
+          " mm penetration; configured simulation contact limit is 0.500000 mm. "
+          "Actual collision, self-clearance, unrelated clearance, and corridor checks passed.";
+      }
+      else
+      {
+        const bool burr_warning =
+          result.guide_clearance_warning_robot_link == "burr";
+        const bool configured_guide_warning = task_config != nullptr &&
+          std::find(task_config->simulation_guide_clearance_object_ids.begin(),
+                    task_config->simulation_guide_clearance_object_ids.end(),
+                    result.guide_clearance_warning_object_id) !=
+            task_config->simulation_guide_clearance_object_ids.end();
+        result.reason = "Accepted with warning: robot link " +
+                        result.guide_clearance_warning_robot_link + " is " +
+                        distance_mm_text(result.minimum_guide_clearance_warning_m) +
+                        " mm from " +
+                        (configured_guide_warning ? "configured simulation guide " :
+                                                    "world object ") +
+                        result.guide_clearance_warning_object_id +
+                        "; preferred clearance is " +
+                        distance_mm_text(
+                          burr_warning ? SIMULATION_GUIDE_CLEARANCE_M :
+                                         minimum_clearance_m_) +
+                        " mm. Positive separation, actual collision, self-clearance, "
+                        "unrelated clearance, and corridor checks passed.";
+      }
+      if (result.exploratory_tool_contact_suppressed)
+      {
+        result.reason += " Configured burr-to-task contact was also suppressed for exploratory simulation.";
+      }
+    }
+    else if (result.exploratory_tool_contact_suppressed)
     {
       result.reason =
         "Accepted for exploratory simulation only: configured burr-to-task-object "
@@ -1100,12 +1613,38 @@ private:
            << "\"accepted_positions\":" << json_array(accepted) << ','
            << "\"checked_samples\":" << result.checked_samples << ','
            << "\"minimum_clearance_m\":" << json_number(minimum_clearance_m_) << ','
+           << "\"guide_clearance_warning\":"
+           << (result.guide_clearance_warning ? "true" : "false") << ','
+           << "\"guide_clearance_warning_sample_count\":"
+           << result.guide_clearance_warning_sample_count << ','
+           << "\"minimum_guide_clearance_warning_m\":"
+           << json_number(result.minimum_guide_clearance_warning_m) << ','
+           << "\"guide_clearance_warning_robot_link\":\""
+           << json_escape(result.guide_clearance_warning_robot_link) << "\","
+           << "\"guide_clearance_warning_object_id\":\""
+           << json_escape(result.guide_clearance_warning_object_id) << "\","
+           << "\"guide_warning_kind\":\""
+           << json_escape(result.guide_warning_kind) << "\","
+           << "\"guide_clearance_warning_contact_penetration_m\":"
+           << json_number(result.guide_clearance_warning_contact_penetration_m) << ','
+           << "\"guide_clearance_warning_contact_sample_count\":"
+           << result.guide_clearance_warning_contact_sample_count << ','
+           << "\"guide_clearance_warning_contact_position_base_m\":"
+           << json_point_or_null(
+                result.guide_clearance_warning_contact_position_base_m,
+                result.guide_clearance_warning_contact_position_available) << ','
            << "\"minimum_self_distance_m\":"
            << json_number(result.minimum_self_distance_m) << ','
            << "\"minimum_world_distance_m\":"
            << json_number(result.minimum_world_distance_m) << ','
            << "\"first_body\":\"" << json_escape(result.first_body) << "\","
            << "\"second_body\":\"" << json_escape(result.second_body) << "\","
+           << "\"nearest_point_first_base_m\":"
+           << json_point_or_null(
+                result.nearest_point_first_base_m, result.nearest_points_available) << ','
+           << "\"nearest_point_second_base_m\":"
+           << json_point_or_null(
+                result.nearest_point_second_base_m, result.nearest_points_available) << ','
            << "\"world_object_count\":" << result.world_object_count << ','
            << "\"world_objects\":" << world_objects_json(result.world_objects)
            << '}';
@@ -1142,6 +1681,26 @@ private:
            << (result.exploratory_tool_contact_suppressed ? "true" : "false") << ','
            << "\"suppressed_tool_contact_sample_count\":"
            << result.suppressed_tool_contact_sample_count << ','
+           << "\"guide_clearance_warning\":"
+           << (result.guide_clearance_warning ? "true" : "false") << ','
+           << "\"guide_clearance_warning_sample_count\":"
+           << result.guide_clearance_warning_sample_count << ','
+           << "\"minimum_guide_clearance_warning_m\":"
+           << json_number(result.minimum_guide_clearance_warning_m) << ','
+           << "\"guide_clearance_warning_robot_link\":\""
+           << json_escape(result.guide_clearance_warning_robot_link) << "\","
+           << "\"guide_clearance_warning_object_id\":\""
+           << json_escape(result.guide_clearance_warning_object_id) << "\","
+           << "\"guide_warning_kind\":\""
+           << json_escape(result.guide_warning_kind) << "\","
+           << "\"guide_clearance_warning_contact_penetration_m\":"
+           << json_number(result.guide_clearance_warning_contact_penetration_m) << ','
+           << "\"guide_clearance_warning_contact_sample_count\":"
+           << result.guide_clearance_warning_contact_sample_count << ','
+           << "\"guide_clearance_warning_contact_position_base_m\":"
+           << json_point_or_null(
+                result.guide_clearance_warning_contact_position_base_m,
+                result.guide_clearance_warning_contact_position_available) << ','
            << "\"minimum_clearance_m\":"
            << json_number(minimum_clearance_m_) << ','
            << "\"minimum_self_distance_m\":"
@@ -1150,6 +1709,12 @@ private:
            << json_number(result.minimum_world_distance_m) << ','
            << "\"first_body\":\"" << json_escape(result.first_body) << "\","
            << "\"second_body\":\"" << json_escape(result.second_body) << "\","
+           << "\"nearest_point_first_base_m\":"
+           << json_point_or_null(
+                result.nearest_point_first_base_m, result.nearest_points_available) << ','
+           << "\"nearest_point_second_base_m\":"
+           << json_point_or_null(
+                result.nearest_point_second_base_m, result.nearest_points_available) << ','
            << "\"world_object_count\":" << result.world_object_count << ','
            << "\"world_objects\":" << world_objects_json(result.world_objects)
            << '}';
@@ -1167,6 +1732,10 @@ private:
 
   void publish_last_status()
   {
+    // The validated-state consumer stores the most recent value, but it may
+    // start or reconnect after the one-shot acceptance publish. Keep the
+    // simulation state synchronized from the guard's existing heartbeat.
+    publish_accepted(last_accepted_positions_);
     if (last_status_json_.empty())
     {
       return;

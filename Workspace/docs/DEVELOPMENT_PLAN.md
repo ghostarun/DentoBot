@@ -1,11 +1,46 @@
 # DENTOBOT Development Plan
 
+## 2026-09-08 — Bounded FDI11 simulation retry
+
+Operator's latest policy caps the confirmed simulation drilling path at 6 mm,
+preserving Entry, direction and shorter paths. Retain physical insertion and
+collision guards. The newer FDI11 step6x4x2 package matches the manual 7.977207
+mm source trajectory. Implement and verify cap/reconfirmation first, then
+exercise Home→PreEntry→Entry→effective Target→axial withdrawal→Home with
+explicit runtime approval. Existing strict Return Home is not proof of the
+requested axial withdrawal. Full Track-A acceptance and Track B remain pending.
+
+## 2026-09-07 — Production baseline correction after case reset/cleanup review
+
+The pre-surgery/x4 package is retired as a development baseline. Its observed
+non-target contacts, guide-bore mismatch, and provisional base placement remain
+historical diagnostics only; they are not reasons to relax collision policy or
+add case-specific planner branches. The next Track-A acceptance case must be a
+reviewed post-surgery/clean anatomy package with a verified Step 5C tool/guide
+fit.
+
+The baseline guard now grants the narrow burr-contact policy only to the
+selected target tooth. Adjacent anatomy and the guide/template remain in the
+authoritative collision scene and retain the research clearance margin. The
+retired template-collision bypass and session anatomy-review proxy are
+quarantined behind explicit, process-only historical diagnostic environment
+variables and are never package state or acceptance evidence.
+
+This correction is intentionally bounded: the accepted five-joint canonical TCP
+planner, spindle-outside-planning invariant, independent phase guard, endpoint
+checks, and full-chain promotion rules are preserved. Verification and a clean
+case runtime review are the next actions; Track B remains blocked by the Track-A
+full-loop gate.
+
 Last replaced: 2026-09-04
+Last updated: 2026-09-07
 
 This is the authoritative implementation order. The former incremental Step 6
 wizard renovation and the separate `.dentostudy` proposal are superseded by two
-tracks: first finish one complete guarded live-simulation loop on the retained
-x4 case; only then build the case-centric Robot Planning & Simulation Studio.
+tracks: first finish one complete guarded live-simulation loop on a reviewed
+clean/post-surgery case; only then build the case-centric Robot Planning &
+Simulation Studio. The abnormal pre-surgery/x4 package remains a negative
+diagnostic fixture and is not an acceptance target.
 
 ## Non-negotiable boundary
 
@@ -16,8 +51,10 @@ x4 case; only then build the case-centric Robot Planning & Simulation Studio.
 - J6 remains in the six-joint visual/collision compatibility tree but is not a
   MoveIt planning DOF; any visual compatibility slot is fixed at `0 rad`.
   It represents an externally pressure-driven spindle, not a robot positioner.
-- Stage 1 commits one fixed tool rotation and Entry-to-Target axis. Stages 2
-  and 3 reuse that exact frame.
+- Stage 1 commits the exact Entry-to-Target drill axis and an authoritative
+  FK frame for display/fingerprinting. Stages 2 and 3 preserve the exact
+  Entry/Target points and axis; housing roll is not a commanded task
+  constraint because the spindle is externally driven.
 - A partial path is diagnostic evidence only. It never enables drilling
   preview or becomes an executable plan.
 - The reviewed Manual Simulation Base is unregistered research placement.
@@ -27,9 +64,101 @@ x4 case; only then build the case-centric Robot Planning & Simulation Studio.
   explained and requires operator approval under
   `AGENTIC_VERIFICATION_PROTOCOL.md`.
 
+## Track 0 — Priority-unassigned Steps 0–3 scan/run inspection
+
+The Steps 0–3 correction is a source-paired inspection workflow and does not
+change downstream planning authority until the operator explicitly chooses
+`Use for Planning → Step 4`. It is intentionally separate from the Track-A
+robot milestone and must not silently invalidate an existing trajectory,
+template, or Step 6 branch merely because another scan is being inspected.
+
+- A persisted inspection pair (`inspectedVolume`, `inspectedSegmentation`) is
+  distinct from the existing planning pair (`inputVolume`,
+  `teethSegmentation`). The shared selection operation validates exact MRML
+  source references, switches the actual slice background, and isolates only
+  the selected DENTOBOT teeth run.
+- Steps 0–3 expose one fixed Case / Scan / Result context bar and a fixed
+  footer. Scan and run selectors are source-filtered, runs receive source-based
+  labels and explicit rename actions, and inference completion remains attached
+  to its launch scan even when the operator browses another scan.
+- Step 3 owns review actions: show/hide labels in the selected run, isolate a
+  label, compare same-source runs or different-source scans, and exit comparison
+  with the previous display state restored. Recommended View and Restore obey
+  the inspection pair while these stages are active.
+- A reviewed pair becomes planning input only through the explicit handoff. If
+  it replaces an existing planning pair, the normal lineage invalidation and
+  impact confirmation are used. Missing or ambiguous source references remain
+  non-authoritative and must not be guessed from names or scene order.
+
+### Track 0 acceptance boundary
+
+The focused Slicer scenario with two distinguishable scans, two runs for the
+first scan, and one run for the second has passed source switching, actual slice
+background IDs, run visibility isolation, planning-reference preservation, and
+comparison enter/exit. The real operator preDental/postDental scene still needs
+one visual reload check before this item is marked accepted. No new package
+format or database is introduced.
+
 ## Track A — Priority 0 guarded live simulation
 
 Track B cannot start until `S6-LIVE-05` is operator/runtime accepted.
+
+### 2026-09-05 immediate P0 correction — physical insertion and anatomy review
+
+The current x4 functional chain is not accepted merely because its five-joint
+kinematics reach Target. Before the final Track-A loop, enforce a provisional
+tool-only insertion constraint:
+
+```text
+requested Entry->Target depth <= effectiveToolProtrusionMm - 0.1 mm
+```
+
+The value represents the axial distance from `dentobot_drill_tcp` to the first
+upstream tool/housing geometry that cannot enter the access path. A violation
+is `TRAJECTORY_TOOL_INSERTION_LIMIT_EXCEEDED`; it must block preflight without
+shortening the approved line, moving either endpoint, or relaxing a tolerance.
+The result is explicitly *Provisional tool-only insertion limit — final guide
+geometry not included* and is displayed with requested depth, protrusion,
+reserved clearance, maximum depth, and remaining margin.
+
+The present CAD/URDF provisional value is `7.0 mm`: the nearest upstream
+`pneumatic_spindle-Copy` housing mesh is 7.0 mm behind the canonical tip along
+the tool axis. With the `0.1 mm` reserve, maximum requested depth is `6.9 mm`.
+The x4 line (`15.760533814 mm`) is therefore intentionally blocked as an
+insertion-capacity failure until the physical tool/access configuration or the
+approved trajectory is changed upstream.
+
+Collision semantics remain separate. The x4 template-excluded diagnostic has
+complete Stage 1/2/3 kinematic branches but presently rejects the best retained
+Stage-3 point because its FCL minimum distance from
+`pneumatic_spindle-Copy` to FDI15 is `0.998041065511 mm`, below the additional
+`1.0 mm` research clearance margin. That inspected housing point is a margin
+violation, not a reported housing mesh intersection. The completed read-only
+actual-contact audit, however, establishes a separate hard blocker: every
+auditable candidate reaches an actual FDI15↔`burr` contact at Stage 2 waypoint
+14 and again from Stage 3 waypoint 0 (alongside the expected target↔burr
+contact). Thus the complete x4 chain is neither physically collision-valid nor
+eligible for a margin-only reclassification. Neither base placement nor the
+margin policy changes from this evidence.
+
+If a reviewed FDI15 region is plausibly a segmentation artifact, the only
+permitted Track-A remedy is a manual, session-local derived collision proxy:
+source segmentation stays untouched, the reviewed region is local, and the UI
+labels it `Research simulation anatomy override`. It is never an automatic
+whole-tooth exclusion or a silent `.dentocase` authority change. The approved
+temporary Step-5C template/guide exclusion remains a separate, explicit,
+non-default functional-simulation override and cannot support a physical-fit
+claim.
+
+Source implementation now provides this review route in Step 6.5. It creates
+one disposable copy of an explicitly selected non-target whole-tooth segment,
+opens that copy—not source anatomy—in Segment Editor, and requires the
+operator's explicit artifact confirmation before a collision-scene re-sync can
+use it. Activation discards transient plans, marks confirmation/diagnostics
+stale, and requires a fresh acknowledgement and confirmation. The copy is
+`SaveWithSceneOff`; it is not a DentoCase/MRML authority. This source checkpoint
+does **not** establish that FDI15 is an artifact, does not add exact contact
+point visualization, and has not yet received a Slicer runtime verification.
 
 ### `S6-LIVE-00` — documentation and source checkpoint
 
@@ -43,8 +172,8 @@ baseline before Track A changes is
 Retain the current planner architecture:
 
 1. strict MoveIt Task Home to PreEntry;
-2. fixed-frame PreEntry to Entry;
-3. fixed-frame Entry to Target using the non-spinning canonical TCP (the
+2. fixed-axis PreEntry to Entry;
+3. fixed-axis Entry to Target using the non-spinning canonical TCP (the
    visual J6 compatibility slot remains fixed at zero);
 4. full-chain independent phase-guard validation.
 
@@ -90,6 +219,51 @@ state, native Goal/IK/Plan, expert return, and workspace assertions); its
 process still exits nonzero at shutdown because pinned SlicerROS2 reports
 retained VTK wrappers. The required complete x4 Home→PreEntry→Entry→Target→Home
 normal-window trial remains the next gate, and Track B remains blocked.
+
+### Track-A five-constraint IK correction — source implemented 2026-09-04
+
+The exact x4 diagnosis showed that the fixed `dentobot_drill_tcp` transform is
+correct, but the KDL MoveIt IK entrypoint still demanded XYZ plus a complete
+quaternion from the five-DOF arm. A historical x4 J1–J5 endpoint evaluated
+against the corrected TCP reaches PreEntry within about `0.099 mm` and the
+Entry→Target axis within `0.0068 deg`, proving the required position-plus-axis
+task is reachable independently of axial housing roll.
+
+Source now adds one bounded native MoveIt-model Jacobian solve for XYZ plus
+tool +Z. It uses only J1–J5, leaves axial housing roll out of the task error,
+enforces existing bounds, validates endpoints against the current Planning
+Scene, and retains best residual evidence on failure. Goal 1 uses the existing
+Task Home/Home-connected seed set and records the authoritative FK frame as a
+display/fingerprint scaffold. Stage 2 and Stage 3 preserve the exact
+Entry/Target points and drill axis; the continuity fallback does not invent a
+sixth roll constraint. When local continuity reaches a joint boundary it may
+try only the already accepted 6.3 Home-connected arm postures, with no new
+samples, tolerance changes, endpoint substitution, or partial-path promotion.
+The policy is `stage1-position-axis-authoritative-fk-v3`; older full-frame
+orientation evidence is stale. Every complete Stage-3 plan also receives an
+independent authoritative final-target FK check.
+
+### Track-A Stage-3 boundary diagnosis — 2026-09-04
+
+The approved x4 focused run now reaches the exact Stage-3 line through pose
+`59/64`. At pose `60/64`, all bounded J1–J5 continuity attempts retain a
+finite state at the J2 lower bound with about `0.25 mm` position residual and
+`0 deg` drill-axis residual; no collision pair is reported. The separate
+guide-fit audit still reports the physical `2.0 mm` burr versus `1.5 mm` bore
+mismatch, but that is not the kinematic cause. The source therefore tries only
+verified 6.3 Home-connected branch seeds at the first local boundary, keeps the
+exact line/tolerances/guard unchanged, reports the native best residual, and
+keeps the full task `Blocked` until Stage 3 reaches the exact Target. The
+retained Stage-1/Stage-2 preview is explicitly provisional; no partial drilling
+path is promoted.
+
+Focused FK evidence now classifies this boundary explicitly as
+`sequential_position_axis_joint_limit`: the best state is pinned at
+`link-2_Slider-2`'s lower mechanical limit and the exact pose is approximately
+`0.2510335 mm` beyond it along the J2 axis. The diagnostic-only out-of-range
+probe is not a valid plan. The next action is operator base/case-placement
+correction followed by normal Task Home/workspace/task revalidation; no URDF
+limit, tolerance, target, or collision-policy change is permitted.
 
 ### `S6-LIVE-02` — independent full-chain guard
 
@@ -140,15 +314,16 @@ and guard sessions while preserving case intent and historical diagnostics.
 - Selecting a planner leg displays its actual retained route and endpoint;
   equal waypoint counts are not presented as equal geometry.
 
-### `S6-LIVE-05` — x4 acceptance gate
+### `S6-LIVE-05` — reviewed clean-case acceptance gate
 
-An approved normal-window trial with
-`dentobot-case-step6x4.dentocase` must prove:
+An approved normal-window trial with a reviewed clean/post-surgery case package
+must prove:
 
 - current ROS/MoveIt runtime and acknowledged collision scene;
 - applied and monitored Task Home;
 - 100% Stage 1 to PreEntry, Stage 2 to Entry, and Stage 3 to Target;
-- one identical fixed-frame fingerprint across the chain;
+- one identical drill-axis/policy fingerprint across the chain (housing roll
+  is not a commanded task constraint);
 - J6 equal to zero in Home and visual previews; planning and guard messages
   contain only J1–J5 and reject any attempted spindle command;
 - every waypoint accepted by the independent phase guard;
@@ -160,10 +335,11 @@ An approved normal-window trial with
 - safe stop/recovery; and
 - no hardware/controller command path.
 
-One complete x4 loop gates Track B. Multi-case coverage belongs to the Studio
-study implementation.
+One complete clean-case loop gates Track B. The historical x4 package remains
+diagnostic evidence only; multi-case coverage belongs to the Studio study
+implementation.
 
-## Track B — Robot Planning & Simulation Studio
+## Track B / Priority 1 — DENTOBOT Case Platform and Simulation Studio
 
 Track B reorganizes ownership and evidence only after Track A is accepted. It
 preserves the accepted ROS/MoveIt, FK, collision, Home, workspace, guard,
@@ -279,32 +455,25 @@ count, median time, normalized J1-J5 travel, then stable slot.
 Historical replay animates only a translucent goal robot and display-only
 paths. It never becomes a current MoveIt plan.
 
-## Track B implementation order
+### Superseding implementation order
+
+The prior `S6R-*` Studio list is historical. After `S6-LIVE-05` is accepted,
+the P1 Case Platform roadmap is the sole implementation order. It keeps the
+accepted Track-A backend intact rather than rebuilding it.
 
 | Order | ID | Priority | Complete feature |
 |---:|---|---:|---|
-| 1 | `S6R-00` | 0 | Post-Track-A baseline and documentation checkpoint |
-| 2 | `S6R-01` | 0 | Atomic DentoCase schema 2 and schema-1 migration |
-| 3 | `S6R-02` | 0 | Three-slot trajectory registry and isolated invalidation |
-| 4 | `S6R-03` | 1 prerequisite | Crown snapping and anatomical jaw constraints |
-| 5 | `S6R-04` | 2 | Cached display-only incisor-gap preview plus explicit accept |
-| 6 | `S6R-05` | 0 | Environment/attempt contexts, evidence, and failure taxonomy |
-| 7 | `S6R-06` | 0 dependency | Façade expansion and shared action runner |
-| 8 | `S6R-07` | 0 | Responsive Studio shell and viewer integrity |
-| 9 | `S6R-08` | 0 | Robot & Environment workspace |
-| 10 | `S6R-09` | 0 | Home, workspace explorer/connectivity evidence, and envelope |
-| 11 | `S6R-10` | 0 | Track A guarded loop migrated without behavior drift |
-| 12 | `S6R-11` | 0 | One persistent non-moving study attempt |
-| 13 | `S6R-12` | 0 | Repeated/resumable single-trajectory study |
-| 14 | `S6R-13` | 0 | Multi-tooth/multi-trajectory study |
-| 15 | `S6R-14` | 0 | Statistics, results, diagnostics, and retained replay |
-| 16 | `S6R-15` | 2 | Progressive Steps 1-6 integrity review |
-| 17 | `S6R-16` | 0 | Parity acceptance and Studio-default cutover |
+| 1 | `DCP-00` | 1 | Freeze Track A and publish its backend handoff |
+| 2 | `DCP-01` | 1 | Controlled roadmap/documentation supersession |
+| 3 | `DCP-02..08` | 1 | Domain objects, IDs/fingerprints, schema migration, trajectory registry, robot environment, sessions, cross-session x4 proof |
+| 4 | `DCP-09..10` | 1 | SQLite DentoLibrary backend and case browser |
+| 5 | `DSS-01..05` | 1 | Studio shell, Robot/Environment, Workspace, Trajectories, and frozen guarded-preview migration |
+| 6 | `DSS-06..12` | 1 | Studies, results, replay, and Procedure/Research separation |
+| 7 | `DHW-01..02` | 1 | Hardware-session data boundary and digital-twin interface preparation only |
 
-Priority 1 anatomical correctness is sequenced before evidence generation
-because it stabilizes its required fingerprint. The former Priority 2 progress
-work is promoted as the `S6R-06` dependency. Visual-only polish remains
-`UI-P3-01` after functional acceptance.
+P1 is blocked until the complete Track-A x4 loop passes. It has no authority
+to start schema, database, multi-tooth, Studio, or GUI-rearchitecture work
+early. Visual-only polish remains after functional acceptance.
 
 ## Verification and evidence
 

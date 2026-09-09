@@ -268,6 +268,35 @@ class LineageLogicMixin:
         finally:
             node.EndModify(wasModifying)
 
+    @classmethod
+    def _filterStep6TargetAttachedModels(
+        cls,
+        modelNodes: list,
+        targetSegmentId: str,
+    ) -> list:
+        """Exclude and hide target-attached models carrying another target lineage."""
+        result = []
+        for node in modelNodes:
+            if not node:
+                continue
+            lineageTargetId = (
+                node.GetAttribute(cls.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
+                or node.GetAttribute("DENTOBOT.TargetSegmentID")
+                or ""
+            )
+            if lineageTargetId and lineageTargetId != str(targetSegmentId or ""):
+                display = node.GetDisplayNode()
+                if display:
+                    display.SetVisibility(False)
+                node.SetAttribute("DENTOBOT.GeometryState", "Stale")
+                node.SetAttribute(
+                    "DENTOBOT.StaleReason",
+                    "Target changed; regenerate target-attached planning geometry.",
+                )
+                continue
+            result.append(node)
+        return result
+
     def dentobotTrajectoriesForTarget(
         self,
         segmentationNode: vtkMRMLSegmentationNode,

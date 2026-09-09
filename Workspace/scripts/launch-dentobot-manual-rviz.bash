@@ -47,13 +47,14 @@ fi
 
 cleanup_x11() {
   if [[ ${x11_access_granted} == true ]]; then
-    xhost -SI:localuser:root >/dev/null 2>&1 || true
+    xhost -SI:localuser:"$(id -un)" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup_x11 EXIT INT TERM
 
-printf 'Granting container root temporary access to DISPLAY=%s...\n' "${DISPLAY}"
-xhost +SI:localuser:root >/dev/null
+printf 'Granting local user %s temporary access to DISPLAY=%s...\n' \
+  "$(id -un)" "${DISPLAY}"
+xhost +SI:localuser:"$(id -un)" >/dev/null
 x11_access_granted=true
 
 docker_exec_flags=(-i)

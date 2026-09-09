@@ -684,8 +684,8 @@ class PlanningFocusWidgetMixin:
             slicer.util.infoDisplay(
                 _(
                     "Created %1 unlocked assisted trajectory node(s).%2 These "
-                    "targets come from complete-tooth surface geometry, not a "
-                    "canal centreline. Verify and correct every Entry/Target in "
+                    "lines retain the tooth-derived direction and end at the "
+                    "first pulp-mask boundary. Verify every Entry/Target in "
                     "the trajectory-aligned MPR before approval."
                 ).replace("%1", str(len(trajectories))).replace("%2", detail),
                 windowTitle=_("Assisted Step 4A trajectories"),

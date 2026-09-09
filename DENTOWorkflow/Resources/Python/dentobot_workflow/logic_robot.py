@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from .runtime import *
 
+from DENTOStep6State import (
+    SIMULATION_TARGET_DEPTH_CAP_MM,
+    SIMULATION_TOOL_PROVENANCE,
+    cap_simulation_target,
+)
 
 from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
 
@@ -117,46 +122,16 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         self,
         parameterNode,
     ) -> tuple[str, ...]:
-        """Configured task objects eligible for tool-only exploratory relaxation.
+        """Return only the selected tooth's explicit burr-contact allowance.
 
-        The task guard omits these burr-to-object pairs from the 1 mm research
-        distance margin. Approach collision remains strict. Terminal/drilling
-        preview may suppress only those configured burr pairs and reports each
-        affected guard sample; all other collision checks remain authoritative.
+        Source anatomy and guide/template geometry remain authoritative in the
+        baseline guard. The selected target is the sole object allowed to
+        participate in the narrow terminal-contact policy; adjacent teeth,
+        jaw anatomy, and guides are never folded into a broad proximity set.
         """
 
-        guidanceSourceIds = {
-            str(node.GetID())
-            for node in (
-                [parameterNode.finalPrintableTemplateModel]
-                if parameterNode.finalPrintableTemplateModel is not None
-                else [
-                    parameterNode.draftTemplateSupportModel,
-                    parameterNode.targetDockingAssemblyModel,
-                ]
-            )
-            if node is not None and node.GetID()
-        }
-        segmentation = parameterNode.teethSegmentation
-        segmentationPrefix = (
-            f"{segmentation.GetID()}:" if segmentation is not None else ""
-        )
-        result = []
-        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
-            if node.GetAttribute("DENTOBOT.MoveItObstacleProxy") != "true":
-                continue
-            sourceId = str(
-                node.GetAttribute("DENTOBOT.MoveItObstacleSource") or ""
-            )
-            isGuidance = sourceId in guidanceSourceIds
-            isCaseAnatomy = bool(
-                segmentationPrefix
-                and sourceId.startswith(segmentationPrefix)
-                and (":target:" in sourceId or ":anatomy:" in sourceId)
-            )
-            if (isGuidance or isCaseAnatomy) and node.GetName():
-                result.append(str(node.GetName()))
-        return tuple(sorted(dict.fromkeys(result)))
+        target_object_id = self.step6TargetCollisionObjectId(parameterNode)
+        return (target_object_id,) if target_object_id else ()
 
     def importStep6PlanningContext(self, parameterNode) -> PlanningContextReport:
         report = validate_planning_context(
@@ -215,6 +190,41 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             issues.append(_("Step 4A trajectory is not locked."))
         elif trajectory.GetAttribute("DENTOBOT.CoordinateSystem") != "SlicerRASmm":
             issues.append(_("Step 4A trajectory is not declared in Slicer RAS mm."))
+        else:
+            try:
+                association = self.getTrajectoryTargetAssociation(trajectory)
+            except ValueError as exc:
+                issues.append(str(exc))
+            else:
+                activeSegmentation = parameterNode.teethSegmentation
+                activeTargetId = str(parameterNode.targetToothSegmentId or "")
+                if not association:
+                    issues.append(
+                        _("Step 4A trajectory has no saved target-tooth association.")
+                    )
+                elif (
+                    association["segmentationNode"] is not activeSegmentation
+                    or association["targetRecord"]["segmentId"] != activeTargetId
+                ):
+                    issues.append(
+                        _(
+                            "Step 4A trajectory belongs to another target tooth; "
+                            "select or regenerate the trajectory for the active tooth."
+                        )
+                    )
+
+        targetRoi = parameterNode.targetToothBoundsRoi
+        if targetRoi and not self.isTargetBoundsRoiForTarget(
+            targetRoi,
+            parameterNode.teethSegmentation,
+            str(parameterNode.targetToothSegmentId or ""),
+        ):
+            issues.append(
+                _(
+                    "Step 4A target bounds belong to another target tooth; "
+                    "regenerate the active tooth bounds."
+                )
+            )
 
         docking = parameterNode.targetDockingAssemblyModel
         if docking is None:
@@ -231,6 +241,16 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     .replace("%1", state)
                     .replace("%2", orientation)
                     .replace("%3", reason)
+                )
+            dockingTargetId = str(
+                docking.GetAttribute("DENTOBOT.TargetSegmentId") or ""
+            )
+            if (
+                dockingTargetId
+                and dockingTargetId != str(parameterNode.targetToothSegmentId or "")
+            ):
+                issues.append(
+                    _("Step 4C docking assembly belongs to another target tooth.")
                 )
 
         finalTemplate = parameterNode.finalPrintableTemplateModel
@@ -250,6 +270,18 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     .replace("%1", state)
                     .replace("%2", verification)
                     .replace("%3", reason)
+                )
+            templateTargetId = str(
+                finalTemplate.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
+                or finalTemplate.GetAttribute("DENTOBOT.TargetSegmentID")
+                or ""
+            )
+            if (
+                templateTargetId
+                and templateTargetId != str(parameterNode.targetToothSegmentId or "")
+            ):
+                issues.append(
+                    _("Step 5C printable template belongs to another target tooth.")
                 )
         return issues
 
@@ -859,17 +891,20 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             raise ValueError(" ".join(freshness))
         trajectory = self.step6TrajectorySummary(parameterNode)
         home = self.taskHomeRecord(parameterNode)
+        effective_target = cap_simulation_target(
+            trajectory["entryRas"], trajectory["targetRas"]
+        )
         record = build_task_snapshot(
             target_segment_id=str(parameterNode.targetToothSegmentId or ""),
             trajectory_revision=self.step6TrajectoryRevision(parameterNode),
             entry_ras_mm=trajectory["entryRas"],
-            target_ras_mm=trajectory["targetRas"],
+            target_ras_mm=effective_target,
             base_fingerprint=self.robotBaseFingerprint(parameterNode),
             home_fingerprint=fingerprint(home.to_dict()),
             limits_fingerprint=self.step6TaskLimitsFingerprint(parameterNode),
             robot_profile_fingerprint=self.robotProfileFingerprint(),
             tool_frame=str(parameterNode.step6ToolFrame),
-            tool_provenance="CAD-derived/provisional/un-calibrated",
+            tool_provenance=SIMULATION_TOOL_PROVENANCE,
             corridor_radius_mm=float(parameterNode.step6TrajectoryCorridorRadiusMm),
         )
         parameterNode.step6ConfirmedTaskJson = canonical_json(record.to_dict())
@@ -964,6 +999,9 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         return tuple(dict.fromkeys(issues))
 
     def confirmedTaskFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        review_issues = self.step6AnatomyReviewFreshnessIssues(parameterNode)
+        if review_issues:
+            return review_issues
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
         if base_issues:
             return base_issues
@@ -973,6 +1011,13 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             return (_("Confirmed Step 6 task record is invalid."),)
         if snapshot is None:
             return (_("Confirm the immutable Step 6 task snapshot."),)
+        if snapshot.tool_provenance != SIMULATION_TOOL_PROVENANCE:
+            return (
+                _(
+                    "Confirmed Step 6 task uses an older simulation Target policy; "
+                    f"reconfirm the Step 6 task for the {SIMULATION_TARGET_DEPTH_CAP_MM:g} mm cap."
+                ),
+            )
         home = self.taskHomeRecord(parameterNode)
         return task_snapshot_invalidation_reasons(
             snapshot,
@@ -1246,13 +1291,19 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
         )
 
-    def step6ApproachPoints(self, parameterNode):
-        summary = self.step6TrajectorySummary(parameterNode)
-        if not summary.get("isValid"):
-            raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
+    def step6ApproachPoints(self, parameterNode, snapshot=None):
+        if snapshot is None:
+            summary = self.step6TrajectorySummary(parameterNode)
+            if not summary.get("isValid"):
+                raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
+            entry = summary["entryRas"]
+            target = summary["targetRas"]
+        else:
+            entry = snapshot.entry_ras_mm
+            target = snapshot.target_ras_mm
         return approach_points(
-            summary["entryRas"],
-            summary["targetRas"],
+            entry,
+            target,
             float(parameterNode.step6ApproachStandoffMm),
         )
 

@@ -532,10 +532,72 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and workspace_runtime_validated
                 and not away_from_home
             )
+            override_active = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.templateCollisionExclusionActive
+            )
+            panel.templateCollisionOverrideCheckBox.blockSignals(True)
+            panel.templateCollisionOverrideCheckBox.checked = override_active
+            panel.templateCollisionOverrideCheckBox.blockSignals(False)
+            panel.templateCollisionOverrideCheckBox.enabled = bool(
+                planning_anatomy_ready
+                and task_ready
+                and ros2_active
+                and not preview_active
+                and not away_from_home
+                and self._parameterNode.finalPrintableTemplateModel is not None
+                and os.environ.get(
+                    "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE", ""
+                )
+                == "1"
+            )
+            panel.templateCollisionOverrideStatusLabel.text = (
+                _(
+                    "ACTIVE — FUNCTIONAL SIMULATION ONLY. The unresolved Step 5C "
+                    "final template stays visible but is excluded from MoveIt; "
+                    "results are not physical collision-valid evidence."
+                )
+                if override_active
+                else _(
+                    "Retired — the complete Step 5C template remains collision checked."
+                )
+            )
+            self._refreshStep6AnatomyReviewControls()
+            anatomy_review_active = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.anatomyReviewState.get("active")
+            )
+            panel.anatomyReviewGroup.enabled = bool(
+                not preview_active
+                and not away_from_home
+                and (
+                    (self._robotWorkflowFacade and self._robotWorkflowFacade.anatomyReviewState.get("exists"))
+                    or (planning_anatomy_ready and ros2_active and os.environ.get(
+                        "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW", ""
+                    ) == "1")
+                )
+            )
+            if anatomy_review_active:
+                panel.planApproachButton.toolTip = _(
+                    "Research simulation anatomy override is active. The source "
+                    "segmentation remains unchanged; results are not physical "
+                    "collision-valid evidence."
+                )
+            else:
+                panel.planApproachButton.toolTip = ""
+            drilling_preflight_ready = bool(
+                self._robotWorkflowFacade
+                and self._robotWorkflowFacade.drillingPreflightReady
+            )
             panel.previewApproachButton.enabled = bool(
-                isinstance(facade_plan, PhasePlan)
+                drilling_preflight_ready
+                and isinstance(facade_plan, PhasePlan)
                 and facade_plan.success
                 and facade_plan.requested_phase == MotionPhase.APPROACH.value
+                and task_ready
+                and ros2_active
+                and not preview_active
+                and not away_from_home
             )
             panel.stopPreviewButton.enabled = preview_active
             panel.returnHomeButton.enabled = bool(
@@ -548,10 +610,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             approach_complete = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.completedPhase == MotionPhase.APPROACH.value
-            )
-            drilling_preflight_ready = bool(
-                self._robotWorkflowFacade
-                and self._robotWorkflowFacade.drillingPreflightReady
             )
             panel.planDrillingButton.enabled = bool(
                 planning_anatomy_ready

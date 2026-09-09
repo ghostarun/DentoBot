@@ -11,6 +11,8 @@ class DENTOWorkflowParameterNode:
 
     caseName: str = ""
     inputVolume: vtkMRMLScalarVolumeNode
+    inspectedVolume: vtkMRMLScalarVolumeNode
+    inspectedSegmentation: vtkMRMLSegmentationNode
     useLauncherBackendConfiguration: bool = True
     wslDistribution: str = ""
     wslPythonPath: str = ""

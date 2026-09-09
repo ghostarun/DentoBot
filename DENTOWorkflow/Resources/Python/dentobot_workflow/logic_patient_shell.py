@@ -940,6 +940,7 @@ class PatientShellLogicMixin:
                 ),
                 shell_thickness_mm=parameters["shellThicknessMm"],
                 sampling_spacing_mm=parameters["processingResolutionMm"],
+                terminal_clip_planes_ras=inputs["visibleSummary"]["terminalClipPlanesRas"],
             )
             boundaryBridge.SetAndObservePolyData(bridgePolyData)
 
@@ -990,8 +991,9 @@ class PatientShellLogicMixin:
                 raise ValueError(
                     _(
                         "The support-boundary bridge did not connect all selected "
-                        "tooth-shell components (%1 components remain). Redraw one "
-                        "continuous loop around every intended support tooth."
+                        "tooth-shell components (%1 components remain) after clearance "
+                        "and terminal coverage. Review the boundary, retained support "
+                        "patches and terminal coverage; a boundary redraw alone may not resolve this."
                     ).replace("%1", str(metrics["surfaceRegionCount"]))
                 )
             timestamp = datetime.now(timezone.utc).isoformat()

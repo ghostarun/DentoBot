@@ -1027,6 +1027,7 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
 
     def _restoreStep6CaseTargetAttachedVisibility(self, parameterNode) -> None:
         modelProxy = parameterNode.step6OpenedTargetGeometryModel
+        targetId = str(parameterNode.targetToothSegmentId or "")
         if modelProxy:
             try:
                 states = json.loads(
@@ -1039,7 +1040,8 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 node = slicer.mrmlScene.GetNodeByID(str(nodeId))
                 display = node.GetDisplayNode() if node else None
                 if display:
-                    display.SetVisibility(bool(visible))
+                    nodeTargetId = str(node.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or node.GetAttribute("DENTOBOT.TargetSegmentID") or node.GetAttribute("DENTOBOT.TargetSegmentId") or "")
+                    display.SetVisibility(bool(visible) and (not nodeTargetId or nodeTargetId == targetId))
         trajectoryProxy = parameterNode.step6OpenedTrajectoryLine
         if trajectoryProxy:
             try:
@@ -1052,10 +1054,15 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             source = parameterNode.trajectoryLine
             display = source.GetDisplayNode() if source else None
             if display:
+                sourceTargetId = str(source.GetAttribute("DENTOBOT.TargetSegmentID") or "")
+                if sourceTargetId and sourceTargetId != targetId:
+                    display.SetVisibility(False)
+                    display.SetVisibility2D(False)
+                    display.SetVisibility3D(False)
+                    return
                 display.SetVisibility(bool(state.get("visible", True)))
                 display.SetVisibility2D(bool(state.get("visible2D", True)))
                 display.SetVisibility3D(bool(state.get("visible3D", True)))
-
     def _updateStep6CaseTargetAttachedDisplay(
         self,
         parameterNode,
@@ -1073,7 +1080,6 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             parameterNode.step6OpenedTargetGeometryModel = None
             parameterNode.step6OpenedTrajectoryLine = None
             return
-
         modelSources = (
             [parameterNode.finalPrintableTemplateModel]
             if parameterNode.finalPrintableTemplateModel
@@ -1082,7 +1088,10 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 parameterNode.targetDockingAssemblyModel,
             ]
         )
-        modelSources = [node for node in modelSources if node is not None]
+        modelSources = self._filterStep6TargetAttachedModels(
+            modelSources,
+            str(parameterNode.targetToothSegmentId or ""),
+        )
         surfaces = [model_polydata_in_world(node) for node in modelSources]
         combined = self._appendPolydata(surfaces)
         if combined is not None:
@@ -1128,7 +1137,6 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 proxyDisplay.SetColor(0.95, 0.76, 0.18)
                 proxyDisplay.SetOpacity(float(parameterNode.step6GuidesOpacity))
             parameterNode.step6OpenedTargetGeometryModel = proxy
-
         trajectory = parameterNode.trajectoryLine
         summary = self.getTrajectorySummary(trajectory) if trajectory else {}
         if summary.get("isValid"):
@@ -1183,13 +1191,14 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 proxyDisplay.SetSelectedColor(1.0, 0.85, 0.15)
                 proxyDisplay.SetLineThickness(0.5)
             parameterNode.step6OpenedTrajectoryLine = proxyLine
-
     def createOrUpdateStep6CaseJawOpening(
         self,
         parameterNode,
     ) -> tuple[vtkMRMLLinearTransformNode, vtkMRMLModelNode, vtkMRMLMarkupsLineNode, dict]:
         if not bool(parameterNode.step6PlanningContextImported):
             raise ValueError(_("Import the Steps 0–5 planning package first."))
+        if packageIssues := self.step6PlanningPackageFreshnessIssues(parameterNode):
+            raise ValueError(_("Cannot open the case jaw because the active planning chain is inconsistent: %1").replace("%1", " ".join(packageIssues)))
         if bool(parameterNode.robotBaseMountLocked) or self.isRos2MotionControlActive(
             parameterNode.robotBaseTransform
         ):

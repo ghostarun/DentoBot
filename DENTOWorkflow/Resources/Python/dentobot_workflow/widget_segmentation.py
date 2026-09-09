@@ -3,9 +3,57 @@
 from __future__ import annotations
 
 from .runtime import *
+from .widget_scan_context import ScanContextWidgetMixin
 
 
-class SegmentationWidgetMixin:
+class SegmentationWidgetMixin(ScanContextWidgetMixin):
+    @staticmethod
+    def _dentobotTeethSegmentationNodes() -> tuple:
+        return tuple(
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+            if node.GetAttribute("DENTOBOT.BridgeOperation") == "segment-teeth"
+        )
+
+    def onShowSelectedSegmentationOnly(self) -> None:
+        selected = self.ui.reviewSegmentationSelector.currentNode()
+        if selected is None:
+            return
+        source = self.logic.getSegmentationSourceVolume(selected)
+        self.selectInspectionContext(source, selected)
+        for node in self._dentobotTeethSegmentationNodes():
+            node.CreateDefaultDisplayNodes()
+            node.GetDisplayNode().SetVisibility(node is selected)
+        self.ui.segmentationReviewStatusLabel.text = _(
+            "Showing only %1."
+        ).replace("%1", selected.GetName())
+
+    def onShowAllSegmentationRuns(self) -> None:
+        nodes = self._dentobotTeethSegmentationNodes()
+        for node in nodes:
+            node.CreateDefaultDisplayNodes()
+            node.GetDisplayNode().SetVisibility(True)
+        self.ui.segmentationReviewStatusLabel.text = _(
+            "Showing %1 DENTOBOT segmentation runs together."
+        ).replace("%1", str(len(nodes)))
+
+    def onRenameSelectedSegmentation(self) -> None:
+        selected = self.ui.reviewSegmentationSelector.currentNode()
+        if selected is None:
+            return
+        name = str(
+            qt.QInputDialog.getText(
+                slicer.util.mainWindow(),
+                _("Rename segmentation run"),
+                _("Run name:"),
+                qt.QLineEdit.Normal,
+                selected.GetName(),
+            )
+            or ""
+        ).strip()
+        if name:
+            selected.SetName(slicer.mrmlScene.GenerateUniqueName(name))
+
     def _bindSegmentationReviewNode(self, segmentationNode) -> None:
         """Observe the selected segmentation and its display state exactly once."""
 
@@ -142,6 +190,9 @@ class SegmentationWidgetMixin:
 
         self._rebuildSegmentTree()
         self._refreshSegmentationInspection()
+        if self._reviewSegmentationNode != self._parameterNode.teethSegmentation:
+            self._syncScanContext()
+            return
         self._validTrajectoryPointsByNodeId.clear()
         self._updatePlanning()
         self._markCurrentDraftTemplateModelStale(
@@ -645,6 +696,12 @@ class SegmentationWidgetMixin:
         return str(value) if value else None
 
     def onReviewSegmentationSelectionChanged(self, segmentationNode) -> None:
+        if self._updatingFromParameterNode or getattr(self, "_selectingInspection", False):
+            return
+        volume = self.logic.getSegmentationSourceVolume(segmentationNode) if segmentationNode else self._parameterNode.inspectedVolume
+        self.selectInspectionContext(volume, segmentationNode)
+
+    def _commitPlanningSegmentationSelection(self, segmentationNode) -> None:
         if (
             not self._parameterNode
             or self._restoringTrajectoryAssociation
@@ -655,6 +712,8 @@ class SegmentationWidgetMixin:
         currentNodeId = currentNode.GetID() if currentNode else None
         selectedNodeId = segmentationNode.GetID() if segmentationNode else None
         if currentNodeId != selectedNodeId:
+            if not self._resetStep6CaseJawOpeningBeforeInputChange():
+                return
             self._restoringTrajectoryAssociation = True
             wasModifying = self._parameterNode.StartModify()
             try:
@@ -740,6 +799,9 @@ class SegmentationWidgetMixin:
 
     def onShowAllSegments(self) -> None:
         if self._reviewSegmentationNode and self.logic:
+            self._reviewSegmentationNode.GetDisplayNode().SetVisibility(True)
+            self._reviewSegmentationNode.GetDisplayNode().SetVisibility2D(True)
+            self._reviewSegmentationNode.GetDisplayNode().SetVisibility3D(True)
             self.logic.setAllSegmentationSegmentsVisibility(
                 self._reviewSegmentationNode,
                 True,

@@ -194,6 +194,9 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         """Apply the explicit recommendation for the active workflow step."""
 
         del checked
+        if self._inspectionActive():
+            self._displayInspectionContext()
+            return
         self._applyWorkflowViewPreset("recommended")
 
 
@@ -218,6 +221,9 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
 
 
     def onWorkflowViewPresetChanged(self, index: int) -> None:
+        if self._inspectionActive():
+            self._displayInspectionContext()
+            return
         if self._updatingWorkflowViewUI or index < 0:
             return
         presetKey = str(self.ui.workflowViewPresetComboBox.itemData(index) or "")
@@ -389,6 +395,9 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
 
     def onRestoreWorkflowView(self, checked: bool = False) -> None:
         del checked
+        if self._inspectionActive():
+            self._displayInspectionContext()
+            return
         self._restoreWorkflowViewState(updateUi=True)
 
     def onFrameWorkflowView(self, checked: bool = False) -> None:

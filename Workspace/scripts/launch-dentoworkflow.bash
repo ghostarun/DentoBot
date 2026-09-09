@@ -69,6 +69,11 @@ backend_device="${DENTOBOT_BACKEND_DEVICE:-cpu}"
 render_device="${DENTOBOT_RENDER_DEVICE:-/dev/dri/renderD128}"
 run_artifact_root="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}"
 totalseg_home_dir="${DENTOBOT_TOTALSEG_HOME_DIR:-/workspace/data/model-cache/totalsegmentator}"
+host_uid="$(id -u)"
+host_gid="$(id -g)"
+host_x11_user="$(id -un)"
+slicer_home_dir="${workspace_root}/slicer-home"
+legacy_slicer_user_dir="${workspace_root}/slicer-user"
 
 if [[ -z ${backend_python} ]]; then
   printf '%s\n' \
@@ -114,15 +119,117 @@ if [[ ${totalseg_home_dir} != /* ]]; then
     "${totalseg_home_dir}" >&2
   exit 2
 fi
+if [[ ! -e ${render_device} ]]; then
+  printf 'Render device is unavailable: %s\n' "${render_device}" >&2
+  exit 2
+fi
+render_gid="$(stat -c '%g' "${render_device}")"
+if [[ -z ${render_gid} || ${render_gid} == "0" ]]; then
+  printf '%s\n' \
+    "Could not resolve a non-root group owner for ${render_device}." \
+    'Non-root SlicerROS2 needs the DRM render group for Mesa access.' >&2
+  exit 2
+fi
 
 export DENTOBOT_BACKEND_ENV_DIR="${backend_environment_directory}"
 export DENTOBOT_BACKEND_EXECUTION_MODE="${backend_execution_mode}"
 export DENTOBOT_BACKEND_PYTHON="${backend_python}"
 export DENTOBOT_BACKEND_DEVICE="${backend_device}"
 export DENTOBOT_RENDER_DEVICE="${render_device}"
+export DENTOBOT_RENDER_GID="${render_gid}"
+export DENTOBOT_HOST_UID="${host_uid}"
+export DENTOBOT_HOST_GID="${host_gid}"
 export DENTOBOT_RUN_ARTIFACT_ROOT="${run_artifact_root}"
 export DENTOBOT_TOTALSEG_HOME_DIR="${totalseg_home_dir}"
 export DENTOBOT_WORKSPACE_ROOT="${workspace_root}"
+
+ensure_slicer_home_layout() {
+  local config_slicer="${slicer_home_dir}/.config/slicer.org"
+  mkdir -p "${config_slicer}"
+
+  if [[ -L ${legacy_slicer_user_dir} ]]; then
+    ln -sfn slicer-home/.config/slicer.org "${legacy_slicer_user_dir}"
+    return 0
+  fi
+
+  if [[ -d ${legacy_slicer_user_dir} ]]; then
+    # Legacy layout mounted flat settings as /root/.config/slicer.org.
+    # Move those files under the host-owned HOME/.config/slicer.org tree.
+    if compgen -G "${legacy_slicer_user_dir}/*" >/dev/null; then
+      printf 'Migrating legacy slicer-user/ into slicer-home/.config/slicer.org/\n'
+      # Older root-container sessions may have left root-owned settings here.
+      if [[ "$(docker inspect --format '{{.State.Status}}' "${container_name}" 2>/dev/null || true)" == "running" ]]; then
+        docker exec -u 0 "${container_name}" bash -lc "
+          chown -R ${host_uid}:${host_gid} /root/.config/slicer.org
+        " >/dev/null || true
+      fi
+      if ! mv "${legacy_slicer_user_dir}"/* "${config_slicer}/"; then
+        printf '%s\n' \
+          "Failed to migrate ${legacy_slicer_user_dir} into ${config_slicer}." \
+          'Fix ownership of slicer-user/ (it may still be root-owned) and retry.' >&2
+        exit 2
+      fi
+    fi
+    rmdir "${legacy_slicer_user_dir}" 2>/dev/null || true
+    if [[ -e ${legacy_slicer_user_dir} && ! -L ${legacy_slicer_user_dir} ]]; then
+      printf '%s\n' \
+        "Could not replace ${legacy_slicer_user_dir} with a compatibility symlink." \
+        'Move leftover files aside, then rerun the launcher.' >&2
+      exit 2
+    fi
+  fi
+
+  ln -sfn slicer-home/.config/slicer.org "${legacy_slicer_user_dir}"
+}
+
+prepare_host_uid_runtime() {
+  local needs_legacy_migration=false
+  if [[ -d ${legacy_slicer_user_dir} && ! -L ${legacy_slicer_user_dir} ]]; then
+    needs_legacy_migration=true
+  fi
+
+  if [[ ${needs_legacy_migration} == true ]]; then
+    # chown while the old root/.config mount is still attached, then recreate.
+    if [[ "$(docker inspect --format '{{.State.Status}}' "${container_name}" 2>/dev/null || true)" == "running" ]]; then
+      docker exec -u 0 "${container_name}" bash -lc "
+        chown -R ${host_uid}:${host_gid} /workspace/data /root/.config/slicer.org
+      " >/dev/null || true
+    fi
+    stop_container_for_bind_migration
+  fi
+
+  ensure_slicer_home_layout
+}
+
+stop_container_for_bind_migration() {
+  if ! docker inspect "${container_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  printf 'Stopping %s so bind-mount ownership layout can be updated...\n' \
+    "${container_name}"
+  docker stop --time 30 "${container_name}" >/dev/null 2>&1 || true
+  docker rm -f "${container_name}" >/dev/null 2>&1 || true
+}
+
+reclaim_bind_mount_ownership() {
+  if ! docker inspect "${container_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "$(docker inspect --format '{{.State.Status}}' "${container_name}")" != "running" ]]; then
+    return 0
+  fi
+  # Root exec is intentional: only root can repair leftover root-owned files
+  # from older container sessions or `docker exec -u 0` tooling.
+  docker exec -u 0 "${container_name}" bash -lc "
+    mkdir -p /workspace/ros2_ws/build /workspace/ros2_ws/install /workspace/ros2_ws/log
+    chown -R ${host_uid}:${host_gid} \
+      /workspace/data \
+      /home/dentobot \
+      /workspace/ros2_ws/build \
+      /workspace/ros2_ws/install \
+      /workspace/ros2_ws/log
+  " >/dev/null
+}
 
 docker_daemon_ready() {
   docker info >/dev/null 2>&1
@@ -237,6 +344,7 @@ compose_command=(
   -f "${compose_file}"
 )
 "${compose_command[@]}" config -q
+prepare_host_uid_runtime
 
 if docker inspect "${container_name}" >/dev/null 2>&1; then
   container_status="$(docker inspect --format '{{.State.Status}}' "${container_name}")"
@@ -279,7 +387,38 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 fi
 
 printf 'Starting the DENTOBOT development container...\n'
-"${compose_command[@]}" up -d
+container_needs_recreate=false
+if docker inspect "${container_name}" >/dev/null 2>&1; then
+  container_runtime_user="$(
+    docker inspect --format '{{.Config.User}}' "${container_name}"
+  )"
+  if [[ ${container_runtime_user} != "${host_uid}:${host_gid}" ]]; then
+    container_needs_recreate=true
+  fi
+  if ! docker inspect --format '{{json .Mounts}}' "${container_name}" \
+    | grep -Fq '"Destination":"/home/dentobot"'; then
+    container_needs_recreate=true
+  fi
+else
+  container_needs_recreate=true
+fi
+if [[ ${container_needs_recreate} == true ]]; then
+  "${compose_command[@]}" up -d --force-recreate
+else
+  "${compose_command[@]}" up -d
+fi
+reclaim_bind_mount_ownership
+
+container_runtime_user="$(
+  docker inspect --format '{{.Config.User}}' "${container_name}"
+)"
+if [[ ${container_runtime_user} != "${host_uid}:${host_gid}" ]]; then
+  printf '%s\n' \
+    'The container is not running as the host workstation user.' \
+    "Observed user: ${container_runtime_user:-<empty>}" \
+    "Expected: ${host_uid}:${host_gid}." >&2
+  exit 2
+fi
 
 container_runtime_safeguards="$(
   docker inspect --format \
@@ -347,6 +486,8 @@ printf '%s\n' \
   "DENTO Workflow: ${module_path}" \
   "Slicer module paths: ${slicer_module_paths}" \
   "GPU render node: ${render_device}" \
+  "Container user: ${host_uid}:${host_gid} (render gid ${render_gid})" \
+  "Slicer home: ${slicer_home_dir}" \
   "Slicer background priority: ${container_slicer_priority}" \
   "Runtime safeguards (init/PIDs/CPU-shares/OOM-score): ${container_runtime_safeguards}"
 
@@ -400,14 +541,16 @@ if ! resolve_x11_authority; then
 fi
 
 cleanup_x11() {
+  reclaim_bind_mount_ownership || true
   if [[ ${x11_access_granted} == true ]]; then
-    xhost -SI:localuser:root >/dev/null 2>&1 || true
+    xhost -SI:localuser:"${host_x11_user}" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup_x11 EXIT INT TERM
 
-printf 'Granting local container root temporary access to DISPLAY=%s...\n' "${DISPLAY}"
-xhost +SI:localuser:root >/dev/null
+printf 'Granting local user %s temporary access to DISPLAY=%s...\n' \
+  "${host_x11_user}" "${DISPLAY}"
+xhost +SI:localuser:"${host_x11_user}" >/dev/null
 x11_access_granted=true
 
 printf 'Opening 3D Slicer directly on DENTO Workflow.\n'

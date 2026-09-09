@@ -26,6 +26,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/widget_panels.py
   Resources/Python/dentobot_workflow/widget_lifecycle.py
   Resources/Python/dentobot_workflow/widget_segmentation.py
+  Resources/Python/dentobot_workflow/widget_scan_context.py
   Resources/Python/dentobot_workflow/widget_trajectory_view.py
   Resources/Python/dentobot_workflow/widget_planning_focus.py
   Resources/Python/dentobot_workflow/widget_docking.py

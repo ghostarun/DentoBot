@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import qt
 
 
@@ -32,6 +33,11 @@ class DENTORobotSimulationPanel:
         "review_limits": 3,
         "confirm_task": 4,
         "plan_approach": 5,
+        "template_collision_override": 5,
+        "begin_anatomy_review": 5,
+        "edit_anatomy_review": 5,
+        "activate_anatomy_review": 5,
+        "discard_anatomy_review": 5,
         "preview_approach": 5,
         "show_motion_diagnostics": 5,
         "plan_drilling": 6,
@@ -385,6 +391,86 @@ class DENTORobotSimulationPanel:
         spindle_policy.wordWrap = True
         spindle_policy.setProperty("dentobotRole", "status")
         approach_layout.addWidget(spindle_policy)
+        self.toolInsertionStatusLabel = qt.QLabel(
+            "Tool insertion capacity will be checked before Goal 1 planning.",
+            self.approachGroup,
+        )
+        self.toolInsertionStatusLabel.wordWrap = True
+        self.toolInsertionStatusLabel.setProperty("dentobotRole", "status")
+        approach_layout.addWidget(self.toolInsertionStatusLabel)
+        self.templateCollisionOverrideCheckBox = qt.QCheckBox(
+            "Functional x4 override: exclude unresolved Step 5C final template from MoveIt collisions",
+            self.approachGroup,
+        )
+        self.templateCollisionOverrideCheckBox.toolTip = (
+            "Retired from the normal baseline. Enable "
+            "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE=1 only for a documented "
+            "legacy diagnostic; it is non-persistent and non-authoritative."
+        )
+        self.templateCollisionOverrideCheckBox.enabled = (
+            os.environ.get("DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE", "")
+            == "1"
+        )
+        approach_layout.addWidget(self.templateCollisionOverrideCheckBox)
+        self.templateCollisionOverrideStatusLabel = qt.QLabel(
+            "Retired — the complete Step 5C template remains collision checked.",
+            self.approachGroup,
+        )
+        self.templateCollisionOverrideStatusLabel.wordWrap = True
+        self.templateCollisionOverrideStatusLabel.setProperty(
+            "dentobotRole", "warning"
+        )
+        approach_layout.addWidget(self.templateCollisionOverrideStatusLabel)
+        self.anatomyReviewGroup = qt.QGroupBox(
+            "Manual non-target anatomy review (session only)", self.approachGroup
+        )
+        anatomy_review_layout = qt.QVBoxLayout(self.anatomyReviewGroup)
+        anatomy_review_description = qt.QLabel(
+            "Use this only after CBCT/segmentation review identifies a local "
+            "artifact. It copies one non-target tooth into a disposable Segment "
+            "Editor review node. The source segmentation is not edited. A reviewed "
+            "proxy is never activated automatically and is not saved into MRML or a "
+            "DentoCase.",
+            self.anatomyReviewGroup,
+        )
+        anatomy_review_description.wordWrap = True
+        anatomy_review_layout.addWidget(anatomy_review_description)
+        anatomy_review_controls = qt.QHBoxLayout()
+        self.anatomyReviewToothCombo = qt.QComboBox(self.anatomyReviewGroup)
+        self.anatomyReviewToothCombo.objectName = "DENTOBOTAnatomyReviewToothCombo"
+        self.createAnatomyReviewButton = qt.QPushButton(
+            "Create review copy", self.anatomyReviewGroup
+        )
+        anatomy_review_controls.addWidget(self.anatomyReviewToothCombo, 1)
+        anatomy_review_controls.addWidget(self.createAnatomyReviewButton)
+        anatomy_review_layout.addLayout(anatomy_review_controls)
+        anatomy_review_actions = qt.QHBoxLayout()
+        self.editAnatomyReviewButton = qt.QPushButton(
+            "Open review in Segment Editor", self.anatomyReviewGroup
+        )
+        self.anatomyReviewConfirmedCheckBox = qt.QCheckBox(
+            "I confirm the edited local region is a segmentation artifact",
+            self.anatomyReviewGroup,
+        )
+        self.applyAnatomyReviewButton = qt.QPushButton(
+            "Use reviewed proxy for research simulation", self.anatomyReviewGroup
+        )
+        self.discardAnatomyReviewButton = qt.QPushButton(
+            "Discard review", self.anatomyReviewGroup
+        )
+        anatomy_review_actions.addWidget(self.editAnatomyReviewButton)
+        anatomy_review_actions.addWidget(self.anatomyReviewConfirmedCheckBox)
+        anatomy_review_actions.addWidget(self.applyAnatomyReviewButton)
+        anatomy_review_actions.addWidget(self.discardAnatomyReviewButton)
+        anatomy_review_layout.addLayout(anatomy_review_actions)
+        self.anatomyReviewStatusLabel = qt.QLabel(
+            "No manual anatomy-review copy exists. Source anatomy remains authoritative.",
+            self.anatomyReviewGroup,
+        )
+        self.anatomyReviewStatusLabel.wordWrap = True
+        self.anatomyReviewStatusLabel.setProperty("dentobotRole", "warning")
+        anatomy_review_layout.addWidget(self.anatomyReviewStatusLabel)
+        approach_layout.addWidget(self.anatomyReviewGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
         self.previewApproachButton = qt.QPushButton("Preview Goal 1", self.approachGroup)
@@ -548,6 +634,21 @@ class DENTORobotSimulationPanel:
         self.planApproachButton.clicked.connect(
             lambda checked=False: self._invoke("plan_approach")
         )
+        self.templateCollisionOverrideCheckBox.toggled.connect(
+            lambda checked=False: self._invoke("template_collision_override")
+        )
+        self.createAnatomyReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("begin_anatomy_review")
+        )
+        self.editAnatomyReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("edit_anatomy_review")
+        )
+        self.applyAnatomyReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("activate_anatomy_review")
+        )
+        self.discardAnatomyReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("discard_anatomy_review")
+        )
         self.previewApproachButton.clicked.connect(
             lambda checked=False: self._invoke("preview_approach")
         )
@@ -581,6 +682,68 @@ class DENTORobotSimulationPanel:
         self.collisionGroup.visible = False
         self.approachGroup.visible = False
         self.drillingGroup.visible = False
+
+    def setAnatomyReviewCandidates(
+        self,
+        candidates: list[dict[str, object]] | tuple[dict[str, object], ...],
+        state: dict[str, object] | None = None,
+    ) -> None:
+        """Refresh the small session-only anatomy-review control surface."""
+
+        state = state or {}
+        selected = str(self.anatomyReviewToothCombo.currentData or "")
+        self.anatomyReviewToothCombo.blockSignals(True)
+        self.anatomyReviewToothCombo.clear()
+        for candidate in candidates:
+            segment_id = str(candidate.get("segmentId") or "")
+            if not segment_id:
+                continue
+            label = str(candidate.get("displayName") or segment_id)
+            fdi = str(candidate.get("fdiNumber") or "")
+            if fdi and fdi not in label:
+                label = f"{label} — FDI {fdi}"
+            self.anatomyReviewToothCombo.addItem(label, segment_id)
+        for index in range(self.anatomyReviewToothCombo.count):
+            if str(self.anatomyReviewToothCombo.itemData(index) or "") == selected:
+                self.anatomyReviewToothCombo.currentIndex = index
+                break
+        self.anatomyReviewToothCombo.blockSignals(False)
+        exists = bool(state.get("exists"))
+        active = bool(state.get("active"))
+        historical_enabled = bool(state.get("historicalOverrideEnabled", False))
+        self.createAnatomyReviewButton.enabled = historical_enabled
+        self.editAnatomyReviewButton.enabled = exists and not active
+        self.anatomyReviewConfirmedCheckBox.enabled = exists and not active
+        self.applyAnatomyReviewButton.enabled = exists and not active
+        self.discardAnatomyReviewButton.enabled = exists
+        if not historical_enabled:
+            self.editAnatomyReviewButton.enabled = False
+            self.anatomyReviewConfirmedCheckBox.enabled = False
+            self.applyAnatomyReviewButton.enabled = False
+            self.anatomyReviewStatusLabel.text = (
+                "Retired from the normal baseline. Source CBCT segmentation remains "
+                "authoritative; set DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW=1 "
+                "only for a documented legacy diagnostic."
+            )
+            self.anatomyReviewStatusLabel.setProperty("dentobotRole", "warning")
+        elif active:
+            self.anatomyReviewStatusLabel.text = (
+                "ACTIVE — RESEARCH SIMULATION ANATOMY OVERRIDE. Only this "
+                "session uses the confirmed local proxy; source anatomy remains "
+                "unchanged. Re-sync/reconfirm before planning."
+            )
+            self.anatomyReviewStatusLabel.setProperty("dentobotRole", "warning")
+        elif exists:
+            self.anatomyReviewStatusLabel.text = (
+                "Review copy is inactive. Edit the local region, then explicitly "
+                "confirm a segmentation artifact before using it for research simulation."
+            )
+            self.anatomyReviewStatusLabel.setProperty("dentobotRole", "warning")
+        else:
+            self.anatomyReviewStatusLabel.text = (
+                "No manual anatomy-review copy exists. Source anatomy remains authoritative."
+            )
+            self.anatomyReviewStatusLabel.setProperty("dentobotRole", "status")
 
     def _invoke(self, name: str) -> None:
         owner = self.ACTION_OWNER_SUBSTEP.get(name)
@@ -792,6 +955,9 @@ class DENTORobotSimulationPanel:
         summary.wordWrap = True
         layout.addWidget(summary)
         full_status = str(session.full_task_outcome.get("status") or "Unknown")
+        template_excluded = bool(
+            session.full_task_outcome.get("template_collision_exclusion_active")
+        )
         orientation_id = str(
             session.full_task_outcome.get("tool_orientation_fingerprint") or ""
         )
@@ -806,6 +972,29 @@ class DENTORobotSimulationPanel:
         )
         full_task_label.wordWrap = True
         layout.addWidget(full_task_label)
+        if template_excluded:
+            collision_scope_label = qt.QLabel(
+                "FUNCTIONAL SIMULATION ONLY — the unresolved Step 5C final "
+                "template was visible but excluded from authoritative MoveIt "
+                "collision evaluation. This is not physical collision-valid evidence.",
+                dialog,
+            )
+            collision_scope_label.wordWrap = True
+            collision_scope_label.setProperty("dentobotRole", "warning")
+            layout.addWidget(collision_scope_label)
+        anatomy_override = session.full_task_outcome.get(
+            "session_anatomy_review_override"
+        )
+        if isinstance(anatomy_override, dict) and anatomy_override.get("active"):
+            anatomy_scope_label = qt.QLabel(
+                "RESEARCH SIMULATION ANATOMY OVERRIDE — a manually reviewed, "
+                "session-only local proxy was used. Source segmentation remains "
+                "unchanged; this is not physical collision-valid evidence.",
+                dialog,
+            )
+            anatomy_scope_label.wordWrap = True
+            anatomy_scope_label.setProperty("dentobotRole", "warning")
+            layout.addWidget(anatomy_scope_label)
         feedback_label = qt.QLabel(
             self._motionPlannerFeedback(session),
             dialog,

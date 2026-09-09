@@ -21,6 +21,7 @@ SLICER_PUBLISHER_PATH = (
     PACKAGE_ROOT / "scripts" / "slicer_joint_state_publisher.py"
 )
 EXPECTED_MESH_SHA256 = {
+    "burr_simulation_1mm.stl": "469c4ddc223253c534488fd00b4e31727a8ee6ffcb2be3be87c358b92a968cec",
     "burr.stl": "7ed794505b0440aed9092ac6a5522a9235e078410f6e5d43ba161b3c2768a51b",
     "link-1.stl": "a71a9bc70fd0562da915e06b84c8cec7fe827191da34e4d93156e7fed1484353",
     "link-2.stl": "2b72f4d2b09e00a7461fca00870f396904bdfe41c868fc92b733ccfdc7911c97",
@@ -196,7 +197,10 @@ def test_link_inertials_and_mesh_references() -> None:
         assert _numbers(collision_mesh.get("scale")) == [0.001, 0.001, 0.001]
         referenced_meshes.add(_mesh_path(visual_mesh.get("filename")))
 
-    expected_meshes = {PACKAGE_ROOT / "meshes" / name for name in EXPECTED_MESH_SHA256}
+    expected_meshes = {
+        PACKAGE_ROOT / "meshes" / name
+        for name in EXPECTED_MESH_SHA256 if name != "burr.stl"
+    }
     assert referenced_meshes == expected_meshes
 
 

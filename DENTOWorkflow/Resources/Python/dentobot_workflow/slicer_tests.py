@@ -1350,6 +1350,19 @@ class DENTOWorkflowTestMixin:
             append.GetOutput(),
         )
         segmentationNode.GetSegmentation().AddSegment(segment, "tooth-16")
+        pulpImage = slicer.vtkOrientedImageData()
+        pulpImage.SetExtent(0, 8, 0, 4, 0, 8)
+        pulpImage.SetOrigin(-2.0, -1.0, 2.0)
+        pulpImage.SetSpacing(0.5, 0.5, 0.5)
+        pulpImage.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+        vtk_to_numpy(pulpImage.GetPointData().GetScalars())[:] = 1
+        pulpSegment = slicer.vtkSegment()
+        pulpSegment.SetName("pulp_fdi116")
+        pulpSegment.AddRepresentation(
+            slicer.vtkSegmentationConverter.GetSegmentationBinaryLabelmapRepresentationName(),
+            pulpImage,
+        )
+        segmentationNode.GetSegmentation().AddSegment(pulpSegment, "pulp-16")
         adjacentSegment = slicer.vtkSegment()
         adjacentSegment.SetName("upper_right_second_premolar_fdi15")
         adjacentSegment.AddRepresentation(
@@ -1382,6 +1395,17 @@ class DENTOWorkflowTestMixin:
         self.assertFalse(segmentationDisplay.GetSegmentVisibility("tooth-16"))
         self.assertTrue(segmentationDisplay.GetSegmentVisibility("tooth-15"))
         self.assertFalse(targetBoundsRoi.GetDisplayNode().GetVisibility())
+
+        singleEntry, _ = logic.createOrResetAssistedTrajectoryEntries(
+            segmentationNode, "tooth-16", 1,
+        )
+        singleEntry.AddControlPointWorld(vtk.vtkVector3d(0.0, 0.0, -0.8))
+        singleLines, _ = logic.generateAssistedTrajectories(
+            singleEntry, segmentationNode, "tooth-16", 1, targetBoundsRoi,
+        )
+        self.assertAlmostEqual(logic.getTrajectorySummary(singleLines[0])["targetRas"][2], 1.75, places=5)
+        slicer.mrmlScene.RemoveNode(singleLines[0])
+        slicer.mrmlScene.RemoveNode(singleEntry)
 
         entryNode, emptySummary = logic.createOrResetAssistedTrajectoryEntries(
             segmentationNode,
@@ -1418,6 +1442,15 @@ class DENTOWorkflowTestMixin:
             summary = logic.getTrajectorySummary(trajectoryNode)
             self.assertTrue(summary["isValid"])
             self.assertGreater(summary["targetRas"][2], summary["entryRas"][2])
+            self.assertAlmostEqual(summary["targetRas"][2], 1.75, places=5)
+            originalTarget = analysis["rootTargetsRas"][index]
+            entry = entrySummary["entryPointsRas"][index]
+            self.assertEqual(list(summary["entryRas"]), list(entry))
+            fraction = (summary["targetRas"][2] - entry[2]) / (originalTarget[2] - entry[2])
+            self.assertGreater(fraction, 0.0)
+            self.assertLess(fraction, 1.0)
+            for axis in range(3):
+                self.assertAlmostEqual(summary["targetRas"][axis], entry[axis] + fraction * (originalTarget[axis] - entry[axis]), places=5)
             self.assertEqual(
                 trajectoryNode.GetAttribute("DENTOBOT.AssistedRootOrdinal"),
                 str(index + 1),
@@ -3741,6 +3774,155 @@ class DENTOWorkflowTestMixin:
             parameterNode.EndModify(wasModifying)
         widget._clearRobotPlacement()
         self.delayDisplay("DENTOWorkflow robot placement widget test passed")
+
+    def test_DENTOWorkflowStep6SessionAnatomyReview(self) -> None:
+        """A reviewed collision proxy is local, opt-in, and never source anatomy."""
+
+        logic = DENTOWorkflowLogic()
+        parameterNode = logic.getParameterNode()
+        volume = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLScalarVolumeNode", "Step6AnatomyReviewCBCT"
+        )
+        image = vtk.vtkImageData()
+        image.SetDimensions(16, 16, 16)
+        image.AllocateScalars(vtk.VTK_SHORT, 1)
+        volume.SetAndObserveImageData(image)
+        segmentation = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode", "Step6AnatomyReviewSource"
+        )
+        segmentation.CreateDefaultDisplayNodes()
+        segmentation.SetNodeReferenceID(
+            logic.SOURCE_VOLUME_REFERENCE_ROLE, volume.GetID()
+        )
+        segmentation.SetAttribute("DENTOBOT.SourceVolumeID", volume.GetID())
+
+        def add_tooth(segment_id, name, bounds):
+            cube = vtk.vtkCubeSource()
+            cube.SetBounds(*bounds)
+            cube.Update()
+            clean = vtk.vtkCleanPolyData()
+            clean.SetInputConnection(cube.GetOutputPort())
+            clean.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(name)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName(),
+                clean.GetOutput(),
+            )
+            segmentation.GetSegmentation().AddSegment(segment, segment_id)
+
+        add_tooth("tooth-14", "upper_right_first_premolar_fdi14", (-2, 2, -2, 2, -2, 2))
+        add_tooth("tooth-15", "upper_right_second_premolar_fdi15", (4, 8, -2, 2, -2, 2))
+        parameterNode.inputVolume = volume
+        parameterNode.teethSegmentation = segmentation
+        parameterNode.targetToothSegmentId = "tooth-14"
+
+        parent = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+        matrix = vtk.vtkMatrix4x4()
+        matrix.Identity()
+        matrix.SetElement(0, 3, 23.0)
+        parent.SetMatrixTransformToParent(matrix)
+        segmentation.SetAndObserveTransformNodeID(parent.GetID())
+
+        source_surface_before = logic._segmentationSegmentsSurfaceWorld(
+            segmentation, {"tooth-15"}
+        )
+        source_evidence_before = logic._collisionAuditPolydataEvidence(
+            source_surface_before
+        )
+        candidates = logic.step6AnatomyReviewCandidates(parameterNode)
+        self.assertEqual([candidate["segmentId"] for candidate in candidates], ["tooth-15"])
+
+        state = logic.beginStep6AnatomyReview(parameterNode, "tooth-15")
+        self.assertTrue(state["exists"])
+        self.assertFalse(state["active"])
+        proxy = state["proxyNode"]
+        self.assertEqual(proxy.GetSaveWithScene(), 0)
+        self.assertEqual(
+            proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewDecision"), "Pending"
+        )
+        self.assertIsNotNone(proxy.GetSegmentation().GetSegment("tooth-15"))
+        self.assertEqual(proxy.GetTransformNodeID(), parent.GetID())
+        self.assertEqual(
+            logic._step6AnatomyReviewFingerprint(proxy, "tooth-15"),
+            source_evidence_before["fingerprint"],
+        )
+        source_evidence_after_copy = logic._collisionAuditPolydataEvidence(
+            logic._segmentationSegmentsSurfaceWorld(segmentation, {"tooth-15"})
+        )
+        self.assertEqual(
+            source_evidence_after_copy["fingerprint"],
+            source_evidence_before["fingerprint"],
+        )
+
+        from unittest.mock import patch
+        import os
+        with patch.dict(os.environ, {"DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW": "0"}):
+            with self.assertRaisesRegex(ValueError, "retired"):
+                logic.setStep6AnatomyReviewProxyActive(parameterNode, True)
+        historical_environment = patch.dict(
+            os.environ, {"DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW": "1"}
+        )
+        historical_environment.start()
+        self.addCleanup(historical_environment.stop)
+        activated = logic.setStep6AnatomyReviewProxyActive(parameterNode, True)
+        self.assertTrue(activated["active"])
+        self.assertEqual(
+            activated["operatorDecision"], "SEGMENTATION_ARTIFACT_MANUAL_REVIEW"
+        )
+        self.assertEqual(logic.step6AnatomyReviewFreshnessIssues(parameterNode), ())
+        session = proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewSession")
+        proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewSession", "previous-session")
+        self.assertIn("earlier module session", logic.step6AnatomyReviewFreshnessIssues(parameterNode)[0])
+        proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewSession", session)
+        accepted = proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewAcceptedFingerprint")
+        proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewAcceptedFingerprint", "changed")
+        self.assertIn("changed after acceptance", logic.step6AnatomyReviewFreshnessIssues(parameterNode)[0])
+        proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewAcceptedFingerprint", accepted)
+        # Inspect the real MRB serialization without clearing the test scene.
+        # SaveWithScene flags alone are not evidence that runtime authority is absent.
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        scene_path = Path(slicer.app.temporaryPath) / (
+            f"dentobot-anatomy-review-{uuid.uuid4().hex}.mrb"
+        )
+        try:
+            self.assertTrue(slicer.util.saveScene(str(scene_path)))
+            with zipfile.ZipFile(scene_path) as archive:
+                scenes = [name for name in archive.namelist() if name.endswith(".mrml")]
+                self.assertEqual(len(scenes), 1)
+                root = ET.fromstring(archive.read(scenes[0]))
+            saved_ids = {node.get("id") for node in root.iter()}
+            self.assertIn(segmentation.GetID(), saved_ids)
+            self.assertNotIn(proxy.GetID(), saved_ids)
+            self.assertNotIn(proxy.GetDisplayNode().GetID(), saved_ids)
+            self.assertFalse(any(
+                "DENTOBOT.Step6AnatomyReviewCollisionProxyActive" in str(node.attrib)
+                for node in root.iter()
+            ))
+        finally:
+            scene_path.unlink(missing_ok=True)
+        parameterNode.targetToothSegmentId = "tooth-15"
+        with self.assertRaisesRegex(ValueError, "non-target"):
+            logic._validateStep6AnatomyReview(parameterNode, activated)
+        parameterNode.targetToothSegmentId = "tooth-14"
+        matrix.SetElement(0, 3, 24.0)
+        parent.SetMatrixTransformToParent(matrix)
+        with self.assertRaisesRegex(ValueError, "Source anatomy"):
+            logic._validateStep6AnatomyReview(parameterNode, activated)
+        matrix.SetElement(0, 3, 23.0)
+        parent.SetMatrixTransformToParent(matrix)
+        self.assertTrue(logic.discardStep6AnatomyReview(parameterNode))
+        self.assertFalse(logic.step6AnatomyReviewState(parameterNode)["exists"])
+        source_evidence_after_discard = logic._collisionAuditPolydataEvidence(
+            logic._segmentationSegmentsSurfaceWorld(segmentation, {"tooth-15"})
+        )
+        self.assertEqual(
+            source_evidence_after_discard["fingerprint"],
+            source_evidence_before["fingerprint"],
+        )
+        self.delayDisplay("DENTOWorkflow Step 6 session anatomy review test passed")
 
     def test_DENTOWorkflowStep6CaseJawOpening(self) -> None:
         """Case opening preserves source data and drives mandibular Step 6 world geometry."""

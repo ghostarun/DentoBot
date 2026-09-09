@@ -4,8 +4,292 @@ from __future__ import annotations
 
 from .runtime import *
 
+_ANATOMY_REVIEW_SESSION = str(uuid.uuid4())
+_HISTORICAL_ANATOMY_REVIEW_ENV = "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW"
+
 
 class RobotSceneSyncLogicMixin:
+    _STEP6_ANATOMY_REVIEW_PROXY_ATTRIBUTE = "DENTOBOT.Step6AnatomyReviewProxy"
+    _STEP6_ANATOMY_REVIEW_SOURCE_NODE_ATTRIBUTE = (
+        "DENTOBOT.Step6AnatomyReviewSourceSegmentationNodeId"
+    )
+    _STEP6_ANATOMY_REVIEW_SOURCE_SEGMENT_ATTRIBUTE = (
+        "DENTOBOT.Step6AnatomyReviewSourceSegmentId"
+    )
+    _STEP6_ANATOMY_REVIEW_ACTIVE_ATTRIBUTE = (
+        "DENTOBOT.Step6AnatomyReviewCollisionProxyActive"
+    )
+
+    def step6AnatomyReviewCandidates(self, parameterNode) -> tuple[dict[str, str], ...]:
+        """Return whole non-target teeth eligible for an explicit local review.
+
+        This deliberately exposes no automatic outlier selection.  The current
+        x4 evidence can direct an operator to FDI15, but the workflow must stay
+        useful for any later reviewed non-target tooth and must never silently
+        remove a complete anatomy object from collision evaluation.
+        """
+
+        segmentation = parameterNode.teethSegmentation
+        target_id = str(parameterNode.targetToothSegmentId or "")
+        if segmentation is None:
+            return ()
+        return tuple(
+            {
+                "segmentId": str(record["segmentId"]),
+                "displayName": str(record.get("displayName") or record["segmentId"]),
+                "fdiNumber": str(record.get("fdiNumber") or ""),
+            }
+            for record in self.getTargetToothRecords(segmentation)
+            if str(record.get("segmentId") or "")
+            and str(record.get("segmentId") or "") != target_id
+        )
+
+    def step6AnatomyReviewProxyNode(self, parameterNode):
+        """Return the one session-only review node for this source segmentation."""
+
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            return None
+        source_id = str(segmentation.GetID() or "")
+        candidates = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+            if node.GetAttribute(self._STEP6_ANATOMY_REVIEW_PROXY_ATTRIBUTE) == "true"
+            and node.GetAttribute(self._STEP6_ANATOMY_REVIEW_SOURCE_NODE_ATTRIBUTE)
+            == source_id
+        ]
+        if len(candidates) > 1:
+            raise ValueError("Multiple anatomy-review copies exist; resolve them before collision synchronization.")
+        return candidates[-1] if candidates else None
+
+    def _step6AnatomyReviewFingerprint(self, node, segment_id: str) -> str:
+        return self._collisionAuditPolydataEvidence(
+            self._segmentationSegmentsSurfaceWorld(node, {segment_id})
+        )["fingerprint"]
+
+    def _validateStep6AnatomyReview(self, parameterNode, state) -> None:
+        """Reject changed review inputs before accepting or publishing a proxy."""
+        proxy = state["proxyNode"]
+        if proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewSession") != _ANATOMY_REVIEW_SESSION:
+            raise ValueError("Anatomy review belongs to an earlier module session; discard and recreate it.")
+        segment_id = state["sourceSegmentId"]
+        if segment_id not in {
+            record["segmentId"] for record in self.step6AnatomyReviewCandidates(parameterNode)
+        }:
+            raise ValueError("The reviewed segment is no longer eligible non-target anatomy.")
+        source_fingerprint = self._step6AnatomyReviewFingerprint(
+            parameterNode.teethSegmentation, segment_id
+        )
+        if source_fingerprint != proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewSourceFingerprint"):
+            raise ValueError("Source anatomy or its transform changed; discard and recreate the review copy.")
+        if state.get("active") and self._step6AnatomyReviewFingerprint(
+            proxy, state["proxySegmentId"]
+        ) != proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewAcceptedFingerprint"):
+            raise ValueError("Reviewed anatomy changed after acceptance; disable and review it again.")
+
+    def step6AnatomyReviewFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
+        try:
+            state = self.step6AnatomyReviewState(parameterNode)
+            if state.get("active"):
+                if not state.get("effectiveActive"):
+                    return (
+                        "Historical anatomy-review proxy is disabled for the baseline; "
+                        "discard the session proxy before planning.",
+                    )
+                self._validateStep6AnatomyReview(parameterNode, state)
+        except (RuntimeError, ValueError, TypeError) as exc:
+            return (str(exc),)
+        return ()
+
+    def step6AnatomyReviewState(self, parameterNode) -> dict[str, object]:
+        """Describe the non-persistent manual anatomy-review state."""
+
+        proxy = self.step6AnatomyReviewProxyNode(parameterNode)
+        if proxy is None:
+            return {
+                "exists": False, "active": False, "effectiveActive": False,
+                "historicalOverrideEnabled": os.environ.get(
+                    _HISTORICAL_ANATOMY_REVIEW_ENV, ""
+                ) == "1",
+            }
+        segment_id = str(
+            proxy.GetAttribute(self._STEP6_ANATOMY_REVIEW_SOURCE_SEGMENT_ATTRIBUTE)
+            or ""
+        )
+        return {
+            "exists": True,
+            "active": proxy.GetAttribute(
+                self._STEP6_ANATOMY_REVIEW_ACTIVE_ATTRIBUTE
+            )
+            == "true",
+            "historicalOverrideEnabled": os.environ.get(
+                _HISTORICAL_ANATOMY_REVIEW_ENV, ""
+            )
+            == "1",
+            "effectiveActive": (
+                proxy.GetAttribute(self._STEP6_ANATOMY_REVIEW_ACTIVE_ATTRIBUTE)
+                == "true"
+                and os.environ.get(_HISTORICAL_ANATOMY_REVIEW_ENV, "") == "1"
+            ),
+            "proxyNode": proxy,
+            "sourceSegmentId": segment_id,
+            "proxySegmentId": str(
+                proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewProxySegmentId")
+                or segment_id
+            ),
+            "operatorDecision": str(
+                proxy.GetAttribute("DENTOBOT.Step6AnatomyReviewDecision") or "Pending"
+            ),
+        }
+
+    def beginStep6AnatomyReview(self, parameterNode, segmentId: str) -> dict[str, object]:
+        """Create an editable, session-only copy of one non-target tooth.
+
+        The source segmentation is never changed and the copy is inactive until
+        the operator explicitly confirms a reviewed local artifact.  The node
+        uses ``SaveWithSceneOff`` so neither the proxy nor its decision can be
+        smuggled into an MRML scene or DentoCase as authoritative anatomy.
+        """
+
+        segmentation_node = parameterNode.teethSegmentation
+        if segmentation_node is None:
+            raise ValueError(_("A teeth segmentation is required for anatomy review."))
+        candidates = {
+            record["segmentId"]: record
+            for record in self.step6AnatomyReviewCandidates(parameterNode)
+        }
+        segment_id = str(segmentId or "")
+        record = candidates.get(segment_id)
+        if record is None:
+            raise ValueError(
+                _("Select a non-target whole-tooth segment for manual review.")
+            )
+        existing = self.step6AnatomyReviewProxyNode(parameterNode)
+        if existing is not None:
+            existing_id = str(
+                existing.GetAttribute(
+                    self._STEP6_ANATOMY_REVIEW_SOURCE_SEGMENT_ATTRIBUTE
+                )
+                or ""
+            )
+            if existing_id != segment_id:
+                raise ValueError(
+                    _(
+                        "Discard the current session anatomy-review copy before "
+                        "reviewing another tooth."
+                    )
+                )
+            return self.step6AnatomyReviewState(parameterNode)
+
+        proxy = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLSegmentationNode",
+            "[Step 6] Research Simulation Anatomy Review — %s"
+            % str(record["displayName"]),
+        )
+        try:
+            copied = proxy.GetSegmentation().CopySegmentFromSegmentation(
+                segmentation_node.GetSegmentation(), segment_id, False
+            )
+            if not copied or proxy.GetSegmentation().GetSegment(segment_id) is None:
+                raise RuntimeError("Could not copy the selected source segment.")
+            proxy.SetAndObserveTransformNodeID(segmentation_node.GetTransformNodeID())
+            proxy.GetSegmentation().SetConversionParameter(
+                slicer.vtkSegmentationConverter.GetReferenceImageGeometryParameterName(),
+                segmentation_node.GetSegmentation().GetConversionParameter(
+                    slicer.vtkSegmentationConverter.GetReferenceImageGeometryParameterName()
+                ),
+            )
+            proxy.SetAttribute(
+                "DENTOBOT.Step6AnatomyReviewSourceFingerprint",
+                self._step6AnatomyReviewFingerprint(segmentation_node, segment_id),
+            )
+            proxy.SetAttribute(self._STEP6_ANATOMY_REVIEW_PROXY_ATTRIBUTE, "true")
+            proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewSession", _ANATOMY_REVIEW_SESSION)
+            proxy.SetAttribute(
+                self._STEP6_ANATOMY_REVIEW_SOURCE_NODE_ATTRIBUTE,
+                segmentation_node.GetID(),
+            )
+            proxy.SetAttribute(
+                self._STEP6_ANATOMY_REVIEW_SOURCE_SEGMENT_ATTRIBUTE, segment_id
+            )
+            proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewProxySegmentId", segment_id)
+            proxy.SetAttribute(self._STEP6_ANATOMY_REVIEW_ACTIVE_ATTRIBUTE, "false")
+            proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewDecision", "Pending")
+            proxy.SetAttribute("DENTOBOT.ResearchOnly", "true")
+            proxy.SetAttribute(
+                "DENTOBOT.IntendedUse",
+                "SessionOnlyManualSegmentationArtifactReview",
+            )
+            source_volume = self.getSegmentationSourceVolume(segmentation_node)
+            proxy.SetNodeReferenceID(
+                self.SOURCE_VOLUME_REFERENCE_ROLE, source_volume.GetID()
+            )
+            proxy.SetAttribute("DENTOBOT.SourceVolumeID", source_volume.GetID())
+            proxy.SaveWithSceneOff()
+            proxy.CreateDefaultDisplayNodes()
+            display = proxy.GetDisplayNode()
+            if display is not None:
+                display.SaveWithSceneOff()
+                display.SetVisibility(True)
+                display.SetVisibility2D(True)
+                display.SetVisibility3D(True)
+                display.SetSegmentVisibility(segment_id, True)
+                display.SetSegmentVisibility3D(segment_id, True)
+                display.SetSegmentOpacity3D(segment_id, 0.85)
+        except Exception:
+            slicer.mrmlScene.RemoveNode(proxy)
+            raise
+        return self.step6AnatomyReviewState(parameterNode)
+
+    def setStep6AnatomyReviewProxyActive(self, parameterNode, active: bool) -> dict[str, object]:
+        """Explicitly accept or disable the reviewed, local proxy for this session."""
+
+        state = self.step6AnatomyReviewState(parameterNode)
+        proxy = state.get("proxyNode")
+        if proxy is None:
+            raise ValueError(_("Create a session anatomy-review copy first."))
+        if active:
+            if not state.get("historicalOverrideEnabled"):
+                raise ValueError(_("Anatomy-review overrides are retired from the baseline."))
+            self._validateStep6AnatomyReview(parameterNode, state)
+            proxy_segment_id = str(state.get("proxySegmentId") or "")
+            surface = self._segmentationSegmentsSurfaceWorld(proxy, {proxy_segment_id})
+            if surface is None or surface.GetNumberOfPoints() == 0:
+                raise ValueError(_("The reviewed proxy has no closed-surface geometry."))
+            topology = surface_topology(surface)
+            if topology["boundaryOrNonManifoldEdgeCount"] != 0:
+                raise ValueError(
+                    _("The reviewed proxy is not closed and watertight; repair it before use.")
+                )
+            proxy.SetAttribute(
+                "DENTOBOT.Step6AnatomyReviewDecision",
+                "SEGMENTATION_ARTIFACT_MANUAL_REVIEW",
+            )
+            proxy.SetAttribute(
+                "DENTOBOT.Step6AnatomyReviewAcceptedFingerprint",
+                self._step6AnatomyReviewFingerprint(proxy, proxy_segment_id),
+            )
+        else:
+            proxy.SetAttribute("DENTOBOT.Step6AnatomyReviewDecision", "Pending")
+        proxy.SetAttribute(
+            self._STEP6_ANATOMY_REVIEW_ACTIVE_ATTRIBUTE,
+            "true" if active else "false",
+        )
+        proxy.SetAttribute(
+            "DENTOBOT.Step6AnatomyReviewUpdatedUtc",
+            datetime.now(timezone.utc).isoformat(),
+        )
+        return self.step6AnatomyReviewState(parameterNode)
+
+    def discardStep6AnatomyReview(self, parameterNode) -> bool:
+        """Discard the proxy only; the source segmentation stays untouched."""
+
+        proxy = self.step6AnatomyReviewProxyNode(parameterNode)
+        if proxy is None:
+            return False
+        slicer.mrmlScene.RemoveNode(proxy)
+        return True
+
     def buildPlanningContextNodeMap(self, parameterNode) -> dict[str, str]:
         def node_id(node) -> str:
             return node.GetID() if node else ""
@@ -623,11 +907,33 @@ class RobotSceneSyncLogicMixin:
                     )
                 )
             isMoving = segmentId in lowerIds
-            preparedWorld = sourceWorld
+            # A reviewed proxy can replace collision geometry only for one
+            # explicitly confirmed local artifact. Keep the original source
+            # world mesh and canonical object identity in the audit so the
+            # collision-scene record explains exactly what was substituted.
+            review_state = self.step6AnatomyReviewState(parameterNode)
+            review_proxy = review_state.get("proxyNode")
+            review_active = bool(
+                review_state.get("effectiveActive")
+                and str(review_state.get("sourceSegmentId") or "") == str(segmentId)
+                and review_proxy is not None
+            )
+            collisionWorld = sourceWorld
+            if review_active:
+                self._validateStep6AnatomyReview(parameterNode, review_state)
+                collisionWorld = self._segmentationSegmentsSurfaceWorld(
+                    review_proxy,
+                    {str(review_state.get("proxySegmentId") or segmentId)},
+                )
+                if collisionWorld is None or collisionWorld.GetNumberOfPoints() == 0:
+                    raise ValueError(
+                        _("The active reviewed anatomy proxy has no collision surface.")
+                    )
+            preparedWorld = collisionWorld
             if isMoving:
                 preparedWorld = self._step6CaseJawPolydataWorld(
                     parameterNode,
-                    sourceWorld,
+                    collisionWorld,
                 )
             triangle = vtk.vtkTriangleFilter()
             triangle.SetInputData(preparedWorld)
@@ -664,7 +970,15 @@ class RobotSceneSyncLogicMixin:
                 source_id=sourceId,
                 source_name=sourceName,
                 source_role=sourceRole,
-                classification="moving" if isMoving else "fixed",
+                classification=(
+                    "reviewed-session-proxy-moving"
+                    if review_active and isMoving
+                    else "reviewed-session-proxy-fixed"
+                    if review_active
+                    else "moving"
+                    if isMoving
+                    else "fixed"
+                ),
                 source_world=sourceWorld,
                 prepared_world=collisionSurface,
                 jaw_transform_applied=isMoving,

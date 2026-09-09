@@ -325,6 +325,47 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             rootCount,
         )
 
+        pulpRecords = [
+            record for record in self.getSegmentationReviewRecords(segmentationNode)
+            if record["category"] == "Pulp and root canals"
+            and record["fdiNumber"] == inputs["targetRecord"]["fdiNumber"]
+        ]
+        if len(pulpRecords) != 1:
+            raise ValueError(_("Assisted generation requires exactly one pulp mask for the selected tooth."))
+        pulpId = pulpRecords[0]["segmentId"]
+        pulpImage = slicer.vtkOrientedImageData()
+        if not segmentationNode.GetBinaryLabelmapRepresentation(pulpId, pulpImage):
+            raise ValueError(_("The selected tooth has no binary pulp mask. Create or restore that mask first."))
+        scalars = pulpImage.GetPointData().GetScalars()
+        if scalars is None:
+            raise ValueError(_("The selected tooth's pulp mask is empty."))
+        mask = vtk_to_numpy(scalars).reshape(tuple(reversed(pulpImage.GetDimensions())))
+        imageToRas = vtk.vtkMatrix4x4()
+        pulpImage.GetImageToWorldMatrix(imageToRas)
+        rasToImage = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Invert(imageToRas, rasToImage)
+        worldToLocal = vtk.vtkMatrix4x4()
+        worldToLocal.Identity()
+        parent = segmentationNode.GetParentTransformNode()
+        if parent and not parent.GetMatrixTransformFromWorld(worldToLocal):
+            raise ValueError(_("Assisted pulp intersection requires a linear segmentation transform."))
+        worldToImage = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(rasToImage, worldToLocal, worldToImage)
+        extent = pulpImage.GetExtent()
+        analysis["rootTargetsRas"] = analysis["targetsRas"]
+        targets = []
+        for index, (entry, target) in enumerate(zip(inputs["entryPointsRas"], analysis["rootTargetsRas"]), 1):
+            entryIjk = worldToImage.MultiplyPoint((*entry, 1.0))[:3]
+            targetIjk = worldToImage.MultiplyPoint((*target, 1.0))[:3]
+            try:
+                fraction = first_mask_intersection(mask, entryIjk, targetIjk, extent[::2])
+            except ValueError as exc:
+                raise ValueError(_("Assisted trajectory %1: ").replace("%1", str(index)) + str(exc)) from exc
+            targets.append([float(a + fraction * (b - a)) for a, b in zip(entry, target)])
+        analysis["targetsRas"] = targets
+        analysis["endpointMethod"] = "FirstPulpVoxelBoundaryV1"
+        analysis["pulpSegmentId"] = pulpId
+
         created = []
         try:
             for index, (entry, target) in enumerate(

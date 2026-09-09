@@ -1,5 +1,181 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-09 development, stable, dependency, and runtime identities
+
+Use this release topology:
+
+```text
+main (active development)
+  -> isolated acceptance checkpoint
+  -> stable/lab (planned moving accepted pointer)
+  -> lab/YYYY-MM-DD (immutable installation and experiment identity)
+```
+
+`stable/lab` does not yet exist and must not be created from an unaccepted or
+dirty checkout. Lab machines detach at a dated tag. A release correction lands
+on the stable line, receives a new dated tag after acceptance, and is reconciled
+back to `main` so the histories do not drift.
+
+The DentoBot source tag, pinned `slicer_ros2_module` commit SHA, runtime image
+digest, inference environment lock, model-cache identity, and machine profile
+are separate reproducibility fields. A new DentoBot source tag does not require
+a new SlicerROS2 commit. A runtime image can be reused only when its complete
+runtime input set is unchanged and its digest has been independently accepted.
+The current publisher couples image labels to a DentoBot revision, so reuse
+across source tags remains a planned publisher change rather than an available
+release claim.
+
+For Windows machines, `WINDOWS_SETUP.md` defines the canonical manifest fields,
+installation boundary, and acceptance evidence. Docker Engine inside WSL2 is
+the default provider; Docker Desktop WSL integration is an exclusive
+alternative and does not change the identities above.
+
+## 2026-09-09 verification reporting policy
+
+`AGENTIC_VERIFICATION_PROTOCOL.md` now defines the canonical evidence ladder,
+retry history, collision/UI evidence package and completion labels. Retain
+case/source/build/policy identity with each result, and report functional PASS
+separately from shutdown status. Existing historical runs keep their original
+evidence level; this documentation change cannot upgrade prior acceptance.
+Imported policy provenance and official prompting sources are in DECISIONS.md.
+
+## 2026-09-09 FDI11 temporary-endpoint and exact blocker evidence
+
+The exact input remains
+`data/Slicer_Saved/SampleStudy1/FDI11/dentobot-case-step6x4x2.dentocase`
+(SHA-256
+`ffc0940899d2396a8ae0c942f0b9d8e9d30a059dc8995807e4998e2f45677f0b`).
+Read-only nested NRRD inspection found the FDI11 tooth as label 11 and no
+FDI11 pulp segment. Along the saved 7.977207 mm Entry-to-Target axis, the
+FDI11 tooth-label voxel boxes occupy 0–7.798621 mm, then leave a 2.597551 mm
+bounded internal gap before the tooth label resumes. This geometric result
+does not itself establish a pulp label. The operator explicitly classified the
+missing label as a segmentation defect and authorized the current run to keep
+the capped 6 mm endpoint without a pulp claim.
+
+The latest exact full-chain diagnostic is
+`/tmp/dentobot-exact-case-diagnostic.json` inside the pinned container. It
+records a 6.000 mm drilling request plus the provisional 0.500 mm guide/shell
+allowance, eight configured housing/template contact warnings at
+0.235233–0.356772 mm penetration, and a hard Stage-3 rejection at the final
+waypoint for `pneumatic_spindle-Copy` contact with the FDI21 collision object
+`dentobot_tooth_2.25.156727832881888777359082987559036393993_71ddde60`.
+The endpoint policy is therefore aligned with the current temporary scope; the
+complete cycle remains unaccepted because of adjacent anatomy contact.
+
+## 2026-09-08 bounded guide-contact evidence profile
+
+The operator explicitly authorized stationary spindle-housing contact with the
+configured guide shell for the current functional simulation. Admit it only in
+terminal contact, drilling and retraction, and only while reported penetration
+is at most 0.5 mm. Retain the existing 0.1 mm positive burr-guide clearance and
+all other hard guard conditions.
+
+For every admitted contact sample, retain the task, scene and guard-session
+fingerprints; phase and sequence; exact link/object pair; warning kind; contact
+sample count; maximum penetration; and reason. Re-run collision evaluation with
+only the admitted exact pair allowed and retain any remaining collision as the
+authoritative failure. The initial and repeated exact-case cycles must each
+carry their warning summaries. This record is functional simulation evidence,
+not a measurement or proof that real shell contact preserves the commanded
+trajectory.
+
+## 2026-09-08 guide-clearance warning evidence profile
+
+The operator resumed the blocked FDI11 goal with a new simulation policy. Keep
+the 6 mm effective Target and record 0.5 mm provisional guide/shell traversal,
+6.5 mm maximum combined insertion, 7 mm modeled protrusion, and 0.5 mm remaining
+visible protrusion. Do not interpret the 0.5 mm guide/shell value as a measured
+property of the saved template.
+
+For every accepted sub-1 mm non-burr-link-to-configured-guide sample, retain the
+task and guard-session fingerprints, phase, sequence/waypoint, warning sample
+count, minimum distance, robot link, guide object, and human-readable reason.
+Record warnings in the persistent motion diagnostic and in both initial and
+repeat cycle results. Preserve actual-collision outcomes separately. A warning
+record cannot authorize hardware use or become evidence that the physical
+clearance is adequate.
+
+The exact-case continuation recorded two distinct bounded failures under the
+same source case hash and -5 mm in-memory base-local Z placement. One route
+accepted four non-contact guide warnings and then rejected
+`pneumatic_spindle-Copy`↔final-template penetration at Stage 3 checkpoint 16;
+the first contact depth reported by MoveIt's contact result was 0.026243 mm.
+Another route rejected a 0.012463 mm burr-template gap before Stage 3. These
+outcomes are retained as route-sensitive diagnostic evidence under
+`artifacts/verification/combined-warning-retract-20260908/`. Neither is a
+completed motion cycle, and the source case remains byte-identical.
+
+## 2026-09-08 provisional burr/guide test profile
+
+Operator-approved simulation profile: 1 mm radial-scaled burr mesh with axial
+geometry preserved; confirmed Target capped at 6 mm; 0.1 mm clearance only for
+explicit burr–guidance-object pairs. All actual guide collisions and other
+1 mm margins remain rejected. The measured-profile replacement requirements
+are in DECISIONS.md, "Provisional simulation tool and guide clearance".
+Record the original case hash, effective task fingerprint, guide object IDs,
+mesh checksum, base placement and guard settings with each full-cycle result.
+The current diagnostic base trial is -5 mm in base-local Z, applied in memory;
+it is not an edit to the source case or a measured hardware placement.
+New continuation evidence is under
+`artifacts/verification/guide-margin-20260908/` in the Ubuntu workspace.
+Earlier host temporary logs disappeared; a retained container diagnostic has
+been copied there as `prior-container-diagnostic.json`. Keep that provenance
+separate from newly generated runtime evidence. Full-loop acceptance pending.
+
+## 2026-09-07 baseline correction and evidence boundary
+
+The pre-surgery/x4 records below are retained as historical diagnostics only;
+they do not define the current production collision policy or acceptance case.
+The current baseline permits the narrow burr-contact policy only for the
+selected target tooth. Non-target anatomy and Step 5C guide/template geometry
+remain authoritative collision objects and retain the research clearance
+margin. The historical template-exclusion and anatomy-review proxy paths are
+explicit process-local diagnostic opt-ins, are not saved in `.dentocase`, and
+cannot produce normal acceptance evidence. A reviewed clean/post-surgery case
+with finalized tool/guide geometry is required for the next Track-A runtime
+trial.
+
+## 2026-09-08 simulation endpoint evidence boundary
+
+The operator-selected 6 mm cap derives only the confirmed Step 6 simulation
+Target. Preserve source trajectory lineage and record effective endpoint and
+cap policy in the existing snapshot identity. Old snapshots remain readable
+but require reconfirmation under the new policy. Distinguish source Target,
+effective simulation Target and anatomically reviewed pulp entry in reports;
+none is interchangeable evidence. The FDI11 step6x4x2 input has a 7.977207 mm
+source line. Full-loop runtime and axial withdrawal remain unverified.
+
+## 2026-09-05 session-only anatomy-review source checkpoint
+
+- Step 6.5 source adds a manual, opt-in anatomy-review control. It permits one
+  selected non-target tooth to be copied into a `SaveWithSceneOff` segmentation
+  node and edited against the original CBCT in Segment Editor.
+- The source segment is retained as the collision audit's source mesh and
+  canonical object identity. An explicitly confirmed proxy may change only the
+  prepared collision mesh; therefore the acknowledged collision audit
+  fingerprint changes and stale task/diagnostic evidence must be regenerated.
+- No local-artifact assertion, Slicer/ROS runtime test, collision bypass,
+  preview, package save, hardware action, or acceptance claim accompanies this
+  source checkpoint.
+
+## 2026-09-04 position-axis IK source checkpoint
+
+- Static transform audit: fixed `dentobot_drill_tcp` differs from the former
+  J6=0 burr-tip transform by approximately `4.0e-16 m` translation and
+  `1.2e-6 deg` rotation.
+- Historical x4 J1–J5 endpoint `[-0.1506145468, 0.0195839799,
+  3.2188114837, 0.0452179748, -0.0258565804]` evaluates with the current URDF
+  at about `0.099 mm` PreEntry position error and `0.0068 deg` Entry→Target
+  axis error; derived housing roll is about `74.603 deg`. This is kinematic
+  evidence only and does not revalidate the current collision scene.
+- Source adds native XYZ-plus-axis IK, structured best-residual evidence,
+  bridge/facade routing, authoritative-FK frame evidence, and fixed-axis
+  Stage 2/3 Cartesian requests. Housing roll is not a commanded task
+  constraint because the pneumatic spindle is external.
+- No build, Slicer/ROS/MoveIt check, preview, hardware action, publication, or
+  acceptance claim has been performed for this source checkpoint.
+
 ## 2026-09-03 guarded-live-first source checkpoint
 
 - Clean DentoBot baseline before the two-track plan:
@@ -58,6 +234,79 @@ trial can be reproduced against the same source boundaries:
 No full x4 Home→PreEntry→Entry→Target→Home runtime loop was run in this
 checkpoint. The normal-window acceptance gate remains open; no hardware,
 powered spindle, drilling, or patient-facing action occurred.
+
+## 2026-09-04 Track-A Stage-3 boundary evidence
+
+- Scoped AST parsing and the Step-6 pure suite passed: `72 passed`.
+- The approved isolated x4 Goal-1-only run emitted
+  `DENTOBOT_STEP65_EXACT_CASE_PASS`; it previewed 55 strict Stage-1 points and
+  21 terminal Stage-2 points, reached the exact Entry endpoint, and retained
+  the provisional preview with J1–J5 only.
+- Full-chain preflight remains `Blocked` at Stage 3. The exact fixed-axis line
+  reaches requested pose `59/64`; at `60/64` the native bounded solver retains
+  its best finite J1–J5 state at J2=`0.0 m`, approximately `0.251 mm` from the
+  requested point with `0.000 deg` drill-axis error. No collision pair was
+  reported. The run therefore does not authorize or preview drilling.
+- Source now tries only deterministic, already Home-connected 6.3 branch seeds
+  after local continuity reaches the boundary, reports the native best
+  residual, computes the correct continuation fraction from the dense line,
+  and validates the final Target with authoritative FK whenever Stage 3 is
+  complete. No tolerance, target, collision, or partial-path rule changed.
+- The same run reports the independent physical-fit failure that the
+  approximate `2.0 mm` burr exceeds the `1.5 mm` guide bore. Exploratory
+  burr/guide contact suppression remains explicitly separate from kinematic
+  reachability and cannot be used as a manufacturing-fit claim.
+- The diagnostic process exited nonzero at shutdown with the known pinned
+  SlicerROS2 VTK-wrapper leak report; this is retained lifecycle evidence and
+  not a planning pass/fail substitution. Containers were torn down cleanly.
+
+Evidence: `/tmp/dentobot-verification/20260904-tracka/goal1only_final4.log`,
+`goal1only_latest2.log`, `diag_position_axis_latest4.log`,
+`pure_endpoint_gate.log`, and `graphify-out/GRAPH_REPORT.md`. The final4 run
+also follows the targeted Release rebuild of `slicer_ros2_module`; the build
+finished successfully with only existing CMake developer-policy warnings.
+
+## 2026-09-05 x4 template-excluded nearest-point classification
+
+The explicit, non-default functional-simulation template exclusion was active
+only for the unresolved Step-5C final-template object. The retained x4
+candidate branches reached 100% kinematically through Stage 3. The best saved-
+base complete branch (`seed=185`, fixed housing roll `74.82497955 deg`) was
+rejected at Stage-3 local waypoint 18 by the additional 1.0 mm research
+clearance rule, not by `checkCollision`: nearest
+`pneumatic_spindle-Copy` ↔ FDI15 distance was `0.998041065511 mm`, with empty
+collision-pair evidence. Its nearest world-RAS points were approximately
+`[-75.7344055, -66.6337875, 50.4790334]` on FDI15 and
+`[-75.7318734, -66.6914738, 49.4826641]` on the housing.
+
+This establishes a 1.959 µm shortfall against the research margin at that
+single inspected point. It does not establish that the unvisited remainder of
+the route is mesh-contact free. The approved read-only complete-path audit on
+2026-09-05 then queried MoveIt's explicit static-state service for every
+retained waypoint with only the unresolved final template excluded. For each
+of the six auditable branches, Stage 1 was mesh-valid, while Stage 2 first had
+an actual non-target FDI15↔`burr` contact at waypoint 14 and Stage 3 had that
+same FDI15↔`burr` contact at waypoint 0 (together with expected target↔burr
+contact). One additional diagnostic row retained no live waypoints and makes
+no contact claim. This is runtime simulation evidence of a real non-target
+mesh overlap, not a margin-only result or acceptance evidence.
+
+Evidence: `/tmp/dentobot-verification/20260904-x4-template-override-plan-v3-nearest/slicer.log`.
+
+### Focused exact-pose reachability follow-up — 2026-09-04
+
+`stage3_pose60_diag7.log` evaluated exact dense pose `60/64` with 40
+deterministic J1–J5 seeds and collision checking disabled. Every near-best
+branch pinned J2 at its authoritative lower limit and produced exact drill-axis
+direction with `0.2510335 mm` position residual. The residual was only along
+the robot-base Z/J2 direction. A diagnostic-only out-of-range J2 value of
+`-0.0003 m` reduced the residual to `0.0489665 mm`; it was never submitted,
+guarded, persisted, or previewed. This proves the current x4 base/trajectory
+is mechanically unreachable at that exact Target under the approved bounds,
+and is not a burr/template collision. The planner now records
+`sequential_position_axis_joint_limit` with the limiting joint and directs
+operator base/case-placement correction. No tolerance, endpoint, URDF limit,
+collision rule, or partial-path policy changed.
 
 ### Track A source implementation continuation — 2026-09-03
 

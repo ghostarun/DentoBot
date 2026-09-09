@@ -4,6 +4,146 @@ This is the canonical verification and subagent contract for Codex, Cursor,
 Claude, and future agentic tools. Tool-specific instruction files must point
 here instead of copying these rules.
 
+## Verification economy — adopted 2026-09-09
+
+Choose the cheapest evidence that can resolve the current question. Full
+SlicerROS2 startup, rebuilds and complete workflow runs are final validation
+tools, not the default debugging loop. This section integrates the operator's
+`CODEX_TESTING_VERIFICATION_POLICY.md`; provenance and interpretation are in
+DECISIONS.md and today's logbook. Its P0–P5 policy labels do not assign or change
+TASKS.md priorities. Model/effort limits remain in `Workspace/AGENTS.md`.
+
+Before execution, specify the question, relevant source/case identity,
+hypothesis, smallest check, expected discriminating result, evidence level and
+stop condition. Reuse existing evidence when its inputs/build/policy match;
+saved evidence never restores live scene or guard validity. Reading source,
+logs and documentation is not permission to execute a test.
+
+| Level | Choose when it answers the question | Scope |
+|---|---|---|
+| 0 — inspect | Existing source, logs, settings or saved evidence suffice | Callers, units/frames, dimensions, registration, first causal error |
+| 1 — isolated logic | Behavior can be reproduced without Slicer/ROS | One relevant function/fixture; geometry, transforms, clipping, serialization |
+| 2 — narrow runtime | Runtime ownership or native behavior is necessary | One Slicer logic path, ROS node, guard or MoveIt request |
+| 3 — focused integration | The defect crosses a subsystem boundary | One explicit Slicer→ROS, scene→guard or trajectory→planner question |
+| 4 — full workflow | Lower applicable checks pass and end-to-end evidence is required | Complete guarded simulation and required repeat cycle |
+
+The ladder is a selection rule, not five mandatory runs. Explain why cheaper
+evidence is insufficient when selecting a higher level. Preserve matrix
+dependencies; reuse a matching successful dependency or record an inapplicable
+conditional build, rather than inventing meaningless lower-level tests.
+Profiles select candidate checks, not automatic permission to run every check.
+Resolve paths from the checkout root
+`/home/light-tarun/dentobot/ros2_ws/src/DentoBot`; the matrix is
+`Testing/verification_matrix.json` there (`../Testing` from `Workspace`, not
+from the overlay root). A missing matrix command requires a concrete bounded
+command in the proposed plan; never guess an invocation and execute it.
+
+### Retry budget and stop conditions
+
+Count failed executions against the same causal blocker, across commands,
+workers, sessions and resumed tasks. Record the count and evidence in the run
+record/logbook; a renamed run or parameter variation does not reset it.
+
+1. First failure: preserve the earliest causal evidence and inspect it.
+2. Second attempt: test one evidence-backed correction/hypothesis with the
+   smallest relevant check, within approved scope.
+3. A third attempt is permitted only if attempt two adds diagnostic evidence
+   or the third tests a clearly different, stated hypothesis.
+
+After three failures, stop autonomous retries on that blocker and ask Tarun
+for the specific missing judgment/input. Three is a ceiling, not a target.
+Stop earlier for a full-runtime failure with no new information, ambiguous
+geometry/UI state, decision-critical unknown dimensions, questionable anatomy
+or case validity, competing fixes requiring a design choice, or a proposed
+safety relaxation. Continue independent authorized work while input is pending.
+Resume the blocked check only after relevant operator guidance or an explicitly
+approved revised plan, preserving the previous attempt history.
+
+### Visual evidence and human escalation
+
+For a new collision blocker, identify the exact bodies and save the stage,
+waypoint, joints (names/units), tool pose/frame, scene identity and signed
+distance/penetration with units if available. Mark missing fields `unknown`;
+neither a planner fraction nor visual overlap proves collision.
+
+Capture a context view and a close-up (alternate angle if useful) showing the
+offending bodies and relevant axis/pose before trying geometric fixes. Use
+retained artifacts or the already approved runtime first. A screenshot must
+match the reported state; any reconstructed display is labelled as such.
+Screenshots explain geometry; numerical guard evidence remains authoritative.
+Do not start/restart Slicer, move the robot, replace an operator scene or relax
+guards merely to obtain a picture without the applicable authorization. If no
+safe capture is available, report that limitation immediately with the retained
+diagnostic and a concrete capture/manual-inspection request; do not replace
+missing visual evidence with repeated runtime guesses. Exclude patient identity.
+
+For UI ambiguity, retain substep, target, readiness/button states and visible
+versus hidden relevant objects; ask for the missing workflow observation.
+Escalate early when a short operator visual review can settle the question.
+Send one compact blocker package:
+
+- Expected/actual behavior and exact failed step/waypoint.
+- Only relevant configuration: target, depth, tool/guide dimensions, base,
+  branch, pose/limits, guard policy and simulation assumptions.
+- First error, exact pair/distance if present, and links to logs/images.
+- At most three attempted actions; current hypothesis in one or two sentences.
+- One narrow question whose answer selects the next bounded action.
+
+At most one cheap discriminating check per hypothesis. Do not conduct blind
+parameter sweeps unless explicitly requested. Authorized variations change one
+parameter class and record the baseline and expected distinction. Changing
+base, burr, guide, depth or a safety margin requires the existing scope/approval;
+examples in the imported policy are not authorization. Never tune around unknown
+physical dimensions. Label any approved provisional values `SIMULATION-ONLY`
+with rationale, measurement needed to replace them and safety interpretation.
+Do not promote them to requirements. Retired abnormal pre-surgery/x4 anatomy
+remains a negative fixture; do not confuse it with every filename containing x4
+or force it into acceptance through planner/geometry exceptions.
+
+### Build and regression selection
+
+Prefer reload or an isolated check for Python/data/fixture changes. Establish
+that the intended code/assets are actually loaded; use a package install/build
+only if deployment requires it. A changed compiled constant still needs its
+owning native package rebuilt even if described as a threshold-only change.
+Use incremental package builds for changed C++/interfaces/CMake. A full rebuild
+needs a specific dependency/image/build reason and an explanation of why the
+narrower build is insufficient. No unrelated container rebuilds after edits.
+
+| Changed behavior | First meaningful regression scope |
+|---|---|
+| Template/boundary | Boundary processing, shell connectivity, unified geometry |
+| Trajectory | Entry/direction preservation, endpoint policy, validity |
+| Planning | Route/joint limits and guard, then affected stage/integration |
+| Collision guard | Known safe, known forbidden, threshold edge, stale-object cleanup |
+| Restore/UI lifecycle | State/serialization first, then affected load/reload interaction |
+
+Run the applicable smoke/regression gate after targeted success or a meaningful
+integration change, once for the resulting revision. Broaden/repeat only for
+new changes, failures or unresolved risks; avoid tests mirroring trivial edits.
+Required safety, native and full-cycle acceptance checks cannot be skipped for
+economy. Documentation-only edits use readback/link/consistency inspection;
+they do not require application tests. Matrix test/build commands retain their
+approval classes, including static commands listed there.
+
+### Completion claims
+
+Report separate evidence levels: **Implemented**, **Unit Verified**, **Runtime
+Verified**, **Integration Verified**, **Full-Cycle Verified**, and **Operator
+Verified**. Scope each label to the tested behavior/case/revision. Inspection
+or compilation is not Unit Verified; a build is not runtime evidence; functional
+PASS with nonzero shutdown remains two outcomes. Do not say “fixed” on source
+implementation alone. Operator acceptance is never inferred from an agent run.
+
+The current full-cycle gate remains Task Home→guarded approach→PreEntry→Entry→
+exact effective Target→guarded axial withdrawal→Home, then the required fresh
+repeat cycle. Use current reviewed geometry, trajectory, joint/phase/guard
+policy and explicitly recorded provisional assumptions; historical abbreviated
+workflow arrows do not omit Entry, endpoint verification, withdrawal or repeat.
+Authorized guide warnings retain their exact scope and evidence. This policy
+does not create, widen or revoke a case-specific contact authorization, and
+full-cycle simulation evidence is not hardware/clinical acceptance.
+
 ## Safety and authority
 
 - Verification is simulation/research evidence only. It never authorizes robot
@@ -20,13 +160,30 @@ here instead of copying these rules.
   failed or interrupted gate; newly introduced resources require approval.
 - The operator may narrow or withdraw approval at any time. The latest scope
   wins immediately.
+- Reuse approval already granted in this task for the same bounded plan; do not
+  ask again per command. New scope/resources, safety-relevant input changes or
+  continuation beyond the retry ceiling need the corresponding new decision.
+  Complete authorized inspection/implementation before presenting a concrete
+  execution plan. This policy update is not itself test/runtime authorization.
 
 ## Coordinator and workers
 
-The coordinator is the sole production-code and controlled-document editor.
-Verification workers are read-only. A worker that discovers a defect reports
+The coordinator is the sole controlled-document editor and owns integration
+and final acceptance. Under the operator's corrected model policy in
+`Workspace/AGENTS.md`, a Luna Max implementation worker may edit only explicitly
+assigned code/test files after Astra light supplies the complete plan. This
+exception does not apply to verification workers and does not authorize tests
+or runtime execution. Do not overlap writes or check actively changing files.
+
+Verification workers are read-only. A verification worker discovering a defect reports
 it; it does not patch source, change parameters, relax collision rules, or
 silently retry with different inputs.
+
+For Codex model/effort selection, follow `Workspace/AGENTS.md` (Astra light
+ceiling applies only to Astra; Luna Max implements, Terra High verifies).
+Default to solo, or one justified auxiliary. The three workers below are available responsibilities, not a
+mandatory team. More than one requires an explicit operator request or approved
+verification plan. The matrix limit is a hard maximum, not a target.
 
 Use at most three workers alongside the coordinator:
 
@@ -36,7 +193,7 @@ Use at most three workers alongside the coordinator:
 3. **Runtime worker** — the sole owner of Docker, ROS domain 73, Slicer,
    MoveIt, display, install tree, and the active MRML scene.
 
-A diagnostic worker is created or resumed only after a runtime failure and
+A diagnostic worker, if justified, is created or resumed only after a runtime failure and
 uses the runtime worker's saved evidence. It remains read-only and does not
 re-plan unless the approved check explicitly requires a reproduction.
 
@@ -68,7 +225,7 @@ conditional colcon build (exclusive install tree)
                  v
 one Slicer/ROS/MoveIt runtime check at a time
                  |
-          pass --+-- fail -> read-only diagnostic worker
+          pass --+-- fail -> inspect saved evidence; optional diagnostic worker
                  |
                  v
 manual normal-window operator acceptance
@@ -173,4 +330,3 @@ claim.
 - Builds run only when their owned production sources changed or the operator
   requests a clean rebuild.
 - Manual gates have no executable command and are never delegated.
-

@@ -119,6 +119,9 @@
         </collision>
     </link>
     <link name="burr">
+        <!-- Research simulation variant: 1 mm diameter, original 7 mm axial
+             geometry/TCP retained. Original CAD mesh remains burr.stl.
+             Inertia is historical CAD data, not validated for this variant. -->
         <inertial>
             <origin xyz="0.0014163069015514563 0.001513483224059975 -0.002820185245171638" rpy="0.0 -0.0 0.0" />
             <mass value="0.0001726305163147505" />
@@ -127,13 +130,13 @@
         <visual name="burr_visual">
             <origin xyz="0.0670228255526996 -3.4113875102548262e-09 0.033659179726168546" rpy="-2.6944124252960098 -0.46540985872937485 -2.4763081801936323e-17" />
             <geometry>
-                <mesh filename="package://dentobot_description/meshes/burr.stl" scale="0.001 0.001 0.001" />
+                <mesh filename="package://dentobot_description/meshes/burr_simulation_1mm.stl" scale="0.001 0.001 0.001" />
             </geometry>
         </visual>
         <collision name="burr_collision">
             <origin xyz="0.0670228255526996 -3.4113875102548262e-09 0.033659179726168546" rpy="-2.6944124252960098 -0.46540985872937485 -2.4763081801936323e-17" />
             <geometry>
-                <mesh filename="package://dentobot_description/meshes/burr.stl" scale="0.001 0.001 0.001" />
+                <mesh filename="package://dentobot_description/meshes/burr_simulation_1mm.stl" scale="0.001 0.001 0.001" />
             </geometry>
         </collision>
     </link>

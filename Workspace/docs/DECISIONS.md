@@ -1,5 +1,449 @@
 # Dentobot Technical Decisions
 
+## 2026-09-09 — Direct WSL Docker and separated release identities
+
+**Status:** Operator-approved documentation and release policy. The next lab
+freeze and runtime-image publisher decoupling remain pending.
+
+For the full Windows profile, Docker Engine running inside the selected WSL2
+Ubuntu distribution is the default Docker API provider. Docker Desktop with
+WSL integration remains a mutually exclusive alternative. Both providers use
+the same launcher and Compose stack, which must test required capabilities
+rather than branch on provider branding. `WINDOWS_SETUP.md` is the canonical
+Windows host and installation guide.
+
+Use three DentoBot source identities:
+
+- `main` is active development and may be ahead of accepted lab state;
+- the planned `stable/lab` branch is the moving pointer to the latest accepted
+  lab state and is created or advanced only during a release checkpoint;
+- immutable `lab/YYYY-MM-DD` tags identify installations and experiments.
+
+Do not create `stable/lab` from the current dirty, divergent checkout. Create
+it during the next isolated release preparation after reconciling and accepting
+the intended revision. Lab machines run a detached dated tag, never `main` or
+the moving branch.
+
+SlicerROS2 remains a separate repository pinned by immutable commit SHA in the
+lab manifest. It does not need a matching DentoBot stable branch. Keep the pin
+constant until a required feature, compatibility, security, or corrective
+change is accepted, then rebuild and verify the runtime.
+
+The SlicerROS2 runtime image may be reused across DentoBot releases when its
+base OS, Slicer, ROS/MoveIt dependencies, Dockerfile, architecture, and pinned
+SlicerROS2 SHA are unchanged. Record the immutable image digest independently
+from the DentoBot tag. The current image publisher embeds and validates a
+DentoBot tag/revision, so it still produces a DentoBot-coupled image. Decouple
+that publisher and accept the independent digest before claiming image reuse.
+
+This decision creates no branch, tag, image, commit, push, installation, or
+runtime acceptance by itself.
+
+## 2026-09-09 — Verification economy and Astra instruction integration
+
+**Operator request:** Integrate the supplied testing/verification policy into
+future SlicerROS development rules, informed by current OpenAI Astra prompting
+guidance. **Decision:** Maintain one executable-work policy in
+`AGENTIC_VERIFICATION_PROTOCOL.md`; AGENTS.md and AGENT_CONTEXT route to it.
+Do not create another competing policy file or copy the 18-section attachment
+into every instruction surface.
+
+Imported source: `/home/light-tarun/Downloads/CODEX_TESTING_VERIFICATION_POLICY.md`,
+SHA-256 `f6acb1c66ad22e4b52bec53d22fa3032cad2920ab41c6621297ecb14eac10177`.
+The source remains unchanged. Its operational requirements are adopted as a
+cheapest-sufficient-evidence ladder, at most three failed attempts per causal
+blocker, early visual escalation, bounded builds/regressions, explicit
+simulation assumptions and precise completion labels.
+
+Integration clarifications: choose applicable ladder levels rather than
+executing all five; screenshot collection respects existing runtime/scene
+ownership and approvals; parameter examples do not authorize changes; missing
+physical dimensions need operator input. Preserve scoped existing contact
+decisions and the exact Target/axial-withdrawal/repeat-cycle gate. Attachment
+P0–P5 labels describe policy emphasis, not engineering backlog priorities.
+Stop only the blocked path while other authorized work continues. Existing
+model presets, one-normal-auxiliary limit and execution approval remain intact.
+No environment, model configuration, production code or matrix command changed.
+
+**Official sources fetched 2026-09-09:**
+
+- [OpenAI GPT-6 Astra guidance](https://developers.openai.com/api/docs/guides/latest-model#prompting-best-practices): calibrate testing to the change, repeat/broaden only with cause, make delegation expectations explicit, audit conflicting skill/agent instructions, and avoid unnecessary pauses within authorized scope.
+- [Codex best practices](https://learn.chatgpt.com/guides/best-practices): specify goal, context, constraints and completion; keep durable guidance practical and route larger details to focused documents.
+- [AGENTS.md discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md): project instructions are layered by directory; references keep shared policy in one place rather than duplicating it.
+
+These support the prompting approach. The three-attempt ceiling, screenshot
+requirements, safety gates and Astra-low/Luna-Max/Terra-High choices are
+operator/project policy, not OpenAI-mandated standards or measured savings.
+Verification of this update is document readback and scoped diff inspection;
+future runtime compliance and efficiency have not been experimentally measured.
+
+## 2026-09-09 — Retain the non-pulp 6 mm endpoint for the current FDI11 simulation
+
+The operator clarified that the missing FDI11 pulp label is a segmentation
+output defect and that this constrained simulation intentionally bypasses the
+requirement for its endpoint to be the pulp boundary. Step 6 therefore keeps
+the existing 6 mm maximum-depth endpoint policy and must continue to report
+that endpoint as **not a pulp claim**. The source trajectory and source
+segmentation remain unchanged. Special handling for an operator-reviewed,
+unlabelled pulp region is deferred; the planner must not infer or relabel one
+silently.
+
+This clarification changes the acceptance interpretation, not collision
+authority. The configured guide/template exception remains limited to the
+non-rotating spindle housing with bounded, persisted warning evidence. Contact
+with adjacent FDI21 remains a hard rejection unless a later reviewed safety
+policy and physical model explicitly classify that exact contact.
+
+## 2026-09-08 — Permit bounded stationary-housing contact with the guide
+
+**Operator decision:** The robot's final workspace policy need not be entirely
+collision-free. Guide contact may be acceptable, but contact must not let the
+rotating tool grind against the guide or compromise the intended trajectory.
+For the current simulation, permit the stationary `pneumatic_spindle-Copy`
+housing to touch an explicitly configured guide/template shell by at most
+0.5 mm during terminal contact, drilling and guarded retraction. Reject the
+same contact during approach.
+
+The burr-to-guide pair retains a 0.1 mm positive clearance. Every other self or
+world collision and existing joint, identity, corridor, endpoint, monotonic
+drilling and reverse-retraction rule remains a hard failure. After classifying
+an allowed housing-guide contact, the guard must re-run complete collision
+evaluation with only that exact pair admitted so concealed contacts remain
+fail-closed.
+
+Persist warning kind, maximum penetration, sample count, link/object pair,
+phase and sequence with the plan, preview, return and repeat-cycle evidence.
+Completion with this warning proves only that the software followed the stated
+provisional policy. It does not establish shell stiffness, permissible contact
+force, friction, vibration, burr runout, spindle dimensions, or maintained
+physical trajectory accuracy. Replace the provisional dimensions and contact
+allowance with the team's measured and reviewed tool/guide profile before
+rigid physical constraints or hardware use.
+
+## 2026-09-08 — Admit guide-clearance shortfalls as simulation warnings
+
+**Operator decision:** Keep the confirmed drilling Target capped at 6.0 mm and
+account for a provisional 0.5 mm guide/shell traversal inside a 6.5 mm combined
+insertion allowance. With the modeled 7.0 mm protrusion, this leaves 0.5 mm of
+visible protrusion. These are explicit simulation assumptions, not measured
+shell or tool dimensions.
+
+For phased simulation only, a positive non-contact clearance below the ordinary
+1 mm research margin between any non-burr robot link and an explicitly
+identified guide/template object is accepted with a persistent warning. Actual
+collision remains a hard rejection. The burr-to-guide pair retains its 0.1 mm
+minimum; self-clearance and every unrelated or unconfigured world-object pair
+retain 1 mm. The distance query must continue after every admitted warning pair
+so that the warning cannot hide another violation.
+
+The native status, full-chain preflight, motion-diagnostic session, preview
+result, and exact-case evidence must retain the warning count, minimum distance,
+robot link, guide object, phase, and sequence. Simulation completion under this
+policy is `CompletedWithWarnings`; it is not collision-clearance, manufacturing,
+anatomical, clinical, or hardware acceptance. A later diagnostics revamp may
+change presentation/storage, but must preserve these evidence fields and their
+task/scene fingerprints.
+
+This decision supersedes the immediately earlier instruction to make no further
+temporary margin changes. It does not supersede the requirement to replace all
+provisional values with a measured, reviewed tool/guide profile before rigid
+physical constraints or hardware use.
+
+**Exact-case disposition:** Implementation and native verification preserve this
+boundary. One full-chain search accepted four positive spindle/template warning
+samples, with a minimum accepted distance of 0.426370 mm, then rejected signed
+spindle/template penetration of 0.026243 mm at Stage 3 checkpoint 16. The 0.5 mm
+shell accounting changes the axial insertion budget; it does not authorize a
+mesh intersection. Therefore no exact preview, Target execution, retraction or
+Home return was labeled successful. A separate exact attempt rejected a
+0.012463 mm burr/template gap against the retained 0.1 mm burr-guide minimum,
+showing route-selection variability without weakening either hard gate.
+
+## 2026-09-08 — Provisional simulation tool and guide clearance
+
+**Latest operator direction:** Stop further temporary geometry/margin manipulation; retain all diagnostics to resolve hard constraints. Consolidated measured-geometry work items, quantitative failures and evidence boundaries are in today’s FDI11 hard-constraint logbook checkpoint. Existing provisional settings remain labeled test conditions; they do not define final physical specifications.
+
+**Operator approval:** Use a 1 mm modeled burr, cap confirmed drilling depth at
+6 mm, and use 0.1 mm clearance only between that burr and the explicitly
+identified guidance objects. Full simulation testing is authorized. This
+supersedes the earlier 1 mm research clearance for this specific pair only.
+Actual guide collision rejection, other 1 mm clearance requirements, joint
+limits, and the physical insertion guard remain active. The original CAD burr
+and source case are preserved. The scaled burr retains its axial length/TCP;
+its historical inertia is not a validated physical specification.
+
+**Measured-geometry replacement required:** Before a measured tool/guide profile
+can support rigid planning constraints, record burr cutting and shank diameters,
+maximum swept envelope including runout, actual protrusion, housing clearance,
+calibrated TCP and tool axis; record the sleeve's minimum as-built bore,
+length, pose, and manufacturing tolerances. Record registration, placement and
+calibration uncertainty with units and provenance. Nominal diameter alone is
+insufficient. Radial allowance starts from half the difference between minimum
+bore and maximum tool envelope, then accounts for alignment and uncertainty
+across the full sleeve length. Available insertion must account for measured
+protrusion, sleeve/housing geometry and an explicitly reviewed reserve.
+
+Replace provisional dimensions and thresholds only with a reviewed profile;
+reject incompatible geometry instead of shrinking collision meshes or omitting
+the guide. Fingerprint the profile with scene/task identity and invalidate stale
+Home, workspace and motion evidence when it changes. Verify actual collision,
+pair clearance, other-object clearance, axial entry/drilling/withdrawal, and
+free-space Home return, including repeated full cycles. Simulation success
+with these provisional values does not validate anatomical targeting,
+manufacturing fit, physical dynamics or hardware operation.
+
+**Evidence:** Native pair-margin regression passed all 17 checks. The exact
+6 mm case still fails the unchanged spindle/template margin (0.898675 mm versus
+1 mm). Offline exact saved-template intersection checks at 12 housing rolls
+find overlap at depths 4–6 mm. The modeled spindle nose is 7 mm behind TCP;
+tool-only insertion capacity therefore overstates capacity with this guide.
+A reviewed guide/protrusion change is needed; reducing burr diameter alone
+cannot remove housing overlap. Full-cycle acceptance remains unproven.
+
+## 2026-09-08 — Close the shell collar at retained terminal coverage
+
+The Step 5B collar now clips its input boundary by the existing inward terminal
+coverage planes before making the closed tube. Previously, clipping only the
+completed full-boundary collar could delete the end connections and leave two
+rails. The final shell still applies the same coverage planes and anatomy
+clearance subtraction; disconnected or invalid output remains rejected.
+The operator's FDI11 screenshots report two components after automatic boundary
+generation and manual edits at 50% coverage. This source mechanism is consistent
+with that report. Approved synthetic VTK verification on 2026-09-08 reproduced
+two regions with the old collar and one watertight region with the fix in
+original/rotated frames. Approved isolated Slicer FDI11 saved-boundary and
+fresh automatic-boundary runs both regenerated all five visible patches,
+created a connected watertight shell and completed unified fusion; both exited
+0 and preserved the input package checksum.
+
+
+## 2026-09-07 — Assisted access trajectory ends at the pulp mask
+
+- **Operator request:** Change only Target in single/dual assisted generation
+  to the first trajectory-line intersection with the target tooth's pulp mask;
+  the operator states the deeper rootward portion is unnecessary for access
+  drilling and adds Step 6 Stage 3 planning burden.
+- **Decision:** Preserve Entry, inferred direction, ordering and ordinary line
+  contracts. Clip the finite Entry→inferred-target segment at the first binary
+  pulp voxel boundary, selected by matching FDI within the same segmentation.
+  Fail generation for missing/ambiguous/empty pulp, a missed line, or a
+  degenerate entry contact; calculate both endpoints before creating dual lines.
+  Manual/existing trajectories and Step 6 policies are outside this change.
+- **Evidence boundary:** Source implementation, approved focused host regression,
+  compilation and diff-check passes on 2026-09-08. Approved isolated Slicer
+  single/dual endpoint and persistence assertions also passed. Anatomical
+  operator review remains separate.
+  This does not establish anatomical, clinical, or full-loop acceptance.
+
+## 2026-09-07 — Corrected model routing: Astra light / Luna Max / Terra High
+
+Status: adopted after explicit operator correction; supersedes the earlier
+same-day agent interpretation that imposed low reasoning on every model.
+
+The operator clarified that only Astra is capped at light (`gpt-6-astra`,
+`low`). Avoid Sol; Astra owns planning, theory, architecture, hard diagnosis,
+and acceptance. Prefer Luna Max for bounded coding once Astra supplies a
+complete design and specification. Use Terra High for mechanical support,
+approved testing, log triage, and read-heavy evidence work. Trivial work stays
+with the existing coordinator to avoid agent overhead; one auxiliary is the
+normal maximum, and there is no mandatory multi-agent review pipeline.
+
+The operator's explicit Luna coding request creates a narrow exception to the
+old sole-code-editor rule: Luna may edit assigned code/test files. Controlled
+docs remain coordinator-owned; verification workers remain read-only, runtime
+resources serialized, and execution approval-gated. Design/safety uncertainty
+returns to Astra light, never to higher Astra effort or Sol.
+
+[OpenAI subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+supports Luna for clear repeatable work and Terra for read-heavy support;
+[the Astra guide](https://developers.openai.com/api/docs/guides/latest-model)
+recommends explicit delegation and proportionate checks. Neither establishes
+these exact presets as quota-optimal. Higher effort can increase token use;
+this policy saves overhead through bounded context and selective delegation.
+No model/config/plugin changes or quota benchmarks were performed for this
+correction. Canonical routing is in `Workspace/AGENTS.md`.
+
+## 2026-09-07 — Retire pre-surgery case workarounds from the production baseline
+
+Status: source implemented; focused verification and clean-case runtime review
+pending
+
+The abnormal pre-surgery/x4 package is historical diagnostic evidence, not the
+baseline for Step 6 acceptance. Production planning must use reviewed
+post-surgery/clean anatomy and a verified Step 5C guide/tool geometry. The
+selected target tooth is the only object eligible for the narrow terminal burr
+contact policy. Adjacent teeth, jaw anatomy, and the guide/template stay in the
+authoritative MoveIt collision scene and retain the normal research clearance
+margin.
+
+The previous broad burr-proximity set and guide-clearance exemption were removed
+from the façade/bridge path. The old template-collision exclusion remains only
+as an explicit process-local historical diagnostic opt-in
+(`DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE=1`); anatomy-review collision
+proxies likewise require `DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW=1`. These
+switches are disabled by default, are not persisted, and cannot produce normal
+acceptance evidence. This keeps old exploratory work recoverable without letting
+the retired fixture shape production safety policy.
+
+## 2026-09-07 — SlicerROS2 container runs as host UID (not root)
+
+Status: accepted; applied in Compose and the Ubuntu launcher
+
+Run `dentobot-slicerros2` as `DENTOBOT_HOST_UID:DENTOBOT_HOST_GID` with
+`group_add: [DENTOBOT_RENDER_GID]` for the DRM render node. Set
+`HOME=/home/dentobot` and bind host `slicer-home/` there so Slicer settings
+live at `slicer-home/.config/slicer.org/`. Keep `slicer-user` as a
+compatibility symlink to that directory. The launcher migrates the former
+flat `slicer-user/` → `/root/.config/slicer.org` layout once, grants X11 to
+the host desktop user (not container root), and reclaims bind-mount ownership
+on session exit for any leftover root-owned files from `docker exec -u 0`.
+
+Reason: root-owned writes under `data/` and `slicer-user/` made the host tree
+read-only for the workstation user after normal Slicer/test saves. Full
+non-root mapping fixes ownership at creation time; the render group preserves
+Mesa access that uid 1000 alone does not have on `/dev/dri/renderD*`.
+
+## 2026-09-07 — Conditional CRD boot-guard (armed lease, not always-on)
+
+Status: installed and live on the Ubuntu workstation; intentional reboot soak pending
+
+Keep `chrome-remote-desktop@USER` disabled at boot to avoid GDM races. Enable
+`crd-boot-guard@USER`, which starts CRD only when
+`~/.config/chrome-remote-desktop/armed` or `reboot-with-crd` is present.
+Arm on intentional CRD start; disarm on host `toggle-crd` stop and on clean
+system shutdown unless `reboot-with-crd` was set. Unclean power loss leaves
+`armed` in place so remote access returns. Remote-initiated reboot uses
+`crd-reboot` (polkit passwordless reboot for the workstation user).
+
+Reason: weekend outage showed CRD surviving only until an unclean reboot while
+the unit was disabled; always-on enable races GDM, and “this boot only” leaves
+remote users stranded after crashes.
+
+## 2026-09-05 — Actual-contact audit supersedes a margin-only conclusion
+
+Status: adopted evidence classification; no production policy change
+
+The completed template-excluded x4 audit regenerated the historical candidate
+paths in an ephemeral Slicer scene and queried MoveIt's explicit static-state
+validity for every retained waypoint. It found that the inspected
+`pneumatic_spindle-Copy`↔FDI15 `0.998041065511 mm` result remains only a
+sub-1-mm margin violation at that specific housing point. It also found actual
+non-target `dentobot_tooth_...` (FDI15) ↔ `burr` contacts at Stage 2 waypoint
+14 and Stage 3 waypoint 0 for every auditable candidate. The expected target
+tooth↔burr Stage-3 contact was also reported; it does not excuse the concurrent
+FDI15 contact.
+
+Consequently, this is not a clearance-margin-only blocker and it cannot be
+accepted under the temporary template-only functional override. No generic
+FDI15, burr, housing, or margin exemption is introduced. The next P0 action is
+manual local anatomy/segmentation review; only a confirmed local artifact may
+be represented by a session-local derived collision proxy. The insertion-depth
+hard block remains independent and unchanged.
+
+Reason: the audit separates a true mesh-overlap finding from both the expected
+selected-target contact and the conservative housing clearance margin.
+
+## 2026-09-05 — Manual anatomy review is session-local and opt-in
+
+Status: source implemented; runtime verification pending
+
+Step 6.5 now creates exactly one `SaveWithSceneOff` segmentation copy of a
+selected non-target whole-tooth segment for a manual local-artifact review. It
+opens that copy in Segment Editor against the source CBCT; it never edits,
+replaces, or serializes the source segmentation. The operator must explicitly
+confirm that the edited local region is a segmentation artifact before the
+collision-scene publisher uses the proxy. On activation, transient plans are
+cleared, the confirmed task/diagnostics are made stale, and a current MoveIt
+scene acknowledgement plus task confirmation are required before planning.
+
+The proxy retains the source collision-object identity but changes its prepared
+collision mesh and audit fingerprint, so evidence makes the substitution
+visible. It is neither a generic burr/FDI15 exemption nor a complete-tooth
+ignore. If source CBCT review does not justify the artifact decision, the
+operator discards the proxy and source anatomy remains the only collision
+geometry.
+
+Reason: x4 has actual FDI15↔burr overlap, so a safe experimental route must
+make any anatomy interpretation explicit, local, reversible, and nonpersistent.
+
+## 2026-09-08 — Operator-selected 1 mm simulation burr
+
+Operator cannot access the host and requests changing the modeled burr to 1 mm
+to complete simulation. URDF visual/collision now reference the distinct
+`burr_simulation_1mm.stl`; original CAD burr.stl is preserved. Radial scaling
+is performed about the actual drill axis in the burr-link frame, retaining
+the original 7 mm axial geometry and fixed TCP. Fit reporting uses 1 mm.
+Historical inertial values remain unvalidated for this variant; there is no
+hardware execution. Existing collision and research-clearance rules remain
+unchanged. A 1 mm burr in a 1.5 mm bore has only 0.25 mm radial clearance;
+this model change alone does not establish the retained 1 mm margin.
+
+## 2026-09-08 — Operator-selected 6 mm simulation drilling cap
+
+The operator supersedes the proposed 10 mm cap with 6 mm after observing the
+current spindle's limited reach. At explicit Step 6 task confirmation, derive
+the simulation Target along the original Entry→Target direction, preserving
+Targets at or below 6 mm and clipping longer lines to 6 mm. Preserve the source
+trajectory; this derived endpoint is not claimed to be a pulp intersection.
+Persist the effective endpoint and policy in the existing confirmed snapshot,
+require reconfirmation of older policies, and expose the effective depth/Target
+in confirmation. Planner, guard and endpoint checks consume that same snapshot.
+Keep the provisional physical insertion guard, collision policy, joint limits,
+FK tolerances and hardware boundary intact. Source/check/runtime evidence is
+tracked in the dated logbook; no full-loop acceptance follows from this decision.
+
+## 2026-09-05 — Separate tool-insertion capacity, mesh contact, and clearance margin
+
+Status: adopted for immediate Track-A implementation
+
+The x4 functional chain gains an upstream provisional insertion-capacity
+preflight: requested Entry→Target depth must not exceed
+`effectiveToolProtrusionMm - 0.1 mm`. It blocks with
+`TRAJECTORY_TOOL_INSERTION_LIMIT_EXCEEDED` rather than shortening the line or
+discovering an impossible tool/housing state late in drilling. The current
+value is explicitly tool-only and provisional; final guide/bore geometry is
+not claimed or inferred.
+
+Mesh contact and the independent 1 mm research clearance margin are separate
+facts. The latest template-excluded x4 diagnostic reports a best complete
+branch at `0.998041065511 mm` from `pneumatic_spindle-Copy` to FDI15. At that
+waypoint normal collision passed and the rejection came only from the
+additional margin. This cannot be relabeled as either a physical collision or
+a complete-path clearance pass. A read-only actual-contact audit is required
+before any further physical conclusion. No base change, collision exemption,
+tolerance change, or whole-tooth exclusion follows from this decision.
+
+If manual CBCT/segmentation review proves a local artifact, Track A may use a
+session-local derived collision proxy for that reviewed region only. Source
+segmentation stays immutable and the proxy is labeled research simulation
+anatomy override; it is not persisted as source anatomy or silently used as
+clinical/physical evidence.
+
+Reason: physical insertion feasibility, actual collision, and conservative
+clearance are different conditions. Conflating them obscured the current x4
+failure and encouraged incorrect planner/base changes.
+
+## 2026-09-04 — Solve PreEntry as position plus drill-axis direction
+
+Status: source implemented; runtime acceptance pending
+
+The five-DOF arm must not be given a complete six-dimensional pose constraint
+at PreEntry. SlicerROS2 therefore solves exact TCP position plus tool +Z with a
+bounded MoveIt-model Jacobian iteration over J1–J5. Axial housing roll is a
+free task dimension during this solve; it is distinct from the non-planning
+pneumatic J6. A successful endpoint is audited against authoritative FK and
+the current PlanningScene. Its authoritative FK rotation is retained for
+diagnostics/fingerprinting and is the first MoveIt request through
+PreEntry→Entry→Target; the bounded continuity fallback validates only the
+immutable XYZ and drill-axis constraints because housing roll is not a
+commanded task dimension. No target, tolerance, collision rule, retry count,
+or drilling depth is relaxed.
+
+Reason: the canonical TCP transform matches the old J6=0 tip transform, and a
+known x4 J1–J5 state satisfies PreEntry position and drill-axis tolerances.
+The blocker was the full-quaternion KDL request and nominal-frame commitment,
+not missing reach or a collision-only failure.
+
 ## 2026-09-03 — Finish guarded live simulation before the Step 6 Studio revamp
 
 Status: adopted; source checkpoint `ea504349f99f`; implementation in progress
@@ -3547,3 +3991,95 @@ Reason: solving TCP orientation with a continuously rotating spindle made
 Stage-3 residuals depend on an actuator the robot cannot command. A fixed
 upstream frame makes the reachable task and its collision evidence physically
 meaningful while preserving the visual model and saved-file compatibility.
+
+## 2026-09-04 — Stage-3 position-axis continuity boundary
+
+Status: source implemented; focused x4 runtime remains blocked at a truthful
+kinematic boundary
+
+The five-DOF arm is evaluated on exact TCP XYZ and drill-axis direction. The
+first failing x4 Stage-3 pose (`60/64`) reaches a finite state with J2 clamped
+at its lower mechanical bound, approximately `0.25 mm` from the requested
+point and `0 deg` axis error. No collision pair is reported, so this evidence
+is not a burr/template collision diagnosis. A separate physical-fit audit
+continues to report the approximate `2.0 mm` burr versus `1.5 mm` guide bore
+defect.
+
+The continuity recovery now makes one bounded, deterministic fallback to
+already accepted 6.3 Home-connected arm postures when the preceding local
+branch reaches that boundary. It does not add samples, change tolerances,
+move Entry/Target, relax collision/guard policy, or promote a partial line.
+The native solver's best residual and exact requested pose are retained in the
+diagnostic. A complete Stage-3 plan additionally requires authoritative final
+Target FK before Goal 2 can be enabled. Until that passes, Stage-1/Stage-2
+preview is provisional and Track B remains blocked.
+
+The subsequent focused FK probe confirmed a mechanical, not collision, cause:
+at pose `60/64` the exact Target line requires approximately `0.2510335 mm`
+beyond the valid lower bound of `link-2_Slider-2`. The implementation therefore
+classifies the failure as `sequential_position_axis_joint_limit` and records
+the limiting joint. A diagnostic-only out-of-range probe is never submitted or
+persisted as a plan. Recovery is an explicit base/case-placement correction
+followed by normal invalidation and revalidation; no planner tolerance,
+endpoint, URDF bound, or guard rule is relaxed.
+
+## 2026-09-07 — Clear Step 6A transient anatomy before target changes
+
+Status: source implemented; focused static and operator-window verification
+pending
+
+Changing the authoritative target tooth or dental segmentation must first clear
+the transient Step 6A case-opening state. The cleanup removes the hinge
+transform, opened upper/lower derived anatomy, gap annotation, opened
+trajectory, and target-attached display proxy, then restores source visibility.
+Existing Step 4/5 downstream deletion remains responsible for deleting stale
+template/support artifacts. The same boundary is used for target-combo and
+trajectory-association changes; authoritative segmentation replacement applies
+the cleanup before rebinding the source.
+
+Reason: the open-mouth display proxy is rebuilt from the current parameter-node
+references. If it survives a target switch, a prior target's Step 5C template
+or target-attached geometry can remain fused into the next Step 6A preview.
+Resetting the disposable Step 6 state at the shared input-change boundary
+prevents that cross-target carry-over without changing source CBCT or masks.
+
+## 2026-09-07 — Reject cross-target package replay before Step 6A
+
+Status: source implemented; native Slicer/package verification pending
+
+An integrity-valid `.dentocase` is not sufficient evidence that its planning
+chain belongs to the active target tooth. Restore and Step 6A now require the
+trajectory association, target bounds ROI, docking assembly, and final
+printable template to agree on the active segmentation and target segment.
+Cross-target state is reported as stale and cannot be transformed into an
+opened-jaw planning scene. When restore deactivates such a package, only
+disposable Step 6A derivatives are cleared; authoritative CBCT, masks, and
+upstream source nodes are retained for regeneration.
+
+Reason: the operator reported an FDI44 package displaying FD14 bounds and
+trajectory after jaw opening. The archive was owner-only and could not be
+inspected in this environment, so the guard is fail-closed on lineage rather
+than relying on filenames or visual attribution. Hidden-from-editor DENTOBOT
+objects are also included in managed view isolation so stale target artifacts
+cannot escape the Recommended Step 6 composition.
+
+## 2026-09-07 — Separate Steps 0–3 inspection from planning authority
+
+Status: source implemented; focused synthetic Slicer scenario passed; real
+preDental/postDental reload review remains pending
+
+Steps 0–3 now use a persisted inspection scan/result pair separate from the
+existing `inputVolume`/`teethSegmentation` planning pair. Changing the scan or
+segmentation run changes the actual slice background, source-paired display,
+review tree, and provenance only. It does not clear or replace an existing
+trajectory, target, template, Task Home, or Step 6 evidence. The explicit
+`Use for Planning → Step 4` handoff is the only operation allowed to commit a
+different pair and invoke the established downstream lineage invalidation.
+
+Run ownership is resolved through the exact `DENTOBOT.SourceVolume` MRML
+reference, never by display name or scene order. New inference results retain
+their launch source and stay hidden when another scan is being inspected.
+Comparison is temporary display state: same-source overlays and cross-source
+side-by-side slice backgrounds are reversible and cannot become planning
+authority. This prevents the prior failure mode in which reviewing postDental
+left preDental anatomy or a sibling segmentation visible over the wrong CBCT.

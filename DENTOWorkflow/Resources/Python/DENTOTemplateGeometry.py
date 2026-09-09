@@ -1294,6 +1294,7 @@ def create_support_boundary_bridge(
     fit_clearance_mm: float,
     shell_thickness_mm: float,
     sampling_spacing_mm: float,
+    terminal_clip_planes_ras: list[dict] | None = None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Create a lifted closed collar that bridges separated tooth-shell rims.
 
@@ -1328,6 +1329,30 @@ def create_support_boundary_bridge(
         loop_points_ras,
         min(spacing, max(0.1, thickness * 0.35)),
     )
+
+    # Close the collar at the retained terminal coverage. Cutting a finished
+    # full-width collar later can remove both end connections, leaving two rails.
+    for specification in terminal_clip_planes_ras or []:
+        origin = _finite_vector(specification.get("originRas"), 3, "Terminal clip origin")
+        normal = _finite_vector(specification.get("inwardNormalRas"), 3, "Terminal clip normal")
+        length = float(np.linalg.norm(normal))
+        if length <= 1e-9:
+            raise ValueError("A terminal support clip plane has a zero normal.")
+        normal /= length
+        clipped = []
+        previous = loop_points[-1]
+        previous_distance = float(np.dot(previous - origin, normal))
+        for point in loop_points:
+            distance = float(np.dot(point - origin, normal))
+            if (distance >= 0.0) != (previous_distance >= 0.0):
+                fraction = previous_distance / (previous_distance - distance)
+                clipped.append(previous + fraction * (point - previous))
+            if distance >= 0.0:
+                clipped.append(point)
+            previous, previous_distance = point, distance
+        if len(clipped) < 3:
+            raise ValueError("Terminal coverage removes the support boundary; review the boundary and coverage.")
+        loop_points = np.asarray(clipped, dtype=float)
 
     tube_radius = max(0.65 * thickness, 1.25 * spacing)
     center_offset = clearance + 0.5 * thickness
@@ -1484,6 +1509,7 @@ def create_support_boundary_bridge(
         "samplePointCount": sample_point_count,
         "occupiedSampleCount": occupied_sample_count,
         "resampledBoundaryPointCount": int(bridge_points.shape[0]),
+        "terminalClosurePlaneCount": len(terminal_clip_planes_ras or []),
         "removalDirectionRas": tuple(float(value) for value in removal),
         "boundsRas": tuple(float(value) for value in bridge.GetBounds()),
     }

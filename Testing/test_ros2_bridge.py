@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import inspect
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = ROOT / "DENTOWorkflow" / "Resources" / "Python"
@@ -27,11 +29,14 @@ from DENTOROS2Bridge import (  # noqa: E402
     _trajectory_motion_summary,
     align_ros2_goal_to_base_transform,
     align_ros2_robot_to_base_transform,
+    configure_task_phase_guard,
     joint_si_vector,
     parse_joint_command_status,
     parse_simulation_status,
     parse_task_joint_status,
+    position_axis_joint_limit_blockers,
 )
+import DENTOROS2Bridge as bridge_module  # noqa: E402
 
 
 def status_payload(**overrides) -> str:
@@ -46,6 +51,18 @@ def status_payload(**overrides) -> str:
     }
     data.update(overrides)
     return json.dumps(data)
+
+
+def test_task_guard_rejects_non_target_allowance_before_ros():
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="test", target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth", "adjacent-tooth"],
+        base_transform=None,
+        entry_ras_mm=(0, 0, 0), target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75, approach_standoff_mm=5,
+    )
+    assert not ok
+    assert "Only the selected target" in reason
 
 
 def test_ready_status_requires_simulation_mode_and_one_joint_source():
@@ -69,6 +86,18 @@ def test_status_schema_mismatch_is_explicit_error():
 def test_joint_vector_has_one_explicit_urdf_order():
     positions = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
     assert joint_si_vector(positions) == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+def test_position_axis_limit_diagnostic_reports_only_commandable_bounds():
+    values = [0.1, 0.0, 0.2, 0.075, -0.3]
+    lower = [-1.0, 0.0, -1.0, 0.0, -6.0]
+    upper = [1.0, 0.08, 1.0, 0.075, 6.0]
+    blockers = position_axis_joint_limit_blockers(values, lower, upper)
+    assert [(item["joint"], item["bound"]) for item in blockers] == [
+        ("link-2_Slider-2", "lower"),
+        ("link-4_Slider-4", "upper"),
+    ]
+    assert all("pneumatic_spindle" not in str(item) for item in blockers)
 
 
 def test_joint_guard_status_parses_accepted_state_and_clearances():
@@ -135,11 +164,20 @@ def test_task_guard_status_requires_and_preserves_transient_session_identity():
         "accepted_positions": [0.0] * 5,
         "exploratory_tool_contact_suppressed": True,
         "suppressed_tool_contact_sample_count": 3,
+        "guide_clearance_warning": True,
+        "guide_clearance_warning_sample_count": 2,
+        "minimum_guide_clearance_warning_m": 0.000898675,
+        "guide_clearance_warning_robot_link": "pneumatic_spindle-Copy",
+        "guide_clearance_warning_object_id": "[Step 5C] guide",
     }
     status = parse_task_joint_status(json.dumps(payload))
     assert status.guard_session_id == "transient-session"
     assert status.exploratory_tool_contact_suppressed
     assert status.suppressed_tool_contact_sample_count == 3
+    assert status.guide_clearance_warning
+    assert status.guide_clearance_warning_sample_count == 2
+    assert status.minimum_guide_clearance_warning_m == 0.000898675
+    assert status.guide_clearance_warning_robot_link == "pneumatic_spindle-Copy"
     payload["guard_session_id"] = ""
     try:
         parse_task_joint_status(json.dumps(payload))
@@ -147,6 +185,72 @@ def test_task_guard_status_requires_and_preserves_transient_session_identity():
         assert "guard session" in str(exc)
     else:
         raise AssertionError("task status without a guard session was accepted")
+
+
+def test_task_guard_status_preserves_bounded_housing_contact_warning_and_rejects_bad_types():
+    payload = {
+        "schema": ROS2_TASK_JOINT_STATUS_SCHEMA,
+        "mode": "simulation_only",
+        "accepted": True,
+        "reason": "Accepted with warning: configured 0.5 mm contact limit.",
+        "task_fingerprint": "contact-task",
+        "guard_session_id": "contact-session",
+        "phase": "drilling",
+        "sequence": 3,
+        "requested_positions": [0.0] * 5,
+        "accepted_positions": [0.0] * 5,
+        "guide_clearance_warning": True,
+        "guide_clearance_warning_sample_count": 2,
+        "minimum_guide_clearance_warning_m": 0.0004,
+        "guide_clearance_warning_robot_link": "pneumatic_spindle-Copy",
+        "guide_clearance_warning_object_id": "configured-guide",
+        "guide_warning_kind": "contact",
+        "guide_clearance_warning_contact_penetration_m": 0.0004,
+        "guide_clearance_warning_contact_sample_count": 2,
+        "guide_clearance_warning_contact_position_base_m": [0.1, 0.2, 0.3],
+    }
+    status = parse_task_joint_status(json.dumps(payload))
+    assert status.guide_warning_kind == "contact"
+    assert status.guide_clearance_warning_contact_penetration_m == 0.0004
+    assert status.guide_clearance_warning_contact_sample_count == 2
+    assert status.guide_clearance_warning_contact_position_base_m == (0.1, 0.2, 0.3)
+    for key, value in (
+        ("guide_warning_kind", True),
+        ("guide_clearance_warning_contact_penetration_m", "0.4mm"),
+        ("guide_clearance_warning_contact_sample_count", 1.5),
+        ("guide_clearance_warning_contact_position_base_m", [0.1, 0.2]),
+    ):
+        malformed = dict(payload, **{key: value})
+        try:
+            parse_task_joint_status(json.dumps(malformed))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"malformed {key} was accepted")
+
+
+def test_full_chain_validation_retains_bounded_guide_warning_records(monkeypatch):
+    def accept(_positions, *, task_fingerprint, phase, sequence, validate_only):
+        bridge_module._last_task_status = SimpleNamespace(
+            guide_clearance_warning=True,
+            guide_clearance_warning_sample_count=1,
+            minimum_guide_clearance_warning_m=0.0008,
+            guide_clearance_warning_robot_link="pneumatic_spindle-Copy",
+            guide_clearance_warning_object_id="guide",
+            reason="accepted with warning",
+        )
+        return True, "accepted"
+
+    monkeypatch.setattr(bridge_module, "apply_task_phase_joint_positions", accept)
+    ok, message, invalid = bridge_module.validate_task_phase_waypoints(
+        ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},),
+        ("drilling",),
+        task_fingerprint="task",
+    )
+    warnings = bridge_module.last_task_phase_validation_warnings()
+    assert ok and invalid == -1 and "warning" in message
+    assert warnings[0]["minimum_guide_clearance_warning_m"] == 0.0008
+    assert warnings[0]["guide_clearance_warning_robot_link"] == "pneumatic_spindle-Copy"
 
 
 def test_moveit_frame_contract_constants():
@@ -264,11 +368,23 @@ def test_task_guard_configuration_requires_a_strict_sequence_zero_handshake():
     assert '"phase": "approach"' in configure
     assert '"guard_session_id": uuid4().hex' in configure
     assert '"clearance_exempt_object_ids"' in configure
+    assert '"simulation_guide_clearance_object_ids"' in configure
+    assert "guide_clearance_exempt_robot_links" not in configure
+    assert "guide_clearance_exempt_object_ids" not in configure
     assert "status.accepted" in configure
     assert "ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC" in configure
     assert "configured task-proximity collision object is missing" in configure
     assert "complete planning-scene object set" in configure
     assert "did not acknowledge" in configure
+
+
+def test_task_guard_guide_clearance_field_is_optional_at_bridge_boundary():
+    parameter = inspect.signature(configure_task_phase_guard).parameters[
+        "simulation_guide_clearance_object_ids"
+    ]
+    assert parameter.default == ()
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    assert '"simulation_guide_clearance_object_ids"' in source
 
 
 class _FakeTransform:
@@ -382,6 +498,7 @@ def test_robot_facade_exposes_moveit_goal_without_hardware_execute_path():
     facade = (HELPERS / "DENTORobotWorkflowFacade.py").read_text(encoding="utf-8")
     assert "def ensure_moveit_tcp_goal_control" in bridge
     assert "def solve_moveit_tcp_goal" in bridge
+    assert "def solve_moveit_tcp_position_axis_goal" in bridge
     assert "def plan_moveit_joint_goal" in bridge
     assert "def solveIk" in facade
     assert "def planToGoal" in facade

@@ -1,30 +1,59 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## 2026-09-08 provisional simulation verification restart
+
+The existing `dentobot-slicerros2` container was restarted for operator-approved
+simulation testing. Description rebuilt successfully; the native guard requires
+its documented explicit `--base-paths src/DentoBot/dentobot_moveit_config`
+colcon invocation (ordinary package discovery skipped it). No dependencies were
+installed. The isolated Xvfb/domain-73 runner and durable evidence are in
+`artifacts/verification/guide-margin-20260908/` in the Ubuntu workspace. The
+initial direct Slicer launch reported a ROS module loader warning, but later
+connected to ROS/MoveIt and submitted planning requests; retain that warning
+separately from task results. Original case files remain unchanged.
+
 Last verified: Ubuntu Slicer/ROS runtime 2026-08-28. Overlay layout, git
 `main` / `lab/2026-09-03`, and Windows-lab *source* install path reconciled
 2026-09-03. The published `lab/2026-09-03` GHCR image passed the local
-fail-closed label check and registry push; Windows WSLg+Docker GUI acceptance
-remains pending.
-Windows WSLg+Docker GUI acceptance (`PLAT-U-04`) remains pending.
+fail-closed label check and registry push. A Docker Desktop Windows install
+passed recorded WSLg/CUDA startup; a second install succeeded with Docker
+Engine inside WSL after Desktop failed, but its exact acceptance evidence is
+still pending under `PLAT-U-04`.
 
 ## Scope
+
+2026-09-08 research simulation variant: `dentobot_description` was rebuilt
+with `colcon build --symlink-install --packages-select dentobot_description`.
+URDF visual/collision burr geometry references `burr_simulation_1mm.stl`, with
+original CAD burr.stl retained. Restart ROS/Slicer and explicitly revalidate
+robot-resource-dependent Home/workspace/task records after this profile change.
+This is a simulation model, not a calibrated hardware/tool configuration.
 
 This file defines the shared deployment contract and the supported host
 profiles. The active IITM workstation remains the fully verified Ubuntu
 profile. Native Windows Slicer with a WSL2 inference backend has a tracked
 launcher (`PLAT-U-02`); its runtime acceptance must be repeated on a Windows 11
 workstation. A third **lab** profile runs the same Linux SlicerROS2 Docker
-stack inside WSL2 (`PLAT-U-04`); GUI/ROS acceptance is pending a real lab PC.
+stack inside WSL2 (`PLAT-U-04`); its provider and acceptance rules are in the
+canonical Windows guide below.
 
 | Host profile | Slicer | External inference | Docker | ROS/SlicerROS2 |
 |---|---|---|---|---|
-| Windows 11 native | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported (`DENTOBOT_ROS_PROFILE=none`) |
-| Windows 11 lab (WSL2) | Linux Slicer 5.10 in `dentobot-slicerros2` (WSLg) | Direct Linux Python in WSL (CPU pin) | Required | Same Ubuntu container stack; unaccepted until `PLAT-U-04` |
+| Windows 11 full (WSL2 + WSLg) | Linux Slicer 5.10 in `dentobot-slicerros2` | Direct Linux Python in WSL (release CPU or CUDA pin) | Docker Engine inside WSL by default; Docker Desktop WSL integration as an exclusive alternative | Same Linux container stack; exact direct-Engine acceptance pending under `PLAT-U-04` |
+| Windows 11 native fallback | Native Windows Slicer | WSL2 Linux | Not required for planning | Not supported (`DENTOBOT_ROS_PROFILE=none`) |
 | Ubuntu | Pinned Linux SlicerROS2 image | Direct Linux Python | Required by the verified profile | Included and verified |
 
 The planning/template workflow is Slicer/MRML code and remains shared. Never
 install PyTorch, TotalSegmentator, nnU-Net, or the DENTOBOT inference package
 into Slicer's embedded Python on either platform.
+
+> **Canonical Windows instructions:** use `Workspace/docs/WINDOWS_SETUP.md`.
+> The default
+> full Windows profile is Docker Engine running directly inside the selected
+> WSL2 Ubuntu distribution, with Linux Slicer displayed through WSLg. Docker
+> Desktop WSL integration is a mutually exclusive alternative. The older
+> Windows subsections below preserve historical profile detail and are not the
+> installation checklist.
 
 ## Windows 11 + WSL2 profile
 
@@ -160,9 +189,12 @@ Native Windows Slicer is **not** installed for this profile.
 
 #### Operator steps
 
-1. Windows 11 + WSLg. `wsl --install -d Ubuntu-24.04`. Install Docker Desktop
-   with the WSL2 engine and Ubuntu integration. In Ubuntu:
-   `sudo apt install -y git gh`.
+1. Windows 11 + WSLg. `wsl --install -d Ubuntu-24.04`. By default install
+   Docker Engine and Compose inside that WSL Ubuntu distribution and manage it
+   with systemd. Docker Desktop WSL integration is an alternative, never a
+   second daemon in the same distribution. Follow
+   `Workspace/docs/WINDOWS_SETUP.md`.
+   In Ubuntu: `sudo apt install -y git gh`.
 2. Use a GitHub account with **Read** access to the private GHCR package. In
    WSL, run `gh auth login -h github.com -s read:packages`, then
    `gh auth token | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin`.
@@ -214,8 +246,9 @@ must not rebuild `Dockerfile.slicerros2`.
 - Repository/workspace root: `/home/light-tarun/dentobot`
 - ROS 2 workspace: `/home/light-tarun/dentobot/ros2_ws`
 - Project data mount: `/home/light-tarun/dentobot/data`
-- Slicer user configuration: `/home/light-tarun/dentobot/slicer-user`, bound
-  to the container's active `/root/.config/slicer.org` directory
+- Slicer home/config: `/home/light-tarun/dentobot/slicer-home` (bound to
+  container `HOME=/home/dentobot`); compatibility symlink
+  `slicer-user` → `slicer-home/.config/slicer.org`
 - Container definition: `/home/light-tarun/dentobot/compose.yaml`
 - Git checkout: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot` on **`main`**
   (`origin/main`). Tag `lab/2026-09-02` = freeze `17af3d8`. Remote
@@ -352,11 +385,14 @@ top-level `compose.yaml` is its compatibility symlink. Host mount sources are
 resolved from the launcher-supplied `DENTOBOT_WORKSPACE_ROOT`, so Compose no
 longer depends on the current shell directory.
 
-The active Slicer build writes `Slicer.ini` under
-`/root/.config/slicer.org`. The Compose bind now targets that exact directory,
-so Additional Module Paths and other Slicer settings persist across service
-recreation. The former `/root/.config/NA-MIC` target was not used by this
-build.
+The SlicerROS2 service runs as the host workstation UID/GID (exported by the
+launcher as `DENTOBOT_HOST_UID` / `DENTOBOT_HOST_GID`) and joins the DRM
+render group (`DENTOBOT_RENDER_GID`) so Mesa can use the render node without
+root. `HOME` is `/home/dentobot`, backed by the host `slicer-home/` bind.
+Slicer settings persist at `slicer-home/.config/slicer.org/` (compatibility
+symlink: `slicer-user` → that directory). This keeps `data/` and Slicer
+settings owned by the workstation user instead of container root. The former
+`/root/.config/slicer.org` and `/root/.config/NA-MIC` binds are retired.
 
 ### Local EndoPlanner inspection checkout
 
@@ -509,6 +545,61 @@ rendering is an explicitly accepted diagnostic mode.
 
 Chrome Remote Desktop (CRD) creates a separate X11 desktop and normally does
 not use the physical console display `:0`.
+
+#### Conditional boot persistence (unclean vs clean)
+
+`chrome-remote-desktop@${USER}` stays **disabled** at boot so it does not race
+GDM/GNOME. Persistence is owned by `crd-boot-guard@${USER}`:
+
+| Situation | Result after next boot |
+|-----------|-------------------------|
+| Unclean power loss / crash while CRD lease was armed | CRD starts |
+| Remote `crd-reboot` (sets `reboot-with-crd`) | CRD starts |
+| Clean host shutdown/reboot without that mark | CRD stays off |
+| Host `toggle-crd` stop (disarm) | CRD stays off |
+
+Lease flags live in `~/.config/chrome-remote-desktop/` (`armed`,
+`reboot-with-crd`). Install once from the local console:
+
+```bash
+~/.local/share/crd-boot-guard/install.bash
+```
+
+Day-to-day:
+
+```bash
+toggle-crd          # host: start+arm or stop+disarm
+crd-boot-policy status
+crd-fix            # diagnose; --fix --enable ensures boot-guard
+crd-reboot          # from inside CRD: reboot and keep remote access
+```
+
+`crd-reboot` relies on a polkit rule allowing passwordless reboot for the
+workstation user. Without that rule, mark the reboot from CRD then reboot from
+a host session that can authenticate.
+
+#### Snap Firefox on CRD (Wayland false positive)
+
+CRD's Xfce session is X11-only (`DISPLAY` typically `:20`). The local console
+can leave a stale `/run/user/$UID/wayland-0` socket. Snap `desktop-launch` then
+sets `GDK_BACKEND=wayland`, and Firefox exits with
+`Error: cannot open display: :20.0`.
+
+Mitigations already on this host:
+
+- `~/.chrome-remote-desktop-session` exports `DISABLE_WAYLAND=1` and syncs the
+  X cookie into `~/snap/*/common/.Xauthority` before starting Xfce
+- `~/.local/bin/firefox` and
+  `~/.local/share/applications/firefox_firefox.desktop` force
+  `DISABLE_WAYLAND=1` for CLI and menu launches
+
+Immediate recovery without restarting CRD:
+
+```bash
+DISABLE_WAYLAND=1 firefox
+# or
+env DISABLE_WAYLAND=1 /snap/bin/firefox
+```
 
 #### Cursor IDE on CRD (`cursor-xfce`)
 
@@ -1216,12 +1307,14 @@ Use the single daily launcher from an Ubuntu desktop terminal:
 ```
 
 The launcher validates the existing Conda environment and Compose
-configuration, starts or unpauses the development container, checks the same
-interpreter from inside the container, prepares
-`/workspace/data/dentobot-runs`, grants the container's local root user
-temporary X11 access, and opens Slicer directly on DENTO Workflow. Closing
-Slicer returns to the terminal and revokes that X11 grant. It does not create
-another venv or install packages during routine startup.
+configuration, starts or unpauses the development container as the host
+UID/GID (with the DRM render group), checks the same interpreter from inside
+the container, prepares `/workspace/data/dentobot-runs`, grants the host
+desktop user temporary X11 access, and opens Slicer directly on DENTO
+Workflow. Closing Slicer returns to the terminal, revokes that X11 grant, and
+reclaims ownership of bind-mounted `data/` and `slicer-home/` in case any
+root-exec tooling left root-owned files. It does not create another venv or
+install packages during routine startup.
 
 To verify the setup without opening Slicer:
 

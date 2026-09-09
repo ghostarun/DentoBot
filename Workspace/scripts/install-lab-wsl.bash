@@ -83,7 +83,8 @@ slicer_repo="${workspace_root}/ros2_ws/src/slicer_ros2_module"
 mkdir -p "${workspace_root}/ros2_ws/src" \
   "${workspace_root}/data/model-cache/totalsegmentator" \
   "${workspace_root}/data/dentobot-runs" \
-  "${workspace_root}/slicer-user"
+  "${workspace_root}/slicer-home/.config/slicer.org"
+ln -sfn slicer-home/.config/slicer.org "${workspace_root}/slicer-user"
 
 if [[ -d ${dentobot_repo}/.git ]]; then
   if [[ ${DENTOBOT_LAB_ALLOW_MAINTAINER:-} != 1 ]]; then

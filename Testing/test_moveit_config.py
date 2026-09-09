@@ -73,6 +73,10 @@ def test_collision_guard_gates_raw_commands_before_joint_states():
     assert "start.interpolate" in guard
     assert "maximum_prismatic_step_m" in guard
     assert "pad_self_collisions = false" in guard
+    heartbeat = guard.split("void publish_last_status()", 1)[1].split(
+        "std::string group_name_", 1
+    )[0]
+    assert "publish_accepted(last_accepted_positions_);" in heartbeat
 
 
 def test_collision_guard_has_fingerprinted_simulation_phase_channel():
@@ -88,7 +92,7 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
         "/dentobot/task_joint_status",
     ):
         assert topic in launch
-    assert "dentobot.task_guard_config.v2" in guard
+    assert "dentobot.task_guard_config.v3" in guard
     assert "dentobot.task_joint_command.v2" in guard
     assert "dentobot.task_joint_status.v2" in guard
     assert "Command task fingerprint does not match" in guard
@@ -104,12 +108,46 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
     assert "distanceSelf" in guard
     assert "distanceRobot" in guard
     assert "clearance_exempt_object_ids" in guard
+    assert "simulation_guide_clearance_object_ids" in guard
+    assert "SIMULATION_GUIDE_CLEARANCE_M = 0.0001" in guard
+    assert "preferred clearance is" in guard
+    assert 'document.isMember("guide_clearance_exempt_robot_links")' in guard
+    assert 'document.isMember("guide_clearance_exempt_object_ids")' in guard
+    assert "must be unique" in guard
+    assert "must not include the selected target" in guard
     assert "clearance_collision_matrix.setEntry" in guard
     assert "phase_collision_matrix.setEntry" in guard
     assert "task_config != nullptr ? clearance_collision_matrix" in guard
     assert "scene->checkCollision(\n        collision_request, collision_result, sample, allowed_collision_matrix)" in guard
     assert "scene->checkCollision(\n          phase_request, phase_result, sample, phase_collision_matrix)" in guard
     assert "non-tool or unconfigured collision" in guard
+
+
+def test_phase_guard_rechecks_after_an_allowed_guide_pair():
+    guard = (
+        ROOT / "dentobot_moveit_config/src/collision_guard.cpp"
+    ).read_text(encoding="utf-8")
+    assert "world_clearance_acm" in guard
+    assert "skipped_guide_pairs" in guard
+    assert "world_clearance_acm.setEntry(guide_robot_link, guide_object_id, true)" in guard
+    assert "guide_clearance_warning" in guard
+    assert 'command.phase != "retraction"' in guard
+    assert "required minimum clearance is" in guard
+
+
+def test_phase_guard_contract_bounds_configured_housing_contact_and_reports_warning():
+    guard = (
+        ROOT / "dentobot_moveit_config/src/collision_guard.cpp"
+    ).read_text(encoding="utf-8")
+    assert "SIMULATION_GUIDE_CONTACT_MAX_PENETRATION_M = 0.0005" in guard
+    assert 'first == "pneumatic_spindle-Copy"' in guard
+    assert 'second == "pneumatic_spindle-Copy"' in guard
+    assert "pair_distance_acm.setEntry(housing_pair.first, housing_pair.second, false)" in guard
+    assert "std::abs(signed_pair_distance_m)" in guard
+    assert "phase_collision_matrix.setEntry(housing_pair.first, housing_pair.second, true)" in guard
+    assert "guide_warning_kind = \"contact\"" in guard
+    assert "guide_clearance_warning_contact_penetration_m" in guard
+    assert "configured simulation contact limit is 0.500000 mm" in guard
 
 
 def test_ik_is_runtime_urdf_srdf_kdl_not_hard_coded():

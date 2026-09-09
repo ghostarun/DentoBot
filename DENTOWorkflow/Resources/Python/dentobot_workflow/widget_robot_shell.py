@@ -33,6 +33,13 @@ class RobotShellWidgetMixin:
                 "confirm_task": self._onStep6ConfirmTask,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
+                "template_collision_override": (
+                    self._onStep6TemplateCollisionOverride
+                ),
+                "begin_anatomy_review": self._onStep6BeginAnatomyReview,
+                "edit_anatomy_review": self._onStep6EditAnatomyReview,
+                "activate_anatomy_review": self._onStep6ActivateAnatomyReview,
+                "discard_anatomy_review": self._onStep6DiscardAnatomyReview,
                 "preview_approach": self._onStep6PreviewApproach,
                 "show_motion_diagnostics": self._onStep6ShowMotionDiagnostics,
                 "plan_drilling": self._onStep6PlanDrilling,
@@ -481,21 +488,143 @@ class RobotShellWidgetMixin:
             return
         result = self._robotWorkflowFacade.planApproachPhase()
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
+        insertion = result.details.get("toolInsertion")
+        if isinstance(insertion, dict):
+            self._robotSimulationPanel.toolInsertionStatusLabel.text = str(
+                insertion.get("message") or ""
+            )
+            self._robotSimulationPanel.toolInsertionStatusLabel.setProperty(
+                "dentobotRole",
+                "status" if insertion.get("status") == "Pass" else "warning",
+            )
         self._updateStep6PlanningUi(result.message, error=not result.success)
         # The façade creates one transient TCP path model from the accepted
         # MoveIt waypoints. Refresh the shared View catalog so it is available
         # to the operator's trajectory visibility/Frame controls immediately.
         self._updateWorkflowViewControls()
+        # View refreshes may process parameter/display observers. Re-derive the
+        # action gate last so a complete plan cannot leave stale grey controls.
+        self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)
-        diagnostic_blocked = str(result.details.get("fullTaskStatus") or "") == "Blocked"
         if (
-            (not result.success or diagnostic_blocked)
-            and result.details.get("motionDiagnosticSessionFingerprint")
+            result.details.get("motionDiagnosticSessionFingerprint")
             and self._parameterNode
             and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
         ):
             qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
+
+    def _onStep6TemplateCollisionOverride(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        enabled = bool(
+            self._robotSimulationPanel.templateCollisionOverrideCheckBox.checked
+        )
+        result = (
+            self._robotWorkflowFacade
+            .setTemplateCollisionExclusionForFunctionalSimulation(enabled)
+        )
+        if not result.success:
+            checkbox = self._robotSimulationPanel.templateCollisionOverrideCheckBox
+            checkbox.blockSignals(True)
+            checkbox.checked = bool(
+                self._robotWorkflowFacade.templateCollisionExclusionActive
+            )
+            checkbox.blockSignals(False)
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.templateCollisionOverrideStatusLabel,
+            result,
+        )
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _refreshStep6AnatomyReviewControls(self) -> None:
+        if not self._robotSimulationPanel or not self.logic or not self._parameterNode:
+            return
+        self._robotSimulationPanel.setAnatomyReviewCandidates(
+            self.logic.step6AnatomyReviewCandidates(self._parameterNode),
+            self._robotWorkflowFacade.anatomyReviewState
+            if self._robotWorkflowFacade
+            else self.logic.step6AnatomyReviewState(self._parameterNode),
+        )
+
+    def _onStep6BeginAnatomyReview(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        segment_id = str(
+            self._robotSimulationPanel.anatomyReviewToothCombo.currentData or ""
+        )
+        result = self._robotWorkflowFacade.beginSessionAnatomyReview(segment_id)
+        self._setStep6PanelResult(self._robotSimulationPanel.anatomyReviewStatusLabel, result)
+        self._refreshStep6AnatomyReviewControls()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6EditAnatomyReview(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel or not self.logic:
+            return
+        state = self._robotWorkflowFacade.anatomyReviewState
+        if not state.get("exists"):
+            slicer.util.errorDisplay(_("Create a session anatomy-review copy first."))
+            return
+        if state.get("active"):
+            slicer.util.errorDisplay(
+                _("Discard the active reviewed proxy before editing a new local revision.")
+            )
+            return
+        proxy = self.logic.step6AnatomyReviewProxyNode(self._parameterNode)
+        segment_id = str(state.get("proxySegmentId") or "")
+        try:
+            module = getattr(slicer.modules, "segmenteditor", None)
+            if not module:
+                raise RuntimeError(_("The built-in Segment Editor module is unavailable."))
+            module_widget = module.widgetRepresentation().self()
+            if not module_widget or not module_widget.editor:
+                raise RuntimeError(_("The built-in Segment Editor widget is unavailable."))
+            source_volume = self.logic.getSegmentationSourceVolume(proxy)
+            slicer.util.setSliceViewerLayers(background=source_volume, fit=False)
+            module_widget.editor.setSegmentationNode(proxy)
+            module_widget.editor.setSourceVolumeNode(source_volume)
+            module_widget.editor.setCurrentSegmentID(segment_id)
+            module_widget.editor.setActiveEffect(None)
+            slicer.util.selectModule("SegmentEditor")
+            self._robotSimulationPanel.anatomyReviewStatusLabel.text = (
+                "Editing the session-only copy in Segment Editor. Remove only the "
+                "reviewed local artifact; source anatomy remains unchanged."
+            )
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def _onStep6ActivateAnatomyReview(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        if not self._robotSimulationPanel.anatomyReviewConfirmedCheckBox.checked:
+            message = _(
+                "Confirm that the local edited region is a segmentation artifact before "
+                "using a research simulation proxy."
+            )
+            self._robotSimulationPanel.anatomyReviewStatusLabel.text = message
+            slicer.util.errorDisplay(message)
+            return
+        result = self._robotWorkflowFacade.activateSessionAnatomyReviewProxy(True)
+        self._setStep6PanelResult(self._robotSimulationPanel.anatomyReviewStatusLabel, result)
+        self._refreshStep6AnatomyReviewControls()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6DiscardAnatomyReview(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        result = self._robotWorkflowFacade.discardSessionAnatomyReview()
+        self._setStep6PanelResult(self._robotSimulationPanel.anatomyReviewStatusLabel, result)
+        self._robotSimulationPanel.anatomyReviewConfirmedCheckBox.checked = False
+        self._refreshStep6AnatomyReviewControls()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
 
     def _onStep6PhasePreviewFinished(self, label, result) -> None:
         self._setStep6PanelResult(label, result)

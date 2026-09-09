@@ -1,5 +1,27 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-07 — Retire pre-surgery case workarounds
+
+- Retired the pre-surgery/x4 case-specific collision workarounds from the
+  production Step 6 baseline.
+- Limited burr proximity/contact configuration to the selected target tooth;
+  guide/template and non-target anatomy remain authoritative collision objects.
+- Quarantined the historical template-collision bypass and anatomy-review
+  collision proxy behind explicit, non-persistent diagnostic environment flags.
+
+## 2026-09-07 — Run SlicerROS2 as the host UID
+
+- **Why:** Bind-mounted `data/` and Slicer settings became root-owned after
+  container sessions, leaving the workstation user unable to add folders or
+  edit cases on the host.
+- **Change:** Compose now sets `user` to the launcher-exported host UID/GID,
+  adds the DRM render group, mounts `slicer-home` as `HOME=/home/dentobot`,
+  and retires the `/root/.config/slicer.org` bind. The launcher migrates
+  legacy `slicer-user/` contents, grants X11 to the host user, and reclaims
+  bind-mount ownership on exit.
+- **Verification boundary:** Launcher `--check-only` after recreate must
+  report the host UID and write host-owned files under `/workspace/data`.
+
 ## 2026-09-03 — Add bounded fixed-frame IK recovery for P0 Stage 3
 
 - **Why:** MoveIt's collision-off Cartesian interpolator could stop near the

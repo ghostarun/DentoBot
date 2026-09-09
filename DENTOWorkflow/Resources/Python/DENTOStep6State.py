@@ -43,7 +43,16 @@ LEGACY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
 SPINDLE_LOCKED_VALUE_RAD = 0.0
 SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
 SPINDLE_PLANNING_POLICY = "external-pressure-spindle-nonplanning-v2"
-DRILL_TOOL_FRAME_POLICY = "stage1-fixed-entry-target-frame-v1"
+SIMULATION_TARGET_DEPTH_CAP_MM = 6.0
+SIMULATION_TARGET_DEPTH_POLICY = "simulation-target-depth-cap-v1"
+SIMULATION_TOOL_PROVENANCE = (
+    "CAD-derived/provisional/un-calibrated; " + SIMULATION_TARGET_DEPTH_POLICY
+)
+# The five-DOF arm can command TCP XYZ plus the drilling-axis direction.  Roll
+# about that axis belongs to the external pneumatic spindle and is not part of
+# the MoveIt task constraint.  Bump the policy fingerprint so older full-frame
+# evidence is explicitly stale after this kinematic correction.
+DRILL_TOOL_FRAME_POLICY = "stage1-position-axis-authoritative-fk-v3"
 
 
 def canonicalize_planning_joint_positions(
@@ -82,6 +91,7 @@ class MotionPhase(str, Enum):
     APPROACH = "approach"
     TERMINAL_CONTACT = "terminal_contact"
     DRILLING = "drilling"
+    RETRACTION = "retraction"
 
 
 def _finite_tuple(values: Sequence[float], count: int, label: str) -> tuple[float, ...]:
@@ -89,6 +99,33 @@ def _finite_tuple(values: Sequence[float], count: int, label: str) -> tuple[floa
     if len(result) != count or not all(isfinite(value) for value in result):
         raise ValueError(f"{label} must contain {count} finite values")
     return result
+
+
+def cap_simulation_target(
+    entry_ras_mm: Sequence[float], target_ras_mm: Sequence[float]
+) -> tuple[float, float, float]:
+    """Return a finite simulation Target no deeper than the 6 mm cap."""
+
+    try:
+        entry = _finite_tuple(entry_ras_mm, 3, "Entry RAS")
+        target = _finite_tuple(target_ras_mm, 3, "Target RAS")
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError("Entry and Target must be three finite coordinates") from exc
+    vector = tuple(target[index] - entry[index] for index in range(3))
+    if not all(isfinite(value) for value in vector):
+        raise ValueError("Entry-to-Target vector must have a finite length")
+    length = sqrt(sum(value * value for value in vector))
+    if not isfinite(length) or length <= 0.0:
+        raise ValueError("Entry and Target must define a finite non-zero trajectory")
+    if length <= SIMULATION_TARGET_DEPTH_CAP_MM:
+        return target
+    fraction = SIMULATION_TARGET_DEPTH_CAP_MM / length
+    capped = tuple(
+        entry[index] + fraction * vector[index] for index in range(3)
+    )
+    if not all(isfinite(value) for value in capped):
+        raise ValueError("Capped simulation Target must contain finite coordinates")
+    return capped
 
 
 def canonical_json(value: object) -> str:

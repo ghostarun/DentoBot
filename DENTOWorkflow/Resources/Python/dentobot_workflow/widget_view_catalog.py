@@ -75,12 +75,16 @@ class ViewCatalogWidgetMixin:
             "DENTOBOT.MarkupsRole",
             "DENTOBOT.ModelRole",
             "DENTOBOT.BoundsRole",
+            "DENTOBOT.Step6PhasePlanPath",
         )
         for node in slicer.util.getNodesByClass("vtkMRMLDisplayableNode"):
             if node.IsA("vtkMRMLSegmentationNode"):
                 continue
+            dentobotOwned = any(
+                node.GetAttribute(attribute) for attribute in ownershipAttributes
+            )
             hideFromEditors = getattr(node, "GetHideFromEditors", None)
-            if hideFromEditors and hideFromEditors():
+            if hideFromEditors and hideFromEditors() and not dentobotOwned:
                 continue
             if not node.GetDisplayNode():
                 try:
@@ -89,7 +93,7 @@ class ViewCatalogWidgetMixin:
                     continue
             if node.GetID() and node.GetDisplayNode():
                 nodesById[node.GetID()] = node
-            if any(node.GetAttribute(attribute) for attribute in ownershipAttributes):
+            if dentobotOwned:
                 nodesById[node.GetID()] = node
         if self.logic:
             for node in (

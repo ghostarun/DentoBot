@@ -1767,7 +1767,7 @@
           "returns": "None"
         },
         "step6ApproachPoints": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, snapshot=None",
           "decorators": [],
           "returns": ""
         },

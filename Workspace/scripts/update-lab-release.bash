@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Update a lab WSL checkout to the pinned LAB_RELEASE tag and GHCR image.
-# Leaves .dentobot.env, slicer-user/, and data/ untouched.
+# Leaves .dentobot.env, slicer-home/, slicer-user, and data/ untouched.
 
 set -euo pipefail
 
@@ -186,6 +186,6 @@ fi
 
 printf '%s\n' \
   '' \
-  "Checked out ${DENTOBOT_TAG}. .dentobot.env, slicer-user/, and data/ were not modified." \
+  "Checked out ${DENTOBOT_TAG}. .dentobot.env, slicer-home/, slicer-user, and data/ were not modified." \
   'Launch with scripts/launch-dentoworkflow.bash or launch-lab-workflow.bat.' \
   'Step 6 remains simulation/preview. No hardware motion or drilling.'
