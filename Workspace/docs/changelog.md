@@ -1,5 +1,13 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-09 — Re-label slicerros2 image jazzy-moveit-sim-20260909
+
+- Thin re-label (not a full stack rebuild) of the existing
+  jazzy-moveit-sim-20260903 layers to jazzy-moveit-sim-20260909 so OCI
+  org.opencontainers.image.version / revision match lab/2026-09-09.
+- Dockerfile.slicerros2 unchanged since the 20260903 image; pin updated in
+  Workspace/LAB_RELEASE and Workspace/compose.yaml.
+
 ## 2026-09-09 — Lab update channel + WSL distro autodetection
 
 - `update-lab-release` now reads `Workspace/LAB_RELEASE` from `origin/main`

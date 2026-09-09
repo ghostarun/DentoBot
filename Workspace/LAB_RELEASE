@@ -9,5 +9,5 @@ DENTOBOT_TAG=lab/2026-09-09
 DENTOBOT_GIT_URL=https://github.com/ghostarun/DentoBot.git
 SLICERROS2_GIT_URL=https://github.com/ghostarun/slicer_ros2_module.git
 SLICERROS2_SHA=17f99931f54f1e7941d7a66b30a849d2a37baccd
-IMAGE=ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260903
-COMPOSE_IMAGE=dentobot/slicerros2:jazzy-moveit-sim-20260903
+IMAGE=ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909
+COMPOSE_IMAGE=dentobot/slicerros2:jazzy-moveit-sim-20260909
