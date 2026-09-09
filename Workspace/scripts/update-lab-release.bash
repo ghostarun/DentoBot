@@ -6,7 +6,7 @@ set -euo pipefail
 
 canonical_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${canonical_script}")" && pwd -P)"
-repository_root="$(cd -- "${script_directory}/../.." && pwd -P)"
+repository_root="${DENTOBOT_REPO:-$(cd -- "${script_directory}/../.." && pwd -P)}"
 default_workspace_root="$(cd -- "${repository_root}/../../.." && pwd -P)"
 # shellcheck source=lab-release-lib.bash
 source "${script_directory}/lab-release-lib.bash"
