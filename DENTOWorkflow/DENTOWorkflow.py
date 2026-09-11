@@ -22,6 +22,7 @@ if str(_helperDirectory) not in sys.path:
 
 from dentobot_workflow.logic_backend import BackendLogicMixin
 from dentobot_workflow.logic_case_bundle import CaseBundleLogicMixin
+from dentobot_workflow.logic_case_foundation import CaseFoundationLogicMixin
 from dentobot_workflow.logic_constants import LogicConstantsMixin
 from dentobot_workflow.logic_core import CoreLogicMixin
 from dentobot_workflow.logic_display import DisplayLogicMixin
@@ -101,6 +102,7 @@ class DENTOWorkflowLogic(
     GuideSupportLogicMixin,
     WorkflowLogicMixin,
     RobotLogicMixin,
+    CaseFoundationLogicMixin,
     Step6SceneLogicMixin,
     CaseBundleLogicMixin,
     ScriptedLoadableModuleLogic,

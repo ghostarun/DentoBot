@@ -9,17 +9,17 @@
           "decorators": [],
           "returns": "list[dict]"
         },
-        "_alignDraftPhantomWorkspaceTransform": {
-          "arguments": "self, workspaceTransform: vtkMRMLLinearTransformNode, nativeCenterRas: np.ndarray",
-          "decorators": [],
-          "returns": "None"
-        },
         "_appendPolydata": {
           "arguments": "surfaces: list[vtk.vtkPolyData | None]",
           "decorators": [
             "staticmethod"
           ],
           "returns": "vtk.vtkPolyData | None"
+        },
+        "_applyRobotBaseMountInteractionState": {
+          "arguments": "self, parameterNode, locked: bool",
+          "decorators": [],
+          "returns": "None"
         },
         "_applyStep6CbctOpacity": {
           "arguments": "display, opacity: float",
@@ -45,12 +45,24 @@
           "decorators": [],
           "returns": "list[str]"
         },
+        "_cachedCaseFoundationFingerprint": {
+          "arguments": "self, key: tuple, builder",
+          "decorators": [],
+          "returns": "str"
+        },
         "_captureStep6CbctBaseOpacity": {
           "arguments": "display",
           "decorators": [
             "staticmethod"
           ],
           "returns": "None"
+        },
+        "_caseBundleActualAtRecordedShape": {
+          "arguments": "cls, expected: object, actual: object",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "object"
         },
         "_caseBundleMatrixValues": {
           "arguments": "matrix: vtk.vtkMatrix4x4",
@@ -73,12 +85,24 @@
           ],
           "returns": "bool"
         },
+        "_collisionAuditPolydataEvidence": {
+          "arguments": "polydata: vtk.vtkPolyData",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "dict"
+        },
         "_createOrReuseRoleModel": {
           "arguments": "modelNode: vtkMRMLModelNode | None, role: str, name: str",
           "decorators": [
             "staticmethod"
           ],
           "returns": "vtkMRMLModelNode"
+        },
+        "_createStep6DerivedAnatomy": {
+          "arguments": "self, parameterNode, sourceNode: vtkMRMLSegmentationNode, segmentIds: tuple[str, ...], *, existingNode, name: str, role: str, mode: str, transformNode=None",
+          "decorators": [],
+          "returns": "vtkMRMLSegmentationNode"
         },
         "_createTargetDockingMeasurementLine": {
           "arguments": "self, assemblyModel: vtkMRMLModelNode, name: str, startRas, endRas, role: str, color: tuple[float, float, float], visible: bool",
@@ -90,12 +114,26 @@
           "decorators": [],
           "returns": "dict"
         },
+        "_filterStep6TargetAttachedModels": {
+          "arguments": "cls, modelNodes: list, targetSegmentId: str",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "list"
+        },
         "_finalizationDynamicOutputRoles": {
           "arguments": "",
           "decorators": [
             "staticmethod"
           ],
           "returns": "tuple[str, ...]"
+        },
+        "_foundationMatrixValues": {
+          "arguments": "node",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "tuple[float, ...]"
         },
         "_getClosedSurfaceCopy": {
           "arguments": "segmentationNode: vtkMRMLSegmentationNode, segmentId: str",
@@ -111,6 +149,16 @@
           ],
           "returns": "vtk.vtkPolyData"
         },
+        "_hideStep6SourceJawSegments": {
+          "arguments": "self, sourceNode: vtkMRMLSegmentationNode, ownerNode: vtkMRMLSegmentationNode, segmentIds: tuple[str, ...]",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_invalidateCaseFoundationPoseDependents": {
+          "arguments": "self, parameterNode, reason: str",
+          "decorators": [],
+          "returns": "None"
+        },
         "_isAuxiliaryNodeReferenced": {
           "arguments": "auxiliaryNode",
           "decorators": [
@@ -118,12 +166,10 @@
           ],
           "returns": "bool"
         },
-        "_modelRasBounds": {
-          "arguments": "model: vtkMRMLModelNode",
-          "decorators": [
-            "staticmethod"
-          ],
-          "returns": "list[float]"
+        "_migrateLegacyJ2ZeroRobotProfile": {
+          "arguments": "self, parameterNode, savedRobotProfile",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "_mrmlNodeReferencesNode": {
           "arguments": "node, referencedNode",
@@ -146,6 +192,13 @@
           ],
           "returns": "list[float] | None"
         },
+        "_nodeReferences": {
+          "arguments": "node, role: str",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "list"
+        },
         "_numpyFromVtkMatrix": {
           "arguments": "matrix: vtk.vtkMatrix4x4",
           "decorators": [
@@ -159,11 +212,6 @@
             "staticmethod"
           ],
           "returns": "str"
-        },
-        "_parentDraftPhantomModelsToWorkspace": {
-          "arguments": "self, workspaceTransform: vtkMRMLLinearTransformNode, models: list[vtkMRMLModelNode]",
-          "decorators": [],
-          "returns": "None"
         },
         "_polydataWorldToRobotBase": {
           "arguments": "self, polydata_world: vtk.vtkPolyData, base_transform: vtkMRMLLinearTransformNode",
@@ -199,6 +247,16 @@
           "decorators": [],
           "returns": "list[dict]"
         },
+        "_reparentCaseFoundationNodePreservingWorld": {
+          "arguments": "self, node, parent",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_restoreStep6CaseJawLandmarkPlacementVisibility": {
+          "arguments": "self, parameterNode, landmarksNode",
+          "decorators": [],
+          "returns": "None"
+        },
         "_restoreStep6CaseLowerJawVisibility": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode | None, model: vtkMRMLModelNode | None",
           "decorators": [],
@@ -208,6 +266,18 @@
           "arguments": "self, parameterNode",
           "decorators": [],
           "returns": "None"
+        },
+        "_restoreStep6DerivedAnatomyVisibility": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_robotProfileComponentSha256": {
+          "arguments": "robotProfile, componentPath: str",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "str"
         },
         "_scalarVolumeDisplayNode": {
           "arguments": "volumeNode: vtkMRMLScalarVolumeNode",
@@ -240,6 +310,18 @@
           ],
           "returns": "None"
         },
+        "_stableDentoCaseId": {
+          "arguments": "prefix: str, *values: object",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "str"
+        },
+        "_step6AnatomyReviewFingerprint": {
+          "arguments": "self, node, segment_id: str",
+          "decorators": [],
+          "returns": "str"
+        },
         "_step6CaseJawGeometryFingerprint": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, segmentIds: tuple[str, ...]",
           "decorators": [],
@@ -259,6 +341,13 @@
           "arguments": "self, parameterNode, polydataWorld: vtk.vtkPolyData",
           "decorators": [],
           "returns": "vtk.vtkPolyData"
+        },
+        "_step6CaseJawPreparationRecord": {
+          "arguments": "parameterNode",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "dict"
         },
         "_step6TargetAttachedGeometryFingerprint": {
           "arguments": "self, parameterNode",
@@ -282,10 +371,20 @@
           ],
           "returns": "list[tuple[float, float, float]]"
         },
+        "_syncCollisionAuditDisplayCopy": {
+          "arguments": "self, *, source_id: str, outgoing_id: str, outgoing_base_mm: vtk.vtkPolyData, base_world: vtk.vtkMatrix4x4, outgoing_fingerprint: str, opacity: float",
+          "decorators": [],
+          "returns": "vtkMRMLModelNode"
+        },
         "_targetDockingObstacleSurfaces": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, targetRecord: dict, supportSegmentIds: list[str] | None=None",
           "decorators": [],
           "returns": "tuple[list[vtk.vtkPolyData], list[str], list[str]]"
+        },
+        "_targetJawOwner": {
+          "arguments": "self, parameterNode, targetSegmentId: str",
+          "decorators": [],
+          "returns": "str"
         },
         "_templateGuideParameters": {
           "arguments": "clearanceMm: float, thicknessMm: float, samplingSpacingMm: float, channelDiameterMm: float, sleeveOuterDiameterMm: float, sleeveInnerDiameterMm: float, sleeveHeightMm: float",
@@ -293,6 +392,11 @@
             "staticmethod"
           ],
           "returns": "dict[str, float]"
+        },
+        "_trajectoryRegistryGeometryFingerprint": {
+          "arguments": "self, trajectoryNode",
+          "decorators": [],
+          "returns": "str"
         },
         "_trajectoryStateLabel": {
           "arguments": "trajectorySummary: dict",
@@ -308,23 +412,18 @@
           ],
           "returns": "vtk.vtkPolyData"
         },
-        "_updateStep6CaseTargetAttachedDisplay": {
-          "arguments": "self, parameterNode, transform: vtkMRMLLinearTransformNode",
-          "decorators": [],
-          "returns": "None"
-        },
         "_validateFinalGuideInputs": {
           "arguments": "self, patientShell: vtkMRMLModelNode, targetDockingAssembly: vtkMRMLModelNode, trajectories: list[vtkMRMLMarkupsLineNode], parameters: dict[str, float]",
           "decorators": [],
           "returns": "dict"
         },
-        "_validateSingleStep6PhantomPlacement": {
-          "arguments": "self, resolvedModels: dict[str, vtkMRMLModelNode], workspaceTransform: vtkMRMLLinearTransformNode | None",
+        "_validateSingleStep6RobotPlacement": {
+          "arguments": "self, baseTransform, linkModels: list, linkTransforms: list",
           "decorators": [],
           "returns": "None"
         },
-        "_validateSingleStep6RobotPlacement": {
-          "arguments": "self, baseTransform: vtkMRMLLinearTransformNode | None, linkModels: list[vtkMRMLModelNode], linkTransforms: list[vtkMRMLLinearTransformNode]",
+        "_validateStep6AnatomyReview": {
+          "arguments": "self, parameterNode, state",
           "decorators": [],
           "returns": "None"
         },
@@ -367,6 +466,16 @@
             "staticmethod"
           ],
           "returns": "str"
+        },
+        "activateDentoCasePreparedBranch": {
+          "arguments": "self, parameterNode, branchId: str, *, registry: dict[str, object] | None=None, invalidateRuntime: bool=True",
+          "decorators": [],
+          "returns": "dict[str, object]"
+        },
+        "activateDentoCaseTrajectory": {
+          "arguments": "self, parameterNode, trajectoryNode",
+          "decorators": [],
+          "returns": "dict"
         },
         "applyStep6CbctRenderingPreset": {
           "arguments": "self, parameterNode, presetName: str, *, createIfMissing: bool",
@@ -413,6 +522,26 @@
           "decorators": [],
           "returns": "dict[str, object]"
         },
+        "beginStep6AnatomyReview": {
+          "arguments": "self, parameterNode, segmentId: str",
+          "decorators": [],
+          "returns": "dict[str, object]"
+        },
+        "bindCaseFoundationNode": {
+          "arguments": "self, parameterNode, node",
+          "decorators": [],
+          "returns": "str"
+        },
+        "buildCaseFoundationSnapshot": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": ""
+        },
+        "buildDentoCaseRobotEnvironment": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": ""
+        },
         "buildHealthCommand": {
           "arguments": "self, distribution: str, pythonPath: str, executionMode: str='wsl', device: str='cuda:0'",
           "decorators": [],
@@ -433,6 +562,11 @@
           "decorators": [],
           "returns": "list[str]"
         },
+        "cancelTransientStep6CaseJawLandmarkPlacement": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict"
+        },
         "captureWorkflowDisplayState": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode | None, displayableNodes: list",
           "decorators": [],
@@ -448,10 +582,29 @@
           "decorators": [],
           "returns": "dict[str, object]"
         },
-        "clearDraftJawLandmarks": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode",
+        "caseFoundationLandmarkButtonLabels": {
+          "arguments": "cls",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "tuple[str, ...]"
+        },
+        "caseFoundationLandmarkPlacementHints": {
+          "arguments": "cls",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "tuple[str, ...]"
+        },
+        "caseFoundationSourceSegmentationFingerprint": {
+          "arguments": "self, segmentationNode",
           "decorators": [],
-          "returns": "None"
+          "returns": "str"
+        },
+        "caseFoundationSourceVolumeFingerprint": {
+          "arguments": "self, volumeNode",
+          "decorators": [],
+          "returns": "str"
         },
         "clearNodeLineageColor": {
           "arguments": "cls, node",
@@ -465,12 +618,20 @@
           "decorators": [],
           "returns": "None"
         },
-        "combinedRasBounds": {
-          "arguments": "boundsList: list[list[float]]",
-          "decorators": [
-            "staticmethod"
-          ],
-          "returns": "tuple[float, ...] | None"
+        "collisionSceneAuditFreshnessIssues": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
+        },
+        "collisionSceneAuditRecord": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": ""
+        },
+        "commitCaseFoundationOpeningPreview": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "computeTrajectoryFrame": {
           "arguments": "entryRas, targetRas, *, epsilon: float=1e-06, parallelThreshold: float=0.95",
@@ -518,11 +679,6 @@
           "decorators": [],
           "returns": "tuple[vtkMRMLMarkupsFiducialNode, dict]"
         },
-        "createOrResetDraftJawLandmarks": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode | None",
-          "decorators": [],
-          "returns": "vtkMRMLMarkupsFiducialNode"
-        },
         "createOrResetRobotMountPlane": {
           "arguments": "self, planeNode: vtkMRMLMarkupsPlaneNode | None, baseTransform: vtkMRMLLinearTransformNode | None",
           "decorators": [],
@@ -547,16 +703,6 @@
           "arguments": "self, sourceShell: vtkMRMLModelNode, planeNode: vtkMRMLMarkupsPlaneNode | None=None",
           "decorators": [],
           "returns": "vtkMRMLMarkupsPlaneNode"
-        },
-        "createOrUpdateDraftJawOpening": {
-          "arguments": "self, mandible: vtkMRMLModelNode, landmarks: vtkMRMLMarkupsFiducialNode, transform: vtkMRMLLinearTransformNode | None, gapLine: vtkMRMLMarkupsLineNode | None, targetGapMm: float",
-          "decorators": [],
-          "returns": "tuple[vtkMRMLLinearTransformNode, vtkMRMLMarkupsLineNode, dict]"
-        },
-        "createOrUpdateDraftPhantom": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "tuple[vtkMRMLModelNode, vtkMRMLModelNode, list[vtkMRMLModelNode]]"
         },
         "createOrUpdateDraftTemplateSupportModel": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, targetSegmentId: str, supportSegmentIds: list[str], modelNode: vtkMRMLModelNode | None=None",
@@ -682,11 +828,6 @@
           "decorators": [],
           "returns": "dict"
         },
-        "deleteDraftPhantom": {
-          "arguments": "self, landmarks=None, transform=None, gapLine=None",
-          "decorators": [],
-          "returns": "list[str]"
-        },
         "deleteDraftTemplateSupportModel": {
           "arguments": "self, modelNode: vtkMRMLModelNode",
           "decorators": [],
@@ -752,6 +893,11 @@
           "decorators": [],
           "returns": "dict"
         },
+        "deleteTransientRobotRuntimeNodes": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "list[str]"
+        },
         "dentalArchForFdi": {
           "arguments": "fdiNumber: str",
           "decorators": [
@@ -771,74 +917,10 @@
           ],
           "returns": "dict[str, str | None]"
         },
-        "draftJawLandmarkButtonLabels": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "tuple[str, ...]"
-        },
-        "draftJawLandmarkPlacementHints": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "tuple[str, ...]"
-        },
-        "draftJawLandmarkPositions": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode",
+        "discardStep6AnatomyReview": {
+          "arguments": "self, parameterNode",
           "decorators": [],
-          "returns": "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]"
-        },
-        "draftPhantomExampleForeheadPlaneNativeRas": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "np.ndarray"
-        },
-        "draftPhantomExampleLandmarksNativeRas": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "tuple[np.ndarray, ...]"
-        },
-        "draftPhantomExampleLandmarksWorldRas": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "tuple[np.ndarray, ...]"
-        },
-        "draftPhantomModelNodes": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "list[vtkMRMLModelNode]"
-        },
-        "draftPhantomNativePointToWorldRas": {
-          "arguments": "self, nativePointRas: np.ndarray, workspaceTransform: vtkMRMLLinearTransformNode | None=None",
-          "decorators": [],
-          "returns": "np.ndarray"
-        },
-        "draftPhantomPaths": {
-          "arguments": "",
-          "decorators": [
-            "staticmethod"
-          ],
-          "returns": "dict[str, Path]"
-        },
-        "draftPhantomWorkspaceTransformForModel": {
-          "arguments": "self, model: vtkMRMLModelNode | None",
-          "decorators": [],
-          "returns": "vtkMRMLLinearTransformNode | None"
-        },
-        "draftPhantomWorkspaceTransformNodes": {
-          "arguments": "cls",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "list[vtkMRMLLinearTransformNode]"
+          "returns": "bool"
         },
         "enableAutomaticTrajectoryName": {
           "arguments": "self, trajectoryNode: vtkMRMLMarkupsLineNode",
@@ -869,15 +951,10 @@
           ],
           "returns": "bool"
         },
-        "ensureDraftJawLandmarksNode": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode | None",
+        "ensureDentoCaseTrajectoryIdentity": {
+          "arguments": "self, trajectoryNode, segmentationNode, targetRecord: dict[str, object]",
           "decorators": [],
-          "returns": "vtkMRMLMarkupsFiducialNode"
-        },
-        "ensureDraftPhantomWorkspaceTransform": {
-          "arguments": "self, transform: vtkMRMLLinearTransformNode | None",
-          "decorators": [],
-          "returns": "vtkMRMLLinearTransformNode"
+          "returns": "tuple[str, int]"
         },
         "ensureRobotBaseTransform": {
           "arguments": "self, base_transform: vtkMRMLLinearTransformNode | None",
@@ -895,9 +972,9 @@
           "returns": "str"
         },
         "ensureStep6CaseJawLandmarksNode": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode | None",
+          "arguments": "self, node",
           "decorators": [],
-          "returns": "vtkMRMLMarkupsFiducialNode"
+          "returns": ""
         },
         "ensureWorkflowNodeStepTag": {
           "arguments": "node, stepName: str",
@@ -905,6 +982,16 @@
             "staticmethod"
           ],
           "returns": "bool"
+        },
+        "evaluateCaseFoundationEligibility": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict[str, object]"
+        },
+        "evaluatePreparedBranchEligibility": {
+          "arguments": "self, parameterNode, branchId: str | None=None, *, registry: dict[str, object] | None=None",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "exportFinalPrintableTemplateStl": {
           "arguments": "self, directory: str | Path, finalModel: vtkMRMLModelNode, *, overwrite: bool=False",
@@ -915,6 +1002,11 @@
           "arguments": "self, directory: str | Path, shellModelNode: vtkMRMLModelNode, sleeveModelNode: vtkMRMLModelNode, *, overwrite: bool=False",
           "decorators": [],
           "returns": "dict[str, Path]"
+        },
+        "finalizeStep6CaseJawLandmarkPlacement": {
+          "arguments": "self, parameterNode, landmarksNode: vtkMRMLMarkupsFiducialNode",
+          "decorators": [],
+          "returns": "dict | None"
         },
         "findJsonReport": {
           "arguments": "lines: list[str], command: str",
@@ -954,11 +1046,6 @@
         },
         "getAssistedTrajectoryEntrySummary": {
           "arguments": "self, entryNode: vtkMRMLMarkupsFiducialNode",
-          "decorators": [],
-          "returns": "dict"
-        },
-        "getDraftJawLandmarkSummary": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode",
           "decorators": [],
           "returns": "dict"
         },
@@ -1067,9 +1154,9 @@
           "returns": "list[vtkMRMLMarkupsLineNode]"
         },
         "getStep6CaseJawLandmarkSummary": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode",
+          "arguments": "self, node",
           "decorators": [],
-          "returns": "dict"
+          "returns": "dict[str, object]"
         },
         "getTargetDockingAssemblySummary": {
           "arguments": "self, assemblyModel: vtkMRMLModelNode",
@@ -1131,10 +1218,30 @@
           "decorators": [],
           "returns": "dict[str, str]"
         },
+        "hideLegacyDraftPhantomNodes": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "int"
+        },
+        "hydrateDentoCaseStateAfterLoad": {
+          "arguments": "self, parameterNode, packageSchemaVersion: str",
+          "decorators": [],
+          "returns": "None"
+        },
         "importStep6PlanningContext": {
           "arguments": "self, parameterNode",
           "decorators": [],
           "returns": "PlanningContextReport"
+        },
+        "invalidateCaseFoundationBase": {
+          "arguments": "self, parameterNode, reason: str",
+          "decorators": [],
+          "returns": "None"
+        },
+        "invalidateCaseFoundationForSourceChange": {
+          "arguments": "self, parameterNode, reason: str",
+          "decorators": [],
+          "returns": "None"
         },
         "invalidateSegmentationReviewAfterEdit": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, editedUtc: str | None=None",
@@ -1157,27 +1264,6 @@
           "arguments": "trajectoryNode",
           "decorators": [
             "staticmethod"
-          ],
-          "returns": "bool"
-        },
-        "isDraftJawLandmarksNode": {
-          "arguments": "cls, node",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "bool"
-        },
-        "isDraftJawTransformNode": {
-          "arguments": "cls, node",
-          "decorators": [
-            "classmethod"
-          ],
-          "returns": "bool"
-        },
-        "isDraftPhantomWorkspaceTransformNode": {
-          "arguments": "cls, node",
-          "decorators": [
-            "classmethod"
           ],
           "returns": "bool"
         },
@@ -1253,6 +1339,13 @@
         },
         "isStep6CaseJawTransformNode": {
           "arguments": "cls, node",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "bool"
+        },
+        "isStep6DerivedAnatomyNode": {
+          "arguments": "cls, node, role: str",
           "decorators": [
             "classmethod"
           ],
@@ -1373,11 +1466,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "labelDraftJawLandmarks": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode, pointCount: int | None=None",
-          "decorators": [],
-          "returns": "None"
-        },
         "labelTrajectoryControlPoints": {
           "arguments": "trajectoryNode: vtkMRMLMarkupsLineNode",
           "decorators": [
@@ -1448,6 +1536,11 @@
           ],
           "returns": "bool"
         },
+        "markStep6MotionDiagnosticStale": {
+          "arguments": "self, parameterNode, reason: str",
+          "decorators": [],
+          "returns": "None"
+        },
         "markTargetDockingAssemblyStale": {
           "arguments": "assemblyModel: vtkMRMLModelNode | None, reason: str",
           "decorators": [
@@ -1469,6 +1562,16 @@
           ],
           "returns": "bool"
         },
+        "motionDiagnosticFreshnessIssues": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
+        },
+        "motionDiagnosticRecord": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": ""
+        },
         "nudgeRobotBase": {
           "arguments": "self, baseTransform: vtkMRMLLinearTransformNode, *, translationLocalMm: tuple[float, float, float]=(0.0, 0.0, 0.0), rotationLocalDeg: tuple[float, float, float]=(0.0, 0.0, 0.0)",
           "decorators": [],
@@ -1486,20 +1589,60 @@
           "decorators": [],
           "returns": "MotionPlanResult"
         },
-        "positionRobotBaseNearResearchPhantom": {
-          "arguments": "self, baseTransform: vtkMRMLLinearTransformNode, phantomModels: list[vtkMRMLModelNode]",
+        "prepareDentoCaseSchema3ForSave": {
+          "arguments": "self, parameterNode",
           "decorators": [],
-          "returns": "bool"
+          "returns": "None"
+        },
+        "prepareStep6CaseJawLandmarkPlacement": {
+          "arguments": "self, parameterNode, landmarksNode: vtkMRMLMarkupsFiducialNode, landmarkIndex: int",
+          "decorators": [],
+          "returns": "str"
+        },
+        "previewCaseFoundationOpening": {
+          "arguments": "self, parameterNode, targetGapMm: float",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "proposeAssistedTaskLimits": {
           "arguments": "self, parameterNode, workspaceResult",
           "decorators": [],
           "returns": ""
         },
+        "quarantineLegacyRobotBasePlacement": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "str"
+        },
+        "rebuildCaseFoundationDisplayVolumes": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[object, object]"
+        },
+        "recordStep6CaseJawPreparationFailure": {
+          "arguments": "self, parameterNode, reason: str",
+          "decorators": [],
+          "returns": "bool"
+        },
+        "recordTaskHomeRuntimeValidation": {
+          "arguments": "self, parameterNode, *, runtime_validation",
+          "decorators": [],
+          "returns": ""
+        },
+        "refreshCaseFoundationNodeOwnership": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "list[str]"
+        },
         "refreshManagedTrajectoryNames": {
           "arguments": "self",
           "decorators": [],
           "returns": "list[str]"
+        },
+        "refreshStep6CaseTargetAttachedDisplay": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "None"
         },
         "refreshWorkflowLineageColors": {
           "arguments": "self",
@@ -1511,10 +1654,10 @@
           "decorators": [],
           "returns": "list[str]"
         },
-        "resetDraftJawOpening": {
-          "arguments": "self, mandible: vtkMRMLModelNode | None, transform: vtkMRMLLinearTransformNode | None, gapLine: vtkMRMLMarkupsLineNode | None",
+        "requireCaseFoundationPose": {
+          "arguments": "self, parameterNode",
           "decorators": [],
-          "returns": "None"
+          "returns": "dict[str, object]"
         },
         "resetStep6CaseJawOpening": {
           "arguments": "self, parameterNode",
@@ -1566,10 +1709,20 @@
           ],
           "returns": "None"
         },
+        "revertCaseFoundationOpeningPreview": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "None"
+        },
         "reviewAndApplyAssistedTaskLimits": {
           "arguments": "self, parameterNode",
           "decorators": [],
           "returns": ""
+        },
+        "reviewAndProjectExistingStep6CaseJawLandmarks": {
+          "arguments": "self, parameterNode, landmarksNode: vtkMRMLMarkupsFiducialNode, maximumResidualMm: float=5.0",
+          "decorators": [],
+          "returns": "dict"
         },
         "robotBaseFingerprint": {
           "arguments": "self, parameterNode",
@@ -1709,6 +1862,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "setStep6AnatomyReviewProxyActive": {
+          "arguments": "self, parameterNode, active: bool",
+          "decorators": [],
+          "returns": "dict[str, object]"
+        },
         "setStep6Appearance": {
           "arguments": "self, parameterNode, key: str, *, visible: bool, opacity: float",
           "decorators": [],
@@ -1733,13 +1891,6 @@
           ],
           "returns": "None"
         },
-        "startDraftJawLandmarkPlacement": {
-          "arguments": "landmarksNode: vtkMRMLMarkupsFiducialNode",
-          "decorators": [
-            "staticmethod"
-          ],
-          "returns": "None"
-        },
         "startHorizontalPlanePlacement": {
           "arguments": "planeNode: vtkMRMLMarkupsPlaneNode",
           "decorators": [
@@ -1754,29 +1905,62 @@
           ],
           "returns": "None"
         },
-        "startStep6CaseJawLandmarkPlacement": {
-          "arguments": "landmarksNode: vtkMRMLMarkupsFiducialNode",
-          "decorators": [
-            "staticmethod"
-          ],
-          "returns": "None"
-        },
         "startTrajectoryPlacement": {
           "arguments": "self, trajectoryNode: vtkMRMLMarkupsLineNode",
           "decorators": [],
           "returns": "None"
+        },
+        "step6AnatomyReviewCandidates": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[dict[str, str], ...]"
+        },
+        "step6AnatomyReviewFreshnessIssues": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
+        },
+        "step6AnatomyReviewProxyNode": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": ""
+        },
+        "step6AnatomyReviewState": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "step6ApproachPoints": {
           "arguments": "self, parameterNode, snapshot=None",
           "decorators": [],
           "returns": ""
         },
-        "step6CaseJawLandmarkPositions": {
-          "arguments": "self, node: vtkMRMLMarkupsFiducialNode",
+        "step6BasePlacementFreshnessIssues": {
+          "arguments": "self, parameterNode",
           "decorators": [],
-          "returns": "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]"
+          "returns": "tuple[str, ...]"
+        },
+        "step6BurrProximityCollisionObjectIds": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
+        },
+        "step6CaseJawLandmarkPositions": {
+          "arguments": "self, node",
+          "decorators": [],
+          "returns": "tuple[np.ndarray, ...]"
+        },
+        "step6CaseJawLandmarkSegmentAssociations": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
         },
         "step6CaseJawOpeningFreshnessIssues": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "list[str]"
+        },
+        "step6CaseJawPlacementFreshnessIssues": {
           "arguments": "self, parameterNode",
           "decorators": [],
           "returns": "list[str]"
@@ -1785,6 +1969,11 @@
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode",
           "decorators": [],
           "returns": "dict[str, tuple[str, ...]]"
+        },
+        "step6CaseJawSurfaceEvidenceIssues": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "list[str]"
         },
         "step6CaseViewNodes": {
           "arguments": "self, parameterNode",
@@ -1813,15 +2002,20 @@
           ],
           "returns": "list[vtkMRMLModelNode]"
         },
+        "step6GuidanceCollisionObjectIds": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "tuple[str, ...]"
+        },
         "step6PlanningContextFreshnessIssues": {
           "arguments": "self, parameterNode",
           "decorators": [],
           "returns": "list[str]"
         },
-        "step6ResearchWorkspaceRasBounds": {
-          "arguments": "self, robotModels: list[vtkMRMLModelNode], phantomModels: list[vtkMRMLModelNode]",
+        "step6PlanningPackageFreshnessIssues": {
+          "arguments": "self, parameterNode",
           "decorators": [],
-          "returns": "tuple[float, ...] | None"
+          "returns": "list[str]"
         },
         "step6SegmentationAnatomyPointsMm": {
           "arguments": "self, segmentationNode, *, stride: int=80",
@@ -1866,6 +2060,11 @@
             "staticmethod"
           ],
           "returns": "None"
+        },
+        "syncDentoCaseTrajectoryRegistry": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict[str, object]"
         },
         "syncStep6MoveItPlanningScene": {
           "arguments": "self, parameterNode",
@@ -1988,6 +2187,11 @@
           ],
           "returns": "Path"
         },
+        "validateStep6CaseJawLandmarkAnatomy": {
+          "arguments": "self, parameterNode",
+          "decorators": [],
+          "returns": "dict"
+        },
         "validateTargetTooth": {
           "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, segmentId: str",
           "decorators": [],
@@ -2053,148 +2257,162 @@
     },
     "DENTOWorkflowParameterNode": {
       "annotated_fields": [
-        "assistedTrajectoryCount",
-        "assistedTrajectoryEntries",
         "caseName",
-        "draftJawGapLine",
-        "draftJawLandmarks",
-        "draftJawTargetGapMm",
-        "draftJawTransform",
-        "draftPhantomMandibleModel",
-        "draftPhantomSkullModel",
-        "draftTemplateSupportModel",
-        "finalPrintableTemplateModel",
-        "finalizedTemplateShellModel",
-        "inferenceDevice",
         "inputVolume",
-        "patientContactShellModel",
-        "researchTemplateShellModel",
-        "researchTemplateSleeveModel",
-        "robotBaseMountLocked",
-        "robotBaseTransform",
-        "robotCoarseSelfClearanceMm",
-        "robotEnvironmentClearanceMm",
-        "robotForeheadProxyModel",
-        "robotJoint1Deg",
-        "robotJoint1TaskMaxDeg",
-        "robotJoint1TaskMinDeg",
-        "robotJoint2Mm",
-        "robotJoint2TaskMaxMm",
-        "robotJoint2TaskMinMm",
-        "robotJoint3Deg",
-        "robotJoint3TaskMaxDeg",
-        "robotJoint3TaskMinDeg",
-        "robotJoint4Mm",
-        "robotJoint4TaskMaxMm",
-        "robotJoint4TaskMinMm",
-        "robotJoint5Deg",
-        "robotJoint5TaskMaxDeg",
-        "robotJoint5TaskMinDeg",
-        "robotJoint6Deg",
-        "robotJoint6TaskMaxDeg",
-        "robotJoint6TaskMinDeg",
-        "robotKeyboardNudgeEnabled",
-        "robotMotionPlanSampleCount",
-        "robotMountPlane",
-        "robotRotationStepDeg",
-        "robotTranslationStepMm",
-        "robotWorkspaceSampleCount",
-        "roundTripVolume",
-        "sceneDisplayPresetJson",
+        "inspectedVolume",
+        "inspectedSegmentation",
+        "useLauncherBackendConfiguration",
+        "wslDistribution",
+        "wslPythonPath",
         "stagingRoot",
-        "step6ApproachStandoffMm",
-        "step6AssistedLimitProposalJson",
-        "step6BasePlacementRevision",
-        "step6BasePlacementSource",
-        "step6BasePlacementStatus",
-        "step6CaseJawGapLine",
-        "step6CaseJawLandmarks",
-        "step6CaseJawTargetGapMm",
-        "step6CaseJawTransform",
-        "step6CbctOpacity",
-        "step6CbctVolumeRenderingNodeId",
-        "step6ConfirmedTaskJson",
-        "step6ForeheadProxyDepthMm",
-        "step6ForeheadProxyHeightMm",
-        "step6ForeheadProxyOffsetMm",
-        "step6ForeheadProxyOpacity",
-        "step6ForeheadProxyWidthMm",
-        "step6GoalRobotOpacity",
-        "step6GuidesOpacity",
-        "step6MasksOpacity",
-        "step6MountPlaneOpacity",
-        "step6OpenedLowerJawModel",
-        "step6OpenedTargetGeometryModel",
-        "step6OpenedTrajectoryLine",
-        "step6PlanningContextImported",
-        "step6RobotOpacity",
-        "step6TaskHomeJson",
-        "step6ToolFrame",
-        "step6TrajectoryCorridorRadiusMm",
-        "step6TrajectoryOpacity",
+        "inferenceDevice",
+        "roundTripVolume",
+        "teethSegmentation",
+        "targetToothSegmentId",
+        "targetToothBoundsRoi",
+        "trajectoryLine",
+        "trajectoryPlacementMode",
+        "assistedTrajectoryEntries",
+        "assistedTrajectoryCount",
+        "targetDockingReferencePlane",
         "targetDockingAssemblyModel",
+        "targetDockingPatternRadiusMm",
+        "targetDockingOuterDiameterMm",
         "targetDockingBoreDiameterMm",
-        "targetDockingCollisionClearanceMm",
         "targetDockingConnectorDiameterMm",
         "targetDockingConnectorThicknessMm",
+        "targetDockingSharedDepthMm",
+        "targetDockingYawDeg",
+        "targetDockingCollisionClearanceMm",
+        "targetDockingYawConfirmed",
+        "targetDockingMeasurementsVisible",
+        "targetDockingIndividualDepthsEnabled",
         "targetDockingDepth1Mm",
         "targetDockingDepth2Mm",
         "targetDockingDepth3Mm",
         "targetDockingDepth4Mm",
-        "targetDockingIndividualDepthsEnabled",
-        "targetDockingMeasurementsVisible",
-        "targetDockingOuterDiameterMm",
-        "targetDockingPatternRadiusMm",
-        "targetDockingReferencePlane",
-        "targetDockingSharedDepthMm",
-        "targetDockingYawConfirmed",
-        "targetDockingYawDeg",
-        "targetToothBoundsRoi",
-        "targetToothSegmentId",
-        "teethSegmentation",
-        "templateBlockoutSafetyMm",
-        "templateChannelDiameterMm",
-        "templateDockingAssemblyModel",
-        "templateDockingChannelsModel",
-        "templateDockingClearanceMm",
-        "templateDockingClearanceModel",
-        "templateDockingReinforcementModel",
-        "templateFinalizationKeepRegion",
-        "templateFinalizationMode",
-        "templateFinalizationViewLocked",
-        "templateFinalizationYawLocked",
-        "templateInsertionDirection",
-        "templateInterproximalReliefMm",
-        "templateReinforcementDepthMm",
-        "templateReinforcementRadialMm",
-        "templateSamplingSpacingMm",
-        "templateShellClearanceMm",
-        "templateShellRoi",
-        "templateShellThicknessMm",
-        "templateShellVoxelClosingMm",
-        "templateSleeveHeightMm",
-        "templateSleeveInnerDiameterMm",
-        "templateSleeveOuterDiameterMm",
+        "templateSupportToothSegmentIdsJson",
+        "draftTemplateSupportModel",
         "templateSupportBoundaryCurve",
         "templateSupportBoundaryPlane",
+        "templateSupportPlaneDepthMm",
         "templateSupportCrownCapPercent",
         "templateSupportCurveSamplingSpacingMm",
-        "templateSupportDirectionReversed",
-        "templateSupportPlaneDepthMm",
-        "templateSupportSelectionMode",
-        "templateSupportToothSegmentIdsJson",
         "templateTerminalSupportCoveragePercent",
-        "templateTrimCurve",
-        "templateTrimPlane",
-        "templateUndercutAngleToleranceDeg",
-        "templateUndercutBlockoutModel",
-        "templateUndercutSurfaceModel",
-        "trajectoryLine",
-        "trajectoryPlacementMode",
-        "useLauncherBackendConfiguration",
+        "templateSupportSelectionMode",
+        "templateSupportDirectionReversed",
         "visibleTemplateSupportModel",
-        "wslDistribution",
-        "wslPythonPath"
+        "templateInsertionDirection",
+        "templateUndercutAngleToleranceDeg",
+        "templateInterproximalReliefMm",
+        "templateBlockoutSafetyMm",
+        "templateShellVoxelClosingMm",
+        "templateUndercutSurfaceModel",
+        "templateUndercutBlockoutModel",
+        "patientContactShellModel",
+        "templateShellRoi",
+        "templateShellClearanceMm",
+        "templateShellThicknessMm",
+        "templateSamplingSpacingMm",
+        "templateChannelDiameterMm",
+        "templateSleeveOuterDiameterMm",
+        "templateSleeveInnerDiameterMm",
+        "templateSleeveHeightMm",
+        "templateDockingClearanceMm",
+        "templateReinforcementRadialMm",
+        "templateReinforcementDepthMm",
+        "templateDockingAssemblyModel",
+        "templateDockingClearanceModel",
+        "templateDockingReinforcementModel",
+        "templateDockingChannelsModel",
+        "finalPrintableTemplateModel",
+        "researchTemplateShellModel",
+        "researchTemplateSleeveModel",
+        "templateFinalizationMode",
+        "templateFinalizationKeepRegion",
+        "templateFinalizationViewLocked",
+        "templateFinalizationYawLocked",
+        "templateTrimPlane",
+        "templateTrimCurve",
+        "finalizedTemplateShellModel",
+        "robotBaseTransform",
+        "robotMountPlane",
+        "robotForeheadProxyModel",
+        "step6CaseJawLandmarks",
+        "step6CaseJawTransform",
+        "step6CaseJawGapLine",
+        "step6OpenedLowerJawModel",
+        "step6FixedUpperAnatomy",
+        "step6MovingLowerAnatomy",
+        "step6TargetJawFallbackAnatomy",
+        "step6OpenedTargetGeometryModel",
+        "step6OpenedTrajectoryLine",
+        "caseFoundationFixedUpperVolume",
+        "caseFoundationMovingLowerVolume",
+        "caseFoundationOpeningRevision",
+        "caseFoundationPreviewUncommitted",
+        "step6CaseJawTargetGapMm",
+        "step6CaseJawPreparationMode",
+        "step6CaseJawPreparationJson",
+        "step6CaseJawLastFailureJson",
+        "robotJoint1Deg",
+        "robotJoint2Mm",
+        "robotJoint3Deg",
+        "robotJoint4Mm",
+        "robotJoint5Deg",
+        "robotJoint6Deg",
+        "robotTranslationStepMm",
+        "robotRotationStepDeg",
+        "robotKeyboardNudgeEnabled",
+        "robotBaseMountLocked",
+        "step6BasePlacementStatus",
+        "step6BasePlacementSource",
+        "step6BasePlacementRevision",
+        "step6ForeheadProxyWidthMm",
+        "step6ForeheadProxyHeightMm",
+        "step6ForeheadProxyDepthMm",
+        "step6ForeheadProxyOffsetMm",
+        "step6TaskHomeJson",
+        "step6AssistedLimitProposalJson",
+        "step6ConfirmedTaskJson",
+        "step6CollisionSceneAuditJson",
+        "step6MotionDiagnosticJson",
+        "dentoCaseSchemaVersion",
+        "step6EnvironmentJson",
+        "step6TrajectoryRegistryJson",
+        "step6SchemaMigrationPending",
+        "step6ApproachStandoffMm",
+        "step6TerminalContactToleranceMm",
+        "step6TrajectoryCorridorRadiusMm",
+        "step6ToolFrame",
+        "step6CbctVolumeRenderingNodeId",
+        "step6CbctOpacity",
+        "step6MasksOpacity",
+        "step6RobotOpacity",
+        "step6GoalRobotOpacity",
+        "step6GuidesOpacity",
+        "step6MountPlaneOpacity",
+        "step6TrajectoryOpacity",
+        "step6ForeheadProxyOpacity",
+        "step6CollisionAuditOpacity",
+        "step6PlanningContextImported",
+        "robotMotionPlanSampleCount",
+        "robotCoarseSelfClearanceMm",
+        "robotEnvironmentClearanceMm",
+        "robotWorkspaceSampleCount",
+        "robotJoint1TaskMinDeg",
+        "robotJoint1TaskMaxDeg",
+        "robotJoint2TaskMinMm",
+        "robotJoint2TaskMaxMm",
+        "robotJoint3TaskMinDeg",
+        "robotJoint3TaskMaxDeg",
+        "robotJoint4TaskMinMm",
+        "robotJoint4TaskMaxMm",
+        "robotJoint5TaskMinDeg",
+        "robotJoint5TaskMaxDeg",
+        "robotJoint6TaskMinDeg",
+        "robotJoint6TaskMaxDeg",
+        "sceneDisplayPresetJson"
       ],
       "methods": {}
     },
@@ -2226,6 +2444,16 @@
           "decorators": [],
           "returns": "None"
         },
+        "test_DENTOWorkflowCaseBundleRegistryNodeRecord": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowCaseFoundation": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "test_DENTOWorkflowCompleteTemplateBuildCaching": {
           "arguments": "self",
           "decorators": [],
@@ -2236,17 +2464,17 @@
           "decorators": [],
           "returns": "None"
         },
-        "test_DENTOWorkflowDraftOpenMouthRobotWorkspace": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
         "test_DENTOWorkflowDraftTemplateSupportModelLogic": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
         "test_DENTOWorkflowInsertionAlignedSupportPlaneBoundary": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowInsertionMetadataDoesNotInvalidateTemplate": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -2262,11 +2490,6 @@
           "returns": "None"
         },
         "test_DENTOWorkflowRobotPlacementLogic": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
-        "test_DENTOWorkflowRobotPlacementWidget": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -2291,11 +2514,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "test_DENTOWorkflowStep6CaseJawOpening": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
         "test_DENTOWorkflowStep6CaseViewWidget": {
           "arguments": "self",
           "decorators": [],
@@ -2307,6 +2525,21 @@
           "returns": "None"
         },
         "test_DENTOWorkflowStep6NativePlacementPersistence": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowStep6SessionAnatomyReview": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowStep6SubstepNavigator": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowTargetDockingBindingPreservesConfirmation": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -2352,6 +2585,11 @@
           "returns": "None"
         },
         "test_DENTOWorkflowTrajectoryBacktrackingAfterSceneReload": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "test_DENTOWorkflowTrajectoryMetadataDoesNotInvalidateGeometry": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -2431,6 +2669,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "_applyCaseFoundationAuthoringGate": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_applyDENTOBOTGuiMode": {
           "arguments": "self, mode: str, *, persist: bool=True",
           "decorators": [],
@@ -2476,6 +2719,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "_applyTrajectoryVerificationSmoothing": {
+          "arguments": "self, inputs: dict",
+          "decorators": [],
+          "returns": "None"
+        },
         "_applyTrajectoryVerificationView": {
           "arguments": "self, *, fit: bool, deterministicOrientation: bool=False",
           "decorators": [],
@@ -2516,13 +2764,18 @@
           "decorators": [],
           "returns": "bool"
         },
-        "_bindAssistedTrajectoryEntryNode": {
-          "arguments": "self, entryNode",
+        "_beginCaseBundleRestore": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "int"
+        },
+        "_bindAndValidateRestoredCase": {
+          "arguments": "self, expectedWorkflow: dict[str, object]",
           "decorators": [],
           "returns": "None"
         },
-        "_bindDraftJawLandmarksNode": {
-          "arguments": "self, landmarksNode: vtkMRMLMarkupsFiducialNode | None",
+        "_bindAssistedTrajectoryEntryNode": {
+          "arguments": "self, entryNode",
           "decorators": [],
           "returns": "None"
         },
@@ -2570,6 +2823,11 @@
           "arguments": "self, updateStatus: bool, message: str=''",
           "decorators": [],
           "returns": "None"
+        },
+        "_captureCaseFoundationSessionSnapshot": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "bool"
         },
         "_captureSliceToRasElements": {
           "arguments": "sliceNode",
@@ -2643,6 +2901,11 @@
             "staticmethod"
           ],
           "returns": "str"
+        },
+        "_commitPlanningSegmentationSelection": {
+          "arguments": "self, segmentationNode",
+          "decorators": [],
+          "returns": "None"
         },
         "_completeHealthCheck": {
           "arguments": "self, returnCode: int",
@@ -2719,6 +2982,13 @@
           "decorators": [],
           "returns": "list[dict]"
         },
+        "_dentobotTeethSegmentationNodes": {
+          "arguments": "",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "tuple"
+        },
         "_detachNestedLayout": {
           "arguments": "cls, parentLayout, nestedLayout",
           "decorators": [
@@ -2738,6 +3008,11 @@
         },
         "_enableTrajectoryVerificationView": {
           "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_endCaseBundleRestore": {
+          "arguments": "self, generation: int",
           "decorators": [],
           "returns": "None"
         },
@@ -2783,6 +3058,11 @@
         },
         "_extendWorkflowViewSnapshotForNewNodes": {
           "arguments": "self, nodes: list",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_flushWorkflowViewControlsRefresh": {
+          "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
@@ -2903,13 +3183,13 @@
           "decorators": [],
           "returns": "None"
         },
-        "_onDraftJawLandmarksModified": {
-          "arguments": "self, caller=None, event=None",
+        "_onFacadePreviewFinished": {
+          "arguments": "self, result",
           "decorators": [],
           "returns": "None"
         },
-        "_onFacadePreviewFinished": {
-          "arguments": "self, result",
+        "_onNextStep6Substep": {
+          "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -2930,6 +3210,11 @@
         },
         "_onPlanningTrajectoryModified": {
           "arguments": "self, caller=None, event=None",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onPreviousStep6Substep": {
+          "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -3013,12 +3298,22 @@
           "decorators": [],
           "returns": "None"
         },
+        "_onStep6ActivateAnatomyReview": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_onStep6AppearanceChanged": {
           "arguments": "self, key: str, visible: bool, opacity: float",
           "decorators": [],
           "returns": "None"
         },
         "_onStep6ApplyTaskHome": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6BeginAnatomyReview": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -3039,6 +3334,16 @@
           "returns": "None"
         },
         "_onStep6CreateForeheadProxy": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6DiscardAnatomyReview": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6EditAnatomyReview": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -3083,12 +3388,47 @@
           "decorators": [],
           "returns": "None"
         },
+        "_onStep6PreviewProgress": {
+          "arguments": "self, index: int, count: int",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6ReturnHome": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6RevalidateWorkspace": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_onStep6ReviewAssistedLimits": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
         "_onStep6SaveTaskHome": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6ShowMotionDiagnostics": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6StopPreview": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6SubstepChanged": {
+          "arguments": "self, substep_index: int",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_onStep6TemplateCollisionOverride": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -3205,6 +3545,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "_refreshStep6AnatomyReviewControls": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_refreshWorkflowViewAfterStateChange": {
           "arguments": "self",
           "decorators": [],
@@ -3214,6 +3559,11 @@
           "arguments": "self, *, autoSelectYaw: bool",
           "decorators": [],
           "returns": "None"
+        },
+        "_rehydrateStep6LocalRobotAfterRestore": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "bool"
         },
         "_reloadDENTOWorkflowSources": {
           "arguments": "",
@@ -3237,9 +3587,21 @@
           "decorators": [],
           "returns": "None"
         },
+        "_resetStep6CaseJawOpeningBeforeInputChange": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "bool"
+        },
         "_restoreAssistedTrajectoryFocus": {
           "arguments": "self, updateUi: bool=True",
           "decorators": [],
+          "returns": "None"
+        },
+        "_restoreCaseBundleMarkupInteractionState": {
+          "arguments": "parameterNode, expectedWorkflow: dict[str, object]",
+          "decorators": [
+            "staticmethod"
+          ],
           "returns": "None"
         },
         "_restoreCrossViewNavigation": {
@@ -3338,6 +3700,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "_scheduleWorkflowViewControlsRefresh": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_selectedReviewSegmentId": {
           "arguments": "self",
           "decorators": [],
@@ -3355,6 +3722,11 @@
         },
         "_setBackendStatus": {
           "arguments": "self, message: str, state: str='neutral'",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_setCaseBundleResumeStatus": {
+          "arguments": "self, message: str, *, error: bool",
           "decorators": [],
           "returns": "None"
         },
@@ -3465,6 +3837,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "_setupStep6SubstepNavigator": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "_setupTemplateSupportArchSelector": {
           "arguments": "self",
           "decorators": [],
@@ -3546,6 +3923,11 @@
         },
         "_syncSegmentationDisplayControls": {
           "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "_syncTrajectorySelectorNodes": {
+          "arguments": "self, trajectoryNode",
           "decorators": [],
           "returns": "None"
         },
@@ -3635,6 +4017,20 @@
           ],
           "returns": "qt.QIcon"
         },
+        "_trajectoryGeometrySnapshot": {
+          "arguments": "trajectoryNode",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "dict"
+        },
+        "_trajectoryGeometrySnapshotsMatch": {
+          "arguments": "left: dict | None, right: dict | None, toleranceMm: float=1e-06",
+          "decorators": [
+            "staticmethod"
+          ],
+          "returns": "bool"
+        },
         "_trajectoryPlacementMode": {
           "arguments": "self",
           "decorators": [],
@@ -3650,6 +4046,11 @@
           "decorators": [],
           "returns": "dict"
         },
+        "_tryApplySessionFoundation": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "bool"
+        },
         "_updateAssistedTrajectoryControls": {
           "arguments": "self",
           "decorators": [],
@@ -3657,16 +4058,6 @@
         },
         "_updateBackendControls": {
           "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
-        "_updateDraftJawLandmarkControls": {
-          "arguments": "self, phantomLoaded: bool | None=None",
-          "decorators": [],
-          "returns": "None"
-        },
-        "_updateDraftPhantomStatus": {
-          "arguments": "self, message: str='', error: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -3995,11 +4386,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "onApplyDraftJawOpening": {
-          "arguments": "self, checked: bool=False",
-          "decorators": [],
-          "returns": "None"
-        },
         "onApplyRecommendedWorkflowView": {
           "arguments": "self, checked: bool=False",
           "decorators": [],
@@ -4045,6 +4431,31 @@
           "decorators": [],
           "returns": "None"
         },
+        "onCaseFoundationGapSliderChanged": {
+          "arguments": "self, value: int",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onCaseFoundationGapSliderPressed": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onCaseFoundationGapSliderReleased": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onCaseFoundationGoToStep4": {
+          "arguments": "self, checked: bool=False",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onCaseFoundationGoToStep6": {
+          "arguments": "self, checked: bool=False",
+          "decorators": [],
+          "returns": "None"
+        },
         "onCbctAutoWindowLevelToggled": {
           "arguments": "self, enabled: bool",
           "decorators": [],
@@ -4075,7 +4486,7 @@
           "decorators": [],
           "returns": "None"
         },
-        "onClearDraftJawLandmarks": {
+        "onClearCaseFoundation": {
           "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
@@ -4102,11 +4513,6 @@
         },
         "onContinueTemplateFinalization": {
           "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
-        "onCreateDraftJawLandmarks": {
-          "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -4162,11 +4568,6 @@
         },
         "onCrossViewNavigationToggled": {
           "arguments": "self, checked: bool",
-          "decorators": [],
-          "returns": "None"
-        },
-        "onDeleteDraftPhantom": {
-          "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -4230,16 +4631,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "onDraftJawLandmarksSelectionChanged": {
-          "arguments": "self, node",
-          "decorators": [],
-          "returns": "None"
-        },
-        "onDraftPhantomSelectionChanged": {
-          "arguments": "self, node=None",
-          "decorators": [],
-          "returns": "None"
-        },
         "onDraftTemplateSupportModelSelectionChanged": {
           "arguments": "self, modelNode",
           "decorators": [],
@@ -4282,6 +4673,11 @@
         },
         "onFocusTemplateSupport": {
           "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onForgetSessionFoundation": {
+          "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -4400,11 +4796,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "onLoadDraftPhantom": {
-          "arguments": "self, checked: bool=False",
-          "decorators": [],
-          "returns": "None"
-        },
         "onLoadRobotModel": {
           "arguments": "self, checked: bool=False",
           "decorators": [],
@@ -4490,8 +4881,8 @@
           "decorators": [],
           "returns": "None"
         },
-        "onResetDraftJaw": {
-          "arguments": "self, checked: bool=False",
+        "onRenameSelectedSegmentation": {
+          "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
@@ -4685,6 +5076,11 @@
           "decorators": [],
           "returns": "None"
         },
+        "onShowAllSegmentationRuns": {
+          "arguments": "self",
+          "decorators": [],
+          "returns": "None"
+        },
         "onShowAllSegments": {
           "arguments": "self",
           "decorators": [],
@@ -4702,6 +5098,11 @@
         },
         "onShowGuidanceToggled": {
           "arguments": "self, visible: bool",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onShowSelectedSegmentationOnly": {
+          "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
@@ -4792,6 +5193,11 @@
         },
         "onTemplateGuideTrajectoryItemChanged": {
           "arguments": "self, item",
+          "decorators": [],
+          "returns": "None"
+        },
+        "onTemplateGuideTrajectorySelectionChanged": {
+          "arguments": "self, trajectoryNode",
           "decorators": [],
           "returns": "None"
         },

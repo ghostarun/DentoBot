@@ -91,8 +91,6 @@ class ViewControlsWidgetMixin:
             "robot_goal",
             "robot_mount",
             "forehead_proxy",
-            "phantom",
-            "phantom_landmarks",
             "case_jaw_opening",
         }:
             return "Robot simulation objects", "Step 6 scene"
@@ -234,35 +232,7 @@ class ViewControlsWidgetMixin:
             return ""
         if int(self.ui.workflowStageComboBox.currentIndex) != 10:
             return ""
-        sceneKind = self._step6SceneKind()
         category = entry["category"]
-        if sceneKind == "conflict":
-            return _(
-                "Resolve the Step 6 case/phantom source conflict before changing robot-workspace visibility."
-            )
-        if sceneKind == "phantom" and (
-            entry.get("anatomyScopes")
-            or category in {
-                "case_volume",
-                "case_volume_3d",
-                "case_jaw_opening",
-                "target_mask",
-                "bounds",
-                "trajectory",
-                "target_docking",
-                "final",
-            }
-        ):
-            return _(
-                "The disposable phantom source is active; case/CBCT anatomy is intentionally unavailable in this Step 6 view."
-            )
-        if sceneKind == "case" and category in {
-            "phantom",
-            "phantom_landmarks",
-        }:
-            return _(
-                "The CBCT workflow case is active; disposable phantom nodes are intentionally unavailable in this Step 6 view."
-            )
         rosActive = self.logic.isRos2MotionControlActive(
             self._parameterNode.robotBaseTransform
         )
@@ -484,12 +454,8 @@ class ViewControlsWidgetMixin:
                         if not openingIssues
                         else _("TMJ opening must be completed")
                     )
-                elif sceneKind == "phantom":
-                    preparation = _("draft phantom test scene")
-                elif sceneKind == "conflict":
-                    preparation = _("CONFLICT — resolve case versus phantom")
                 else:
-                    preparation = _("load one case package or the draft phantom")
+                    preparation = _("load a Case Foundation")
                 baseState = (
                     _("base locked")
                     if self._parameterNode.robotBaseMountLocked
@@ -497,8 +463,8 @@ class ViewControlsWidgetMixin:
                 )
                 self._step6ViewContextLabel.text = _(
                     "Scene: %1 · Robot: %2 · %3 · %4.\n"
-                    "Case/phantom and MRML/ROS sources are mutually exclusive in "
-                    "the recommended view. Earlier planning markups are read-only here."
+                    "MRML/ROS robot sources are mutually exclusive in the "
+                    "recommended view. Earlier planning markups are read-only here."
                 ).replace("%1", sceneKind).replace("%2", robotSource).replace(
                     "%3", preparation
                 ).replace("%4", baseState)

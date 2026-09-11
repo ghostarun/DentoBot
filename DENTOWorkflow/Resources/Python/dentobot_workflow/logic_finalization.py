@@ -14,6 +14,7 @@ class FinalizationLogicMixin:
     ) -> vtkMRMLMarkupsROINode:
         """Create/reset locked automatic world-RAS bounds around Step 4B anatomy."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         summary = self.getDraftTemplateSupportModelSummary(supportModelNode)
         if summary["geometryState"] != "Current":
             raise ValueError(_("Update the stale Step 4B support draft first."))
@@ -282,6 +283,7 @@ class FinalizationLogicMixin:
     ) -> tuple[vtkMRMLModelNode, vtkMRMLModelNode, dict]:
         """Generate persistent research shell/sleeve models without trained models."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         parameters = self._templateGuideParameters(
             clearanceMm,
             thicknessMm,
@@ -652,6 +654,7 @@ class FinalizationLogicMixin:
         sourceShell: vtkMRMLModelNode,
         planeNode: vtkMRMLMarkupsPlaneNode | None = None,
     ) -> vtkMRMLMarkupsPlaneNode:
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
         if planeNode:
             if not self.isTemplateTrimPlaneNode(planeNode):
@@ -732,6 +735,7 @@ class FinalizationLogicMixin:
         self,
         sourceShell: vtkMRMLModelNode,
     ) -> vtkMRMLMarkupsClosedCurveNode:
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
         curveNode = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLMarkupsClosedCurveNode",
@@ -957,6 +961,7 @@ class FinalizationLogicMixin:
         keepRegion: str,
         finalShell: vtkMRMLModelNode | None = None,
     ) -> tuple[vtkMRMLModelNode, dict]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceShell = self.validateTemplateFinalizationSourceShell(sourceShell)
         editNode = planeNode if mode == "PlaneCut" else curveNode
         self.validateTemplateFinalizationEditNode(sourceShell, editNode, mode)
@@ -1330,6 +1335,7 @@ class FinalizationLogicMixin:
         *,
         overwrite: bool = False,
     ) -> dict[str, Path]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         shellSummary = self.getFinalizedTemplateShellSummary(shellModelNode)
         sleeveSummary = self.getResearchTemplateModelSummary(
             sleeveModelNode,

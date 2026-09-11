@@ -390,39 +390,20 @@ class RobotSceneSyncLogicMixin:
         if parameterNode.teethSegmentation:
             segmentation = parameterNode.teethSegmentation
             jawGroups = self.step6CaseJawSegmentIds(segmentation)
-            if (
-                str(parameterNode.step6CaseJawPreparationMode)
-                == "TargetJawFallback"
-            ):
-                targetJaw = self.step6TargetJaw(parameterNode)
-                fallbackSurface = self._segmentationSegmentsSurfaceWorld(
-                    segmentation,
-                    set(jawGroups.get(targetJaw, ())),
-                )
-                if fallbackSurface:
-                    samples.extend(
-                        self._subsample_polydata_points(
-                            fallbackSurface,
-                            stride=80,
-                        )
-                    )
-                fixedSurface = None
-                movingSurface = None
-            else:
-                fixedSurface = self._segmentationSegmentsSurfaceWorld(
-                    segmentation,
-                    set(jawGroups["upper"]),
-                )
-                movingSurface = self._segmentationSegmentsSurfaceWorld(
-                    segmentation,
-                    set(jawGroups["lower"]),
-                )
+            fixedSurface = self._segmentationSegmentsSurfaceWorld(
+                segmentation,
+                set(jawGroups["upper"]),
+            )
+            movingSurface = self._segmentationSegmentsSurfaceWorld(
+                segmentation,
+                set(jawGroups["lower"]),
+            )
             if fixedSurface:
                 samples.extend(
                     self._subsample_polydata_points(fixedSurface, stride=80),
                 )
             if movingSurface:
-                if bool(parameterNode.step6PlanningContextImported):
+                if self.evaluateCaseFoundationEligibility(parameterNode)["pose"]["eligible"]:
                     movingSurface = self._step6CaseJawPolydataWorld(
                         parameterNode,
                         movingSurface,
@@ -459,13 +440,6 @@ class RobotSceneSyncLogicMixin:
             )
             samples.extend(
                 self._subsample_polydata_points(dock_poly, stride=40),
-            )
-        for phantom_model in self.draftPhantomModelNodes():
-            if not phantom_model:
-                continue
-            phantom_poly = model_polydata_in_world(phantom_model)
-            samples.extend(
-                self._subsample_polydata_points(phantom_poly, stride=60),
             )
         if not samples:
             return np.zeros((0, 3), dtype=float)
@@ -528,13 +502,8 @@ class RobotSceneSyncLogicMixin:
         parameterNode,
         polydataWorld: vtk.vtkPolyData,
     ) -> vtk.vtkPolyData:
-        if str(parameterNode.step6CaseJawPreparationMode) == "TargetJawFallback":
-            return polydataWorld
-        if (
-            bool(parameterNode.step6PlanningContextImported)
-            and self.step6TargetJaw(parameterNode) == "lower"
-        ):
-            return self._step6CaseJawPolydataWorld(parameterNode, polydataWorld)
+        del parameterNode
+        # Jaw-owned nodes are transformed at the MRML parent boundary already.
         return polydataWorld
 
     def _step6TargetAttachedModelPolydataWorld(
@@ -547,23 +516,7 @@ class RobotSceneSyncLogicMixin:
 
     def step6TrajectorySummary(self, parameterNode) -> dict:
         """Return Entry/Target in the active opened-mouth Step 6 world pose."""
-        summary = self.getTrajectorySummary(parameterNode.trajectoryLine)
-        if (
-            not summary.get("isValid")
-            or not bool(parameterNode.step6PlanningContextImported)
-            or self.step6TargetJaw(parameterNode) != "lower"
-            or str(parameterNode.step6CaseJawPreparationMode)
-            == "TargetJawFallback"
-        ):
-            return summary
-        matrix = self._step6CaseJawMatrixWorld(parameterNode)
-        transformed = dict(summary)
-        for key in ("entryRas", "targetRas"):
-            point = [*map(float, summary[key]), 1.0]
-            result = [0.0, 0.0, 0.0, 0.0]
-            matrix.MultiplyPoint(point, result)
-            transformed[key] = np.asarray(result[:3], dtype=float)
-        return transformed
+        return self.getTrajectorySummary(parameterNode.trajectoryLine)
 
     def _polydataWorldToRobotBase(
         self,
@@ -816,8 +769,7 @@ class RobotSceneSyncLogicMixin:
                 parameterNode.targetDockingAssemblyModel,
             ]
         )
-        phantom_models = self.draftPhantomModelNodes()
-        model_candidates = [*phantom_models, *guidance_models]
+        model_candidates = guidance_models
         for model in dict.fromkeys(node for node in model_candidates if node is not None):
             if not isinstance(model, vtkMRMLModelNode):
                 continue
@@ -830,10 +782,7 @@ class RobotSceneSyncLogicMixin:
             }
             jaw_applied = bool(
                 is_target_attached
-                and bool(parameterNode.step6PlanningContextImported)
-                and self.step6TargetJaw(parameterNode) == "lower"
-                and str(parameterNode.step6CaseJawPreparationMode)
-                != "TargetJawFallback"
+                and model.GetAttribute("DENTOBOT.JawOwner") == "MovingLower"
             )
             if is_target_attached:
                 prepared_world = self._step6TargetAttachedPolydataWorld(
@@ -842,10 +791,7 @@ class RobotSceneSyncLogicMixin:
                 )
             if prepared_world is None or prepared_world.GetNumberOfPoints() == 0:
                 continue
-            if model in phantom_models:
-                role = "draft-phantom-anatomy"
-                classification = "fixed-test-anatomy"
-            elif model is parameterNode.finalPrintableTemplateModel:
+            if model is parameterNode.finalPrintableTemplateModel:
                 role = "verified-final-template"
                 classification = (
                     "moving-target-attached" if jaw_applied else "fixed-target-attached"
@@ -881,9 +827,6 @@ class RobotSceneSyncLogicMixin:
                 "upperJaw": (),
                 "lowerJaw": (),
                 # Keep the same normalized shape as step6CaseJawSegmentIds.
-                # A placement-only/phantom scene may have no segmentation;
-                # scene synchronization must remain a no-op for anatomy
-                # instead of raising while looking up these aggregate groups.
                 "upper": (),
                 "lower": (),
             }

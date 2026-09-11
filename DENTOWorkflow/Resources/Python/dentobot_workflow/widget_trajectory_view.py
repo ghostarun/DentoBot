@@ -373,6 +373,7 @@ class TrajectoryViewWidgetMixin:
     def _trajectoryVerificationInputs(self) -> dict:
         if not self._parameterNode or not self.logic:
             raise ValueError(_("DENTO Workflow is not initialized."))
+        self.logic.requireCaseFoundationPose(self._parameterNode)
         trajectoryNode = self._parameterNode.trajectoryLine
         summary = self.logic.getTrajectorySummary(trajectoryNode)
         if summary["definedPointCount"] != 2 or not summary["isValid"]:
@@ -383,26 +384,23 @@ class TrajectoryViewWidgetMixin:
         segmentationNode = None
         association = self.logic.getTrajectoryTargetAssociation(trajectoryNode)
         if association:
-            segmentationNode = association["segmentationNode"]
-            try:
-                volumeNode = self.logic.getSegmentationSourceVolume(
-                    segmentationNode
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    _(
-                        "The trajectory's authoritative segmentation has no available "
-                        "source CBCT. Restore that referenced volume before verification."
-                    )
-                ) from exc
-        if volumeNode is None:
-            volumeNode = self._parameterNode.inputVolume
+            jawOwner = self.logic.bindCaseFoundationNode(
+                self._parameterNode, trajectoryNode
+            )
+            if jawOwner == "MovingLower":
+                volumeNode = self._parameterNode.caseFoundationMovingLowerVolume
+                segmentationNode = self._parameterNode.step6MovingLowerAnatomy
+            elif jawOwner == "FixedUpper":
+                volumeNode = self._parameterNode.caseFoundationFixedUpperVolume
+                segmentationNode = self._parameterNode.step6FixedUpperAnatomy
+            else:
+                raise ValueError(_("The selected trajectory has no Case Foundation jaw owner."))
         if (
             not volumeNode
             or not volumeNode.IsA("vtkMRMLScalarVolumeNode")
             or not volumeNode.GetImageData()
         ):
-            raise ValueError(_("Select or restore the trajectory's source CBCT first."))
+            raise ValueError(_("Reconstruct the trajectory's Case Foundation CBCT display first."))
         layoutManager = slicer.app.layoutManager() if slicer.app else None
         if not layoutManager:
             raise RuntimeError(_("Slicer's layout manager is unavailable."))

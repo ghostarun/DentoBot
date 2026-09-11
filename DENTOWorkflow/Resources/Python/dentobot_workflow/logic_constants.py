@@ -46,31 +46,12 @@ class LogicConstantsMixin:
 
     ROBOT_WORKSPACE_MODEL_ROLE = "RobotWorkspaceCloud"
 
-    DRAFT_PHANTOM_MODEL_ROLE = "DraftOpenMouthPhantom"
-
-    DRAFT_PHANTOM_SKULL_PART = "Neurocranium"
-
-    DRAFT_PHANTOM_MAXILLA_PART = "Maxilla"
-
-    DRAFT_PHANTOM_MANDIBLE_PART = "Mandible"
-
-    DRAFT_JAW_LANDMARKS_ROLE = "DraftJawLandmarks"
-
-    DRAFT_JAW_LANDMARK_LABELS = (
+    CASE_FOUNDATION_LANDMARK_LABELS = (
         "Left TMJ",
         "Right TMJ",
         "Upper incisor",
         "Lower incisor",
     )
-
-    DRAFT_PHANTOM_WORKSPACE_ROLE = "DraftPhantomWorkspace"
-
-    STEP_6_RESEARCH_PHANTOM_CENTER_RAS = (0.0, -150.0, 250.0)
-
-    DRAFT_JAW_TRANSFORM_ROLE = "DraftJawTransform"
-
-    DRAFT_JAW_GAP_LINE_ROLE = "DraftJawGapLine"
-
     STEP6_CASE_JAW_LANDMARKS_ROLE = "Step6CaseJawLandmarks"
 
     STEP6_CASE_JAW_TRANSFORM_ROLE = "Step6CaseJawTransform"

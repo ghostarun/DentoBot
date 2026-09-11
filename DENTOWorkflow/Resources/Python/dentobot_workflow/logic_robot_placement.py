@@ -13,6 +13,34 @@ class RobotPlacementLogicMixin:
     ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
     ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "QuarantinedCircularMountPlane"
 
+    def _validateSingleStep6RobotPlacement(
+        self,
+        baseTransform,
+        linkModels: list,
+        linkTransforms: list,
+    ) -> None:
+        modelIds = {node.GetID() for node in linkModels}
+        if any(node.GetID() not in modelIds for node in self.robotModelNodes()):
+            raise ValueError(_("Only one robot placement set is allowed in Step 6."))
+        names = [node.GetAttribute("DENTOBOT.RobotLinkName") for node in self.robotModelNodes()]
+        if any(name and names.count(name) > 1 for name in names):
+            raise ValueError(_("Duplicate robot link meshes are present."))
+        transformIds = {node.GetID() for node in linkTransforms}
+        if any(
+            node.GetID() not in transformIds
+            for node in self.robotLinkTransformNodes()
+        ):
+            raise ValueError(_("Duplicate robot link transforms are present."))
+        baseId = baseTransform.GetID() if baseTransform else ""
+        extraBases = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode")
+            if node.GetAttribute("DENTOBOT.TransformRole") == self.ROBOT_BASE_ROLE
+            and node.GetID() != baseId
+        ]
+        if extraBases:
+            raise ValueError(_("Only one robot base transform is allowed in Step 6."))
+
     @classmethod
     def isRobotBaseTransformNode(cls, node) -> bool:
         return bool(
@@ -603,7 +631,6 @@ class RobotPlacementLogicMixin:
                 parameterNode.teethSegmentation,
                 parameterNode.step6FixedUpperAnatomy,
                 parameterNode.step6MovingLowerAnatomy,
-                parameterNode.step6TargetJawFallbackAnatomy,
             ):
                 display = segmentation.GetDisplayNode() if segmentation else None
                 if display:

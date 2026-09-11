@@ -179,13 +179,15 @@ class RobotPlacementWidgetMixin:
                     self.logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
                 )
                 caller.SetAttribute("DENTOBOT.PlacementWarning", None)
-                self._parameterNode.step6BasePlacementRevision = max(
-                    0, int(self._parameterNode.step6BasePlacementRevision)
-                ) + 1
+                wasLocked = bool(self._parameterNode.robotBaseMountLocked)
+                if not wasLocked:
+                    self._parameterNode.step6BasePlacementRevision = max(
+                        0, int(self._parameterNode.step6BasePlacementRevision)
+                    ) + 1
                 self.logic.invalidateStep6TaskConfirmation(
                     self._parameterNode,
                     _("Robot base pose changed."),
-                    makeBaseStale=bool(self._parameterNode.robotBaseMountLocked),
+                    makeBaseStale=wasLocked,
                 )
                 self._step6MotionPlan = None
                 if self._robotWorkflowFacade:
@@ -213,7 +215,7 @@ class RobotPlacementWidgetMixin:
             status = _("ROS robot is in the viewport. Place the mount, then lock.")
             style = "color: #207227;"
         elif not self.logic.isRobotBaseTransformNode(baseTransform) or modelCount != 7:
-            status = _("Choose a scene in 6.0, then load the local MRML robot in 6.1.")
+            status = _("Complete the Case Foundation, then load the offline robot in 6.1A.")
             style = "color: #b36b00;"
         else:
             matrix = vtk.vtkMatrix4x4()
@@ -281,24 +283,10 @@ class RobotPlacementWidgetMixin:
             self.ui.flipRobotMountPlaneButton.enabled = False
             self.ui.robotMountPlaneSelector.enabled = False
             self.ui.robotKeyboardNudgeCheckBox.enabled = baseValid
-            phantomLoaded = bool(
-                self._parameterNode.draftPhantomSkullModel
-                and self._parameterNode.draftPhantomMandibleModel
-            )
-            self.ui.frameRobotButton.enabled = bool(
-                modelCount or self.logic.draftPhantomModelNodes()
-            )
-            self.ui.deleteDraftPhantomButton.enabled = bool(
-                self.logic.draftPhantomModelNodes()
-            )
-            self._updateDraftJawLandmarkControls(phantomLoaded=phantomLoaded)
-            self.ui.resetDraftJawButton.enabled = self.logic.isDraftJawTransformNode(
-                self._parameterNode.draftJawTransform
-            )
+            self.ui.frameRobotButton.enabled = bool(modelCount)
         finally:
             self._updatingRobotPlacementUI = False
         self._updateRobotPlacementStatus()
-        self._updateDraftPhantomStatus()
         self._updateStep6CaseJawOpeningControls()
         self._updateStep6CaseJawOpeningStatus()
         self._updateRos2MotionControlStatus()

@@ -1,5 +1,31 @@
 # Dentobot Technical Decisions
 
+## 2026-09-11 — Case Foundation precedes Step 4 and owns offline base reuse
+
+**Status:** Implemented; targeted static/pure verification passed. Focused
+Slicer and operator acceptance remain open.
+
+Amend existing `S6-REUSABLE-CASE-SETUP`. One Case Foundation binds exact source
+CBCT and reviewed-segmentation fingerprints, reviewed four-landmark evidence,
+hinge solver identity, committed opening matrix/revision and a world/head-fixed
+Manual Simulation Base. The existing environment snapshot is schema 2.0; no
+foundation registry is added. DentoCase state and PreparedBranch registry move
+to schema 3.0 while the outer bundle stays 2.0 and MRB stays geometry authority.
+
+Mandibular planning nodes are converted once into jaw-local coordinates while
+preserving their world pose, then remain under the persistent jaw transform.
+Upper nodes and the robot base remain in world coordinates. Every current
+PreparedBranch and its Step 5C evidence bind the planning-pose fingerprint.
+Legacy branches are inspection-only until explicitly regenerated or migrated
+and reverified.
+
+Step 6 supports offline robot/base setup with zero branches and saves that as a
+valid foundation-only case. ROS + MoveIt remains an explicit gate requiring the
+current pose, an explicitly activated eligible PreparedBranch, a compatible
+reviewed locked base and matching robot profile. Load never reconnects ROS or
+restores runtime validity. The draft open-mouth phantom is archived and cannot
+satisfy product eligibility.
+
 ## 2026-09-10 — Assisted targets use displayed pulp contact; smooth masks are P0
 
 **Status:** Operator-prioritized correction implemented; final static/pure and

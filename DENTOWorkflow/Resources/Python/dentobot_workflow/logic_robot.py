@@ -178,7 +178,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         if jawIssues and bool(parameterNode.robotBaseMountLocked):
             # A retained Step 6 base belongs to the anatomy pose/revision that
             # was saved.  Importing an unprepared or legacy case must expose
-            # 6.0A instead of deadlocking it behind that old lock.
+            # Case Foundation review instead of deadlocking it behind that lock.
             self.setRobotBaseMountLocked(parameterNode, False)
             parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
             parameterNode.step6BasePlacementSource = "restored-before-step6a-review"
@@ -188,17 +188,12 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             ) + 1
             self.invalidateStep6TaskConfirmation(
                 parameterNode,
-                _("Step 6A anatomy preparation is incomplete after package import."),
+                _("Case Foundation preparation is incomplete after branch activation."),
             )
         return report
 
     def step6PlanningPackageFreshnessIssues(self, parameterNode) -> list[str]:
-        """Return upstream Steps 4A/4C/5C package-freshness failures.
-
-        Case mouth opening is intentionally excluded.  It is a post-import
-        Step 6 prerequisite: the case must remain active so the operator can
-        place its four landmarks and derive the opened-jaw planning surface.
-        """
+        """Return the active PreparedBranch freshness failures."""
         eligibility = self.evaluatePreparedBranchEligibility(parameterNode)
         return [] if eligibility["eligible"] else [eligibility["message"]]
 
@@ -343,6 +338,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
     def setRobotBaseMountLocked(self, parameterNode, locked: bool) -> None:
         base_transform = parameterNode.robotBaseTransform
         if locked:
+            foundation = self.requireCaseFoundationPose(parameterNode)
             if not self.isRobotBaseTransformNode(base_transform):
                 raise ValueError(_("Load the local Step 6 robot before locking its base."))
             authority = str(
@@ -397,6 +393,14 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 base_transform.SetAttribute(
                     self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
                     self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY,
+                )
+                base_transform.SetAttribute(
+                    "DENTOBOT.CaseFoundationFingerprint",
+                    foundation["planning_pose_fingerprint"],
+                )
+                base_transform.SetAttribute(
+                    "DENTOBOT.RobotProfileFingerprint",
+                    self.robotProfileFingerprint(),
                 )
             elif existing_authority != self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
                 base_transform.SetAttribute(

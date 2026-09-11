@@ -90,12 +90,6 @@ class DENTOWorkflowParameterNode:
     robotBaseTransform: vtkMRMLLinearTransformNode
     robotMountPlane: vtkMRMLMarkupsPlaneNode
     robotForeheadProxyModel: vtkMRMLModelNode
-    draftPhantomSkullModel: vtkMRMLModelNode
-    draftPhantomMandibleModel: vtkMRMLModelNode
-    draftJawLandmarks: vtkMRMLMarkupsFiducialNode
-    draftJawTransform: vtkMRMLLinearTransformNode
-    draftJawGapLine: vtkMRMLMarkupsLineNode
-    draftJawTargetGapMm: float = 40.0
     step6CaseJawLandmarks: vtkMRMLMarkupsFiducialNode
     step6CaseJawTransform: vtkMRMLLinearTransformNode
     step6CaseJawGapLine: vtkMRMLMarkupsLineNode
@@ -105,6 +99,10 @@ class DENTOWorkflowParameterNode:
     step6TargetJawFallbackAnatomy: vtkMRMLSegmentationNode
     step6OpenedTargetGeometryModel: vtkMRMLModelNode
     step6OpenedTrajectoryLine: vtkMRMLMarkupsLineNode
+    caseFoundationFixedUpperVolume: vtkMRMLScalarVolumeNode
+    caseFoundationMovingLowerVolume: vtkMRMLScalarVolumeNode
+    caseFoundationOpeningRevision: int = 0
+    caseFoundationPreviewUncommitted: bool = False
     step6CaseJawTargetGapMm: float = 40.0
     step6CaseJawPreparationMode: str = "ClosedSource"
     step6CaseJawPreparationJson: str = ""

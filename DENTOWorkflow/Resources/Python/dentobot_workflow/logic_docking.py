@@ -274,6 +274,7 @@ class DockingLogicMixin:
         autoSelectYaw: bool = False,
         measurementsVisible: bool = True,
     ) -> tuple[vtkMRMLMarkupsPlaneNode, vtkMRMLModelNode, dict]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         targetRecord = self.validateTargetTooth(segmentationNode, targetSegmentId)
         supportSummary = self.getDraftTemplateSupportModelSummary(supportModel)
         if supportSummary["geometryState"] != "Current":

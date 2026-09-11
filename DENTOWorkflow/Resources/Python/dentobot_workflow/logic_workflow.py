@@ -78,6 +78,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
     ) -> vtkMRMLMarkupsLineNode:
         """Create a draft entry-to-target line in the current MRML scene."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         if not isinstance(name, str) or not name.strip():
             raise ValueError(_("Trajectory name must not be empty."))
         trajectoryNode = slicer.mrmlScene.AddNewNodeByClass(
@@ -183,6 +184,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         expectedCount: int,
         entryNode: vtkMRMLMarkupsFiducialNode | None = None,
     ) -> tuple[vtkMRMLMarkupsFiducialNode, dict]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
         expectedCount = int(expectedCount)
         if expectedCount not in (1, 2):
@@ -251,6 +253,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             displayNode.SetSelectedColor(1.0, 0.75, 0.15)
             displayNode.SetPointLabelsVisibility(True)
             displayNode.SetGlyphScale(1.5)
+        self.bindCaseFoundationNode(self.getParameterNode(), entryNode)
         return entryNode, self.getAssistedTrajectoryEntrySummary(entryNode)
 
     @staticmethod
@@ -284,6 +287,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         rootCount: int,
         targetBoundsRoi: vtkMRMLMarkupsROINode | None = None,
     ) -> tuple[list[vtkMRMLMarkupsLineNode], dict]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         rootCount = int(rootCount)
         inputs = self.validateAssistedTrajectoryEntryAssociation(
             entryNode,
@@ -758,6 +762,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
     ) -> dict:
         """Associate a draft trajectory with one authoritative tooth segment."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         self.enforceTrajectoryControlPointInvariant(trajectoryNode)
         self.getTrajectorySummary(trajectoryNode)
         targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
@@ -803,6 +808,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             targetRecord["segmentId"],
             targetRecord.get("fdiNumber") or "",
         )
+        self.bindCaseFoundationNode(self.getParameterNode(), trajectoryNode)
         self.refreshWorkflowLineageColors()
         return targetRecord
 

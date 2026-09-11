@@ -47,7 +47,7 @@ MIXIN_OWNERS = {
     "GuideLogicMixin": "DENTOWorkflowLogic",
     "FinalizationLogicMixin": "DENTOWorkflowLogic",
     "CaseBundleLogicMixin": "DENTOWorkflowLogic",
-    "PhantomSceneLogicMixin": "DENTOWorkflowLogic",
+    "CaseFoundationLogicMixin": "DENTOWorkflowLogic",
     "Step6SceneLogicMixin": "DENTOWorkflowLogic",
     "RobotPlacementLogicMixin": "DENTOWorkflowLogic",
     "RobotSceneSyncLogicMixin": "DENTOWorkflowLogic",

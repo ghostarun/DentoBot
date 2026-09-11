@@ -812,14 +812,8 @@ class DENTORobotWorkflowFacade:
         return parameter_node
 
     def _scene_kind(self, parameter_node) -> str:
-        imported = bool(parameter_node.step6PlanningContextImported)
-        phantom = bool(self._logic.draftPhantomModelNodes())
-        if imported and phantom:
-            return "conflict"
-        if imported:
+        if parameter_node.inputVolume and parameter_node.teethSegmentation:
             return "case"
-        if phantom:
-            return "phantom"
         return "none"
 
     def _scene_preparation_issue(self, parameter_node) -> str:
@@ -1277,18 +1271,37 @@ class DENTORobotWorkflowFacade:
         try:
             parameter_node = self._require_context()
             scene_kind = self._scene_kind(parameter_node)
-            if scene_kind not in {"case", "phantom"}:
+            if scene_kind != "case":
                 return RobotActionResult(
                     False,
                     "scene_required",
-                    "Choose a Step 6 case or draft phantom before connecting.",
+                    "Open a case and establish its Case Foundation before connecting.",
                 )
-            preparation_issue = self._scene_preparation_issue(parameter_node)
-            if preparation_issue:
+            foundation = self._logic.evaluateCaseFoundationEligibility(parameter_node)
+            if not foundation["pose"]["eligible"]:
                 return RobotActionResult(
                     False,
-                    "case_jaw_opening_required",
-                    preparation_issue,
+                    str(foundation["pose"]["code"]).lower(),
+                    str(foundation["pose"]["message"]),
+                )
+            branch = self._logic.evaluatePreparedBranchEligibility(parameter_node)
+            if not branch["eligible"]:
+                return RobotActionResult(
+                    False,
+                    str(branch["reason"]).lower(),
+                    str(branch["message"]),
+                )
+            if not bool(parameter_node.step6PlanningContextImported):
+                return RobotActionResult(
+                    False,
+                    "prepared_branch_activation_required",
+                    "Activate the verified PreparedBranch for Step 6 first.",
+                )
+            if not foundation["base"]["eligible"]:
+                return RobotActionResult(
+                    False,
+                    str(foundation["base"]["code"]).lower(),
+                    str(foundation["base"]["message"]),
                 )
             if not self._logic.robotModelNodes():
                 return RobotActionResult(
@@ -1458,27 +1471,23 @@ class DENTORobotWorkflowFacade:
     def loadRobot(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
-            if self._scene_kind(parameter_node) not in {"case", "phantom"}:
-                return RobotActionResult(
-                    False,
-                    "scene_required",
-                    "Choose a Step 6 case or draft phantom before loading the robot.",
+            foundation = self._logic.evaluateCaseFoundationEligibility(parameter_node)
+            if foundation["base"]["code"] == "ROBOT_PROFILE_MISMATCH":
+                self._logic.invalidateCaseFoundationBase(
+                    parameter_node,
+                    "The installed robot profile changed after base review.",
                 )
-            preparation_issue = self._scene_placement_issue(parameter_node)
-            if preparation_issue:
+            if not foundation["pose"]["eligible"]:
                 return RobotActionResult(
                     False,
-                    "case_jaw_opening_required",
-                    preparation_issue,
+                    str(foundation["pose"]["code"]).lower(),
+                    str(foundation["pose"]["message"]),
                 )
             base, models = self._logic.createOrUpdateRobotPlacement(
                 parameter_node.robotBaseTransform,
                 self._positions_si(self._display_values(parameter_node)),
             )
             parameter_node.robotBaseTransform = base
-            phantom_models = self._logic.draftPhantomModelNodes()
-            if phantom_models and not bool(parameter_node.robotBaseMountLocked):
-                self._logic.positionRobotBaseNearResearchPhantom(base, phantom_models)
             self._clear_phase_session()
             return RobotActionResult(
                 True,
@@ -1622,8 +1631,8 @@ class DENTORobotWorkflowFacade:
     def lockBase(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
-            if self._scene_kind(parameter_node) not in {"case", "phantom"}:
-                return RobotActionResult(False, "scene_required", "Choose a Step 6 scene before locking the base.")
+            if self._scene_kind(parameter_node) != "case":
+                return RobotActionResult(False, "scene_required", "Open a case and establish its Case Foundation before locking the base.")
             preparation_issue = self._scene_placement_issue(parameter_node)
             if preparation_issue:
                 return RobotActionResult(

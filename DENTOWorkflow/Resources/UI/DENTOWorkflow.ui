@@ -1686,6 +1686,38 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
        </widget>
       </item>
      </layout>
+   </widget>
+   </item>
+   <item>
+    <widget class="ctkCollapsibleButton" name="step6CaseJawOpeningGroupBox">
+     <property name="text"><string>Case Foundation — Open Mouth Setup (required before Step 4A)</string></property>
+     <property name="collapsed"><bool>false</bool></property>
+     <layout class="QVBoxLayout" name="step6CaseJawOpeningVerticalLayout">
+      <item><widget class="QLabel" name="step6CaseJawOpeningDescriptionLabel"><property name="text"><string>Review Left TMJ, Right TMJ, upper-incisor, and lower-incisor landmarks once. The committed hinge pose drives rigid bone/tooth planning displays; source CBCT voxels and reviewed segmentation masks remain unchanged.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item>
+       <layout class="QFormLayout" name="step6CaseJawOpeningFormLayout">
+        <item row="0" column="0"><widget class="QLabel" name="step6CaseJawLandmarksLabel"><property name="text"><string>Four reviewed landmarks:</string></property></widget></item>
+        <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="step6CaseJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawLandmarks</string></property></widget></item>
+        <item row="1" column="0"><widget class="QLabel" name="step6CaseJawTargetGapLabel"><property name="text"><string>Committed incisor gap:</string></property></widget></item>
+        <item row="1" column="1"><widget class="QDoubleSpinBox" name="step6CaseJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="keyboardTracking"><bool>false</bool></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawTargetGapMm</string></property></widget></item>
+        <item row="2" column="0"><widget class="QLabel" name="caseFoundationGapSliderLabel"><property name="text"><string>Live gap preview:</string></property></widget></item>
+        <item row="2" column="1"><widget class="QSlider" name="caseFoundationGapSlider"><property name="minimum"><number>200</number></property><property name="maximum"><number>600</number></property><property name="singleStep"><number>1</number></property><property name="pageStep"><number>10</number></property><property name="value"><number>400</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="step6CaseJawOpeningButtonLayout">
+        <item row="0" column="0"><widget class="QPushButton" name="createStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
+        <item row="0" column="1"><widget class="QPushButton" name="clearStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Landmarks</string></property></widget></item>
+        <item row="1" column="0"><widget class="QPushButton" name="applyStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Commit Case Foundation Opening</string></property></widget></item>
+        <item row="1" column="1"><widget class="QPushButton" name="resetStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Revert Uncommitted Opening</string></property></widget></item>
+        <item row="2" column="0"><widget class="QPushButton" name="clearCaseFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Foundation…</string></property></widget></item>
+        <item row="2" column="1"><widget class="QPushButton" name="forgetSessionFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Forget Session Foundation</string></property></widget></item>
+        <item row="3" column="0"><widget class="QPushButton" name="caseFoundationGoToStep4Button"><property name="text"><string>Continue to Step 4A</string></property></widget></item>
+        <item row="3" column="1"><widget class="QPushButton" name="caseFoundationGoToStep6Button"><property name="text"><string>Go to Step 6 Offline Base Setup</string></property></widget></item>
+       </layout>
+      </item>
+      <item><widget class="QLabel" name="step6CaseJawOpeningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Review the segmentation, then place the four Case Foundation landmarks.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+     </layout>
     </widget>
    </item>
    <item>
@@ -3496,20 +3528,20 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <layout class="QVBoxLayout" name="robotPlacementVerticalLayout">
       <item>
 <widget class="QLabel" name="robotPlacementDescriptionLabel">
-        <property name="text"><string>Choose a scene (case package or draft phantom), connect the simulation robot, place and lock the base, set task limits, then plan and preview. Hardware motion, MoveIt execution, and clinical safety validation are not authorized here.</string></property>
+        <property name="text"><string>Activate a verified PreparedBranch, load the offline robot preview, review and lock the Manual Simulation Base, then explicitly connect ROS + MoveIt. Hardware motion and clinical safety validation are not authorized here.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
       <item>
 <widget class="QGroupBox" name="step6PlanningContextGroupBox">
-        <property name="title"><string>6.0 — Choose Scene</string></property>
+        <property name="title"><string>6.0 — Activate Verified PreparedBranch</string></property>
         <layout class="QVBoxLayout" name="step6PlanningContextVerticalLayout">
-         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package to bring the CBCT, trajectory, docks, and template into view, then complete the required case mouth-opening step below. The draft phantom remains an alternate test scene. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Import Planning Package for Step 6</string></property></widget></item>
+         <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Select and activate a verified PreparedBranch already present in the open case. Open Case Package is the only file-loading action.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Activate Verified PreparedBranch for Step 6</string></property></widget></item>
          <item><widget class="QLabel" name="step6PlanningContextStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Planning package not imported.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
           <widget class="QGroupBox" name="step6RegistrySelectionGroupBox">
-           <property name="title"><string>6.0B — Select Tooth Trajectory + Guide Set</string></property>
+           <property name="title"><string>PreparedBranch in the open case</string></property>
            <layout class="QFormLayout" name="step6RegistrySelectionFormLayout">
             <item row="0" column="0"><widget class="QLabel" name="step6RegistryTrajectoryLabel"><property name="text"><string>Active registry slot:</string></property></widget></item>
             <item row="0" column="1">
@@ -3524,74 +3556,17 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
            </layout>
           </widget>
          </item>
-         <item>
-<widget class="QGroupBox" name="step6CaseJawOpeningGroupBox">
-        <property name="title"><string>6.0A — Open Case Mouth about the TMJ (required before 6.1)</string></property>
-        <layout class="QVBoxLayout" name="step6CaseJawOpeningVerticalLayout">
-         <item><widget class="QLabel" name="step6CaseJawOpeningDescriptionLabel"><property name="text"><string>Primary path: place Left condylar lateral pole, Right condylar lateral pole, Upper central-incisor edge, and Lower central-incisor edge. DENTOBOT preserves the source CBCT/masks, derives fixed-upper and moving-lower segmented anatomy, and solves only the anatomy-directed TMJ opening direction. If this preparation records a valid anatomy/solver failure, a target-jaw-only fallback can expose the selected tooth's jaw and teeth in unchanged world RAS for robot-placement testing. That fallback is not open-mouth, collision, registration, task-planning, or drilling evidence.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item>
-          <layout class="QFormLayout" name="step6CaseJawOpeningFormLayout">
-           <item row="0" column="0"><widget class="QLabel" name="step6CaseJawLandmarksLabel"><property name="text"><string>Four case landmarks:</string></property></widget></item>
-           <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="step6CaseJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawLandmarks</string></property></widget></item>
-           <item row="1" column="0"><widget class="QLabel" name="step6CaseJawTargetGapLabel"><property name="text"><string>Target incisor gap:</string></property></widget></item>
-           <item row="1" column="1"><widget class="QDoubleSpinBox" name="step6CaseJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawTargetGapMm</string></property></widget></item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QGridLayout" name="step6CaseJawOpeningButtonLayout">
-           <item row="0" column="0"><widget class="QPushButton" name="createStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
-           <item row="0" column="1"><widget class="QPushButton" name="clearStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Landmarks</string></property></widget></item>
-           <item row="1" column="0"><widget class="QPushButton" name="applyStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Apply Open-Mouth Transform</string></property></widget></item>
-           <item row="1" column="1"><widget class="QPushButton" name="resetStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Reset Case Jaw Closed</string></property></widget></item>
-           <item row="2" column="0" colspan="2"><widget class="QPushButton" name="useStep6TargetJawFallbackButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Use Target Jaw + Teeth for Placement Testing Only</string></property></widget></item>
-          </layout>
-         </item>
-         <item><widget class="QLabel" name="step6CaseJawOpeningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Import the Steps 0–5 planning package first.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-         </item>
-         <item>
-<widget class="QGroupBox" name="draftOpenMouthPhantomGroupBox">
-        <property name="title"><string>Alternate scene — draft open-mouth phantom</string></property>
-        <layout class="QVBoxLayout" name="draftOpenMouthPhantomVerticalLayout">
-         <item><widget class="QLabel" name="draftOpenMouthDescriptionLabel"><property name="text"><string>Load the generic BodyParts3D skull/maxilla/mandible once (duplicate phantom or robot sets are rejected). The phantom is relocated near the Step 6 research workspace origin so it appears beside the robot. Place four approximate landmarks one at a time, then the mandible rotates about the TMJ hinge until the measured incisor gap is approximately 40 mm. This is not clinical jaw simulation.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item>
-          <layout class="QFormLayout" name="draftOpenMouthNodeFormLayout">
-           <item row="0" column="0"><widget class="QLabel" name="draftPhantomSkullLabel"><property name="text"><string>Fixed skull:</string></property></widget></item>
-           <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="draftPhantomSkullSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>draftPhantomSkullModel</string></property></widget></item>
-           <item row="1" column="0"><widget class="QLabel" name="draftPhantomMandibleLabel"><property name="text"><string>Movable mandible:</string></property></widget></item>
-           <item row="1" column="1"><widget class="qMRMLNodeComboBox" name="draftPhantomMandibleSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLModelNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>draftPhantomMandibleModel</string></property></widget></item>
-           <item row="2" column="0"><widget class="QLabel" name="draftJawLandmarksLabel"><property name="text"><string>Four landmarks:</string></property></widget></item>
-           <item row="2" column="1"><widget class="qMRMLNodeComboBox" name="draftJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>draftJawLandmarks</string></property></widget></item>
-           <item row="3" column="0"><widget class="QLabel" name="draftJawTargetGapLabel"><property name="text"><string>Target incisor gap:</string></property></widget></item>
-           <item row="3" column="1"><widget class="QDoubleSpinBox" name="draftJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>draftJawTargetGapMm</string></property></widget></item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QGridLayout" name="draftOpenMouthButtonLayout">
-           <item row="0" column="0"><widget class="QPushButton" name="loadDraftPhantomButton"><property name="text"><string>Load Draft Skull + Jaw</string></property></widget></item>
-           <item row="0" column="1"><widget class="QPushButton" name="createDraftJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
-           <item row="1" column="0"><widget class="QPushButton" name="clearDraftJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Landmarks</string></property></widget></item>
-           <item row="1" column="1"><widget class="QPushButton" name="applyDraftJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Set Approx. 40 mm Opening</string></property></widget></item>
-           <item row="2" column="0"><widget class="QPushButton" name="resetDraftJawButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Reset Jaw Closed</string></property></widget></item>
-           <item row="2" column="1"><widget class="QPushButton" name="deleteDraftPhantomButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Draft Phantom</string></property></widget></item>
-          </layout>
-         </item>
-         <item><widget class="QLabel" name="draftOpenMouthStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Load the local generic phantom to begin.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-        </layout>
-       </widget>
-         </item>
       </layout>
        </widget>
       </item>
       <item>
        <widget class="QGroupBox" name="step6MountLockGroupBox">
-        <property name="title"><string>6.1 — Load Robot and Set Manual Simulation Base</string></property>
+        <property name="title"><string>6.1A — Offline Robot Preview and Manual Simulation Base</string></property>
         <layout class="QVBoxLayout" name="step6MountLockVerticalLayout">
          <item><widget class="QLabel" name="step6MountLockDescriptionLabel"><property name="text"><string>Load the local robot, show Robot + CBCT context, position the base directly with transform handles or local-axis nudges, then explicitly review and lock it. This is a diagnostic simulation placement—not forehead, registration, or clinical mounting truth.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QLabel" name="step6MountContainmentWarningLabel"><property name="styleSheet"><string notr="true">color: #b36b00; font-weight: 600;</string></property><property name="text"><string>Containment: the former mount plane and forehead proxy were derived from the robot base itself. Their create/flip/snap actions are quarantined; existing nodes are view-only.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QGroupBox" name="ros2MotionControlGroupBox">
-        <property name="title"><string>Load robot from ROS (SlicerROS2)</string></property>
+        <property name="title"><string>6.1B — Connect ROS + MoveIt</string></property>
         <layout class="QVBoxLayout" name="ros2MotionControlVerticalLayout">
          <item><widget class="QLabel" name="ros2MotionControlDescriptionLabel"><property name="text"><string>The DENTOBOT launcher owns a simulation-only ROS 2 + MoveIt stack. Manual and strict-approach requests are interpolated and accepted only when MoveIt reports valid bounds, no mesh collision, and the 1 mm research self/world margin. Exploratory terminal/drilling preview may suppress only configured burr-to-task-object contact and reports it; all non-tool collisions, bounds, and corridor checks remain active. Locking the base refreshes the case collision surfaces. Cartesian IK and planning use the URDF/SRDF chain and provisional TCP; no hand-written kinematic equations are used. Execution and hardware interfaces are disabled.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item>
@@ -3683,7 +3658,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
            <property name="flat"><bool>true</bool></property>
            <layout class="QHBoxLayout" name="step6FallbackRobotHorizontalLayout">
             <item><widget class="QPushButton" name="loadRobotModelButton"><property name="text"><string>Load / Refresh Robot</string></property><property name="toolTip"><string>Load or reuse all seven STL link models and apply the tracked URDF joint chain at the current joint values.</string></property></widget></item>
-            <item><widget class="QPushButton" name="frameRobotButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Frame Scene + Robot (fallback)</string></property><property name="toolTip"><string>Centre the 3D views on the combined robot and draft phantom bounds.</string></property></widget></item>
+            <item><widget class="QPushButton" name="frameRobotButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Frame Case + Robot</string></property><property name="toolTip"><string>Centre the 3D views on the combined Case Foundation and robot bounds.</string></property></widget></item>
            </layout>
           </widget>
          </item>
@@ -3769,7 +3744,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         </layout>
        </widget>
       </item>
-      <item><widget class="QLabel" name="robotPlacementStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Choose a scene in 6.0, then load the local MRML robot in 6.1.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item><widget class="QLabel" name="robotPlacementStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Complete the Case Foundation, then load the offline robot in 6.1A.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
       <item><widget class="QLabel" name="robotPlacementSafetyLabel"><property name="styleSheet"><string notr="true">color: #b00020; font-weight: 600;</string></property><property name="text"><string>SIMULATION / RESEARCH ONLY — no controller or hardware command path is connected. Head mount, calibrated TCP, patient motion, cables, swept-volume collision, forces, and clinical safety are not yet represented.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
      </layout>
     </widget>

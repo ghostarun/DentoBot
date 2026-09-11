@@ -195,11 +195,9 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
             return
         self._validTrajectoryPointsByNodeId.clear()
         self._updatePlanning()
-        self._markCurrentDraftTemplateModelStale(
-            _("Source segmentation content changed.")
-        )
-        self._markStep6CaseJawOpeningStale(
-            _("Source segmentation content changed; re-apply the case jaw opening.")
+        self.logic.invalidateCaseFoundationForSourceChange(
+            self._parameterNode,
+            _("Source segmentation content changed."),
         )
         self._updateTemplateModeling()
         self.ui.segmentationReviewStatusLabel.text = (
@@ -712,8 +710,10 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         currentNodeId = currentNode.GetID() if currentNode else None
         selectedNodeId = segmentationNode.GetID() if segmentationNode else None
         if currentNodeId != selectedNodeId:
-            if not self._resetStep6CaseJawOpeningBeforeInputChange():
-                return
+            self.logic.invalidateCaseFoundationForSourceChange(
+                self._parameterNode,
+                _("Authoritative source CBCT or reviewed segmentation changed."),
+            )
             self._restoringTrajectoryAssociation = True
             wasModifying = self._parameterNode.StartModify()
             try:

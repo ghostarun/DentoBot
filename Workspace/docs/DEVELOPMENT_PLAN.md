@@ -38,6 +38,27 @@ platform work are outside this package.
 
 ## S6-REUSABLE-CASE-SETUP correction plan
 
+### 2026-09-11 Case Foundation workflow amendment
+
+The former post-import 6.0A mouth-opening gate is superseded. Establish one
+source-fingerprinted Case Foundation immediately before Step 4A, then author
+one or more PreparedBranches against that planning pose. Step 6.0 activates an
+already-present verified branch; Step 6.1A reconstructs the local robot and
+reviews the world/head-fixed Manual Simulation Base offline; Step 6.1B exposes
+the explicit ROS + MoveIt gate. Steps 6.2 onward remain unchanged.
+
+The source-complete implementation uses the existing parameter node,
+PreparedBranch registry and environment snapshot only. It adds no registry,
+runtime service or external base file. Foundation-only packages are valid
+partial cases; package load never restores live ROS, planning, guard,
+acknowledgement or validity state. Gap/source changes retain inspectable branch
+geometry but apply the recorded Step 5C/base/runtime staleness scopes.
+
+Targeted static and pure-state evidence passes. The next automated gate is only
+`runtime.s6_reusable_case`; the final gate is the recorded ten-observation
+normal-window review. No SlicerROS2 rebuild is required because no compiled C++
+or interface changed.
+
 **2026-09-10 — audit accepted; implementation and focused runtime pass, operator review pending.**
 This is the existing P0 task, not a new roadmap. The previous source-complete
 claim is withdrawn: operator reports show unified-template and Step 6 import

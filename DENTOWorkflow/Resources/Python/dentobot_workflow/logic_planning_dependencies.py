@@ -14,6 +14,7 @@ class PlanningDependencyLogicMixin:
     ) -> tuple[vtkMRMLMarkupsROINode, tuple[float, ...]]:
         """Create a locked visible ROI matching the selected tooth's RAS AABB."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         targetRecord = self.validateTargetTooth(
             segmentationNode,
             segmentId,
@@ -143,6 +144,7 @@ class PlanningDependencyLogicMixin:
             if displayNode:
                 displayNode.SetColor(1.0, 0.65, 0.0)
                 displayNode.SetSelectedColor(1.0, 0.8, 0.2)
+        self.bindCaseFoundationNode(self.getParameterNode(), roiNode)
         return roiNode, bounds
 
     @staticmethod

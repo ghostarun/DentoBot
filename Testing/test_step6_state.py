@@ -146,6 +146,89 @@ def test_reusable_environment_and_attempt_contracts_are_target_independent():
     assert other_target.attempt_fingerprint != attempt.attempt_fingerprint
 
 
+def test_case_foundation_v2_and_registry_v3_migrate_fail_closed():
+    matrix = tuple(float(value) for value in range(16))
+    foundation = build_robot_environment_snapshot(
+        case_identity="case-a",
+        anatomy_fingerprint="anatomy-a",
+        source_volume_fingerprint="volume-content-geometry-a",
+        source_segmentation_fingerprint="reviewed-segmentation-a",
+        jaw_source_fingerprint="jaw-a",
+        jaw_landmarks_fingerprint="landmarks-a",
+        landmark_positions_ras_mm=tuple(float(value) for value in range(12)),
+        landmark_review_fingerprint="surface-review-a",
+        hinge_model_schema="PureTMJHingeRotationV2",
+        jaw_configuration_fingerprint="jaw-config-a",
+        jaw_transform_matrix=matrix,
+        mouth_gap_mm=40.0,
+        opening_revision=3,
+        robot_profile_fingerprint="robot-a",
+        base_matrix=matrix,
+        base_status="ProvisionalLocked",
+        base_locked=True,
+        base_fingerprint="base-a",
+        base_authority="manual-simulation-base",
+        base_revision=2,
+    )
+    restored = parse_robot_environment_snapshot(foundation.to_dict())
+    assert restored.schema_version == "2.0"
+    assert restored.planning_pose_fingerprint == foundation.planning_pose_fingerprint
+    assert restored.base_setup_fingerprint == foundation.base_setup_fingerprint
+    assert restored.foundation_fingerprint == foundation.foundation_fingerprint
+
+    registry = registry_with_trajectory(empty_trajectory_registry(), "FDI11", 1)
+    registry = upsert_guide_set(
+        registry,
+        guide_set_id="branch-a",
+        target_id="target-FDI11",
+        trajectory_ids=("trajectory-FDI11-1",),
+        planning_pose_fingerprint=foundation.planning_pose_fingerprint,
+    )
+    assert registry["schema_version"] == "3.0"
+    assert registry["prepared_branches"]["branch-a"][
+        "planning_pose_fingerprint"
+    ] == foundation.planning_pose_fingerprint
+
+    legacy = json.loads(canonical_json(registry))
+    legacy["schema_version"] = "2.0"
+    legacy["prepared_branches"]["branch-a"].pop("planning_pose_fingerprint")
+    migrated = parse_trajectory_registry(legacy)
+    branch = migrated["prepared_branches"]["branch-a"]
+    assert migrated["schema_version"] == "3.0"
+    assert branch["planning_pose_fingerprint"] == ""
+    assert branch["state"] == "Stale"
+    assert "Case Foundation" in branch["stale_reason"]
+
+
+def test_case_foundation_v2_rejects_malformed_or_nonfinite_state():
+    matrix = tuple(float(value) for value in range(16))
+    foundation = build_robot_environment_snapshot(
+        source_volume_fingerprint="volume-a",
+        source_segmentation_fingerprint="segmentation-a",
+        landmark_positions_ras_mm=tuple(float(value) for value in range(12)),
+        hinge_model_schema="PureTMJHingeRotationV2",
+        jaw_transform_matrix=matrix,
+        mouth_gap_mm=40.0,
+    )
+    missing = foundation.to_dict()
+    missing.pop("planning_pose_fingerprint")
+    with pytest.raises(ValueError, match="missing required fields"):
+        parse_robot_environment_snapshot(missing)
+    tampered = foundation.to_dict()
+    tampered["mouth_gap_mm"] = 41.0
+    with pytest.raises(ValueError, match="fingerprint does not match"):
+        parse_robot_environment_snapshot(tampered)
+    with pytest.raises(ValueError, match="finite"):
+        build_robot_environment_snapshot(
+            jaw_transform_matrix=(*matrix[:-1], float("nan")),
+            mouth_gap_mm=40.0,
+        )
+    unsupported = foundation.to_dict()
+    unsupported["schema_version"] = "9.0"
+    with pytest.raises(ValueError, match="unsupported"):
+        parse_robot_environment_snapshot(unsupported)
+
+
 def test_environment_changes_invalidate_only_real_shared_dependencies():
     identity = tuple(float(value) for value in range(16))
     common = dict(

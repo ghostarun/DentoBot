@@ -59,6 +59,7 @@ class GuideLogicMixin(DockingLogicMixin):
         sourceModel: vtkMRMLModelNode,
         trajectories: list[vtkMRMLMarkupsLineNode],
     ) -> None:
+        self.requireCaseFoundationPose(self.getParameterNode())
         if not 1 <= len(trajectories) <= 2:
             raise ValueError(_("Select one trajectory, or an explicit pair at most."))
         eligibleById = {
@@ -91,6 +92,7 @@ class GuideLogicMixin(DockingLogicMixin):
         trajectories: list[vtkMRMLMarkupsLineNode],
         parameters: dict[str, float],
     ) -> dict:
+        foundation = self.requireCaseFoundationPose(self.getParameterNode())
         shellSummary = self.getPatientContactShellSummary(patientShell)
         if shellSummary["geometryState"] != "Current":
             raise ValueError(_("Regenerate the stale patient-contact shell first."))
@@ -136,6 +138,7 @@ class GuideLogicMixin(DockingLogicMixin):
         }
         trajectoryRecords = []
         seenIds = set()
+        jawOwners = set()
         for trajectoryNode in trajectories:
             if not self.isDentobotTrajectoryNode(trajectoryNode):
                 raise ValueError(_("Select only DENTOBOT Entry-to-Target trajectories."))
@@ -151,6 +154,10 @@ class GuideLogicMixin(DockingLogicMixin):
                 raise ValueError(_("Every guide trajectory needs valid Entry and Target points."))
             if not trajectoryNode.GetLocked():
                 raise ValueError(_("Lock every selected trajectory before guide fusion."))
+            jawOwner = self.bindCaseFoundationNode(
+                self.getParameterNode(), trajectoryNode
+            )
+            jawOwners.add(jawOwner)
             trajectoryRecords.append(
                 {
                     "node": trajectoryNode,
@@ -159,12 +166,17 @@ class GuideLogicMixin(DockingLogicMixin):
                     "lengthMm": float(summary["lengthMm"]),
                 }
             )
+        if len(jawOwners) != 1 or "" in jawOwners:
+            raise ValueError(
+                _("A trajectory pair must share one target identity and jaw owner.")
+            )
         return {
             "shellSummary": shellSummary,
             "sourceSummary": sourceSummary,
             "targetDockingSummary": targetDockingSummary,
             "trajectories": trajectoryRecords,
             "parameters": parameters,
+            "planningPoseFingerprint": foundation["planning_pose_fingerprint"],
         }
 
     @staticmethod
@@ -192,6 +204,7 @@ class GuideLogicMixin(DockingLogicMixin):
         channelsModel: vtkMRMLModelNode | None = None,
         finalModel: vtkMRMLModelNode | None = None,
     ) -> tuple[vtkMRMLModelNode, dict[str, vtkMRMLModelNode], dict]:
+        foundation = self.requireCaseFoundationPose(self.getParameterNode())
         parameters = normalize_docking_parameters(
             outer_diameter_mm=outerDiameterMm,
             inner_diameter_mm=innerDiameterMm,
@@ -367,6 +380,10 @@ class GuideLogicMixin(DockingLogicMixin):
                 modelNode.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
                 modelNode.SetAttribute("DENTOBOT.TrajectoryGeometryJson", trajectoryJson)
                 modelNode.SetAttribute("DENTOBOT.UpdatedUtc", timestamp)
+                modelNode.SetAttribute(
+                    "DENTOBOT.PlanningPoseFingerprint",
+                    foundation["planning_pose_fingerprint"],
+                )
                 modelNode.SetNodeReferenceID(
                     self.TEMPLATE_FINAL_GUIDE_PATIENT_SHELL_REFERENCE_ROLE,
                     patientShell.GetID(),
@@ -441,6 +458,10 @@ class GuideLogicMixin(DockingLogicMixin):
                 json.dumps(assemblyMetrics, sort_keys=True, separators=(",", ":")),
             )
             finalModel.SetAttribute("DENTOBOT.UpdatedUtc", timestamp)
+            finalModel.SetAttribute(
+                "DENTOBOT.PlanningPoseFingerprint",
+                foundation["planning_pose_fingerprint"],
+            )
             finalModel.SetNodeReferenceID(
                 self.TEMPLATE_FINAL_GUIDE_PATIENT_SHELL_REFERENCE_ROLE,
                 patientShell.GetID(),
@@ -492,6 +513,13 @@ class GuideLogicMixin(DockingLogicMixin):
                     patientShell.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE) or "",
                     patientShell.GetAttribute(self.LINEAGE_TARGET_FDI_ATTRIBUTE) or "",
                 )
+        for node in (
+            patientShell,
+            targetDockingAssembly,
+            finalModel,
+            *roleModels.values(),
+        ):
+            self.bindCaseFoundationNode(self.getParameterNode(), node)
         return finalModel, roleModels, {
             "parameters": parameters,
             "assembly": assemblyMetrics,
@@ -616,6 +644,7 @@ class GuideLogicMixin(DockingLogicMixin):
         WARNING may be exported after review; any FAIL blocks normal export.
         """
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         summary = self.getFinalPrintableTemplateSummary(finalModel)
         checks = []
 
@@ -1038,6 +1067,7 @@ class GuideLogicMixin(DockingLogicMixin):
             "finalModelUpdatedUtc": finalModel.GetAttribute("DENTOBOT.UpdatedUtc") or "",
             "preparedBranchId": branch["branch_id"],
             "preparedBranchRevision": branch["revision"],
+            "planningPoseFingerprint": branch["planning_pose_fingerprint"],
             "checks": checks,
         }
         wasModifying = finalModel.StartModify()

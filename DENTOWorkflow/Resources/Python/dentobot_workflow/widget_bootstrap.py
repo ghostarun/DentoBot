@@ -73,7 +73,6 @@ class BootstrapWidgetMixin:
         self._processingSegmentationContentChange = False
         self._planningTrajectoryNode = None
         self._planningTrajectoryDisplayNode = None
-        self._draftJawLandmarksNode = None
         self._step6CaseJawLandmarksNode = None
         self._updatingStep6CaseJawLandmarks = False
         self._assistedTrajectoryEntryNode = None
@@ -175,6 +174,9 @@ class BootstrapWidgetMixin:
         self._loadedCaseBundlePath: str = ""
         self._caseBundleRobotProfileCompatible: bool | None = None
         self._caseBundleRobotProfileMigrationMessage: str = ""
+        self._caseFoundationSnapshot: dict[str, object] | None = None
+        self._applyingSessionFoundation = False
+        self._caseFoundationSliderChanged = False
         self._isCleaningUp = False
 
     def setup(self) -> None:
@@ -268,21 +270,6 @@ class BootstrapWidgetMixin:
             "vtkMRMLMarkupsPlaneNode",
             "DENTOBOT.MarkupsRole",
             "RobotMountPlane",
-        )
-        self.ui.draftPhantomSkullSelector.addAttribute(
-            "vtkMRMLModelNode",
-            "DENTOBOT.PhantomPart",
-            "Neurocranium",
-        )
-        self.ui.draftPhantomMandibleSelector.addAttribute(
-            "vtkMRMLModelNode",
-            "DENTOBOT.PhantomPart",
-            "Mandible",
-        )
-        self.ui.draftJawLandmarksSelector.addAttribute(
-            "vtkMRMLMarkupsFiducialNode",
-            "DENTOBOT.MarkupsRole",
-            "DraftJawLandmarks",
         )
         self.ui.step6CaseJawLandmarksSelector.addAttribute(
             "vtkMRMLMarkupsFiducialNode",
@@ -910,30 +897,6 @@ class BootstrapWidgetMixin:
             "clicked(bool)",
             self.onLoadRobotModel,
         )
-        self.ui.loadDraftPhantomButton.connect(
-            "clicked(bool)",
-            self.onLoadDraftPhantom,
-        )
-        self.ui.createDraftJawLandmarksButton.connect(
-            "clicked(bool)",
-            self.onCreateDraftJawLandmarks,
-        )
-        self.ui.clearDraftJawLandmarksButton.connect(
-            "clicked(bool)",
-            self.onClearDraftJawLandmarks,
-        )
-        self.ui.applyDraftJawOpeningButton.connect(
-            "clicked(bool)",
-            self.onApplyDraftJawOpening,
-        )
-        self.ui.resetDraftJawButton.connect(
-            "clicked(bool)",
-            self.onResetDraftJaw,
-        )
-        self.ui.deleteDraftPhantomButton.connect(
-            "clicked(bool)",
-            self.onDeleteDraftPhantom,
-        )
         self.ui.createStep6CaseJawLandmarksButton.connect(
             "clicked(bool)",
             self.onCreateStep6CaseJawLandmarks,
@@ -946,17 +909,41 @@ class BootstrapWidgetMixin:
             "clicked(bool)",
             self.onApplyStep6CaseJawOpening,
         )
-        self.ui.useStep6TargetJawFallbackButton.connect(
-            "clicked(bool)",
-            self.onUseStep6TargetJawFallback,
-        )
         self.ui.resetStep6CaseJawOpeningButton.connect(
             "clicked(bool)",
             self.onResetStep6CaseJawOpening,
         )
+        self.ui.clearCaseFoundationButton.connect(
+            "clicked(bool)",
+            self.onClearCaseFoundation,
+        )
+        self.ui.forgetSessionFoundationButton.connect(
+            "clicked(bool)",
+            self.onForgetSessionFoundation,
+        )
+        self.ui.caseFoundationGoToStep4Button.connect(
+            "clicked(bool)",
+            self.onCaseFoundationGoToStep4,
+        )
+        self.ui.caseFoundationGoToStep6Button.connect(
+            "clicked(bool)",
+            self.onCaseFoundationGoToStep6,
+        )
         self.ui.step6CaseJawTargetGapSpinBox.connect(
             "valueChanged(double)",
             self.onStep6CaseJawTargetGapChanged,
+        )
+        self.ui.caseFoundationGapSlider.connect(
+            "sliderPressed()",
+            self.onCaseFoundationGapSliderPressed,
+        )
+        self.ui.caseFoundationGapSlider.connect(
+            "valueChanged(int)",
+            self.onCaseFoundationGapSliderChanged,
+        )
+        self.ui.caseFoundationGapSlider.connect(
+            "sliderReleased()",
+            self.onCaseFoundationGapSliderReleased,
         )
         self.ui.createRobotMountPlaneButton.connect(
             "clicked(bool)",
@@ -1084,18 +1071,6 @@ class BootstrapWidgetMixin:
         self.ui.robotMountPlaneSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onRobotMountPlaneSelectionChanged,
-        )
-        self.ui.draftPhantomSkullSelector.connect(
-            "currentNodeChanged(vtkMRMLNode*)",
-            self.onDraftPhantomSelectionChanged,
-        )
-        self.ui.draftPhantomMandibleSelector.connect(
-            "currentNodeChanged(vtkMRMLNode*)",
-            self.onDraftPhantomSelectionChanged,
-        )
-        self.ui.draftJawLandmarksSelector.connect(
-            "currentNodeChanged(vtkMRMLNode*)",
-            self.onDraftJawLandmarksSelectionChanged,
         )
         self.ui.step6CaseJawLandmarksSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",

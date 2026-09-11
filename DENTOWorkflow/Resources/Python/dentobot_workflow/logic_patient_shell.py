@@ -43,6 +43,7 @@ class PatientShellLogicMixin:
     ) -> vtkMRMLMarkupsLineNode:
         """Create a locked Approach→Seat line derived from Entry→Target."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         visibleSummary = self.getVisibleTemplateSupportModelSummary(
             visibleSupportModel
         )
@@ -132,6 +133,7 @@ class PatientShellLogicMixin:
         visibleSupportModel: vtkMRMLModelNode,
         lineNode: vtkMRMLMarkupsLineNode | None = None,
     ) -> vtkMRMLMarkupsLineNode:
+        self.requireCaseFoundationPose(self.getParameterNode())
         visibleSummary = self.getVisibleTemplateSupportModelSummary(
             visibleSupportModel
         )
@@ -323,6 +325,7 @@ class PatientShellLogicMixin:
         undercutModel: vtkMRMLModelNode | None = None,
         blockoutModel: vtkMRMLModelNode | None = None,
     ) -> tuple[vtkMRMLModelNode, vtkMRMLModelNode, dict]:
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         visibleSummary = self.getVisibleTemplateSupportModelSummary(
             visibleSupportModel
@@ -775,6 +778,7 @@ class PatientShellLogicMixin:
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Create a visible-support shell with Dynamic Modeler and voxel fit Boolean."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         parameters = self.patientContactShellParameters(
             clearanceMm,
             thicknessMm,

@@ -24,10 +24,11 @@ compatibility contract.
 | Patient shell and unified template build | `widget_template_build.py`, `logic_patient_shell.py`, `logic_guide.py` |
 | Template finalization and verification | `widget_template_finalization.py`, `logic_finalization.py` |
 | Step 6 shell actions | `widget_robot_shell.py`, `widget_robot.py` |
-| Robot placement, jaw/phantom setup | `widget_robot_placement.py`, `widget_robot_scene.py`, `logic_robot_placement.py`, `logic_phantom_scene.py` |
+| Case Foundation and offline robot placement | `logic_case_foundation.py`, `widget_robot_scene.py`, `widget_robot_placement.py`, `logic_robot_placement.py` |
 | Planning-scene synchronization, Step 6 jaw landmarks, and robot task state | `logic_robot_scene_sync.py`, `logic_robot.py`, `logic_step6_scene.py`, `logic_step6_landmark_review.py` |
 | Persistent typed state and stage identifiers | `parameter_state.py`, `contracts.py` |
-| Slicer-native regression archive | `slicer_tests.py` |
+| Active Slicer regression scenarios | `slicer_tests.py` |
+| Retired draft-phantom explanation | `Testing/archive/draft_open_mouth_phantom/` |
 
 The older top-level `DENTO*.py` helpers remain stable algorithm/service seams.
 In particular, UI modules call `DENTORobotWorkflowFacade`; they do not add a

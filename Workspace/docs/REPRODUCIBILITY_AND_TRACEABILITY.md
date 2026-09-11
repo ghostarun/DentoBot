@@ -1,5 +1,24 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-11 Case Foundation trace contract
+
+Schema-2 Case Foundation evidence records exact source CBCT content/geometry,
+reviewed-segmentation content/geometry, landmark positions and surface evidence,
+hinge schema, committed gap/matrix/opening revision, planning-pose fingerprint,
+base matrix/authority/review/lock/revision, robot-profile fingerprint, base-setup
+fingerprint and overall foundation fingerprint. Schema-3 PreparedBranches and
+Step 5C evidence carry the planning-pose fingerprint. Missing legacy bindings
+remain `LEGACY_UNVERIFIED`; mismatches remain `FOUNDATION_MISMATCH` without
+deleting inspectable geometry.
+
+Targeted 2026-09-11 evidence: changed-Python compilation exited 0; the focused
+Case Foundation/PreparedBranch pure test file passed 23/23; four modular API,
+CMake and import-boundary checks passed; and the production phantom-surface
+check exited 0. The aggregate modular file was not accepted as fully passing
+because unrelated `widget_template_build.py` has 1,511 lines against its
+1,500-line policy. No Docker rebuild or Slicer workflow was run. Runtime,
+integration and operator verification therefore remain unclaimed.
+
 ## Evidence routing — 2026-09-10
 
 Dated results below apply only to their recorded case/revision. They do not

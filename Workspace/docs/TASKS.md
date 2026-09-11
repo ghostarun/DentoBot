@@ -109,7 +109,22 @@ motion or Studio work.
 ## P0 reusable Step 6 setup and PreparedBranches
 
 - **ID:** `S6-REUSABLE-CASE-SETUP`; **Priority:** 0.
-- **State:** Operator approved the audited correction and its focused automated
+- **Current state (2026-09-11):** Case Foundation and reusable offline-base
+  implementation is source-complete in the current checkout. Targeted changed-
+  Python compilation, 23 focused state tests, four API/CMake/import-boundary
+  checks and the production phantom-surface check pass. Focused Slicer and
+  normal-window operator acceptance remain pending; this task is not complete.
+- **Superseding workflow:** Reviewed segmentation now leads to one Case
+  Foundation before Step 4A: four reviewed landmarks, one committed hinge/gap,
+  fixed-upper and moving-lower planning displays, then Steps 4A–5C. Step 6
+  permits branchless offline robot/base review and foundation-only persistence.
+  ROS + MoveIt requires the current pose, one explicitly activated eligible
+  PreparedBranch, the compatible reviewed locked base and matching robot profile.
+- **Persistent contract:** Outer `.dentocase` stays 2.0 and MRB remains geometry
+  authority. DentoCase state is 3.0, Case Foundation/environment is 2.0 and the
+  PreparedBranch registry is 3.0; legacy readers migrate in memory and write
+  only on explicit save. `step6CaseJaw*` remains a compatibility alias.
+- **Prior accepted evidence:** Operator approved the audited correction and its focused automated
   single-target acceptance passed. The narrow FDI31 recovery now loads the
   package offline without the former environment-mismatch rollback; static and
   exact-package headless checks passed for that boundary. The package's legacy
@@ -153,11 +168,17 @@ motion or Studio work.
   The 2026-09-10 exact headless load reached `_openCaseBundle` successfully with
   `step6SchemaMigrationPending=True`; it then correctly classified the saved
   `DENTOBOT.FinalGuideSchemaVersion=1.0` as stale against required schema 2.0.
-- **Next:** Broader mouth-opening relocation/rework must explicitly decide the
-  legacy-final policy: a clearly labelled inspection-only proxy versus mandatory
-  Step 5C schema-2 regeneration. Then rerun the exact FDI31 load to accept
-  hidden source Step 4C docks/plane, transformed proxy, and reset visibility.
-  No robot algorithm or downstream scope is authorized by this recovery patch.
+- **Current evidence:** The current targeted pass compiled every changed Python
+  file using `/tmp/dentobot-case-foundation-pycache`; `Testing/test_step6_state.py`
+  passed 23/23; the four task-relevant modular API/CMake/import checks passed;
+  and the production module/UI contains no active draft-phantom import, control,
+  callback or target-jaw fallback action. The aggregate modular test also
+  reported one unrelated pre-existing policy failure: `widget_template_build.py`
+  is 1,511 lines against the 1,500-line context ceiling.
+- **Next:** Run only `runtime.s6_reusable_case` after explicit approval, then
+  perform the ten-point normal-window Case Foundation review. Legacy branches
+  remain inspection-only until supported regeneration/migration and current
+  Step 5C reverification. Do not infer operator acceptance from automated checks.
 
 ## FDI11 / Stage 3 — paused pending workflow integrity
 

@@ -538,35 +538,8 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
         return True
 
     def _resetStep6CaseJawOpeningBeforeInputChange(self) -> bool:
-        parameterNode = self._parameterNode
-        if not parameterNode or not self.logic:
-            return True
-        if not parameterNode.step6PlanningContextImported:
-            return True
-        hasTransientOpening = bool(
-            str(parameterNode.step6CaseJawPreparationMode or "ClosedSource")
-            != "ClosedSource"
-            or any(
-                getattr(parameterNode, fieldName, None)
-                for fieldName in (
-                    "step6CaseJawTransform",
-                    "step6OpenedLowerJawModel",
-                    "step6FixedUpperAnatomy",
-                    "step6MovingLowerAnatomy",
-                    "step6TargetJawFallbackAnatomy",
-                    "step6CaseJawGapLine",
-                    "step6OpenedTargetGeometryModel",
-                    "step6OpenedTrajectoryLine",
-                )
-            )
-        )
-        if not hasTransientOpening:
-            return True
-        try:
-            self.logic.resetStep6CaseJawOpening(parameterNode)
-        except (RuntimeError, ValueError) as exc:
-            slicer.util.errorDisplay(str(exc))
-            return False
+        # Compatibility hook: target and trajectory changes retain the shared
+        # Case Foundation. Source changes invalidate it explicitly at commit.
         return True
 
     def _confirmAndDeleteActivePlanningDownstream(

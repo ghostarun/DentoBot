@@ -1,5 +1,27 @@
 # DENTOBOT Architecture
 
+## 2026-09-11 Case Foundation and jaw-owned planning geometry
+
+`CaseFoundationLogicMixin` is the single Case Foundation domain owner. It
+fingerprints the immutable closed-source CBCT and reviewed segmentation,
+governs four-landmark/hinge/opening state, constructs transient fixed-upper and
+moving-lower CBCT displays, and returns the centralized pose/base eligibility
+result. Persistent state remains in the existing parameter node and environment
+snapshot; no parallel registry exists.
+
+The persistent jaw-opening transform is the parent frame for mandibular
+trajectories, ROI, docking/support/insertion outputs, shell and final template.
+Existing nodes are converted once into jaw-local coordinates with their world
+pose preserved. Maxillary descendants, source anatomy, robot, Manual Simulation
+Base and Task Home stay in world/head-fixed coordinates. Display-volume previews
+change only the transform matrix and never resample the source anatomy.
+
+Step 6 is layered: activate an eligible PreparedBranch; reconstruct/review the
+local robot and base offline; explicitly connect ROS + MoveIt; then continue at
+unchanged Step 6.2. Runtime objects and validity are never package state. The
+archived draft phantom is neither installed nor imported by the production
+module; legacy nodes are hidden during load.
+
 ## 2026-09-09 Windows Docker provider boundary
 
 The full Windows profile runs the Linux SlicerROS2 stack inside WSL2 and shows

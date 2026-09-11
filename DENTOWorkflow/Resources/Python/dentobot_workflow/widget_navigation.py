@@ -56,6 +56,7 @@ class WorkflowNavigationWidgetMixin:
                 active = section is entries[0][1]
                 section.visible = active
                 section.collapsed = not active
+            self.ui.step6CaseJawOpeningGroupBox.visible = False
             self.ui.assistedTrajectoryCollapsibleButton.collapsed = True
             self.ui.assistedTrajectoryCollapsibleButton.visible = False
         finally:
@@ -214,11 +215,8 @@ class WorkflowNavigationWidgetMixin:
             "templateShellRoi": 8,
             "templateTrimPlane": 9,
             "templateTrimCurve": 9,
-            "draftJawLandmarks": 10,
-            "draftJawGapLine": 10,
-            "step6CaseJawLandmarks": 10,
-            "step6CaseJawGapLine": 10,
-            "step6OpenedTrajectoryLine": 10,
+            "step6CaseJawLandmarks": 4,
+            "step6CaseJawGapLine": 4,
             "robotMountPlane": 10,
         }
         for fieldName, stage in fieldStages.items():
@@ -232,10 +230,8 @@ class WorkflowNavigationWidgetMixin:
             "TargetDockingMeasurement": 6,
             "TemplateShellTrimROI": 8,
             "RobotMountPlane": 10,
-            "DraftJawLandmarks": 10,
-            "DraftJawGapLine": 10,
-            "Step6CaseJawLandmarks": 10,
-            "Step6CaseJawGapLine": 10,
+            "Step6CaseJawLandmarks": 4,
+            "Step6CaseJawGapLine": 4,
         }
         for node in slicer.util.getNodesByClass(
             "vtkMRMLDisplayableNode"
@@ -264,11 +260,6 @@ class WorkflowNavigationWidgetMixin:
                 and self.logic.step6CaseJawOpeningFreshnessIssues(
                     self._parameterNode
                 )
-            )
-        if role == self.logic.DRAFT_JAW_LANDMARKS_ROLE:
-            return bool(
-                sceneKind == "phantom"
-                and not self._parameterNode.draftJawTransform
             )
         if role == self.logic.ROBOT_MOUNT_PLANE_ROLE:
             return bool(
@@ -302,6 +293,17 @@ class WorkflowNavigationWidgetMixin:
         restrictedIds = set()
         for node, ownerStage in ownedStages.items():
             allowInteraction = ownerStage == int(stageIndex)
+            if (
+                allowInteraction
+                and 4 <= ownerStage <= 9
+                and self.logic
+                and node.GetAttribute("DENTOBOT.MarkupsRole")
+                != self.logic.STEP6_CASE_JAW_LANDMARKS_ROLE
+                and not self.logic.evaluateCaseFoundationEligibility(
+                    self._parameterNode
+                )["pose"]["eligible"]
+            ):
+                allowInteraction = False
             if allowInteraction and ownerStage == 10:
                 allowInteraction = self._step6OwnedMarkupMayInteract(node)
             nodeId = node.GetID()
@@ -427,6 +429,7 @@ class WorkflowNavigationWidgetMixin:
                 isActive = section is activeSection
                 section.visible = isActive
                 section.collapsed = not isActive
+            self.ui.step6CaseJawOpeningGroupBox.visible = index == 4
             self._configureTemplateModelingStage(index)
             self._updateStageExclusiveInteractionLocks(index)
             self.ui.stepTitleLabel.text = entries[index][0].upper()
@@ -580,6 +583,11 @@ class WorkflowNavigationWidgetMixin:
             return 2
         if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":
             return 3
+        if not self.logic.evaluateCaseFoundationEligibility(
+            self._parameterNode
+        )["pose"]["eligible"]:
+            # The Case Foundation section is the first content in stage 4.
+            return 4
         trajectoryNode = self._parameterNode.trajectoryLine
         if not trajectoryNode or trajectoryNode.GetNumberOfDefinedControlPoints() < 2:
             return 4

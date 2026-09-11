@@ -102,7 +102,7 @@ class CaseBackendWidgetMixin:
         )
         if cancelledPlacement.get("cancelled"):
             logging.warning(
-                "Cancelled transient Step 6A landmark placement before case save; "
+                "Cancelled transient Case Foundation landmark placement before case save; "
                 "defined points were retained without silent provenance promotion"
             )
         self._restoreStageExclusiveInteractionLocks()
@@ -169,15 +169,30 @@ class CaseBackendWidgetMixin:
             return
         self._loadedCaseBundlePath = str(inspection.path)
         self._caseBundleRobotProfileCompatible = True
+        foundation = self.logic.evaluateCaseFoundationEligibility(
+            self._parameterNode
+        )
+        registry = self.logic.syncDentoCaseTrajectoryRegistry(
+            self._parameterNode
+        )
+        foundationOnly = bool(
+            foundation["pose"]["eligible"]
+            and foundation["base"]["eligible"]
+            and not registry["prepared_branches"]
+        )
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
         )
-        jawIssues = (
-            self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
-            if self._parameterNode.step6PlanningContextImported
-            else []
+        jawIssues = self.logic.step6CaseJawOpeningFreshnessIssues(
+            self._parameterNode
         )
-        if packageIssues:
+        if foundationOnly:
+            self.ui.caseBundleStatusLabel.text = _(
+                "Saved valid foundation-only case %1 with its reviewed base. "
+                "No PreparedBranch or ROS runtime was included."
+            ).replace("%1", inspection.path.name)
+            self.ui.caseBundleStatusLabel.styleSheet = "color: #207227;"
+        elif packageIssues:
             self.ui.caseBundleStatusLabel.text = _(
                 "Saved and integrity-checked %1 with ROS excluded. Step 6 is "
                 "blocked by upstream package state: %2"
@@ -188,7 +203,7 @@ class CaseBackendWidgetMixin:
         elif jawIssues:
             self.ui.caseBundleStatusLabel.text = _(
                 "Saved and integrity-checked %1 with ROS excluded. The Steps "
-                "0–5 package is current; complete Step 6.0A after restore: %2"
+                "Case anatomy restored; complete the Case Foundation before Step 4A: %2"
             ).replace("%1", inspection.path.name).replace(
                 "%2", " ".join(jawIssues)
             )
@@ -401,13 +416,22 @@ class CaseBackendWidgetMixin:
             inspection = self._openCaseBundle(bundlePath)
         if inspection is None:
             return
+        foundation = self.logic.evaluateCaseFoundationEligibility(
+            self._parameterNode
+        )
+        registry = self.logic.syncDentoCaseTrajectoryRegistry(
+            self._parameterNode
+        )
+        foundationOnly = bool(
+            foundation["pose"]["eligible"]
+            and foundation["base"]["eligible"]
+            and not registry["prepared_branches"]
+        )
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
         )
-        jawIssues = (
-            self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
-            if self._parameterNode.step6PlanningContextImported
-            else []
+        jawIssues = self.logic.step6CaseJawOpeningFreshnessIssues(
+            self._parameterNode
         )
         if not self._caseBundleRobotProfileCompatible:
             message = _(
@@ -415,6 +439,13 @@ class CaseBackendWidgetMixin:
                 "saved fingerprint. Step 6 import is blocked until reconciled."
             ).replace("%1", inspection.path.name)
             color = "#9a6500"
+        elif foundationOnly:
+            message = _(
+                "Loaded valid foundation-only case %1 offline. Case Foundation "
+                "and reviewed base are ready; complete Steps 4A–5C before "
+                "activating a PreparedBranch."
+            ).replace("%1", inspection.path.name)
+            color = "#207227"
         elif packageIssues:
             message = _(
                 "Loaded and integrity-checked %1 with ROS disconnected. Step 6 "
@@ -426,7 +457,7 @@ class CaseBackendWidgetMixin:
         elif jawIssues:
             message = _(
                 "Loaded and integrity-checked %1 with ROS disconnected. The "
-                "Steps 0–5 package is active; complete Step 6.0A: %2"
+                "Case anatomy is active; complete the Case Foundation before Step 4A: %2"
             ).replace("%1", inspection.path.name).replace(
                 "%2", " ".join(jawIssues)
             )
@@ -489,6 +520,7 @@ class CaseBackendWidgetMixin:
         if not confirmed:
             return
 
+        self._captureCaseFoundationSessionSnapshot()
         slicer.mrmlScene.Clear(0)
         self._loadedCaseBundlePath = ""
         self._caseBundleRobotProfileCompatible = None

@@ -62,10 +62,6 @@ class ViewCatalogWidgetMixin:
                 "finalizedTemplateShellModel",
                 "robotBaseTransform",
                 "robotMountPlane",
-                "draftPhantomSkullModel",
-                "draftPhantomMandibleModel",
-                "draftJawLandmarks",
-                "draftJawGapLine",
             ):
                 node = getattr(self._parameterNode, fieldName, None)
                 if node and node.GetID() and node.IsA("vtkMRMLDisplayableNode"):
@@ -96,10 +92,7 @@ class ViewCatalogWidgetMixin:
             if dentobotOwned:
                 nodesById[node.GetID()] = node
         if self.logic:
-            for node in (
-                *self.logic.robotModelNodes(),
-                *self.logic.draftPhantomModelNodes(),
-            ):
+            for node in self.logic.robotModelNodes():
                 if node and node.GetID():
                     nodesById[node.GetID()] = node
         try:
@@ -548,7 +541,7 @@ class ViewCatalogWidgetMixin:
         return entries
 
     def _step6WorkflowViewEntries(self) -> list[dict]:
-        """Step 6 Elements list: case package, phantom, robot, mount — not the full 4A–5C dump."""
+        """Step 6 elements: Case Foundation, robot, and base."""
         entries: list[dict] = []
         parameterNode = self._parameterNode
         segmentationNode = parameterNode.teethSegmentation
@@ -673,69 +666,33 @@ class ViewCatalogWidgetMixin:
         )
         addNode(
             "node:step6CaseLowerJaw",
-            _("[Step 6.0A] Opened lower-jaw planning surface"),
+            _("[Case Foundation] Opened lower-jaw planning surface"),
             parameterNode.step6OpenedLowerJawModel,
             "case_jaw_opening",
         )
         addNode(
             "node:step6FixedUpperAnatomy",
-            _("[Step 6.0A] Fixed upper jaw + teeth"),
+            _("[Case Foundation] Fixed upper jaw + teeth"),
             parameterNode.step6FixedUpperAnatomy,
             "case_jaw_opening",
         )
         addNode(
             "node:step6MovingLowerAnatomy",
-            _("[Step 6.0A] Moving lower jaw + teeth"),
+            _("[Case Foundation] Moving lower jaw + teeth"),
             parameterNode.step6MovingLowerAnatomy,
             "case_jaw_opening",
         )
         addNode(
-            "node:step6TargetJawFallbackAnatomy",
-            _("[Step 6.0A fallback] Unopened target jaw + teeth (placement only)"),
-            parameterNode.step6TargetJawFallbackAnatomy,
-            "case_jaw_opening",
-        )
-        addNode(
-            "node:step6CaseOpenedTargetGeometry",
-            _("[Step 6.0A] Opened target-attached geometry"),
-            parameterNode.step6OpenedTargetGeometryModel,
-            "case_jaw_opening",
-        )
-        addNode(
-            "node:step6CaseOpenedTrajectory",
-            _("[Step 6.0A] Opened Entry-to-Target"),
-            parameterNode.step6OpenedTrajectoryLine,
-            "case_jaw_opening",
-        )
-        addNode(
             "node:step6CaseJawLandmarks",
-            _("[Step 6.0A] Case TMJ/incisor landmarks"),
+            _("[Case Foundation] TMJ/incisor landmarks"),
             parameterNode.step6CaseJawLandmarks,
             "case_jaw_opening",
         )
         addNode(
             "node:step6CaseJawGap",
-            _("[Step 6.0A] Case incisor gap"),
+            _("[Case Foundation] Incisor gap"),
             parameterNode.step6CaseJawGapLine,
             "case_jaw_opening",
-        )
-        addNodes(
-            "nodes:step6Phantom",
-            _("[Step 6] Draft phantom"),
-            self.logic.draftPhantomModelNodes(),
-            "phantom",
-        )
-        addNode(
-            "node:step6JawLandmarks",
-            _("[Step 6] Jaw landmarks"),
-            parameterNode.draftJawLandmarks,
-            "phantom_landmarks",
-        )
-        addNode(
-            "node:step6JawGap",
-            _("[Step 6] Incisor gap line"),
-            parameterNode.draftJawGapLine,
-            "phantom_landmarks",
         )
         addNode(
             "node:step6Mount",
@@ -842,7 +799,6 @@ class ViewCatalogWidgetMixin:
                 "final",
                 "case_jaw_opening",
             },
-            "phantom_only": {"phantom", "phantom_landmarks"},
         }
         return categories.get(presetKey)
 
@@ -867,32 +823,6 @@ class ViewCatalogWidgetMixin:
                 self._parameterNode.robotBaseTransform
             )
             robot_category = {"robot_ros"} if ros_active else {"robot_mrml"}
-            kind = self._step6SceneKind()
-            if kind == "phantom":
-                categories = {"phantom", "robot_mount", *robot_category}
-                landmarks = self._parameterNode.draftJawLandmarks
-                if landmarks is None or landmarks.GetNumberOfDefinedControlPoints() < 4:
-                    categories.add("phantom_landmarks")
-                return categories
-            if (
-                str(self._parameterNode.step6CaseJawPreparationMode)
-                == "TargetJawFallback"
-                and not self.logic.step6TargetJawFallbackFreshnessIssues(
-                    self._parameterNode
-                )
-            ):
-                # Placement-only review needs a legible jaw/robot composition,
-                # not the template, docks, ROI, and every historical planning
-                # overlay.  Operators can still add any of those through Views.
-                return {
-                    "case_volume",
-                    "case_volume_3d",
-                    "case_jaw_opening",
-                    "trajectory",
-                    "robot_mount",
-                    "forehead_proxy",
-                    *robot_category,
-                }
             return {
                 "case_volume",
                 "case_volume_3d",
@@ -972,8 +902,6 @@ class ViewCatalogWidgetMixin:
                 definitions.append(
                     ("case_package", _("Case planning package"))
                 )
-            if "phantom" in categories:
-                definitions.append(("phantom_only", _("Phantom only")))
         definitions.extend(
             (
                 ("all", _("All elements available in this step")),

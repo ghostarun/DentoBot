@@ -85,7 +85,10 @@ class RobotShellWidgetMixin:
             "one immutable task, then preview guarded approach and drilling phases."
         )
         self.ui.step6MountLockGroupBox.title = _(
-            "6.1 — Robot, Manual Simulation Base, and ROS/MoveIt Runtime"
+            "6.1A — Offline Robot Preview and Manual Simulation Base"
+        )
+        self._robotSimulationPanel.runtimeGroup.title = _(
+            "6.1B — Connect ROS + MoveIt"
         )
         self.ui.step6TaskJointLimitsGroupBox.title = _(
             "6.2 — Live Joint State for Task Home"
@@ -96,7 +99,7 @@ class RobotShellWidgetMixin:
         self.ui.ros2MotionControlGroupBox.enabled = False
 
     def _setupStep6SubstepNavigator(self) -> None:
-        """Add one shared 6.0–6.6 navigator to the normal module panel."""
+        """Add one shared Step 6 navigator to the normal module panel."""
         if self._step6SubstepNavigator is not None:
             return
         navigator = qt.QGroupBox(

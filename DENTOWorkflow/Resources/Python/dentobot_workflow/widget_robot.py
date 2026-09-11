@@ -101,14 +101,11 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
     def _step6SceneKind(self) -> str:
         if not self._parameterNode or not self.logic:
             return "none"
-        imported = bool(self._parameterNode.step6PlanningContextImported)
-        phantom = bool(self.logic.draftPhantomModelNodes())
-        if imported and phantom:
-            return "conflict"
-        if imported:
+        if (
+            self._parameterNode.inputVolume
+            and self._parameterNode.teethSegmentation
+        ):
             return "case"
-        if phantom:
-            return "phantom"
         return "none"
 
     def _step6RobotPresent(self) -> bool:
@@ -146,23 +143,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         self._updateWorkflowViewControls()
 
     def _confirmStep6SceneSwitch(self, target: str) -> bool:
-        kind = self._step6SceneKind()
-        if kind in {"none", target}:
-            return True
-        if target == "case":
-            return slicer.util.confirmYesNoDisplay(
-                _(
-                    "A draft phantom is already loaded. Switch to the case package "
-                    "and delete the phantom from the scene?"
-                )
-            )
-        return slicer.util.confirmYesNoDisplay(
-            _(
-                "A case package is already imported. Switch to the phantom test "
-                "scene? Case nodes stay in the scene but the recommended view "
-                "will hide them."
-            )
-        )
+        return target == "case"
 
     def _updateStep6PlanningUi(self, message: str = "", error: bool = False) -> None:
         if not hasattr(self, "ui") or not self._parameterNode:
@@ -177,7 +158,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         active_plan = facade_plan or self._step6MotionPlan
         has_plan = active_plan is not None and active_plan.success
         scene_kind = self._step6SceneKind()
-        scene_active = scene_kind in {"case", "phantom"}
+        scene_active = scene_kind == "case"
         case_jaw_issues = (
             self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
             if self.logic and scene_kind == "case"
@@ -188,20 +169,18 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if self.logic and scene_kind == "case"
             else []
         )
-        scene_prepared = bool(
-            scene_kind == "phantom"
-            or (scene_kind == "case" and not case_placement_issues)
+        foundation = (
+            self.logic.evaluateCaseFoundationEligibility(self._parameterNode)
+            if self.logic and scene_kind == "case"
+            else None
         )
-        planning_anatomy_ready = bool(
-            scene_kind == "phantom"
-            or (scene_kind == "case" and not case_jaw_issues)
+        branchEligibility = (
+            self.logic.evaluatePreparedBranchEligibility(self._parameterNode)
+            if self.logic and scene_kind == "case"
+            else None
         )
-        placement_only_fallback = bool(
-            scene_kind == "case"
-            and str(self._parameterNode.step6CaseJawPreparationMode)
-            == "TargetJawFallback"
-            and scene_prepared
-        )
+        scene_prepared = bool(scene_kind == "case" and not case_placement_issues)
+        planning_anatomy_ready = bool(scene_kind == "case" and not case_jaw_issues)
         robot_present = self._step6RobotPresent()
         local_robot_present = bool(self.logic.robotModelNodes()) if self.logic else False
         ros2_active = self.logic.isRos2MotionControlActive(
@@ -236,29 +215,28 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         if message:
             context_status = message
-        elif placement_only_fallback:
-            context_status = _(
-                "Target-jaw-only fallback is active in unchanged source RAS. "
-                "Placement, Task Home, and workspace exploration are enabled; "
-                "ROS/collision/task planning remain blocked."
-            )
         elif scene_kind == "case" and case_jaw_issues:
             context_status = _(
-                "Case package imported. Complete 6.0A before loading or placing "
-                "the robot: %1"
+                "Complete Case Foundation — Open Mouth Setup before loading or "
+                "placing the robot: %1"
             ).replace("%1", " ".join(case_jaw_issues))
+        elif (
+            scene_kind == "case"
+            and foundation
+            and foundation["base"]["eligible"]
+            and branchEligibility
+            and not branchEligibility["branch"]
+        ):
+            context_status = _(
+                "Case Foundation and reviewed base are ready. Complete Steps "
+                "4A–5C before activating a PreparedBranch."
+            )
         elif scene_kind == "case":
             context_status = _(
-                "Case package and opened-mouth planning anatomy are current."
-            )
-        elif scene_kind == "phantom":
-            context_status = _("Draft phantom is the active Step 6 scene.")
-        elif scene_kind == "conflict":
-            context_status = _(
-                "Both a case package and a phantom are present. Choose one scene."
+                "Case Foundation planning pose is current."
             )
         else:
-            context_status = _("No Step 6 scene yet. Import a case or load the phantom.")
+            context_status = _("No Case Foundation is loaded yet.")
 
         base_state = str(self._parameterNode.step6BasePlacementStatus or "Unlocked")
         base_source = str(self._parameterNode.step6BasePlacementSource or "")
@@ -279,9 +257,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         elif not scene_active:
             mount_status = _("Choose a scene before loading the robot.")
         elif not scene_prepared:
-            mount_status = _("Complete the required case mouth opening in 6.0A.")
-        elif placement_only_fallback and not robot_present:
-            mount_status = _("Load the robot for target-jaw placement testing.")
+            mount_status = _("Complete Case Foundation — Open Mouth Setup.")
         elif not robot_present:
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
@@ -295,10 +271,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         elif has_plan:
             plan_status = active_plan.message
         elif not imported:
-            plan_status = _(
-                "Trajectory planning needs the case package. Phantom mode is "
-                "for placement testing only."
-            )
+            plan_status = _("Activate a verified PreparedBranch before planning motion.")
         else:
             plan_status = _("No motion plan yet.")
 
@@ -311,9 +284,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         self.ui.step6PlanningContextStatusLabel.text = context_status
         self.ui.step6PlanningContextStatusLabel.styleSheet = (
-            style_err if scene_kind == "conflict" else (
-                style_ok if scene_prepared else style_warn
-            )
+            style_ok if scene_prepared else style_warn
         )
         self.ui.step6MountLockStatusLabel.text = mount_status
         self.ui.step6MountLockStatusLabel.styleSheet = (
@@ -371,9 +342,11 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             scene_prepared and (not locked or robot_recovery_allowed)
         )
         self.ui.frameRobotButton.enabled = scene_prepared
-        self.ui.importStep6PlanningContextButton.enabled = not locked
-        self.ui.loadDraftPhantomButton.enabled = not locked
-
+        self.ui.importStep6PlanningContextButton.enabled = bool(
+            branchEligibility
+            and branchEligibility["eligible"]
+            and not ros2_active
+        )
         self.ui.resetRobotBaseButton.enabled = place_enabled
         for widget_name in (
             "createRobotMountPlaneButton",
@@ -497,7 +470,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     "Home-connectivity evidence, then review its proposed limits."
                 )
             runtime_ready = bool(
-                planning_anatomy_ready and local_robot_present and locked
+                planning_anatomy_ready
+                and local_robot_present
+                and locked
+                and imported
+                and foundation
+                and foundation["base"]["eligible"]
+                and branchEligibility
+                and branchEligibility["eligible"]
             )
             panel.connectButton.enabled = runtime_ready and not ros2_active
             panel.disconnectButton.enabled = ros2_active
@@ -750,21 +730,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             if not self._confirmStep6SceneSwitch("case"):
                 return
-            if self.logic.draftPhantomModelNodes():
-                self.logic.deleteDraftPhantom(
-                    self._parameterNode.draftJawLandmarks,
-                    self._parameterNode.draftJawTransform,
-                    self._parameterNode.draftJawGapLine,
-                )
-                was_modifying = self._parameterNode.StartModify()
-                try:
-                    self._parameterNode.draftPhantomSkullModel = None
-                    self._parameterNode.draftPhantomMandibleModel = None
-                    self._parameterNode.draftJawLandmarks = None
-                    self._parameterNode.draftJawTransform = None
-                    self._parameterNode.draftJawGapLine = None
-                finally:
-                    self._parameterNode.EndModify(was_modifying)
             report = self.logic.importStep6PlanningContext(self._parameterNode)
             try:
                 self._applyTaskJointLimitsToJointSpinboxes()
@@ -782,6 +747,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
         result = self._robotWorkflowFacade.lockBase()
+        if result.success:
+            self._captureCaseFoundationSessionSnapshot()
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)

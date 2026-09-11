@@ -8,6 +8,7 @@ from .runtime import *
 class LifecycleWidgetMixin:
     def cleanup(self) -> None:
         self._isCleaningUp = True
+        self._caseFoundationSnapshot = None
         self._workflowViewRefreshScheduled = False
         self._step6ExpertDiagnosticHandoffActive = False
         if self._step6ExpertReturnToolbar:
@@ -55,6 +56,7 @@ class LifecycleWidgetMixin:
             return
         if self._applicationShell:
             self._applicationShell.deactivate()
+        self._caseFoundationSnapshot = None
         self._setRobotTransformInteractionVisible(False)
         self._disableRobotKeyboardShortcuts()
         self._hideViewControlsPalette(preservePreference=True)
@@ -202,6 +204,13 @@ class LifecycleWidgetMixin:
     def _revalidateImportedStep6ContextAfterLoad(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        hiddenLegacyPhantoms = self.logic.hideLegacyDraftPhantomNodes()
+        if hiddenLegacyPhantoms:
+            logging.info(
+                "Hid %d archived draft-phantom node(s); they do not satisfy "
+                "Case Foundation eligibility",
+                hiddenLegacyPhantoms,
+            )
         cancelledPlacement = (
             self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
                 self._parameterNode
@@ -209,7 +218,7 @@ class LifecycleWidgetMixin:
         )
         if cancelledPlacement.get("cancelled"):
             logging.warning(
-                "Cancelled restored transient Step 6A placement state at index "
+                "Cancelled restored transient Case Foundation placement state at index "
                 "%s; %d defined point(s) were retained for explicit review",
                 cancelledPlacement.get("pendingLandmarkIndex") or "unknown",
                 int(cancelledPlacement.get("definedPointCount") or 0),
@@ -270,27 +279,21 @@ class LifecycleWidgetMixin:
         )
         if quarantineMessage:
             logging.warning(quarantineMessage)
+        foundation = self.logic.evaluateCaseFoundationEligibility(self._parameterNode)
+        if foundation["base"]["code"] == "ROBOT_PROFILE_MISMATCH":
+            self.logic.invalidateCaseFoundationBase(
+                self._parameterNode,
+                _("The installed robot profile changed after base review."),
+            )
         if not self._parameterNode.step6PlanningContextImported:
             return
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
             self._parameterNode
         )
         if packageIssues:
-            try:
-                # A stale saved package may still contain an opened jaw and
-                # target-attached proxies from a different target. Clear only
-                # those transient Step 6A derivatives before deactivating the
-                # imported context; source anatomy and upstream nodes remain.
-                self.logic.resetStep6CaseJawOpening(self._parameterNode)
-            except (RuntimeError, ValueError) as exc:
-                logging.warning(
-                    "Could not clear stale Step 6A transient geometry after restore: %s",
-                    exc,
-                )
             self.logic.invalidateStep6TaskConfirmation(
                 self._parameterNode,
                 _("The restored Steps 0–5 planning package is stale."),
-                makeBaseStale=True,
             )
             self._parameterNode.step6PlanningContextImported = False
             message = _(
@@ -307,16 +310,12 @@ class LifecycleWidgetMixin:
             self._parameterNode
         )
         if not jawIssues:
-            try:
-                self._rehydrateStep6LocalRobotAfterRestore()
-            except (RuntimeError, ValueError, OSError) as exc:
-                message = _(
-                    "The case package restored successfully, but the local "
-                    "seven-link robot could not be rebuilt: %1 Use Load / "
-                    "Refresh Robot; the reviewed base remains unchanged."
-                ).replace("%1", str(exc))
-                logging.exception(message)
-                self._updateStep6PlanningUi(message, error=True)
+            self._updateStep6PlanningUi(
+                _(
+                    "Case Foundation and persistent base configuration restored "
+                    "offline. Load / Refresh Robot explicitly when needed."
+                )
+            )
             return
         hadReviewedBase = bool(
             self._parameterNode.robotBaseMountLocked
@@ -333,7 +332,7 @@ class LifecycleWidgetMixin:
             makeBaseStale=True,
         )
         message = _(
-            "Steps 0–5 package restored and remains active. Complete 6.0A: %1"
+            "Planning geometry restored for inspection. Repair the Case Foundation: %1"
         ).replace("%1", " ".join(jawIssues))
         if hadReviewedBase:
             message += _(
@@ -721,11 +720,12 @@ class LifecycleWidgetMixin:
         self._updateTemplateModeling()
         self._updateTemplateGuide()
         self._updateTemplateFinalization()
-        self._bindDraftJawLandmarksNode(self._parameterNode.draftJawLandmarks)
+        self.logic.refreshCaseFoundationNodeOwnership(self._parameterNode)
         self._bindStep6CaseJawLandmarksNode(
             self._parameterNode.step6CaseJawLandmarks
         )
         self._updateRobotPlacement()
+        self._applyCaseFoundationAuthoringGate()
         self._updateStageExclusiveInteractionLocks(
             int(self.ui.workflowStageComboBox.currentIndex)
         )

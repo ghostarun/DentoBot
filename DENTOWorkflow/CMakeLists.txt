@@ -60,7 +60,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/logic_guide.py
   Resources/Python/dentobot_workflow/logic_finalization.py
   Resources/Python/dentobot_workflow/logic_case_bundle.py
-  Resources/Python/dentobot_workflow/logic_phantom_scene.py
+  Resources/Python/dentobot_workflow/logic_case_foundation.py
   Resources/Python/dentobot_workflow/logic_step6_scene.py
   Resources/Python/dentobot_workflow/logic_step6_landmark_review.py
   Resources/Python/dentobot_workflow/logic_robot_placement.py

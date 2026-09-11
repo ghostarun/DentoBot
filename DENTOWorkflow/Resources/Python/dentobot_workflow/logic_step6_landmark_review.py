@@ -1,4 +1,4 @@
-"""Explicit review/migration of restored Step 6A landmark points."""
+"""Explicit review/migration of restored Case Foundation landmark points."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def review_and_project_existing_step6_case_jaw_landmarks(
         if surface is None or surface.GetNumberOfPoints() == 0:
             raise ValueError(
                 _("The intended surface for %1 is unavailable.").replace(
-                    "%1", logic.DRAFT_JAW_LANDMARK_LABELS[index]
+                    "%1", logic.CASE_FOUNDATION_LANDMARK_LABELS[index]
                 )
             )
         locator = vtk.vtkStaticCellLocator()
@@ -107,7 +107,7 @@ def review_and_project_existing_step6_case_jaw_landmarks(
                     "%1 is %2 mm from its intended current surface; clear "
                     "the landmarks and repeat guided placement."
                 )
-                .replace("%1", logic.DRAFT_JAW_LANDMARK_LABELS[index])
+                .replace("%1", logic.CASE_FOUNDATION_LANDMARK_LABELS[index])
                 .replace("%2", f"{residual:.3f}")
             )
         projected = tuple(float(value) for value in closest)
@@ -115,7 +115,7 @@ def review_and_project_existing_step6_case_jaw_landmarks(
         proposedEvidence.append(
             {
                 "landmarkIndex": index,
-                "label": logic.DRAFT_JAW_LANDMARK_LABELS[index],
+                "label": logic.CASE_FOUNDATION_LANDMARK_LABELS[index],
                 "sourceSegmentId": segmentId,
                 "sourceGeometryFingerprint": logic._step6CaseJawGeometryFingerprint(
                     segmentation,

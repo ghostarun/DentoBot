@@ -226,7 +226,7 @@ class DENTORobotSimulationPanel:
         )
         runtime_layout.addWidget(self.openExpertDiagnosticsButton)
         self.runtimeStatusLabel = qt.QLabel(
-            "Choose a case or phantom, then connect the simulation stack.",
+            "Activate a prepared case, then connect the simulation stack.",
             self.runtimeGroup,
         )
         self.runtimeStatusLabel.objectName = "DENTOBOTRobotRuntimeStatusLabel"

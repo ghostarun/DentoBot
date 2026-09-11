@@ -1,18 +1,17 @@
-"""Extracted Step 6 case and phantom preparation methods; public APIs remain on DENTOWorkflowLogic."""
+"""Case Foundation anatomy preparation methods."""
 
 from __future__ import annotations
 
 from .runtime import *
 
 
-from dentobot_workflow.logic_phantom_scene import PhantomSceneLogicMixin
 from dentobot_workflow.logic_step6_landmark_review import (
     cancel_transient_step6_case_jaw_landmark_placement,
     review_and_project_existing_step6_case_jaw_landmarks,
 )
 
 
-class Step6SceneLogicMixin(PhantomSceneLogicMixin):
+class Step6SceneLogicMixin:
 
     def step6CaseJawSegmentIds(
         self,
@@ -514,7 +513,7 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
         evidence.append(
             {
                 "landmarkIndex": landmarkIndex,
-                "label": self.DRAFT_JAW_LANDMARK_LABELS[landmarkIndex],
+                "label": self.CASE_FOUNDATION_LANDMARK_LABELS[landmarkIndex],
                 "sourceSegmentId": segmentId,
                 "sourceGeometryFingerprint": self._step6CaseJawGeometryFingerprint(
                     segmentation, (segmentId,)
@@ -615,7 +614,7 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 return [
                     _(
                         "A case jaw landmark moved after source-surface projection; "
-                        "clear and replace the landmarks through Step 6A."
+                        "clear and replace the Case Foundation landmarks."
                     )
                 ]
         return []
@@ -708,289 +707,16 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
         parameterNode.step6CaseJawLastFailureJson = canonical_json(record)
         return True
 
-    def step6TargetJawFallbackFreshnessIssues(self, parameterNode) -> list[str]:
-        if str(parameterNode.step6CaseJawPreparationMode) != "TargetJawFallback":
-            return [_("Target-jaw-only fallback has not been prepared.")]
-        segmentation = parameterNode.teethSegmentation
-        targetJaw = self.step6TargetJaw(parameterNode)
-        node = parameterNode.step6TargetJawFallbackAnatomy
-        if segmentation is None or targetJaw not in {"upper", "lower"}:
-            return [_("The fallback target-jaw source is unavailable.")]
-        if not self.isStep6DerivedAnatomyNode(
-            node, self.STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE
-        ):
-            return [_("The target-jaw-only fallback anatomy is missing.")]
-        if node.GetParentTransformNode() is not None:
-            return [_("Fallback anatomy must remain in source world RAS.")]
-        if node.GetAttribute("DENTOBOT.GeometryState") != "Current":
-            return [_("The target-jaw-only fallback anatomy is stale.")]
-        segmentIds = self.step6CaseJawSegmentIds(segmentation)[targetJaw]
-        expected = self._step6CaseJawGeometryFingerprint(segmentation, segmentIds)
-        if node.GetAttribute("DENTOBOT.SourceGeometryFingerprint") != expected:
-            return [_("The target-jaw fallback source anatomy changed.")]
-        if node.GetAttribute("DENTOBOT.TargetSegmentID") != str(
-            parameterNode.targetToothSegmentId or ""
-        ):
-            return [_("The selected target changed after fallback preparation.")]
-        return []
-
     def step6CaseJawPlacementFreshnessIssues(self, parameterNode) -> list[str]:
-        """Return placement-only anatomy issues; fallback may satisfy this gate."""
-        if not bool(parameterNode.step6PlanningContextImported):
-            return []
-        if str(parameterNode.step6CaseJawPreparationMode) == "TargetJawFallback":
-            return self.step6TargetJawFallbackFreshnessIssues(parameterNode)
-        return self.step6CaseJawOpeningFreshnessIssues(parameterNode)
+        """Return the centralized Case Foundation pose-gate message."""
 
-    def createStep6TargetJawFallback(self, parameterNode) -> dict:
-        """Expose the target jaw in its unchanged source pose for placement tests."""
-        if bool(parameterNode.robotBaseMountLocked) or self.isRos2MotionControlActive(
-            parameterNode.robotBaseTransform
-        ):
-            raise ValueError(_("Disconnect ROS and unlock the robot base first."))
-        try:
-            failure = json.loads(
-                str(parameterNode.step6CaseJawLastFailureJson or "") or "{}"
-            )
-        except (TypeError, json.JSONDecodeError):
-            failure = {}
-        segmentation = parameterNode.teethSegmentation
-        targetJaw = self.step6TargetJaw(parameterNode)
-        if (
-            not isinstance(failure, dict)
-            or failure.get("status") != "PrimaryPreparationFailed"
-            or segmentation is None
-            or targetJaw not in {"upper", "lower"}
-        ):
-            raise ValueError(
-                _(
-                    "Run the primary jaw-opening preparation first; fallback is "
-                    "enabled only after a recorded anatomy or solver failure."
-                )
-            )
-        evidenceIssues = self.step6CaseJawSurfaceEvidenceIssues(parameterNode)
-        if evidenceIssues:
-            raise ValueError(evidenceIssues[0])
-        segmentIds = self.step6CaseJawSegmentIds(segmentation)[targetJaw]
-        fingerprintNow = self._step6CaseJawGeometryFingerprint(segmentation, segmentIds)
-        if (
-            failure.get("targetJaw") != targetJaw
-            or failure.get("targetSegmentId")
-            != str(parameterNode.targetToothSegmentId or "")
-            or failure.get("sourceGeometryFingerprint") != fingerprintNow
-        ):
-            raise ValueError(
-                _("The recorded primary failure is stale; retry primary preparation.")
-            )
-
-        self.resetStep6CaseJawOpening(parameterNode)
-        parameterNode.step6CaseJawLastFailureJson = canonical_json(failure)
-        node = self._createStep6DerivedAnatomy(
-            parameterNode,
-            segmentation,
-            segmentIds,
-            existingNode=None,
-            name=f"[Step 6.0A Fallback] Unopened {targetJaw.title()} Jaw + Teeth",
-            role=self.STEP6_TARGET_JAW_FALLBACK_ANATOMY_ROLE,
-            mode="TargetJawFallback",
-        )
-        node.SetAttribute(
-            "DENTOBOT.TargetSegmentID", str(parameterNode.targetToothSegmentId or "")
-        )
-        node.SetAttribute("DENTOBOT.IntendedUse", "PlacementTestingOnly")
-        node.SetAttribute("DENTOBOT.OpenMouthValidity", "Unavailable")
-        node.SetAttribute("DENTOBOT.CollisionPlanningValidity", "Blocked")
-        jawGroups = self.step6CaseJawSegmentIds(segmentation)
-        self._hideStep6SourceJawSegments(
-            segmentation, node, jawGroups["upper"] + jawGroups["lower"]
-        )
-        record = {
-            "schemaVersion": self.STEP6_CASE_JAW_SCHEMA_VERSION,
-            "mode": "TargetJawFallback",
-            "state": "ProvisionalPlacementOnly",
-            "targetJaw": targetJaw,
-            "targetSegmentId": str(parameterNode.targetToothSegmentId or ""),
-            "segmentIds": list(segmentIds),
-            "sourceGeometryFingerprint": fingerprintNow,
-            "sourcePose": "UnchangedWorldRAS",
-            "transformApplied": False,
-            "primaryFailure": failure.get("reason", ""),
-            "allowedUse": [
-                "robot-placement",
-                "task-home",
-                "workspace-exploration",
-            ],
-            "blockedUse": [
-                "ROS-connect",
-                "collision-sync",
-                "task-confirmation",
-                "motion-planning",
-                "drilling-preview",
-            ],
-        }
-        parameterNode.step6TargetJawFallbackAnatomy = node
-        parameterNode.step6CaseJawPreparationMode = "TargetJawFallback"
-        parameterNode.step6CaseJawPreparationJson = canonical_json(record)
-        self.invalidateStep6TaskConfirmation(
-            parameterNode,
-            _(
-                "Target-jaw-only fallback prepared; collision and task planning "
-                "remain blocked."
-            ),
-            makeBaseStale=True,
-        )
-        self.deleteRobotWorkspaceModel()
-        return record
+        pose = self.evaluateCaseFoundationEligibility(parameterNode)["pose"]
+        return [] if pose["eligible"] else [pose["message"]]
 
     def step6CaseJawOpeningFreshnessIssues(self, parameterNode) -> list[str]:
-        """Return reasons the imported case is not in a current open-mouth pose."""
-        if not bool(parameterNode.step6PlanningContextImported):
-            return []
-        mode = str(parameterNode.step6CaseJawPreparationMode or "ClosedSource")
-        if mode == "TargetJawFallback":
-            fallbackIssues = self.step6TargetJawFallbackFreshnessIssues(parameterNode)
-            if fallbackIssues:
-                return fallbackIssues
-            return [
-                _(
-                    "Target-jaw-only fallback is placement-testing anatomy, not a "
-                    "valid open-mouth collision/planning state."
-                )
-            ]
-        if mode != "ProvisionalOpenProxy":
-            return [_("Apply the Step 6 case open-mouth preparation.")]
-        segmentation = parameterNode.teethSegmentation
-        if segmentation is None:
-            return [_("The authoritative dental segmentation is missing.")]
-        landmarks = parameterNode.step6CaseJawLandmarks
-        if not self.isStep6CaseJawLandmarksNode(landmarks):
-            return [_("Place the four Step 6 case jaw landmarks.")]
-        try:
-            summary = self.getStep6CaseJawLandmarkSummary(landmarks)
-        except ValueError as exc:
-            return [str(exc)]
-        if not summary["isComplete"]:
-            return [
-                _("Place all four case landmarks: Left TMJ, Right TMJ, upper incisor, lower incisor.")
-            ]
-        transform = parameterNode.step6CaseJawTransform
-        model = parameterNode.step6OpenedLowerJawModel
-        if not self.isStep6CaseJawTransformNode(transform):
-            return [_("Apply the Step 6 case open-mouth transform.")]
-        if transform.GetAttribute("DENTOBOT.SchemaVersion") != self.STEP6_CASE_JAW_SCHEMA_VERSION:
-            return [_("The saved case jaw opening uses a legacy schema; review and re-apply it.")]
-        if not self.isStep6OpenedLowerJawModelNode(model):
-            return [_("The derived opened lower-jaw planning surface is missing.")]
-        fixedUpper = parameterNode.step6FixedUpperAnatomy
-        movingLower = parameterNode.step6MovingLowerAnatomy
-        if not self.isStep6DerivedAnatomyNode(
-            fixedUpper, self.STEP6_FIXED_UPPER_ANATOMY_ROLE
-        ):
-            return [_("The derived fixed upper-jaw anatomy is missing.")]
-        if not self.isStep6DerivedAnatomyNode(
-            movingLower, self.STEP6_MOVING_LOWER_ANATOMY_ROLE
-        ):
-            return [_("The derived moving lower-jaw anatomy is missing.")]
-        if fixedUpper.GetParentTransformNode() is not None:
-            return [_("Fixed upper-jaw anatomy must remain in world RAS.")]
-        if movingLower.GetParentTransformNode() is not transform:
-            return [_("Moving lower-jaw anatomy is detached from its hinge transform.")]
-        if transform.GetAttribute("DENTOBOT.GeometryState") != "Current":
-            return [
-                transform.GetAttribute("DENTOBOT.StaleReason")
-                or _("Re-apply the Step 6 case open-mouth transform.")
-            ]
-        if transform.GetParentTransformNode() is not None:
-            return [_("The case TMJ transform must remain in world RAS.")]
-        try:
-            self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
-            left, right, upper, lower = self.step6CaseJawLandmarkPositions(landmarks)
-            _angle, expectedMatrix, _openedLower, _gap = (
-                solve_anatomy_directed_hinge_rotation_for_gap(
-                    left,
-                    right,
-                    upper,
-                    lower,
-                    float(parameterNode.step6CaseJawTargetGapMm),
-                )
-            )
-        except ValueError as exc:
-            return [str(exc)]
-        actualVtk = vtk.vtkMatrix4x4()
-        transform.GetMatrixTransformToWorld(actualVtk)
-        actualMatrix = self._numpyFromVtkMatrix(actualVtk)
-        if not np.allclose(actualMatrix, expectedMatrix, atol=1e-6, rtol=0.0):
-            return [
-                _("The case TMJ transform matrix changed; re-apply the mouth opening.")
-            ]
-        if model.GetParentTransformNode() is not transform:
-            return [_("The opened lower-jaw surface is detached from its TMJ transform.")]
-        if self.step6TargetJaw(parameterNode) == "lower":
-            if not self.isStep6OpenedTrajectoryNode(
-                parameterNode.step6OpenedTrajectoryLine
-            ):
-                return [_("The opened mandibular Entry-to-Target display is missing.")]
-            if parameterNode.finalPrintableTemplateModel and not (
-                self.isStep6OpenedTargetGeometryModelNode(
-                    parameterNode.step6OpenedTargetGeometryModel
-                )
-            ):
-                return [_("The opened mandibular template display is missing.")]
-        sourceId = transform.GetNodeReferenceID("DENTOBOT.SourceSegmentation")
-        if sourceId != segmentation.GetID():
-            return [_("The open-mouth transform belongs to a different segmentation.")]
-        if (
-            transform.GetAttribute("DENTOBOT.LandmarksFingerprint")
-            != self._step6CaseJawLandmarksFingerprint(landmarks)
-        ):
-            return [
-                _("Case jaw landmarks changed; re-apply the mouth opening.")
-            ]
-        segmentGroups = self.step6CaseJawSegmentIds(segmentation)
-        upperIds = segmentGroups["upper"]
-        lowerIds = segmentGroups["lower"]
-        if not upperIds:
-            return [_("No upper-jaw or maxillary tooth surfaces are available.")]
-        if not lowerIds:
-            return [_("No lower-jaw or mandibular tooth surfaces are available.")]
-        expectedUpperFingerprint = self._step6CaseJawGeometryFingerprint(
-            segmentation,
-            upperIds,
-        )
-        if (
-            fixedUpper.GetAttribute("DENTOBOT.SourceGeometryFingerprint")
-            != expectedUpperFingerprint
-        ):
-            return [_("Fixed upper-jaw segmentation geometry changed.")]
-        expectedFingerprint = self._step6CaseJawGeometryFingerprint(
-            segmentation,
-            lowerIds,
-        )
-        if transform.GetAttribute("DENTOBOT.SourceGeometryFingerprint") != expectedFingerprint:
-            return [
-                _("Lower-jaw segmentation geometry changed; re-apply the mouth opening.")
-            ]
-        if model.GetAttribute("DENTOBOT.SourceGeometryFingerprint") != expectedFingerprint:
-            return [
-                _("The opened lower-jaw surface provenance is stale.")
-            ]
-        if (
-            movingLower.GetAttribute("DENTOBOT.SourceGeometryFingerprint")
-            != expectedFingerprint
-        ):
-            return [_("Moving lower-jaw segmentation geometry changed.")]
-        requestedGap = float(parameterNode.step6CaseJawTargetGapMm)
-        recordedGap = transform.GetAttribute("DENTOBOT.TargetIncisorGapMm")
-        try:
-            gapMatches = (
-                recordedGap is not None
-                and abs(float(recordedGap) - requestedGap) <= 1e-6
-            )
-        except (TypeError, ValueError):
-            gapMatches = False
-        if not gapMatches:
-            return [_("The requested incisor gap changed; re-apply the mouth opening.")]
-        return []
+        """Compatibility facade for the centralized Case Foundation pose gate."""
+        pose = self.evaluateCaseFoundationEligibility(parameterNode)["pose"]
+        return [] if pose["eligible"] else [str(pose["message"])]
 
     def _restoreStep6CaseLowerJawVisibility(
         self,
@@ -1050,153 +776,10 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 display.SetVisibility(bool(state.get("visible", True)))
                 display.SetVisibility2D(bool(state.get("visible2D", True)))
                 display.SetVisibility3D(bool(state.get("visible3D", True)))
-    def _updateStep6CaseTargetAttachedDisplay(
-        self,
-        parameterNode,
-        transform: vtkMRMLLinearTransformNode,
-    ) -> None:
-        """Create derived display proxies without moving Steps 0–5 source nodes."""
-        if self.step6TargetJaw(parameterNode) != "lower":
-            self._restoreStep6CaseTargetAttachedVisibility(parameterNode)
-            for node in (
-                parameterNode.step6OpenedTargetGeometryModel,
-                parameterNode.step6OpenedTrajectoryLine,
-            ):
-                if node and slicer.mrmlScene.IsNodePresent(node):
-                    slicer.mrmlScene.RemoveNode(node)
-            parameterNode.step6OpenedTargetGeometryModel = None
-            parameterNode.step6OpenedTrajectoryLine = None
-            return
-        modelSources = (
-            [parameterNode.finalPrintableTemplateModel]
-            if parameterNode.finalPrintableTemplateModel
-            else [
-                parameterNode.draftTemplateSupportModel,
-                parameterNode.targetDockingAssemblyModel,
-            ]
-        )
-        modelSources = self._filterStep6TargetAttachedModels(
-            modelSources,
-            str(parameterNode.targetToothSegmentId or ""),
-        )
-        surfaces = [model_polydata_in_world(node) for node in modelSources]
-        combined = self._appendPolydata(surfaces)
-        if combined is not None:
-            proxy = parameterNode.step6OpenedTargetGeometryModel
-            if proxy and not self.isStep6OpenedTargetGeometryModelNode(proxy):
-                raise ValueError(_("Select the Step 6 opened target-geometry model."))
-            proxy = proxy or slicer.mrmlScene.AddNewNodeByClass(
-                "vtkMRMLModelNode",
-                "[Step 6.0A] Opened Target-Attached Geometry",
-            )
-            proxy.SetName("[Step 6.0A] Opened Target-Attached Geometry")
-            proxy.SetAttribute(
-                "DENTOBOT.ModelRole",
-                self.STEP6_OPENED_TARGET_GEOMETRY_MODEL_ROLE,
-            )
-            proxy.SetAttribute("DENTOBOT.GeometryState", "Current")
-            try:
-                visibility = json.loads(
-                    proxy.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson")
-                    or "{}"
-                )
-            except (TypeError, json.JSONDecodeError):
-                visibility = {}
-            displaySources = list(
-                dict.fromkeys(
-                    [
-                        *modelSources,
-                        parameterNode.targetDockingReferencePlane,
-                        parameterNode.targetDockingAssemblyModel,
-                    ]
-                )
-            )
-            for source in displaySources:
-                if source is None:
-                    continue
-                sourceDisplay = source.GetDisplayNode()
-                if sourceDisplay and source.GetID() not in visibility:
-                    visibility[source.GetID()] = bool(sourceDisplay.GetVisibility())
-                if sourceDisplay:
-                    sourceDisplay.SetVisibility(False)
-            proxy.SetAttribute(
-                "DENTOBOT.SourceDisplayVisibilityJson",
-                canonical_json(visibility),
-            )
-            proxy.SetAndObservePolyData(combined)
-            proxy.SetAndObserveTransformNodeID(transform.GetID())
-            proxy.SetSelectable(False)
-            proxy.CreateDefaultDisplayNodes()
-            proxyDisplay = proxy.GetDisplayNode()
-            if proxyDisplay:
-                proxyDisplay.SetVisibility(True)
-                proxyDisplay.SetVisibility2D(False)
-                proxyDisplay.SetVisibility3D(True)
-                proxyDisplay.SetColor(0.95, 0.76, 0.18)
-                proxyDisplay.SetOpacity(float(parameterNode.step6GuidesOpacity))
-            parameterNode.step6OpenedTargetGeometryModel = proxy
-        trajectory = parameterNode.trajectoryLine
-        summary = self.getTrajectorySummary(trajectory) if trajectory else {}
-        if summary.get("isValid"):
-            proxyLine = parameterNode.step6OpenedTrajectoryLine
-            if proxyLine and not self.isStep6OpenedTrajectoryNode(proxyLine):
-                raise ValueError(_("Select the Step 6 opened trajectory line."))
-            proxyLine = proxyLine or slicer.mrmlScene.AddNewNodeByClass(
-                "vtkMRMLMarkupsLineNode",
-                "[Step 6.0A] Opened Entry-to-Target",
-            )
-            proxyLine.SetName("[Step 6.0A] Opened Entry-to-Target")
-            proxyLine.SetAttribute(
-                "DENTOBOT.MarkupsRole",
-                self.STEP6_OPENED_TRAJECTORY_ROLE,
-            )
-            proxyLine.SetAttribute("DENTOBOT.GeometryState", "Current")
-            sourceDisplay = trajectory.GetDisplayNode()
-            if not proxyLine.GetAttribute("DENTOBOT.SourceDisplayVisibilityJson"):
-                proxyLine.SetAttribute(
-                    "DENTOBOT.SourceDisplayVisibilityJson",
-                    canonical_json(
-                        {
-                            "visible": bool(sourceDisplay.GetVisibility())
-                            if sourceDisplay
-                            else True,
-                            "visible2D": bool(sourceDisplay.GetVisibility2D())
-                            if sourceDisplay
-                            else True,
-                            "visible3D": bool(sourceDisplay.GetVisibility3D())
-                            if sourceDisplay
-                            else True,
-                        }
-                    ),
-                )
-            if sourceDisplay:
-                sourceDisplay.SetVisibility(False)
-            proxyLine.SetAndObserveTransformNodeID(None)
-            proxyLine.RemoveAllControlPoints()
-            proxyLine.AddControlPointWorld(vtk.vtkVector3d(*summary["entryRas"]))
-            proxyLine.AddControlPointWorld(vtk.vtkVector3d(*summary["targetRas"]))
-            proxyLine.SetNthControlPointLabel(0, "Entry")
-            proxyLine.SetNthControlPointLabel(1, "Target")
-            proxyLine.SetLocked(True)
-            proxyLine.SetAndObserveTransformNodeID(transform.GetID())
-            proxyLine.CreateDefaultDisplayNodes()
-            proxyDisplay = proxyLine.GetDisplayNode()
-            if proxyDisplay:
-                proxyDisplay.SetVisibility(True)
-                proxyDisplay.SetVisibility2D(True)
-                proxyDisplay.SetVisibility3D(True)
-                proxyDisplay.SetColor(1.0, 0.25, 0.15)
-                proxyDisplay.SetSelectedColor(1.0, 0.85, 0.15)
-                proxyDisplay.SetLineThickness(0.5)
-            parameterNode.step6OpenedTrajectoryLine = proxyLine
 
     def refreshStep6CaseTargetAttachedDisplay(self, parameterNode) -> None:
-        """Replace only the selected target's opened trajectory/guide proxies."""
+        """Compatibility entrypoint: bind actual geometry to its jaw owner."""
 
-        transform = parameterNode.step6CaseJawTransform
-        if not self.isStep6CaseJawTransformNode(transform):
-            return
-        self._restoreStep6CaseTargetAttachedVisibility(parameterNode)
         for node in (
             parameterNode.step6OpenedTargetGeometryModel,
             parameterNode.step6OpenedTrajectoryLine,
@@ -1205,25 +788,21 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 slicer.mrmlScene.RemoveNode(node)
         parameterNode.step6OpenedTargetGeometryModel = None
         parameterNode.step6OpenedTrajectoryLine = None
-        self._updateStep6CaseTargetAttachedDisplay(parameterNode, transform)
+        self.refreshCaseFoundationNodeOwnership(parameterNode)
 
     def createOrUpdateStep6CaseJawOpening(
         self,
         parameterNode,
     ) -> tuple[vtkMRMLLinearTransformNode, vtkMRMLModelNode, vtkMRMLMarkupsLineNode, dict]:
-        if not bool(parameterNode.step6PlanningContextImported):
-            raise ValueError(_("Import the Steps 0–5 planning package first."))
-        if packageIssues := self.step6PlanningPackageFreshnessIssues(parameterNode):
-            raise ValueError(_("Cannot open the case jaw because the active planning chain is inconsistent: %1").replace("%1", " ".join(packageIssues)))
-        if bool(parameterNode.robotBaseMountLocked) or self.isRos2MotionControlActive(
-            parameterNode.robotBaseTransform
-        ):
+        if self.isRos2MotionControlActive(parameterNode.robotBaseTransform):
             raise ValueError(
-                _("Disconnect ROS and unlock the robot base before changing the case jaw pose.")
+                _("Disconnect ROS before changing the Case Foundation pose.")
             )
         segmentation = parameterNode.teethSegmentation
         if segmentation is None:
-            raise ValueError(_("The imported case has no authoritative dental segmentation."))
+            raise ValueError(_("The case has no authoritative dental segmentation."))
+        if self.getSegmentationReviewState(segmentation) != "Reviewed":
+            raise ValueError(_("Review the segmentation before creating the Case Foundation."))
         if parameterNode.step6TargetJawFallbackAnatomy:
             self._restoreStep6DerivedAnatomyVisibility(parameterNode)
             fallbackNode = parameterNode.step6TargetJawFallbackAnatomy
@@ -1272,14 +851,15 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             raise ValueError(_("Select the Step 6 case jaw transform."))
         transform = transform or slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLLinearTransformNode",
-            "[Step 6.0A] Case TMJ Mouth Opening",
+            "[Case Foundation] TMJ Mouth Opening",
         )
-        transform.SetName("[Step 6.0A] Case TMJ Mouth Opening")
+        transform.SetName("[Case Foundation] TMJ Mouth Opening")
         transform.SetAttribute("DENTOBOT.TransformRole", self.STEP6_CASE_JAW_TRANSFORM_ROLE)
         transform.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
         transform.SetAttribute("DENTOBOT.GeometryState", "Current")
         transform.SetAttribute("DENTOBOT.StaleReason", None)
         transform.SetAttribute("DENTOBOT.JawMotion", "PureTMJHingeRotation")
+        transform.SetAttribute("DENTOBOT.HingeModelSchema", self.CASE_FOUNDATION_HINGE_SCHEMA)
         transform.SetAttribute(
             "DENTOBOT.TargetIncisorGapMm",
             f"{float(parameterNode.step6CaseJawTargetGapMm):.6f}",
@@ -1310,9 +890,9 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             raise ValueError(_("Select the Step 6 opened lower-jaw model."))
         model = model or slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLModelNode",
-            "[Step 6.0A] Opened Lower Jaw Planning Surface",
+            "[Case Foundation] Opened Lower Jaw Planning Surface",
         )
-        model.SetName("[Step 6.0A] Opened Lower Jaw Planning Surface")
+        model.SetName("[Case Foundation] Opened Lower Jaw Planning Surface")
         model.SetAttribute("DENTOBOT.ModelRole", self.STEP6_OPENED_LOWER_JAW_MODEL_ROLE)
         model.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
         model.SetAttribute("DENTOBOT.GeometryState", "Current")
@@ -1352,7 +932,7 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             segmentation,
             upperIds,
             existingNode=parameterNode.step6FixedUpperAnatomy,
-            name="[Step 6.0A] Fixed Upper Jaw + Teeth",
+            name="[Case Foundation] Fixed Upper Jaw + Teeth",
             role=self.STEP6_FIXED_UPPER_ANATOMY_ROLE,
             mode="ProvisionalOpenProxy",
         )
@@ -1361,7 +941,7 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             segmentation,
             lowerIds,
             existingNode=parameterNode.step6MovingLowerAnatomy,
-            name="[Step 6.0A] Moving Lower Jaw + Teeth",
+            name="[Case Foundation] Moving Lower Jaw + Teeth",
             role=self.STEP6_MOVING_LOWER_ANATOMY_ROLE,
             mode="ProvisionalOpenProxy",
             transformNode=transform,
@@ -1381,9 +961,9 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             raise ValueError(_("Select the Step 6 case incisor-gap line."))
         gapLine = gapLine or slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLMarkupsLineNode",
-            "[Step 6.0A] Case Incisor Gap",
+            "[Case Foundation] Incisor Gap",
         )
-        gapLine.SetName("[Step 6.0A] Case Incisor Gap")
+        gapLine.SetName("[Case Foundation] Incisor Gap")
         gapLine.RemoveAllControlPoints()
         gapLine.AddControlPointWorld(vtk.vtkVector3d(*upper))
         gapLine.AddControlPointWorld(vtk.vtkVector3d(*openedLower))
@@ -1409,13 +989,18 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
         parameterNode.step6MovingLowerAnatomy = movingLower
         parameterNode.step6TargetJawFallbackAnatomy = None
         parameterNode.step6CaseJawGapLine = gapLine
-        parameterNode.step6CaseJawPreparationMode = "ProvisionalOpenProxy"
+        parameterNode.step6CaseJawPreparationMode = "CaseFoundationCurrent"
+        parameterNode.caseFoundationOpeningRevision = int(
+            parameterNode.caseFoundationOpeningRevision
+        ) + 1
         parameterNode.step6CaseJawPreparationJson = canonical_json(
             {
                 "schemaVersion": self.STEP6_CASE_JAW_SCHEMA_VERSION,
-                "mode": "ProvisionalOpenProxy",
-                "state": "ProvisionalOpenProxy",
+                "mode": "CaseFoundationCurrent",
+                "state": "Current",
                 "motionModel": "AnatomyDirectedPureTMJHingeRotation",
+                "hingeModelSchema": self.CASE_FOUNDATION_HINGE_SCHEMA,
+                "openingRevision": int(parameterNode.caseFoundationOpeningRevision),
                 "fixedUpperSegmentIds": list(upperIds),
                 "movingLowerSegmentIds": list(lowerIds),
                 "fixedUpperGeometryFingerprint": upperFingerprint,
@@ -1427,17 +1012,30 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                     tuple(float(value) for value in row) for row in matrix
                 ),
                 "sourceMasksResampled": False,
-                "intendedUse": "SimulationPreviewOnly",
+                "intendedUse": "RigidBoneToothPlanningVisualization",
             }
         )
         parameterNode.step6CaseJawLastFailureJson = ""
-        self._updateStep6CaseTargetAttachedDisplay(parameterNode, transform)
-        self.invalidateStep6TaskConfirmation(
-            parameterNode,
-            _("Case jaw opening changed."),
-            makeBaseStale=True,
+        self.rebuildCaseFoundationDisplayVolumes(parameterNode)
+        snapshot = self.buildCaseFoundationSnapshot(parameterNode)
+        transform.SetAttribute(
+            "DENTOBOT.SourceVolumeFingerprint",
+            snapshot.source_volume_fingerprint,
         )
-        self.deleteRobotWorkspaceModel()
+        transform.SetAttribute(
+            "DENTOBOT.SourceSegmentationFingerprint",
+            snapshot.source_segmentation_fingerprint,
+        )
+        transform.SetAttribute(
+            "DENTOBOT.PlanningPoseFingerprint",
+            snapshot.planning_pose_fingerprint,
+        )
+        self.refreshCaseFoundationNodeOwnership(parameterNode)
+        parameterNode.caseFoundationPreviewUncommitted = False
+        self._invalidateCaseFoundationPoseDependents(
+            parameterNode,
+            _("Case Foundation opening changed."),
+        )
         return transform, model, gapLine, {
             "angleDeg": angle,
             "gapMm": gap,
@@ -1453,6 +1051,17 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
         model = parameterNode.step6OpenedLowerJawModel
         transform = parameterNode.step6CaseJawTransform
         gapLine = parameterNode.step6CaseJawGapLine
+        if transform:
+            for descendant in slicer.util.getNodesByClass("vtkMRMLTransformableNode"):
+                if descendant is transform or descendant.GetParentTransformNode() is not transform:
+                    continue
+                if descendant in (
+                    model,
+                    parameterNode.step6MovingLowerAnatomy,
+                    parameterNode.caseFoundationMovingLowerVolume,
+                ):
+                    continue
+                self._reparentCaseFoundationNodePreservingWorld(descendant, None)
         self._restoreStep6CaseLowerJawVisibility(
             parameterNode.teethSegmentation,
             model,
@@ -1482,29 +1091,16 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
         parameterNode.step6CaseJawPreparationMode = "ClosedSource"
         parameterNode.step6CaseJawPreparationJson = ""
         parameterNode.step6CaseJawLastFailureJson = ""
-        self.invalidateStep6TaskConfirmation(
-            parameterNode,
-            _("Case jaw opening was reset."),
-            makeBaseStale=True,
-        )
-        self.deleteRobotWorkspaceModel()
-
-    def deleteDraftPhantom(
-        self,
-        landmarks=None,
-        transform=None,
-        gapLine=None,
-    ) -> list[str]:
-        nodes = [
-            *self.draftPhantomModelNodes(),
-            *self.draftPhantomWorkspaceTransformNodes(),
-            landmarks,
-            transform,
-            gapLine,
-        ]
-        removed = []
-        for node in dict.fromkeys(node for node in nodes if node):
-            if slicer.mrmlScene.IsNodePresent(node):
-                removed.append(node.GetName())
+        parameterNode.caseFoundationPreviewUncommitted = False
+        for node in (
+            parameterNode.caseFoundationFixedUpperVolume,
+            parameterNode.caseFoundationMovingLowerVolume,
+        ):
+            if node and slicer.mrmlScene.IsNodePresent(node):
                 slicer.mrmlScene.RemoveNode(node)
-        return removed
+        parameterNode.caseFoundationFixedUpperVolume = None
+        parameterNode.caseFoundationMovingLowerVolume = None
+        self._invalidateCaseFoundationPoseDependents(
+            parameterNode,
+            _("Case Foundation was cleared."),
+        )

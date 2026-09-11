@@ -73,8 +73,8 @@ WORKSPACE_SPECS = (
         "ROBOT SIM",
         (10,),
         (
-            "6.0 Case and Task",
-            "6.1 Robot, Base, and Runtime",
+            "6.0 Activate Verified PreparedBranch",
+            "6.1A–6.1B Offline Base and ROS Gate",
             "6.2 Validated Task Home",
             "6.3 ROS Workspace and Limits",
             "6.4 Task Confirmation",

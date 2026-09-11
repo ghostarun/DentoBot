@@ -159,6 +159,7 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Create a traceable draft model from unmodified whole-tooth surfaces."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         selection = self.validateTemplateSupportSelection(
             segmentationNode,
             targetSegmentId,
@@ -491,6 +492,7 @@ class GuideSupportLogicMixin:
     ) -> vtkMRMLMarkupsClosedCurveNode:
         """Create one editable closed boundary on the current support anatomy."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         if sourceSummary["geometryState"] != "Current":
             raise ValueError(_("Update the stale full support-anatomy model first."))
@@ -581,6 +583,7 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLMarkupsPlaneNode, dict]:
         """Create a locked plane normal to Entry→Target at one scalar depth."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         if sourceSummary["geometryState"] != "Current":
             raise ValueError(_("Update the stale full support-anatomy model first."))
@@ -755,6 +758,7 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLMarkupsClosedCurveNode, dict]:
         """Initialize the authoritative editable curve from the support plane."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         self.validateTemplateSupportBoundaryPlane(
             sourceModel,
             planeNode,
@@ -987,6 +991,7 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Extract and persist only the clinician-selected visible support patch."""
 
+        self.requireCaseFoundationPose(self.getParameterNode())
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         self.validateTemplateSupportBoundary(sourceModel, curveNode)
         directionSummary = self.resolveTemplateSupportTrajectoryDirection(

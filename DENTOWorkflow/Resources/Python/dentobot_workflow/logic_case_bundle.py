@@ -286,6 +286,9 @@ class CaseBundleLogicMixin:
                 finalModel.GetAttribute("DENTOBOT.PairingIntent")
                 or ("Single" if len(trajectoryIds) == 1 else "LegacyUnverified")
             )
+            planningPoseFingerprint = str(
+                finalModel.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or ""
+            )
             insertionGeometry = ""
             if insertionDirection:
                 try:
@@ -316,6 +319,7 @@ class CaseBundleLogicMixin:
                         "primaryTrajectoryId": primaryTrajectoryId,
                         "pairingIntent": pairingIntent,
                         "insertionGeometry": insertionGeometry,
+                        "planningPoseFingerprint": planningPoseFingerprint,
                     }
                 ]
             )
@@ -326,7 +330,10 @@ class CaseBundleLogicMixin:
                 for slot in tooth["trajectory_set"]["slots"]
             }
             guideState = finalModel.GetAttribute("DENTOBOT.GeometryState") or "Stale"
-            if any(trajectoryStates.get(value) == "Stale" for value in trajectoryIds):
+            if (
+                not planningPoseFingerprint
+                or any(trajectoryStates.get(value) == "Stale" for value in trajectoryIds)
+            ):
                 guideState = "Stale"
             try:
                 verification = json.loads(
@@ -358,6 +365,7 @@ class CaseBundleLogicMixin:
                     insertionDirection.GetID() if insertionDirection else ""
                 ),
                 verification_revision=verificationRevision,
+                planning_pose_fingerprint=planningPoseFingerprint,
                 state=guideState,
             )
         selectedBranchId = str(previous.get("selected_branch_id") or "")
@@ -394,6 +402,15 @@ class CaseBundleLogicMixin:
             return result(
                 "LEGACY_UNVERIFIED",
                 _("Legacy branch pairing must be explicitly rebuilt and verified."),
+                branch,
+            )
+        foundation = self.evaluateCaseFoundationEligibility(parameterNode)
+        if not foundation["pose"]["eligible"]:
+            return result("FOUNDATION_MISMATCH", foundation["pose"]["message"], branch)
+        if branch.get("planning_pose_fingerprint") != foundation["planning_pose_fingerprint"]:
+            return result(
+                "FOUNDATION_MISMATCH",
+                _("PreparedBranch belongs to another Case Foundation pose."),
                 branch,
             )
         trajectoryIds = list(branch.get("trajectory_ids", []))
@@ -468,84 +485,21 @@ class CaseBundleLogicMixin:
             or verification.get("overall") != finalSummary["verificationState"]
             or verification.get("preparedBranchId") != branchId
             or verification.get("preparedBranchRevision") != branch.get("revision")
+            or verification.get("planningPoseFingerprint")
+            != branch.get("planning_pose_fingerprint")
             or not branch.get("verification_revision")
         ):
             return result("STEP5C_MISMATCH", _("Step 5C verification does not match this PreparedBranch revision."), branch)
         return result("VALID", _("PreparedBranch is current and verified."), branch)
 
     def buildDentoCaseRobotEnvironment(self, parameterNode):
-        jaw = parameterNode.step6CaseJawTransform
-        base = parameterNode.robotBaseTransform
-        jawMatrix = vtk.vtkMatrix4x4()
-        baseMatrix = vtk.vtkMatrix4x4()
-        jawValues = []
-        baseValues = []
-        if self.isStep6CaseJawTransformNode(jaw):
-            jaw.GetMatrixTransformToWorld(jawMatrix)
-            jawValues = self._caseBundleMatrixValues(jawMatrix)
-        if self.isRobotBaseTransformNode(base):
-            base.GetMatrixTransformToWorld(baseMatrix)
-            baseValues = self._caseBundleMatrixValues(baseMatrix)
-        home = None
-        if str(parameterNode.step6TaskHomeJson or "").strip():
-            try:
-                home = json.loads(parameterNode.step6TaskHomeJson)
-            except (TypeError, ValueError, json.JSONDecodeError):
-                home = None
-        anatomy = (
-            self._caseBundleNodeRecord("teethSegmentation", parameterNode.teethSegmentation)
-            if parameterNode.teethSegmentation
-            else {}
-        )
-        robotProfile = self.caseBundleRobotProfile()
-        environment = build_robot_environment_snapshot(
-            case_identity=self._stableDentoCaseId(
-                "case", parameterNode.caseName, fingerprint(anatomy)
-            ),
-            anatomy_fingerprint=fingerprint(anatomy),
-            jaw_source_fingerprint=(
-                jaw.GetAttribute("DENTOBOT.SourceGeometryFingerprint") if jaw else ""
-            ),
-            jaw_landmarks_fingerprint=(
-                jaw.GetAttribute("DENTOBOT.LandmarksFingerprint") if jaw else ""
-            ),
-            jaw_configuration_fingerprint=fingerprint(
-                {
-                    "preparation": str(parameterNode.step6CaseJawPreparationJson or ""),
-                    "gapMm": float(parameterNode.step6CaseJawTargetGapMm),
-                }
-            ),
-            jaw_transform_matrix=jawValues,
-            mouth_gap_mm=(
-                float(parameterNode.step6CaseJawTargetGapMm) if jawValues else None
-            ),
-            robot_profile_fingerprint=str(robotProfile.get("identitySha256") or ""),
-            tool_identity=str(parameterNode.step6ToolFrame or ""),
-            tool_fingerprint=fingerprint(
-                {"toolFrame": str(parameterNode.step6ToolFrame or "")}
-            ),
-            base_matrix=baseValues,
-            base_status=str(parameterNode.step6BasePlacementStatus),
-            base_locked=bool(parameterNode.robotBaseMountLocked),
-            base_fingerprint=self.robotBaseFingerprint(parameterNode),
-            task_home_configuration=home,
-            common_collision_fingerprint=fingerprint(
-                {
-                    "anatomy": fingerprint(anatomy),
-                    "jaw": jawValues,
-                    "robot": str(robotProfile.get("identitySha256") or ""),
-                    "tool": str(parameterNode.step6ToolFrame or ""),
-                }
-            ),
-            limits_fingerprint=self.step6TaskLimitsFingerprint(parameterNode),
-            workspace_fingerprint=fingerprint(
-                str(parameterNode.step6AssistedLimitProposalJson or "")
-            ),
-        )
+        environment = self.buildCaseFoundationSnapshot(parameterNode)
         parameterNode.step6EnvironmentJson = canonical_json(environment.to_dict())
         return environment
 
-    def prepareDentoCaseSchema2ForSave(self, parameterNode) -> None:
+    def prepareDentoCaseSchema3ForSave(self, parameterNode) -> None:
+        if bool(parameterNode.caseFoundationPreviewUncommitted):
+            raise ValueError(_("Commit or revert the Case Foundation opening before saving."))
         self.syncDentoCaseTrajectoryRegistry(parameterNode)
         self.buildDentoCaseRobotEnvironment(parameterNode)
         if self.isStep6CaseJawTransformNode(parameterNode.step6CaseJawTransform):
@@ -556,22 +510,43 @@ class CaseBundleLogicMixin:
         parameterNode.dentoCaseSchemaVersion = DENTOCASE_STATE_SCHEMA_VERSION
         parameterNode.step6SchemaMigrationPending = False
 
+    # Compatibility entrypoint retained for callers shipped with schema 2.
+    prepareDentoCaseSchema2ForSave = prepareDentoCaseSchema3ForSave
+
     def hydrateDentoCaseStateAfterLoad(
         self, parameterNode, packageSchemaVersion: str
     ) -> None:
         savedEnvironment = None
         savedRegistry = None
-        if packageSchemaVersion == "1.0":
+        environmentPayload = str(parameterNode.step6EnvironmentJson or "").strip()
+        registryPayload = str(parameterNode.step6TrajectoryRegistryJson or "").strip()
+        if packageSchemaVersion in LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS:
             parameterNode.step6SchemaMigrationPending = True
+            try:
+                savedEnvironment = (
+                    parse_robot_environment_snapshot(environmentPayload)
+                    if environmentPayload
+                    else None
+                )
+                savedRegistry = (
+                    parse_trajectory_registry(registryPayload)
+                    if registryPayload
+                    else None
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                # Legacy content remains inspectable; no migration is promoted
+                # from an invalid or incomplete derived snapshot.
+                savedEnvironment = None
+                savedRegistry = None
         elif packageSchemaVersion != DENTOCASE_STATE_SCHEMA_VERSION:
             raise CaseBundleError(_("Unsupported DentoCase state schema."))
         else:
             try:
                 savedEnvironment = parse_robot_environment_snapshot(
-                    str(parameterNode.step6EnvironmentJson)
+                    environmentPayload
                 )
                 savedRegistry = parse_trajectory_registry(
-                    str(parameterNode.step6TrajectoryRegistryJson)
+                    registryPayload
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise CaseBundleError(
@@ -579,7 +554,7 @@ class CaseBundleLogicMixin:
                 ) from exc
         rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
         rebuiltEnvironment = self.buildDentoCaseRobotEnvironment(parameterNode)
-        if savedRegistry is not None and canonical_json(savedRegistry) != canonical_json(
+        if packageSchemaVersion == DENTOCASE_STATE_SCHEMA_VERSION and savedRegistry is not None and canonical_json(savedRegistry) != canonical_json(
             rebuiltRegistry
         ):
             raise CaseBundleError(
@@ -601,25 +576,104 @@ class CaseBundleLogicMixin:
             )
             parameterNode.step6SchemaMigrationPending = True
         if self.isStep6CaseJawTransformNode(parameterNode.step6CaseJawTransform):
-            parameterNode.step6CaseJawTransform.RemoveAttribute("DENTOBOT.TargetSegmentID")
-            parameterNode.step6CaseJawTransform.RemoveAttribute(
+            transform = parameterNode.step6CaseJawTransform
+            transform.RemoveAttribute("DENTOBOT.TargetSegmentID")
+            transform.RemoveAttribute(
                 "DENTOBOT.TargetAttachedGeometryFingerprint"
             )
-        selectedBranchId = str(rebuiltRegistry.get("selected_branch_id") or "")
-        if selectedBranchId:
-            eligibility = self.evaluatePreparedBranchEligibility(
-                parameterNode,
-                selectedBranchId,
-                registry=rebuiltRegistry,
-            )
-            if eligibility["eligible"]:
-                self.activateDentoCasePreparedBranch(
-                    parameterNode,
-                    selectedBranchId,
-                    registry=rebuiltRegistry,
-                    invalidateRuntime=False,
+            if packageSchemaVersion in LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS:
+                currentVolume = self.caseFoundationSourceVolumeFingerprint(
+                    parameterNode.inputVolume
                 )
-                self.refreshStep6CaseTargetAttachedDisplay(parameterNode)
+                currentSegmentation = self.caseFoundationSourceSegmentationFingerprint(
+                    parameterNode.teethSegmentation
+                )
+                savedVolume = str(
+                    transform.GetAttribute("DENTOBOT.SourceVolumeFingerprint")
+                    or (savedEnvironment.source_volume_fingerprint if savedEnvironment else "")
+                )
+                savedSegmentation = str(
+                    transform.GetAttribute("DENTOBOT.SourceSegmentationFingerprint")
+                    or (
+                        savedEnvironment.source_segmentation_fingerprint
+                        if savedEnvironment
+                        else ""
+                    )
+                )
+                exactSources = bool(
+                    savedVolume
+                    and savedSegmentation
+                    and savedVolume == currentVolume
+                    and savedSegmentation == currentSegmentation
+                )
+                if exactSources:
+                    transform.SetAttribute(
+                        "DENTOBOT.HingeModelSchema",
+                        self.CASE_FOUNDATION_HINGE_SCHEMA,
+                    )
+                    transform.SetAttribute("DENTOBOT.GeometryState", "Current")
+                    transform.SetAttribute("DENTOBOT.StaleReason", None)
+                    parameterNode.step6CaseJawPreparationMode = "CaseFoundationCurrent"
+                    self.rebuildCaseFoundationDisplayVolumes(parameterNode)
+                    foundation = self.buildCaseFoundationSnapshot(parameterNode)
+                    transform.SetAttribute(
+                        "DENTOBOT.PlanningPoseFingerprint",
+                        foundation.planning_pose_fingerprint,
+                    )
+                else:
+                    transform.SetAttribute("DENTOBOT.GeometryState", "Stale")
+                    transform.SetAttribute(
+                        "DENTOBOT.StaleReason",
+                        "LEGACY_UNVERIFIED",
+                    )
+                    parameterNode.step6CaseJawPreparationMode = "LegacyUnverified"
+            elif str(parameterNode.step6CaseJawPreparationMode) == "CaseFoundationCurrent":
+                self.rebuildCaseFoundationDisplayVolumes(parameterNode)
+        for node in (
+            parameterNode.step6TargetJawFallbackAnatomy,
+            parameterNode.step6OpenedTargetGeometryModel,
+            parameterNode.step6OpenedTrajectoryLine,
+        ):
+            if node and slicer.mrmlScene.IsNodePresent(node):
+                slicer.mrmlScene.RemoveNode(node)
+        parameterNode.step6TargetJawFallbackAnatomy = None
+        parameterNode.step6OpenedTargetGeometryModel = None
+        parameterNode.step6OpenedTrajectoryLine = None
+        base = parameterNode.robotBaseTransform
+        if (
+            packageSchemaVersion in LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS
+            and self.isRobotBaseTransformNode(base)
+            and bool(parameterNode.robotBaseMountLocked)
+        ):
+            authority = str(
+                base.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE) or ""
+            )
+            compatible = bool(
+                authority == self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY
+                and str(base.GetAttribute("DENTOBOT.RobotProfileFingerprint") or "")
+                == self.robotProfileFingerprint()
+                and self.evaluateCaseFoundationEligibility(parameterNode)["pose"]["eligible"]
+            )
+            if not compatible:
+                parameterNode.robotBaseMountLocked = False
+                parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
+                self._applyRobotBaseMountInteractionState(parameterNode, False)
+            else:
+                foundation = self.evaluateCaseFoundationEligibility(parameterNode)
+                base.SetAttribute(
+                    "DENTOBOT.CaseFoundationFingerprint",
+                    foundation["planning_pose_fingerprint"],
+                )
+                base.SetAttribute(
+                    "DENTOBOT.RobotProfileFingerprint",
+                    self.robotProfileFingerprint(),
+                )
+                parameterNode.step6BasePlacementStatus = (
+                    BasePlacementStatus.PROVISIONAL_LOCKED.value
+                )
+                parameterNode.step6BasePlacementSource = MANUAL_SIMULATION_BASE_SOURCE
+        # Package load never restores an active Step 6 branch or live runtime.
+        parameterNode.step6PlanningContextImported = False
 
     def activateDentoCasePreparedBranch(
         self,
@@ -928,6 +982,19 @@ class CaseBundleLogicMixin:
     def caseBundleWorkflowSummary(self, parameterNode) -> dict[str, object]:
         """Describe persistent case state without duplicating its geometry."""
 
+        foundation = self.evaluateCaseFoundationEligibility(parameterNode)
+        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        preparedBranchCount = len(registry["prepared_branches"])
+        caseClassification = (
+            "FoundationOnly"
+            if foundation["pose"]["eligible"]
+            and foundation["base"]["eligible"]
+            and preparedBranchCount == 0
+            else "PlanningPackage"
+            if preparedBranchCount
+            else "PartialOrInspectable"
+        )
+
         fields = (
             "inputVolume",
             "teethSegmentation",
@@ -951,9 +1018,6 @@ class CaseBundleLogicMixin:
             "step6OpenedLowerJawModel",
             "step6FixedUpperAnatomy",
             "step6MovingLowerAnatomy",
-            "step6TargetJawFallbackAnatomy",
-            "step6OpenedTargetGeometryModel",
-            "step6OpenedTrajectoryLine",
         )
         records = []
         for fieldName in fields:
@@ -967,6 +1031,11 @@ class CaseBundleLogicMixin:
             "coordinateSystem": {
                 "world": "SlicerRAS",
                 "lengthUnit": "mm",
+            },
+            "caseClassification": caseClassification,
+            "caseFoundation": {
+                **foundation,
+                "preparedBranchCount": preparedBranchCount,
             },
             "nodes": records,
             "step6": {
@@ -1111,7 +1180,10 @@ class CaseBundleLogicMixin:
         """Cross-check manifest lineage against the freshly loaded MRML scene."""
 
         schemaVersion = str(expected.get("schemaVersion") or "")
-        if schemaVersion not in {"1.0", DENTOCASE_STATE_SCHEMA_VERSION}:
+        if schemaVersion not in {
+            *LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS,
+            DENTOCASE_STATE_SCHEMA_VERSION,
+        }:
             raise CaseBundleError(_("Unsupported workflow-lineage schema."))
         coordinate = expected.get("coordinateSystem")
         if coordinate != {"world": "SlicerRAS", "lengthUnit": "mm"}:

@@ -51,7 +51,6 @@ OVERLAY_GROUP_LABELS: dict[str, str] = {
     "shell_components": "Shell / guide components",
     "final_template": "Final template",
     "jaw_opening": "Opened-jaw planning geometry",
-    "phantom": "Draft skull phantom",
     "robot": "Robot, goal and mount",
 }
 
@@ -66,7 +65,6 @@ OVERLAY_CATEGORY_MAP: dict[str, frozenset[str]] = {
     "shell_components": frozenset({"patient_shell", "final_aux"}),
     "final_template": frozenset({"final"}),
     "jaw_opening": frozenset({"case_jaw_opening"}),
-    "phantom": frozenset({"phantom", "phantom_landmarks"}),
     "robot": frozenset(
         {"robot_mrml", "robot_ros", "robot_goal", "robot_mount", "forehead_proxy"}
     ),
@@ -200,7 +198,7 @@ STAGE_RECOMMENDATION_DESCRIPTIONS: dict[int, str] = {
     7: "Support masks, boundary, plane, and visible-surface preview",
     8: "Current shell/guide result, or the final template when available",
     9: "Final printable template, or current shell and docks",
-    10: "Active case or phantom with robot and locked mount context",
+    10: "Case Foundation, active PreparedBranch, robot, and reviewed base",
 }
 
 

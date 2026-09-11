@@ -19,11 +19,13 @@ from typing import Mapping, Sequence
 
 
 STATE_SCHEMA_VERSION = "1.0"
-DENTOCASE_STATE_SCHEMA_VERSION = "2.0"
-ROBOT_ENVIRONMENT_SCHEMA_VERSION = "1.0"
+DENTOCASE_STATE_SCHEMA_VERSION = "3.0"
+LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS = ("1.0", "2.0")
+ROBOT_ENVIRONMENT_SCHEMA_VERSION = "2.0"
+LEGACY_ROBOT_ENVIRONMENT_SCHEMA_VERSION = "1.0"
 ATTEMPT_CONTEXT_SCHEMA_VERSION = "1.0"
-TRAJECTORY_REGISTRY_SCHEMA_VERSION = "2.0"
-LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSION = "1.0"
+TRAJECTORY_REGISTRY_SCHEMA_VERSION = "3.0"
+LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSIONS = ("1.0", "2.0")
 TRAJECTORY_SLOTS_PER_TOOTH = 3
 DENTAL_FDI_TOOTH_IDS = tuple(
     f"FDI{quadrant}{tooth}"
@@ -155,16 +157,27 @@ def _optional_finite_tuple(
 
 @dataclass(frozen=True)
 class RobotEnvironmentSnapshotV1:
-    """Portable Step 6 state shared by every target in one case."""
+    """Portable Case Foundation and shared Step 6 configuration.
+
+    The historical class name is retained as an import compatibility alias;
+    schema 2 is the authoritative Case Foundation contract.
+    """
 
     schema_version: str
     case_identity: str
     anatomy_fingerprint: str
+    source_volume_fingerprint: str
+    source_segmentation_fingerprint: str
     jaw_source_fingerprint: str
     jaw_landmarks_fingerprint: str
+    landmark_positions_ras_mm: tuple[float, ...]
+    landmark_review_fingerprint: str
+    hinge_model_schema: str
     jaw_configuration_fingerprint: str
     jaw_transform_matrix: tuple[float, ...]
     mouth_gap_mm: float | None
+    opening_revision: int
+    planning_pose_fingerprint: str
     robot_profile_fingerprint: str
     tool_identity: str
     tool_fingerprint: str
@@ -172,6 +185,10 @@ class RobotEnvironmentSnapshotV1:
     base_status: str
     base_locked: bool
     base_fingerprint: str
+    base_authority: str
+    base_revision: int
+    base_setup_fingerprint: str
+    foundation_fingerprint: str
     task_home_configuration: dict[str, object] | None
     common_collision_fingerprint: str
     limits_fingerprint: str
@@ -180,6 +197,7 @@ class RobotEnvironmentSnapshotV1:
 
     def to_dict(self) -> dict[str, object]:
         result = asdict(self)
+        result["landmark_positions_ras_mm"] = list(self.landmark_positions_ras_mm)
         result["jaw_transform_matrix"] = list(self.jaw_transform_matrix)
         result["base_matrix"] = list(self.base_matrix)
         return result
@@ -189,11 +207,17 @@ def build_robot_environment_snapshot(
     *,
     case_identity: str = "",
     anatomy_fingerprint: str = "",
+    source_volume_fingerprint: str = "",
+    source_segmentation_fingerprint: str = "",
     jaw_source_fingerprint: str = "",
     jaw_landmarks_fingerprint: str = "",
+    landmark_positions_ras_mm: Sequence[float] = (),
+    landmark_review_fingerprint: str = "",
+    hinge_model_schema: str = "",
     jaw_configuration_fingerprint: str = "",
     jaw_transform_matrix: Sequence[float] = (),
     mouth_gap_mm: float | None = None,
+    opening_revision: int = 0,
     robot_profile_fingerprint: str = "",
     tool_identity: str = "",
     tool_fingerprint: str = "",
@@ -201,6 +225,8 @@ def build_robot_environment_snapshot(
     base_status: str = "Unlocked",
     base_locked: bool = False,
     base_fingerprint: str = "",
+    base_authority: str = "",
+    base_revision: int = 0,
     task_home_configuration: Mapping[str, object] | None = None,
     common_collision_fingerprint: str = "",
     limits_fingerprint: str = "",
@@ -223,24 +249,60 @@ def build_robot_environment_snapshot(
             "world_object_count",
         ):
             home.pop(key, None)
-    identity = {
-        "schema_version": ROBOT_ENVIRONMENT_SCHEMA_VERSION,
-        "case_identity": str(case_identity),
-        "anatomy_fingerprint": str(anatomy_fingerprint),
+    landmarks = list(
+        _optional_finite_tuple(
+            landmark_positions_ras_mm, 12, "four landmark positions"
+        )
+    )
+    opening_revision = int(opening_revision)
+    base_revision = int(base_revision)
+    if opening_revision < 0 or base_revision < 0:
+        raise ValueError("foundation revisions must be non-negative")
+    pose_identity = {
+        "source_volume_fingerprint": str(source_volume_fingerprint),
+        "source_segmentation_fingerprint": str(source_segmentation_fingerprint),
         "jaw_source_fingerprint": str(jaw_source_fingerprint),
         "jaw_landmarks_fingerprint": str(jaw_landmarks_fingerprint),
+        "landmark_positions_ras_mm": landmarks,
+        "landmark_review_fingerprint": str(landmark_review_fingerprint),
+        "hinge_model_schema": str(hinge_model_schema),
         "jaw_configuration_fingerprint": str(jaw_configuration_fingerprint),
         "jaw_transform_matrix": list(
             _optional_finite_tuple(jaw_transform_matrix, 16, "jaw transform")
         ),
         "mouth_gap_mm": gap,
+        "opening_revision": opening_revision,
+    }
+    planning_pose_fingerprint = fingerprint(pose_identity)
+    base_identity = {
+        "planning_pose_fingerprint": planning_pose_fingerprint,
         "robot_profile_fingerprint": str(robot_profile_fingerprint),
-        "tool_identity": str(tool_identity),
-        "tool_fingerprint": str(tool_fingerprint),
         "base_matrix": list(_optional_finite_tuple(base_matrix, 16, "base matrix")),
         "base_status": normalize_base_status(base_status).value,
         "base_locked": bool(base_locked),
         "base_fingerprint": str(base_fingerprint),
+        "base_authority": str(base_authority),
+        "base_revision": base_revision,
+    }
+    base_setup_fingerprint = fingerprint(base_identity)
+    foundation_fingerprint = fingerprint(
+        {
+            "planning_pose_fingerprint": planning_pose_fingerprint,
+            "base_setup_fingerprint": base_setup_fingerprint,
+        }
+    )
+    identity = {
+        "schema_version": ROBOT_ENVIRONMENT_SCHEMA_VERSION,
+        "case_identity": str(case_identity),
+        "anatomy_fingerprint": str(anatomy_fingerprint),
+        **pose_identity,
+        "planning_pose_fingerprint": planning_pose_fingerprint,
+        "robot_profile_fingerprint": str(robot_profile_fingerprint),
+        "tool_identity": str(tool_identity),
+        "tool_fingerprint": str(tool_fingerprint),
+        **{key: value for key, value in base_identity.items() if key != "planning_pose_fingerprint"},
+        "base_setup_fingerprint": base_setup_fingerprint,
+        "foundation_fingerprint": foundation_fingerprint,
         "task_home_configuration": home,
         "common_collision_fingerprint": str(common_collision_fingerprint),
         "limits_fingerprint": str(limits_fingerprint),
@@ -248,12 +310,17 @@ def build_robot_environment_snapshot(
     }
     return RobotEnvironmentSnapshotV1(
         environment_fingerprint=fingerprint(identity),
+        landmark_positions_ras_mm=tuple(identity["landmark_positions_ras_mm"]),
         jaw_transform_matrix=tuple(identity["jaw_transform_matrix"]),
         base_matrix=tuple(identity["base_matrix"]),
         **{
             key: value
             for key, value in identity.items()
-            if key not in {"jaw_transform_matrix", "base_matrix"}
+            if key not in {
+                "landmark_positions_ras_mm",
+                "jaw_transform_matrix",
+                "base_matrix",
+            }
         },
     )
 
@@ -262,19 +329,54 @@ def parse_robot_environment_snapshot(
     payload: str | Mapping[str, object],
 ) -> RobotEnvironmentSnapshotV1:
     data = json.loads(payload) if isinstance(payload, str) else dict(payload)
-    if data.get("schema_version") != ROBOT_ENVIRONMENT_SCHEMA_VERSION:
+    schema = data.get("schema_version")
+    if schema not in {
+        ROBOT_ENVIRONMENT_SCHEMA_VERSION,
+        LEGACY_ROBOT_ENVIRONMENT_SCHEMA_VERSION,
+    }:
         raise ValueError("unsupported robot-environment schema")
+    if schema == ROBOT_ENVIRONMENT_SCHEMA_VERSION:
+        missing = set(RobotEnvironmentSnapshotV1.__dataclass_fields__) - set(data)
+        if missing:
+            raise ValueError(
+                "robot-environment snapshot is missing required fields: "
+                + ", ".join(sorted(missing))
+            )
+    if schema == LEGACY_ROBOT_ENVIRONMENT_SCHEMA_VERSION:
+        legacy_identity = {
+            key: data.get(key)
+            for key in (
+                "schema_version", "case_identity", "anatomy_fingerprint",
+                "jaw_source_fingerprint", "jaw_landmarks_fingerprint",
+                "jaw_configuration_fingerprint", "jaw_transform_matrix",
+                "mouth_gap_mm", "robot_profile_fingerprint", "tool_identity",
+                "tool_fingerprint", "base_matrix", "base_status", "base_locked",
+                "base_fingerprint", "task_home_configuration",
+                "common_collision_fingerprint", "limits_fingerprint",
+                "workspace_fingerprint",
+            )
+        }
+        if fingerprint(legacy_identity) != data.get("environment_fingerprint"):
+            raise ValueError("robot-environment fingerprint does not match its contents")
     rebuilt = build_robot_environment_snapshot(
         **{
-            key: data.get(key)
+            key: data.get(key, () if key in {
+                "landmark_positions_ras_mm", "jaw_transform_matrix", "base_matrix"
+            } else 0 if key in {"opening_revision", "base_revision"} else "")
             for key in (
                 "case_identity",
                 "anatomy_fingerprint",
+                "source_volume_fingerprint",
+                "source_segmentation_fingerprint",
                 "jaw_source_fingerprint",
                 "jaw_landmarks_fingerprint",
+                "landmark_positions_ras_mm",
+                "landmark_review_fingerprint",
+                "hinge_model_schema",
                 "jaw_configuration_fingerprint",
                 "jaw_transform_matrix",
                 "mouth_gap_mm",
+                "opening_revision",
                 "robot_profile_fingerprint",
                 "tool_identity",
                 "tool_fingerprint",
@@ -282,6 +384,8 @@ def parse_robot_environment_snapshot(
                 "base_status",
                 "base_locked",
                 "base_fingerprint",
+                "base_authority",
+                "base_revision",
                 "task_home_configuration",
                 "common_collision_fingerprint",
                 "limits_fingerprint",
@@ -289,7 +393,9 @@ def parse_robot_environment_snapshot(
             )
         }
     )
-    if rebuilt.environment_fingerprint != data.get("environment_fingerprint"):
+    if schema == ROBOT_ENVIRONMENT_SCHEMA_VERSION and (
+        rebuilt.environment_fingerprint != data.get("environment_fingerprint")
+    ):
         raise ValueError("robot-environment fingerprint does not match its contents")
     return rebuilt
 
@@ -306,11 +412,16 @@ def robot_environment_invalidation_scopes(
         for field in (
             "case_identity",
             "anatomy_fingerprint",
+            "source_volume_fingerprint",
+            "source_segmentation_fingerprint",
             "jaw_source_fingerprint",
             "jaw_landmarks_fingerprint",
+            "landmark_review_fingerprint",
+            "hinge_model_schema",
             "jaw_configuration_fingerprint",
             "jaw_transform_matrix",
             "mouth_gap_mm",
+            "opening_revision",
         )
     ):
         scopes.update(("jaw", "base", "home", "attempt"))
@@ -325,7 +436,14 @@ def robot_environment_invalidation_scopes(
         scopes.update(("base", "home", "attempt"))
     if any(
         getattr(previous, field) != getattr(current, field)
-        for field in ("base_matrix", "base_status", "base_locked", "base_fingerprint")
+        for field in (
+            "base_matrix",
+            "base_status",
+            "base_locked",
+            "base_fingerprint",
+            "base_authority",
+            "base_revision",
+        )
     ):
         scopes.update(("home", "attempt"))
     if previous.task_home_configuration != current.task_home_configuration:
@@ -461,7 +579,7 @@ def empty_trajectory_registry() -> dict[str, object]:
 def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, object]:
     data = json.loads(payload) if isinstance(payload, str) else json.loads(canonical_json(payload))
     schema = data.get("schema_version")
-    if schema == LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSION:
+    if schema == "1.0":
         migrated = empty_trajectory_registry()
         migrated["teeth"] = data.get("teeth", {})
         for tooth in migrated["teeth"].values():
@@ -498,6 +616,7 @@ def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, 
                         "model_node_ids": [str(value) for value in guide.get("model_node_ids", [])],
                         "revision": str(guide.get("fingerprint") or ""),
                         "verification_revision": "",
+                        "planning_pose_fingerprint": "",
                         "state": "Stale",
                         "stale_reason": "Legacy branch requires explicit pairing and re-verification.",
                     },
@@ -509,6 +628,15 @@ def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, 
         if selected_branch_id in migrated["prepared_branches"]:
             migrated["selected_branch_id"] = selected_branch_id
         data = migrated
+        schema = TRAJECTORY_REGISTRY_SCHEMA_VERSION
+    elif schema == "2.0":
+        data["schema_version"] = TRAJECTORY_REGISTRY_SCHEMA_VERSION
+        for branch in data.get("prepared_branches", {}).values():
+            branch["planning_pose_fingerprint"] = ""
+            branch["state"] = "Stale"
+            branch["stale_reason"] = (
+                "Legacy PreparedBranch requires Case Foundation and Step 5C re-verification."
+            )
         schema = TRAJECTORY_REGISTRY_SCHEMA_VERSION
     if schema != TRAJECTORY_REGISTRY_SCHEMA_VERSION:
         raise ValueError("unsupported trajectory-registry schema")
@@ -580,6 +708,8 @@ def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, 
             raise ValueError("prepared branch pairing intent is invalid")
         if branch.get("state") not in {"Current", "Stale"}:
             raise ValueError("prepared branch has invalid state")
+        if not isinstance(branch.get("planning_pose_fingerprint", ""), str):
+            raise ValueError("prepared branch planning-pose identity is invalid")
         for trajectory_id in referenced:
             owner_tooth = trajectory_owners[trajectory_id][0]
             slot = next(
@@ -664,6 +794,7 @@ def upsert_guide_set(
     target_docking_node_id: str = "",
     insertion_direction_node_id: str = "",
     verification_revision: str = "",
+    planning_pose_fingerprint: str = "",
     state: str = "Current",
 ) -> dict[str, object]:
     data = parse_trajectory_registry(registry)
@@ -695,6 +826,7 @@ def upsert_guide_set(
         "model_node_ids": [str(value) for value in model_node_ids],
         "revision": str(guide_fingerprint),
         "verification_revision": str(verification_revision),
+        "planning_pose_fingerprint": str(planning_pose_fingerprint),
         "state": str(state),
         "stale_reason": "",
     }

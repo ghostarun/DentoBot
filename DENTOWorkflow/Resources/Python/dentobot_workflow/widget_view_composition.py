@@ -144,36 +144,7 @@ class ViewCompositionWidgetMixin:
             )
         elif stageIndex == 10:
             sceneKind = self._step6SceneKind()
-            if sceneKind == "phantom":
-                composition = ViewComposition(
-                    anatomy_scope="none",
-                    anatomy_dimension="3d",
-                    cbct_mode="off",
-                    overlay_groups=frozenset({"phantom", "robot"}),
-                    anatomy_opacity=0.35,
-                )
-            elif (
-                sceneKind == "case"
-                and str(self._parameterNode.step6CaseJawPreparationMode)
-                == "TargetJawFallback"
-                and not self.logic.step6TargetJawFallbackFreshnessIssues(
-                    self._parameterNode
-                )
-            ):
-                # The placement-only fallback is already a complete derived
-                # jaw-and-teeth segmentation.  Selecting source "full anatomy"
-                # here duplicates the closed jaw and leaves pulp/root-canal
-                # groups floating inside the fallback teeth.
-                composition = ViewComposition(
-                    anatomy_scope="none",
-                    anatomy_dimension="3d",
-                    cbct_mode="slices",
-                    overlay_groups=frozenset(
-                        {"trajectories", "jaw_opening", "robot"}
-                    ),
-                    anatomy_opacity=0.35,
-                )
-            elif (
+            if (
                 sceneKind == "case"
                 and not self.logic.step6CaseJawOpeningFreshnessIssues(
                     self._parameterNode
@@ -336,25 +307,6 @@ class ViewCompositionWidgetMixin:
             )
             for entry in entries:
                 category = entry["category"]
-                if sceneKind == "phantom" and (
-                    entry.get("anatomyScopes")
-                    or category in {
-                        "case_volume",
-                        "case_volume_3d",
-                        "case_jaw_opening",
-                        "target_mask",
-                        "bounds",
-                        "trajectory",
-                        "target_docking",
-                        "final",
-                    }
-                ):
-                    visibleKeys.discard(entry["key"])
-                if sceneKind == "case" and category in {
-                    "phantom",
-                    "phantom_landmarks",
-                }:
-                    visibleKeys.discard(entry["key"])
                 if rosActive and category == "robot_mrml":
                     visibleKeys.discard(entry["key"])
                 if not rosActive and category in {"robot_ros", "robot_goal"}:
@@ -483,12 +435,6 @@ class ViewCompositionWidgetMixin:
         if not self._parameterNode or not self.logic:
             return
         stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
-        if stageIndex == 10 and self._step6SceneKind() == "conflict":
-            self.ui.workflowViewStatusLabel.text = _(
-                "Step 6 has both case and phantom scene sources. Resolve the scene conflict before composing the robot workspace view."
-            )
-            self.ui.workflowViewStatusLabel.styleSheet = "color: #b00020;"
-            return
         entries = self._workflowViewEntries(stageIndex)
         self._workflowViewEntriesByKey = {entry["key"]: entry for entry in entries}
         self._ensureWorkflowViewSnapshot()

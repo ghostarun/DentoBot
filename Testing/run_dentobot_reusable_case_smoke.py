@@ -31,6 +31,9 @@ def run() -> None:
     try:
         test.setUp()
         process_events()
+        test.test_DENTOWorkflowCaseFoundation()
+        test.setUp()
+        process_events()
         test._focusedPreparedBranchSmoke = True
         test.test_DENTOWorkflowVisibleTemplateSupportSurface()
     finally:

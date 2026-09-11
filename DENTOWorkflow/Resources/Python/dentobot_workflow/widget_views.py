@@ -330,24 +330,6 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             or self._step6SceneKind() != "case"
         ):
             return
-        mode = str(self._parameterNode.step6CaseJawPreparationMode)
-        if mode == "TargetJawFallback":
-            if self.logic.step6TargetJawFallbackFreshnessIssues(self._parameterNode):
-                return
-            segmentation = self._parameterNode.teethSegmentation
-            display = segmentation.GetDisplayNode() if segmentation else None
-            if display:
-                groups = self.logic.step6CaseJawSegmentIds(segmentation)
-                for segmentId in groups["upper"] + groups["lower"]:
-                    display.SetSegmentVisibility3D(segmentId, False)
-            fallbackDisplay = (
-                self._parameterNode.step6TargetJawFallbackAnatomy.GetDisplayNode()
-                if self._parameterNode.step6TargetJawFallbackAnatomy
-                else None
-            )
-            if fallbackDisplay:
-                fallbackDisplay.SetVisibility3D(True)
-            return
         if self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode):
             return
         segmentation = self._parameterNode.teethSegmentation
@@ -368,30 +350,6 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         modelDisplay = model.GetDisplayNode() if model else None
         if modelDisplay:
             modelDisplay.SetVisibility3D(True)
-        if self.logic.step6TargetJaw(self._parameterNode) == "lower":
-            sourceModels = (
-                [self._parameterNode.finalPrintableTemplateModel]
-                if self._parameterNode.finalPrintableTemplateModel
-                else [
-                    self._parameterNode.draftTemplateSupportModel,
-                    self._parameterNode.targetDockingAssemblyModel,
-                ]
-            )
-            for source in sourceModels:
-                sourceDisplay = source.GetDisplayNode() if source else None
-                if sourceDisplay:
-                    sourceDisplay.SetVisibility(False)
-            trajectory = self._parameterNode.trajectoryLine
-            trajectoryDisplay = trajectory.GetDisplayNode() if trajectory else None
-            if trajectoryDisplay:
-                trajectoryDisplay.SetVisibility(False)
-            for proxy in (
-                self._parameterNode.step6OpenedTargetGeometryModel,
-                self._parameterNode.step6OpenedTrajectoryLine,
-            ):
-                proxyDisplay = proxy.GetDisplayNode() if proxy else None
-                if proxyDisplay:
-                    proxyDisplay.SetVisibility(True)
 
     def onRestoreWorkflowView(self, checked: bool = False) -> None:
         del checked
