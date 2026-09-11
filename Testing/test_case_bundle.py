@@ -13,10 +13,13 @@ HELPERS = ROOT / "DENTOWorkflow" / "Resources" / "Python"
 sys.path.insert(0, str(HELPERS))
 
 from DENTOCaseBundle import (  # noqa: E402
+    CASE_BUNDLE_SCHEMA_VERSION,
     CASE_BUNDLE_EXTENSION,
     CaseBundleError,
     ROBOT_PROFILE_MEMBER,
     SCENE_MEMBER,
+    STUDY_ATTEMPTS_MEMBER,
+    STUDY_INDEX_MEMBER,
     audit_mrb_runtime_separation,
     build_robot_profile,
     create_case_bundle,
@@ -64,7 +67,10 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
         created_at_utc="2026-08-24T00:00:00+00:00",
     )
     assert inspection.path.suffix == CASE_BUNDLE_EXTENSION
+    assert inspection.manifest["schemaVersion"] == CASE_BUNDLE_SCHEMA_VERSION
     assert inspection.manifest["runtime"]["ros2Serialized"] is False
+    assert inspection.study_index["attemptCount"] == 0
+    assert inspection.study_attempts == ()
     assert inspection.robot_profile["identitySha256"] == profile["identitySha256"]
 
     extracted, validated = extract_scene_mrb(
@@ -75,6 +81,38 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
     with zipfile.ZipFile(inspection.path) as archive:
         assert SCENE_MEMBER in archive.namelist()
         assert ROBOT_PROFILE_MEMBER in archive.namelist()
+        assert STUDY_INDEX_MEMBER in archive.namelist()
+        assert STUDY_ATTEMPTS_MEMBER in archive.namelist()
+
+
+def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: Path) -> None:
+    scene = tmp_path / "source.mrb"
+    write_mrb(scene, "<MRML/>")
+    profile = robot_profile_fixture(tmp_path)
+    legacy = create_case_bundle(
+        tmp_path / "legacy.dentocase",
+        scene,
+        case_label="LegacyCase",
+        workflow={"schemaVersion": "1.0"},
+        robot_profile=profile,
+        schema_version="1.0",
+        created_at_utc="2026-09-09T00:00:00+00:00",
+    )
+    assert validate_case_bundle(legacy.path).manifest["schemaVersion"] == "1.0"
+    with zipfile.ZipFile(legacy.path) as archive:
+        assert STUDY_INDEX_MEMBER not in archive.namelist()
+        assert STUDY_ATTEMPTS_MEMBER not in archive.namelist()
+
+    migrated = create_case_bundle(
+        tmp_path / "migrated.dentocase",
+        scene,
+        case_label="LegacyCase",
+        workflow={"schemaVersion": "2.0"},
+        robot_profile=profile,
+        created_at_utc="2026-09-09T00:00:00+00:00",
+    )
+    assert migrated.manifest["schemaVersion"] == "2.0"
+    assert migrated.study_index["attemptCount"] == 0
 
 
 def test_case_bundle_rejects_serialized_ros_runtime(tmp_path: Path) -> None:
@@ -184,6 +222,10 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     ui = ET.parse(ROOT / "DENTOWorkflow/Resources/UI/DENTOWorkflow.ui")
     assert ui.find(".//widget[@name='saveCaseBundleButton']") is not None
     assert ui.find(".//widget[@name='openCaseBundleButton']") is not None
+    assert ui.find(".//widget[@name='step6RegistryTrajectorySelector']") is not None
+    trajectory_selector = ui.find(".//widget[@name='trajectorySelector']")
+    assert trajectory_selector is not None
+    assert trajectory_selector.find("./property[@name='SlicerParameterName']") is None
     workflow_source = (
         ROOT
         / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
@@ -193,6 +235,16 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     assert "str(scenePath), {\"clear\": True}" in workflow_source
     assert "_beginCaseBundleRestore" in workflow_source
     assert "_bindAndValidateRestoredCase" in workflow_source
+    assert "prepareDentoCaseSchema2ForSave" in workflow_source
+    assert "_resumeLoadedStep6Checkpoint" not in workflow_source
+    lifecycle_source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_lifecycle.py"
+    ).read_text(encoding="utf-8")
+    end_close = lifecycle_source[lifecycle_source.index("    def onSceneEndClose"):]
+    end_close = end_close[:end_close.index("\n    def ", 5)]
+    assert "if self._caseBundleRestoreDepth == 0:" in end_close
+    assert "ensure_default_ros2_node_in_scene()" in end_close
     assert workflow_source.count("validateLoadedCaseBundleWorkflow") >= 2
     assert "validateLoadedCaseBundleWorkflow" in workflow_source
     cmake = (ROOT / "DENTOWorkflow/CMakeLists.txt").read_text(encoding="utf-8")

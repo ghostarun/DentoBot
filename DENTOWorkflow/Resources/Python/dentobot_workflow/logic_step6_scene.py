@@ -946,19 +946,6 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
             return [
                 _("Case jaw landmarks changed; re-apply the mouth opening.")
             ]
-        if transform.GetAttribute("DENTOBOT.TargetSegmentID") != str(
-            parameterNode.targetToothSegmentId or ""
-        ):
-            return [
-                _("The selected target changed; re-apply the case mouth opening.")
-            ]
-        if (
-            transform.GetAttribute("DENTOBOT.TargetAttachedGeometryFingerprint")
-            != self._step6TargetAttachedGeometryFingerprint(parameterNode)
-        ):
-            return [
-                _("Target trajectory or guide geometry changed; re-apply the mouth opening.")
-            ]
         segmentGroups = self.step6CaseJawSegmentIds(segmentation)
         upperIds = segmentGroups["upper"]
         lowerIds = segmentGroups["lower"]
@@ -1115,7 +1102,18 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 )
             except (TypeError, json.JSONDecodeError):
                 visibility = {}
-            for source in modelSources:
+            displaySources = list(
+                dict.fromkeys(
+                    [
+                        *modelSources,
+                        parameterNode.targetDockingReferencePlane,
+                        parameterNode.targetDockingAssemblyModel,
+                    ]
+                )
+            )
+            for source in displaySources:
+                if source is None:
+                    continue
                 sourceDisplay = source.GetDisplayNode()
                 if sourceDisplay and source.GetID() not in visibility:
                     visibility[source.GetID()] = bool(sourceDisplay.GetVisibility())
@@ -1191,6 +1189,24 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 proxyDisplay.SetSelectedColor(1.0, 0.85, 0.15)
                 proxyDisplay.SetLineThickness(0.5)
             parameterNode.step6OpenedTrajectoryLine = proxyLine
+
+    def refreshStep6CaseTargetAttachedDisplay(self, parameterNode) -> None:
+        """Replace only the selected target's opened trajectory/guide proxies."""
+
+        transform = parameterNode.step6CaseJawTransform
+        if not self.isStep6CaseJawTransformNode(transform):
+            return
+        self._restoreStep6CaseTargetAttachedVisibility(parameterNode)
+        for node in (
+            parameterNode.step6OpenedTargetGeometryModel,
+            parameterNode.step6OpenedTrajectoryLine,
+        ):
+            if node and slicer.mrmlScene.IsNodePresent(node):
+                slicer.mrmlScene.RemoveNode(node)
+        parameterNode.step6OpenedTargetGeometryModel = None
+        parameterNode.step6OpenedTrajectoryLine = None
+        self._updateStep6CaseTargetAttachedDisplay(parameterNode, transform)
+
     def createOrUpdateStep6CaseJawOpening(
         self,
         parameterNode,
@@ -1277,14 +1293,8 @@ class Step6SceneLogicMixin(PhantomSceneLogicMixin):
                 parameterNode.step6CaseJawLandmarks
             ),
         )
-        transform.SetAttribute(
-            "DENTOBOT.TargetSegmentID",
-            str(parameterNode.targetToothSegmentId or ""),
-        )
-        transform.SetAttribute(
-            "DENTOBOT.TargetAttachedGeometryFingerprint",
-            self._step6TargetAttachedGeometryFingerprint(parameterNode),
-        )
+        transform.RemoveAttribute("DENTOBOT.TargetSegmentID")
+        transform.RemoveAttribute("DENTOBOT.TargetAttachedGeometryFingerprint")
         transform.SetAttribute("DENTOBOT.MovingSegmentIdsJson", canonical_json(lowerIds))
         transform.SetAttribute("DENTOBOT.FixedSegmentIdsJson", canonical_json(upperIds))
         transform.SetAttribute("DENTOBOT.FixedGeometryFingerprint", upperFingerprint)

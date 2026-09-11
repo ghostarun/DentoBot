@@ -29,18 +29,20 @@ class DockingLogicMixin:
         segmentationNode: vtkMRMLSegmentationNode,
         targetSegmentId: str,
     ) -> list[vtkMRMLMarkupsLineNode]:
-        trajectories = self.dentobotTrajectoriesForTarget(
-            segmentationNode,
-            targetSegmentId,
-        )
+        parameterNode = self.getParameterNode()
+        selected = self.getSelectedTemplateGuideTrajectories()
+        trajectory = parameterNode.trajectoryLine
+        trajectories = selected if trajectory in selected else ([trajectory] if trajectory else [])
         if len(trajectories) > 2:
-            raise ValueError(
-                _(
-                    "Step 4C supports at most two target-tooth trajectories. "
-                    "Delete or reassign extra trajectories before generating docks."
-                )
-            )
+            raise ValueError(_("Step 4C accepts one selected trajectory or an explicit pair."))
         for trajectoryNode in trajectories:
+            association = self.getTrajectoryTargetAssociation(trajectoryNode)
+            if (
+                not association
+                or association["segmentationNode"] is not segmentationNode
+                or association["targetRecord"]["segmentId"] != str(targetSegmentId)
+            ):
+                raise ValueError(_("Every Step 4C trajectory must belong to the active target tooth."))
             summary = self.getTrajectorySummary(trajectoryNode)
             if not summary["isValid"] or summary["definedPointCount"] != 2:
                 raise ValueError(
@@ -52,7 +54,7 @@ class DockingLogicMixin:
                 )
         if not trajectories:
             raise ValueError(
-                _("Create, verify, and lock one or two target-tooth trajectories first.")
+                _("Create, verify, and lock one trajectory or an explicit pair first.")
             )
         return trajectories
 
@@ -291,7 +293,7 @@ class DockingLogicMixin:
             node.GetID() for node in expectedTrajectories
         ]:
             raise ValueError(
-                _("Step 4C must use the complete ordered target-tooth trajectory set.")
+                _("Step 4C must use the selected trajectory or explicit pair in order.")
             )
         trajectoryGeometry = []
         for trajectoryNode in trajectories:

@@ -196,13 +196,19 @@ class TemplateFinalizationWidgetMixin:
         self.ui.finalVerificationTreeWidget.resizeColumnToContents(1)
 
         current = summary["geometryState"] == "Current"
-        verifiedCurrent = bool(
-            current
-            and summary["verificationState"] in {"PASS", "WARNING"}
-            and verification.get("overall") == summary["verificationState"]
-            and verification.get("finalModelUpdatedUtc")
-            == (finalModel.GetAttribute("DENTOBOT.UpdatedUtc") or "")
+        registry = self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
+        branchId = next(
+            (
+                branch_id
+                for branch_id, branch in registry["prepared_branches"].items()
+                if branch.get("template_node_id") == finalModel.GetID()
+            ),
+            "",
         )
+        eligibility = self.logic.evaluatePreparedBranchEligibility(
+            self._parameterNode, branchId, registry=registry
+        )
+        verifiedCurrent = bool(current and eligibility["eligible"])
         self.ui.verifyFinalTemplateButton.enabled = current
         self.ui.exportFinalTemplateButton.enabled = verifiedCurrent
         if not current:
@@ -241,6 +247,11 @@ class TemplateFinalizationWidgetMixin:
             verification = self.logic.verifyFinalPrintableTemplate(
                 self._parameterNode.finalPrintableTemplateModel
             )
+            eligibility = self.logic.evaluatePreparedBranchEligibility(
+                self._parameterNode
+            )
+            if verification["overall"] != "FAIL" and not eligibility["eligible"]:
+                raise ValueError(eligibility["message"])
             logging.info(
                 "Step 5C verification %s with %d checks",
                 verification["overall"],

@@ -19,6 +19,17 @@ from typing import Mapping, Sequence
 
 
 STATE_SCHEMA_VERSION = "1.0"
+DENTOCASE_STATE_SCHEMA_VERSION = "2.0"
+ROBOT_ENVIRONMENT_SCHEMA_VERSION = "1.0"
+ATTEMPT_CONTEXT_SCHEMA_VERSION = "1.0"
+TRAJECTORY_REGISTRY_SCHEMA_VERSION = "2.0"
+LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSION = "1.0"
+TRAJECTORY_SLOTS_PER_TOOTH = 3
+DENTAL_FDI_TOOTH_IDS = tuple(
+    f"FDI{quadrant}{tooth}"
+    for quadrant in range(1, 5)
+    for tooth in range(1, 9)
+)
 COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
 MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
 SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
@@ -134,6 +145,634 @@ def canonical_json(value: object) -> str:
 
 def fingerprint(value: object) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _optional_finite_tuple(
+    values: Sequence[float], count: int, label: str
+) -> tuple[float, ...]:
+    return () if not values else _finite_tuple(values, count, label)
+
+
+@dataclass(frozen=True)
+class RobotEnvironmentSnapshotV1:
+    """Portable Step 6 state shared by every target in one case."""
+
+    schema_version: str
+    case_identity: str
+    anatomy_fingerprint: str
+    jaw_source_fingerprint: str
+    jaw_landmarks_fingerprint: str
+    jaw_configuration_fingerprint: str
+    jaw_transform_matrix: tuple[float, ...]
+    mouth_gap_mm: float | None
+    robot_profile_fingerprint: str
+    tool_identity: str
+    tool_fingerprint: str
+    base_matrix: tuple[float, ...]
+    base_status: str
+    base_locked: bool
+    base_fingerprint: str
+    task_home_configuration: dict[str, object] | None
+    common_collision_fingerprint: str
+    limits_fingerprint: str
+    workspace_fingerprint: str
+    environment_fingerprint: str
+
+    def to_dict(self) -> dict[str, object]:
+        result = asdict(self)
+        result["jaw_transform_matrix"] = list(self.jaw_transform_matrix)
+        result["base_matrix"] = list(self.base_matrix)
+        return result
+
+
+def build_robot_environment_snapshot(
+    *,
+    case_identity: str = "",
+    anatomy_fingerprint: str = "",
+    jaw_source_fingerprint: str = "",
+    jaw_landmarks_fingerprint: str = "",
+    jaw_configuration_fingerprint: str = "",
+    jaw_transform_matrix: Sequence[float] = (),
+    mouth_gap_mm: float | None = None,
+    robot_profile_fingerprint: str = "",
+    tool_identity: str = "",
+    tool_fingerprint: str = "",
+    base_matrix: Sequence[float] = (),
+    base_status: str = "Unlocked",
+    base_locked: bool = False,
+    base_fingerprint: str = "",
+    task_home_configuration: Mapping[str, object] | None = None,
+    common_collision_fingerprint: str = "",
+    limits_fingerprint: str = "",
+    workspace_fingerprint: str = "",
+) -> RobotEnvironmentSnapshotV1:
+    """Build a target-independent environment record, including incomplete cases."""
+
+    gap = None if mouth_gap_mm is None else float(mouth_gap_mm)
+    if gap is not None and (not isfinite(gap) or gap <= 0.0):
+        raise ValueError("mouth gap must be a positive finite value")
+    home = None if task_home_configuration is None else dict(task_home_configuration)
+    if home:
+        # Runtime validity belongs to the current process, never the package.
+        for key in (
+            "runtime_validation_status",
+            "collision_audit_fingerprint",
+            "guard_policy_fingerprint",
+            "validated_at_utc",
+            "minimum_clearance_mm",
+            "world_object_count",
+        ):
+            home.pop(key, None)
+    identity = {
+        "schema_version": ROBOT_ENVIRONMENT_SCHEMA_VERSION,
+        "case_identity": str(case_identity),
+        "anatomy_fingerprint": str(anatomy_fingerprint),
+        "jaw_source_fingerprint": str(jaw_source_fingerprint),
+        "jaw_landmarks_fingerprint": str(jaw_landmarks_fingerprint),
+        "jaw_configuration_fingerprint": str(jaw_configuration_fingerprint),
+        "jaw_transform_matrix": list(
+            _optional_finite_tuple(jaw_transform_matrix, 16, "jaw transform")
+        ),
+        "mouth_gap_mm": gap,
+        "robot_profile_fingerprint": str(robot_profile_fingerprint),
+        "tool_identity": str(tool_identity),
+        "tool_fingerprint": str(tool_fingerprint),
+        "base_matrix": list(_optional_finite_tuple(base_matrix, 16, "base matrix")),
+        "base_status": normalize_base_status(base_status).value,
+        "base_locked": bool(base_locked),
+        "base_fingerprint": str(base_fingerprint),
+        "task_home_configuration": home,
+        "common_collision_fingerprint": str(common_collision_fingerprint),
+        "limits_fingerprint": str(limits_fingerprint),
+        "workspace_fingerprint": str(workspace_fingerprint),
+    }
+    return RobotEnvironmentSnapshotV1(
+        environment_fingerprint=fingerprint(identity),
+        jaw_transform_matrix=tuple(identity["jaw_transform_matrix"]),
+        base_matrix=tuple(identity["base_matrix"]),
+        **{
+            key: value
+            for key, value in identity.items()
+            if key not in {"jaw_transform_matrix", "base_matrix"}
+        },
+    )
+
+
+def parse_robot_environment_snapshot(
+    payload: str | Mapping[str, object],
+) -> RobotEnvironmentSnapshotV1:
+    data = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    if data.get("schema_version") != ROBOT_ENVIRONMENT_SCHEMA_VERSION:
+        raise ValueError("unsupported robot-environment schema")
+    rebuilt = build_robot_environment_snapshot(
+        **{
+            key: data.get(key)
+            for key in (
+                "case_identity",
+                "anatomy_fingerprint",
+                "jaw_source_fingerprint",
+                "jaw_landmarks_fingerprint",
+                "jaw_configuration_fingerprint",
+                "jaw_transform_matrix",
+                "mouth_gap_mm",
+                "robot_profile_fingerprint",
+                "tool_identity",
+                "tool_fingerprint",
+                "base_matrix",
+                "base_status",
+                "base_locked",
+                "base_fingerprint",
+                "task_home_configuration",
+                "common_collision_fingerprint",
+                "limits_fingerprint",
+                "workspace_fingerprint",
+            )
+        }
+    )
+    if rebuilt.environment_fingerprint != data.get("environment_fingerprint"):
+        raise ValueError("robot-environment fingerprint does not match its contents")
+    return rebuilt
+
+
+def robot_environment_invalidation_scopes(
+    previous: RobotEnvironmentSnapshotV1,
+    current: RobotEnvironmentSnapshotV1,
+) -> tuple[str, ...]:
+    """Return the narrowest persistent dependency scopes affected by a change."""
+
+    scopes: set[str] = set()
+    if any(
+        getattr(previous, field) != getattr(current, field)
+        for field in (
+            "case_identity",
+            "anatomy_fingerprint",
+            "jaw_source_fingerprint",
+            "jaw_landmarks_fingerprint",
+            "jaw_configuration_fingerprint",
+            "jaw_transform_matrix",
+            "mouth_gap_mm",
+        )
+    ):
+        scopes.update(("jaw", "base", "home", "attempt"))
+    if any(
+        getattr(previous, field) != getattr(current, field)
+        for field in (
+            "robot_profile_fingerprint",
+            "tool_identity",
+            "tool_fingerprint",
+        )
+    ):
+        scopes.update(("base", "home", "attempt"))
+    if any(
+        getattr(previous, field) != getattr(current, field)
+        for field in ("base_matrix", "base_status", "base_locked", "base_fingerprint")
+    ):
+        scopes.update(("home", "attempt"))
+    if previous.task_home_configuration != current.task_home_configuration:
+        scopes.add("attempt")
+    if any(
+        getattr(previous, field) != getattr(current, field)
+        for field in (
+            "common_collision_fingerprint",
+            "limits_fingerprint",
+            "workspace_fingerprint",
+        )
+    ):
+        scopes.add("attempt")
+    return tuple(scope for scope in ("jaw", "base", "home", "attempt") if scope in scopes)
+
+
+@dataclass(frozen=True)
+class AttemptContextV1:
+    schema_version: str
+    environment_fingerprint: str
+    target_id: str
+    tooth_id: str
+    trajectory_id: str
+    trajectory_fingerprint: str
+    guide_set_id: str
+    guide_set_fingerprint: str
+    guide_mode: str
+    planner_fingerprint: str
+    start_state_fingerprint: str
+    contact_mode: str
+    phase_policy_fingerprint: str
+    attempt_fingerprint: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def build_attempt_context(
+    *,
+    environment_fingerprint: str,
+    target_id: str,
+    tooth_id: str,
+    trajectory_id: str,
+    trajectory_fingerprint: str,
+    guide_set_id: str = "",
+    guide_set_fingerprint: str = "",
+    guide_mode: str = "",
+    planner_fingerprint: str = "",
+    start_state_fingerprint: str = "",
+    contact_mode: str = "",
+    phase_policy_fingerprint: str = "",
+) -> AttemptContextV1:
+    tooth = str(tooth_id).upper()
+    if tooth not in DENTAL_FDI_TOOTH_IDS:
+        raise ValueError("attempt requires a permanent FDI tooth identifier")
+    identity = {
+        "schema_version": ATTEMPT_CONTEXT_SCHEMA_VERSION,
+        "environment_fingerprint": str(environment_fingerprint),
+        "target_id": str(target_id),
+        "tooth_id": tooth,
+        "trajectory_id": str(trajectory_id),
+        "trajectory_fingerprint": str(trajectory_fingerprint),
+        "guide_set_id": str(guide_set_id),
+        "guide_set_fingerprint": str(guide_set_fingerprint),
+        "guide_mode": str(guide_mode),
+        "planner_fingerprint": str(planner_fingerprint),
+        "start_state_fingerprint": str(start_state_fingerprint),
+        "contact_mode": str(contact_mode),
+        "phase_policy_fingerprint": str(phase_policy_fingerprint),
+    }
+    if not all(identity[key] for key in ("environment_fingerprint", "target_id", "trajectory_id", "trajectory_fingerprint")):
+        raise ValueError("attempt context is missing a stable dependency identity")
+    return AttemptContextV1(
+        attempt_fingerprint=fingerprint(identity),
+        **identity,
+    )
+
+
+def parse_attempt_context(payload: str | Mapping[str, object]) -> AttemptContextV1:
+    data = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    if data.get("schema_version") != ATTEMPT_CONTEXT_SCHEMA_VERSION:
+        raise ValueError("unsupported attempt-context schema")
+    rebuilt = build_attempt_context(
+        **{
+            key: data.get(key, "")
+            for key in (
+                "environment_fingerprint",
+                "target_id",
+                "tooth_id",
+                "trajectory_id",
+                "trajectory_fingerprint",
+                "guide_set_id",
+                "guide_set_fingerprint",
+                "guide_mode",
+                "planner_fingerprint",
+                "start_state_fingerprint",
+                "contact_mode",
+                "phase_policy_fingerprint",
+            )
+        }
+    )
+    if rebuilt.attempt_fingerprint != data.get("attempt_fingerprint"):
+        raise ValueError("attempt fingerprint does not match its contents")
+    return rebuilt
+
+
+def empty_trajectory_registry() -> dict[str, object]:
+    return {
+        "schema_version": TRAJECTORY_REGISTRY_SCHEMA_VERSION,
+        "teeth": {
+            tooth: {
+                "target_id": "",
+                "segment_id": "",
+                "trajectory_set": {
+                    "slots": [
+                        {
+                            "slot": slot,
+                            "state": "Empty",
+                            "trajectory_id": "",
+                            "prepared_branch_ids": [],
+                        }
+                        for slot in range(1, TRAJECTORY_SLOTS_PER_TOOTH + 1)
+                    ]
+                },
+            }
+            for tooth in DENTAL_FDI_TOOTH_IDS
+        },
+        "prepared_branches": {},
+        "selected_branch_id": "",
+    }
+
+
+def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, object]:
+    data = json.loads(payload) if isinstance(payload, str) else json.loads(canonical_json(payload))
+    schema = data.get("schema_version")
+    if schema == LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSION:
+        migrated = empty_trajectory_registry()
+        migrated["teeth"] = data.get("teeth", {})
+        for tooth in migrated["teeth"].values():
+            legacy_tooth_guide = tooth.pop("guide_set", None)
+            for slot in tooth.get("trajectory_set", {}).get("slots", []):
+                guide = slot.pop("guide_set", None) or legacy_tooth_guide
+                slot["prepared_branch_ids"] = []
+                if (
+                    not guide
+                    or not guide.get("guide_set_id")
+                    or str(slot.get("trajectory_id") or "")
+                    not in guide.get("trajectory_ids", ())
+                ):
+                    continue
+                branch_id = str(guide["guide_set_id"])
+                migrated["prepared_branches"].setdefault(
+                    branch_id,
+                    {
+                        "branch_id": branch_id,
+                        "target_id": str(guide.get("target_id") or ""),
+                        "trajectory_ids": [str(value) for value in guide.get("trajectory_ids", [])],
+                        "primary_trajectory_id": str((guide.get("trajectory_ids") or [""])[0]),
+                        "pairing_intent": (
+                            "Single"
+                            if len(guide.get("trajectory_ids", [])) == 1
+                            else "LegacyUnverified"
+                        ),
+                        "target_docking_node_id": "",
+                        "insertion_direction_node_id": "",
+                        "template_id": str(guide.get("template_id") or ""),
+                        "template_node_id": str(guide.get("template_node_id") or ""),
+                        "shell_id": str(guide.get("shell_id") or ""),
+                        "shell_node_id": str(guide.get("shell_node_id") or ""),
+                        "model_node_ids": [str(value) for value in guide.get("model_node_ids", [])],
+                        "revision": str(guide.get("fingerprint") or ""),
+                        "verification_revision": "",
+                        "state": "Stale",
+                        "stale_reason": "Legacy branch requires explicit pairing and re-verification.",
+                    },
+                )
+                if branch_id not in slot["prepared_branch_ids"]:
+                    slot["prepared_branch_ids"].append(branch_id)
+        selected = data.get("selected") or {}
+        selected_branch_id = str(selected.get("guide_set_id") or "")
+        if selected_branch_id in migrated["prepared_branches"]:
+            migrated["selected_branch_id"] = selected_branch_id
+        data = migrated
+        schema = TRAJECTORY_REGISTRY_SCHEMA_VERSION
+    if schema != TRAJECTORY_REGISTRY_SCHEMA_VERSION:
+        raise ValueError("unsupported trajectory-registry schema")
+    teeth = data.get("teeth")
+    if not isinstance(teeth, dict) or tuple(sorted(teeth)) != tuple(sorted(DENTAL_FDI_TOOTH_IDS)):
+        raise ValueError("trajectory registry must contain all 32 permanent teeth")
+    trajectory_ids: set[str] = set()
+    trajectory_owners: dict[str, tuple[str, str]] = {}
+    target_ids: set[str] = set()
+    for tooth in DENTAL_FDI_TOOTH_IDS:
+        record = teeth[tooth]
+        trajectory_set = record.get("trajectory_set") if isinstance(record, dict) else None
+        slots = trajectory_set.get("slots") if isinstance(trajectory_set, dict) else None
+        if not isinstance(slots, list) or [slot.get("slot") for slot in slots] != [1, 2, 3]:
+            raise ValueError(f"{tooth} must contain three ordered trajectory slots")
+        for slot in slots:
+            slot.setdefault("prepared_branch_ids", [])
+        for slot in slots:
+            state = slot.get("state")
+            trajectory_id = str(slot.get("trajectory_id") or "")
+            if state == "Empty":
+                if trajectory_id or slot.get("prepared_branch_ids"):
+                    raise ValueError(
+                        "an empty trajectory slot cannot have an identity or prepared branch"
+                    )
+                continue
+            if state not in {"Current", "Stale"} or not trajectory_id:
+                raise ValueError("a populated trajectory slot has invalid state")
+            if trajectory_id in trajectory_ids:
+                raise ValueError("trajectory identities must be unique")
+            trajectory_ids.add(trajectory_id)
+            trajectory_owners[trajectory_id] = (
+                tooth,
+                str(record.get("target_id") or ""),
+            )
+            if str(slot.get("target_id") or "") != str(record.get("target_id") or ""):
+                raise ValueError("trajectory target identity does not match its tooth")
+            branch_ids = slot.get("prepared_branch_ids")
+            if not isinstance(branch_ids, list) or len(branch_ids) != len(set(branch_ids)):
+                raise ValueError("trajectory prepared-branch references are invalid")
+        target_id = str(record.get("target_id") or "")
+        if target_id:
+            if target_id in target_ids:
+                raise ValueError("tooth target identities must be unique")
+            target_ids.add(target_id)
+    branches = data.get("prepared_branches")
+    if not isinstance(branches, dict):
+        raise ValueError("prepared-branch registry is invalid")
+    slot_branch_ids = {
+        str(branch_id)
+        for tooth in teeth.values()
+        for slot in tooth["trajectory_set"]["slots"]
+        for branch_id in slot.get("prepared_branch_ids", [])
+    }
+    for branch_id, branch in branches.items():
+        if not isinstance(branch, dict) or str(branch.get("branch_id") or "") != str(branch_id):
+            raise ValueError("prepared branch identity is invalid")
+        referenced = [str(value) for value in branch.get("trajectory_ids", [])]
+        if not 1 <= len(referenced) <= 2 or len(referenced) != len(set(referenced)):
+            raise ValueError("prepared branch requires one trajectory, or an explicit pair")
+        if any(value not in trajectory_ids for value in referenced):
+            raise ValueError("prepared branch references an unknown trajectory")
+        owners = {trajectory_owners[value] for value in referenced}
+        if len(owners) != 1 or next(iter(owners))[1] != str(branch.get("target_id") or ""):
+            raise ValueError("prepared branch belongs to a different tooth target")
+        if str(branch.get("primary_trajectory_id") or "") not in referenced:
+            raise ValueError("prepared branch primary trajectory is invalid")
+        if branch.get("pairing_intent") not in {"Single", "ExplicitPair", "LegacyUnverified"}:
+            raise ValueError("prepared branch pairing intent is invalid")
+        if branch.get("state") not in {"Current", "Stale"}:
+            raise ValueError("prepared branch has invalid state")
+        for trajectory_id in referenced:
+            owner_tooth = trajectory_owners[trajectory_id][0]
+            slot = next(
+                item for item in teeth[owner_tooth]["trajectory_set"]["slots"]
+                if item.get("trajectory_id") == trajectory_id
+            )
+            if str(branch_id) not in slot.get("prepared_branch_ids", []):
+                raise ValueError("prepared branch is not referenced by every owning trajectory")
+    if slot_branch_ids != set(str(value) for value in branches):
+        raise ValueError("trajectory slots and prepared branches disagree")
+    selected_branch_id = str(data.get("selected_branch_id") or "")
+    if selected_branch_id and selected_branch_id not in branches:
+        raise ValueError("selected prepared branch is not registered")
+    return data
+
+
+def upsert_trajectory_record(
+    registry: Mapping[str, object],
+    *,
+    tooth_id: str,
+    target_id: str,
+    segment_id: str,
+    trajectory_id: str,
+    trajectory_node_id: str,
+    trajectory_fingerprint: str,
+    provenance: str,
+    slot: int | None = None,
+) -> dict[str, object]:
+    data = parse_trajectory_registry(registry)
+    tooth = str(tooth_id).upper()
+    if tooth not in DENTAL_FDI_TOOTH_IDS:
+        raise ValueError("trajectory requires a permanent FDI tooth identifier")
+    target = data["teeth"][tooth]
+    if target["target_id"] and target["target_id"] != str(target_id):
+        raise ValueError("one tooth record cannot have multiple target identities")
+    slots = target["trajectory_set"]["slots"]
+    existing = next(
+        (record for record in slots if record.get("trajectory_id") == trajectory_id),
+        None,
+    )
+    if existing is None:
+        empty = [record for record in slots if record["state"] == "Empty"]
+        if not empty:
+            raise ValueError(f"{tooth} already has three trajectories; a fourth is not allowed")
+        if slot is None:
+            existing = empty[0]
+        else:
+            existing = next((record for record in empty if record["slot"] == int(slot)), None)
+            if existing is None:
+                raise ValueError("requested trajectory slot is not empty")
+    target["target_id"] = str(target_id)
+    target["segment_id"] = str(segment_id)
+    existing.update(
+        {
+            "state": "Current",
+            "target_id": str(target_id),
+            "trajectory_id": str(trajectory_id),
+            "trajectory_node_id": str(trajectory_node_id),
+            "trajectory_fingerprint": str(trajectory_fingerprint),
+            "provenance": str(provenance),
+            "evidence_state": "Unreviewed",
+            "stale_reason": "",
+        }
+    )
+    return parse_trajectory_registry(data)
+
+
+def upsert_guide_set(
+    registry: Mapping[str, object],
+    *,
+    guide_set_id: str,
+    target_id: str,
+    trajectory_ids: Sequence[str],
+    template_id: str = "",
+    template_node_id: str = "",
+    shell_id: str = "",
+    shell_node_id: str = "",
+    model_node_ids: Sequence[str] = (),
+    guide_fingerprint: str = "",
+    primary_trajectory_id: str = "",
+    pairing_intent: str = "Single",
+    target_docking_node_id: str = "",
+    insertion_direction_node_id: str = "",
+    verification_revision: str = "",
+    state: str = "Current",
+) -> dict[str, object]:
+    data = parse_trajectory_registry(registry)
+    guide_id = str(guide_set_id)
+    tooth = next(
+        (
+            record for record in data["teeth"].values()
+            if str(record.get("target_id") or "") == str(target_id)
+        ),
+        None,
+    )
+    if tooth is None:
+        raise ValueError("guide set has no matching tooth target")
+    trajectory_ids = [str(value) for value in trajectory_ids]
+    if not 1 <= len(trajectory_ids) <= 2:
+        raise ValueError("a guide set requires one trajectory, or two at most")
+    record = {
+        "branch_id": guide_id,
+        "target_id": str(target_id),
+        "trajectory_ids": trajectory_ids,
+        "primary_trajectory_id": str(primary_trajectory_id or trajectory_ids[0]),
+        "pairing_intent": str(pairing_intent),
+        "target_docking_node_id": str(target_docking_node_id),
+        "insertion_direction_node_id": str(insertion_direction_node_id),
+        "template_id": str(template_id),
+        "template_node_id": str(template_node_id),
+        "shell_id": str(shell_id),
+        "shell_node_id": str(shell_node_id),
+        "model_node_ids": [str(value) for value in model_node_ids],
+        "revision": str(guide_fingerprint),
+        "verification_revision": str(verification_revision),
+        "state": str(state),
+        "stale_reason": "",
+    }
+    for owner in data["teeth"].values():
+        for slot_record in owner["trajectory_set"]["slots"]:
+            slot_record["prepared_branch_ids"] = [
+                value
+                for value in slot_record["prepared_branch_ids"]
+                if value != guide_id
+            ]
+    data["prepared_branches"][guide_id] = record
+    matched = 0
+    for slot in tooth["trajectory_set"]["slots"]:
+        if slot.get("trajectory_id") in trajectory_ids:
+            if guide_id not in slot["prepared_branch_ids"]:
+                slot["prepared_branch_ids"].append(guide_id)
+            matched += 1
+    if matched != len(trajectory_ids):
+        raise ValueError("guide set references an unknown tooth trajectory")
+    return parse_trajectory_registry(data)
+
+
+def stale_trajectory_record(
+    registry: Mapping[str, object], trajectory_id: str, reason: str
+) -> dict[str, object]:
+    data = parse_trajectory_registry(registry)
+    found = False
+    for tooth in data["teeth"].values():
+        for slot in tooth["trajectory_set"]["slots"]:
+            if slot.get("trajectory_id") == trajectory_id:
+                slot["state"] = "Stale"
+                slot["evidence_state"] = "Stale"
+                slot["stale_reason"] = str(reason)
+                found = True
+    for branch in data["prepared_branches"].values():
+        if trajectory_id in branch.get("trajectory_ids", ()):
+            branch["state"] = "Stale"
+            branch["stale_reason"] = str(reason)
+    if not found:
+        raise ValueError("trajectory is not registered")
+    return parse_trajectory_registry(data)
+
+
+def select_prepared_branch(
+    registry: Mapping[str, object], branch_id: str
+) -> dict[str, object]:
+    data = parse_trajectory_registry(registry)
+    branch_id = str(branch_id)
+    if branch_id not in data["prepared_branches"]:
+        raise ValueError("prepared branch is not registered")
+    data["selected_branch_id"] = branch_id
+    return parse_trajectory_registry(data)
+
+
+def prepared_branch_ids_for_trajectory(
+    registry: Mapping[str, object], trajectory_id: str
+) -> tuple[str, ...]:
+    data = parse_trajectory_registry(registry)
+    for tooth in data["teeth"].values():
+        for slot in tooth["trajectory_set"]["slots"]:
+            if slot.get("trajectory_id") == str(trajectory_id):
+                return tuple(str(value) for value in slot["prepared_branch_ids"])
+    raise ValueError("trajectory is not registered")
+
+
+def select_trajectory_record(
+    registry: Mapping[str, object], trajectory_id: str
+) -> dict[str, object]:
+    """Compatibility helper: select only an unambiguous current branch."""
+
+    data = parse_trajectory_registry(registry)
+    branch_ids = [
+        value for value in prepared_branch_ids_for_trajectory(data, trajectory_id)
+        if data["prepared_branches"][value].get("state") == "Current"
+    ]
+    if len(branch_ids) != 1:
+        raise ValueError("trajectory does not resolve to exactly one current prepared branch")
+    return select_prepared_branch(data, branch_ids[0])
 
 
 def normalize_base_status(value: object) -> BasePlacementStatus:

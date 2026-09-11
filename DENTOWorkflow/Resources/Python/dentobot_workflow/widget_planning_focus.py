@@ -229,11 +229,12 @@ class PlanningFocusWidgetMixin:
             except ValueError as exc:
                 associationError = str(exc)
 
-        existingCount = (
-            len(self.logic.dentobotTrajectoriesForTarget(segmentationNode, segmentId))
+        existingTrajectories = (
+            self.logic.dentobotTrajectoriesForTarget(segmentationNode, segmentId)
             if segmentationNode and targetRecord
-            else 0
+            else []
         )
+        existingCount = len(existingTrajectories)
         reviewed = bool(
             segmentationNode
             and self.logic.getSegmentationReviewState(segmentationNode) == "Reviewed"
@@ -271,6 +272,14 @@ class PlanningFocusWidgetMixin:
                 "This tooth already has %1 trajectory node(s). Delete that set "
                 "before assisted regeneration; existing plans are never overwritten."
             ).replace("%1", str(existingCount))
+            if not any(
+                node.GetAttribute("DENTOBOT.AssistedAnalysisJson")
+                for node in existingTrajectories
+            ):
+                message += _(
+                    " This set has no current assisted-generation provenance; the "
+                    "Placement menu does not identify how an existing line was created."
+                )
             style = "color: #b36b00;"
         elif associationError:
             message = associationError
@@ -554,7 +563,7 @@ class PlanningFocusWidgetMixin:
                 displayNode.SetVisibility3D(True)
             displayNode.SetPointLabelsVisibility(True)
             displayNode.SetPropertiesLabelVisibility(True)
-            displayNode.SetSliceProjection(True)
+            displayNode.SetSliceProjection(False)
             displayNode.SetSliceProjectionUseFiducialColor(True)
             displayNode.SetSliceProjectionOpacity(1.0)
         trajectoryNode.SetSelectable(True)
@@ -681,12 +690,19 @@ class PlanningFocusWidgetMixin:
                 if separation is not None
                 else ""
             )
+            offsets = analysis.get("surfaceOffsetsMm") or []
+            if offsets:
+                detail += _(
+                    " Maximum display-surface offset from the native mask boundary: "
+                    "%1 mm."
+                ).replace("%1", f"{max(float(value) for value in offsets):.2f}")
             slicer.util.infoDisplay(
                 _(
                     "Created %1 unlocked assisted trajectory node(s).%2 These "
-                    "lines retain the tooth-derived direction and end at the "
-                    "first pulp-mask boundary. Verify every Entry/Target in "
-                    "the trajectory-aligned MPR before approval."
+                    "lines retain the tooth-derived direction and end at the first "
+                    "point shared by the matched native pulp mask and its displayed "
+                    "surface. Verify every Entry/Target in the trajectory-aligned MPR "
+                    "before approval."
                 ).replace("%1", str(len(trajectories))).replace("%2", detail),
                 windowTitle=_("Assisted Step 4A trajectories"),
             )

@@ -150,7 +150,8 @@ class LifecycleWidgetMixin:
         del caller, event
         if self._isCleaningUp:
             return
-        ensure_default_ros2_node_in_scene()
+        if self._caseBundleRestoreDepth == 0:
+            ensure_default_ros2_node_in_scene()
         qt.QTimer.singleShot(0, self._initializeAfterSceneClose)
 
     def _initializeAfterSceneClose(self) -> None:
@@ -220,8 +221,33 @@ class LifecycleWidgetMixin:
                 "the restored scene before deterministic post-validation rehydration",
                 len(removedRobotNodes),
             )
-            if self._robotWorkflowFacade:
-                self._robotWorkflowFacade.clearTransientState()
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
+        self._step6MotionPlan = None
+        self._parameterNode.step6ConfirmedTaskJson = ""
+        self._parameterNode.step6CollisionSceneAuditJson = ""
+        self.logic.markStep6MotionDiagnosticStale(
+            self._parameterNode,
+            _("The case was loaded offline; runtime diagnostics require a new session."),
+        )
+        try:
+            savedHome = self.logic.taskHomeRecord(self._parameterNode)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            savedHome = None
+            self._parameterNode.step6TaskHomeJson = ""
+        if savedHome:
+            positions = dict(
+                zip(savedHome.joint_names, savedHome.joint_positions_si)
+            )
+            offlineHome = build_task_home(
+                positions,
+                base_fingerprint=savedHome.base_fingerprint,
+                robot_profile_fingerprint=savedHome.robot_profile_fingerprint,
+                revision=savedHome.revision,
+            )
+            self._parameterNode.step6TaskHomeJson = canonical_json(
+                offlineHome.to_dict()
+            )
         if (
             self._parameterNode.robotBaseMountLocked
             and normalize_base_status(self._parameterNode.step6BasePlacementStatus)

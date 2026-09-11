@@ -340,6 +340,12 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         if scalars is None:
             raise ValueError(_("The selected tooth's pulp mask is empty."))
         mask = vtk_to_numpy(scalars).reshape(tuple(reversed(pulpImage.GetDimensions())))
+        pulpSurface = self._getClosedSurfaceCopy(segmentationNode, pulpId)
+        pulpSurfaceLocator = vtk.vtkOBBTree()
+        pulpSurfaceLocator.SetDataSet(pulpSurface)
+        pulpSurfaceLocator.BuildLocator()
+        pulpSurfaceDistance = vtk.vtkImplicitPolyDataDistance()
+        pulpSurfaceDistance.SetInput(pulpSurface)
         imageToRas = vtk.vtkMatrix4x4()
         pulpImage.GetImageToWorldMatrix(imageToRas)
         rasToImage = vtk.vtkMatrix4x4()
@@ -352,18 +358,79 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         worldToImage = vtk.vtkMatrix4x4()
         vtk.vtkMatrix4x4.Multiply4x4(rasToImage, worldToLocal, worldToImage)
         extent = pulpImage.GetExtent()
+        maskCentersIjk = (
+            np.argwhere(mask)[:, ::-1] + np.asarray(extent[::2], dtype=float)
+        )
         analysis["rootTargetsRas"] = analysis["targetsRas"]
         targets = []
+        binaryTargets = []
+        surfaceTargets = []
+        surfaceOffsetsMm = []
         for index, (entry, target) in enumerate(zip(inputs["entryPointsRas"], analysis["rootTargetsRas"]), 1):
             entryIjk = worldToImage.MultiplyPoint((*entry, 1.0))[:3]
             targetIjk = worldToImage.MultiplyPoint((*target, 1.0))[:3]
             try:
-                fraction = first_mask_intersection(mask, entryIjk, targetIjk, extent[::2])
+                maskFraction = first_mask_intersection(
+                    mask, entryIjk, targetIjk, extent[::2]
+                )
             except ValueError as exc:
                 raise ValueError(_("Assisted trajectory %1: ").replace("%1", str(index)) + str(exc)) from exc
-            targets.append([float(a + fraction * (b - a)) for a, b in zip(entry, target)])
+            binaryTarget = np.asarray(entry, dtype=float) + maskFraction * (
+                np.asarray(target, dtype=float) - np.asarray(entry, dtype=float)
+            )
+            intersections = vtk.vtkPoints()
+            pulpSurfaceLocator.IntersectWithLine(entry, target, intersections, None)
+            surfaceHits = [
+                np.asarray(intersections.GetPoint(pointIndex), dtype=float)
+                for pointIndex in range(intersections.GetNumberOfPoints())
+            ]
+            if not surfaceHits:
+                raise ValueError(
+                    _(
+                        "Assisted trajectory %1 reaches pulp-mask voxels but misses "
+                        "their displayed 3D surface. Correct the pulp representation "
+                        "or move the crown Entry and try again."
+                    ).replace("%1", str(index))
+                )
+            entryArray = np.asarray(entry, dtype=float)
+            surfaceTarget = min(
+                surfaceHits,
+                key=lambda point: float(np.linalg.norm(point - entryArray)),
+            )
+            directionArray = np.asarray(target, dtype=float) - entryArray
+            surfaceFraction = float(
+                np.dot(surfaceTarget - entryArray, directionArray)
+                / np.dot(directionArray, directionArray)
+            )
+            sharedTarget = entryArray + max(maskFraction, surfaceFraction) * (
+                directionArray
+            )
+            sharedTargetIjk = np.asarray(
+                worldToImage.MultiplyPoint((*sharedTarget, 1.0))[:3]
+            )
+            if not np.any(
+                np.all(
+                    np.abs(maskCentersIjk - sharedTargetIjk) <= 0.500001,
+                    axis=1,
+                )
+            ) or pulpSurfaceDistance.EvaluateFunction(sharedTarget) > 1e-4:
+                raise ValueError(
+                    _(
+                        "Assisted trajectory %1 has no common native-mask and "
+                        "displayed-surface pulp interval. Correct the mask or Entry."
+                    ).replace("%1", str(index))
+                )
+            targets.append([float(value) for value in sharedTarget])
+            binaryTargets.append([float(value) for value in binaryTarget])
+            surfaceTargets.append([float(value) for value in surfaceTarget])
+            surfaceOffsetsMm.append(
+                float(np.linalg.norm(surfaceTarget - binaryTarget))
+            )
         analysis["targetsRas"] = targets
-        analysis["endpointMethod"] = "FirstPulpVoxelBoundaryV1"
+        analysis["binaryMaskBoundaryTargetsRas"] = binaryTargets
+        analysis["displaySurfaceBoundaryTargetsRas"] = surfaceTargets
+        analysis["surfaceOffsetsMm"] = surfaceOffsetsMm
+        analysis["endpointMethod"] = "FirstSharedPulpIntersectionV2"
         analysis["pulpSegmentId"] = pulpId
 
         created = []
@@ -493,6 +560,17 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
 
         changedNodeIds = []
         for (_segmentationId, segmentId), group in managedGroups.items():
+            group.sort(
+                key=lambda node: (
+                    int(node.GetAttribute(self.REGISTRY_TRAJECTORY_SLOT_ATTRIBUTE))
+                    if str(
+                        node.GetAttribute(self.REGISTRY_TRAJECTORY_SLOT_ATTRIBUTE)
+                        or ""
+                    ).isdigit()
+                    else 99,
+                    str(node.GetID()),
+                )
+            )
             for index, trajectoryNode in enumerate(group, start=1):
                 fdiNumber = trajectoryNode.GetAttribute(
                     "DENTOBOT.TargetFdiNumber"
@@ -683,6 +761,9 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         self.enforceTrajectoryControlPointInvariant(trajectoryNode)
         self.getTrajectorySummary(trajectoryNode)
         targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
+        self.ensureDentoCaseTrajectoryIdentity(
+            trajectoryNode, segmentationNode, targetRecord
+        )
         wasModifying = trajectoryNode.StartModify()
         try:
             trajectoryNode.SetNodeReferenceID(

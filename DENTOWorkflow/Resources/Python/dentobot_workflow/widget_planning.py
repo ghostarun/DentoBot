@@ -81,6 +81,24 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
 
 
 
+
+    def _syncTrajectorySelectorNodes(self, trajectoryNode) -> None:
+        """Mirror the compatibility pointer without another parameter writer."""
+
+        selectors = (
+            getattr(self.ui, "trajectorySelector", None),
+            getattr(self.ui, "step6RegistryTrajectorySelector", None),
+        )
+        wasRestoring = self._restoringTrajectoryAssociation
+        self._restoringTrajectoryAssociation = True
+        try:
+            for selector in selectors:
+                if selector and selector.currentNode() is not trajectoryNode:
+                    selector.setCurrentNode(trajectoryNode)
+        finally:
+            self._restoringTrajectoryAssociation = wasRestoring
+
+
     def _updatePlanning(self) -> None:
         if not self._parameterNode or not self.logic:
             self._clearPlanning()
@@ -139,15 +157,7 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             self.logic.refreshWorkflowLineageColors()
             self.logic.refreshManagedTrajectoryNames()
             self.logic.refreshWorkflowNodeStepTags()
-            if self.ui.trajectorySelector.currentNode() is not trajectoryNode:
-                wasRestoringAssociation = self._restoringTrajectoryAssociation
-                self._restoringTrajectoryAssociation = True
-                try:
-                    self.ui.trajectorySelector.setCurrentNode(trajectoryNode)
-                finally:
-                    self._restoringTrajectoryAssociation = (
-                        wasRestoringAssociation
-                    )
+            self._syncTrajectorySelectorNodes(trajectoryNode)
         finally:
             self._updatingPlanningUI = wasUpdatingPlanningUI
 
@@ -621,27 +631,36 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
         )
         previousTargetId = self._parameterNode.targetToothSegmentId
         if segmentId != previousTargetId:
-            if not self._confirmAndDeleteActivePlanningDownstream(
-                _("switch the active target tooth")
-            ):
-                previousIndex = self.ui.targetToothComboBox.findData(
-                    previousTargetId
-                )
-                self._updatingPlanningUI = True
-                try:
-                    self.ui.targetToothComboBox.setCurrentIndex(
-                        previousIndex if previousIndex >= 0 else 0
-                    )
-                finally:
-                    self._updatingPlanningUI = False
-                return
             self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
             self.logic.invalidateStep6TaskConfirmation(
                 self._parameterNode,
                 _("Target tooth changed."),
             )
+            self._parameterNode.step6CollisionSceneAuditJson = ""
+            self._step6MotionPlan = None
+            if self._robotWorkflowFacade:
+                self._robotWorkflowFacade.invalidateTargetRuntimeState()
 
         trajectoryNode = self._parameterNode.trajectoryLine
+        if segmentId and segmentId != previousTargetId:
+            registry = self.logic.syncDentoCaseTrajectoryRegistry(
+                self._parameterNode
+            )
+            target = self.logic.validateTargetTooth(
+                self._parameterNode.teethSegmentation, segmentId
+            )
+            tooth = registry["teeth"].get(
+                f"FDI{target.get('fdiNumber') or ''}", {}
+            )
+            occupied = [
+                slot
+                for slot in tooth.get("trajectory_set", {}).get("slots", ())
+                if slot.get("trajectory_node_id")
+            ]
+            if occupied:
+                trajectoryNode = slicer.mrmlScene.GetNodeByID(
+                    occupied[0]["trajectory_node_id"]
+                )
         trajectoryAssociation = None
         trajectoryAssociationInvalid = False
         if trajectoryNode:
@@ -686,15 +705,35 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             previousRoi.GetDisplayNode().SetVisibility(False)
         self._planningConstraintWarning = ""
         self._restoringTrajectoryAssociation = True
-        wasModifying = self._parameterNode.StartModify()
         try:
-            self._parameterNode.targetToothSegmentId = segmentId
-            self._parameterNode.trajectoryLine = retainedTrajectory
-            if segmentId != previousTargetId:
-                self._parameterNode.targetToothBoundsRoi = None
+            if retainedTrajectory and segmentId != previousTargetId:
+                self.logic.activateDentoCaseTrajectory(
+                    self._parameterNode, retainedTrajectory
+                )
+            else:
+                wasModifying = self._parameterNode.StartModify()
+                try:
+                    self._parameterNode.targetToothSegmentId = segmentId
+                    self._parameterNode.trajectoryLine = retainedTrajectory
+                    if segmentId != previousTargetId:
+                        self._parameterNode.targetToothBoundsRoi = None
+                        self._parameterNode.patientContactShellModel = None
+                        self._parameterNode.finalPrintableTemplateModel = None
+                        self._parameterNode.targetDockingAssemblyModel = None
+                        self._parameterNode.templateDockingAssemblyModel = None
+                        self._parameterNode.templateDockingClearanceModel = None
+                        self._parameterNode.templateDockingReinforcementModel = None
+                        self._parameterNode.templateDockingChannelsModel = None
+                finally:
+                    self._parameterNode.EndModify(wasModifying)
         finally:
-            self._parameterNode.EndModify(wasModifying)
             self._restoringTrajectoryAssociation = False
+        if self.logic.isStep6CaseJawTransformNode(
+            self._parameterNode.step6CaseJawTransform
+        ):
+            self.logic.refreshStep6CaseTargetAttachedDisplay(
+                self._parameterNode
+            )
         self._updatePlanning()
         self._updateTemplateModeling()
         self._applyTargetPriorityHighlight()
@@ -709,6 +748,7 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
         previousNode = self._planningTrajectoryNode
         previousNodeId = previousNode.GetID() if previousNode else None
         selectedNodeId = trajectoryNode.GetID() if trajectoryNode else None
+        previousTargetId = str(self._parameterNode.targetToothSegmentId or "")
         association = None
         if trajectoryNode:
             try:
@@ -725,56 +765,39 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
                     self._restoringTrajectoryAssociation = False
                 return
 
-        previousSegmentation = self._parameterNode.teethSegmentation
-        previousTargetId = self._parameterNode.targetToothSegmentId
-        if association:
-            associatedSegmentation = association["segmentationNode"]
-            associatedTargetId = association["targetRecord"]["segmentId"]
-            if (
-                previousSegmentation is not associatedSegmentation
-                or previousTargetId != associatedTargetId
-            ) and not self._confirmAndDeleteActivePlanningDownstream(
-                _("switch to a trajectory for another target tooth")
-            ):
-                self._restoringTrajectoryAssociation = True
-                try:
-                    self._parameterNode.trajectoryLine = previousNode
-                    self.ui.trajectorySelector.setCurrentNode(previousNode)
-                finally:
-                    self._restoringTrajectoryAssociation = False
-                return
         self._restoringTrajectoryAssociation = True
-        wasModifying = self._parameterNode.StartModify()
         try:
-            self._parameterNode.trajectoryLine = trajectoryNode
             if association:
-                associatedSegmentation = association["segmentationNode"]
-                associatedTargetId = association["targetRecord"]["segmentId"]
-                associatedRoi = association["targetBoundsRoi"]
-                if (
-                    previousSegmentation is not associatedSegmentation
-                    or previousTargetId != associatedTargetId
-                ):
-                    self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
-                oldRoi = self._parameterNode.targetToothBoundsRoi
-                if (
-                    oldRoi
-                    and oldRoi is not associatedRoi
-                    and oldRoi.GetDisplayNode()
-                ):
-                    oldRoi.GetDisplayNode().SetVisibility(False)
-                self._parameterNode.teethSegmentation = associatedSegmentation
-                self._parameterNode.targetToothSegmentId = associatedTargetId
-                self._parameterNode.targetToothBoundsRoi = associatedRoi
-            elif trajectoryNode and self._parameterNode.targetToothSegmentId:
-                self.logic.configureTrajectoryTarget(
-                    trajectoryNode,
-                    self._parameterNode.teethSegmentation,
-                    self._parameterNode.targetToothSegmentId,
+                self.logic.activateDentoCaseTrajectory(
+                    self._parameterNode, trajectoryNode
                 )
+            else:
+                self._parameterNode.trajectoryLine = trajectoryNode
+                if trajectoryNode and self._parameterNode.targetToothSegmentId:
+                    self.logic.configureTrajectoryTarget(
+                        trajectoryNode,
+                        self._parameterNode.teethSegmentation,
+                        self._parameterNode.targetToothSegmentId,
+                    )
+                    self.logic.activateDentoCaseTrajectory(
+                        self._parameterNode, trajectoryNode
+                    )
         finally:
-            self._parameterNode.EndModify(wasModifying)
             self._restoringTrajectoryAssociation = False
+
+        self._syncTrajectorySelectorNodes(trajectoryNode)
+        if str(self._parameterNode.targetToothSegmentId or "") != previousTargetId:
+            self._parameterNode.templateSupportToothSegmentIdsJson = "[]"
+        self._parameterNode.step6CollisionSceneAuditJson = ""
+        self._step6MotionPlan = None
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.invalidateTargetRuntimeState()
+        if self.logic.isStep6CaseJawTransformNode(
+            self._parameterNode.step6CaseJawTransform
+        ):
+            self.logic.refreshStep6CaseTargetAttachedDisplay(
+                self._parameterNode
+            )
 
         if previousNodeId and previousNodeId != selectedNodeId:
             self._validTrajectoryPointsByNodeId.pop(previousNodeId, None)
@@ -791,6 +814,7 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
     def onCreateTrajectory(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        trajectoryNode = None
         try:
             targetRecord = self.logic.validateTargetTooth(
                 self._parameterNode.teethSegmentation,
@@ -806,9 +830,12 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
                 targetRecord["segmentId"],
             )
             self._parameterNode.trajectoryLine = trajectoryNode
+            self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
             self._bindPlanningTrajectoryNode(trajectoryNode)
             self._updatePlanning()
         except (RuntimeError, ValueError) as exc:
+            if trajectoryNode and slicer.mrmlScene.IsNodePresent(trajectoryNode):
+                slicer.mrmlScene.RemoveNode(trajectoryNode)
             slicer.util.errorDisplay(str(exc))
 
     def onPlaceTrajectory(self) -> None:

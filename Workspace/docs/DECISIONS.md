@@ -1,10 +1,50 @@
 # Dentobot Technical Decisions
 
+## 2026-09-10 — Assisted targets use displayed pulp contact; smooth masks are P0
+
+**Status:** Operator-prioritized correction implemented; final static/pure and
+focused Slicer verification passed 2026-09-10. Exact FDI31 and smooth-mask
+normal-window observations remain pending operator acceptance.
+
+The FDI31 screenshot is not evidence that the current assisted generator made
+the displayed line. The matching saved 4.242 mm trajectory belongs to a
+three-line set, while current assistance creates one or two, and it has none of
+the current assisted-analysis attributes. The Placement selector is a creation
+mode, not provenance. Slice projection further allowed an off-slice point to
+appear over the 2D mask. Read-only reconstruction nevertheless found a real
+representation mismatch: a native binary-voxel boundary may not coincide with
+Slicer's smoothed closed surface and can therefore look inside the mask in 2D
+while missing the visible pulp in 3D.
+
+For newly generated assisted lines, supersede
+`FirstPulpVoxelBoundaryV1` with `FirstSharedPulpIntersectionV2`. The same finite
+Entry→inferred-root ray must hit both the selected tooth's FDI-matched binary
+pulp mask and the closed surface Slicer displays for that pulp segment. Target
+is the first point on the ray contained by both representations: the farther of
+their two entry boundaries, after explicitly confirming it remains within both.
+Persist both boundary points and their offset as analysis evidence. If either
+intersection or their shared interval is missing, fail atomically and ask for
+mask or Entry correction. This prevents visual agreement from replacing the
+authoritative-mask requirement. Preserve Entry, direction, the one/two-line
+contract, manual verification, and the no-overwrite rule. Do not migrate
+existing/manual trajectories automatically. Disable off-slice projection; use
+the longitudinal MPR when both points must be shown together.
+
+The operator also promotes `W4-U-02` from unprioritized acceptance work to
+Priority 0. The existing smooth-display checkbox must not be a checked no-op.
+It now applies the existing display-only CBCT interpolation and segmentation
+closed-surface mode in ordinary Step 4A as well as oblique verification,
+reflects the actual combined state outside verification, and restores the
+captured prior modes when verification exits. Source voxels, binary masks,
+target geometry, downstream Step 6 policy, and all clinical/robot approval
+gates remain unchanged.
+
 ## 2026-09-10 — PreparedBranch correction and documentation ownership
 
-**Status:** Correction plan approved for a read-only audit. The audit is
-complete and awaits operator review/final coding approval. Implementation and
-runtime acceptance are not claimed.
+**Status:** The operator accepted the audit and authorized exactly the three
+recorded deliverables. They are implemented in the dirty checkout and the
+focused headless single-target runtime passes. Normal-window operator review is
+not inferred from that automated evidence.
 
 `S6-REUSABLE-CASE-SETUP` is reopened. The main workflow is single-target:
 one trajectory normally, two only through explicit pairing. Multi-target/
@@ -4231,3 +4271,64 @@ Reason: the already accepted `S6-REUSABLE-CASE-SETUP` plan and its 32 × 3
 registry foundation were missed when implementation started in a new task.
 Making retrieval an explicit gate prevents parallel plans and preserves the
 operator's recorded priority and dependency decisions across task boundaries.
+
+## 2026-09-10 — Recover validated MRML when only derived Step 6 environment disagrees
+
+Status: source implemented; exact-package runtime verification pending
+
+Keep manifest, node, lineage, trajectory-registry and actual MRML geometry/
+matrix comparisons fail-closed. After those checks pass, do not reject the
+whole case solely because the redundant `step6EnvironmentJson` differs from a
+fresh environment derived from that same authoritative MRML. Retain the
+rebuilt snapshot in memory, mark schema migration pending, log the changed
+fields and continue through the existing offline runtime-invalidation path.
+
+For an active mandibular mouth opening, the transformed Step 5C proxy is the
+Step 6 display. Hide the source Step 4C docking plane and assembly with the
+other source objects and restore their prior visibility on reset; do not move
+or duplicate the upstream Step 4C geometry. The broader mouth-opening ownership
+and relocation redesign remains a separate next plan item.
+
+Reason: FDI31 run-2 Step6x5 passed package/MRML validation but rolled back at
+derived-environment hydration, while screenshots and direct MRML inspection
+showed the opened template alongside the still-visible world-RAS Step 4C docks.
+MRML is already the declared geometry authority, and package load is offline,
+so rebuilding only the redundant snapshot recovers the test case without
+weakening geometry integrity or expanding the imminent transform revamp.
+
+## 2026-09-10 — Route Step 5B attachments tangent to protected dock bores
+
+Status: synthetic and FDI11 runtime verified, including final-fusion dock
+screenshots; FDI31 contributor classification and operator verification pending
+
+Promote canonical defect `W5-U-04` to Priority 0. Retain the extended final
+channel subtraction, 0.1 mm³ artifact ceiling, one-connected-solid gate and all
+configured dimensions. The prior nearest-point cylinder could bury its 2 mm
+endpoint overlap across FDI11's 2.2 mm bore inside a 3.0 mm dock; the extended
+channel then severed that material into 9- and 4-voxel components.
+
+Each replacement attachment uses the shortest sampled straight route whose
+centreline is tangent to `bore radius + connector radius + one processing
+voxel`. Its surface therefore stays outside the protected bore while its end
+overlaps the reinforced annulus. Require at least one processing voxel of
+annular ligament and fail before fusion if no safe route fits the unchanged
+12 mm gap. This alters connector routing, not dimensions or cleanup policy.
+
+Connectivity errors report voxel counts, approximate extra-region volumes and
+the cleanup ceiling, then point to Step 5B **Shell + Guides** and the Step 4C
+radius/yaw/dimension controls. They must not suggest increasing the cleanup
+ceiling as the normal fix. Runtime and normal-window evidence remain separate.
+
+The focused synthetic check and exact FDI11 package rebuild pass on this
+construction. FDI11 now yields one 62,258-sample occupied solid, zero retained
+artifacts and zero residual channel samples. A fresh approved FDI31 diagnostic
+rebuild reaches the same post-shell stage but retains
+`[45966, 5, 2, 2, 1, 1, 1, 1]`; the existing limit correctly rejects cleanup.
+The largest fragment is centred at RAS `(-93.572, -34.898, 56.827)` and is at
+least 7.66 mm from every dock-bore axis, suggesting a central guide/sleeve
+contributor rather than a dock attachment. This is not yet source attribution:
+the next approved diagnostic must classify contributor masks before another
+construction change. A read-only FDI11 rebuild also exported an overview and
+four dock-axis screenshots; all four apertures are visibly open and the final
+fusion remains one watertight occupied solid. Screenshots explain geometry;
+the numerical one-solid and zero-residual-channel checks remain authoritative.

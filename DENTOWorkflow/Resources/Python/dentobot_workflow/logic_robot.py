@@ -91,31 +91,41 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 return str(node.GetName() or "")
         return ""
 
-    @staticmethod
-    def step6GuidanceCollisionObjectIds(parameterNode) -> tuple[str, ...]:
-        """Return transient MoveIt IDs for approved guide/template geometry."""
+    def step6GuidanceCollisionObjectIds(self, parameterNode) -> tuple[str, ...]:
+        """Return audited MoveIt IDs for approved guide/template geometry."""
 
-        guidanceNodes = (
-            [parameterNode.finalPrintableTemplateModel]
+        guidance = (
+            ((parameterNode.finalPrintableTemplateModel,
+              "FinalPrintableTemplate", "verified-final-template"),)
             if parameterNode.finalPrintableTemplateModel is not None
-            else [
-                parameterNode.draftTemplateSupportModel,
-                parameterNode.targetDockingAssemblyModel,
-            ]
+            else (
+                (parameterNode.draftTemplateSupportModel,
+                 "TemplateSupportDraft", "draft-template-support"),
+                (parameterNode.targetDockingAssemblyModel,
+                 "TargetDockingAssembly", "target-docking-assembly"),
+            )
         )
-        sourceIds = {
-            str(node.GetID()) for node in guidanceNodes if node is not None and node.GetID()
+        approved = {
+            str(node.GetID()): (str(node.GetName() or ""), audit_role)
+            for node, model_role, audit_role in guidance
+            if node is not None
+            and node.GetID()
+            and node.GetName()
+            and node.GetAttribute("DENTOBOT.ModelRole") == model_role
         }
-        if not sourceIds:
+        audit = self.collisionSceneAuditRecord(parameterNode)
+        if not approved or audit is None or audit.status != "Acknowledged":
             return ()
         result = []
-        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+        for record in audit.object_records:
+            expected = approved.get(str(record.get("source_id") or ""))
+            object_id = str(record.get("outgoing_collision_object_id") or "")
             if (
-                node.GetAttribute("DENTOBOT.MoveItObstacleProxy") == "true"
-                and node.GetAttribute("DENTOBOT.MoveItObstacleSource") in sourceIds
-                and node.GetName()
+                expected is not None
+                and expected == (object_id, str(record.get("source_role") or ""))
+                and record.get("publish_status") == "PublishReturnedSuccess"
             ):
-                result.append(str(node.GetName()))
+                result.append(object_id)
         return tuple(sorted(dict.fromkeys(result)))
 
     def step6BurrProximityCollisionObjectIds(
@@ -134,6 +144,18 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         return (target_object_id,) if target_object_id else ()
 
     def importStep6PlanningContext(self, parameterNode) -> PlanningContextReport:
+        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        eligibility = self.evaluatePreparedBranchEligibility(
+            parameterNode,
+            registry=registry,
+        )
+        if not eligibility["eligible"]:
+            raise ValueError(eligibility["message"])
+        self.activateDentoCasePreparedBranch(
+            parameterNode,
+            eligibility["branch_id"],
+            registry=registry,
+        )
         report = validate_planning_context(
             self.buildPlanningContextNodeMap(parameterNode),
         )
@@ -177,113 +199,8 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         Step 6 prerequisite: the case must remain active so the operator can
         place its four landmarks and derive the opened-jaw planning surface.
         """
-        issues = []
-        planning_report = validate_planning_context(
-            self.buildPlanningContextNodeMap(parameterNode),
-        )
-        if not planning_report.ready:
-            issues.append(planning_report.message)
-        trajectory = parameterNode.trajectoryLine
-        if trajectory is None or trajectory.GetNumberOfDefinedControlPoints() != 2:
-            issues.append(_("Step 4A trajectory must contain exactly two points."))
-        elif not trajectory.GetLocked():
-            issues.append(_("Step 4A trajectory is not locked."))
-        elif trajectory.GetAttribute("DENTOBOT.CoordinateSystem") != "SlicerRASmm":
-            issues.append(_("Step 4A trajectory is not declared in Slicer RAS mm."))
-        else:
-            try:
-                association = self.getTrajectoryTargetAssociation(trajectory)
-            except ValueError as exc:
-                issues.append(str(exc))
-            else:
-                activeSegmentation = parameterNode.teethSegmentation
-                activeTargetId = str(parameterNode.targetToothSegmentId or "")
-                if not association:
-                    issues.append(
-                        _("Step 4A trajectory has no saved target-tooth association.")
-                    )
-                elif (
-                    association["segmentationNode"] is not activeSegmentation
-                    or association["targetRecord"]["segmentId"] != activeTargetId
-                ):
-                    issues.append(
-                        _(
-                            "Step 4A trajectory belongs to another target tooth; "
-                            "select or regenerate the trajectory for the active tooth."
-                        )
-                    )
-
-        targetRoi = parameterNode.targetToothBoundsRoi
-        if targetRoi and not self.isTargetBoundsRoiForTarget(
-            targetRoi,
-            parameterNode.teethSegmentation,
-            str(parameterNode.targetToothSegmentId or ""),
-        ):
-            issues.append(
-                _(
-                    "Step 4A target bounds belong to another target tooth; "
-                    "regenerate the active tooth bounds."
-                )
-            )
-
-        docking = parameterNode.targetDockingAssemblyModel
-        if docking is None:
-            issues.append(_("Step 4C docking assembly is missing."))
-        else:
-            state = docking.GetAttribute("DENTOBOT.GeometryState") or "Unknown"
-            orientation = docking.GetAttribute("DENTOBOT.OrientationState") or "Unknown"
-            if state != "Current" or orientation != "Confirmed":
-                reason = docking.GetAttribute("DENTOBOT.StaleReason") or _(
-                    "regenerate and confirm the docking assembly"
-                )
-                issues.append(
-                    _("Step 4C docking assembly is %1/%2 (%3)")
-                    .replace("%1", state)
-                    .replace("%2", orientation)
-                    .replace("%3", reason)
-                )
-            dockingTargetId = str(
-                docking.GetAttribute("DENTOBOT.TargetSegmentId") or ""
-            )
-            if (
-                dockingTargetId
-                and dockingTargetId != str(parameterNode.targetToothSegmentId or "")
-            ):
-                issues.append(
-                    _("Step 4C docking assembly belongs to another target tooth.")
-                )
-
-        finalTemplate = parameterNode.finalPrintableTemplateModel
-        if finalTemplate is None:
-            issues.append(_("Step 5C printable template is missing."))
-        else:
-            state = finalTemplate.GetAttribute("DENTOBOT.GeometryState") or "Unknown"
-            verification = (
-                finalTemplate.GetAttribute("DENTOBOT.VerificationState") or "NotVerified"
-            )
-            if state != "Current" or verification not in {"PASS", "WARNING"}:
-                reason = finalTemplate.GetAttribute("DENTOBOT.StaleReason") or _(
-                    "regenerate and verify the printable template"
-                )
-                issues.append(
-                    _("Step 5C printable template is %1/%2 (%3)")
-                    .replace("%1", state)
-                    .replace("%2", verification)
-                    .replace("%3", reason)
-                )
-            templateTargetId = str(
-                finalTemplate.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
-                or finalTemplate.GetAttribute("DENTOBOT.TargetSegmentID")
-                or ""
-            )
-            if (
-                templateTargetId
-                and templateTargetId != str(parameterNode.targetToothSegmentId or "")
-            ):
-                issues.append(
-                    _("Step 5C printable template belongs to another target tooth.")
-                )
-        return issues
+        eligibility = self.evaluatePreparedBranchEligibility(parameterNode)
+        return [] if eligibility["eligible"] else [eligibility["message"]]
 
     def step6PlanningContextFreshnessIssues(self, parameterNode) -> list[str]:
         """Return upstream and post-import Step 6 readiness failures."""

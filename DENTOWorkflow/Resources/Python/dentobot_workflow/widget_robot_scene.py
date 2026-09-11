@@ -242,6 +242,58 @@ class RobotSceneWidgetMixin:
         labels = self.logic.draftJawLandmarkButtonLabels()
         self._updatingRobotPlacementUI = True
         try:
+            if (
+                self.ui.step6RegistryTrajectorySelector.currentNode()
+                is not self._parameterNode.trajectoryLine
+            ):
+                wasRestoring = self._restoringTrajectoryAssociation
+                self._restoringTrajectoryAssociation = True
+                try:
+                    self.ui.step6RegistryTrajectorySelector.setCurrentNode(
+                        self._parameterNode.trajectoryLine
+                    )
+                finally:
+                    self._restoringTrajectoryAssociation = wasRestoring
+            self.ui.step6RegistrySelectionGroupBox.enabled = bool(
+                imported and not rosActive
+            )
+            try:
+                registry = parse_trajectory_registry(
+                    str(self._parameterNode.step6TrajectoryRegistryJson or "")
+                )
+                selectedId = str(registry.get("selected_branch_id") or "")
+                branch = registry["prepared_branches"].get(selectedId)
+                populated = sum(
+                    slot["state"] != "Empty"
+                    for tooth in registry["teeth"].values()
+                    for slot in tooth["trajectory_set"]["slots"]
+                )
+                selectedText = (
+                    f"{branch['target_id']} / {branch['primary_trajectory_id']}"
+                    if branch
+                    else _("No PreparedBranch is selected.")
+                )
+                guideText = (
+                    _(" PreparedBranch %1 references %2 trajectory slot(s).")
+                    .replace("%1", branch["branch_id"])
+                    .replace("%2", str(len(branch["trajectory_ids"])))
+                    if branch
+                    else _(" No verified PreparedBranch is active.")
+                )
+                self.ui.step6RegistrySelectionStatusLabel.text = (
+                    _("%1 Registry contains %2/96 populated slots.%3")
+                    .replace("%1", selectedText)
+                    .replace("%2", str(populated))
+                    .replace("%3", guideText)
+                )
+                self.ui.step6RegistrySelectionStatusLabel.styleSheet = (
+                    "color: #207227;" if branch else "color: #b36b00;"
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                self.ui.step6RegistrySelectionStatusLabel.text = _(
+                    "No populated trajectory slot is selected."
+                )
+                self.ui.step6RegistrySelectionStatusLabel.styleSheet = "color: #b36b00;"
             self.ui.step6CaseJawOpeningGroupBox.enabled = bool(
                 imported or hasTransientOpening
             )

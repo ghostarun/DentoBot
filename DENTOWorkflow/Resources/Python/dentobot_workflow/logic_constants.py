@@ -265,7 +265,7 @@ class LogicConstantsMixin:
         "DENTOBOT.SelectedGuideTrajectory"
     )
 
-    TEMPLATE_FINAL_GUIDE_SCHEMA_VERSION = "1.0"
+    TEMPLATE_FINAL_GUIDE_SCHEMA_VERSION = "2.0"
 
     TEMPLATE_FINAL_GUIDE_PATIENT_SHELL_REFERENCE_ROLE = (
         "DENTOBOT.FinalGuidePatientShell"

@@ -131,6 +131,10 @@ class DENTOWorkflowParameterNode:
     step6ConfirmedTaskJson: str = ""
     step6CollisionSceneAuditJson: str = ""
     step6MotionDiagnosticJson: str = ""
+    dentoCaseSchemaVersion: str = "1.0"
+    step6EnvironmentJson: str = ""
+    step6TrajectoryRegistryJson: str = ""
+    step6SchemaMigrationPending: bool = False
     step6ApproachStandoffMm: float = 2.0
     # Retained only for older .dentocase/MRML packages. Planner v4 validates
     # the complete PreEntry→Entry line with the independent phase guard.

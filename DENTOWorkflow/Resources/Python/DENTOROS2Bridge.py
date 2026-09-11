@@ -983,7 +983,7 @@ def wait_for_monitored_joint_positions_si(
             if not mismatched:
                 return (
                     True,
-                    "MoveIt monitored /joint_states matches the submitted Task Home.",
+                    "MoveIt monitored /joint_states matches the requested joint state.",
                     observed,
                     maximum_error,
                 )
@@ -1009,7 +1009,7 @@ def wait_for_monitored_joint_positions_si(
         )
     return (
         False,
-        "MoveIt monitored state did not converge to Task Home; mismatched joints: "
+        "MoveIt monitored state did not converge to the requested joint state; mismatched joints: "
         + ", ".join(mismatched),
         observed,
         maximum_error,

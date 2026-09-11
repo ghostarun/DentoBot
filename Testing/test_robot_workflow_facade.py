@@ -36,6 +36,17 @@ def test_route_selection_allows_direct_winner_after_detours():
     assert state["strict_plan"] == "detour"
     assert state["selected_clearance"] == {"sampleIndex": 3}
 
+
+def test_guide_allowlist_uses_acknowledged_semantic_collision_audit():
+    source = (HELPERS / "dentobot_workflow" / "logic_robot.py").read_text()
+    method = source[source.index("    def step6GuidanceCollisionObjectIds"):]
+    method = method[:method.index("\n    def ", 5)]
+    assert "collisionSceneAuditRecord(parameterNode)" in method
+    assert 'audit.status != "Acknowledged"' in method
+    assert 'record.get("publish_status") == "PublishReturnedSuccess"' in method
+    assert '"FinalPrintableTemplate", "verified-final-template"' in method
+    assert "getNodesByClass" not in method
+
 from DENTOROS2Bridge import ROS2_JOINT_SI_ORDER  # noqa: E402
 from DENTOStep6State import SPINDLE_JOINT_NAME  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
@@ -367,6 +378,23 @@ def test_lock_base_synchronizes_moveit_scene_when_ros_is_active():
     capabilities = facade.capabilities()
     assert capabilities.planning_scene_synchronized
     assert capabilities.planning_scene_object_count == 4
+
+
+def test_target_switch_preserves_task_home_and_return_home_state():
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    facade._runtime_validated_task_home_key = "home-key"
+    facade._runtime_task_home_evidence = {"status": "Validated"}
+    facade._robot_away_from_home = True
+    facade._planning_scene_synchronized = True
+    facade._runtime_validated_workspace_key = "old-target"
+
+    facade.invalidateTargetRuntimeState()
+
+    assert facade._runtime_validated_task_home_key == "home-key"
+    assert facade._runtime_task_home_evidence == {"status": "Validated"}
+    assert facade.returnHomeRequired
+    assert not facade.capabilities().planning_scene_synchronized
+    assert facade._runtime_validated_workspace_key == ""
 
 
 def test_joint_limit_rejection_does_not_mutate_parameter_node():

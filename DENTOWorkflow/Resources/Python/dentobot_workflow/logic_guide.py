@@ -24,13 +24,9 @@ class GuideLogicMixin(DockingLogicMixin):
         self,
         sourceModel: vtkMRMLModelNode,
     ) -> list[vtkMRMLMarkupsLineNode]:
-        """Return trajectory nodes explicitly associated with selected support teeth."""
+        """Return trajectories for the current target tooth."""
 
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
-        eligibleSegmentIds = {
-            sourceSummary["targetSegmentId"],
-            *sourceSummary["supportSegmentIds"],
-        }
         sourceSegmentation = sourceSummary["sourceSegmentation"]
         eligible = []
         for trajectoryNode in slicer.util.getNodesByClass("vtkMRMLMarkupsLineNode"):
@@ -41,7 +37,8 @@ class GuideLogicMixin(DockingLogicMixin):
                 continue
             if (
                 association["segmentationNode"] is sourceSegmentation
-                and association["targetRecord"]["segmentId"] in eligibleSegmentIds
+                and association["targetRecord"]["segmentId"]
+                == sourceSummary["targetSegmentId"]
             ):
                 eligible.append(trajectoryNode)
         return eligible
@@ -62,6 +59,8 @@ class GuideLogicMixin(DockingLogicMixin):
         sourceModel: vtkMRMLModelNode,
         trajectories: list[vtkMRMLMarkupsLineNode],
     ) -> None:
+        if not 1 <= len(trajectories) <= 2:
+            raise ValueError(_("Select one trajectory, or an explicit pair at most."))
         eligibleById = {
             node.GetID(): node
             for node in self.getEligibleTemplateGuideTrajectories(sourceModel)
@@ -70,7 +69,7 @@ class GuideLogicMixin(DockingLogicMixin):
         for trajectoryNode in trajectories:
             if not trajectoryNode or trajectoryNode.GetID() not in eligibleById:
                 raise ValueError(
-                    _("Every guide trajectory must belong to a selected target/support tooth.")
+                    _("Every guide trajectory must belong to the current target tooth.")
                 )
             if trajectoryNode.GetID() in selectedIds:
                 raise ValueError(_("A guide trajectory cannot be selected more than once."))
@@ -97,6 +96,8 @@ class GuideLogicMixin(DockingLogicMixin):
             raise ValueError(_("Regenerate the stale patient-contact shell first."))
         if not trajectories:
             raise ValueError(_("Select at least one guide trajectory."))
+        if len(trajectories) > 2:
+            raise ValueError(_("A unified template supports two trajectories at most."))
         sourceSummary = self.getDraftTemplateSupportModelSummary(
             shellSummary["sourceModel"]
         )
@@ -120,6 +121,12 @@ class GuideLogicMixin(DockingLogicMixin):
         ):
             raise ValueError(
                 _("The Step 4C docking assembly belongs to another target anatomy.")
+            )
+        if [node.GetID() for node in targetDockingSummary["trajectories"]] != [
+            node.GetID() for node in trajectories
+        ]:
+            raise ValueError(
+                _("The Step 4C assembly must match the selected guide trajectory or explicit pair.")
             )
         eligibleIds = {
             node.GetID()
@@ -151,15 +158,6 @@ class GuideLogicMixin(DockingLogicMixin):
                     "targetRas": tuple(float(value) for value in summary["targetRas"]),
                     "lengthMm": float(summary["lengthMm"]),
                 }
-            )
-        if [record["node"] for record in trajectoryRecords] != targetDockingSummary[
-            "trajectories"
-        ]:
-            raise ValueError(
-                _(
-                    "Step 5B trajectories must exactly match the Step 4C "
-                    "four-dock assembly source trajectories."
-                )
             )
         return {
             "shellSummary": shellSummary,
@@ -233,9 +231,23 @@ class GuideLogicMixin(DockingLogicMixin):
             create_independent_shell_contact_reinforcements(
                 model_polydata_in_world(patientShell),
                 targetDockingSurfaces["dockComponents"],
+                dock_metrics=targetDockingMetrics["docks"],
                 bridge_diameter_mm=max(
                     float(targetDockingParameters["connectorDiameterMm"]),
                     2.0 * float(parameters["reinforcementRadialMm"]),
+                ),
+                bore_radius_mm=(
+                    float(targetDockingParameters["boreDiameterMm"]) / 2.0
+                ),
+                reinforcement_outer_radius_mm=(
+                    float(targetDockingParameters["outerDiameterMm"]) / 2.0
+                    + float(targetDockingParameters["reinforcementRadialMm"])
+                ),
+                reinforcement_depth_mm=float(
+                    targetDockingParameters["reinforcementRadialMm"]
+                ),
+                processing_spacing_mm=float(
+                    targetDockingParameters["processingResolutionMm"]
                 ),
                 endpoint_overlap_mm=float(
                     targetDockingParameters["connectorThicknessMm"]
@@ -280,7 +292,7 @@ class GuideLogicMixin(DockingLogicMixin):
             (trajectorySurfaces, targetDockingSurfaces)
         )
         assemblyMetrics = {
-            "method": "SeparatedTrajectoryGuidesAndFourOcclusalDockBranchesV2",
+            "method": "SeparatedTrajectoryGuidesAndFourOcclusalDockBranchesV3",
             "trajectoryGuide": trajectoryAssemblyMetrics,
             "targetDocking": targetDockingMetrics,
             "shellContactBranches": shellContactMetrics,
@@ -402,6 +414,13 @@ class GuideLogicMixin(DockingLogicMixin):
             finalModel.SetAttribute("DENTOBOT.GeometryState", "Current")
             finalModel.SetAttribute("DENTOBOT.StaleReason", None)
             finalModel.SetAttribute("DENTOBOT.VerificationState", "NotVerified")
+            finalModel.SetAttribute(
+                "DENTOBOT.PairingIntent",
+                "Single" if len(sourceTrajectoryNodes) == 1 else "ExplicitPair",
+            )
+            finalModel.SetAttribute(
+                "DENTOBOT.PrimaryTrajectoryNodeID", sourceTrajectoryNodes[0].GetID()
+            )
             finalModel.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
             finalModel.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
             finalModel.SetAttribute("DENTOBOT.TrajectoryGeometryJson", trajectoryJson)
@@ -537,9 +556,20 @@ class GuideLogicMixin(DockingLogicMixin):
         ]
         if not trajectories:
             raise ValueError(_("The final template lost its source trajectory references."))
+        schemaVersion = (
+            finalModel.GetAttribute("DENTOBOT.FinalGuideSchemaVersion") or "Legacy"
+        )
+        geometryState = finalModel.GetAttribute("DENTOBOT.GeometryState") or "Unknown"
+        staleReason = finalModel.GetAttribute("DENTOBOT.StaleReason") or ""
+        if schemaVersion != self.TEMPLATE_FINAL_GUIDE_SCHEMA_VERSION:
+            geometryState = "Stale"
+            staleReason = _(
+                "This final template predates through-bore protection for the Step 4C docks; regenerate it."
+            )
         return {
-            "geometryState": finalModel.GetAttribute("DENTOBOT.GeometryState") or "Unknown",
-            "staleReason": finalModel.GetAttribute("DENTOBOT.StaleReason") or "",
+            "schemaVersion": schemaVersion,
+            "geometryState": geometryState,
+            "staleReason": staleReason,
             "verificationState": finalModel.GetAttribute("DENTOBOT.VerificationState") or "NotVerified",
             "patientShell": patientShell,
             "targetDockingAssembly": targetDockingAssembly,
@@ -865,22 +895,40 @@ class GuideLogicMixin(DockingLogicMixin):
                 "channelSampleCount",
             )
         )
+        channelsPreserved = (
+            occupancyValid
+            and int(fusionMetrics.get("channelExcludedOccupiedSampleCount", 0))
+            > 0
+            and int(fusionMetrics.get("channelResidualOccupiedSampleCount", -1))
+            == 0
+        )
         add(
-            "PASS" if occupancyValid else "FAIL",
+            "PASS" if channelsPreserved else "FAIL",
             _("Guide union and channel preservation"),
-            _("Voxel fusion contains shell/docking/reinforcement and subtractive guide channels.")
-            if occupancyValid
-            else _("One or more required fused or channel masks are empty."),
+            _("Subtractive guide channels removed occupied material and contain no residual fused voxels.")
+            if channelsPreserved
+            else _(
+                "A required fused/channel mask is empty or material remains in a protected channel."
+            ),
         )
 
         try:
             assemblyMetrics = summary["dockingMetrics"]
             branchMetrics = assemblyMetrics.get("shellContactBranches", {})
             exclusionMetrics = assemblyMetrics.get("trajectoryGuideExclusion", {})
+            boreProtection = assemblyMetrics.get("targetDocking", {}).get(
+                "boreProtection", {}
+            )
             separatedGeometry = (
                 assemblyMetrics.get("method")
-                == "SeparatedTrajectoryGuidesAndFourOcclusalDockBranchesV2"
+                == "SeparatedTrajectoryGuidesAndFourOcclusalDockBranchesV3"
                 and int(branchMetrics.get("branchCount", 0)) == 4
+                and branchMetrics.get("method")
+                == "FourIndependentBoreTangentShellAttachmentsV2"
+                and float(
+                    branchMetrics.get("minimumBoreSurfaceClearanceMm", 0.0)
+                )
+                > 0.0
                 and exclusionMetrics.get("docking", {}).get("method")
                 == "ProtectedTrajectoryGuideEnvelopeSubtraction"
                 and int(
@@ -903,6 +951,21 @@ class GuideLogicMixin(DockingLogicMixin):
                 else _(
                     "Four independent shell attachments or trajectory-guide exclusion metadata is missing."
                 ),
+            )
+            boresOpen = (
+                boreProtection.get("method")
+                == "ExtendedThroughDockReinforcementAndAttachmentOverlapV1"
+                and int(boreProtection.get("channelCount", 0)) == 4
+                and float(boreProtection.get("endOverhangMm", 0.0)) > 0.0
+                and int(fusionMetrics.get("channelResidualOccupiedSampleCount", -1))
+                == 0
+            )
+            add(
+                "PASS" if boresOpen else "FAIL",
+                _("Four through-open robot-dock bores"),
+                _("All four bore channels extend through dock reinforcement and connector overlap, with no residual fused voxels.")
+                if boresOpen
+                else _("One or more robot-dock bores lacks complete through-channel protection."),
             )
         except (AttributeError, TypeError, ValueError) as exc:
             add("FAIL", _("Dock attachment and trajectory-guide exclusion"), str(exc))
@@ -956,11 +1019,25 @@ class GuideLogicMixin(DockingLogicMixin):
             if any(check["result"] == "WARNING" for check in checks)
             else "PASS"
         )
+        parameterNode = self.getParameterNode()
+        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        branch = next(
+            (
+                value
+                for value in registry["prepared_branches"].values()
+                if value.get("template_node_id") == finalModel.GetID()
+            ),
+            None,
+        )
+        if branch is None:
+            raise ValueError(_("The final template has no PreparedBranch identity."))
         verification = {
             "schemaVersion": "1.0",
             "overall": overall,
             "verifiedUtc": datetime.now(timezone.utc).isoformat(),
             "finalModelUpdatedUtc": finalModel.GetAttribute("DENTOBOT.UpdatedUtc") or "",
+            "preparedBranchId": branch["branch_id"],
+            "preparedBranchRevision": branch["revision"],
             "checks": checks,
         }
         wasModifying = finalModel.StartModify()
@@ -973,6 +1050,10 @@ class GuideLogicMixin(DockingLogicMixin):
             finalModel.SetAttribute("DENTOBOT.VerifiedUtc", verification["verifiedUtc"])
         finally:
             finalModel.EndModify(wasModifying)
+        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        if overall in {"PASS", "WARNING"}:
+            registry = select_prepared_branch(registry, branch["branch_id"])
+            parameterNode.step6TrajectoryRegistryJson = canonical_json(registry)
         return verification
 
     def exportFinalPrintableTemplateStl(
@@ -985,6 +1066,9 @@ class GuideLogicMixin(DockingLogicMixin):
         verification = self.verifyFinalPrintableTemplate(finalModel)
         if verification["overall"] == "FAIL":
             raise ValueError(_("Final verification failed; STL export is blocked."))
+        eligibility = self.evaluatePreparedBranchEligibility(self.getParameterNode())
+        if not eligibility["eligible"]:
+            raise ValueError(eligibility["message"])
         summary = self.getFinalPrintableTemplateSummary(finalModel)
         if summary["geometryState"] != "Current":
             raise ValueError(_("Regenerate the stale final template before export."))

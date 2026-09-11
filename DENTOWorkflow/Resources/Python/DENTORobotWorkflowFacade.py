@@ -476,6 +476,18 @@ class DENTORobotWorkflowFacade:
         self._runtime_validated_workspace_key = ""
         self.invalidateMotionPlan()
 
+    def invalidateTargetRuntimeState(self) -> None:
+        """Drop target-bound runtime state without changing shared Home state."""
+
+        self.stopPreview()
+        self._clear_phase_session()
+        self._planning_scene_object_count = 0
+        self._planning_scene_synchronized = False
+        self._template_collision_exclusion_active = False
+        self._template_collision_excluded_object_ids = ()
+        self._runtime_validated_workspace_key = ""
+        self._diagnostic_candidate_paths = {}
+
     def setTemplateCollisionExclusionForFunctionalSimulation(
         self,
         enabled: bool,

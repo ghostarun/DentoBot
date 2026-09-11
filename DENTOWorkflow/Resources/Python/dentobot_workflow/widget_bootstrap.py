@@ -219,6 +219,11 @@ class BootstrapWidgetMixin:
             "DENTOBOT.ModelRole",
             "PatientContactShell",
         )
+        self.ui.templateGuideTrajectorySelector.addAttribute(
+            "vtkMRMLMarkupsLineNode",
+            "DENTOBOT.TrajectoryRole",
+            "EntryTarget",
+        )
         self.ui.templateInsertionDirectionSelector.addAttribute(
             "vtkMRMLMarkupsLineNode",
             "DENTOBOT.MarkupsRole",
@@ -300,6 +305,11 @@ class BootstrapWidgetMixin:
             "FinalPrintableTemplate",
         )
         self.ui.trajectorySelector.addAttribute(
+            "vtkMRMLMarkupsLineNode",
+            "DENTOBOT.TrajectoryRole",
+            "EntryToTarget",
+        )
+        self.ui.step6RegistryTrajectorySelector.addAttribute(
             "vtkMRMLMarkupsLineNode",
             "DENTOBOT.TrajectoryRole",
             "EntryToTarget",
@@ -474,6 +484,10 @@ class BootstrapWidgetMixin:
             self.onTargetToothChanged,
         )
         self.ui.trajectorySelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onTrajectorySelectionChanged,
+        )
+        self.ui.step6RegistryTrajectorySelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onTrajectorySelectionChanged,
         )
@@ -677,6 +691,10 @@ class BootstrapWidgetMixin:
         self.ui.patientContactShellModelSelector.connect(
             "currentNodeChanged(vtkMRMLNode*)",
             self.onPatientContactShellSelectionChanged,
+        )
+        self.ui.templateGuideTrajectorySelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)",
+            self.onTemplateGuideTrajectorySelectionChanged,
         )
         self.ui.generatePatientContactShellButton.connect(
             "clicked(bool)",

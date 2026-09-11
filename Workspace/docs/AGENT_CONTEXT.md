@@ -1,6 +1,6 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-10. Routing only; current task status lives in
+Last reconciled: 2026-09-11. Routing only; current task status lives in
 [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Start here
@@ -16,11 +16,23 @@ Last reconciled: 2026-09-10. Routing only; current task status lives in
 
 ## Current handoff
 
-- Active P0: `S6-REUSABLE-CASE-SETUP`. Operator reports faulty unified-template
-  creation and stale behavior after Step 6 import. Prior source-complete
-  claims do not establish acceptance. The correction plan is approved for a
-  read-only audit; that audit is complete, and product implementation is paused
-  for audit review and final coding approval.
+- Immediate P0: `S4A-PULP-ENDPOINT` and `W4-U-02`. The FDI31 screenshot was
+  matched to a legacy three-line saved set with no current assisted provenance;
+  off-slice point projection and native-mask versus displayed-surface divergence
+  explain the contradictory 2D/3D presentation. Source now requires an
+  overlapping FDI-matched binary/displayed-surface interval for new assisted
+  lines, targets its first shared point, records both boundaries and their
+  offset, disables projection, and makes the Step 4A smooth CBCT/mask switch
+  operative and state-truthful. Final static/pure and focused Slicer checks
+  passed, including display and assisted-pulp markers; no Slicer process
+  remained. Next reload and deliberately regenerate the legacy FDI31 set for
+  operator normal-window/anatomical review. The combined legacy runner's later
+  Step 5B fusion failure is recorded under `W5-U-03`, not this accepted Step 4A
+  automated result.
+- Active P0: `S6-REUSABLE-CASE-SETUP`. The audit was accepted and its three
+  deliverables are implemented in the dirty checkout. Static/pure evidence and
+  the focused single-target Slicer target pass; normal-window operator review
+  remains the final P0 usability/stale-state gate.
 - Required contract: main workflow uses one target tooth, one trajectory
   normally or an explicitly paired two. Step 5B/C prepares a branch containing
   exact trajectory selection, pairing intent, branch-dependent docking/
@@ -35,10 +47,8 @@ Last reconciled: 2026-09-10. Routing only; current task status lives in
   dependent 4C/insertion references, shell, template, guide references and Step
   5C evidence, and invalidates runtime branch state. Step 4C/insertion is not
   case-shared. Package load stays offline.
-- Next: review the audit/coding gate in
-  [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#s6-reusable-case-setup-correction-plan).
-  If accepted, implement exactly one selected-branch ID, one centralized
-  eligibility result and one all-or-nothing activation. No 32 × 3, Stage 3,
+- Next: record one normal-window operator review of the corrected single-target
+  preparation/import and stale-state presentation. No 32 × 3, Stage 3,
   ROS/planner/collision/geometry-policy or Studio work during this patch.
 - Stage 3 / `S6-LIVE-01..05` remains pending after workflow integrity.
   Latest recorded FDI11/FDI21 blocker is in TASKS.md; older x4 fractions are

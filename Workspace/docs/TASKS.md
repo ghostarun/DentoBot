@@ -1,6 +1,6 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-10
+Last reconciled: 2026-09-11
 
 ## Current work order
 
@@ -12,12 +12,13 @@ completed `AGENT-PLAN-FIRST`, `AGENT-SOL-RESTORE` and
 
 | Order | Existing task | Disposition |
 |---:|---|---|
-| 1 | `S6-REUSABLE-CASE-SETUP` (P0) | Read-only PreparedBranch caller/ownership audit complete; product implementation paused for audit review and final coding approval. |
-| 2 | Same P0, main-workflow integrity gate | Audit/fix Step 5B/C ownership, evidence, offline save/load and Step 6 import; incorporate relevant `S6-RESTORE-ROBOT-ROS`, `S6A-CHANGED-TARGET-GEOMETRY` and `W5-U-03` checks without duplicate tasks. |
-| 3 | Same P0, optional testing foundation | Expose prepared-branch selection only in opt-in multi-target testing; keep normal single-target workflow intact. |
-| 4 | `S6-LIVE-01..05`, `S6-FDI11-DEPTH` | Resume only after workflow integrity is accepted and within applicable runtime authorization. Stage 3, withdrawal, Home and repeat remain unaccepted. |
-| 5 | `S6-WORKSPACE-PURPOSE` | Unprioritized design item; required before Studio Workspace migration. It is not permission to tune clearance now. |
-| 6 | `DCP-*`, `DSS-*`, `DHW-*` (P1) | Remain behind Track-A acceptance. Reuse accepted foundation; no automatic Studio/runner/Results/SQLite expansion. |
+| 1 | `W5-U-04` (P0) | Static and synthetic checks plus FDI11 saved-case fusion pass, including clean final-fusion dock screenshots. FDI31 rebuild retains one 5-voxel fragment; its RAS localization indicates a likely central guide/sleeve remnant, pending contributor classification. |
+| 2 | `S6-REUSABLE-CASE-SETUP` (P0) | Three-deliverable implementation and focused automated single-target acceptance pass. Normal-window operator review follows the Step 5B bore/connectivity correction. |
+| 3 | Same P0, main-workflow integrity gate | Operator reviews one normal-window `4A→4B→4C→5A→5B→5C→6` preparation/import. Do not infer that review from the headless pass. |
+| 4 | Same P0, optional testing foundation | Expose prepared-branch selection only in opt-in multi-target testing; keep normal single-target workflow intact. |
+| 5 | `S6-LIVE-01..05`, `S6-FDI11-DEPTH` | Resume only after workflow integrity is accepted and within applicable runtime authorization. Stage 3, withdrawal, Home and repeat remain unaccepted. |
+| 6 | `S6-WORKSPACE-PURPOSE` | Unprioritized design item; required before Studio Workspace migration. It is not permission to tune clearance now. |
+| 7 | `DCP-*`, `DSS-*`, `DHW-*` (P1) | Remain behind Track-A acceptance. Reuse accepted foundation; no automatic Studio/runner/Results/SQLite expansion. |
 
 Platform upgrade `PLAT-U-06`, other backlogs and UI polish retain their own
 scope and priority. They do not interrupt this correction merely because their
@@ -28,19 +29,57 @@ or push is authorized by this cleanup.
 
 | Order | Immediate blocker | Blocks |
 |---:|---|---|
-| 1 | The `S6-REUSABLE-CASE-SETUP` plan is approved for audit only. The completed audit output awaits operator review and final coding approval; current implementation remains unaccepted. | Every product-code edit. |
-| 2 | PreparedBranch ownership is incomplete: current source activates a raw trajectory, ignores the saved Step 5B pairing selection during the actual build, copies per-slot guide data without explicit pairing intent, and validates Step 5C without the complete branch identity. | Trustworthy Step 5C eligibility, package restore, branch switching and Step 6 import. |
-| 3 | Step 4C/insertion-direction state is branch-dependent but is currently selected or reused through global/same-target state; Step 4C can also consume every complete same-target trajectory, up to three. | Safe one/pair preparation and atomic branch activation. |
-| 4 | The corrected normal single-target 4A→4B→4C→5A→5B→5C→6 path has no focused acceptance evidence. Earlier 29/84 checks cover the superseded contract. | Explicit-pair and optional 32 × 3 testing, then `S6-LIVE-01..05`. |
+| 1 | `W5-U-04` passes FDI11, but FDI31 rebuild has one retained 5-voxel component. The approved RAS diagnostic locates it away from every dock bore, suggesting a central guide/sleeve remnant; contributor classification and normal-window bore inspection remain pending. | Step 5B/5C printable-template acceptance and the full PreparedBranch normal-window review. |
+| 2 | Explicit-pair and optional 32 × 3 runtime acceptance remain downstream and were not authorized or exercised by this correction. | Promotion of the optional testing workflow only; not the corrected default single-target path. |
 | 5 | After workflow integrity, the current FDI11 case still has an unresolved Stage-3 FDI21 contact; axial withdrawal, guarded Home and a fresh repeat remain unaccepted. | Track-A closure and all P1 Case Platform/Studio work. |
 
-**Next task to perform:** review the completed caller/ownership audit below and
-approve or correct its coding boundary. If accepted, make exactly the smallest
-main-workflow patch: one persisted selected branch ID, one centralized branch-
-eligibility result, and atomic activation of trajectory selection, pairing
-intent, shell, template, guide references and matching Step 5C verification.
-Stop before optional 32 × 3 testing UI, Stage-3 planning, collision or geometry-
-policy changes, or Studio work.
+**Next task to perform:** after explicit approval, run one narrow FDI31
+contributor-classification diagnostic that attributes each retained component to
+the shell, guide/sleeve, reinforcement or dock masks. Do not tune a dock branch
+from the current location evidence alone. Use the result to select one
+evidence-backed construction correction, then rerun the same FDI31 build once.
+Require four open bores, one printable occupied volume and no residual channel
+voxels before normal-window PreparedBranch review. Stop before Stage 3, robot
+motion or Studio work.
+
+## Immediate P0 — bore-safe Step 5B dock attachments
+
+- **ID:** `W5-U-04`; **Priority:** 0 (operator-promoted 2026-09-10);
+  **State:** Synthetic and FDI11 runtime verified, including clean
+  final-fusion bore-axis screenshots. FDI31 reconstruction retains a 5-voxel
+  fragment. Its approved RAS localization is away from every dock bore and
+  likely central guide/sleeve geometry; source-contributor classification and
+  operator review are pending explicit approval.
+- **Failure evidence:** Extended 9.6 mm through-bore subtraction preserved the
+  bore but split FDI11 into `[60677, 9, 4, 3, 1, 1, 1, 1, 1, 1]` occupied
+  regions. The corrected FDI11 rebuild now has one region `[62258]`, zero
+  residual channel occupancy and open-bore visual evidence. A fresh FDI31
+  rebuild has `[45966, 5, 2, 2, 1, 1, 1, 1]`; its largest remnant is at least
+  7.66 mm from any dock-bore axis, so it is not evidence to tune a dock branch
+  without contributor classification. The 0.1 mm³ cleanup ceiling and
+  one-solid gate remain authoritative.
+- **Corrected contract:** Route each cylindrical shell attachment tangent to a
+  protected bore radius equal to `bore radius + connector radius + one voxel`.
+  Land it on the reinforced outer annulus with at least one voxel of ligament,
+  retain configured endpoint overlap, extended final channel subtraction and
+  four independent branches. Fail early with Step 4C/5B control guidance when
+  the annulus, route or allowed gap cannot support that construction.
+- **Diagnostics:** A disconnected final fusion now reports voxel counts,
+  approximate extra-region volumes, the cleanup ceiling, the Step 5B
+  **Shell + Guides** inspection view and the Step 4C radius/yaw/dimension
+  controls to review. It explicitly warns against increasing the artifact
+  threshold to hide a mechanical fragment.
+- **Boundaries:** No patient shell, trajectory, bore/connector numeric value,
+  artifact threshold, collision policy, robot plan or clinical/physical-fit
+  acceptance changes. `W5-U-03` retains broader Step 5B/5C acceptance and
+  `W4C-U-01` retains future mechanical/rail design.
+- **Acceptance:** Focused synthetic geometry proves four bore-tangent branches,
+  one-voxel minimum annular/bore clearance, zero protected-channel occupancy,
+  four open bore axes, one watertight occupied solid and schema-1 invalidation.
+  FDI11 now passes this acceptance. FDI31 must still pass after contributor
+  classification and one evidence-backed construction correction, then receive
+  normal-window inspection from both bore faces. The bounded automated sequence
+  is registered as verification profile `w5u04-bore-safe-template`.
 
 ## Step 6 offline restore — existing related backlog
 
@@ -70,10 +109,15 @@ policy changes, or Studio work.
 ## P0 reusable Step 6 setup and PreparedBranches
 
 - **ID:** `S6-REUSABLE-CASE-SETUP`; **Priority:** 0.
-- **State:** Read-only caller/ownership audit complete; awaiting operator review
-  and final coding approval. Existing implementation is not accepted; the
-  operator reports faulty unified templates and stale behavior at Step 6
-  import. No current source-complete claim.
+- **State:** Operator approved the audited correction and its focused automated
+  single-target acceptance passed. The narrow FDI31 recovery now loads the
+  package offline without the former environment-mismatch rollback; static and
+  exact-package headless checks passed for that boundary. The package's legacy
+  Step 5C final-guide schema 1.0 is deliberately stale under current schema 2.0,
+  so the planning context is deactivated and transient mouth-open proxy is not
+  retained. Duplicate source-dock hiding is implemented for eligible schema-2
+  branch restoration, but cannot be accepted against this legacy package until
+  the planned rework chooses an inspection-only migration or regeneration path.
 - **Main workflow:** One target tooth; one trajectory normally or an explicitly
   paired two for a real two-canal case. Never auto-merge three trajectories.
 - **Optional testing:** Separate opt-in workflow over the existing 32-tooth ×
@@ -94,17 +138,26 @@ policy changes, or Studio work.
 - **Plan:** [PreparedBranch correction plan](DEVELOPMENT_PLAN.md#s6-reusable-case-setup-correction-plan).
   The 2026-09-10 decision supersedes tooth-owned/per-slot-copy and raw-selector
   interpretations. Existing MRML, registry and .dentocase remain authority.
-- **Evidence:** Earlier 29 host and 84 container tests cover prior helper
-  behavior, not this corrected contract. Serializer native save/load checks
-  passed on 2026-09-09. Composite runtime/retry failures and normal-window
-  acceptance remain open; see that logbook. The 2026-09-10 source audit confirms
-  raw trajectory activation, ignored Step 5B pairing selection in the build,
-  incomplete prepared-branch/evidence validation, branch-dependent 4C/insertion
-  state, and active-pointer-only deletion/invalidation traversal.
-- **Next:** Review the audit output and its ownership table. Only after explicit
-  coding approval, implement the three bounded deliverables stated above before
-  optional testing UI. Do not rerun the old composite as though it tests the new
-  contract; revise focused checks first. No robot algorithm changes.
+- **Evidence:** Registry schema/pure tests now cover one canonical branch record,
+  selected-branch authority, explicit pairing, scoped staleness and fail-closed
+  legacy migration. Static compilation and `git diff --check` pass; host pure
+  suite is 85/85, container planning set 67/67 and container restore set 39/39.
+  The focused runner invoked only the single-target current workflow, asserted
+  eligibility, failed-activation preservation and Step 6 import, and exited 0
+  with `DENTOBOT_REUSABLE_CASE_PASS`. Evidence is under
+  `/tmp/dentobot-verification/prepared-branch-single-20260910/`.
+  The exact failing package is
+  `data/Slicer_Saved/SampleStudy1/FDI31/run2-dentobot-case-step6x5.dentocase`.
+  Static MRML inspection shows the transformed Step 5C proxy plus a separately
+  visible, untransformed `[Step 4C] DENTO Four Independent Robot Docks` model.
+  The 2026-09-10 exact headless load reached `_openCaseBundle` successfully with
+  `step6SchemaMigrationPending=True`; it then correctly classified the saved
+  `DENTOBOT.FinalGuideSchemaVersion=1.0` as stale against required schema 2.0.
+- **Next:** Broader mouth-opening relocation/rework must explicitly decide the
+  legacy-final policy: a clearly labelled inspection-only proxy versus mandatory
+  Step 5C schema-2 regeneration. Then rerun the exact FDI31 load to accept
+  hidden source Step 4C docks/plane, transformed proxy, and reset visibility.
+  No robot algorithm or downstream scope is authorized by this recovery patch.
 
 ## FDI11 / Stage 3 — paused pending workflow integrity
 
@@ -134,10 +187,21 @@ policy changes, or Studio work.
 
 ## Assisted access endpoint — 2026-09-07
 
-- **ID:** `S4A-PULP-ENDPOINT`; **Priority:** Unprioritized; **State:** Completed: source, host checks and isolated Slicer single/dual endpoint integration passed (2026-09-08).
-- **Requested:** For single and dual assisted generation, preserve Entry and direction and stop Target at the first intersection with the selected tooth's pulp segmentation mask.
-- **Scope:** Binary-mask clipping in the shared generation path; clear failure on unavailable or missed pulp; atomic dual generation. No existing/manual trajectory edits or Step 6 policy changes.
-- **Next:** Reload the module before generating new assisted trajectories; existing/manual trajectories remain unchanged. Host and isolated Slicer checks passed. Operator anatomical review and full Track A acceptance remain separate.
+- **ID:** `S4A-PULP-ENDPOINT`; **Priority:** 0; **State:** Source and focused automated verification passed (2026-09-10); exact FDI31 normal-window anatomical review remains pending.
+- **Operator observation:** The displayed FDI31 assisted target appears inside the pulp mask in 2D but does not contact the displayed pulp surface in 3D. The operator requires the mismatch fixed now, not deferred.
+- **Exact-case finding:** The 4.23 mm line in `FDI31-step5c.mrb` belongs to a saved three-line set and has no current assisted-generation provenance; the Placement menu describes the creation action, not an existing line's origin. Slice projection also rendered off-slice Entry/Target glyphs over the mask. The saved Target is at the native voxel boundary, while the smoothed closed surface can diverge from that boundary.
+- **Corrected contract:** New single/dual assisted generation must prove a shared interval between the selected tooth's FDI-matched binary pulp mask and its displayed 3D surface, preserve Entry and direction, and atomically set Target to the first point contained by both (the farther entry boundary). Record both boundary points and their offset. Reject a native/display miss or non-overlap. Off-slice trajectory projection is disabled. Existing/manual trajectories and Step 6 policy remain unchanged.
+- **Verification:** Final diff check and scoped pycompile passed; pure endpoint test passed 1/1; focused Slicer target emitted `DENTOBOT_ASSISTED_PULP_PASS` and `DENTOBOT_STEP4A_P0_PASS`, exited 0, and left no Slicer process. Evidence: `/tmp/dentobot-verification/step4a-p0-20260910/result.json`.
+- **Next:** Reload the module, deliberately delete the legacy FDI31 set, generate one current assisted line, and record normal-window 3D surface contact plus non-projecting 2D slice behavior before anatomical approval.
+
+## Immediate P0 — restore truthful Step 4A smooth masks
+
+- **ID:** `W4-U-02`; **Priority:** 0; **State:** Root-cause correction and focused automated verification passed (2026-09-10); normal-window visual acceptance remains pending.
+- **Operator observation:** Smooth masks do not work and must be restored now as Priority 0.
+- **Finding:** The checked control returned without applying anything outside the special oblique-verification state and did not synchronize itself from the actual CBCT and segmentation display modes. It could therefore present a checked no-op in ordinary Step 4A.
+- **Corrected contract:** With a complete selected trajectory, the same switch operates in ordinary Step 4A and oblique verification, using Slicer's existing scalar interpolation and closed-surface 2D representation without modifying source voxels or masks. Outside oblique verification it reflects the actual joint CBCT/mask state; oblique exit restores the captured prior modes.
+- **Verification:** Focused Slicer target exercised the ordinary Step 4A handler, actual CBCT interpolation, smooth/native mask representations and endpoint persistence; it emitted `DENTOBOT_STEP4A_DISPLAY_PASS` and `DENTOBOT_STEP4A_P0_PASS` and exited 0. Evidence: `/tmp/dentobot-verification/step4a-p0-20260910/result.json`.
+- **Next:** Confirm in a normal Slicer window that on/off visibly changes both CBCT and masks, the checked state is truthful, and oblique disable/exit restores the prior modes. The broader representative Step 4/backtracking acceptance remains part of this task after the P0 regression check.
 
 ## Immediate P0 — terminal coverage disconnects shell collar
 
@@ -212,7 +276,8 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P2-01` | 2 | Planned | `S6-P0-02` checkpoint matrix understood | Implement one post-load visual integrity panel for Steps 1–6 with Current, Needs attention, Stale, Blocked upstream, and Rejected states |
 | `S6-P2-02` | 2 | Planned | `S6-P1-01` accepted | Add smooth display-only incisor-gap preview and one explicit commit action |
 | `S6-P2-03` | 2 | Planned | Priority-0 correctness accepted | Add shared truthful busy/progress/result/cancel behavior to long-running actions without fake percentages |
-| `UI-P3-01` | 3 | Planned | Studio functional acceptance and Priority 1–2 correctness | Refine the New GUI while proving Legacy parity and zero MRML/ROS side effects |
+| `W4B-P2-SUPPORT-AUTO` | 2 | Backlog; operator screenshot confirms narrow two-row support arch | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Deliver a one-row selected-jaw layout during the GUI revamp, with manual editing for edge, missing, or unsuitable teeth |
+| `UI-P3-01` | 3 | Planned | Studio functional acceptance and Priority 1–2 correctness | Refine the New GUI while proving Legacy parity, incorporating the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and adding no new MRML/ROS side effects |
 | `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings | Priority 0–3 work or an observed runtime regression no longer blocks it | Centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct test process-group cleanup, then require a zero-exit lifecycle run with no SlicerROS2 leaks |
 
 ## Unprioritized active and backlog
@@ -225,11 +290,9 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `W4-U-01` | Active design | Define reviewed crown region and MPR contract, then implement source-fingerprinted Entry snapping |
 | `W5-U-01` | Physical-fit provenance unresolved; optional export manifest remains backlog | Correct/verify guide bore versus burr; decide separately whether an optional path-independent STL manifest is useful. Neither STL nor manifest establishes Step 6 geometry authority |
 | `IMG-U-01` | Representative acceptance pending | Compare authoritative masks and optional display previews on governed CBCT; define acquisition/artifact/segmentation uncertainty evidence |
-| `W4-U-02` | Oblique display regression fixed and isolated Slicer logic check passed 2026-09-09; representative normal-window acceptance pending | Confirm the trajectory-verification smoothing checkbox visibly smooths both CBCT and authoritative segmentation masks, restores their prior modes on disable/exit, then exercise trajectory selection, assisted/manual placement, Step 4B support ownership/locking, save/reopen, and reference-linked backtracking on governed anatomy |
 | `W4C-U-01` | Design and representative acceptance pending | Validate support-aware docks, collisions, channels, rail roles, tolerances, and the non-parallel-trajectory versus one robot-axis constraint |
 | `W5-U-02` | Representative and physical acceptance pending | Validate the read-only Step 4B support pack in Step 5A, editable margin, undercut/removability, shell contact, seating, and terminal support on governed anatomy/phantom |
-| `W5-U-03` | Representative acceptance pending. **DENTO-NOTE 2026-09-07:** Step 5B unified-template creation needs detailed operator testing beyond smoke | Run current Step 5B fusion and Step 5C PASS/WARNING/FAIL, reopen, stale-lineage, channel-preservation, and one-STL flow; include dock/rail visibility and printability review |
-| `W5-U-04` | **DENTO-NOTE 2026-09-07 (major).** Unified-template branch connectors / dock guiderails occlude the dock **bore holes** themselves — connectors cover the clearance the docks are meant to expose. Workflow must become smarter/optimal (geometry + fusion order), not a cosmetic hide | Diagnose connector↔dock boolean/offset path in `DENTOGuideGeometry` / Step 5B fusion; preserve open bore lumen and rail approach; add an explicit acceptance check that each dock bore remains a through/open cylinder after unified fusion; then re-run representative 5B→5C |
+| `W5-U-03` | Representative acceptance pending. **DENTO-NOTE 2026-09-07:** Step 5B unified-template creation needs detailed operator testing beyond smoke. During 2026-09-10 Step 4A verification, the combined runner passed Step 4A display, assisted pulp and FDI11 shell stages, then failed independently at unified fusion with 10 occupied volumes `[60677, 9, 4, 3, 1, 1, 1, 1, 1, 1]`. Read-only diagnosis traces the regression boundary to the current `W5-U-04` extended through-bore subtraction: the same case passed on 2026-09-08 before dock channels grew from 5.6 mm to 9.6 mm; FDI11's 2.2 mm bore leaves 9- and 4-voxel slivers above the conservative 0.1 mm³ cleanup ceiling. The supplied FDI31 run-2 Step6x5 package is a successful comparison case (saved raw regions `[45846, 1]`, cleaned to one), not the failed artifact | Localize the FDI11 slivers and correct the shared bore/attachment construction under `W5-U-04` without relaxing the one-solid gate or blindly raising the artifact threshold; then run current Step 5B fusion and Step 5C PASS/WARNING/FAIL on both FDI11 and FDI31, reopen, stale-lineage, channel-preservation, and one-STL flow; include dock/rail visibility and printability review |
 | `W5-U-05` | **DENTO-NOTE 2026-09-07 (UX / workflow).** Step 5B template dimensions interact badly with upstream steps; **no clear Reset** for the unified-template path; **no interactive viewing** while sizing/fusing; the **Advanced** collapsible must be collapsed manually every entry even though 5B is a **required** stage, not an optional advanced detour | Redesign Step 5B panel: promote primary unified-template controls out of “Advanced”; add owned Reset (geometry + params + stale markers); add interactive 3D inspection while adjusting dimensions; gate/validate dimension coupling against Step 4A/4C/5A lineage so bad upstream combos fail closed with an explicit message |
 | `VIEW-U-01` | Cross-workflow normal-window acceptance pending. **DENTO-NOTE 2026-09-07:** mask 2D/3D opacity sliders no longer reachable in the viewer path the operator uses — see `VIEW-U-02` | Exercise grouped anatomy, stage presets, manual toggles, frame/restore, opacity, CBCT rendering labels, save/reopen, and Legacy/New parity without renderer or geometry side effects |
 | `VIEW-U-02` | **DENTO-NOTE 2026-09-07.** Viewer no longer exposes **2D / 3D opacity sliders for masks**. Legacy still wires `segmentation2DOpacitySlider` / `segmentation3DOpacitySlider` in segmentation UI; operator path (likely New GUI / View Controls) lost them. Needs a **deeper UI/UX plan**, not a one-off restore | Map Legacy vs New GUI vs View Composition ownership of mask opacity; design always-available 2D fill/outline + 3D surface opacity controls (stage-safe, display-only, scene-persistent); plan parity with CBCT opacity and group visibility; implement after written UX plan acceptance, then close with normal-window trial |

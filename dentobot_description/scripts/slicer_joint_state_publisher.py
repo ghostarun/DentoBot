@@ -173,6 +173,7 @@ def main(args: List[str] | None = None) -> None:
                 )
                 by_name[EXTERNAL_SPINDLE_JOINT] = 0.0
                 self._positions = [by_name[name] for name, _lo, _hi in self._joints]
+                self._publish()
             except ValueError as exc:
                 self.get_logger().warning(str(exc))
 

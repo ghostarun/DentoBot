@@ -25,6 +25,22 @@
       "runtime.step6_view_integrity",
       "manual.step6_normal_window"
     ],
+    "s6-reusable-case": [
+      "static.git_diff_check",
+      "static.step6_pycompile",
+      "pure.step6_planning",
+      "pure.step6_restore",
+      "runtime.s6_reusable_case",
+      "manual.step6_normal_window"
+    ],
+    "w5u04-bore-safe-template": [
+      "static.git_diff_check",
+      "static.w5u04_pycompile",
+      "runtime.w5u04_bore_safe_template",
+      "runtime.pulp_shell_fdi11",
+      "runtime.pulp_shell_fdi31",
+      "manual.w5u04_normal_window"
+    ],
     "lifecycle": [
       "static.git_diff_check",
       "runtime.slicer_reload",
@@ -33,6 +49,54 @@
     ]
   },
   "checks": [
+    {
+      "id": "runtime.w5u04_bore_safe_template",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["static.w5u04_pycompile", "static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 180,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "DENTOWorkflowTest.test_DENTOWorkflowVisibleTemplateSupportSurface",
+      "command_template": "timeout 180s docker exec dentobot-slicerros2 xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-main-window --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-code \"import sys; sys.path.insert(0, '/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/Resources/Python'); globals()['__file__']='/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/DENTOWorkflow.py'; exec(open(__file__).read()); test=DENTOWorkflowTest(); test.setUp(); test.test_DENTOWorkflowVisibleTemplateSupportSurface(); slicer.util.exit(0)\"",
+      "pass_condition": "exit_code_zero; this method asserts four bore-tangent branches, open bore-axis samples, zero protected-channel occupancy, one occupied solid and schema invalidation"
+    },
+    {
+      "id": "runtime.step4a_pulp_display",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["pure.assisted_pulp_endpoint", "static.assisted_pulp_pycompile", "static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 sh -lc 'DENTOBOT_TEST_STEP4A_ONLY=1 timeout 300s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
+      "pass_condition": "DENTOBOT_STEP4A_DISPLAY_PASS, DENTOBOT_ASSISTED_PULP_PASS and DENTOBOT_STEP4A_P0_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "runtime.s6_reusable_case",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "pure.step6_planning",
+        "pure.step6_restore",
+        "static.git_diff_check"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer_and_saved_case",
+      "entrypoint": "Testing/run_dentobot_reusable_case_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 sh -lc 'timeout 300s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_reusable_case_smoke.py'",
+      "pass_condition": "marker:DENTOBOT_REUSABLE_CASE_PASS"
+    },
     {
       "id": "runtime.pulp_shell_fdi11",
       "execution_kind": "container_slicer",
@@ -44,7 +108,20 @@
       "evidence_level": "synthetic_slicer_and_saved_case",
       "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
       "command_template": "docker exec dentobot-slicerros2 sh -lc 'timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
-      "pass_condition": "DENTOBOT_ASSISTED_PULP_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
+      "pass_condition": "DENTOBOT_STEP4A_DISPLAY_PASS, DENTOBOT_ASSISTED_PULP_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "runtime.pulp_shell_fdi31",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["static.w5u04_pycompile", "static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 900,
+      "evidence_level": "saved_case_slicer",
+      "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 sh -lc 'DENTOBOT_CASE_SOURCE=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/run2-dentobot-case-step6x5.dentocase DENTOBOT_EXPECTED_FDI=31 timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
+      "pass_condition": "DENTOBOT_FDI31_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
     },
     {
       "id": "pure.support_boundary_bridge",
@@ -71,6 +148,18 @@
       "pass_condition": "exit_code_zero"
     },
     {
+      "id": "static.w5u04_pycompile",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "static",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile DENTOWorkflow/Resources/Python/DENTOGuideGeometry.py DENTOWorkflow/Resources/Python/dentobot_workflow/logic_constants.py DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py DENTOWorkflow/Resources/Python/dentobot_workflow/slicer_tests.py Testing/run_dentobot_pulp_shell_smoke.py",
+      "pass_condition": "exit_code_zero"
+    },
+    {
       "id": "static.assisted_pulp_pycompile",
       "execution_kind": "host",
       "parallel_safe": true,
@@ -79,7 +168,7 @@
       "approval": "explain_then_approve",
       "timeout_sec": 60,
       "evidence_level": "static",
-      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile DENTOWorkflow/Resources/Python/DENTOTrajectoryGeometry.py DENTOWorkflow/Resources/Python/dentobot_workflow/logic_workflow.py DENTOWorkflow/Resources/Python/dentobot_workflow/runtime.py DENTOWorkflow/Resources/Python/dentobot_workflow/widget_planning_focus.py DENTOWorkflow/Resources/Python/dentobot_workflow/slicer_tests.py Testing/test_assisted_pulp_endpoint.py",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile DENTOWorkflow/Resources/Python/DENTOTrajectoryGeometry.py DENTOWorkflow/Resources/Python/dentobot_workflow/logic_workflow.py DENTOWorkflow/Resources/Python/dentobot_workflow/runtime.py DENTOWorkflow/Resources/Python/dentobot_workflow/widget_planning_focus.py DENTOWorkflow/Resources/Python/dentobot_workflow/widget_trajectory_view.py DENTOWorkflow/Resources/Python/dentobot_workflow/slicer_tests.py Testing/run_dentobot_pulp_shell_smoke.py Testing/test_assisted_pulp_endpoint.py",
       "pass_condition": "exit_code_zero"
     },
     {
@@ -291,6 +380,27 @@
       "entrypoint": "Testing/run_dentobot_segmentation_runs_smoke.py",
       "command_template": null,
       "pass_condition": "marker:DENTOBOT_SEGMENTATION_RUNS_PASS"
+    },
+    {
+      "id": "manual.w5u04_normal_window",
+      "execution_kind": "manual",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "runtime.w5u04_bore_safe_template",
+        "runtime.pulp_shell_fdi11",
+        "runtime.pulp_shell_fdi31"
+      ],
+      "approval": "operator_only",
+      "timeout_sec": 0,
+      "evidence_level": "developer_live",
+      "command_template": null,
+      "pass_condition": "operator confirms all four bores are open from both faces and the unified template is one printable solid"
     },
     {
       "id": "manual.step6_normal_window",

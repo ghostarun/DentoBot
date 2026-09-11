@@ -187,6 +187,8 @@ from DENTOStep6Planning import (
     validate_planning_context,
 )
 from DENTOStep6State import (
+    DENTOCASE_STATE_SCHEMA_VERSION,
+    DENTAL_FDI_TOOTH_IDS,
     BasePlacementStatus,
     MANUAL_SIMULATION_BASE_SOURCE,
     MOTION_DIAGNOSTIC_SCHEMA_VERSION,
@@ -199,18 +201,28 @@ from DENTOStep6State import (
     base_placement_source_issue,
     build_assisted_limit_proposal,
     build_collision_scene_audit,
+    build_robot_environment_snapshot,
     build_motion_diagnostic_session,
     build_phase_guard_configuration,
     build_task_home,
     build_task_snapshot,
     canonical_json,
+    empty_trajectory_registry,
     fingerprint,
     normalize_base_status,
     parse_task_snapshot,
     parse_task_home,
     parse_collision_scene_audit,
     parse_motion_diagnostic_session,
+    parse_robot_environment_snapshot,
+    parse_trajectory_registry,
+    prepared_branch_ids_for_trajectory,
+    select_prepared_branch,
+    select_trajectory_record,
+    stale_trajectory_record,
     task_snapshot_invalidation_reasons,
+    upsert_guide_set,
+    upsert_trajectory_record,
 )
 
 

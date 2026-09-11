@@ -3,10 +3,10 @@
 Last reconciled: 2026-09-10.
 
 TASKS.md owns the one active work order. The current P0 is main-workflow
-recovery and PreparedBranch integrity. The correction plan is approved for a
-read-only audit; that audit is complete below, and product implementation is
-paused for audit review and final coding approval. Earlier implementation
-fragments are not accepted behavior.
+recovery and PreparedBranch integrity. The audit was accepted on 2026-09-10 and
+the three-deliverable product patch is implemented in the dirty checkout.
+Static, pure and focused headless Slicer evidence pass; normal-window operator
+review remains pending.
 
 The main workflow has one target tooth and one trajectory, or an explicitly
 paired two. The optional 32 × 3 testing foundation is an alternative workflow,
@@ -22,26 +22,44 @@ retired pre-surgery/x4 cases remain negative diagnostics.
 ## Immediate gate and next implementation package
 
 The live blocker state and work order are in
-[TASKS.md](TASKS.md#immediate-blockers-and-next-task). The read-only
-PreparedBranch caller/ownership audit is complete below and is the final gate
-before coding. If the audit boundary is accepted, the next product package has
-exactly three deliverables: one persisted authoritative selected-branch ID; one
-centralized branch-eligibility result; and atomic activation of trajectory
-selection, pairing intent, shell, template, guide references and matching Step
-5C verification. The first acceptance path is 4A→4B→4C→5A→5B→5C→6 with one
-target and one trajectory.
+[TASKS.md](TASKS.md#immediate-blockers-and-next-task). The implementation now
+stores one authoritative selected-branch ID, routes Step 5C/selection/load/Step
+6 through one eligibility result, and atomically activates trajectory/pairing,
+matching 4C/insertion, shell, template, guide references and Step 5C revision.
+The first acceptance path remains 4A→4B→4C→5A→5B→5C→6 with one target and one
+trajectory.
 
-This package stops when the reviewable diff and focused single-target evidence
-exist. Explicit pairing follows; optional 32 × 3 testing follows that. Stage 3,
+This package stops when the reviewable diff and focused single-target runtime
+evidence exist. Both now exist: `runtime.s6_reusable_case` exited 0 with
+`DENTOBOT_REUSABLE_CASE_PASS`; normal-window operator review remains separate.
+Explicit pairing follows; optional 32 × 3 testing follows that. Stage 3,
 collision-policy or geometry-algorithm changes, Studio, database, batch and
 platform work are outside this package.
 
 ## S6-REUSABLE-CASE-SETUP correction plan
 
-**2026-09-10 — audit complete; review before product implementation.**
+**2026-09-10 — audit accepted; implementation and focused runtime pass, operator review pending.**
 This is the existing P0 task, not a new roadmap. The previous source-complete
 claim is withdrawn: operator reports show unified-template and Step 6 import
 regressions. TASKS.md alone owns current work order and status.
+
+### Immediate FDI31 restore delta before mouth-opening rework
+
+The normal-window review of
+`run2-dentobot-case-step6x5.dentocase` found two bounded restore defects under
+this existing task. An otherwise manifest/lineage-valid package was rolled back
+because its redundant derived Step 6 environment snapshot differed from the
+environment rebuilt from authoritative MRML. The opened Step 5C proxy followed
+the TMJ transform, while the source Step 4C docking assembly remained visible
+at the closed-jaw pose and looked like duplicate bores.
+
+Recover this case without redesigning the transform: retain hard rejection for
+package, node, registry, lineage and actual MRML geometry/matrix mismatches;
+rebuild only the redundant environment snapshot, keep the load offline and
+migration-pending, and reuse the existing target-attached proxy refresh to hide
+the Step 4C plane/docks until reset. Verify the exact package once in isolated
+Slicer, then stop. Moving/reworking the mouth-opening transform and its longer-
+term Step 6 object ownership belongs to the next dedicated plan update.
 
 ### 1. Separate the main workflow from optional testing
 
@@ -636,6 +654,66 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
 - `S6-P2-03`: use one shared long-running-action contract for truthful busy,
   progress, completion, error, cancel, and cleanup state.
 
+## Immediate Step 4A P0 correction — displayed pulp contact and smooth masks
+
+The 2026-09-10 operator report promotes `S4A-PULP-ENDPOINT` and `W4-U-02`
+ahead of the unprioritized roadmap. This correction is deliberately contained
+within Step 4A presentation and assisted creation:
+
+**Automated status:** Final static/pure checks and focused Slicer display plus
+single/dual assisted-generation integration passed 2026-09-10. Exact FDI31 and
+smooth/native normal-window observations remain operator acceptance.
+
+- keep the existing selected-tooth, reviewed-segmentation and one/two-entry
+  gates;
+- require the inferred finite Entry→root ray to hit both the FDI-matched native
+  binary pulp mask and that same segment's displayed closed surface; use the
+  farther of their entry boundaries as the first point contained by both;
+- record both boundary points, the shared Target, and their offset; fail before
+  node creation if either intersection or their shared interval is absent;
+- do not rewrite existing/manual lines, infer their provenance from the
+  Placement menu, or change Step 6, robot, clearance, or approval policy;
+- suppress off-slice markup projection so a point is not painted over a mask
+  in a slice it does not occupy; and
+- make the existing smooth-display switch apply in both ordinary Step 4A and
+  oblique verification, reflect the actual CBCT/mask modes, and restore the
+  captured modes when oblique verification ends.
+
+Acceptance requires the focused pure/static checks, the existing Slicer
+single/dual assisted-generation and segmentation-display check, and a
+normal-window FDI31 regeneration after deliberate deletion of the legacy
+three-line set. The new Target must lie on the displayed pulp surface, remain
+collinear with Entry and the inferred root target, and not appear in an
+unrelated slice through projection. Smooth on/off must visibly change both the
+CBCT and masks without changing source data and must restore prior modes on
+verification exit. These checks require explicit execution approval and must
+not overlap the operator's current Slicer process.
+
+## Immediate Step 5B P0 correction — open bores without detached attachments
+
+Continue canonical tasks `W5-U-04` and `W5-U-03`. Preserve the extended final
+through-bore subtraction, conservative 0.1 mm³ artifact threshold and one-solid
+gate. Replace nearest-point connector routing with one straight bore-tangent
+branch per dock: its cylinder surface remains one processing voxel outside the
+bore and overlaps the reinforced annulus by at least one voxel. Do not change
+the configured dock, bore, connector or trajectory dimensions.
+
+Fail before final fusion when the reinforced annulus is too thin, no tangent
+shell route exists or the safe route exceeds the current gap limit. Messages
+must identify the Step 5B inspection view and the relevant Step 4C radius, yaw
+and dock/bore/connector controls. On connectivity failure, report region sizes,
+approximate extra-region volumes and the cleanup ceiling; never recommend
+raising that ceiling as the default repair.
+
+Acceptance is one focused synthetic geometry scenario plus the existing FDI11
+saved-case fusion and an evidence-backed FDI31 comparison. Each representative
+case must retain four open bores, zero occupied protected-channel samples, one
+watertight occupied solid and Step 5C verification, followed by normal-window
+inspection. The current FDI31 rebuild is blocked by a retained 5-voxel
+component; classify its shell/guide/reinforcement/dock contributor before
+selecting one construction correction. Do not treat its RAS distance from the
+docks as proof of source membership or tune the dock route from that inference.
+
 ## Unprioritized and future roadmap
 
 | ID / track | Planned outcome | Entry condition |
@@ -643,7 +721,6 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
 | `W4-U-01` | Snap assisted trajectory Entry to a reviewed selected-tooth crown surface with MPR evidence | Crown-region contract exists |
 | `W5-U-01` | Optional Step 5C STL checksum/revision evidence for manufacturing handoff | Export traceability policy agreed; never gate Step 6 simulation |
 | `IMG-U-01` | Representative clinical visualization and segmentation-display acceptance | Governed CBCT and clinician review protocol available |
-| `W4-U-02` | Representative Step 4 trajectory/MPR/backtracking acceptance | `W4-U-01` crown contract and governed anatomy available |
 | `W4C-U-01` | Dock/rail geometry and multi-trajectory robot-axis closure | Registration versus load-bearing roles and mechanical thresholds agreed |
 | `W5-U-02` | Step 5A support, margin, undercut, shell, and removability acceptance | Representative anatomy and physical-fit criteria available |
 | `W5-U-03` | Step 5B/5C unified fusion, verification, reopen, and one-STL acceptance | Current Step 4/5 lineage and manufacturing thresholds available |

@@ -16,6 +16,7 @@ class TemplateBuildWidgetMixin:
             self.ui.templateUndercutBlockoutModelSelector.setCurrentNode(None)
             self.ui.patientContactShellModelSelector.setCurrentNode(None)
             self.ui.finalPrintableTemplateModelSelector.setCurrentNode(None)
+            self.ui.templateGuideTrajectorySelector.setCurrentNode(None)
             self.ui.templateGuideTrajectoriesListWidget.clear()
             self.ui.patientContactShellSourceValueLabel.text = _("--")
             self.ui.createTemplateInsertionDirectionButton.enabled = False
@@ -192,16 +193,12 @@ class TemplateBuildWidgetMixin:
 
     def _updateTemplateGuideTrajectoryList(self, sourceModel) -> None:
         try:
-            included = self.logic.getTargetDockingAssemblySummary(
-                self._parameterNode.targetDockingAssemblyModel
-            )["trajectories"]
+            included = self.logic.getEligibleTemplateGuideTrajectories(sourceModel)
         except (RuntimeError, ValueError):
-            try:
-                included = self.logic.getEligibleTemplateGuideTrajectories(
-                    sourceModel
-                )
-            except (RuntimeError, ValueError):
-                included = []
+            included = []
+        selectedIds = {
+            node.GetID() for node in self.logic.getSelectedTemplateGuideTrajectories()
+        }
         self._updatingGuideTrajectorySelectionUI = True
         try:
             self.ui.templateGuideTrajectoriesListWidget.clear()
@@ -219,9 +216,9 @@ class TemplateBuildWidgetMixin:
                 except ValueError:
                     ready = False
                 state = (
-                    _("included automatically — approved/locked")
+                    _("available — approved/locked")
                     if ready
-                    else _("included automatically — incomplete or unlocked")
+                    else _("available — incomplete or unlocked")
                 )
                 item = qt.QListWidgetItem(
                     _("FDI %1 — %2 (%3)")
@@ -230,7 +227,14 @@ class TemplateBuildWidgetMixin:
                     .replace("%3", state)
                 )
                 item.setData(qt.Qt.UserRole, trajectoryNode.GetID())
-                item.setFlags(item.flags() | qt.Qt.ItemIsSelectable)
+                item.setFlags(
+                    item.flags() | qt.Qt.ItemIsSelectable | qt.Qt.ItemIsUserCheckable
+                )
+                item.setCheckState(
+                    qt.Qt.Checked
+                    if trajectoryNode.GetID() in selectedIds
+                    else qt.Qt.Unchecked
+                )
                 if not ready:
                     item.setToolTip(
                         _("Complete and lock this trajectory in Step 4A before building.")
@@ -253,12 +257,13 @@ class TemplateBuildWidgetMixin:
 
     def _updateFinalPrintableTemplateControls(self, patientShell, sourceModel) -> None:
         targetDockingAssembly = self._parameterNode.targetDockingAssemblyModel
-        selectedTrajectories = []
+        selectedTrajectories = self.logic.getSelectedTemplateGuideTrajectories()
+        if not selectedTrajectories and self._parameterNode.trajectoryLine:
+            selectedTrajectories = [self._parameterNode.trajectoryLine]
         try:
             targetDockingSummary = self.logic.getTargetDockingAssemblySummary(
                 targetDockingAssembly
             )
-            selectedTrajectories = targetDockingSummary["trajectories"]
         except (RuntimeError, ValueError, json.JSONDecodeError):
             targetDockingSummary = None
         if sourceModel:
@@ -308,6 +313,9 @@ class TemplateBuildWidgetMixin:
                 finalSummary = self.logic.getFinalPrintableTemplateSummary(finalModel)
             except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
                 outputError = str(exc)
+        if finalSummary and finalSummary["trajectories"] != selectedTrajectories:
+            # Another PreparedBranch remains valid while this selection is prepared.
+            finalSummary = None
         if finalSummary and finalSummary["geometryState"] == "Current":
             currentTrajectoryGeometry = [
                 {
@@ -323,8 +331,6 @@ class TemplateBuildWidgetMixin:
                 staleReason = _("The patient-contact shell changed.")
             elif finalSummary["targetDockingAssembly"] is not targetDockingAssembly:
                 staleReason = _("The Step 4C docking assembly changed.")
-            elif finalSummary["trajectories"] != selectedTrajectories:
-                staleReason = _("The selected guide trajectories changed.")
             elif finalSummary["parametersJson"] != json.dumps(
                 normalizedParameters,
                 sort_keys=True,
@@ -562,6 +568,7 @@ class TemplateBuildWidgetMixin:
             )
 
         selectorNodes = (
+            (self.ui.templateGuideTrajectorySelector, trajectoryNode),
             (self.ui.templateInsertionDirectionSelector, insertionDirection),
             (self.ui.templateUndercutSurfaceModelSelector, undercutModel),
             (self.ui.templateUndercutBlockoutModelSelector, blockoutModel),
@@ -1016,6 +1023,40 @@ class TemplateBuildWidgetMixin:
             self._updateTemplateGuide()
             self._updateTemplateFinalization()
 
+    def onTemplateGuideTrajectorySelectionChanged(self, trajectoryNode) -> None:
+        if (
+            self._updatingTemplateGuideUI
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        previous = self._parameterNode.trajectoryLine
+        if trajectoryNode is previous:
+            return
+        try:
+            eligible = self.logic.getEligibleTemplateGuideTrajectories(
+                self._parameterNode.draftTemplateSupportModel
+            )
+            if trajectoryNode not in eligible:
+                raise ValueError(
+                    _("Choose a trajectory for the current Step 4B target tooth.")
+                )
+            self.onTrajectorySelectionChanged(trajectoryNode)
+            self.logic.setSelectedTemplateGuideTrajectories(
+                self._parameterNode.draftTemplateSupportModel,
+                [trajectoryNode],
+            )
+            self._updatePlanning()
+            self._updateTemplateGuide()
+            self._updateTemplateFinalization()
+        except (RuntimeError, ValueError) as exc:
+            self._updatingTemplateGuideUI = True
+            try:
+                self.ui.templateGuideTrajectorySelector.setCurrentNode(previous)
+            finally:
+                self._updatingTemplateGuideUI = False
+            slicer.util.errorDisplay(str(exc))
+
     def onPatientContactShellSelectionChanged(self, modelNode) -> None:
         if self._updatingTemplateGuideUI or not self._parameterNode:
             return
@@ -1192,10 +1233,6 @@ class TemplateBuildWidgetMixin:
                 self._parameterNode.draftTemplateSupportModel,
                 selected,
             )
-            self.logic.markFinalPrintableTemplateStale(
-                self._parameterNode.finalPrintableTemplateModel,
-                _("The selected guide trajectories changed."),
-            )
             self._updateTemplateGuide()
         except (RuntimeError, ValueError) as exc:
             slicer.util.errorDisplay(str(exc))
@@ -1210,12 +1247,19 @@ class TemplateBuildWidgetMixin:
         if not self._parameterNode or not self.logic:
             raise RuntimeError(_("DENTOWorkflow is not ready."))
         targetDockingAssembly = self._parameterNode.targetDockingAssemblyModel
-        try:
-            trajectories = self.logic.getTargetDockingAssemblySummary(
-                targetDockingAssembly
-            )["trajectories"]
-        except (RuntimeError, ValueError, json.JSONDecodeError):
-            trajectories = []
+        trajectories = self.logic.getSelectedTemplateGuideTrajectories()
+        if not trajectories and self._parameterNode.trajectoryLine:
+            trajectories = [self._parameterNode.trajectoryLine]
+        currentFinal = self._parameterNode.finalPrintableTemplateModel
+        reuseCurrent = False
+        if self.logic.isFinalPrintableTemplateModelNode(currentFinal):
+            try:
+                reuseCurrent = (
+                    self.logic.getFinalPrintableTemplateSummary(currentFinal)["trajectories"]
+                    == trajectories
+                )
+            except (RuntimeError, ValueError, json.JSONDecodeError):
+                pass
         finalModel, roleModels, details = (
             self.logic.createOrUpdateFinalPrintableTemplate(
                 self._parameterNode.patientContactShellModel,
@@ -1232,13 +1276,13 @@ class TemplateBuildWidgetMixin:
                     self._parameterNode.templateReinforcementDepthMm
                 ),
                 samplingSpacingMm=self._parameterNode.templateSamplingSpacingMm,
-                dockingModel=self._parameterNode.templateDockingAssemblyModel,
-                clearanceModel=self._parameterNode.templateDockingClearanceModel,
+                dockingModel=(self._parameterNode.templateDockingAssemblyModel if reuseCurrent else None),
+                clearanceModel=(self._parameterNode.templateDockingClearanceModel if reuseCurrent else None),
                 reinforcementModel=(
-                    self._parameterNode.templateDockingReinforcementModel
+                    self._parameterNode.templateDockingReinforcementModel if reuseCurrent else None
                 ),
-                channelsModel=self._parameterNode.templateDockingChannelsModel,
-                finalModel=self._parameterNode.finalPrintableTemplateModel,
+                channelsModel=(self._parameterNode.templateDockingChannelsModel if reuseCurrent else None),
+                finalModel=currentFinal if reuseCurrent else None,
             )
         )
         self._parameterNode.templateDockingAssemblyModel = roleModels["docking"]
@@ -1248,6 +1292,7 @@ class TemplateBuildWidgetMixin:
         ]
         self._parameterNode.templateDockingChannelsModel = roleModels["channels"]
         self._parameterNode.finalPrintableTemplateModel = finalModel
+        self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
         logging.info(
             "Generated unified template %s from %d trajectories with %d triangles",
             finalModel.GetID(),
@@ -1307,18 +1352,26 @@ class TemplateBuildWidgetMixin:
             or dockingSummary["targetSegmentId"] != sourceSummary["targetSegmentId"]
         ):
             raise ValueError(_("The Step 4C assembly belongs to another target anatomy."))
-        if not dockingSummary["trajectories"]:
-            raise ValueError(_("The Step 4C assembly has no source trajectory."))
-        for trajectoryNode in dockingSummary["trajectories"]:
+        trajectories = self.logic.getSelectedTemplateGuideTrajectories()
+        if not trajectories and self._parameterNode.trajectoryLine:
+            trajectories = [self._parameterNode.trajectoryLine]
+        eligible = self.logic.getEligibleTemplateGuideTrajectories(
+            self._parameterNode.draftTemplateSupportModel
+        )
+        if not 1 <= len(trajectories) <= 2 or any(
+            trajectoryNode not in eligible for trajectoryNode in trajectories
+        ):
+            raise ValueError(_("Choose one current-target trajectory or an explicit pair."))
+        for trajectoryNode in trajectories:
             trajectorySummary = self.logic.getTrajectorySummary(trajectoryNode)
             if (
                 not trajectorySummary["isValid"]
                 or trajectorySummary["definedPointCount"] != 2
                 or not trajectoryNode.GetLocked()
             ):
-                raise ValueError(
-                    _("Complete and lock every Step 4A source trajectory first.")
-                )
+                raise ValueError(_("Complete and lock every selected Step 5B trajectory first."))
+        if dockingSummary["trajectories"] != trajectories:
+            raise ValueError(_("Step 4C must match the selected trajectory or explicit pair."))
         return {
             "sourceSummary": sourceSummary,
             "visibleSummary": visibleSummary,

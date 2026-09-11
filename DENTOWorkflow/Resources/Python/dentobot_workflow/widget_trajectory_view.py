@@ -331,6 +331,13 @@ class TrajectoryViewWidgetMixin:
                     )
             except (RuntimeError, ValueError, json.JSONDecodeError):
                 pass
+            self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
+            if self.logic.isStep6CaseJawTransformNode(
+                self._parameterNode.step6CaseJawTransform
+            ):
+                self.logic.refreshStep6CaseTargetAttachedDisplay(
+                    self._parameterNode
+                )
         self._updatePlanning()
         self._updateTargetDocking()
 
@@ -373,11 +380,13 @@ class TrajectoryViewWidgetMixin:
                 _("Define a complete non-zero Entry/Target trajectory first.")
             )
         volumeNode = None
+        segmentationNode = None
         association = self.logic.getTrajectoryTargetAssociation(trajectoryNode)
         if association:
+            segmentationNode = association["segmentationNode"]
             try:
                 volumeNode = self.logic.getSegmentationSourceVolume(
-                    association["segmentationNode"]
+                    segmentationNode
                 )
             except ValueError as exc:
                 raise ValueError(
@@ -412,6 +421,7 @@ class TrajectoryViewWidgetMixin:
             raise RuntimeError(_("The verification slice MRML nodes are unavailable."))
         return {
             "volumeNode": volumeNode,
+            "segmentationNode": segmentationNode,
             "trajectoryNode": trajectoryNode,
             "summary": summary,
             "sliceViewName": sliceViewName,
@@ -470,12 +480,40 @@ class TrajectoryViewWidgetMixin:
             "volumeDisplayNodeId": (
                 volumeDisplayNode.GetID() if volumeDisplayNode else None
             ),
+            "segmentationNodeId": (
+                inputs["segmentationNode"].GetID()
+                if inputs["segmentationNode"]
+                else None
+            ),
             "volumeInterpolate": (
                 bool(volumeDisplayNode.GetInterpolate())
                 if volumeDisplayNode and hasattr(volumeDisplayNode, "GetInterpolate")
                 else None
             ),
+            "segmentation2DRenderingMode": (
+                self.logic.getSegmentation2DRenderingMode(
+                    inputs["segmentationNode"]
+                )
+                if inputs["segmentationNode"]
+                else None
+            ),
         }
+
+    def _applyTrajectoryVerificationSmoothing(self, inputs: dict) -> None:
+        smooth = bool(
+            self.ui.trajectoryVerificationSmoothInterpolationCheckBox.checked
+        )
+        volumeDisplayNode = inputs["volumeNode"].GetDisplayNode()
+        if volumeDisplayNode and hasattr(volumeDisplayNode, "SetInterpolate"):
+            volumeDisplayNode.SetInterpolate(smooth)
+        segmentationNode = inputs["segmentationNode"]
+        if segmentationNode:
+            self.logic.setSegmentation2DRenderingMode(
+                segmentationNode,
+                self.logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
+                if smooth
+                else self.logic.SEGMENTATION_2D_RENDERING_MODE_NATIVE,
+            )
 
     def _captureTrajectoryVerificationDisplayState(self, trajectoryNode) -> None:
         self._restoreTrajectoryVerificationDisplayState()
@@ -497,7 +535,7 @@ class TrajectoryViewWidgetMixin:
         }
         displayNode.SetVisibility(True)
         displayNode.SetVisibility2D(True)
-        displayNode.SetSliceProjection(True)
+        displayNode.SetSliceProjection(False)
         displayNode.SetSliceProjectionUseFiducialColor(True)
         displayNode.SetSliceProjectionOpacity(1.0)
 
@@ -650,11 +688,7 @@ class TrajectoryViewWidgetMixin:
 
         if compositeNode.GetBackgroundVolumeID() != inputs["volumeNode"].GetID():
             compositeNode.SetBackgroundVolumeID(inputs["volumeNode"].GetID())
-        volumeDisplayNode = inputs["volumeNode"].GetDisplayNode()
-        if volumeDisplayNode and hasattr(volumeDisplayNode, "SetInterpolate"):
-            volumeDisplayNode.SetInterpolate(
-                bool(self.ui.trajectoryVerificationSmoothInterpolationCheckBox.checked)
-            )
+        self._applyTrajectoryVerificationSmoothing(inputs)
 
         self._setTrajectoryVerificationStatus(
             _(
@@ -755,6 +789,17 @@ class TrajectoryViewWidgetMixin:
                 and hasattr(volumeDisplayNode, "SetInterpolate")
             ):
                 volumeDisplayNode.SetInterpolate(bool(state["volumeInterpolate"]))
+            segmentationNodeId = state.get("segmentationNodeId")
+            segmentationNode = (
+                slicer.mrmlScene.GetNodeByID(segmentationNodeId)
+                if segmentationNodeId
+                else None
+            )
+            if segmentationNode and state.get("segmentation2DRenderingMode"):
+                self.logic.setSegmentation2DRenderingMode(
+                    segmentationNode,
+                    state["segmentation2DRenderingMode"],
+                )
         if updateUi:
             self._setTrajectoryVerificationEnabledUi(False)
 
@@ -788,17 +833,9 @@ class TrajectoryViewWidgetMixin:
         del checked
         if self._updatingTrajectoryVerificationUI:
             return
-        if not self._trajectoryVerificationEnabled:
-            return
         try:
             inputs = self._trajectoryVerificationInputs()
-            displayNode = inputs["volumeNode"].GetDisplayNode()
-            if displayNode and hasattr(displayNode, "SetInterpolate"):
-                displayNode.SetInterpolate(
-                    bool(
-                        self.ui.trajectoryVerificationSmoothInterpolationCheckBox.checked
-                    )
-                )
+            self._applyTrajectoryVerificationSmoothing(inputs)
         except (RuntimeError, ValueError) as exc:
             self._setTrajectoryVerificationStatus(str(exc), error=True)
 
@@ -851,6 +888,18 @@ class TrajectoryViewWidgetMixin:
             self.ui.resetTrajectoryVerificationButton.enabled = bool(
                 self._trajectoryVerificationEnabled
             )
+            self.ui.trajectoryVerificationSmoothInterpolationCheckBox.enabled = bool(
+                canEnable and inputs["segmentationNode"]
+            )
+            if canEnable and not self._trajectoryVerificationEnabled:
+                self.ui.trajectoryVerificationSmoothInterpolationCheckBox.checked = bool(
+                    self.logic.getScalarVolumeInterpolation(inputs["volumeNode"])
+                    and inputs["segmentationNode"]
+                    and self.logic.getSegmentation2DRenderingMode(
+                        inputs["segmentationNode"]
+                    )
+                    == self.logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
+                )
             self.ui.trajectoryVerificationRotationSlider.value = int(
                 round(self._trajectoryVerificationAngleDeg)
             )

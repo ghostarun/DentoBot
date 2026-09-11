@@ -287,6 +287,14 @@ def test_slicer_joint_publisher_clamps_urdf_commands() -> None:
         raise AssertionError("mismatched command length must raise")
 
 
+def test_slicer_joint_publisher_immediately_relays_accepted_commands() -> None:
+    source = SLICER_PUBLISHER_PATH.read_text(encoding="utf-8")
+    callback = source[source.index("        def _on_command"):]
+    callback = callback[:callback.index("\n        def ", 5)]
+    assert "self._positions =" in callback
+    assert callback.index("self._positions =") < callback.index("self._publish()")
+
+
 def test_manual_launch_and_runtime_dependencies_are_installed() -> None:
     package_root = ElementTree.parse(PACKAGE_XML_PATH).getroot()
     dependencies = {

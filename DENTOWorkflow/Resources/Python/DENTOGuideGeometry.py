@@ -129,6 +129,46 @@ def filter_tiny_occupied_region_artifacts(
     }
 
 
+def _disconnected_occupied_region_diagnostics(
+    ranked_labels: np.ndarray,
+    occupied_region_sizes: Sequence[int],
+    image_origin_ras: Sequence[float],
+    voxel_spacing_mm: Sequence[float],
+    *,
+    maximum_regions: int = 8,
+) -> list[dict]:
+    """Describe the largest retained disconnected components in world RAS."""
+
+    origin = _vector(image_origin_ras, "Fusion image origin")
+    spacing = _vector(voxel_spacing_mm, "Fusion image spacing")
+    diagnostics = []
+    for rank, size in enumerate(occupied_region_sizes[1:maximum_regions], start=2):
+        indices_zyx = np.argwhere(ranked_labels == rank)
+        if not len(indices_zyx):
+            continue
+        indices_xyz = indices_zyx[:, ::-1]
+        bounds = np.vstack((indices_xyz.min(axis=0), indices_xyz.max(axis=0)))
+        diagnostics.append(
+            {
+                "rank": rank,
+                "voxelCount": int(size),
+                "centerRas": tuple(
+                    float(value)
+                    for value in origin + indices_xyz.mean(axis=0) * spacing
+                ),
+                "boundsRas": tuple(
+                    float(value)
+                    for value in (origin + bounds[0] * spacing)
+                )
+                + tuple(
+                    float(value)
+                    for value in (origin + bounds[1] * spacing)
+                ),
+            }
+        )
+    return diagnostics
+
+
 def _unit(values, label: str) -> np.ndarray:
     vector = _vector(values, label)
     length = float(np.linalg.norm(vector))
@@ -173,8 +213,8 @@ def compute_target_docking_frame(
     fraction = float(crown_cap_fraction)
     if not math.isfinite(fraction) or not 0.05 <= fraction <= 0.30:
         raise ValueError("Docking crown-cap fraction must be 5–30%.")
-    if not trajectories or len(trajectories) > 2:
-        raise ValueError("The target docking frame requires one or two trajectories.")
+    if not trajectories or len(trajectories) > 3:
+        raise ValueError("The target docking frame requires one to three trajectories.")
 
     axes = []
     trajectory_geometry = []
@@ -787,8 +827,11 @@ def create_target_frame_docking_geometry(
     bore_radius = float(parameters["boreDiameterMm"]) / 2.0
     clearance = float(parameters["clearanceMm"])
     reinforcement = float(parameters["reinforcementRadialMm"])
-    depths = [float(value) for value in parameters["depthsMm"]]
     spacing = float(parameters["processingResolutionMm"])
+    bore_channel_overhang = (
+        max(reinforcement, float(parameters["connectorThicknessMm"])) + spacing
+    )
+    depths = [float(value) for value in parameters["depthsMm"]]
     yaw_deg = float(parameters.get("yawDeg", 0.0))
     directions = _target_docking_directions(frame, yaw_deg)
     labels = ("+X", "+Y", "-X", "-Y")
@@ -814,7 +857,7 @@ def create_target_frame_docking_geometry(
         channel = _closed_cylinder(
             top_center + depth_axis * (depth / 2.0),
             depth_axis,
-            length_mm=depth + 2.0 * spacing,
+            length_mm=depth + 2.0 * bore_channel_overhang,
             radius_mm=bore_radius,
         )
         channel_parts.append(channel)
@@ -912,6 +955,11 @@ def create_target_frame_docking_geometry(
         "independentDockComponentCount": 4,
         "centralHubPresent": False,
         "radialSpokeCount": 0,
+        "boreProtection": {
+            "method": "ExtendedThroughDockReinforcementAndAttachmentOverlapV1",
+            "channelCount": len(channel_parts),
+            "endOverhangMm": bore_channel_overhang,
+        },
         "docks": dock_metrics,
         "topPlaneMaxResidualMm": float(
             max(abs(item["topPlaneResidualMm"]) for item in dock_metrics)
@@ -945,15 +993,21 @@ def create_shell_contact_reinforcement(
     docking_world: vtk.vtkPolyData,
     *,
     bridge_diameter_mm: float,
+    dock_axis_origin_ras,
+    dock_axis_ras,
+    dock_depth_mm: float,
+    bore_radius_mm: float,
+    reinforcement_outer_radius_mm: float,
+    reinforcement_depth_mm: float,
+    processing_spacing_mm: float,
     endpoint_overlap_mm: float | None = None,
     maximum_gap_mm: float = 12.0,
 ) -> tuple[vtk.vtkPolyData, dict]:
-    """Create a recorded load-spreading link from docking to the shell.
+    """Create a bore-tangent load-spreading link from docking to the shell.
 
-    The closest sampled docking-surface point is connected to its closest
-    patient-shell point.  Both ends overlap by one bridge radius so the
-    subsequent cropped voxel union has a real volumetric connection rather
-    than relying on coincident/tangent polygons.
+    The connector centreline stays one processing voxel outside the bore and
+    overlaps the reinforced outer annulus.  Both ends retain the configured
+    overlap so the final voxel union has a real volumetric connection.
     """
 
     shell = _triangulated_clean(shell_world)
@@ -965,48 +1019,98 @@ def create_shell_contact_reinforcement(
         else float(endpoint_overlap_mm)
     )
     maximum_gap = float(maximum_gap_mm)
+    dock_axis_origin = _vector(dock_axis_origin_ras, "Dock bore-axis origin")
+    dock_axis = _unit(dock_axis_ras, "Dock bore axis")
+    dock_depth = float(dock_depth_mm)
+    bore_radius = float(bore_radius_mm)
+    reinforcement_outer_radius = float(reinforcement_outer_radius_mm)
+    reinforcement_depth = float(reinforcement_depth_mm)
+    spacing = float(processing_spacing_mm)
     if not math.isfinite(diameter) or diameter <= 0.0:
         raise ValueError("Shell-contact bridge diameter must be positive.")
     if not math.isfinite(endpoint_overlap) or endpoint_overlap <= 0.0:
         raise ValueError("Shell-contact endpoint overlap must be positive.")
     if not math.isfinite(maximum_gap) or maximum_gap <= 0.0:
         raise ValueError("Maximum shell-contact gap must be positive.")
-    shell_locator = vtk.vtkStaticCellLocator()
-    shell_locator.SetDataSet(shell)
-    shell_locator.BuildLocator()
-    point_count = int(docking.GetNumberOfPoints())
-    if point_count <= 0:
-        raise ValueError("Docking geometry contains no points for shell contact.")
-    sample_step = max(1, int(math.ceil(point_count / 6000.0)))
-    best_distance = math.inf
-    best_docking = None
-    best_shell = None
-    point = [0.0, 0.0, 0.0]
-    for point_index in range(0, point_count, sample_step):
-        docking.GetPoint(point_index, point)
-        closest = [0.0, 0.0, 0.0]
-        cell_id = vtk.reference(0)
-        sub_id = vtk.reference(0)
-        distance_squared = vtk.reference(0.0)
-        shell_locator.FindClosestPoint(
-            point,
-            closest,
-            cell_id,
-            sub_id,
-            distance_squared,
+    dimensions = (
+        dock_depth,
+        bore_radius,
+        reinforcement_outer_radius,
+        reinforcement_depth,
+        spacing,
+    )
+    if any(not math.isfinite(value) or value <= 0.0 for value in dimensions):
+        raise ValueError("Dock and bore-safe attachment dimensions must be positive.")
+    annular_ligament = reinforcement_outer_radius - bore_radius - spacing
+    if annular_ligament < spacing:
+        raise ValueError(
+            "The Step 4C dock leaves less than one processing voxel of reinforced "
+            "annulus outside its bore. Review the Step 4C dock outer diameter, "
+            "reinforcement, and bore diameter plus the Step 5B processing resolution; "
+            "change only approved geometry dimensions."
         )
-        distance = math.sqrt(max(0.0, float(distance_squared)))
-        if distance < best_distance:
-            best_distance = distance
-            best_docking = np.asarray(point, dtype=float).copy()
-            best_shell = np.asarray(closest, dtype=float)
-    if best_docking is None or best_shell is None or not math.isfinite(best_distance):
-        raise RuntimeError("Could not locate a shell-contact point for the docking assembly.")
+
+    shell_point_count = int(shell.GetNumberOfPoints())
+    if shell_point_count <= 0 or docking.GetNumberOfPoints() <= 0:
+        raise ValueError("Shell and docking geometry need points for attachment routing.")
+    # ponytail: cap the linear shell scan; add a spatial index only if profiling
+    # shows this bounded Step 5B build scan is material.
+    sample_step = max(1, int(math.ceil(shell_point_count / 6000.0)))
+    bridge_radius = diameter / 2.0
+    centerline_clearance = bore_radius + bridge_radius + spacing
+    best = None
+    point = [0.0, 0.0, 0.0]
+    for point_index in range(0, shell_point_count, sample_step):
+        shell.GetPoint(point_index, point)
+        shell_point = np.asarray(point, dtype=float).copy()
+        offset = shell_point - dock_axis_origin
+        axial_offset = float(np.dot(offset, dock_axis))
+        radial = offset - axial_offset * dock_axis
+        radial_distance = float(np.linalg.norm(radial))
+        if radial_distance <= centerline_clearance:
+            continue
+        radial_unit = radial / radial_distance
+        transverse = _unit(
+            np.cross(dock_axis, radial_unit),
+            "Dock bore-tangent direction",
+        )
+        tangent_along_radial = centerline_clearance**2 / radial_distance
+        tangent_transverse = (
+            centerline_clearance
+            * math.sqrt(radial_distance**2 - centerline_clearance**2)
+            / radial_distance
+        )
+        attachment_axis_offset = float(
+            np.clip(axial_offset, 0.0, dock_depth + reinforcement_depth)
+        )
+        axis_point = dock_axis_origin + attachment_axis_offset * dock_axis
+        for sign in (-1.0, 1.0):
+            docking_point = axis_point + (
+                tangent_along_radial * radial_unit
+                + sign * tangent_transverse * transverse
+            )
+            distance = float(np.linalg.norm(shell_point - docking_point))
+            candidate = (
+                distance,
+                tuple(float(value) for value in docking_point),
+                shell_point,
+                docking_point,
+            )
+            if best is None or candidate[:2] < best[:2]:
+                best = candidate
+    if best is None:
+        raise ValueError(
+            "No bore-safe dock-to-shell attachment route was found. In Step 4C, "
+            "review dock radius/yaw and dock/connector dimensions; change only "
+            "approved geometry, then rebuild Step 5B."
+        )
+    best_distance, _, best_shell, best_docking = best
     if best_distance > maximum_gap:
         raise ValueError(
-            "The docking assembly is too far from the patient shell for a "
-            f"controlled reinforcement bridge ({best_distance:.2f} mm > "
-            f"{maximum_gap:.2f} mm)."
+            "The shortest bore-safe dock attachment exceeds the allowed Step 5B "
+            f"gap ({best_distance:.2f} mm > {maximum_gap:.2f} mm). Review the "
+            "Step 4C dock radius/yaw and change only approved geometry instead "
+            "of increasing cleanup tolerance."
         )
     axis = best_shell - best_docking
     if best_distance <= 1e-6:
@@ -1015,7 +1119,7 @@ def create_shell_contact_reinforcement(
         if float(np.linalg.norm(axis)) <= 1e-6:
             axis = np.asarray((0.0, 0.0, 1.0), dtype=float)
     axis = _unit(axis, "Shell-contact bridge axis")
-    radius = diameter / 2.0
+    radius = bridge_radius
     overlap = endpoint_overlap
     bridge_start = best_docking - axis * overlap
     bridge_end = best_shell + axis * overlap
@@ -1028,7 +1132,7 @@ def create_shell_contact_reinforcement(
         radius_mm=radius,
     )
     return bridge, {
-        "method": "ClosestSurfaceOverlappingCylindricalReinforcement",
+        "method": "BoreTangentOverlappingCylindricalReinforcementV2",
         "bridgeDiameterMm": diameter,
         "surfaceGapMm": best_distance,
         "maximumGapMm": maximum_gap,
@@ -1036,7 +1140,13 @@ def create_shell_contact_reinforcement(
         "dockingPointRas": tuple(float(value) for value in best_docking),
         "shellPointRas": tuple(float(value) for value in best_shell),
         "axisRas": tuple(float(value) for value in axis),
-        "sampledDockingPointCount": int(math.ceil(point_count / sample_step)),
+        "dockBoreAxisOriginRas": tuple(float(value) for value in dock_axis_origin),
+        "dockBoreAxisRas": tuple(float(value) for value in dock_axis),
+        "boreRadiusMm": bore_radius,
+        "boreCenterlineClearanceMm": centerline_clearance,
+        "minimumBoreSurfaceClearanceMm": spacing,
+        "reinforcedAnnularLigamentMm": annular_ligament,
+        "sampledShellPointCount": int(math.ceil(shell_point_count / sample_step)),
         "topology": surface_topology(bridge),
     }
 
@@ -1045,15 +1155,20 @@ def create_independent_shell_contact_reinforcements(
     shell_world: vtk.vtkPolyData,
     dock_components_world: Sequence[vtk.vtkPolyData],
     *,
+    dock_metrics: Sequence[dict],
     bridge_diameter_mm: float,
+    bore_radius_mm: float,
+    reinforcement_outer_radius_mm: float,
+    reinforcement_depth_mm: float,
+    processing_spacing_mm: float,
     endpoint_overlap_mm: float,
     maximum_gap_mm: float = 12.0,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Attach every independent robot dock to the patient shell.
 
-    A separate closest-surface branch is built for each dock component.  This
-    avoids a crown-centred hub and makes a missing/unreachable branch a hard
-    generation error instead of silently leaving a floating dock.
+    A separate bore-tangent branch is built for each dock component. This
+    avoids both a crown-centred hub and connector material crossing a bore;
+    a missing safe route is a hard error instead of a floating dock.
     """
 
     components = [
@@ -1061,17 +1176,25 @@ def create_independent_shell_contact_reinforcements(
         for component in dock_components_world
         if component and component.GetNumberOfCells()
     ]
-    if len(components) != 4:
+    metrics_by_dock = list(dock_metrics)
+    if len(components) != 4 or len(metrics_by_dock) != 4:
         raise ValueError(
-            "Exactly four independent robot-dock components are required for shell attachment."
+            "Exactly four robot-dock components and geometry records are required for shell attachment."
         )
     branches = []
     branch_metrics = []
-    for index, component in enumerate(components):
+    for index, (component, dock) in enumerate(zip(components, metrics_by_dock)):
         branch, metrics = create_shell_contact_reinforcement(
             shell_world,
             component,
             bridge_diameter_mm=bridge_diameter_mm,
+            dock_axis_origin_ras=dock["topFaceCenterRas"],
+            dock_axis_ras=dock["axisRas"],
+            dock_depth_mm=dock["depthMm"],
+            bore_radius_mm=bore_radius_mm,
+            reinforcement_outer_radius_mm=reinforcement_outer_radius_mm,
+            reinforcement_depth_mm=reinforcement_depth_mm,
+            processing_spacing_mm=processing_spacing_mm,
             endpoint_overlap_mm=endpoint_overlap_mm,
             maximum_gap_mm=maximum_gap_mm,
         )
@@ -1079,11 +1202,19 @@ def create_independent_shell_contact_reinforcements(
         branch_metrics.append({"dockIndex": index, **metrics})
     combined = _append_surfaces(branches)
     return combined, {
-        "method": "FourIndependentClosestSurfaceDockAttachments",
+        "method": "FourIndependentBoreTangentShellAttachmentsV2",
         "branchCount": len(branches),
         "bridgeDiameterMm": float(bridge_diameter_mm),
         "endpointOverlapMm": float(endpoint_overlap_mm),
         "maximumGapMm": float(maximum_gap_mm),
+        "minimumBoreSurfaceClearanceMm": min(
+            float(item["minimumBoreSurfaceClearanceMm"])
+            for item in branch_metrics
+        ),
+        "minimumReinforcedAnnularLigamentMm": min(
+            float(item["reinforcedAnnularLigamentMm"])
+            for item in branch_metrics
+        ),
         "branches": branch_metrics,
         "topology": surface_topology(combined),
     }
@@ -1333,7 +1464,13 @@ def fuse_shell_and_docking_voxel(
         | reinforcement_mask
         | docking_mask
     )
+    channel_excluded_occupied_count = int(
+        np.count_nonzero(final_mask & channel_mask)
+    )
     final_mask &= ~channel_mask
+    channel_residual_occupied_count = int(
+        np.count_nonzero(final_mask & channel_mask)
+    )
     final_mask[0, :, :] = False
     final_mask[-1, :, :] = False
     final_mask[:, 0, :] = False
@@ -1390,11 +1527,37 @@ def fuse_shell_and_docking_voxel(
     occupied_region_sizes = occupied_artifact_metrics[
         "occupiedVolumeRegionSizes"
     ]
+    disconnected_region_diagnostics = _disconnected_occupied_region_diagnostics(
+        ranked_labels,
+        raw_occupied_region_sizes,
+        binary_image.GetOrigin(),
+        binary_image.GetSpacing(),
+    )
+    occupied_artifact_metrics["disconnectedRegionDiagnostics"] = (
+        disconnected_region_diagnostics
+    )
     if occupied_volume_region_count != 1:
+        voxel_volume_mm3 = float(
+            occupied_artifact_metrics["occupiedArtifactVoxelVolumeMm3"]
+        )
+        maximum_artifact_samples = int(
+            occupied_artifact_metrics[
+                "maximumDiscardedOccupiedArtifactSampleCount"
+            ]
+        )
+        extra_regions = occupied_region_sizes[1:]
         raise RuntimeError(
             "Final shell/docking fusion contains "
             f"{occupied_volume_region_count} disconnected occupied volumes "
-            f"with voxel sizes {occupied_region_sizes}."
+            f"with voxel sizes {occupied_region_sizes}; extra regions are "
+            f"approximately {[round(size * voxel_volume_mm3, 4) for size in extra_regions]} "
+            f"mm³, and only regions up to {maximum_artifact_samples} voxel(s) "
+            f"may be discarded. Component RAS centres/bounds are {disconnected_region_diagnostics}. "
+            "Inspect Step 5B 'Shell + Guides' for a severed "
+            "dock attachment or isolated guide. Review Step 4C dock radius/yaw "
+            "and dock/bore/connector dimensions, change only approved geometry, "
+            "and rebuild; do not increase the artifact threshold to hide a "
+            "disconnected mechanical feature."
         )
     contour = vtk.vtkFlyingEdges3D()
     contour.SetInputData(binary_image)
@@ -1436,6 +1599,8 @@ def fuse_shell_and_docking_voxel(
         "volumeMm3": float(mass.GetVolume()),
         "surfaceAreaMm2": float(mass.GetSurfaceArea()),
         "channelSampleCount": int(np.count_nonzero(channel_mask)),
+        "channelExcludedOccupiedSampleCount": channel_excluded_occupied_count,
+        "channelResidualOccupiedSampleCount": channel_residual_occupied_count,
         "dockingSampleCount": int(np.count_nonzero(docking_mask)),
         "reinforcementSampleCount": int(np.count_nonzero(reinforcement_mask)),
         **occupied_artifact_metrics,

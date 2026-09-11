@@ -33,6 +33,7 @@ for path in (HELPERS, MODULE):
         sys.path.insert(0, str(path))
 
 import DENTOROS2Bridge as bridge  # noqa: E402
+from DENTOTemplateGeometry import model_polydata_in_world  # noqa: E402
 
 
 if EXPLICIT_CASE and any(os.environ.get(name, "") == "1" for name in (
@@ -78,7 +79,8 @@ def wait_until(predicate, timeout_sec: float):
 
 def require_success(result, stage: str):
     if not result.success:
-        raise RuntimeError(f"{stage}: {result.message}")
+        details = json.dumps(result.details, sort_keys=True, default=str)
+        raise RuntimeError(f"{stage}: {result.message}; details={details}")
     return result
 
 
@@ -92,6 +94,120 @@ def base_point_m_to_world_ras_mm(point, base_transform):
     target = [0.0, 0.0, 0.0, 0.0]
     matrix.MultiplyPoint(source, target)
     return [float(target[index]) for index in range(3)]
+
+
+def capture_fdi21_contact_from_below(facade, diagnostic_payload):
+    """Capture the isolated FDI21/spindle rejection from useful viewpoints."""
+
+    records = diagnostic_payload.get("candidate_records", ())
+    record = next(
+        (
+            item for item in records
+            if isinstance(item, dict)
+            and "71ddde60" in str(item.get("full_chain_guard_message") or "")
+            and isinstance(item.get("first_invalid_joint_positions_si"), dict)
+        ),
+        None,
+    )
+    if record is None:
+        raise RuntimeError("No retained FDI21/spindle rejected waypoint is available.")
+    shown, message = facade._bridge.show_goal_robot_joint_positions(
+        record["first_invalid_joint_positions_si"]
+    )
+    if not shown:
+        raise RuntimeError("show rejected FDI21 state: " + message)
+
+    fdi21_id = str(record.get("guard_first_body") or "")
+    target_id = facade._logic.step6TargetCollisionObjectId(facade._require_context())
+    for node in slicer.util.getNodesByClass("vtkMRMLDisplayableNode"):
+        display = node.GetDisplayNode()
+        if display is not None:
+            display.SetVisibility(False)
+    for node in slicer.util.getNodesByClass("vtkMRMLSliceNode"):
+        node.SetSliceVisible(False)
+
+    visible = []
+    focus_nodes = []
+    fdi21_node = None
+    spindle_node = None
+    for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+        display = node.GetDisplayNode()
+        if display is None:
+            continue
+        display.SetVisibility(False)
+        object_id = str(node.GetAttribute("DENTOBOT.OutgoingCollisionObjectId") or "")
+        name = str(node.GetName() or "").lower()
+        if node.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true" and object_id == fdi21_id:
+            display.SetVisibility(True); display.SetColor(1.0, 0.05, 0.05); display.SetOpacity(0.55)
+            display.SetEdgeVisibility(True); display.SetEdgeColor(0.35, 0.0, 0.0); visible.append(node); focus_nodes.append(node)
+            fdi21_node = node
+        elif node.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true" and object_id == target_id:
+            display.SetVisibility(True); display.SetColor(0.1, 0.9, 0.2); display.SetOpacity(0.12)
+            display.SetEdgeVisibility(True); display.SetEdgeColor(0.0, 0.35, 0.0); visible.append(node); focus_nodes.append(node)
+        elif "pneumatic-spindle-copy_model_0_goal" in name or "pneumatic_spindle-copy_model_0_goal" in name:
+            display.SetVisibility(True); display.SetColor(1.0, 0.45, 0.0); display.SetOpacity(0.6)
+            display.SetEdgeVisibility(True); display.SetEdgeColor(0.35, 0.12, 0.0); visible.append(node)
+            spindle_node = node
+        elif "burr_model_0_goal" in name:
+            display.SetVisibility(True); display.SetColor(1.0, 1.0, 0.0); display.SetOpacity(1.0)
+            visible.append(node)
+    if len(visible) < 3:
+        raise RuntimeError("Could not isolate FDI21, FDI11, and the rejected spindle model.")
+
+    intersection = vtk.vtkIntersectionPolyDataFilter()
+    intersection.SetInputData(0, model_polydata_in_world(fdi21_node))
+    intersection.SetInputData(1, model_polydata_in_world(spindle_node))
+    intersection.Update()
+    if intersection.GetOutput().GetNumberOfPoints() > 0:
+        contact = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "FDI21 spindle mesh intersection")
+        contact.SetAndObservePolyData(intersection.GetOutput())
+        contact.CreateDefaultDisplayNodes()
+        contact.GetDisplayNode().SetColor(1.0, 1.0, 0.0)
+        contact.GetDisplayNode().SetLineWidth(8.0)
+        contact.GetDisplayNode().SetVisibility(True)
+
+    layout = slicer.app.layoutManager()
+    layout.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutOneUp3DView)
+    process_events(0.5)
+    view = layout.threeDWidget(0).threeDView()
+    view.mrmlViewNode().SetAxisLabelsVisible(False)
+    camera = view.cameraNode().GetCamera()
+    bounds = [float("inf"), float("-inf"), float("inf"), float("-inf"), float("inf"), float("-inf")]
+    for node in focus_nodes:
+        current = [0.0] * 6
+        node.GetRASBounds(current)
+        for axis in range(3):
+            bounds[2 * axis] = min(bounds[2 * axis], current[2 * axis])
+            bounds[2 * axis + 1] = max(bounds[2 * axis + 1], current[2 * axis + 1])
+    center = [(bounds[2*i] + bounds[2*i+1]) / 2.0 for i in range(3)]
+    distance = max(bounds[1]-bounds[0], bounds[3]-bounds[2], bounds[5]-bounds[4]) * 1.7
+    output = Path("/workspace/data/dentobot-runs/fdi21-blocker-20260909")
+    output.mkdir(parents=True, exist_ok=True)
+    views = {
+        "bottom-inferior": ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+        "root-apical": ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
+        "palatal-bottom-oblique": ((0.0, 0.75, -0.66), (0.0, 0.66, 0.75)),
+    }
+    screenshots = []
+    for label, (direction, view_up) in views.items():
+        camera.SetFocalPoint(*center)
+        camera.SetPosition(*(center[i] + distance * direction[i] for i in range(3)))
+        camera.SetViewUp(*view_up)
+        camera.SetParallelProjection(True)
+        camera.SetParallelScale(distance * 0.36)
+        view.forceRender(); process_events(0.2)
+        path = output / f"fdi21-contact-{label}.png"
+        slicer.util.forceRenderAllViews()
+        pixmap = view.grab()
+        if not pixmap.save(str(path)):
+            raise RuntimeError(f"Could not save {path}")
+        screenshots.append(str(path))
+    print("DENTOBOT_FDI21_BOTTOM_CAPTURE_PASS " + json.dumps({
+        "candidate_index": record.get("candidate_index"),
+        "collision_pair": [record.get("guard_first_body"), record.get("guard_second_body")],
+        "screenshots": screenshots,
+    }), flush=True)
+    return screenshots
 
 
 def preview_repeat_phase(facade, phase: str, waypoint_count: int):
@@ -405,14 +521,21 @@ def run() -> dict[str, object]:
         if original_tool_insertion_evidence is not None:
             facade._tool_insertion_evidence = original_tool_insertion_evidence
     if EXPLICIT_CASE:
-        Path("/tmp/dentobot-exact-case-diagnostic.json").write_text(json.dumps({
+        exact_diagnostic = {
             "case": str(PACKAGE),
             "code": approach.code,
             "message": approach.message,
             "details": approach.details,
             "task": snapshot.to_dict(),
             "motion": json.loads(str(parameter_node.step6MotionDiagnosticJson or "{}")),
-        }, indent=2, default=str))
+        }
+        Path("/tmp/dentobot-exact-case-diagnostic.json").write_text(json.dumps(
+            exact_diagnostic, indent=2, default=str
+        ))
+        if os.environ.get("DENTOBOT_CAPTURE_FDI21_BOTTOM", "") == "1":
+            capture_fdi21_contact_from_below(facade, exact_diagnostic["motion"])
+            slicer.util.exit(0)
+            return {"diagnostic_only": True, "fdi21_bottom_capture": True}
     if not (
         approach.success
         or (

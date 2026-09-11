@@ -8,6 +8,58 @@ historical retries. TASKS.md owns live status; DEVELOPMENT_PLAN.md owns the
 current correction. Keep unique commands, failures, hashes and observations in
 this evidence record/daily logs; do not copy them into compact startup context.
 
+## 2026-09-10 FDI31 assisted-target representation mismatch
+
+The operator supplied orthogonal-slice and 3D screenshots showing a 4.23 mm
+FDI31 trajectory whose Target appears to overlap the pulp mask in 2D but misses
+the displayed pulp surface in 3D. Read-only inspection matched it to
+`data/Slicer_Saved/SampleStudy1/FDI31/FDI31-step5c.mrb`: Trajectory 1 is
+4.242032791 mm and belongs to a three-trajectory FDI31 set. Its markups have no
+`DENTOBOT.AssistedRootOrdinal`, `DENTOBOT.AssistedAnalysisJson`, or current
+assisted endpoint provenance. The current assisted contract permits one or two
+lines. Therefore the saved line's origin cannot be inferred from the current
+Placement selector or represented as a newly generated assisted result.
+
+The saved segmentation source is `Post_surgery_seg.seg.nrrd`, with 0.5 mm
+isotropic spacing; the FDI31 pulp is label 62 with 70 occupied voxels. The saved
+Target is RAS `[-95.0375595093, -38.1458436835, 51.7615283697]`, equivalent to
+continuous IJK `[190.0751, 76.2917, 103.5231]`. It is approximately 0.0117 mm
+from the relevant voxel-box boundary; the nearest rounded voxel is outside the
+label, and a small rootward step enters it. This is consistent with a native
+mask-boundary endpoint. Markups slice projection was enabled, so the 2D glyph
+could also appear over a mask when physically off that slice.
+
+Using the locally installed Slicer closed-surface conversion parameters
+(smoothing factor 0.5, 40 iterations, passband 0.01), the saved ray reaches the
+unsmoothed mask surface at about 4.484 mm but misses the smoothed surface, with
+about 0.239 mm closest separation. Recomputing the current root-direction
+initializer from the same saved tooth and Entry produces a native binary
+boundary at 4.8544 mm and a first displayed closed-surface intersection at
+6.9479 mm, an offset of 2.0935 mm along the same finite ray. These measurements
+show that the mismatch is representational and material; they do not by
+themselves prove anatomical correctness or runtime acceptance.
+
+The source correction records both boundary definitions and targets the first
+point shared by the FDI-matched binary mask and displayed closed surface—the
+farther entry boundary, explicitly rechecked against both representations. It
+also disables off-slice point projection. A focused Slicer check and a
+deliberate normal-window regeneration of the legacy FDI31 set remain required
+before the new behavior is accepted. No scene, source CBCT, segmentation,
+existing trajectory, or robot state was mutated during this reconstruction.
+
+Approved verification on 2026-09-10 subsequently passed final
+`git diff --check`, scoped pycompile, the pure endpoint test (1/1), and the
+focused serialized Slicer target. Slicer emitted
+`DENTOBOT_STEP4A_DISPLAY_PASS`, `DENTOBOT_ASSISTED_PULP_PASS`, and
+`DENTOBOT_STEP4A_P0_PASS`, exited 0, and left no Slicer process. The combined
+legacy runner also reached `DENTOBOT_FDI11_SHELL_PASS` but then failed in the
+independent Step 5B unified-fusion stage with 10 disconnected occupied volumes;
+that failure is routed to `W5-U-03` and does not negate the earlier focused
+Step 4A process result. Machine-readable evidence is
+`/tmp/dentobot-verification/step4a-p0-20260910/result.json`. Normal-window FDI31
+and visible smooth-mask acceptance remains an operator observation, not an
+automated claim.
+
 
 ## 2026-09-09 development, stable, dependency, and runtime identities
 

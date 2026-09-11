@@ -17,6 +17,7 @@ if str(HELPERS) not in sys.path:
 
 from DENTOStep6State import (  # noqa: E402
     BasePlacementStatus,
+    DENTAL_FDI_TOOTH_IDS,
     JOINT_NAMES,
     LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
@@ -27,18 +28,32 @@ from DENTOStep6State import (  # noqa: E402
     approach_points,
     base_placement_source_issue,
     build_assisted_limit_proposal,
+    build_attempt_context,
     build_motion_diagnostic_session,
     build_phase_guard_configuration,
     build_phase_joint_command,
     build_task_home,
     build_task_snapshot,
+    build_robot_environment_snapshot,
+    canonical_json,
     cap_simulation_target,
     fingerprint,
+    empty_trajectory_registry,
+    parse_attempt_context,
+    parse_robot_environment_snapshot,
+    parse_trajectory_registry,
+    prepared_branch_ids_for_trajectory,
     parse_task_home,
     parse_task_snapshot,
     parse_motion_diagnostic_session,
     task_snapshot_invalidation_reasons,
     transition_base_status,
+    robot_environment_invalidation_scopes,
+    select_prepared_branch,
+    select_trajectory_record,
+    stale_trajectory_record,
+    upsert_guide_set,
+    upsert_trajectory_record,
 )
 
 
@@ -60,6 +75,284 @@ def snapshot():
         limits_fingerprint="limits-a",
         robot_profile_fingerprint="robot-a",
     )
+
+
+def registry_with_trajectory(
+    registry, tooth: str, ordinal: int, *, fingerprint_value: str | None = None
+):
+    return upsert_trajectory_record(
+        registry,
+        tooth_id=tooth,
+        target_id=f"target-{tooth}",
+        segment_id=f"segment-{tooth}",
+        trajectory_id=f"trajectory-{tooth}-{ordinal}",
+        trajectory_node_id=f"vtkMRMLMarkupsLineNode{tooth}-{ordinal}",
+        trajectory_fingerprint=fingerprint_value or f"geometry-{tooth}-{ordinal}",
+        provenance="manual",
+    )
+
+
+def test_reusable_environment_and_attempt_contracts_are_target_independent():
+    matrix = tuple(float(value) for value in range(16))
+    home = build_task_home(
+        joints(),
+        base_fingerprint="base-a",
+        robot_profile_fingerprint="robot-a",
+        runtime_validation_status="Validated",
+        collision_audit_fingerprint="live-audit",
+        guard_policy_fingerprint="live-guard",
+        validated_at_utc="2026-09-09T12:00:00+00:00",
+    ).to_dict()
+    environment = build_robot_environment_snapshot(
+        case_identity="case-a",
+        anatomy_fingerprint="anatomy-a",
+        jaw_source_fingerprint="jaw-a",
+        jaw_landmarks_fingerprint="landmarks-a",
+        jaw_configuration_fingerprint="jaw-config-a",
+        jaw_transform_matrix=matrix,
+        mouth_gap_mm=40.0,
+        robot_profile_fingerprint="robot-a",
+        tool_identity="dentobot_drill_tcp",
+        tool_fingerprint="tool-a",
+        base_matrix=matrix,
+        base_status="ProvisionalLocked",
+        base_locked=True,
+        base_fingerprint="base-a",
+        task_home_configuration=home,
+    )
+    restored = parse_robot_environment_snapshot(environment.to_dict())
+    assert restored == environment
+    assert "runtime_validation_status" not in restored.task_home_configuration
+    assert "collision_audit_fingerprint" not in restored.task_home_configuration
+
+    attempt = build_attempt_context(
+        environment_fingerprint=environment.environment_fingerprint,
+        target_id="target-FDI11",
+        tooth_id="FDI11",
+        trajectory_id="trajectory-FDI11-1",
+        trajectory_fingerprint="trajectory-fingerprint",
+        guide_set_id="guide-FDI11",
+        guide_set_fingerprint="guide-fingerprint",
+    )
+    assert parse_attempt_context(attempt.to_dict()) == attempt
+    other_target = build_attempt_context(
+        environment_fingerprint=environment.environment_fingerprint,
+        target_id="target-FDI21",
+        tooth_id="FDI21",
+        trajectory_id="trajectory-FDI21-1",
+        trajectory_fingerprint="other-trajectory-fingerprint",
+    )
+    assert other_target.environment_fingerprint == attempt.environment_fingerprint
+    assert other_target.attempt_fingerprint != attempt.attempt_fingerprint
+
+
+def test_environment_changes_invalidate_only_real_shared_dependencies():
+    identity = tuple(float(value) for value in range(16))
+    common = dict(
+        case_identity="case-a",
+        anatomy_fingerprint="anatomy-a",
+        jaw_source_fingerprint="jaw-a",
+        jaw_landmarks_fingerprint="landmarks-a",
+        jaw_configuration_fingerprint="jaw-config-a",
+        jaw_transform_matrix=identity,
+        mouth_gap_mm=40.0,
+        robot_profile_fingerprint="robot-a",
+        tool_identity="tool-a",
+        tool_fingerprint="tool-fingerprint-a",
+        base_matrix=identity,
+        base_status="ProvisionalLocked",
+        base_locked=True,
+        base_fingerprint="base-a",
+        task_home_configuration={"joint_positions_si": [0, 1, 2, 3, 4]},
+    )
+    original = build_robot_environment_snapshot(**common)
+    assert robot_environment_invalidation_scopes(original, original) == ()
+    for changed in (
+        {"jaw_source_fingerprint": "jaw-b"},
+        {"jaw_landmarks_fingerprint": "landmarks-b"},
+        {"jaw_configuration_fingerprint": "jaw-config-b"},
+        {"mouth_gap_mm": 41.0},
+    ):
+        jaw_changed = build_robot_environment_snapshot(**{**common, **changed})
+        assert robot_environment_invalidation_scopes(original, jaw_changed) == (
+            "jaw", "base", "home", "attempt"
+        )
+    robot_changed = build_robot_environment_snapshot(
+        **{**common, "robot_profile_fingerprint": "robot-b"}
+    )
+    assert robot_environment_invalidation_scopes(original, robot_changed) == (
+        "base", "home", "attempt"
+    )
+    base_changed = build_robot_environment_snapshot(
+        **{**common, "base_fingerprint": "base-b"}
+    )
+    assert robot_environment_invalidation_scopes(original, base_changed) == (
+        "home", "attempt"
+    )
+    home_changed = build_robot_environment_snapshot(
+        **{**common, "task_home_configuration": {"joint_positions_si": [1] * 5}}
+    )
+    assert robot_environment_invalidation_scopes(original, home_changed) == (
+        "attempt",
+    )
+
+
+def test_32_by_3_registry_has_explicit_slots_and_rejects_a_fourth():
+    registry = empty_trajectory_registry()
+    assert tuple(registry["teeth"]) == DENTAL_FDI_TOOTH_IDS
+    assert all(
+        [slot["state"] for slot in tooth["trajectory_set"]["slots"]] == ["Empty"] * 3
+        for tooth in registry["teeth"].values()
+    )
+    for ordinal in range(1, 4):
+        registry = registry_with_trajectory(registry, "FDI11", ordinal)
+    assert [
+        slot["trajectory_id"]
+        for slot in registry["teeth"]["FDI11"]["trajectory_set"]["slots"]
+    ] == [
+        "trajectory-FDI11-1",
+        "trajectory-FDI11-2",
+        "trajectory-FDI11-3",
+    ]
+    with pytest.raises(ValueError, match="fourth"):
+        registry_with_trajectory(registry, "FDI11", 4)
+    assert parse_trajectory_registry(canonical_json(registry)) == registry
+
+
+def test_registry_stores_branches_once_and_preserves_scoped_staleness():
+    registry = empty_trajectory_registry()
+    registry = registry_with_trajectory(registry, "FDI11", 1)
+    registry = registry_with_trajectory(registry, "FDI11", 2)
+    registry = registry_with_trajectory(registry, "FDI11", 3)
+    registry = registry_with_trajectory(registry, "FDI21", 1)
+    registry = upsert_guide_set(
+        registry,
+        guide_set_id="guide-FDI11-T1",
+        target_id="target-FDI11",
+        trajectory_ids=("trajectory-FDI11-1",),
+        template_id="template-FDI11-T1",
+        template_node_id="template-11-t1",
+        shell_id="shell-FDI11-T1",
+        shell_node_id="shell-11-t1",
+        model_node_ids=("template-11-t1", "shell-11-t1"),
+        guide_fingerprint="guide-fingerprint-11-t1",
+    )
+    registry = upsert_guide_set(
+        registry,
+        guide_set_id="guide-FDI11-T2",
+        target_id="target-FDI11",
+        trajectory_ids=("trajectory-FDI11-2",),
+        template_id="template-FDI11-T2",
+        template_node_id="template-11-t2",
+        shell_id="shell-FDI11-T2",
+        shell_node_id="shell-11-t2",
+        model_node_ids=("template-11-t2", "shell-11-t2"),
+        guide_fingerprint="guide-fingerprint-11-t2",
+    )
+    registry = select_prepared_branch(registry, "guide-FDI11-T1")
+    assert registry["selected_branch_id"] == "guide-FDI11-T1"
+    registry = stale_trajectory_record(
+        registry, "trajectory-FDI11-1", "trajectory geometry changed"
+    )
+    slots11 = registry["teeth"]["FDI11"]["trajectory_set"]["slots"]
+    slots21 = registry["teeth"]["FDI21"]["trajectory_set"]["slots"]
+    assert slots11[0]["state"] == "Stale"
+    assert slots11[1]["state"] == "Current"
+    assert slots11[2]["state"] == "Current"
+    assert slots21[0]["state"] == "Current"
+    assert slots11[0]["prepared_branch_ids"] == ["guide-FDI11-T1"]
+    assert slots11[1]["prepared_branch_ids"] == ["guide-FDI11-T2"]
+    assert slots11[2]["prepared_branch_ids"] == []
+    assert registry["prepared_branches"]["guide-FDI11-T1"]["state"] == "Stale"
+    assert registry["prepared_branches"]["guide-FDI11-T2"]["state"] == "Current"
+
+
+def test_registry_allows_a_pair_but_rejects_a_three_trajectory_template():
+    registry = empty_trajectory_registry()
+    for ordinal in (1, 2, 3):
+        registry = registry_with_trajectory(registry, "FDI11", ordinal)
+    registry = upsert_guide_set(
+        registry,
+        guide_set_id="guide-FDI11-pair",
+        target_id="target-FDI11",
+        trajectory_ids=("trajectory-FDI11-1", "trajectory-FDI11-2"),
+        pairing_intent="ExplicitPair",
+    )
+    assert prepared_branch_ids_for_trajectory(
+        registry, "trajectory-FDI11-1"
+    ) == ("guide-FDI11-pair",)
+    assert registry["prepared_branches"]["guide-FDI11-pair"][
+        "pairing_intent"
+    ] == "ExplicitPair"
+    with pytest.raises(ValueError, match="two at most"):
+        upsert_guide_set(
+            registry,
+            guide_set_id="guide-FDI11-triple",
+            target_id="target-FDI11",
+            trajectory_ids=(
+                "trajectory-FDI11-1",
+                "trajectory-FDI11-2",
+                "trajectory-FDI11-3",
+            ),
+        )
+
+
+def test_registry_migrates_legacy_pair_fail_closed():
+    registry = empty_trajectory_registry()
+    registry = registry_with_trajectory(registry, "FDI11", 1)
+    registry = registry_with_trajectory(registry, "FDI11", 2)
+    tooth = registry["teeth"]["FDI11"]
+    registry["schema_version"] = "1.0"
+    legacy_guide = {
+        "guide_set_id": "guide-FDI11-pair",
+        "target_id": "target-FDI11",
+        "trajectory_ids": ["trajectory-FDI11-1", "trajectory-FDI11-2"],
+        "template_id": "template-FDI11-pair",
+        "template_node_id": "template-11-pair",
+        "shell_id": "shell-FDI11",
+        "shell_node_id": "shell-11",
+        "model_node_ids": ["template-11-pair", "shell-11"],
+        "fingerprint": "guide-fingerprint-11-pair",
+        "state": "Current",
+        "stale_reason": "",
+    }
+    tooth["guide_set"] = legacy_guide
+    for slot in tooth["trajectory_set"]["slots"]:
+        slot.pop("guide_set", None)
+
+    migrated = parse_trajectory_registry(registry)
+
+    assert "guide_set" not in migrated["teeth"]["FDI11"]
+    slots = migrated["teeth"]["FDI11"]["trajectory_set"]["slots"]
+    assert slots[0]["prepared_branch_ids"] == ["guide-FDI11-pair"]
+    assert slots[1]["prepared_branch_ids"] == ["guide-FDI11-pair"]
+    assert slots[2]["prepared_branch_ids"] == []
+    branch = migrated["prepared_branches"]["guide-FDI11-pair"]
+    assert branch["pairing_intent"] == "LegacyUnverified"
+    assert branch["state"] == "Stale"
+
+
+def test_registry_rejects_unknown_selected_branch_at_the_trust_boundary():
+    registry = registry_with_trajectory(empty_trajectory_registry(), "FDI11", 1)
+    registry = registry_with_trajectory(registry, "FDI21", 1)
+    registry["selected_branch_id"] = "missing"
+    with pytest.raises(ValueError, match="not registered"):
+        parse_trajectory_registry(registry)
+
+
+def test_raw_trajectory_selection_requires_one_unambiguous_current_branch():
+    registry = registry_with_trajectory(empty_trajectory_registry(), "FDI11", 1)
+    with pytest.raises(ValueError, match="exactly one"):
+        select_trajectory_record(registry, "trajectory-FDI11-1")
+    registry = upsert_guide_set(
+        registry,
+        guide_set_id="branch-one",
+        target_id="target-FDI11",
+        trajectory_ids=("trajectory-FDI11-1",),
+    )
+    assert select_trajectory_record(registry, "trajectory-FDI11-1")[
+        "selected_branch_id"
+    ] == "branch-one"
 
 
 def test_base_state_transitions_fail_closed_and_reserve_registered_lock():

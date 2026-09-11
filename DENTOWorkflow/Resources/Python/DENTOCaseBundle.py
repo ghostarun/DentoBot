@@ -22,7 +22,8 @@ import zipfile
 
 
 CASE_BUNDLE_FORMAT = "DENTOBOTCaseBundle"
-CASE_BUNDLE_SCHEMA_VERSION = "1.0"
+CASE_BUNDLE_SCHEMA_VERSION = "2.0"
+SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS = ("1.0", CASE_BUNDLE_SCHEMA_VERSION)
 CASE_BUNDLE_EXTENSION = ".dentocase"
 SCENE_MEMBER = "scene/case.mrb"
 MANIFEST_MEMBER = "manifest.json"
@@ -30,6 +31,8 @@ CHECKSUMS_MEMBER = "integrity/checksums.sha256"
 WORKFLOW_MEMBER = "workflow/lineage.json"
 ROBOT_PROFILE_MEMBER = "robot/robot-profile.json"
 SAVE_REPORT_MEMBER = "records/save-report.json"
+STUDY_INDEX_MEMBER = "study/index.json"
+STUDY_ATTEMPTS_MEMBER = "study/attempts.ndjson"
 
 MAX_ARCHIVE_MEMBERS = 128
 MAX_METADATA_MEMBER_BYTES = 16 * 1024 * 1024
@@ -47,6 +50,8 @@ class CaseBundleInspection:
     workflow: dict
     robot_profile: dict
     save_report: dict
+    study_index: dict | None = None
+    study_attempts: tuple[dict, ...] = ()
 
     @property
     def scene_sha256(self) -> str:
@@ -275,6 +280,7 @@ def create_case_bundle(
     robot_profile: Mapping[str, object],
     application: Mapping[str, object] | None = None,
     created_at_utc: str | None = None,
+    schema_version: str = CASE_BUNDLE_SCHEMA_VERSION,
 ) -> CaseBundleInspection:
     """Atomically create and then validate one portable case bundle."""
 
@@ -286,6 +292,8 @@ def create_case_bundle(
     if not scene_mrb.is_file():
         raise CaseBundleError(f"The scene MRB does not exist: {scene_mrb}")
     runtime_audit = audit_mrb_runtime_separation(scene_mrb)
+    if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
+        raise CaseBundleError(f"Unsupported DENTOBOT case-bundle schema: {schema_version}")
 
     workflow_bytes = _canonical_json_bytes(dict(workflow))
     robot_bytes = _canonical_json_bytes(dict(robot_profile))
@@ -296,15 +304,30 @@ def create_case_bundle(
         "coordinateValidation": "deferred-to-loaded-MRML",
     }
     save_report_bytes = _canonical_json_bytes(save_report)
+    study_index = {
+        "schemaVersion": "1.0",
+        "attemptContextSchemaVersion": "1.0",
+        "attemptCount": 0,
+        "replays": [],
+    }
+    study_index_bytes = _canonical_json_bytes(study_index)
+    study_attempts_bytes = b""
     files = {
         SCENE_MEMBER: _file_record_from_path(scene_mrb),
         WORKFLOW_MEMBER: _file_record_from_bytes(workflow_bytes),
         ROBOT_PROFILE_MEMBER: _file_record_from_bytes(robot_bytes),
         SAVE_REPORT_MEMBER: _file_record_from_bytes(save_report_bytes),
     }
+    if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+        files.update(
+            {
+                STUDY_INDEX_MEMBER: _file_record_from_bytes(study_index_bytes),
+                STUDY_ATTEMPTS_MEMBER: _file_record_from_bytes(study_attempts_bytes),
+            }
+        )
     manifest = {
         "format": CASE_BUNDLE_FORMAT,
-        "schemaVersion": CASE_BUNDLE_SCHEMA_VERSION,
+        "schemaVersion": schema_version,
         "packageId": str(uuid.uuid4()),
         "createdAtUtc": created_at_utc
         or datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -340,6 +363,9 @@ def create_case_bundle(
             archive.writestr(WORKFLOW_MEMBER, workflow_bytes, zipfile.ZIP_DEFLATED)
             archive.writestr(ROBOT_PROFILE_MEMBER, robot_bytes, zipfile.ZIP_DEFLATED)
             archive.writestr(SAVE_REPORT_MEMBER, save_report_bytes, zipfile.ZIP_DEFLATED)
+            if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+                archive.writestr(STUDY_INDEX_MEMBER, study_index_bytes, zipfile.ZIP_DEFLATED)
+                archive.writestr(STUDY_ATTEMPTS_MEMBER, study_attempts_bytes, zipfile.ZIP_DEFLATED)
             archive.writestr(CHECKSUMS_MEMBER, checksum_bytes, zipfile.ZIP_DEFLATED)
         inspection = validate_case_bundle(temporary_path)
         os.replace(temporary_path, destination)
@@ -350,6 +376,8 @@ def create_case_bundle(
             workflow=inspection.workflow,
             robot_profile=inspection.robot_profile,
             save_report=inspection.save_report,
+            study_index=inspection.study_index,
+            study_attempts=inspection.study_attempts,
         )
     finally:
         if temporary_path is not None:
@@ -400,19 +428,27 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
             raise CaseBundleError(
                 "The case bundle is incomplete: " + ", ".join(missing)
             )
+        manifest = _json_member(archive, MANIFEST_MEMBER)
+        if manifest.get("format") != CASE_BUNDLE_FORMAT:
+            raise CaseBundleError("The archive is not a DENTOBOT case bundle.")
+        schema_version = str(manifest.get("schemaVersion") or "")
+        if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
+            raise CaseBundleError(
+                "Unsupported DENTOBOT case-bundle schema: "
+                f"{manifest.get('schemaVersion') or 'missing'}"
+            )
+        if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+            required.update((STUDY_INDEX_MEMBER, STUDY_ATTEMPTS_MEMBER))
+            missing = sorted(required - set(names))
+            if missing:
+                raise CaseBundleError(
+                    "The case bundle is incomplete: " + ", ".join(missing)
+                )
         unexpected = sorted(set(names) - required)
         if unexpected:
             raise CaseBundleError(
                 "The case bundle contains unsupported archive members: "
                 + ", ".join(unexpected)
-            )
-        manifest = _json_member(archive, MANIFEST_MEMBER)
-        if manifest.get("format") != CASE_BUNDLE_FORMAT:
-            raise CaseBundleError("The archive is not a DENTOBOT case bundle.")
-        if manifest.get("schemaVersion") != CASE_BUNDLE_SCHEMA_VERSION:
-            raise CaseBundleError(
-                "Unsupported DENTOBOT case-bundle schema: "
-                f"{manifest.get('schemaVersion') or 'missing'}"
             )
         coordinate = manifest.get("coordinateSystem")
         if not isinstance(coordinate, dict) or (
@@ -426,12 +462,8 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
         if not isinstance(runtime, dict) or runtime.get("ros2Serialized") is not False:
             raise CaseBundleError("The case bundle does not prohibit serialized ROS state.")
         files = manifest.get("files")
-        if not isinstance(files, dict) or set(files) != {
-            SCENE_MEMBER,
-            WORKFLOW_MEMBER,
-            ROBOT_PROFILE_MEMBER,
-            SAVE_REPORT_MEMBER,
-        }:
+        expected_files = required - {MANIFEST_MEMBER, CHECKSUMS_MEMBER}
+        if not isinstance(files, dict) or set(files) != expected_files:
             raise CaseBundleError("The case-bundle file inventory is invalid.")
         checksum_text = archive.read(CHECKSUMS_MEMBER).decode("ascii")
         if checksum_text.encode("ascii") != _checksum_lines(files):
@@ -454,12 +486,36 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
         save_report = _json_member(archive, SAVE_REPORT_MEMBER)
         if save_report.get("runtimeAudit", {}).get("ros2RuntimeNodesSerialized") is not False:
             raise CaseBundleError("The bundle save report did not pass ROS separation.")
+        study_index = None
+        study_attempts: tuple[dict, ...] = ()
+        if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+            study_index = _json_member(archive, STUDY_INDEX_MEMBER)
+            if (
+                study_index.get("schemaVersion") != "1.0"
+                or study_index.get("attemptContextSchemaVersion") != "1.0"
+                or study_index.get("attemptCount") != 0
+                or study_index.get("replays") != []
+            ):
+                raise CaseBundleError("The schema-2 study index is invalid.")
+            attempts_text = archive.read(STUDY_ATTEMPTS_MEMBER).decode("utf-8")
+            try:
+                study_attempts = tuple(
+                    json.loads(line) for line in attempts_text.splitlines() if line.strip()
+                )
+            except json.JSONDecodeError as exc:
+                raise CaseBundleError("The study attempt ledger is invalid NDJSON.") from exc
+            if any(not isinstance(record, dict) for record in study_attempts):
+                raise CaseBundleError("Every study attempt must be a JSON object.")
+            if len(study_attempts) != int(study_index["attemptCount"]):
+                raise CaseBundleError("The study attempt count does not match its ledger.")
         return CaseBundleInspection(
             path=bundle_path,
             manifest=manifest,
             workflow=workflow,
             robot_profile=robot_profile,
             save_report=save_report,
+            study_index=study_index,
+            study_attempts=study_attempts,
         )
 
 

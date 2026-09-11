@@ -1091,12 +1091,16 @@ are excluded.
   not an alternative trajectory. Geometry math runs separately from the UI:
   entry-directed tooth-axis estimation, multi-depth root-side surface caps,
   deterministic transverse two-cluster analysis for the two-root case, and
-  Entry↔Target pairing. Assisted generation preserves those directions but
-  shortens each Target to the first occupied-voxel boundary of the selected
-  tooth's FDI-matched pulp mask along Entry→inferred rootward target. A missing,
-  ambiguous, empty, or missed pulp mask rejects generation before creating any
-  trajectories. The only planning outputs are the same ordinary
-  Entry→Target line nodes consumed everywhere else.
+  Entry↔Target pairing. Assisted generation preserves those directions and
+  requires hits in both the selected tooth's FDI-matched pulp mask and that
+  segment's displayed closed surface along Entry→inferred rootward target. It
+  places Target at the farther of the two entry boundaries only after proving
+  that point remains within both representations: the first shared pulp point
+  on the finite ray. The analysis retains both boundaries and their offset. A
+  missing, ambiguous, empty, native-mask miss, displayed-surface miss, or
+  non-overlap rejects generation before creating any trajectories. The only
+  planning outputs are the same ordinary Entry→Target line nodes consumed
+  everywhere else; existing/manual lines are not migrated.
 - Assisted lines reference the authoritative target segmentation/segment,
   immutable target bounds, and input-entry markup; record their analysis; stay
   unlocked; and carry `RequiresManualVerification`. Existing plans are never
@@ -1112,7 +1116,9 @@ are excluded.
   Slicer's singleton crosshair with accurate 3D picking and centred jumps;
   prior crosshair mode/behavior/thickness/pick settings are restored on disable,
   save, exit, and close. No picked point becomes a planning input unless the
-  user is separately in a Markups placement interaction.
+  user is separately in a Markups placement interaction. Entry/Target slice
+  projection is disabled so off-slice glyphs cannot masquerade as anatomical
+  intersections.
 - Step 4A trajectory verification reuses that same line and the source CBCT
   referenced by its authoritative segmentation. A native slice view receives
   a longitudinal `SliceToRAS`: column 0 is the angle-rotated transverse axis,
@@ -1122,8 +1128,12 @@ are excluded.
   derived volume. The prior slice/composite/line-display state is restored
   when verification ends and is excluded from saved presentation state.
   Red is preferred when available. Slider/wheel events are coalesced to a
-  roughly 16 ms display cadence, and optional native linear CBCT interpolation
-  is restored to its prior scalar-volume display value when MPR ends.
+  roughly 16 ms display cadence. The smooth-display switch uses existing
+  Slicer display features: native linear CBCT interpolation plus the derived
+  closed-surface segmentation representation. It operates in ordinary Step 4A
+  and in the oblique view, reflects the actual combined display state outside
+  oblique verification, modifies no source data, and restores captured CBCT
+  and segmentation modes when the oblique view ends.
 - During 2D Entry/Target correction, Markups start/end-interaction events hold
   that slice matrix fixed under the pointer. After the drag, the previous
   plane normal is minimally projected onto the corrected trajectory's
@@ -1247,7 +1257,10 @@ are excluded.
   A changed/stale support selection or draft makes Step 4C and downstream
   geometry stale.
 - No Step 4C solid exists at the crown centroid and there are no radial spokes.
-  Step 5B generates one closest-surface attachment per dock, retains the
+  Step 5B generates one bore-tangent shell attachment per dock. Each connector
+  surface stays one processing voxel outside its bore and overlaps the
+  reinforced outer annulus by at least one voxel; an unsafe annulus, route or
+  gap fails with Step 4C/5B corrective guidance. Step 5B retains the
   annular trajectory drill-guide sleeve/local collar as a different mechanical
   role, and clips attachment material against the complete trajectory-guide
   envelope. Any core dock/envelope collision aborts generation instead of
@@ -1255,7 +1268,7 @@ are excluded.
   must be regenerated.
 - Docking integration uses a cropped binary domain: remove outer docking
   clearance from the patient shell, union trajectory and four-dock
-  reinforcement, add four recorded closest-surface overlapping branches from
+  reinforcement, add four recorded bore-tangent overlapping branches from
   the Step 4C docks to the shell, apply the trajectory-guide exclusion, union
   all guide/dock solids, then subtract all trajectory/dock channels. The
   `FinalPrintableTemplate` explicitly references the patient shell, every
@@ -1264,8 +1277,11 @@ are excluded.
   surface-region count—defines whether the printable material is one solid,
   because a valid hollow object may have nested boundary surfaces. Only
   isolated one-voxel occupied artifacts may be discarded; every larger second
-  volume is fatal. World-RAS transformed synthetic coverage verifies fusion,
-  watertight topology, MRB reload, and clean subtree deletion.
+  volume is fatal. A fatal result reports each retained fragment's ranked voxel
+  count and RAS centre/bounds so Step 5B **Shell + Guides** inspection can
+  identify the implicated dock/attachment before any construction change.
+  World-RAS transformed synthetic coverage verifies fusion, watertight
+  topology, MRB reload, and clean subtree deletion.
 - Step 5C owns the active final verification gate. It records
   PASS/WARNING/FAIL source, snapshot, axis, topology, occupied-volume, channel,
   and sampling checks. Export reruns the checks, rejects FAIL, and uses the
@@ -1775,6 +1791,13 @@ as `Stale`, atomically unlocked in both typed and MRML interaction state, and
 must be reviewed/relocked after the jaw context is current. Actual saved
 geometry, provenance, base/home/task values, matrices, and coordinates remain
 fail-closed.
+The serialized Step 6 environment JSON is a derived dependency snapshot, not a
+second geometry authority. After the package's node, lineage, registry and MRML
+geometry/matrix checks succeed, a mismatch in that redundant snapshot is
+rebuilt from MRML in memory, marked migration-pending and logged; the existing
+offline restore path still clears runtime validity. A source Step 4C docking
+plane/assembly is hidden while its opened Step 5C display proxy is active and
+its prior visibility is restored when the jaw opening is reset.
 After success, Slicer's scene URL is cleared and its root is set to the package
 directory so the deleted extraction path cannot become a later save target and
 Ctrl+S cannot overwrite the outer package as an MRML file. Rollback restores
@@ -1787,13 +1810,14 @@ after import and the ROS connection remains off until an explicit Step 6
 action. Legacy MRML/MRB loading remains available as a clearly labelled
 compatibility path.
 
-### Reusable case foundation — implementation under correction
+### Reusable case foundation — focused runtime accepted, operator review pending
 
-The dirty source contains a schema-2 shared-environment/32 × 3 registry,
-per-slot guide dictionaries, raw-trajectory activation, model compatibility
-pointer swaps and offline package hydration. It does not yet implement the
-accepted PreparedBranch boundary. Prior pure/package tests are limited
-evidence; operator reports of faulty templates/staleness remain unresolved.
+The dirty source now stores each PreparedBranch once, references it from its
+trajectory slots and persists one `selected_branch_id`. A branch record binds
+ordered trajectory IDs, explicit `Single`/`ExplicitPair` intent, primary
+trajectory, matching docking/insertion, shell, template, guide models, branch
+revision and Step 5C verification revision. Legacy copied records migrate in
+memory; unproven pairs remain `LegacyUnverified` and ineligible.
 
 The 2026-09-10 caller audit found these concrete ownership gaps. Step 5B stores
 its checked trajectory references, but the production final-template builder
@@ -1806,6 +1830,15 @@ batches observer events but is not a prevalidated rollback transaction. Step 6
 import checks raw node presence plus scattered freshness tokens, not one branch
 eligibility result and exact Step 5C revision. Delete/invalidation traversal is
 rooted in current global pointers rather than every stored branch revision.
+
+The bounded implementation corrects those routes: build consumes the repeated
+one/pair selection; save/load retain the selected branch ID; Step 5C binds its
+evidence to the branch revision; selection and Step 6 import call the same
+eligibility result; and activation pre-resolves then swaps matching 4C,
+insertion, shell, template, guides and pairing references in one rollback-safe
+transaction. It adds no second registry and changes no geometry, planner or
+collision policy. The focused headless single-target target now passes; this
+does not substitute for the plan's normal-window operator review.
 
 Step 4C currently gathers every complete trajectory for the target tooth, up to
 three. Docking stores those trajectory/support dependencies, and insertion

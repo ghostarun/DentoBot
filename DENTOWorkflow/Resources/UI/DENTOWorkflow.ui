@@ -1755,9 +1755,6 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           <property name="removeEnabled">
            <bool>false</bool>
           </property>
-          <property name="SlicerParameterName" stdset="0">
-           <string>trajectoryLine</string>
-          </property>
          </widget>
         </item>
         <item row="2" column="0">
@@ -2130,9 +2127,9 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          </item>
          <item>
           <widget class="QCheckBox" name="trajectoryVerificationSmoothInterpolationCheckBox">
-           <property name="checked"><bool>true</bool></property>
-           <property name="toolTip"><string>Use Slicer's native linear scalar-volume interpolation for a smoother CBCT display while verification is enabled. This is display-only: it does not resample, copy, or modify the source CBCT.</string></property>
-           <property name="text"><string>Smooth CBCT display (native linear interpolation)</string></property>
+           <property name="checked"><bool>false</bool></property>
+           <property name="toolTip"><string>Switch the current Step 4A CBCT and segmentation display between native and smooth modes. This is display-only: it uses native interpolation and derived closed surfaces without modifying source voxels or masks. The current mode is shown truthfully when the scene or trajectory changes.</string></property>
+           <property name="text"><string>Smooth CBCT and segmentation masks</string></property>
           </widget>
          </item>
          <item>
@@ -2384,7 +2381,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <item row="0" column="1"><widget class="QPushButton" name="deleteTargetDockingAssemblyButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Delete Step 4C Assembly...</string></property></widget></item>
        </layout>
       </item>
-      <item><widget class="QLabel" name="targetDockingStatusLabel"><property name="text"><string>Complete and lock one or two target-tooth trajectories first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
+      <item><widget class="QLabel" name="targetDockingStatusLabel"><property name="text"><string>Complete and lock one to three target-tooth trajectories first.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
       <item><widget class="QLabel" name="targetDockingSafetyLabel"><property name="text"><string>Provisional research geometry only. The four-hole profile, fit tolerances, material strength, registration semantics, and robot load path require mechanical validation.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
      </layout>
     </widget>
@@ -2811,9 +2808,28 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      </property>
      <layout class="QVBoxLayout" name="templateGuideVerticalLayout">
       <item>
+       <widget class="QGroupBox" name="templateGuideTrajectorySelectionGroupBox">
+        <property name="title"><string>Guide trajectory</string></property>
+        <layout class="QFormLayout" name="templateGuideTrajectorySelectionFormLayout">
+         <item row="0" column="0"><widget class="QLabel" name="templateGuideTrajectoryLabel"><property name="text"><string>Generate for:</string></property></widget></item>
+         <item row="0" column="1">
+          <widget class="qMRMLNodeComboBox" name="templateGuideTrajectorySelector">
+           <property name="toolTip"><string>Select one complete, locked trajectory for the current target tooth. Step 5B restores that trajectory's existing guide/template or creates a separate trajectory-owned result.</string></property>
+           <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsLineNode</string></stringlist></property>
+           <property name="showChildNodeTypes"><bool>false</bool></property>
+           <property name="noneEnabled"><bool>true</bool></property>
+           <property name="addEnabled"><bool>false</bool></property>
+           <property name="removeEnabled"><bool>false</bool></property>
+          </widget>
+         </item>
+         <item row="1" column="0" colspan="2"><widget class="QLabel" name="templateGuideTrajectoryHintLabel"><property name="text"><string>The current simulation foundation generates one guide/template per selected trajectory. A paired unified template may reference two trajectories at most.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="templateGuideDescriptionLabel">
         <property name="text">
-         <string>Generate the undercut-aware patient-contact shell, then fuse the approved trajectory guide hole(s) and the current Step 4C four-dock rail assembly into one connected final template.</string>
+         <string>Select the trajectory above, generate its undercut-aware patient-contact shell, then fuse that trajectory's guide hole and the current Step 4C four-dock rail assembly into one connected final template.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
@@ -2925,7 +2941,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
         <property name="collapsed"><bool>false</bool></property>
         <layout class="QVBoxLayout" name="templateDockingFusionVerticalLayout">
          <item><widget class="QLabel" name="templateDockingFusionDescriptionLabel"><property name="text"><string>The primary action generates only missing or stale stages: directional blockout, cached patient shell, then trajectory-aligned drill guides and the confirmed Step 4C four-dock assembly. A current patient shell is reused unchanged when only guide/dock parameters need rebuilding. Inspection buttons change visibility only and never recompute geometry.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="minimumSize"><size><width>0</width><height>90</height></size></property><property name="toolTip"><string>Read-only source list. The exact locked trajectory set used by the confirmed Step 4C dock assembly is included automatically so shell fusion cannot silently use a different drill plan.</string></property></widget></item>
+         <item><widget class="QListWidget" name="templateGuideTrajectoriesListWidget"><property name="visible"><bool>false</bool></property><property name="minimumSize"><size><width>0</width><height>0</height></size></property><property name="toolTip"><string>Compatibility-only trajectory inventory; selection is owned by the Guide trajectory control above.</string></property></widget></item>
          <item>
           <layout class="QFormLayout" name="templateDockingFusionFormLayout">
            <item row="0" column="0"><widget class="QLabel" name="templateDockingClearanceLabel"><property name="text"><string>Drill-guide exclusion clearance:</string></property></widget></item>
@@ -3491,6 +3507,23 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
          <item><widget class="QLabel" name="step6PlanningContextDescriptionLabel"><property name="text"><string>Pick one scene. Import the Steps 0–5 case package to bring the CBCT, trajectory, docks, and template into view, then complete the required case mouth-opening step below. The draft phantom remains an alternate test scene. These two scenes are mutually exclusive.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
          <item><widget class="QPushButton" name="importStep6PlanningContextButton"><property name="text"><string>Import Planning Package for Step 6</string></property></widget></item>
          <item><widget class="QLabel" name="step6PlanningContextStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Planning package not imported.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <widget class="QGroupBox" name="step6RegistrySelectionGroupBox">
+           <property name="title"><string>6.0B — Select Tooth Trajectory + Guide Set</string></property>
+           <layout class="QFormLayout" name="step6RegistrySelectionFormLayout">
+            <item row="0" column="0"><widget class="QLabel" name="step6RegistryTrajectoryLabel"><property name="text"><string>Active registry slot:</string></property></widget></item>
+            <item row="0" column="1">
+             <widget class="qMRMLNodeComboBox" name="step6RegistryTrajectorySelector">
+              <property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsLineNode</string></stringlist></property>
+              <property name="noneEnabled"><bool>true</bool></property>
+              <property name="addEnabled"><bool>false</bool></property>
+              <property name="removeEnabled"><bool>false</bool></property>
+             </widget>
+            </item>
+            <item row="1" column="0" colspan="2"><widget class="QLabel" name="step6RegistrySelectionStatusLabel"><property name="text"><string>No populated trajectory slot is selected.</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: #b36b00;</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
          <item>
 <widget class="QGroupBox" name="step6CaseJawOpeningGroupBox">
         <property name="title"><string>6.0A — Open Case Mouth about the TMJ (required before 6.1)</string></property>
