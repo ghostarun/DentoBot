@@ -190,8 +190,8 @@ STAGE_RECOMMENDED_CATEGORIES: dict[int, frozenset[str]] = {
 STAGE_RECOMMENDATION_DESCRIPTIONS: dict[int, str] = {
     0: "Case volume in slice views, when available",
     1: "CBCT volume in slice views",
-    2: "CBCT slices with all grouped segmentation masks",
-    3: "CBCT slices with all grouped segmentation masks for review",
+    2: "CBCT slices with all grouped segmentation masks for segmentation and review",
+    3: "Full anatomy before or after the committed Case Foundation opening",
     4: "Target tooth, target bounds, and trajectory context",
     5: "Target tooth, selected support teeth, and support draft",
     6: "Support package, selected trajectory, rails, and docks",

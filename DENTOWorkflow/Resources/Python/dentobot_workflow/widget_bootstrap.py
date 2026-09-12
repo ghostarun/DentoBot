@@ -32,6 +32,7 @@ class BootstrapWidgetMixin:
         self._workflowContentScrollArea = None
         self._workflowContentWidget = None
         self._workflowContentLayout = None
+        self._segmentationReviewStageGroup = None
         self._persistentDisplayGroupBox = None
         self._viewControlsPalette = None
         self._viewControlsTabWidget = None
@@ -177,6 +178,7 @@ class BootstrapWidgetMixin:
         self._caseFoundationSnapshot: dict[str, object] | None = None
         self._applyingSessionFoundation = False
         self._caseFoundationSliderChanged = False
+        self._caseFoundationGatePriorEnabled: dict[object, bool] = {}
         self._isCleaningUp = False
 
     def setup(self) -> None:

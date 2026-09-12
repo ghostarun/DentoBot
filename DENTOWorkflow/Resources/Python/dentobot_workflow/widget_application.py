@@ -600,12 +600,31 @@ class ApplicationWidgetMixin:
         contentLayout = qt.QVBoxLayout(contentWidget)
         contentLayout.setContentsMargins(0, 0, 0, 0)
         contentLayout.setSpacing(4)
+
+        # Segmentation generation and review are one operator stage.  Keep the
+        # Designer controls and their existing callbacks, but give navigation
+        # one owner so the review continuation is not presented as a separate
+        # step.
+        segmentationStage = ctk.ctkCollapsibleButton(contentWidget)
+        segmentationStage.objectName = "segmentationReviewStageGroup"
+        segmentationStage.text = _("2 · Segmentation and Review")
+        segmentationStage.collapsed = False
+        segmentationStageLayout = qt.QVBoxLayout(segmentationStage)
+        segmentationStageLayout.setContentsMargins(4, 4, 4, 4)
+        segmentationStageLayout.setSpacing(4)
+        for innerStage in (
+            self.ui.backendCollapsibleButton,
+            self.ui.segmentationReviewCollapsibleButton,
+        ):
+            rootLayout.removeWidget(innerStage)
+            segmentationStageLayout.addWidget(innerStage)
+        self._segmentationReviewStageGroup = segmentationStage
         contentWidgets = (
             self.ui.introLabel,
             self.ui.caseCollapsibleButton,
             self.ui.imagingCollapsibleButton,
-            self.ui.backendCollapsibleButton,
-            self.ui.segmentationReviewCollapsibleButton,
+            segmentationStage,
+            self.ui.step6CaseJawOpeningGroupBox,
             self.ui.planningCollapsibleButton,
             self.ui.assistedTrajectoryCollapsibleButton,
             self.ui.targetDockingCollapsibleButton,

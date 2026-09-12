@@ -335,6 +335,18 @@ class RobotSceneSyncLogicMixin:
             return None
         return bounds
 
+    @staticmethod
+    def _modelRasBounds(node) -> list[float] | None:
+        """Return finite world-RAS bounds for a model when available."""
+
+        return RobotSceneSyncLogicMixin._nodeRasBounds(node)
+
+    @staticmethod
+    def combinedRasBounds(boundsList: list[list[float]]) -> tuple[float, ...] | None:
+        """Combine finite bounds using the shared Slicer RAS convention."""
+
+        return combine_ras_bounds(boundsList)
+
     def step6CaseViewRasBounds(self, parameterNode) -> tuple[float, ...] | None:
         """Combined world-RAS bounds of the imported case package."""
         bounds_list = [
@@ -343,6 +355,21 @@ class RobotSceneSyncLogicMixin:
             if (bounds := self._nodeRasBounds(node)) is not None
         ]
         return self.combinedRasBounds(bounds_list)
+
+    def step6ResearchWorkspaceRasBounds(
+        self,
+        robotModels: list,
+        caseModels: list,
+    ) -> tuple[float, ...] | None:
+        """Combined bounds for the transient robot and Case Foundation scene."""
+
+        bounds_list = [
+            self._modelRasBounds(model)
+            for model in [*robotModels, *caseModels]
+        ]
+        return self.combinedRasBounds(
+            [bounds for bounds in bounds_list if bounds is not None]
+        )
 
     @staticmethod
     def _subsample_polydata_points(

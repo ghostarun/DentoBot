@@ -6,6 +6,35 @@ from .runtime import *
 
 
 class PlanningDependencyLogicMixin:
+    def getPlanningTargetToothBoundsWorld(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> tuple[float, float, float, float, float, float]:
+        """Return the active target bounds in its current planning pose."""
+
+        sourceBounds = self.getTargetToothBoundsWorld(segmentationNode, segmentId)
+        parameterNode = self.getParameterNode()
+        if (
+            segmentationNode is not parameterNode.teethSegmentation
+            or self.step6CaseJawOpeningFreshnessIssues(parameterNode)
+        ):
+            return sourceBounds
+        jawOwner = self._targetJawOwner(parameterNode, segmentId)
+        derived = (
+            parameterNode.step6MovingLowerAnatomy
+            if jawOwner == "MovingLower"
+            else parameterNode.step6FixedUpperAnatomy
+            if jawOwner == "FixedUpper"
+            else None
+        )
+        if derived and derived.GetSegmentation().GetSegment(segmentId):
+            try:
+                return self.getSegmentationSegmentBoundsWorld(derived, segmentId)
+            except ValueError:
+                pass
+        return sourceBounds
+
     def createOrUpdateTargetBoundsRoi(
         self,
         segmentationNode: vtkMRMLSegmentationNode,
@@ -19,7 +48,7 @@ class PlanningDependencyLogicMixin:
             segmentationNode,
             segmentId,
         )
-        bounds = self.getTargetToothBoundsWorld(
+        bounds = self.getPlanningTargetToothBoundsWorld(
             segmentationNode,
             segmentId,
         )
@@ -176,7 +205,7 @@ class PlanningDependencyLogicMixin:
         """Report any Entry/Target points outside the selected tooth AABB."""
 
         summary = self.getTrajectorySummary(trajectoryNode)
-        bounds = self.getTargetToothBoundsWorld(
+        bounds = self.getPlanningTargetToothBoundsWorld(
             segmentationNode,
             segmentId,
         )

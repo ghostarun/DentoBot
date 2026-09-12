@@ -1905,6 +1905,13 @@
           ],
           "returns": "None"
         },
+        "startStep6CaseJawLandmarkPlacement": {
+          "arguments": "cls, landmarksNode: vtkMRMLMarkupsFiducialNode",
+          "decorators": [
+            "classmethod"
+          ],
+          "returns": "None"
+        },
         "startTrajectoryPlacement": {
           "arguments": "self, trajectoryNode: vtkMRMLMarkupsLineNode",
           "decorators": [],

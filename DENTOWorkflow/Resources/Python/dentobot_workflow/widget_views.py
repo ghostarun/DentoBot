@@ -345,11 +345,37 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         ):
             derivedDisplay = derived.GetDisplayNode() if derived else None
             if derivedDisplay:
+                derivedDisplay.SetVisibility(True)
                 derivedDisplay.SetVisibility3D(True)
+                # Presets may have hidden every derived segment individually
+                # while keeping the node available for the opened-jaw view.
+                # Restoring only aggregate visibility leaves a blank 3D
+                # renderer in target-focused Steps 4A-5C.  Re-enable the
+                # derived segments as one rigid planning display; the source
+                # segmentation remains immutable and hidden in closed pose.
+                derivedSegmentation = derived.GetSegmentation()
+                if derivedSegmentation:
+                    segmentIds = vtk.vtkStringArray()
+                    derivedSegmentation.GetSegmentIDs(segmentIds)
+                    for index in range(segmentIds.GetNumberOfValues()):
+                        segmentId = segmentIds.GetValue(index)
+                        # Slicer keeps a generic per-segment visibility flag
+                        # alongside the 3D override.  Target-focused presets
+                        # clear the generic flag on derived segmentations;
+                        # restoring only Visibility3D therefore leaves an
+                        # apparently enabled but empty renderer.
+                        derivedDisplay.SetSegmentVisibility(segmentId, True)
+                        derivedDisplay.SetSegmentVisibility3D(segmentId, True)
         model = self._parameterNode.step6OpenedLowerJawModel
         modelDisplay = model.GetDisplayNode() if model else None
         if modelDisplay:
-            modelDisplay.SetVisibility3D(True)
+            # The colored moving-lower segmentation is the authoritative
+            # opened-jaw display.  The beige closed-surface model is retained
+            # as an inspectable fallback only; showing both made Step 6 look
+            # like the vivid segmentation had been replaced.
+            modelDisplay.SetVisibility3D(
+                not bool(self._parameterNode.step6MovingLowerAnatomy)
+            )
 
     def onRestoreWorkflowView(self, checked: bool = False) -> None:
         del checked
@@ -362,9 +388,22 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         del checked
         if not self._parameterNode or not self.logic:
             return
+        planningTargetBounds = None
+        if int(self.ui.workflowStageComboBox.currentIndex) >= 4 and self._parameterNode.targetToothSegmentId:
+            try:
+                planningTargetBounds = self._planningTargetBoundsWorld()
+            except (RuntimeError, ValueError):
+                planningTargetBounds = None
         boundsList = []
         for entry in self._workflowViewEntriesByKey.values():
             if self._workflowViewEntryCheckState(entry) == qt.Qt.Unchecked:
+                continue
+            if (
+                planningTargetBounds is not None
+                and entry["kind"] == "segments"
+                and entry["category"] == "target_mask"
+            ):
+                boundsList.append(planningTargetBounds)
                 continue
             if entry["kind"] == "node":
                 bounds = [0.0] * 6

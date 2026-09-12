@@ -32,19 +32,45 @@ class DisplayLogicMixin:
         )
         if not segmentId or not segmentation.GetSegment(segmentId):
             raise ValueError(_("The selected segment does not exist."))
+        visible = bool(visible)
         displayNode.SetVisibility(True)
-        displayNode.SetSegmentVisibility(segmentId, bool(visible))
+        displayNode.SetSegmentVisibility(segmentId, visible)
+        displayNode.SetSegmentVisibility3D(segmentId, visible)
+        if hasattr(displayNode, "SetSegmentVisibility2DFill"):
+            displayNode.SetSegmentVisibility2DFill(segmentId, visible)
+        if hasattr(displayNode, "SetSegmentVisibility2DOutline"):
+            displayNode.SetSegmentVisibility2DOutline(segmentId, visible)
 
     def setAllSegmentationSegmentsVisibility(
         self,
         segmentationNode: vtkMRMLSegmentationNode,
         visible: bool,
     ) -> None:
-        _segmentation, displayNode = self._segmentationAndDisplayNode(
+        segmentation, displayNode = self._segmentationAndDisplayNode(
             segmentationNode
         )
-        displayNode.SetVisibility(True)
-        displayNode.SetAllSegmentsVisibility(bool(visible))
+        visible = bool(visible)
+        wasModifying = displayNode.StartModify()
+        try:
+            # SetAllSegmentsVisibility only updates the legacy aggregate flag
+            # on some Slicer versions.  Keep every 2D/3D per-segment flag in
+            # sync so a later stage preset cannot resurrect a stale subset.
+            displayNode.SetVisibility(visible)
+            displayNode.SetVisibility2D(visible)
+            displayNode.SetVisibility3D(visible)
+            displayNode.SetAllSegmentsVisibility(visible)
+            segmentIds = vtk.vtkStringArray()
+            segmentation.GetSegmentIDs(segmentIds)
+            for index in range(segmentIds.GetNumberOfValues()):
+                segmentId = segmentIds.GetValue(index)
+                displayNode.SetSegmentVisibility(segmentId, visible)
+                displayNode.SetSegmentVisibility3D(segmentId, visible)
+                if hasattr(displayNode, "SetSegmentVisibility2DFill"):
+                    displayNode.SetSegmentVisibility2DFill(segmentId, visible)
+                if hasattr(displayNode, "SetSegmentVisibility2DOutline"):
+                    displayNode.SetSegmentVisibility2DOutline(segmentId, visible)
+        finally:
+            displayNode.EndModify(wasModifying)
 
     def isolateSegmentationSegment(
         self,
@@ -59,6 +85,11 @@ class DisplayLogicMixin:
         displayNode.SetVisibility(True)
         displayNode.SetAllSegmentsVisibility(False)
         displayNode.SetSegmentVisibility(segmentId, True)
+        displayNode.SetSegmentVisibility3D(segmentId, True)
+        if hasattr(displayNode, "SetSegmentVisibility2DFill"):
+            displayNode.SetSegmentVisibility2DFill(segmentId, True)
+        if hasattr(displayNode, "SetSegmentVisibility2DOutline"):
+            displayNode.SetSegmentVisibility2DOutline(segmentId, True)
 
     def captureWorkflowDisplayState(
         self,

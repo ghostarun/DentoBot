@@ -5675,15 +5675,21 @@ class DENTOWorkflowTestMixin:
             "vtkMRMLScalarVolumeNode", "PreparedBranchCBCT"
         )
         inputImage = vtk.vtkImageData()
-        inputImage.SetDimensions(8, 8, 8)
+        inputImage.SetDimensions(120, 120, 120)
         inputImage.AllocateScalars(vtk.VTK_SHORT, 1)
         inputVolume.SetAndObserveImageData(inputImage)
+        inputVolume.SetSpacing(1.0, 1.0, 1.0)
+        inputVolume.SetOrigin(-60.0, -60.0, -60.0)
         parameterNode.inputVolume = inputVolume
         segmentationNode = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLSegmentationNode",
             "VisibleSupportSegmentation",
         )
         segmentationNode.CreateDefaultDisplayNodes()
+        segmentationNode.GetSegmentation().SetSourceRepresentationName(
+            slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName()
+        )
+        segmentationNode.SetReferenceImageGeometryParameterFromVolumeNode(inputVolume)
         for segmentId, segmentName, centerX in (
             ("tooth-16", "upper_right_first_molar_fdi16", -4.25),
             ("tooth-15", "upper_right_second_premolar_fdi15", 4.25),
@@ -5705,6 +5711,37 @@ class DENTOWorkflowTestMixin:
             )
             segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
 
+        def addFoundationCubeSegment(segmentId, segmentName, bounds):
+            source = vtk.vtkCubeSource()
+            source.SetBounds(*bounds)
+            source.Update()
+            segment = slicer.vtkSegment()
+            segment.SetName(segmentName)
+            segment.AddRepresentation(
+                slicer.vtkSegmentationConverter.GetSegmentationClosedSurfaceRepresentationName(),
+                source.GetOutput(),
+            )
+            segmentationNode.GetSegmentation().AddSegment(segment, segmentId)
+
+        # The extra reviewed surfaces are only the minimum anatomy needed to
+        # exercise the Case Foundation pose gate.  FDI 21 stays off the FDI 16
+        # collision arch, keeping the selected FDI-16 support IDs unchanged.
+        addFoundationCubeSegment(
+            "upper-central",
+            "upper_left_central_incisor_fdi21",
+            (-2.0, 2.0, -47.0, -43.0, -4.0, 0.0),
+        )
+        addFoundationCubeSegment(
+            "lower-central",
+            "lower_left_central_incisor_fdi31",
+            (-2.0, 2.0, -47.0, -43.0, -12.0, -8.0),
+        )
+        addFoundationCubeSegment(
+            "mandible",
+            "mandible",
+            (-26.0, 26.0, -10.0, 10.0, -15.0, 5.0),
+        )
+
         parentTransform = slicer.mrmlScene.AddNewNodeByClass(
             "vtkMRMLLinearTransformNode",
             "VisibleSupportParentTransform",
@@ -5716,11 +5753,43 @@ class DENTOWorkflowTestMixin:
             transformMatrix.SetElement(axis, 3, value)
         parentTransform.SetMatrixTransformToParent(transformMatrix)
         segmentationNode.SetAndObserveTransformNodeID(parentTransform.GetID())
+        parameterNode.teethSegmentation = segmentationNode
+        parameterNode.targetToothSegmentId = "tooth-16"
         logic.setSegmentationReviewState(
             segmentationNode,
             "Reviewed",
             updatedUtc="2026-08-10T12:00:00+00:00",
         )
+
+        landmarks = logic.ensureStep6CaseJawLandmarksNode(None)
+        parameterNode.step6CaseJawLandmarks = landmarks
+        landmarkPoints = (
+            (-2.0, -14.0, 55.0),
+            (50.0, -14.0, 55.0),
+            (24.0, -59.0, 56.0),
+            (24.0, -59.0, 52.0),
+        )
+        associations = logic.step6CaseJawLandmarkSegmentAssociations(parameterNode)
+        for index, point in enumerate(landmarkPoints):
+            self.assertEqual(
+                logic.prepareStep6CaseJawLandmarkPlacement(
+                    parameterNode,
+                    landmarks,
+                    index,
+                ),
+                associations[index],
+            )
+            landmarks.AddControlPointWorld(vtk.vtkVector3d(*point))
+            evidence = logic.finalizeStep6CaseJawLandmarkPlacement(
+                parameterNode,
+                landmarks,
+            )
+            self.assertIsNotNone(evidence)
+            self.assertEqual(evidence["sourceSegmentId"], associations[index])
+            self.assertLessEqual(float(evidence["projectionResidualMm"]), 5.0)
+        logic.stopTrajectoryPlacement()
+        self.assertFalse(logic.step6CaseJawSurfaceEvidenceIssues(parameterNode))
+        logic.createOrUpdateStep6CaseJawOpening(parameterNode)
 
         sourceModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
             segmentationNode,
@@ -5857,7 +5926,7 @@ class DENTOWorkflowTestMixin:
             undercutDetails["blockout"]["collisionAnatomy"][
                 "collisionToothCount"
             ],
-            4,
+            5,
         )
         self.assertIn(
             "tooth-17",
@@ -5979,7 +6048,7 @@ class DENTOWorkflowTestMixin:
         )
         self.assertEqual(
             targetDockingDetails["metrics"]["collisionScreen"]["obstacleSurfaceCount"],
-            3,
+            4,
         )
         self.assertEqual(targetDockingDetails["metrics"]["dockCount"], 4)
         self.assertEqual(

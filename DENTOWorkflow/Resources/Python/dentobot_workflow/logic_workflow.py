@@ -311,10 +311,42 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
                 )
             )
 
-        bounds = self.getTargetToothBoundsWorld(segmentationNode, segmentId)
+        parameterNode = self.getParameterNode()
+        targetJawOwner = self._targetJawOwner(parameterNode, segmentId)
+        sourceToPlanning = np.eye(4, dtype=float)
+        planningToSource = np.eye(4, dtype=float)
+        if targetJawOwner == "MovingLower":
+            sourceToPlanning = self._numpyFromVtkMatrix(
+                self._step6CaseJawMatrixWorld(parameterNode)
+            )
+            try:
+                planningToSource = np.linalg.inv(sourceToPlanning)
+            except np.linalg.LinAlgError as exc:
+                raise ValueError(
+                    _("The current Case Foundation jaw transform is not invertible.")
+                ) from exc
+
+        def mapPoint(matrix: np.ndarray, point) -> np.ndarray:
+            homogeneous = matrix @ np.append(np.asarray(point, dtype=float), 1.0)
+            scale = float(homogeneous[3])
+            if not math.isfinite(scale) or abs(scale) <= 1e-12:
+                raise ValueError(_("A Case Foundation point transform is invalid."))
+            mapped = homogeneous[:3] / scale
+            if not np.all(np.isfinite(mapped)):
+                raise ValueError(_("A Case Foundation point transform is invalid."))
+            return mapped
+
+        planningEntryPoints = [
+            np.asarray(point, dtype=float)
+            for point in inputs["entryPointsRas"]
+        ]
+        sourceEntryPoints = [
+            mapPoint(planningToSource, point) for point in planningEntryPoints
+        ]
+        bounds = self.getPlanningTargetToothBoundsWorld(segmentationNode, segmentId)
         if any(
             not self.isRasPointWithinBounds(point, bounds)
-            for point in inputs["entryPointsRas"]
+            for point in planningEntryPoints
         ):
             raise ValueError(
                 _("Every assisted crown entry point must lie inside the target-tooth bounds.")
@@ -325,9 +357,12 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             raise ValueError(_("The target tooth has no usable surface points."))
         analysis = infer_root_targets(
             vtk_to_numpy(pointData),
-            inputs["entryPointsRas"],
+            sourceEntryPoints,
             rootCount,
         )
+        analysis["sourceEntryPointsRas"] = [
+            [float(value) for value in point] for point in sourceEntryPoints
+        ]
 
         pulpRecords = [
             record for record in self.getSegmentationReviewRecords(segmentationNode)
@@ -370,7 +405,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         binaryTargets = []
         surfaceTargets = []
         surfaceOffsetsMm = []
-        for index, (entry, target) in enumerate(zip(inputs["entryPointsRas"], analysis["rootTargetsRas"]), 1):
+        for index, (entry, target) in enumerate(zip(sourceEntryPoints, analysis["rootTargetsRas"]), 1):
             entryIjk = worldToImage.MultiplyPoint((*entry, 1.0))[:3]
             targetIjk = worldToImage.MultiplyPoint((*target, 1.0))[:3]
             try:
@@ -434,13 +469,25 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         analysis["binaryMaskBoundaryTargetsRas"] = binaryTargets
         analysis["displaySurfaceBoundaryTargetsRas"] = surfaceTargets
         analysis["surfaceOffsetsMm"] = surfaceOffsetsMm
+        analysis["planningEntryPointsRas"] = [
+            [float(value) for value in point]
+            for point in planningEntryPoints
+        ]
+        analysis["planningTargetsRas"] = [
+            [float(value) for value in mapPoint(sourceToPlanning, point)]
+            for point in targets
+        ]
+        analysis["planningCoordinateSystem"] = "OpenedCaseFoundationWorldRAS"
         analysis["endpointMethod"] = "FirstSharedPulpIntersectionV2"
         analysis["pulpSegmentId"] = pulpId
 
         created = []
         try:
             for index, (entry, target) in enumerate(
-                zip(inputs["entryPointsRas"], analysis["targetsRas"]),
+                zip(
+                    analysis["planningEntryPointsRas"],
+                    analysis["planningTargetsRas"],
+                ),
                 start=1,
             ):
                 trajectoryNode = self.createTrajectoryNode(

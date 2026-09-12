@@ -528,10 +528,15 @@ class RobotSceneWidgetMixin:
                 gap = transform.GetAttribute("DENTOBOT.AchievedIncisorGapMm") or "--"
                 model = self._parameterNode.step6OpenedLowerJawModel
                 try:
-                    movingCount = len(
-                        json.loads(
-                            model.GetAttribute("DENTOBOT.MovingSegmentIdsJson") or "[]"
+                    movingCount = (
+                        len(
+                            json.loads(
+                                model.GetAttribute("DENTOBOT.MovingSegmentIdsJson")
+                                or "[]"
+                            )
                         )
+                        if model
+                        else 0
                     )
                 except (TypeError, json.JSONDecodeError):
                     movingCount = 0
@@ -552,6 +557,16 @@ class RobotSceneWidgetMixin:
             self._parameterNode
         )["pose"]
         if pose["eligible"]:
+            # The gate is transient UI policy. Restore the exact enabled state
+            # captured before an incomplete foundation disabled an editor;
+            # otherwise target selection and the manual/assisted selector stay
+            # grey until an unrelated Step 6 event (such as base locking).
+            for widget, enabled in list(
+                self._caseFoundationGatePriorEnabled.items()
+            ):
+                if widget:
+                    widget.setEnabled(bool(enabled))
+            self._caseFoundationGatePriorEnabled.clear()
             return
         keepPrefixes = ("frame", "focus", "restore", "show", "open")
         for section in (
@@ -564,6 +579,10 @@ class RobotSceneWidgetMixin:
             for button in section.findChildren(qt.QAbstractButton):
                 name = str(button.objectName or "").lower()
                 if not name.startswith(keepPrefixes):
+                    if button not in self._caseFoundationGatePriorEnabled:
+                        self._caseFoundationGatePriorEnabled[button] = bool(
+                            button.isEnabled()
+                        )
                     button.enabled = False
             for widgetType in (
                 qt.QComboBox,
@@ -572,6 +591,10 @@ class RobotSceneWidgetMixin:
                 slicer.qMRMLNodeComboBox,
             ):
                 for editor in section.findChildren(widgetType):
+                    if editor not in self._caseFoundationGatePriorEnabled:
+                        self._caseFoundationGatePriorEnabled[editor] = bool(
+                            editor.isEnabled()
+                        )
                     editor.enabled = False
 
     def onCreateStep6CaseJawLandmarks(self, checked: bool = False) -> None:
@@ -748,6 +771,13 @@ class RobotSceneWidgetMixin:
                 .replace("%2", f"{summary['gapMm']:.2f}")
             )
             self._applyStep6RecommendedView()
+            # Opening is the boundary that releases the Step 4A authoring
+            # gate. Refresh planning controls now; waiting for a later base
+            # placement signal made target selection appear robot-dependent.
+            self._updatePlanning()
+            self._applyCaseFoundationAuthoringGate()
+            if int(self.ui.workflowStageComboBox.currentIndex) == 3:
+                self._applyWorkflowViewPreset("recommended", updateStatus=False)
             self._updateStep6PlanningUi()
         except (RuntimeError, ValueError) as exc:
             self._updateStep6CaseJawOpeningControls()

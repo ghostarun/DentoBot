@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-import time
 
 import slicer
 
@@ -17,27 +16,14 @@ if str(HELPERS) not in sys.path:
 from DENTOWorkflow import DENTOWorkflowTest  # noqa: E402
 
 
-def process_events(seconds: float = 0.5) -> None:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        slicer.app.processEvents()
-        time.sleep(0.01)
-
-
 def run() -> None:
     slicer.util.selectModule("DENTOWorkflow")
-    process_events()
     test = DENTOWorkflowTest()
-    try:
-        test.setUp()
-        process_events()
-        test.test_DENTOWorkflowCaseFoundation()
-        test.setUp()
-        process_events()
-        test._focusedPreparedBranchSmoke = True
-        test.test_DENTOWorkflowVisibleTemplateSupportSurface()
-    finally:
-        test.setUp()
+    test.setUp()
+    test.test_DENTOWorkflowCaseFoundation()
+    test.setUp()
+    test._focusedPreparedBranchSmoke = True
+    test.test_DENTOWorkflowVisibleTemplateSupportSurface()
     print("DENTOBOT_REUSABLE_CASE_PASS", flush=True)
     slicer.util.exit(0)
 

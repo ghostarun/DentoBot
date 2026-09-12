@@ -16,8 +16,15 @@ class WorkflowNavigationWidgetMixin:
         entries = [
             (_("0 · Case"), self.ui.caseCollapsibleButton),
             (_("1 · Scan"), self.ui.imagingCollapsibleButton),
-            (_("2 · Segmentation"), self.ui.backendCollapsibleButton),
-            (_("3 · Review and Correct"), self.ui.segmentationReviewCollapsibleButton),
+            (
+                _("2 · Segmentation and Review"),
+                self._segmentationReviewStageGroup
+                or self.ui.segmentationReviewCollapsibleButton,
+            ),
+            (
+                _("3 · Case Foundation — Open Mouth Setup"),
+                self.ui.step6CaseJawOpeningGroupBox,
+            ),
             (_("4A · Trajectory Planning"), self.ui.planningCollapsibleButton),
             (_("4B · Support Teeth and Draft"), self.ui.templateModelingCollapsibleButton),
             (_("4C · Guide Rails and Docks"), self.ui.targetDockingCollapsibleButton),
@@ -215,8 +222,8 @@ class WorkflowNavigationWidgetMixin:
             "templateShellRoi": 8,
             "templateTrimPlane": 9,
             "templateTrimCurve": 9,
-            "step6CaseJawLandmarks": 4,
-            "step6CaseJawGapLine": 4,
+            "step6CaseJawLandmarks": 3,
+            "step6CaseJawGapLine": 3,
             "robotMountPlane": 10,
         }
         for fieldName, stage in fieldStages.items():
@@ -230,8 +237,8 @@ class WorkflowNavigationWidgetMixin:
             "TargetDockingMeasurement": 6,
             "TemplateShellTrimROI": 8,
             "RobotMountPlane": 10,
-            "Step6CaseJawLandmarks": 4,
-            "Step6CaseJawGapLine": 4,
+            "Step6CaseJawLandmarks": 3,
+            "Step6CaseJawGapLine": 3,
         }
         for node in slicer.util.getNodesByClass(
             "vtkMRMLDisplayableNode"
@@ -345,7 +352,7 @@ class WorkflowNavigationWidgetMixin:
     ) -> None:
         active = bool(self._parameterNode and self.logic)
         self._workflowViewStageIndex = stageIndex
-        if stageIndex <= 3:
+        if stageIndex <= 2:
             self._displayInspectionContext()
             return
         if stageIndex == 4:
@@ -381,7 +388,7 @@ class WorkflowNavigationWidgetMixin:
         """Keep an active display preset authoritative as MRML inputs change."""
 
         stageIndex = int(self.ui.workflowStageComboBox.currentIndex)
-        if stageIndex <= 3:
+        if stageIndex <= 2:
             self._displayInspectionContext()
             return
         self._updateWorkflowViewControls()
@@ -429,7 +436,7 @@ class WorkflowNavigationWidgetMixin:
                 isActive = section is activeSection
                 section.visible = isActive
                 section.collapsed = not isActive
-            self.ui.step6CaseJawOpeningGroupBox.visible = index == 4
+            self.ui.step6CaseJawOpeningGroupBox.visible = index == 3
             self._configureTemplateModelingStage(index)
             self._updateStageExclusiveInteractionLocks(index)
             self.ui.stepTitleLabel.text = entries[index][0].upper()
@@ -439,7 +446,7 @@ class WorkflowNavigationWidgetMixin:
         self._updateWorkflowNavigationButtons()
         self._activateWorkflowViewStage(index, stageChanged=stageChanged)
         self._syncScanContext()
-        if index <= 3:
+        if index <= 2:
             self._displayInspectionContext()
         self._updateWorkflowNavigationRecommendation()
         if self._applicationShell and self._applicationShell.active:
@@ -582,12 +589,12 @@ class WorkflowNavigationWidgetMixin:
         if not segmentationNode:
             return 2
         if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":
-            return 3
+            return 2
         if not self.logic.evaluateCaseFoundationEligibility(
             self._parameterNode
         )["pose"]["eligible"]:
-            # The Case Foundation section is the first content in stage 4.
-            return 4
+            # The Case Foundation section is the dedicated stage 3.
+            return 3
         trajectoryNode = self._parameterNode.trajectoryLine
         if not trajectoryNode or trajectoryNode.GetNumberOfDefinedControlPoints() < 2:
             return 4

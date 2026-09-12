@@ -128,7 +128,26 @@ class ViewCompositionWidgetMixin:
         composition = recommended_view_composition(stageIndex)
         if not self._parameterNode or not self.logic:
             return composition
-        if stageIndex == 6:
+        if stageIndex == 3:
+            if (
+                self._step6SceneKind() == "case"
+                and not self.logic.step6CaseJawOpeningFreshnessIssues(
+                    self._parameterNode
+                )
+            ):
+                # Once committed, Step 3 shows the complete rigid planning
+                # proxy: fixed upper anatomy plus the colored moving lower
+                # anatomy under the jaw transform.  The immutable source
+                # segmentation stays hidden so closed-pose internals cannot
+                # overlap the transformed view.
+                composition = ViewComposition(
+                    anatomy_scope="none",
+                    anatomy_dimension="3d",
+                    cbct_mode="slices",
+                    overlay_groups=frozenset({"jaw_opening"}),
+                    anatomy_opacity=1.0,
+                )
+        elif stageIndex == 6:
             record = self._targetToothRecordsById.get(
                 self._parameterNode.targetToothSegmentId,
                 {},

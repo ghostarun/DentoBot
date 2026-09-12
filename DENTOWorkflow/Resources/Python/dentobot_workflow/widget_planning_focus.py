@@ -316,13 +316,22 @@ class PlanningFocusWidgetMixin:
             segmentId,
             boundsRoi,
         )
-        bounds = self.logic.getTargetToothBoundsWorld(
-            segmentationNode,
-            segmentId,
-        )
+        bounds = self._planningTargetBoundsWorld()
         self._frameRasBoundsInViews(bounds)
         self._syncSegmentationDisplayControls()
         self._updateAssistedTrajectoryControls()
+
+    def _planningTargetBoundsWorld(self):
+        """Return the active target bounds in the current planning pose."""
+
+        if not self._parameterNode or not self.logic:
+            raise RuntimeError(_("DENTOWorkflow is not ready for target focus."))
+        segmentationNode = self._parameterNode.teethSegmentation
+        segmentId = str(self._parameterNode.targetToothSegmentId or "")
+        return self.logic.getPlanningTargetToothBoundsWorld(
+            segmentationNode,
+            segmentId,
+        )
 
     @staticmethod
     def _workflowCrosshairNode() -> vtkMRMLCrosshairNode:
@@ -500,8 +509,35 @@ class PlanningFocusWidgetMixin:
                     camera.SetParallelScale(max(paddedSpan * 0.5, 1.0))
                     camera.OrthogonalizeViewUp()
                     cameraNode.Modified()
-                    threeDView.resetCameraClippingRange()
-                    threeDView.forceRender()
+                    try:
+                        threeDView.resetCameraClippingRange()
+                    except Exception:
+                        logging.debug(
+                            "Could not reset scene clipping for workflow view %d.",
+                            viewIndex,
+                        )
+                    try:
+                        threeDView.forceRender()
+                    except Exception:
+                        logging.debug(
+                            "Could not force-render workflow view %d before clipping.",
+                            viewIndex,
+                        )
+                    # VTK's scene-wide clipping pass can include hidden or
+                    # stale workflow actors and place the near plane in front
+                    # of this focused target.  Keep the framed bounds inside
+                    # a deterministic local clip interval after that pass.
+                    focusRadius = max(float(np.linalg.norm(extents)) * 0.5, 1.0)
+                    cameraDistance = float(
+                        np.linalg.norm(
+                            np.asarray(camera.GetPosition(), dtype=float)
+                            - center
+                        )
+                    )
+                    clipMargin = max(focusRadius * 2.5, 1.0)
+                    nearClip = max(0.01, cameraDistance - clipMargin)
+                    farClip = max(nearClip + 1.0, cameraDistance + clipMargin)
+                    camera.SetClippingRange(nearClip, farClip)
                 except Exception:
                     logging.debug(
                         "Could not fit workflow bounds in 3D view %d.",
@@ -531,10 +567,7 @@ class PlanningFocusWidgetMixin:
         if not self._parameterNode or not self.logic:
             return
         try:
-            bounds = self.logic.getTargetToothBoundsWorld(
-                self._parameterNode.teethSegmentation,
-                self._parameterNode.targetToothSegmentId,
-            )
+            bounds = self._planningTargetBoundsWorld()
             self._frameRasBoundsInViews(bounds)
             self._presentSelectedTrajectory(
                 self._parameterNode.trajectoryLine,

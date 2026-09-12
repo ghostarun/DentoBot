@@ -66,6 +66,40 @@ class CaseFoundationLogicMixin:
             _("Place fourth landmark (Lower incisor)"),
         )
 
+    @classmethod
+    def startStep6CaseJawLandmarkPlacement(
+        cls,
+        landmarksNode: vtkMRMLMarkupsFiducialNode,
+    ) -> None:
+        """Activate Slicer's native placement mode for Case Foundation landmarks."""
+
+        if not cls.isStep6CaseJawLandmarksNode(landmarksNode):
+            raise ValueError(_("Create the Case Foundation jaw landmarks first."))
+        if landmarksNode.GetNumberOfDefinedControlPoints() >= 4:
+            raise ValueError(_("All four Case Foundation landmarks are already placed."))
+        selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+        if not selectionNode:
+            raise RuntimeError(_("Slicer's selection node is unavailable."))
+        selectionNode.SetReferenceActivePlaceNodeClassName(
+            "vtkMRMLMarkupsFiducialNode"
+        )
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        slicer.modules.markups.logic().StartPlaceMode(0)
+        selectionNode.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+        selectionNode.SetActivePlaceNodeID(landmarksNode.GetID())
+        if (
+            selectionNode.GetActivePlaceNodeID() != landmarksNode.GetID()
+            or selectionNode.GetActivePlaceNodeClassName()
+            != "vtkMRMLMarkupsFiducialNode"
+            or not selectionNode.GetActivePlaceNodePlacementValid()
+        ):
+            interactionNode = slicer.app.applicationLogic().GetInteractionNode()
+            if interactionNode:
+                interactionNode.SwitchToViewTransformMode()
+            raise RuntimeError(
+                _("Slicer could not activate Case Foundation landmark placement.")
+            )
+
     def ensureStep6CaseJawLandmarksNode(self, node):
         if node and not self.isStep6CaseJawLandmarksNode(node):
             raise ValueError(_("Select the Case Foundation landmark set."))
@@ -158,7 +192,7 @@ class CaseFoundationLogicMixin:
         matrix = vtk.vtkMatrix4x4()
         node.GetMatrixTransformToWorld(matrix)
         return tuple(
-            float(matrix.GetElement(row, column))
+            round(float(matrix.GetElement(row, column)), 9)
             for row in range(4)
             for column in range(4)
         )
@@ -639,14 +673,16 @@ class CaseFoundationLogicMixin:
                 or node.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
             ):
                 continue
+            beforeParent = node.GetParentTransformNode()
             before = (
-                node.GetParentTransformNodeID(),
+                beforeParent.GetID() if beforeParent else None,
                 node.GetAttribute("DENTOBOT.JawOwner"),
                 node.GetAttribute("DENTOBOT.PlanningPoseFingerprint"),
             )
             self.bindCaseFoundationNode(parameterNode, node)
+            afterParent = node.GetParentTransformNode()
             after = (
-                node.GetParentTransformNodeID(),
+                afterParent.GetID() if afterParent else None,
                 node.GetAttribute("DENTOBOT.JawOwner"),
                 node.GetAttribute("DENTOBOT.PlanningPoseFingerprint"),
             )

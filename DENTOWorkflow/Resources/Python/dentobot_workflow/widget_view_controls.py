@@ -268,9 +268,10 @@ class ViewControlsWidgetMixin:
                         # viewer object.  Re-enabling that object must restore
                         # its jaw and every tooth, even if an earlier preset
                         # changed per-segment flags.
-                        displayNode.SetAllSegmentsVisibility(True)
-                        if hasattr(displayNode, "SetAllSegmentsVisibility3D"):
-                            displayNode.SetAllSegmentsVisibility3D(True)
+                        self.logic.setAllSegmentationSegmentsVisibility(
+                            node,
+                            True,
+                        )
                     displayNode.SetVisibility(visible)
                     if node.IsA("vtkMRMLSegmentationNode"):
                         displayNode.SetVisibility3D(visible)

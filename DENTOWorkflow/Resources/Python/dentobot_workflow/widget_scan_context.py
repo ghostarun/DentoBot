@@ -52,7 +52,7 @@ class ScanContextWidgetMixin:
 
     def _inspectionActive(self):
         return bool(self._parameterNode and
-                    int(self.ui.workflowStageComboBox.currentIndex) <= 3)
+                    int(self.ui.workflowStageComboBox.currentIndex) <= 2)
 
     def _setupScanContext(self):
         self._selectingInspection = False
@@ -111,7 +111,7 @@ class ScanContextWidgetMixin:
         self._compareButton.connect("clicked(bool)", self.onEnterComparison)
         self._exitCompareButton = qt.QPushButton(_("Exit Comparison"), comparisonRow)
         self._exitCompareButton.connect("clicked(bool)", self.exitComparison)
-        self._usePlanningButton = qt.QPushButton(_("Use for Planning → Step 4"), comparisonRow)
+        self._usePlanningButton = qt.QPushButton(_("Use for Planning → Step 3"), comparisonRow)
         self._usePlanningButton.connect("clicked(bool)", self._continueInspection)
         comparisonLayout.addWidget(self._compareButton)
         comparisonLayout.addWidget(self._exitCompareButton)
@@ -131,25 +131,26 @@ class ScanContextWidgetMixin:
         if not hasattr(self, "_scanHeader") or not self._parameterNode:
             return
         stage = int(self.ui.workflowStageComboBox.currentIndex)
-        active = stage <= 3
+        active = stage <= 2
         self._scanHeader.visible = active
         self._scanFooter.visible = active
         self._scanCaseLabel.text = _("Case: %1").replace("%1", self._parameterNode.caseName or _("Unnamed research case"))
         volume = self._parameterNode.inspectedVolume
         run = self._parameterNode.inspectedSegmentation
         self._scanContinue.text = (
-            _("Choose Scan"), _("Continue to Segmentation"),
-            _("Review Selected Run"), _("Use for Planning → Step 4")
-        )[min(stage, 3)]
+            _("Choose Scan"),
+            _("Continue to Segmentation"),
+            _("Use for Planning → Step 3"),
+        )[min(stage, 2)]
         self._scanContinue.enabled = (
             bool(volume)
             if stage == 0
             else bool(volume and (stage == 1 or run))
         )
         if hasattr(self, "_compareButton"):
-            self._compareButton.visible = stage == 3 and run is not None and self._comparisonState is None
-            self._exitCompareButton.visible = stage == 3 and self._comparisonState is not None
-            self._usePlanningButton.visible = stage == 3 and self._comparisonState is None
+            self._compareButton.visible = stage == 2 and run is not None and self._comparisonState is None
+            self._exitCompareButton.visible = stage == 2 and self._comparisonState is not None
+            self._usePlanningButton.visible = stage == 2 and self._comparisonState is None
             self._usePlanningButton.enabled = bool(run)
         if not volume:
             self._scanHint.text = _("Select a source scan to begin.")
@@ -168,10 +169,10 @@ class ScanContextWidgetMixin:
 
     def _continueInspection(self, checked=False):
         stage = int(self.ui.workflowStageComboBox.currentIndex)
-        if stage == 3:
+        if stage == 2:
             if not self.commitInspectionContextForPlanning():
                 return
-        self._setWorkflowStage(min(stage + 1, 4))
+        self._setWorkflowStage(min(stage + 1, 3))
 
     def selectInspectionContext(self, volume, segmentation=None):
         if not self._parameterNode or getattr(self, "_selectingInspection", False):
@@ -227,12 +228,36 @@ class ScanContextWidgetMixin:
     def _displayInspectionContext(self, fit=False):
         if not self._inspectionActive():
             return
-        volume = self._parameterNode.inspectedVolume
-        selected = self._parameterNode.inspectedSegmentation
+        volume = (
+            self._parameterNode.inspectedVolume
+            or self._parameterNode.inputVolume
+        )
+        selected = (
+            self._parameterNode.inspectedSegmentation
+            or self._parameterNode.teethSegmentation
+        )
         slicer.util.setSliceViewerLayers(background=volume, foreground=None, label=None, fit=fit)
+        selectedFound = False
         for run in self._dentobotTeethSegmentationNodes():
             run.CreateDefaultDisplayNodes()
-            run.GetDisplayNode().SetVisibility(run == selected)
+            display = run.GetDisplayNode()
+            if run == selected and display:
+                # Inspection stages promise the complete reviewed result. Do
+                # not inherit per-segment isolate/highlight state from a
+                # planning preset; normalize the selected run through the
+                # shared display helper so teeth, jaws, and supporting masks
+                # are all restored together in 2D and 3D.
+                self.logic.setAllSegmentationSegmentsVisibility(run, True)
+                selectedFound = True
+            elif display:
+                display.SetVisibility(False)
+        # Loaded legacy scenes can have a valid authoritative segmentation
+        # without the transient BridgeOperation marker used by the selector.
+        # It is still the selected inspection result and must receive the same
+        # complete-visibility normalization.
+        if selected and not selectedFound:
+            selected.CreateDefaultDisplayNodes()
+            self.logic.setAllSegmentationSegmentsVisibility(selected, True)
 
     def _comparisonCandidates(self):
         selected = self._parameterNode.inspectedSegmentation
