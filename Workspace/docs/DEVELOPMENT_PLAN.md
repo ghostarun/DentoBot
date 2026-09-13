@@ -1,16 +1,23 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-10.
+Last reconciled: 2026-09-14.
 
-TASKS.md owns the one active work order. The current P0 is main-workflow
-recovery and PreparedBranch integrity. The audit was accepted on 2026-09-10 and
-the three-deliverable product patch is implemented in the dirty checkout.
-Static, pure and focused headless Slicer evidence pass; normal-window operator
-review remains pending.
+[backlog.md](backlog.md) owns the one pending-work queue, dependency order and
+overlap routing. TASKS.md retains detailed contracts and completion records;
+this file owns milestone and acceptance design. The current P0 is
+main-workflow recovery and PreparedBranch integrity. The audit was accepted on
+2026-09-10 and its product patch passed static, pure and focused headless Slicer
+checks; normal-window operator review remains pending.
 
 The main workflow has one target tooth and one trajectory, or an explicitly
 paired two. The optional 32 × 3 testing foundation is an alternative workflow,
 not a replacement for or expansion of routine case preparation.
+
+The active P0 comparison runs four independent central incisors in order:
+FDI31 → FDI41 → FDI11 → FDI21. Each target starts from the immutable reviewed
+open-mouth/base source in a clean Slicer process and receives its own package,
+STL, diagnostics and screenshots. A target-specific failure is recorded before
+the next tooth; a shared source/package/runtime failure stops the campaign.
 
 Stage 3 / Track A remains incomplete and follows this integrity correction.
 The remaining P1 Case Platform/Studio roadmap stays behind Track-A acceptance.
@@ -29,12 +36,19 @@ matching 4C/insertion, shell, template, guide references and Step 5C revision.
 The first acceptance path remains 4A→4B→4C→5A→5B→5C→6 with one target and one
 trajectory.
 
-This package stops when the reviewable diff and focused single-target runtime
-evidence exist. Both now exist: `runtime.s6_reusable_case` exited 0 with
-`DENTOBOT_REUSABLE_CASE_PASS`; normal-window operator review remains separate.
-Explicit pairing follows; optional 32 × 3 testing follows that. Stage 3,
-collision-policy or geometry-algorithm changes, Studio, database, batch and
-platform work are outside this package.
+For this campaign, execute the path once per central incisor in the stated
+order. Export the current verified STL, save the target package, then reload it
+in a fresh Slicer process before Stage 6. Never reuse the preceding tooth's
+target state. Proceed after a target-specific first-invalid result; require a
+shared failure to be resolved before continuing.
+
+The earlier `runtime.s6_reusable_case` marker exited 0 with
+`DENTOBOT_REUSABLE_CASE_PASS`, but that synthetic reusable-case result is not
+the exact four-target acceptance requested here. The current FDI31 package,
+Step 5C geometry and save/reopen evidence are present; exact guarded runtime,
+the four-central-incisor campaign and normal-window operator review remain open.
+Explicit pairing, optional 32 × 3 testing, the six-target batch, Studio,
+database and platform work remain downstream.
 
 ## S6-REUSABLE-CASE-SETUP correction plan
 
@@ -62,7 +76,7 @@ or interface changed.
 **2026-09-10 — audit accepted; implementation and focused runtime pass, operator review pending.**
 This is the existing P0 task, not a new roadmap. The previous source-complete
 claim is withdrawn: operator reports show unified-template and Step 6 import
-regressions. TASKS.md alone owns current work order and status.
+regressions. backlog.md alone owns current work order and pending status.
 
 ### Immediate FDI31 restore delta before mouth-opening rework
 
@@ -368,6 +382,10 @@ evidence; the latest FDI11/FDI21 result is summarized once in TASKS.md.
 - The retained 2.0 mm burr / 1.5 mm bore case may be explored only under the
   explicit burr-guide exception. It must simultaneously show a separate
   physical-fit failure and cannot support a manufacturing-fit claim.
+- The current trajectory-guide channel and hole inputs now have a shared
+  `2.0 mm` minimum at the Step 5 geometry boundary. Older 1.5 mm saved guides
+  are stale until regenerated; this floor is a workflow gate and does not by
+  itself prove printed clearance, runout tolerance, or clinical fit.
 
 ### `S6-LIVE-03` — repeatable preview state machine
 
@@ -401,6 +419,128 @@ and guard sessions while preserving case intent and historical diagnostics.
   and first-invalid evidence.
 - Selecting a planner leg displays its actual retained route and endpoint;
   equal waypoint counts are not presented as equal geometry.
+
+### 2026-09-13 planner route-choice correction
+
+The 6.5 diagnostics surface now supports a bounded operator choice among the
+existing candidates. A complete full-chain candidate can be applied by a fresh
+re-plan, locked to its stable route identity, or unlocked before another
+candidate is chosen. The saved case carries only that route intent in the
+current motion-diagnostic payload; executable waypoints, live guard state and
+ROS validity remain transient. On reopen, the selected/locked route must be
+regenerated and pass the same current Task Home, base, collision, FK, limit and
+guard gates. A missing or incomplete locked route fails closed and preserves the
+saved choice for review. This does not advance the exact-package integrity,
+Step 5B/5C geometry, PreparedBranch, normal-window or runtime-approval gates.
+
+Route application is transactional: a failed fresh re-plan restores the prior
+active transient plan and saved route identity. The exact-case runner exposes
+optional expected-FDI, lock, diagnostic-output, `.dentocase` save and reopen
+checks. The active acceptance campaign invokes that runner serially for FDI31
+→ FDI41 → FDI11 → FDI21 from independently saved current packages;
+`Testing/run_dentobot_stage6_target_matrix.py` remains the downstream
+six-target launcher for FDI31, FDI32, FDI11, FDI12, FDI13 and FDI14. Both are
+approval-gated runtime paths and neither can replace the current Step 4A–5C
+integrity and normal-window prerequisites.
+
+### 2026-09-14 exact FDI31 acceptance boundary
+
+The authoritative 13-September package was preserved. After the documented
+base-revision migration and explicit production save, the regenerated FDI31
+package reopened with workflow/registry schema 3.0, one current eligible
+PreparedBranch, current Step 5C evidence, four open bores, zero residual channel
+occupancy, one connected printable solid and no closed-jaw duplicate dock.
+The phase-guard runtime matrix passed independently.
+
+The exact reopened-package planner then reached the requested target distance
+with both bounded candidates, and Stage 1/2 passed. Both candidates failed at
+Stage 3 because the authoritative guard detected the selected target tooth in
+contact with the non-rotating `pneumatic_spindle-Copy` at the terminal drilling
+waypoint. Candidate 0 first failed at composed waypoint 237; the selected
+candidate 1 first failed at composed waypoint 274 / Stage 3 waypoint 27. The
+requested depth, saved base, zero spindle value, collision policy and guide
+geometry were preserved. This is the current exact-case first-invalid result;
+it is not a permission to add a collision exemption or shorten the trajectory.
+Goal 2/Return-Home/repeat/playback acceptance remains behind a complete Stage 3
+route, and the ten normal-window observations remain open.
+
+Before the exact-case runner reports a saved-case pass, it also validates the
+current outer bundle and inner Step 6 save contract: outer schema 2.0, DentoCase
+state 3.0, Case Foundation environment 2.0, PreparedBranch registry 3.0,
+exactly one selected current branch with planning-pose and Step 5C revisions,
+current final-guide schema 2.0, no save-time freshness errors, and a matching
+trajectory FDI identity. The final-guide schema is persisted into
+`workflow/lineage.json` so this check is portable and reviewable after reload.
+
+### 2026-09-14 four-central-incisor exact-case campaign
+
+Run FDI31 → FDI41 → FDI11 → FDI21 as independent single-target cases under
+`S6-REUSABLE-CASE-SETUP`, `W5-U-04` and `S6-LIVE-01..04`. This supersedes the
+FDI31→FDI32 sequence and its FDI31-success prerequisite. Preserve the existing
+integrity, geometry, branch, depth, guard and separate runtime-approval gates.
+
+For **each** tooth, in a separate clean Slicer process:
+
+1. Open the unchanged
+   `data/Slicer_Saved/SampleStudy1/dentobot-case-13sept.dentocase`; verify its
+   SHA-256, source/segmentation, Case Foundation, mouth gap, landmarks, base
+   matrix/revision and installed robot-resource fingerprint. Use the reviewed
+   production-saved foundation as migration input only if the documented
+   single-field base-revision discrepancy blocks the original; retain both
+   identities and never overwrite the source.
+2. Confirm the target tooth and required pulp mask before Step 4A. Current
+   source-segmentation evidence contains all four tooth masks and pulp for
+   FDI31/41, but no FDI11/21 pulp mask. Missing required anatomy is an
+   `INPUT_DATA` first failure, not a reason to invent a mask or change the
+   endpoint. Otherwise run the existing automated 4A→4B→4C→5A→5B→5C path
+   using only reviewed dock parameters and trajectory-guide hole diameter.
+3. Require current schema-3 Step 5C evidence, one eligible PreparedBranch,
+   four open robot bores, zero protected-channel occupancy, one connected
+   printable solid and no duplicate closed-jaw dock. Export exactly one STL
+   from the verified unified model **before** the explicit production save so
+   the package retains its export reference. Record source, inner-scene,
+   branch, package and STL SHA-256 values.
+4. Clear the scene and reopen that exact saved package in a **new Slicer
+   process**. Recheck manifest, lineage, source, foundation, base, target,
+   Step 5C, PreparedBranch and resource fingerprints. A same-process reopen
+   does not meet this gate. A mismatch records expected/actual values and
+   blocks the affected package; never silently normalize it.
+5. On the reopened case, reconstruct transient ROS/MoveIt, acknowledge the
+   scene from live monitored joints, and plan Task Home→PreEntry→Entry→the
+   exact requested Target. Record candidate/selected-route status, full depth,
+   FK residuals (`≤0.25 mm`, `≤0.5°`), first-invalid waypoint, J1–J5 guard,
+   J6 zero, joint limits and collision pairs. For a Complete route, exercise
+   Goal 1→Goal 2→guarded Return Home→fresh replan/route choice, playback and
+   route-intent save/revalidation; otherwise leave those stages `NOT_RUN`.
+
+The current generation runner supports target selection and an in-process
+save/reopen, but has no STL export or fresh-process reload. Invoke it once per
+tooth and add only the missing export/case-folder/diagnostic fields. Reuse the
+existing exact-case Stage 6 runner after the separate reload. The hard-coded
+six-target matrix stays downstream.
+
+Use a unique `data/Slicer_Saved/SampleStudy1/FDI<nn>/<run-id>/` folder per
+target: `FDI<nn>-step5c.dentocase`, the verified STL, `diagnostics/` and
+`screenshots/`. Save `FDI<nn>-stage6-accepted.dentocase` separately only after a
+Complete route and explicit save. Keep one four-tooth campaign report under
+`data/Slicer_Saved/SampleStudy1/central-incisors/<run-id>/`. Sidecars name the
+target and package SHA-256; images stay outside the checked archive.
+
+Record one first causal failure per tooth with input hash, step/waypoint,
+expected/actual identity, metrics and screenshot, then mark downstream steps
+`NOT_RUN`. A **shared** source, serializer, fingerprint or runtime failure stops
+the campaign for a bounded root-cause correction. A **target-specific**
+anatomy, trajectory, geometry, planner or guard failure is retained as bias
+evidence and execution advances to the next central incisor. A timeout or
+interruption is `RUNTIME_INCOMPLETE`, never a planner verdict. Do not move the
+base, shorten depth, relax collision/guard rules or tune dimensions to obtain
+a pass.
+
+The comparison report retains separate `PASS`, `FIRST_INVALID`,
+`RUNTIME_INCOMPLETE` and `NOT_RUN` outcomes for all four teeth, with package,
+STL, Step 5C, reload, route, FK, guard, repeat/playback and screenshot metrics.
+Do not average away failures or claim exact-case success from synthetic or
+in-memory evidence.
 
 ### `S6-LIVE-05` — reviewed clean-case acceptance gate
 
@@ -572,8 +712,9 @@ MoveIt, build, or runtime execution; record the exact command/revision/result
 and first failure; and proceed only after acceptance. No synthetic result is a
 clinical, manufacturing, physical-placement, or hardware-safety claim.
 
-This file defines implementation order, milestone gates, and workflow ownership.
-Actionable status is tracked once in `TASKS.md`; architectural rationale belongs
+This file defines milestone gates, acceptance design, and workflow ownership.
+Pending status/order/overlaps are tracked once in `backlog.md`; detailed task
+contracts and completion records belong in `TASKS.md`; architectural rationale belongs
 in `DECISIONS.md`; verification evidence belongs in
 `REPRODUCIBILITY_AND_TRACEABILITY.md` and the dated logbook. The complete
 pre-cleanup plan is preserved in
@@ -599,7 +740,7 @@ pre-cleanup plan is preserved in
 
 ## Work-order ownership
 
-Use TASKS.md. The former `S6-P0-01` planner queue is continued under
+Use backlog.md first, then follow its IDs into TASKS.md. The former `S6-P0-01` planner queue is continued under
 `S6-LIVE-01..05`; the `S6-P0-02` restore queue is continued under
 `S6-RESTORE-ROBOT-ROS` and the P0 PreparedBranch acceptance checks.
 No parallel queue or automatic checkpoint-reconnect sequence remains active.
@@ -751,15 +892,17 @@ docks as proof of source membership or tune the dock route from that inference.
 | `PLAT-U-01` | Rebuild and accept the clean Ubuntu inference/runtime image | Clean Docker build and governed inference data available |
 | `PLAT-U-02` | Regress the legacy Windows native-Slicer/WSL Steps 0–5 fallback; Step 6 and native Windows ROS remain excluded | Windows workstation available |
 | `PLAT-U-03` | Close CRD/GDM workstation stability observation | Saved local work and an approved reboot/overnight observation window |
+| `PLAT-U-07` | Establish the multi-workstation Git/source and saved-case exchange boundary | Separate Drive location, permitted synthetic/de-identified bundle class, and one checksum-verified pilot are explicitly approved |
 | `QA-U-01` | Resolve the Slicer aggregate-runner nonzero-exit discrepancy | Focused lifecycle diagnosis approved |
 | `ROS-U-01` | Define the narrow medical-image/transform interoperability contract | Current Step 6 and imaging frame requirements stable |
 | `POC-U-01` | Representative software case, printed Template V0, seating/reseating, dimensional evidence, and a total error budget | Clinical task and acceptance thresholds frozen |
-| Track F0 | Evidence-only reviewed-result ledger in `.dentostudy` | One V2 planning attempt operator-accepted |
-| Track F1 | Automatic single-case, single-base plan-only study | F0 accepted and long-running action contract available |
 | Track E | Stable reviewed virtual mount/base candidates | Physical mount-frame contract defined |
-| Track F2 | Trajectory × reviewed-base comparison | Track E and F1 accepted |
 | Track A | Full canonical coordinate/frame contract | Bounded current transforms are stable |
 | Track G | Physical registration, TCP calibration, controller and safety integration | Phantom metrology and verified safety procedure exist |
+
+The earlier F0/F1/F2 and separate `.dentostudy` proposal is superseded by the
+accepted `DCP-*`/`DSS-*` case-platform and study roadmap. It is not a second
+pending implementation path.
 
 Steps 0–5 remain the established imaging, segmentation, trajectory, support,
 dock, and template workflow. Their prior detailed milestone narratives and all
@@ -776,7 +919,8 @@ an alternative current queue.
 - `Blocked`: first truthful external or technical blocker is named.
 - `Completed`: acceptance gate passed and no required work remains.
 
-Every active item appears once in `TASKS.md` under its stable ID. This plan may
-reference that ID but must not duplicate its running status narrative. Dated
+Every pending item appears once in `backlog.md` under its stable ID or explicit
+alias mapping. This plan and TASKS.md may reference that ID but must not create
+a second queue or duplicate its running status narrative. Dated
 implementation detail belongs in the logbook and changelog, not in a second
 `Next` list.

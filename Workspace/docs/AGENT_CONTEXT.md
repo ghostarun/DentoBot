@@ -1,14 +1,16 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-11. Routing only; current task status lives in
-[TASKS.md](TASKS.md). Historical attempts are not instructions.
+Last reconciled: 2026-09-14. Routing only; all pending work and current order
+live in [backlog.md](backlog.md). Detailed task contracts and completion records
+live in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Start here
 
-1. Read repository AGENTS.md. Search TASKS.md for the request and read the
-   matching entry before source or planning. Reuse its ID and boundaries.
-2. Read only its linked DEVELOPMENT_PLAN / DECISIONS sections and relevant
-   dated evidence. Do not load whole logbooks or old checkpoint summaries.
+1. Read repository AGENTS.md. Read/search all of backlog.md for the request,
+   synonyms, workflow step, IDs and overlap mappings before source or planning.
+2. Follow every match into TASKS.md and its linked DEVELOPMENT_PLAN / DECISIONS
+   sections and relevant dated evidence. Reuse its ID, priority, dependencies,
+   ownership and boundaries. Do not load whole logbooks or old checkpoints.
 3. For source work use the internal
    [package routing map](../../DENTOWorkflow/Resources/Python/dentobot_workflow/README.md).
 4. For checks follow [AGENTIC_VERIFICATION_PROTOCOL.md](AGENTIC_VERIFICATION_PROTOCOL.md)
@@ -16,51 +18,36 @@ Last reconciled: 2026-09-11. Routing only; current task status lives in
 
 ## Current handoff
 
-- Immediate P0: `S4A-PULP-ENDPOINT` and `W4-U-02`. The FDI31 screenshot was
-  matched to a legacy three-line saved set with no current assisted provenance;
-  off-slice point projection and native-mask versus displayed-surface divergence
-  explain the contradictory 2D/3D presentation. Source now requires an
-  overlapping FDI-matched binary/displayed-surface interval for new assisted
-  lines, targets its first shared point, records both boundaries and their
-  offset, disables projection, and makes the Step 4A smooth CBCT/mask switch
-  operative and state-truthful. Final static/pure and focused Slicer checks
-  passed, including display and assisted-pulp markers; no Slicer process
-  remained. Next reload and deliberately regenerate the legacy FDI31 set for
-  operator normal-window/anatomical review. The combined legacy runner's later
-  Step 5B fusion failure is recorded under `W5-U-03`, not this accepted Step 4A
-  automated result.
-- Active P0: `S6-REUSABLE-CASE-SETUP`. The audit was accepted and its three
-  deliverables are implemented in the dirty checkout. Static/pure evidence and
-  the focused single-target Slicer target pass; normal-window operator review
-  remains the final P0 usability/stale-state gate.
-- Required contract: main workflow uses one target tooth, one trajectory
-  normally or an explicitly paired two. Step 5B/C prepares a branch containing
-  exact trajectory selection, pairing intent, branch-dependent docking/
-  insertion inputs, patient shell, unified template, guide references and
-  matching verification identity. Step 6 selects that persisted branch ID;
-  a raw trajectory pointer is compatibility/UI state only.
-- Optional multi-trajectory testing is a separate opt-in workflow using the
-  existing 32 × 3 registry and same geometry backend. It must not introduce
-  three-trajectory fusion or multi-target preparation into the main workflow.
-- Branch switching preserves unchanged shared jaw/landmarks/base/Home/anatomy,
-  atomically swaps trajectory selection, pairing intent, matching branch-
-  dependent 4C/insertion references, shell, template, guide references and Step
-  5C evidence, and invalidates runtime branch state. Step 4C/insertion is not
-  case-shared. Package load stays offline.
-- Next: record one normal-window operator review of the corrected single-target
-  preparation/import and stale-state presentation. No 32 × 3, Stage 3,
-  ROS/planner/collision/geometry-policy or Studio work during this patch.
-- Stage 3 / `S6-LIVE-01..05` remains pending after workflow integrity.
-  Latest recorded FDI11/FDI21 blocker is in TASKS.md; older x4 fractions are
-  historical. Full guarded loop and repeat remain unaccepted.
-- Major Studio, batch runner, Results, SQLite and platform migration are
-  separate queued work, not implicit follow-ups to this task.
+- Active P0 owners: `W5-U-04`, `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`.
+  Run central incisors FDI31 → FDI41 → FDI11 → FDI21 independently from the
+  unchanged `data/Slicer_Saved/SampleStudy1/dentobot-case-13sept.dentocase`.
+  The full gate and failure policy are in
+  [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#2026-09-14-four-central-incisor-exact-case-campaign);
+  pending status is in [backlog.md](backlog.md), contract in [TASKS.md](TASKS.md),
+  decision in [DECISIONS.md](DECISIONS.md), evidence in
+  [2026-09-14 logbook](logbook/2026-09-14.md).
+- For each tooth: clean process → 4A–5C → verified STL → production save →
+  **new-process** reload → exact Stage 6. Store package, STL, SHA-linked JSON
+  and screenshots under `data/Slicer_Saved/SampleStudy1/FDI<nn>/<run-id>/`.
+  Advance past tooth-specific first-invalid results; stop on shared
+  source/package/fingerprint/runtime failures. The source has all four tooth
+  masks, pulp for FDI31/41 and no FDI11/21 pulp; never synthesize missing pulp.
+- Existing FDI31 has one current eligible PreparedBranch and automated reopen;
+  selected-route planning reached the requested depth. Guarded runtime, clean
+  process campaign reload, STL, ten normal-window observations and operator
+  acceptance remain open. A manually opened package produced an unlocalized
+  fingerprint mismatch; identify its path and expected/actual values first.
+- `Testing/run_dentobot_stage6_target_generation.py` already generates/saves
+  and reopens in-process; it lacks STL export and fresh-process verification.
+  Reuse the exact-case Stage 6 runner separately. Six-target matrix, optional
+  32 × 3, Studio, database and platform migration stay downstream.
 
 ## Where facts belong
 
 | Need | Authority |
 |---|---|
-| Current work order / status / next action | TASKS.md |
+| Pending work / order / next acceptance / overlaps | backlog.md |
+| Detailed task contract / completion record | TASKS.md |
 | Behavior and acceptance plan | DEVELOPMENT_PLAN.md |
 | Decision and explicit supersession | DECISIONS.md |
 | Implemented component ownership | ARCHITECTURE.md |

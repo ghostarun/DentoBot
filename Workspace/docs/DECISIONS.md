@@ -1,5 +1,109 @@
 # Dentobot Technical Decisions
 
+## 2026-09-14 — Four-central-incisor exact-case acceptance campaign
+
+**Status:** Adopted as the current P0 acceptance scope; execution remains
+runtime-approval gated and no package is created by this documentation change.
+
+The comparison uses four independent single-target central incisors in order
+FDI31→FDI41→FDI11→FDI21. FDI32 is a lateral incisor and is removed from this
+campaign. Each run starts from the immutable reviewed open-mouth/robot-base
+package, generates one target through 4A→4B→4C→5A→5B→5C, exports the current
+verified STL, explicitly saves a target package, clears the workspace,
+reopens that exact package in a fresh Slicer process and runs Stage 6 against
+the reopened identity. The prior FDI31-success gate before another tooth is
+superseded for target-specific failures.
+
+Each target receives a unique folder under
+`data/Slicer_Saved/SampleStudy1/FDI<nn>/<run-id>/` containing the Step 5C
+package, any separately saved Stage 6 accepted package, STL, JSON diagnostics
+and screenshots. Sidecars are linked to package/STL SHA-256 values and are not
+inserted into the `.dentocase` archive. The campaign summary compares all four
+teeth without averaging away a failure. Source evidence shows all four tooth
+masks, pulp for FDI31/41 and no FDI11/21 pulp; missing required pulp is an
+input-data first failure, never a fabricated endpoint.
+
+Failure disposition is explicit. The first causal failure is recorded with its
+target, step/waypoint, expected/actual identities and evidence; downstream
+steps are `NOT_RUN`. Shared source, package, fingerprint, serializer or runtime
+failures stop for a bounded root-cause correction. Target-specific anatomy,
+trajectory, geometry, planner or guard first-invalid results are preserved as
+bias evidence and the next central incisor proceeds. No base movement, depth
+shortening, collision relaxation or dimension workaround is authorized. A
+runtime timeout or operator interruption is not a planner result.
+
+This campaign is deliberately distinct from explicit trajectory pairing, the
+32 × 3 registry experiment and the downstream six-target batch launcher.
+
+## 2026-09-14 — Planning-scene acknowledgement uses the live monitored joints
+
+**Status:** Implemented; focused pure verification passed. Exact runtime reached
+active planning without reproducing the prior stale-Home mismatch, but the
+bounded smoke packet timed out before producing a complete sidecar.
+
+`syncStep6MoveItPlanningScene` must obtain the complete current five-joint
+vector from the live ROS `/joint_states` monitor before calling the existing
+collision-scene acknowledgement handshake. The prior implementation used the
+Motion Control display values after the façade had already verified Task Home;
+that allowed a stale slider value (`J2=0.00202 mm`) to be republished and made
+the subsequent guarded preview correctly reject the immutable Home start.
+Use the existing display-vector construction only when no complete monitored
+vector exists, preserving offline and fake-test behavior. Do not auto-rehome,
+raise guard tolerances, change collision policy, alter base/guide geometry or
+shorten the requested target depth. A live-state acknowledgement is a
+readback/identity correction, not motion authorization.
+
+## 2026-09-14 — Open-mouth planning view hides closed-pose source masks
+
+**Status:** Implemented; focused Slicer regression and exact FDI31 reopen audit
+passed. Normal-window review and exact Stage 6 acceptance remain open.
+
+When the Case Foundation open-mouth pose is current, the authoritative source
+segmentation remains a closed-pose inspection object. Hide every source
+segment per-segment in 3D and show only the fixed-upper and TMJ-transformed
+moving-lower derived planning proxies. Capture one pre-hide visibility baseline
+before either owner hides source segments, and reuse that baseline for both
+restore snapshots. On save and reopen, apply the same normalization so legacy
+packages that captured only jaw/tooth visibility cannot leave pulp, canal,
+restoration or other masks floating at closed-pose coordinates.
+
+This is a display/restore decision only. It does not add source masks to or
+remove anatomy from the Step 6 collision scene, alter the jaw transform,
+change guide/dock geometry, relax collision or guard policy, move the base, or
+shorten requested depth. The exact selected-tooth/non-rotating-spindle
+collision remains a separate first-invalid Stage 3 blocker.
+
+## 2026-09-13 — Stage 6.5/6.6 route intent is persistent; executable paths remain transient
+
+**Status:** Source implementation added; static/pure and normal-window
+acceptance remain open.
+
+Keep the existing Stage 6 planner and diagnostic session as the single route
+owner. The 6.5 diagnostics view may expose multiple bounded full-chain
+candidates, but only a candidate whose recorded chain status is `Complete` may
+become the selected route for Goal 1/Goal 2. Add three explicit operator
+actions: use a selected route and re-plan it, lock a selected route and
+re-plan it, or unlock the saved route before choosing another. A selected or
+locked route is matched on route type, IK seed, clearance sample and committed
+axial frame; a missing or incomplete match fails closed instead of silently
+falling back to the planner winner.
+
+Persist only this route intent in the existing current motion-diagnostic
+payload (`full_task_outcome.plan_selection`). This is a backward-compatible
+extension of diagnostic schema 2.1 carried by DentoCase state 3.0. Do not save
+executable joint waypoints, live guard state, ROS validity, or transient path
+arrays. Save/reopen therefore restores the operator's route choice as intent;
+the next current ROS/MoveIt plan regenerates and revalidates the route against
+the current Task Home, base, branch, collision audit, FK, limits and guard.
+Changing the task or any dependency makes the diagnostic stale and removes its
+authority. Locking is a reproducibility control, not a safety or execution
+authorization.
+
+This interaction correction is limited to Stage 6 planner selection,
+diagnostic visualization and persistence. It does not close the exact-package
+integrity gate, the W5-U-04/W5-U-03 geometry gate, current PreparedBranch/Step
+5C acceptance, normal-window review, or any separate runtime approval.
+
 ## 2026-09-11 — Case Foundation precedes Step 4 and owns offline base reuse
 
 **Status:** Implemented; targeted static/pure verification passed. Focused
@@ -25,6 +129,45 @@ current pose, an explicitly activated eligible PreparedBranch, a compatible
 reviewed locked base and matching robot profile. Load never reconnects ROS or
 restores runtime validity. The draft open-mouth phantom is archived and cannot
 satisfy product eligibility.
+
+## 2026-09-11 — One pending-only backlog gates every plan
+
+**Status:** Accepted repository operating policy and documentation migration.
+
+`docs/backlog.md` is the sole pending-work queue. It contains all active,
+blocked, planned, deferred and unaccepted work, every open DENTO-NOTE, the
+current dependency sequence, and explicit overlap/alias mappings. Before any
+new plan, continuation, reprioritization, diagnosis or implementation, read and
+search the complete backlog, compare all matches, and follow their stable IDs
+into TASKS.md, DEVELOPMENT_PLAN.md, this decision record and dated evidence.
+
+TASKS.md retains detailed contracts, evidence boundaries, aliases and completed
+dispositions. DEVELOPMENT_PLAN.md retains milestone and acceptance design.
+Logbooks retain chronology and verification. AGENT_CONTEXT remains routing
+only. None of those files may create a competing pending queue.
+
+When a pending item meets its complete acceptance gate, record the result and
+evidence in the dated logbook, update TASKS.md and DEVELOPMENT_PLAN.md when
+their durable contract or milestone changed, and remove the item from
+backlog.md in the same turn. Source completion does not remove a row while
+operator, runtime, representative, manufacturing or physical acceptance is
+still required. Superseded or cancelled work is removed only after its
+disposition and alias mapping are preserved.
+
+The initial backlog reconciles local controlled records through 11 September
+with a read-only snapshot of the explicitly authorized `IITM Dental Drilling
+Robot — Project Tracker`, last reconciled there through 3 September. All 30
+unfinished Master Work Register deliverables are retained either as stable
+tracker IDs or mapped to current task owners. The newer local task-specific
+decisions supersede old tracker case status. Tracker P0/P1 labels remain source
+metadata until selected under the current queue; conflicts are preserved rather
+than guessed. The tracker itself remains engineer-owned and was not edited.
+
+This supersedes the 9 September instruction to search TASKS.md first. The
+existing-plan-first purpose remains unchanged, but the lookup order is now
+backlog.md first, then the linked controlled records. It also closes the stale
+parallel F0/F1/F2 `.dentostudy` roadmap in favor of the accepted DCP/DSS study
+roadmap.
 
 ## 2026-09-10 — Assisted targets use displayed pulp contact; smooth masks are P0
 
@@ -4129,9 +4272,10 @@ instructions do not authorize access.
 
 The local Daily Compass resides under `Workspace/docs/engineer-owned/`; the
 three Drive artifacts reside under `IITM Dentobot/Engineer-owned — manual
-only`. Their existing Drive file IDs are preserved. `Workspace/docs/TASKS.md`
-remains the AI-maintained engineering work order and is intentionally distinct
-from the engineer-owned spreadsheet.
+only`. Their existing Drive file IDs are preserved. As superseded on 11
+September, `Workspace/docs/backlog.md` is the AI-maintained pending-work queue,
+while TASKS.md retains task contracts and completion records. Both are
+intentionally distinct from the engineer-owned spreadsheet.
 
 ## Rationale
 
@@ -4358,3 +4502,218 @@ construction change. A read-only FDI11 rebuild also exported an overview and
 four dock-axis screenshots; all four apertures are visibly open and the final
 fusion remains one watertight occupied solid. Screenshots explain geometry;
 the numerical one-solid and zero-residual-channel checks remain authoritative.
+
+## 2026-09-12 — Separate Git source from saved-case exchange
+
+Status: accepted workflow boundary; first case-bundle exchange pending the
+operator's exact Drive location and data-class approval
+
+The multi-workstation development contract keeps the Git checkout at
+`ros2_ws/src/DentoBot` authoritative for scripts, tests, launchers, Compose
+configuration, examples, and controlled documentation. Each workstation
+recreates the overlay and keeps `.dentobot.env`, build/install/log products,
+Slicer state, model caches, run records, and local `data/` outside Git.
+
+The existing Google Drive folder `IITM Dentobot/active-development-ubuntu`
+continues to mirror active Ubuntu documents only. For saved cases, the narrow
+exchange unit is an individual `*.dentocase` bundle in a separately named,
+operator-approved Drive location; the whole `data/Slicer_Saved/` directory is
+not a sync target.
+
+This file-type boundary is not a privacy approval: the `.dentocase` outer
+archive contains an MRB, and the embedded MRB can contain CBCT-derived NRRD
+volumes, segmentations, and anatomy. Exchange only synthetic or explicitly
+approved de-identified bundles. Personal-account ownership and file size do
+not authorize raw or identifiable medical data. Standalone `.mrb`, `.stl`,
+`.nrrd`, screenshots, run records, credentials, and engineer-owned records
+remain excluded. No Drive watcher, mount, whole-folder mirror, or Drive write
+is part of this decision.
+
+Reason: the operator wants the smallest practical multi-workstation exchange
+surface while keeping script history in Git and avoiding a gray boundary
+between portable case bundles and protected medical data.
+
+## 2026-09-13 — Create the approved saved-case Drive destination
+
+Status: pilot partially complete; remaining large-file uploads are pending
+authenticated browser access
+
+The operator explicitly approved exchange of anonymous `.dentocase` bundles
+and requested a folder named `Data` inside `IITM Dentobot`. The folder was
+created at
+`https://drive.google.com/drive/folders/1u1K2EVeBe3-U1-JeWxKhOKslEW-zFnkd`.
+`SampleStudy1/` and its `FDI11`, `FDI14`, `FDI31`, and `FDI44` child folders
+were created to preserve the local relative layout and avoid duplicate case
+filenames.
+
+The connector uploaded 7 of the 17 local `.dentocase` bundles: the root
+`dentobot-case-13sept.dentocase`, all three FDI11 bundles, and all three FDI31
+bundles. The remaining 10 FDI14/FDI44 bundles are larger than the connector's
+100 MB input limit. The browser fallback is at Google sign-in; no password was
+entered or recorded. No standalone MRB/STL/NRRD, screenshot, run record,
+engineer-owned record, or non-anonymized artifact was uploaded.
+
+The pilot remains incomplete until the 10 remaining bundles are uploaded and
+their Drive names, parents, sizes, and SHA-256 checksums are verified. The
+existing docs-only `active-development-ubuntu` mirror is unchanged.
+
+## 2026-09-13 — Enforce the trajectory-guide bore floor at the shared geometry boundary
+
+Status: source implemented; regenerated Step 5B/5C cases and physical-fit review
+pending
+
+The operator explicitly requires a trajectory-guide bore of at least `2.0 mm`
+for the configured burr. Apply that requirement to the shared
+`normalize_docking_parameters` path used by the printable trajectory-guide
+fusion, and expose the same floor in the persisted parameter defaults and the
+Step 5B controls for both the shell channel and trajectory-guide hole. A saved
+`1.5 mm` guide is therefore not silently accepted or relabeled: it must be
+regenerated with the current parameter before Step 5C or Step 6 planning can
+claim current guide evidence.
+
+This is separate from the four Step 4C robot-docking bores and from the
+simulation-only burr-contact exception. The `2.0 mm` floor is a workflow fit
+gate, not a manufacturing, runout, tolerance, or clinical validation claim.
+
+## 2026-09-13 — Make alternate Stage 6 route activation transactional and matrix-driven
+
+Status: source implemented; current-case runtime evidence pending
+
+Keep the existing 6.5/6.6 planner and motion-diagnostic session as the single
+source of route candidates. Applying or locking an alternate route must be
+atomic: save the prior diagnostic intent and transient active plan, attempt one
+fresh current re-plan, and restore the prior selection/plan if activation does
+not produce a successful full-chain plan. A failed alternate attempt must never
+leave a saved route identity pointing at a route that was not activated.
+
+Extend the existing exact-case runner with optional expected-FDI validation,
+route locking, diagnostic output, `.dentocase` save, and save/reopen checks.
+Use `Testing/run_dentobot_stage6_target_matrix.py` as a serialized launcher for
+exactly six independently supplied current packages: FDI31, FDI32, FDI11,
+FDI12, FDI13 and FDI14. The launcher refuses missing or extra targets, runs one
+Slicer process per target, and records stdout/stderr, detailed diagnostic JSON,
+saved package paths and matrix status. It does not construct missing upstream
+Step 4A–5C cases or run in parallel.
+
+The matrix remains an explicit-runtime-approval check. A passing source test or
+launcher dry run is not evidence of current Step 5C geometry, package
+integrity, PreparedBranch eligibility, collision-free planning, physical fit,
+or clinical readiness.
+
+The exact-case runner must fail closed on the saved package's current-state
+identity, not only on the outer archive checksum. It therefore requires the
+current outer and inner schemas, one selected current PreparedBranch, matching
+planning-pose and Step 5C revisions, no save-time freshness issues, current
+final-guide schema/verification, and a matching trajectory FDI. Persist
+`DENTOBOT.FinalGuideSchemaVersion` in `workflow/lineage.json`; MRML-only
+presence is insufficient for a portable manual reload/review claim.
+
+## 2026-09-13 — Restore Step 4C dock defaults from the latest FDI31 case
+
+Status: source implemented; regenerated target cases still pending
+
+Use the latest saved FDI31 package,
+`data/Slicer_Saved/SampleStudy1/FDI31/run2-dentobot-case-step6x5.dentocase`,
+as the source of the new parameter-node defaults for Step 4C. The defaults
+are a 10.0 mm centroid-to-dock radius, 3.0 mm outer diameter, 1.5 mm dock
+bore, 3.5 mm connector diameter, 2.0 mm connector thickness, 5.0 mm shared
+depth, 35° yaw, 0.5 mm collision clearance, and four configured 5.0 mm
+individual depths with individual-depth mode disabled. The yaw remains Draft
+until the current target geometry is regenerated and explicitly confirmed.
+
+The 1.5 mm value is the robot-dock bore from the saved FDI31
+`TargetDockingParametersJson`; it does not weaken the separate 2.0 mm minimum
+for the trajectory-guide hole enforced by `normalize_docking_parameters`.
+
+## 2026-09-13 — Enforce exact-target planning and post-hydration package gates
+
+Status: source implemented; runtime and normal-window acceptance remain open.
+
+The Stage 6 planner must preserve the confirmed requested target depth. The
+former simulation-only depth cap is removed: provisional insertion-envelope
+excess is diagnostic evidence, while IK, FK, joint-limit, guard, and collision
+failures remain hard planning failures. A successful selectable route is the
+complete `Task Home → PreEntry → Entry → Target` chain; no route may shorten or
+move the requested Target to make planning appear successful.
+
+The planner now treats the current PreparedBranch and its Step 5C evidence as
+an input freshness gate. Missing, stale, unverified, or mismatched branch
+identity blocks confirmation and re-planning before any old task snapshot can
+be used. Alternate-route activation and failed activation remain transactional:
+the prior selection and transient diagnostic plan are restored when the new
+candidate does not produce a complete current route. Saved route data is
+intent only; executable waypoints are regenerated from current package state.
+
+Case reopen has a second post-hydration package/lineage audit after the restore
+barrier ends and MRML events drain. Hydration-only transient markers are
+excluded from the comparable identity, but any real geometry, lineage,
+PreparedBranch, Step 5C, or checksum mismatch restores the recovery scene and
+fails the load. Step 4C also records the Case Foundation preparation mode and
+Step 5C requires exactly one current-frame target dock, one connected printable
+solid, four open bores, zero residual channel occupancy, and no retained
+closed-jaw duplicate.
+
+These source constraints do not accept the current case. The three-cycle FDI31
+runtime stop, exact-package integrity, regenerated Step 5B/5C geometry,
+current PreparedBranch, normal-window observations, and explicit live-runtime
+approval remain separate acceptance gates.
+
+## 2026-09-14 — Exact FDI31 Stage 6 first-invalid boundary
+
+Status: package, Step 5C geometry and PreparedBranch gates pass; exact full-chain
+planner acceptance remains blocked by an unapproved terminal collision.
+
+The authoritative `dentobot-case-13sept.dentocase` was not overwritten. A
+reviewed one-field base-revision migration was used only as input to an explicit
+production save. The resulting FDI31 package reopened with outer schema 2.0,
+workflow/registry schema 3.0, preserved source/segmentation/foundation/base
+identities, one current eligible PreparedBranch, four open robot-dock bores,
+zero residual channel occupancy, one connected printable solid and no duplicate
+closed-jaw dock. A failed branch activation preserved the prior active state.
+
+The exact simulation run against that reopened package reached the requested
+`6.671904931162032 mm` target distance with both bounded candidates. Stage 1 and
+Stage 2 passed. Candidate 0 first failed at composed waypoint 237; selected
+candidate 1 first failed at composed waypoint 274 / Stage 3 waypoint 27. The
+authoritative guard reported contact between the selected FDI31 tooth and
+`pneumatic_spindle-Copy`. This contact is not covered by the narrowly scoped
+burr-to-selected-target exception. The requested depth, saved base, J6/spindle
+zero policy and collision rules remain unchanged. No collision exemption,
+trajectory shortening or base relocation is authorized as a workaround.
+
+The exact diagnostic is therefore a valid first-invalid blocker, not planner
+success. Goal 2, guarded Return Home, repeatability, playback and route-intent
+restore are still downstream of a complete Stage 3 chain. The next action is a
+bounded review of the current guide/tool/base geometry and contact owner; no
+blind whole-flow retry is justified until that review produces a specific
+correction.
+
+## 2026-09-14 — Keep reopen screenshots diagnostic and non-persistent
+
+Status: implemented and fresh-reopen verified.
+
+The current case-reopen diagnostic captures the reopened render window as a
+sidecar, temporarily limits display visibility to the current guide/dock
+geometry for a legible view, and restores display visibility before exit. It
+does not save the scene, alter package geometry, connect ROS, or make the image
+part of the checksum-validated `.dentocase`. This is evidence presentation
+only; package and geometry gates remain authoritative in JSON diagnostics.
+
+## 2026-09-14 — Graphify refresh root and Codex stream-fd noise
+
+Status: implemented.
+
+Repeated agent notes that `graphify update .` was "blocked" by
+`Operation not permitted` were misreads of Codex Linux exec preamble
+`Failed to create stream fd: Operation not permitted`, which appears on
+ordinary trusted-project commands and is not a graphify rebuild failure.
+Separately, running `graphify update .` from `ros2_ws/src/DentoBot` recreated
+a nested `graphify-out/` and left the authoritative overlay graph stale.
+
+Decision: the only live graph is `/home/light-tarun/dentobot/graphify-out/`.
+Agents must refresh with `Workspace/scripts/graphify-update.bash` or
+`cd /home/light-tarun/dentobot && graphify update .`. Nested
+`ros2_ws/src/DentoBot/graphify-out/` must not be kept. Success requires exit
+0 plus `Code graph updated` or `[graphify watch] Rebuilt:`; ignore the Codex
+stream-fd preamble. Do not install a DentoBot-package git hook that writes a
+second graph tree.

@@ -1,6 +1,6 @@
 # DENTOBOT pending work and backlog
 
-Last reconciled: 2026-09-13. **Check this file before every plan or new task.**
+Last reconciled: 2026-09-14. **Check this file before every plan or new task.**
 This is the sole pending-work queue: active, blocked, planned, deferred and
 unaccepted work, including every open DENTO-NOTE. Detailed contracts live in
 [TASKS.md](TASKS.md) and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md); process and
@@ -23,31 +23,56 @@ not promotions into the current development sequence.
 
 ## Pending planned work — active correction and acceptance
 
-Current dependency sequence: `W5-U-04` → `S6-REUSABLE-CASE-SETUP` normal-window
-single-target preparation/import → separately scoped explicit-pair/optional
-registry acceptance → `S6-LIVE-01..05` as applicable. Optional testing is not a
-requirement for the default single-target path. Step 4A review remains open in
-the full preparation review. Wider Case Platform/Studio work stays behind
-`S6-LIVE-05`; workspace purpose must be settled before Studio Workspace.
+Current dependency sequence: `W5-U-04` → `S6-REUSABLE-CASE-SETUP` per-target
+4A–5C/STL/save/fresh-reopen gate → `S6-LIVE-01..04` per-target planner, guard,
+repeat and playback evidence → normal-window acceptance. Run independent
+central incisors FDI31 → FDI41 → FDI11 → FDI21. A target-specific failure
+records `FIRST_INVALID` and advances; shared source/package/runtime failures
+stop for a bounded correction. Pairing, optional 32 × 3 testing and the
+six-target batch remain downstream. Step 4A review stays in the preparation
+review; Case Platform/Studio remains behind `S6-LIVE-05`.
 
 **Reusable-case implementation handoff:** the Case Foundation/offline-base
 revision and the opened-planning-frame correction are reconciled into this
-checkout. Targeted static/pure checks and the diagnostic FDI32 Slicer smoke pass;
-the original saved-case integrity mismatch, current Step 5C branch acceptance,
-and normal-window operator acceptance remain open. Do not repeat the source
-implementation or revive the retired phantom path.
+checkout. The authoritative 13-September package was preserved, migrated
+through the production serializer, and reopened as a current single-target
+FDI31 package with one eligible PreparedBranch. The selected exact route now
+reaches full-chain Stage 1/2/3 planning at the requested depth; guarded
+preview and normal-window operator acceptance remain open. A live-joint
+scene-sync correction removed the previously observed stale-Home republish.
+The latest clean runtime packet exceeded its six-minute bound without a
+diagnostic sidecar. Do not repeat source implementation or revive the retired
+phantom path.
+
+**Current operator delta (2026-09-13; order superseded 2026-09-14):** bounded source-only Stage 6.5/6.6
+planner interaction work is authorized in parallel with these open gates. The
+existing diagnostics now carry selected/locked route intent and require a
+fresh current re-plan after restore; this does not reorder the integrity,
+geometry, PreparedBranch, normal-window or separate runtime-approval gates.
+The operator additionally requires the trajectory-guide channel/hole to be at
+least 2.0 mm and asks for distinct per-target diagnostics and a valid case-save
+campaign. The six-target FDI31/32/11/12/13/14 matrix remains downstream. The
+current 2026-09-14 acceptance delta fixes the order to
+FDI31→FDI41→FDI11→FDI21. Each target gets an explicit folder under
+`data/Slicer_Saved/SampleStudy1/` containing its `.dentocase`, exported STL,
+diagnostics and screenshots. The source has all four tooth masks but lacks
+FDI11/21 pulp masks; record missing required pulp as input-data failure and
+continue. The bore-floor source gate is implemented below;
+the current-case rebuild, per-target Step 5B/5C evidence, planner runtime,
+Return-Home loop and saved-case reload remain acceptance work, not inferred
+from the source change.
 
 | ID | Priority | Remaining work / state | Dependency, next acceptance and overlap |
 |---|---|---|---|
-| `W5-U-04` | 0 | Blocked: FDI31 retains a 5-voxel fragment; FDI11 passes | Obtain approval for contributor classification, select one evidence-backed correction, rebuild once; require four open bores, zero channel occupancy and one solid, then normal-window review. Construction owner for the `W5-U-03` fusion defect; do not raise cleanup threshold. |
-| `S6-REUSABLE-CASE-SETUP` | 0 | **Implemented; targeted verification passed:** schema-3 PreparedBranches bind current Step 5C evidence to Case Foundation pose; foundation-only offline save/reopen, reusable Manual Simulation Base paths, full-anatomy visibility, and opened-frame FDI32 assisted generation are implemented. The focused diagnostic Slicer run passed with screenshots; exact-package integrity, current Step 5C/PreparedBranch acceptance, and normal-window review remain open. | First resolve the supplied package's saved base-revision mismatch by explicit current save or reviewed migration, then run one current single-target `4A→4B→4C→5A→5B→5C→6` preparation/import and record the ten normal-window observations. Keep the task open until operator acceptance. Explicit pairing/optional 32 × 3 stay separately scoped. Reuse this foundation in `DCP-02..08`. |
+| `W5-U-04` | 0 | Current FDI31 regeneration passes the explicit geometry gate; the historical 5-voxel fragment is not reproduced in the current artifact. FDI11 remains the comparison pass. | Preserve the one-solid/zero-channel/four-open-bore gate and complete the normal-window Step 5B/5C review, including fragment classification evidence. Construction remains the `W5-U-03` fusion owner; do not raise the cleanup threshold. |
+| `S6-REUSABLE-CASE-SETUP` | 0 | FDI31 has current schema-3 Step 5C, one eligible branch, geometry PASS and automated save/reopen; selected exact Stage 1/2/3 route planning reached `232/12/28` at requested depth. Guarded preview, fresh-process campaign save/reopen, STL and normal-window acceptance remain open. Manual Slicer fingerprint mismatch is unlocalized; last clean runtime packet timed out without a sidecar. | Resolve the package/resource fingerprint mismatch, then run four independent central-incisor cases in order FDI31→FDI41→FDI11→FDI21. Each gets automated 4A–5C, verified STL, explicit save, fresh-process reopen, Stage 6 first-invalid/complete artifact and its own folder/screenshots. Advance past target-specific failures; stop on shared source/package/runtime failure. Do not infer exact runtime acceptance from current FDI31 planning. |
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
-| `S6-LIVE-01` | 0 | Implemented; complete Stage-3 acceptance open | After workflow integrity, resolve reviewed case blocker with full endpoint/guard evidence; shares diagnostic owner `S6-FDI11-DEPTH`. |
-| `S6-LIVE-02` | 0 | Implemented; runtime guard acceptance pending | Verify all three stages, J1–J5 guard, narrow burr exception and external-spindle boundary in the same authorized full-loop campaign. |
-| `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance pending | Goal 1→Goal 2→Return Home→replan without restart; share campaign with `S6-LIVE-05`. |
-| `S6-LIVE-04` | 0 | Implemented; playback acceptance pending | Confirm speed, ordered acknowledgements and visible paths in that campaign. |
+| `S6-LIVE-01` | 0 | Implemented; exact reopened FDI31 selected-route planning reaches the requested target depth with Stage 1/2/3 `232/12/28` and Stage 3 fraction `1.0`. The earlier stale Task Home mismatch was localized to scene acknowledgement and corrected. Full guarded preview remains unaccepted: the clean r7 packet exceeded its six-minute bound without a diagnostic sidecar. | Resolve the manually reported package fingerprint mismatch and capture one bounded exact first-invalid/complete artifact before another whole-flow attempt. Then require complete endpoint/guard evidence, selected/locked alternate-route behavior, and repeatability without shortening depth, moving the base, or adding a collision exemption; shares diagnostic owner `S6-FDI11-DEPTH`. |
+| `S6-LIVE-02` | 0 | Implemented; synthetic phase-guard matrix passes. Exact-case planning passes Stage 1/2/3 for the selected route, but complete runtime guard evidence is still pending because the bounded preview packet did not emit its final diagnostic. | Verify all three stages, J1–J5 guard, narrow burr exception, external-spindle boundary and no guard bypass through selected/locked routes after a complete exact runtime artifact exists. |
+| `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance pending | For each central-incisor package with a Complete route, check Goal 1→Goal 2→guarded Return Home→replan/route choice; retain first-invalid results for other teeth. Six-target matrix remains downstream. |
+| `S6-LIVE-04` | 0 | Implemented; playback/restore acceptance pending | Confirm speed, ordered acknowledgements, visible stage paths, saved route intent and current re-plan after restore in that campaign. |
 | `S6-LIVE-05` | 0 | Blocked by workflow integrity and reviewed clean-case selection | Require finalized guide/tool geometry, complete guarded approach/drilling-preview/withdrawal/Home and fresh repeat. Gates P1 Studio; no hardware authorization. |
 | `S6-FDI11-DEPTH` | Unprioritized | Paused: FDI21 housing contact at final drilling waypoint | After integrity acceptance, reconcile exact case/tool/guide identity and propose smallest Stage-3 check. Old 91.7%/x4 values are historical; no automatic base/depth/margin tuning. |
 | `S6A-CHANGED-TARGET-GEOMETRY` | Unprioritized | Clear/save guard checks pass; clean FDI44 full workflow review pending | Verify Step 6A geometry from clean session; regenerate cross-target chains if reported. Coordinate stale-proxy ownership with reusable-case restore; do not infer mesh identity from text. |
@@ -74,7 +99,7 @@ acceptance references: TASKS.md and DEVELOPMENT_PLAN.md, under these same IDs.
 | `S6-P2-03` | 2 | Truthful shared busy/progress/result/cancel behavior | P0 correctness accepted; coordinate Step 5B interaction and later studies. |
 | `UI-P3-01` | 3 | New GUI refinement with Legacy parity | Studio functional acceptance and P1–2 correctness; consume `W4B-P2-SUPPORT-AUTO`, `W5-U-05`, `VIEW-U-02` contracts rather than duplicate them. |
 | `PLAT-U-06` | Unprioritized | Investigate isolated Slicer 5.12 candidate and compatibility/performance | Follow [upgrade plan](SLICERROS2_5_12_UPGRADE.md); preserve accepted 5.10 rollback, audit fork APIs, isolated branch/build, separately approved runtime gates. |
-| `PLAT-U-07` | Unprioritized | Proposed multi-workstation Git plus saved-case exchange boundary; no external data sync performed | Reuse the current Git-tracked overlay and docs-only `active-development-ubuntu` mirror. Exchange only individual synthetic or explicitly approved de-identified `.dentocase` bundles from a separately named Drive location; verify checksum/readback. Never sync the whole `Slicer_Saved` tree, raw/non-anonymized bundles, engineer-owned records, or credentials. |
+| `PLAT-U-07` | Unprioritized | Data folder created and initial pilot partially synced: 7 of 17 approved `.dentocase` bundles uploaded; 10 larger bundles remain pending browser upload | Use `IITM Dentobot/Data` with the preserved `SampleStudy1/FDI*` layout. Finish only the remaining individual synthetic or explicitly approved de-identified bundles, then verify Drive metadata and checksums. Never sync the whole `Slicer_Saved` tree, raw/non-anonymized bundles, engineer-owned records, or credentials. |
 
 ## Backlog — DENTO-NOTEs, design and remaining verification
 
