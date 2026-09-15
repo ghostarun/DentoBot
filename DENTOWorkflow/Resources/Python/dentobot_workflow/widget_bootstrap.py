@@ -112,6 +112,8 @@ class BootstrapWidgetMixin:
         self._templateSupportPackageDetailsLabel = None
         self._returnToStep4BSupportButton = None
         self._templateSupportButtonsBySegmentId: dict[str, object] = {}
+        self._templateSupportAutoSuggestionTargetId: str | None = None
+        self._templateSupportAutoSuggestion: dict | None = None
         self._unifiedTemplateReadinessGroup = None
         self._unifiedTemplateInputsGroup = None
         self._unifiedTemplateActionGroup = None

@@ -1,8 +1,9 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-14. Routing only; all pending work and current order
-live in [backlog.md](backlog.md). Detailed task contracts and completion records
-live in [TASKS.md](TASKS.md). Historical attempts are not instructions.
+Last reconciled: 2026-09-15. Routing plus the durable Step-4A–5B testing
+baseline below; all pending work and current order live in
+[backlog.md](backlog.md). Detailed task contracts and completion records live
+in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Start here
 
@@ -70,6 +71,67 @@ live in [TASKS.md](TASKS.md). Historical attempts are not instructions.
   target tooth, pulp geometry and spatial association are canonically
   validated. Keep `S4A-PULP-ENDPOINT` as the endpoint-geometry owner and
   `S6-REUSABLE-CASE-SETUP` as the package/campaign owner.
+
+## Durable Step-4A–5B testing baseline (operator-supplied, 2026-09-15)
+
+Use this as the default new-case/automated-test fixture unless a newer explicit
+operator decision supersedes it. It is a research/testing baseline, not
+operator acceptance of the inputs, scene, geometry, clinical intent, contact
+interpretation or P1/P2. The five screenshot files and the detailed
+operator/source separation are retained in
+[logbook/2026-09-15.md](logbook/2026-09-15.md) and
+`data/dentobot-runs/fdi31-operator-steps4a-5b-20260915/`. Do not rewrite
+the frozen 13Sept/r7 evidence to make it match these defaults.
+
+| Step | Selection or derived test output | Default value(s) / expected fixture | Authority and evidence boundary |
+|---|---|---|---|
+| 4A | Target tooth; optional assisted-entry count | `FDI31`; assisted trajectory count `2` | Target and duplicate closed/opened FDI31 appearance are operator screenshot observations. The duplicate is a defect to investigate, not a second target and not a default. Count is the source/UI default. |
+| 4B | Same-jaw support package | Four immediate arch positions: for FDI31, `FDI42`, `FDI41`, `FDI32`, `FDI33` (two on each side). Missing/edge positions do not silently substitute farther teeth; the suggestion is incomplete and requires review. | Canonical helper: `DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide_support.py`; pure regression: `Testing/test_step4b_support_auto.py`. The four IDs are the operator-confirmed example and the automated expected fixture, not operator acceptance of all scene geometry. |
+| 4C | Target reference; dock assembly | Target-crown occlusal dock plane; four independent robot docks | Operator screenshot/source-aligned fixture. The plane's oblique appearance remains a review issue; it is not certified by the parameter table. |
+| 4C | Dock dimensions and draft screen | Pattern radius `10.0 mm`; dock outer diameter `3.0 mm`; **robot-dock bore `1.0 mm`**; connector/branch width `3.5 mm`; endpoint overlap/thickness `2.0 mm`; shared depth `5.0 mm`; obstacle clearance `0.5 mm`; yaw `35.0°`; individual depths disabled with each depth `5.0 mm`; measurements visible | New parameter/UI defaults in `parameter_state.py` and `DENTOWorkflow.ui`. The 1.0-mm value is only the registration/robot-dock bore; it is not the drilling trajectory bore. |
+| 5A | Visible support and automatic plane | Visible support preview; insertion-aligned support plane; plane depth from Entry `4.0 mm`; crown-cap tilt fit `10%`; boundary sampling `0.5 mm`; terminal support coverage `50%`; polarity reversal off | The 4.0/10/0.5/50 values are source/UI defaults; some lower-crop values were not visible in the supplied screenshot. The oblique plane is an unresolved display/world-frame review item, not accepted geometry. |
+| 5B | Undercut/blockout inputs | Undercut angle tolerance `5°`; interproximal relief `1.0 mm`; blockout safety `0.1 mm`; voxel closing `0.3 mm` | Source/UI defaults; these controls were visible in the supplied 5B view. The grey derived-output controls and `Unified template=None` are output/state observations, not defaults. |
+| 5B | Shell/guide construction inputs | Shell clearance `0.3 mm`; shell thickness `1.5 mm`; geometry sampling `0.3 mm`; shell channel `2.0 mm`; trajectory-guide outer diameter `4.4 mm`; trajectory-guide hole/bore `2.0 mm`; guide height `2.5 mm`; guide/dock clearance `0.3 mm`; collar radial width `1.0 mm`; collar depth `2.0 mm` | These are source/UI defaults; several are not visible in the supplied screenshot crop. The direct UI field is `templateSleeveInnerDiameterMm` (“Trajectory guide hole diameter”). |
+
+### Non-negotiable trajectory-guide bore rule
+
+The drill-burr/trajectory-guide hole must be **at least 2.0 mm in diameter**;
+values below 2.0 mm are invalid and must fail closed. The persisted default
+`templateSleeveInnerDiameterMm` is `2.0`, the UI minimum is `2.0`, and
+`DENTOGuideGeometry.py` enforces the same floor through
+`MINIMUM_TRAJECTORY_BORE_DIAMETER_MM`. The related shell channel
+`templateChannelDiameterMm` also defaults to and is UI-bounded at `2.0 mm`.
+This rule does not raise the separate Step-4C `targetDockingBoreDiameterMm`
+default of `1.0 mm`.
+
+The immutable 13Sept/r7 package may retain a historical `1.5 mm` saved guide
+value as rejected evidence. Do not clamp it, rebuild it, or call it a valid
+default. A new test case must be initialized at the 2.0-mm floor before
+dependent Step 5B/5C geometry is generated.
+
+### Baseline change-control rule
+
+When the operator changes one of these defaults or the 2.0-mm minimum, update
+the applicable source and documentation together in the same change:
+
+1. `DENTOWorkflow/Resources/Python/dentobot_workflow/parameter_state.py`
+   for the persisted parameter default;
+2. `DENTOWorkflow/Resources/UI/DENTOWorkflow.ui` for the visible default and
+   UI minimum;
+3. the owning normalization/preflight/generator path, including
+   `DENTOWorkflow/Resources/Python/DENTOGuideGeometry.py`,
+   `dentobot_workflow/widget_template_build.py`,
+   `dentobot_workflow/logic_guide_support.py` or the Step-4C docking module as
+   applicable;
+4. the focused automated fixture/test and
+   `Testing/verification_matrix.json` when the selected check changes; and
+5. this baseline, the linked `DECISIONS.md`/`TASKS.md` contract and the dated
+   logbook evidence.
+
+Never change only workflow code and leave the static context or UI stale.
+Verify source/UI parity and the hard-bound test before using a changed value;
+do not mutate frozen MRBs, cases, collision policy or retained evidence unless
+the operator explicitly authorizes that separate action.
 
 ## Where facts belong
 

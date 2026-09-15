@@ -67,6 +67,74 @@ class GuideSupportLogicMixin:
         return DENTOWorkflowLogic._validateUniqueSegmentIdList(values)
 
     @staticmethod
+    def _automaticTemplateSupportSelection(
+        targetFdi: str,
+        availableRecords: list[dict],
+    ) -> dict:
+        """Suggest the two immediate present teeth on each arch side."""
+
+        targetFdi = str(targetFdi or "").strip()
+        quadrant = targetFdi[:1]
+        if quadrant in {"1", "2"}:
+            archOrder = [
+                *[f"1{number}" for number in range(8, 0, -1)],
+                *[f"2{number}" for number in range(1, 9)],
+            ]
+        elif quadrant in {"3", "4"}:
+            archOrder = [
+                *[f"4{number}" for number in range(8, 0, -1)],
+                *[f"3{number}" for number in range(1, 9)],
+            ]
+        else:
+            return {
+                "supportSegmentIds": [],
+                "expectedFdiNumbers": [],
+                "missingFdiNumbers": [],
+                "complete": False,
+            }
+
+        try:
+            targetIndex = archOrder.index(targetFdi)
+        except ValueError:
+            return {
+                "supportSegmentIds": [],
+                "expectedFdiNumbers": [],
+                "missingFdiNumbers": [],
+                "complete": False,
+            }
+
+        # These are exact arch positions.  Do not search past a missing
+        # position and silently substitute a farther tooth.
+        expectedFdiNumbers = [
+            *archOrder[max(0, targetIndex - 2) : targetIndex],
+            *archOrder[targetIndex + 1 : targetIndex + 3],
+        ]
+        recordsByFdi = {}
+        for record in availableRecords or ():
+            if not isinstance(record, dict):
+                continue
+            fdiNumber = str(record.get("fdiNumber") or "").strip()
+            segmentId = str(record.get("segmentId") or "").strip()
+            if fdiNumber in expectedFdiNumbers and segmentId:
+                recordsByFdi[fdiNumber] = segmentId
+        supportSegmentIds = [
+            recordsByFdi[fdiNumber]
+            for fdiNumber in expectedFdiNumbers
+            if fdiNumber in recordsByFdi
+        ]
+        return {
+            "supportSegmentIds": supportSegmentIds,
+            "expectedFdiNumbers": expectedFdiNumbers,
+            "missingFdiNumbers": [
+                fdiNumber
+                for fdiNumber in expectedFdiNumbers
+                if fdiNumber not in recordsByFdi
+            ],
+            "complete": len(expectedFdiNumbers) == 4
+            and len(supportSegmentIds) == 4,
+        }
+
+    @staticmethod
     def _validateUniqueSegmentIdList(segmentIds: list) -> list[str]:
         normalizedIds = []
         seenIds = set()
@@ -609,11 +677,11 @@ class GuideSupportLogicMixin:
         trajectoryNode: vtkMRMLMarkupsLineNode,
         *,
         reverseDirection: bool = False,
-        depthFromEntryMm: float = 3.0,
+        depthFromEntryMm: float = 4.0,
         crownCapPercent: float = 10.0,
         planeNode: vtkMRMLMarkupsPlaneNode | None = None,
     ) -> tuple[vtkMRMLMarkupsPlaneNode, dict]:
-        """Create a locked plane normal to Entry→Target at one scalar depth."""
+        """Create a locked crown-cap-tilted plane at one Entry→Target depth."""
 
         parameterNode = self.getParameterNode()
         self.requireCaseFoundationPose(parameterNode)

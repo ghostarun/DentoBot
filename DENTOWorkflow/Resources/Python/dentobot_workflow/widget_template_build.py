@@ -91,6 +91,17 @@ class TemplateBuildWidgetMixin:
             "sleeveHeightMm": self._parameterNode.templateSleeveHeightMm,
         }
 
+    def _normalizedTemplateDockingParameters(self) -> dict[str, float]:
+        return normalize_docking_parameters(
+            outer_diameter_mm=self._parameterNode.templateSleeveOuterDiameterMm,
+            inner_diameter_mm=self._parameterNode.templateSleeveInnerDiameterMm,
+            height_mm=self._parameterNode.templateSleeveHeightMm,
+            clearance_mm=self._parameterNode.templateDockingClearanceMm,
+            reinforcement_radial_mm=self._parameterNode.templateReinforcementRadialMm,
+            reinforcement_depth_mm=self._parameterNode.templateReinforcementDepthMm,
+            processing_resolution_mm=self._parameterNode.templateSamplingSpacingMm,
+        )
+
     def _templateGuideVisibilityEntries(self) -> tuple[tuple[object, object], ...]:
         if not self._parameterNode:
             return ()
@@ -284,19 +295,7 @@ class TemplateBuildWidgetMixin:
         normalizedParameters = None
         validatedInputs = None
         try:
-            normalizedParameters = normalize_docking_parameters(
-                outer_diameter_mm=self._parameterNode.templateSleeveOuterDiameterMm,
-                inner_diameter_mm=self._parameterNode.templateSleeveInnerDiameterMm,
-                height_mm=self._parameterNode.templateSleeveHeightMm,
-                clearance_mm=self._parameterNode.templateDockingClearanceMm,
-                reinforcement_radial_mm=(
-                    self._parameterNode.templateReinforcementRadialMm
-                ),
-                reinforcement_depth_mm=(
-                    self._parameterNode.templateReinforcementDepthMm
-                ),
-                processing_resolution_mm=self._parameterNode.templateSamplingSpacingMm,
-            )
+            normalizedParameters = self._normalizedTemplateDockingParameters()
             validatedInputs = self.logic._validateFinalGuideInputs(
                 patientShell,
                 targetDockingAssembly,
@@ -1320,6 +1319,14 @@ class TemplateBuildWidgetMixin:
     def _completeTemplateBuildPreflight(self) -> dict:
         if not self._parameterNode or not self.logic:
             raise RuntimeError(_("DENTOWorkflow is not ready."))
+        try:
+            self._normalizedTemplateDockingParameters()
+        except ValueError as exc:
+            raise ValueError(
+                _("Review Step 5B · Unified template dimensions (section 2): %1").replace(
+                    "%1", str(exc)
+                )
+            ) from exc
         sourceSummary = self.logic.getDraftTemplateSupportModelSummary(
             self._parameterNode.draftTemplateSupportModel
         )

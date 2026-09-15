@@ -293,6 +293,10 @@ class PlanningFocusWidgetMixin:
             message = _("Placed %1 of %2 crown entry point(s).").replace(
                 "%1", str(summary["definedPointCount"])
             ).replace("%2", str(summary["expectedCount"]))
+            if summary["definedPointCount"]:
+                message += _(
+                    " Click Place / Replace Crown Entries again for the next point."
+                )
             style = "color: #1f5f99;"
         else:
             message = _(
@@ -659,7 +663,9 @@ class PlanningFocusWidgetMixin:
         try:
             segmentationNode = self._parameterNode.teethSegmentation
             segmentId = self._parameterNode.targetToothSegmentId
-            self.logic.validateTargetTooth(segmentationNode, segmentId)
+            targetRecord = self.logic.validateTargetTooth(
+                segmentationNode, segmentId
+            )
             if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":
                 raise ValueError(
                     _("Mark the authoritative segmentation Reviewed first.")
@@ -674,24 +680,45 @@ class PlanningFocusWidgetMixin:
                     )
                 )
             currentNode = self._parameterNode.assistedTrajectoryEntries
+            currentSummary = None
+            continueCurrentNode = False
             if self.logic.isAssistedTrajectoryEntryNode(currentNode):
                 currentSummary = self.logic.getAssistedTrajectoryEntrySummary(
                     currentNode
                 )
-                if currentSummary["definedPointCount"] and not slicer.util.confirmYesNoDisplay(
-                    _(
-                        "Replace the current assisted crown entry points? The "
-                        "existing points will be removed."
-                    ),
-                    windowTitle=_("Replace assisted Step 4A entries"),
+                continueCurrentNode = bool(
+                    currentSummary["expectedCount"]
+                    == int(self._parameterNode.assistedTrajectoryCount)
+                    and currentSummary["definedPointCount"]
+                    < currentSummary["expectedCount"]
+                    and currentNode.GetNodeReference(
+                        self.logic.ASSISTED_ENTRY_SEGMENTATION_REFERENCE_ROLE
+                    )
+                    is segmentationNode
+                    and currentNode.GetAttribute("DENTOBOT.TargetSegmentID")
+                    == targetRecord["segmentId"]
+                )
+                if (
+                    not continueCurrentNode
+                    and currentSummary["definedPointCount"]
+                    and not slicer.util.confirmYesNoDisplay(
+                        _(
+                            "Replace the current assisted crown entry points? The "
+                            "existing points will be removed."
+                        ),
+                        windowTitle=_("Replace assisted Step 4A entries"),
+                    )
                 ):
                     return
-            entryNode, _summary = self.logic.createOrResetAssistedTrajectoryEntries(
-                segmentationNode,
-                segmentId,
-                self._parameterNode.assistedTrajectoryCount,
-                currentNode,
-            )
+            if continueCurrentNode:
+                entryNode = currentNode
+            else:
+                entryNode, _summary = self.logic.createOrResetAssistedTrajectoryEntries(
+                    segmentationNode,
+                    segmentId,
+                    self._parameterNode.assistedTrajectoryCount,
+                    currentNode,
+                )
             self._parameterNode.assistedTrajectoryEntries = entryNode
             self._bindAssistedTrajectoryEntryNode(entryNode)
             self._startAssistedTrajectoryFocus()

@@ -653,6 +653,10 @@ class CaseFoundationLogicMixin:
             node.SetAndObserveTransformNodeID(parent.GetID() if parent else None)
             return
         if node.IsA("vtkMRMLMarkupsNode"):
+            normal = (
+                tuple(node.GetNormalWorld())
+                if node.IsA("vtkMRMLMarkupsPlaneNode") else None
+            )
             positions = []
             for index in range(node.GetNumberOfControlPoints()):
                 point = [0.0, 0.0, 0.0]
@@ -661,6 +665,8 @@ class CaseFoundationLogicMixin:
             node.SetAndObserveTransformNodeID(parent.GetID() if parent else None)
             for index, point in enumerate(positions):
                 node.SetNthControlPointPositionWorld(index, *point)
+            if normal is not None:
+                node.SetNormalWorld(normal)
             return
         raise ValueError(_("This workflow node cannot be attached to the jaw safely."))
 

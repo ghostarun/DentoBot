@@ -30,7 +30,7 @@ class DENTOWorkflowParameterNode:
     targetDockingAssemblyModel: vtkMRMLModelNode
     targetDockingPatternRadiusMm: float = 10.0
     targetDockingOuterDiameterMm: float = 3.0
-    targetDockingBoreDiameterMm: float = 1.5
+    targetDockingBoreDiameterMm: float = 1.0
     targetDockingConnectorDiameterMm: float = 3.5
     targetDockingConnectorThicknessMm: float = 2.0
     targetDockingSharedDepthMm: float = 5.0
@@ -47,7 +47,7 @@ class DENTOWorkflowParameterNode:
     draftTemplateSupportModel: vtkMRMLModelNode
     templateSupportBoundaryCurve: vtkMRMLMarkupsClosedCurveNode
     templateSupportBoundaryPlane: vtkMRMLMarkupsPlaneNode
-    templateSupportPlaneDepthMm: float = 3.0
+    templateSupportPlaneDepthMm: float = 4.0
     templateSupportCrownCapPercent: float = 10.0
     templateSupportCurveSamplingSpacingMm: float = 0.5
     templateTerminalSupportCoveragePercent: float = 50.0

@@ -549,6 +549,7 @@ class WorkflowPanelsWidgetMixin:
     ) -> None:
         if self._updatingTemplateUI:
             return
+        self._templateSupportAutoSuggestion = None
         listWidget = self.ui.templateSupportTeethListWidget
         for itemIndex in range(listWidget.count):
             item = listWidget.item(itemIndex)

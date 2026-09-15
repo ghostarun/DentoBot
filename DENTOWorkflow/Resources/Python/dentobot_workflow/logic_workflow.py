@@ -269,7 +269,9 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             "vtkMRMLMarkupsFiducialNode"
         )
         selectionNode.SetActivePlaceNodeID(entryNode.GetID())
-        slicer.modules.markups.logic().StartPlaceMode(1)
+        # Each button click owns exactly one crown-entry placement. A
+        # persistent Markups mode lets extra clicks create F1/F2/... points.
+        slicer.modules.markups.logic().StartPlaceMode(0)
         selectionNode.SetActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
         selectionNode.SetActivePlaceNodeID(entryNode.GetID())
         if (

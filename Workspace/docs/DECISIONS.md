@@ -5451,3 +5451,89 @@ the selected scene/workflow objects, including the distinction between the
 four robot-dock bores and any drilling-trajectory guide bore. No P3/P4 runtime,
 planning, source edit or hardware action follows until those questions are
 answered under the unchanged Campaign-1 contract.
+
+## 2026-09-15 — Operator Step 4A–5B review supersedes the grouped P1 signoff prompt
+
+The operator's five screenshots and explicit Step-4B confirmation are partial
+input review, not acceptance of the complete scene or task. FDI42/41 and
+FDI33/32 are confirmed support neighbours for FDI31. The operator also reports
+duplicate closed/opened target appearance, abnormal-looking 4C/5A planes and
+the saved 1.5-mm trajectory-guide bore hard error. The earlier Section-AJ
+grouped “yes” questions cannot be marked answered by this narrower statement.
+
+The explicit request for pictured 4C and 5A **defaults** supersedes the
+2026-09-13 saved-case-derived new-case default decision only for newly
+initialized workflow state: robot-dock bore 1.0 mm instead of 1.5 mm, Step-5A
+plane depth 4.0 mm instead of 3.0 mm, and UI radius 10.0 mm instead of 15.0
+mm. The programmatic Step-5A plane-creation default also changes to 4.0 mm;
+production callers already pass depth explicitly. The remaining pictured
+defaults are already aligned. This is not a
+revision of the frozen r7 1.5-mm docking assembly, source case bytes, saved
+Entry/Target, anatomy, tool, transform or policy; it cannot silently replace
+the Campaign-1 P3 inputs. Saved MRML values remain authoritative on reopen.
+
+The existing shared `normalize_docking_parameters` is now used in the Step-5B
+build preflight as well as its final-control check so a persisted sub-2.0-mm
+guide hole is reported before cached geometry work rather than hidden behind
+“Inputs are ready.” The 2.0-mm trajectory-guide floor is unchanged and remains
+separate from the robot-dock bore. The saved source has a 1.5-mm hole and a
+1.5-mm research shell channel; no automatic clamping, template rebuild or
+operator-confirmed flag is authorized. Current plane correctness remains a
+world-MRML readback question; source design and retained r7 geometry alone
+cannot certify the operator's unsaved live viewport. P1 overall remains
+INCOMPLETE, retained P2 evidence PASS with USER_REVIEW_REQUIRED, P3/P4 paused.
+
+## 2026-09-15 — Separate foundation fixture and Step-5B plane-frame correction
+
+The operator clarifies that `dentobot-case-15sept.dentocase` is intended as a
+reusable mouth-opened, robot-base-placed foundation, while
+`FDI31/2026-09-15-Scene.mrb` is the current Step-5B saved scene. The first
+retains the transform/landmarks/base matrix but is not machine-eligible
+`FoundationOnly`: its base remains unlocked, saved FDI31 target/ROI and three
+old support IDs remain, and source/opened FDI31 are both 3D-visible. Do not
+silently clear those saved fields, lock the base, overwrite the package, or
+substitute it for Campaign-1 frozen source/r7. The Step-5B MRB is the correct
+current-world plane/display evidence; it has the four confirmed supports.
+
+Saved Step-5B 4C normal matches its world-frame metadata; its point-normal
+plane display X/Y axes differ `14.736°` from the separately recorded docking
+frame, so only the normal/point—not four-dock yaw/fit—is attributed here.
+The 5A world normal is 42.454° from its recorded five-tooth fit normal even
+though its
+origin matches Entry+4 mm. Applying the saved jaw-opening rotation to that
+fit normal reproduces the displayed normal within `5e-7` component error.
+Source tracing and a focused reproducer identify a defect in the shared Case
+Foundation markup reparent helper: it preserved point positions but not a
+plane's world normal. The exact saved-scene callback sequence was not retained;
+its contribution to this MRB is a high-confidence inference from the exact
+jaw-rotation numerical match, not a traced call.
+Correct that helper once by snapshotting/restoring `GetNormalWorld` /
+`SetNormalWorld` for plane markups; leave source CBCT/segment geometry, frozen
+cases, jaw/base transforms, task, tool and collision policy unchanged. The
+source/pure check is not Slicer runtime or operator geometry acceptance. The
+historical MRB remains unmodified and requires one bounded offline
+save/reopen parity check before any P1 scene claim; P3/P4 remain paused.
+
+## 2026-09-15 — Durable Step-4A–5B test baseline and guide-bore floor reaffirmed
+
+The operator's supplied Step-4A–5B screenshots and default-parameter request
+are recorded as the durable new-case/automated-test baseline in
+`AGENT_CONTEXT.md`. That baseline is a testing aid only; it does not accept
+the selected inputs, scene, planes, geometry, clinical intent or P1/P2.
+The FDI31 example expects four immediate same-jaw support positions
+(`FDI42`, `FDI41`, `FDI32`, `FDI33`), with no farther-tooth substitution for a
+missing or edge position. The reported duplicate closed/opened target and
+oblique plane appearances remain review issues.
+
+Reaffirm the dimensional role separation: the Step-4C registration/robot
+dock bore remains `1.0 mm`, while the Step-5B drilling trajectory-guide hole
+(`templateSleeveInnerDiameterMm`) must be **at least `2.0 mm`** because the
+configured drill burr requires that hard diameter floor. Its new-case default
+and UI minimum are both `2.0 mm`; the shell channel
+(`templateChannelDiameterMm`) is also defaulted and UI-bounded at `2.0 mm`.
+The frozen 13Sept/r7 saved `1.5 mm` values remain historical invalid fixtures
+and must fail closed; they are not silently clamped or rewritten. Any future
+change to these defaults/minima must update the parameter schema, UI,
+normalization/preflight/generator path, focused tests, static context and
+controlled records together. No geometry, collision policy or retained case
+was changed by this decision.

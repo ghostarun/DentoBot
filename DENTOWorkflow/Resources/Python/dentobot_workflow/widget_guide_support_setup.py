@@ -508,6 +508,9 @@ class GuideSupportSetupWidgetMixin:
         segmentationNode = self._parameterNode.teethSegmentation
         targetSegmentId = self._parameterNode.targetToothSegmentId
         targetRecord = self._targetToothRecordsById.get(targetSegmentId)
+        if not targetSegmentId:
+            self._templateSupportAutoSuggestionTargetId = None
+            self._templateSupportAutoSuggestion = None
         modelNode = self._parameterNode.draftTemplateSupportModel
         self.logic.refreshWorkflowLineageColors()
         persistedSelectionError = ""
@@ -603,6 +606,44 @@ class GuideSupportSetupWidgetMixin:
             for record in sameArchRecords
             if record["segmentId"] != targetSegmentId
         ]
+        automaticSupportSelection = (
+            self._templateSupportAutoSuggestion
+            if self._templateSupportAutoSuggestionTargetId == targetSegmentId
+            else None
+        )
+        if automaticSupportSelection and set(persistedSupportIds) != set(
+            automaticSupportSelection["supportSegmentIds"]
+        ):
+            automaticSupportSelection = None
+            self._templateSupportAutoSuggestion = None
+        if (
+            targetRecord
+            and not persistedSelectionError
+            and not persistedSupportIds
+            and automaticSupportSelection is None
+            and self._templateSupportAutoSuggestionTargetId != targetSegmentId
+        ):
+            automaticSupportSelection = (
+                self.logic._automaticTemplateSupportSelection(
+                    targetFdi,
+                    availableRecords,
+                )
+            )
+            self._templateSupportAutoSuggestion = automaticSupportSelection
+            persistedSupportIds = list(
+                automaticSupportSelection["supportSegmentIds"]
+            )
+            self._templateSupportAutoSuggestionTargetId = targetSegmentId
+            if persistedSupportIds:
+                self._updatingTemplateUI = True
+                try:
+                    self._parameterNode.templateSupportToothSegmentIdsJson = (
+                        self.logic.encodeTemplateSupportSegmentIds(
+                            persistedSupportIds
+                        )
+                    )
+                finally:
+                    self._updatingTemplateUI = False
         archOrder = {
             fdiNumber: index
             for index, fdiNumber in enumerate(
@@ -647,6 +688,37 @@ class GuideSupportSetupWidgetMixin:
                 availableRecords,
                 persistedSupportIds,
             )
+            if automaticSupportSelection:
+                supportCount = len(
+                    automaticSupportSelection["supportSegmentIds"]
+                )
+                if automaticSupportSelection["complete"]:
+                    self._templateSupportArchStatusLabel.text += _(
+                        " Automatic suggestion: four immediate same-jaw "
+                        "neighbors; review before locking."
+                    )
+                else:
+                    missingFdiNumbers = automaticSupportSelection[
+                        "missingFdiNumbers"
+                    ]
+                    missingText = (
+                        _(
+                            " Missing arch positions: %1; no farther tooth "
+                            "was substituted."
+                        ).replace("%1", ", ".join(missingFdiNumbers))
+                        if missingFdiNumbers
+                        else ""
+                    )
+                    self._templateSupportArchStatusLabel.text += _(
+                        " Automatic suggestion incomplete (%1/4 immediate "
+                        "support positions available); review/add/remove "
+                        "before locking.%2"
+                    ).replace("%1", str(supportCount)).replace(
+                        "%2", missingText
+                    )
+                    self._templateSupportArchStatusLabel.styleSheet = (
+                        "color: #b36b00;"
+                    )
             if self.ui.draftTemplateSupportModelSelector.currentNode() is not modelNode:
                 self.ui.draftTemplateSupportModelSelector.setCurrentNode(
                     modelNode
@@ -862,6 +934,16 @@ class GuideSupportSetupWidgetMixin:
         elif modelError:
             message = modelError
             style = "color: #b00020;"
+        elif automaticSupportSelection and not automaticSupportSelection["complete"]:
+            message = _(
+                "Automatic support suggestion is incomplete (%1/4 immediate "
+                "positions available). Review/add/remove support teeth before "
+                "locking the Step 4B package."
+            ).replace(
+                "%1",
+                str(len(automaticSupportSelection["supportSegmentIds"])),
+            )
+            style = "color: #b36b00;"
         elif modelSummary and modelSummary["geometryState"] == "Current":
             message = (
                 _(

@@ -453,6 +453,7 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
             or not self.logic
         ):
             return
+        self._templateSupportAutoSuggestion = None
         self._restoreTemplateSupportBoundaryFocus()
         selectedSupportIds = self._selectedTemplateSupportSegmentIds()
         serializedIds = self.logic.encodeTemplateSupportSegmentIds(

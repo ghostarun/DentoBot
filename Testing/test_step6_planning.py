@@ -1,8 +1,11 @@
 """Pure tests for Step 6 planning helpers."""
 
 from pathlib import Path
+import ast
 import json
 import sys
+from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import numpy as np
 import pytest
@@ -200,7 +203,7 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
         assert float(minimum.text) == 2.0
 
 
-def test_new_dock_defaults_match_latest_saved_fdi31_case() -> None:
+def test_new_case_dock_and_support_defaults_match_operator_review() -> None:
     parameter_source = (
         REPOSITORY_ROOT
         / "DENTOWorkflow"
@@ -211,12 +214,77 @@ def test_new_dock_defaults_match_latest_saved_fdi31_case() -> None:
     ).read_text()
     assert "targetDockingPatternRadiusMm: float = 10.0" in parameter_source
     assert "targetDockingOuterDiameterMm: float = 3.0" in parameter_source
-    assert "targetDockingBoreDiameterMm: float = 1.5" in parameter_source
+    assert "targetDockingBoreDiameterMm: float = 1.0" in parameter_source
     assert "targetDockingConnectorDiameterMm: float = 3.5" in parameter_source
     assert "targetDockingConnectorThicknessMm: float = 2.0" in parameter_source
     assert "targetDockingSharedDepthMm: float = 5.0" in parameter_source
     assert "targetDockingYawDeg: float = 35.0" in parameter_source
     assert "targetDockingCollisionClearanceMm: float = 0.5" in parameter_source
+    assert "templateSupportPlaneDepthMm: float = 4.0" in parameter_source
+    plane_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide_support.py"
+    ).read_text()
+    assert "depthFromEntryMm: float = 4.0" in plane_source
+
+    tree = ElementTree.parse(
+        REPOSITORY_ROOT / "DENTOWorkflow/Resources/UI/DENTOWorkflow.ui"
+    )
+    for name, expected in (
+        ("targetDockingPatternRadiusSpinBox", 10.0),
+        ("targetDockingBoreDiameterSpinBox", 1.0),
+        ("templateSupportPlaneDepthSpinBox", 4.0),
+    ):
+        widget = next(
+            element for element in tree.iter("widget") if element.get("name") == name
+        )
+        value = widget.find("./property[@name='value']/double")
+        assert value is not None
+        assert float(value.text) == expected
+
+
+def test_legacy_guide_hole_fails_5b_preflight_before_cached_geometry() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_build.py"
+    ).read_text()
+    module = ast.parse(source)
+    mixin = next(
+        node for node in module.body if isinstance(node, ast.ClassDef)
+        and node.name == "TemplateBuildWidgetMixin"
+    )
+    methods = [
+        node for node in mixin.body if isinstance(node, ast.FunctionDef)
+        and node.name in {
+            "_normalizedTemplateDockingParameters",
+            "_completeTemplateBuildPreflight",
+        }
+    ]
+    extracted = ast.Module(
+        body=[ast.ClassDef(
+            name="ExtractedPreflight", bases=[], keywords=[], body=methods,
+            decorator_list=[],
+        )], type_ignores=[],
+    )
+    def normalize(**values):
+        if values["inner_diameter_mm"] < 2.0:
+            raise ValueError("Trajectory guide hole diameter must be at least 2.00 mm.")
+        return values
+    namespace = {"normalize_docking_parameters": normalize, "_": lambda text: text}
+    exec(compile(ast.fix_missing_locations(extracted), "<5b-preflight>", "exec"), namespace)
+    host = namespace["ExtractedPreflight"]()
+    host.logic = object()
+    host._parameterNode = SimpleNamespace(
+        templateSleeveOuterDiameterMm=4.4,
+        templateSleeveInnerDiameterMm=1.5,
+        templateSleeveHeightMm=2.5,
+        templateDockingClearanceMm=0.3,
+        templateReinforcementRadialMm=1.0,
+        templateReinforcementDepthMm=2.0,
+        templateSamplingSpacingMm=0.3,
+    )
+    with pytest.raises(ValueError, match="Unified template dimensions.*Trajectory guide hole"):
+        host._completeTemplateBuildPreflight()
 
 
 def test_stage6_hard_constraints_preserve_depth_and_read_only_provenance() -> None:
@@ -584,3 +652,66 @@ def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others
     )
     assert not collision_ok
     assert "self-collision" in collision_reason.lower()
+
+
+def test_case_foundation_plane_reparent_preserves_world_normal() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_foundation.py"
+    ).read_text()
+    mixin = next(
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == "CaseFoundationLogicMixin"
+    )
+    method = next(
+        node for node in mixin.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_reparentCaseFoundationNodePreservingWorld"
+    )
+    extracted = ast.Module(
+        body=[ast.ClassDef(
+            name="CaseFoundationStub", bases=[], keywords=[], body=[method],
+            decorator_list=[],
+        )], type_ignores=[],
+    )
+    namespace = {"_": lambda message: message}
+    exec(compile(ast.fix_missing_locations(extracted), "<jaw-reparent>", "exec"), namespace)
+    parent = SimpleNamespace(GetID=lambda: "opened-jaw")
+
+    class PlaneStub:
+        parent = None
+        point = (-95.5, -71.7, 31.2)
+        normal = (0.05, -0.74, -0.67)
+
+        def IsA(self, class_name):
+            return class_name in ("vtkMRMLMarkupsNode", "vtkMRMLMarkupsPlaneNode")
+
+        def GetParentTransformNode(self):
+            return self.parent
+
+        def GetNumberOfControlPoints(self):
+            return 1
+
+        def GetNthControlPointPositionWorld(self, index, result):
+            result[:] = self.point
+
+        def SetAndObserveTransformNodeID(self, node_id):
+            self.parent = parent if node_id else None
+            self.normal = (0.06, -1.0, 0.0)  # Jaw rotation without normal restoration.
+
+        def SetNthControlPointPositionWorld(self, index, *point):
+            self.point = point
+
+        def GetNormalWorld(self):
+            return self.normal
+
+        def SetNormalWorld(self, normal):
+            self.normal = tuple(normal)
+
+    plane = PlaneStub()
+    world_point, world_normal = plane.point, plane.normal
+    namespace["CaseFoundationStub"]()._reparentCaseFoundationNodePreservingWorld(
+        plane, parent
+    )
+    assert plane.point == world_point
+    assert plane.normal == world_normal

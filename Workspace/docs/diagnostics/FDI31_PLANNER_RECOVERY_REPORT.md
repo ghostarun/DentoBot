@@ -2271,3 +2271,155 @@ apply the already-scoped conditional P3 contract if the answers preserve all
 frozen invariants. Until then, the campaign remains paused at the P1/P2 review
 gate. P4, P5–P7, full-flow/repeat/playback, controller, spindle, motion and
 patient-facing actions remain excluded.
+
+## AK. Operator 4A–5B observations and source-only correction, 2026-09-15
+
+The operator supplied five screenshots from a current Slicer session after
+opening the immutable `dentobot-case-13sept.dentocase`. Preserved copies, in
+workflow order, are under
+`/home/light-tarun/dentobot/data/dentobot-runs/fdi31-operator-steps4a-5b-20260915/`:
+`73efe180` (4B), `e68d29fa` (4C), `215b1b37` (5A before reset),
+`3d2194f8` (5A after reset), and `db3dc88d` (5B). These are operator
+observations, not numerical proof of the live MRML state or acceptance.
+
+| Step | Operator observation / decision | Saved-data and source finding | Remaining evidence boundary |
+|---|---|---|---|
+| 4A | FDI31 appears preselected and twice, including an original closed-mouth pose; operator does not recall saving this and says it does not block downstream navigation. | The immutable source bundle is `PartialOrInspectable` and **does** retain FDI31 target segment `2.25.127809691704402484963988182477922906518` plus target-bounds ROI; its trajectory line has zero control points and no 4C/5A plane. The source and r7 have the same eligible Foundation planning-pose fingerprint `2f6006ce...`. Case Foundation separates closed-source anatomy from opened derived displays; current source code hides all closed-source segments in 3D while the opened view is current. | The screenshot cannot prove a duplicate binary target mask, nor whether the live closed-source display suppression ran. Do not edit the source package or classify this as a geometry change from appearance alone. |
+| 4B | Operator confirms two adjacent teeth each side of target: FDI42, FDI41, FDI33, FDI32, with FDI31 fixed. | These are the four selected support IDs visible in the screenshot and the r7 five-tooth draft/visible-support context. | This is review of support membership only, not acceptance of the whole support surface, anatomy or template fit. `W4B-P2-SUPPORT-AUTO` remains the separate priority-2 auto-suggestion UX owner. |
+| 4C | Operator requests the pictured **new-case** defaults: radius 10.0, outer 3.0, robot-dock bore 1.0, connector width 3.5, overlap 2.0, shared depth 5.0, clearance 0.5 mm, yaw 35°. The displayed plane looks abnormally oblique. | Schema/UI were split: schema bore 1.5 vs UI 1.0, UI radius 15 vs schema 10. Both now match the requested new-case values. The frozen r7 assembly remains a distinct saved 1.5-mm robot-dock-bore geometry. Its target-crown frame has world-RAS normal `[0.1012292145,-0.8878394799,-0.4488805008]`, 155 crown-cap points and `2.6638967929°` tilt from its mean trajectory. The constructor uses the Case Foundation opened-world target surface, not raw closed CBCT geometry. The pictured 35° yaw is labelled a draft obstacle screen, not final confirmation. | The current unsaved screenshot does not numerically establish its plane origin/normal or transform application. No r7 regeneration, dock move, yaw confirmation or P3 substitution follows from new defaults. |
+| 5A | Operator requests 4.0-mm plane-depth default, other values unchanged; first plane looked like 4C, then Create/Reset appeared better. | Schema/UI defaults were 3.0 and now are 4.0 for new cases only; immutable source persists 3.0 and frozen r7 persists 4.0. Reset recomputes the Step-5A plane from active Entry→Target and five selected opened-world crown caps; it does not reuse the target-only 4C frame. R7 Step-5A world point `[-95.27961868,-71.795748,30.588907248]` is Entry plus 4 mm along insertion, and its five-tooth normal `[0.0495809556,-0.7491243684,-0.6605712752]` is `12.4409255812°` from the insertion direction (934 cap points). The pictured visible-support preview changed from 1584 points/2727 cells before reset to 1898 points/3326 cells after, so some downstream display mesh was regenerated. | Different camera views and preview counts do not identify the plane's own pre/post world origin or normal. With no pre-reset saved MRML state, the exact reason for the earlier plane appearance cannot be proved; current after-reset geometry needs numeric readback. |
+| 5B | Wrong-looking plane, grey parameter fields and build error for a 1.5-mm drilling-trajectory bore against the 2.0-mm floor. | The immutable source stores **both** `templateSleeveInnerDiameterMm=1.5` and research `templateChannelDiameterMm=1.5`; persisted old values override new-case 2.0-mm defaults. The pictured 1.0-mm 4C robot-dock bore parameter is a different object/role. The pictured grey undercut fields are generated outputs; source does not disable the editable guide-hole spinbox in section `2 · Unified template dimensions` above the screenshot. The old final-control status discarded its existing normalization error and could say “Inputs are ready”; its build preflight could enter cached work before the shared `normalize_docking_parameters` rejected the hole. Both status and preflight now use the same early dimension predicate and point to section 2. | No saved parameter was silently clamped or changed; the 2.0-mm guide-hole floor and collision policy remain unchanged. An explicitly revised **new** case would need dependent geometry regenerated/reviewed, not substituted into frozen r7/P3. Actual live widget clamping/lock behaviour is not proven by source inspection alone. |
+
+Continued source trace found no Step-5A reference/alias to the Step-4C plane:
+the support plane is independently recomputed from five opened-world crowns.
+In retained r7, the two world-plane centres are `3.8367227631 mm` apart and
+their normals differ `14.8413472362°`; such large, nearby planes can look
+overlaid from a wide oblique camera without being numerically identical. This
+is an explanation of retained geometry, not a verdict on the operator's live
+screen. One remaining programmatic Step-5A plane-method default was 3.0 mm
+(all current production callers passed depth explicitly); it is now 4.0 mm
+for new callers, with its docstring corrected to say crown-cap tilted rather
+than exactly normal to Entry→Target. The added focused assertion first failed
+against old source, then `Testing/test_step6_planning.py` again passed `24/24`.
+No saved plane or case was rebuilt.
+
+Read-only MRML display inspection clarifies 4A: the source bundle contains
+three segmentation nodes, `Post_surgery_seg`, `[Case Foundation] Fixed Upper
+Jaw + Teeth`, and `[Case Foundation] Moving Lower Jaw + Teeth`. FDI31's same
+segment ID is represented in the closed source and opened moving-lower
+segmentation; this is the planned anatomy/display proxy, not a second target
+selection. At save, the closed source display was aggregate-visible in 3D
+while both derived displays were aggregate-hidden. The current workflow's
+`_enforceStep6OpenedJawDisplaySeparation` should hide every closed-source
+segment before enabling the opened derived views. If both displays become
+visible, the same target appears twice at two poses. The current screenshot
+does not expose which visibility toggle/callback left both enabled, so no
+source display-path edit or geometry correction is claimed without live MRML
+readback.
+
+Focused regression first failed as expected (`2 failed`) against the old
+defaults/preflight, then the focused planning file passed `24/24`. Changed
+Python files compiled with a `/tmp` pycache prefix; the first compilation
+attempt failed only because the checkout `__pycache__` path was unwritable.
+`git diff --check` passed. No Slicer/ROS/MoveIt/native diagnostic, planner,
+container or hardware run occurred, and no operator-owned GUI session was
+changed. The source correction changes only newly initialized defaults and
+Step-5B diagnostic gating; it does not change frozen r7 parameters/geometry,
+the immutable source, anatomy, transforms, tool/TCP, tolerances or collision
+policy.
+
+**Updated gate:** P1 prior saved-input/machine checks remain PASS for checks
+actually completed; 4B support-ID intent is specifically confirmed, but P1
+overall scene/input correctness and operator review remain INCOMPLETE because
+the current 4A duplicate-display and 4C/5A plane state are not numerically
+reconciled. Retained P2 phase-aware static evidence remains PASS with
+USER_REVIEW_REQUIRED, not a new P2 run or full-workflow acceptance. Section AJ's
+two grouped “yes” questions are superseded by the operator's concrete 4B
+confirmation and 4C/5A/5B concerns; they must not be treated as answered
+wholesale. P3/P4 are not entered. The precise missing prerequisite for a live
+4C/5A geometry verdict is a separate saved current MRB/`.dentocase` with
+world-frame plane/dock/trajectory and display state, not another native run.
+The operator subsequently supplied that separate Step-5B MRB; its readback
+supersedes this missing-evidence statement in Section AM below.
+
+## AL. Separate 15Sept test-case readback, 2026-09-15
+
+**Operator statement:** They deleted the perceived FDI31 artifact and saved
+`data/Slicer_Saved/SampleStudy1/dentobot-case-15sept.dentocase` as a new test
+case. This statement is not acceptance of the saved scene or Campaign-1 inputs.
+The case SHA-256 is
+`d084f0ce733f35bc73eaccf805113a267dbf3ea7b295315c4b5da3fb67136d6a`
+(80,353,638 bytes). ZIP integrity passed; all six file entries in its outer
+manifest matched their declared size and SHA-256. The archive was not edited.
+
+| Read-only comparison against immutable 13Sept source | 15Sept result / boundary |
+|---|---|
+| Anatomy and world setup | `Post_surgery_seg.seg.nrrd` and every saved fixed/moving derived segment file are byte-identical; jaw-opening and base matrices, source-segmentation and planning-pose fingerprints also match. The opened-lower planning-surface `.vtk` member has a different byte hash and was not geometrically compared, so total scene-geometry identity and live-renderer correctness are not claimed. |
+| Step-4A saved state | FDI31 slot 1 in the active trajectory registry is `Empty`, with no registry target ID, and the earlier empty trajectory-line MRB member is gone. An assisted-entries fiducial member was added. However MRML `targetToothSegmentId` still equals `2.25.127809691704402484963988182477922906518`, and the matching target-bounds ROI is retained (its saved control point moved from `[-94.8082,-39.5806,47.0925]` to `[-95.6076,-76.0151,28.5729]` world-RAS mm). `_updatePlanning` selects the Step-4A combo from that MRML field, so target preselection can persist even with an empty registry. The exact object the operator deleted is not inferable from the package diff alone. |
+| Display duplication | The source `Post_surgery_seg` and opened `[Case Foundation] Moving Lower Jaw + Teeth` each save FDI31 with `Visible=true`, `Visible3D=true` and aggregate display visibility true. Thus the saved 3D scene can still show closed/opened FDI31 simultaneously. Subject Hierarchy items rose from 170 to 366, and segmentation virtual branches from 4 to 10; FDI31 virtual refs rose from 3 to 7, alongside repeated refs for other segments. These are repeated hierarchy/display records, **not** evidence of a second binary FDI31 mask. The intended opened-view/save enforcement is not reflected in this MRB; the save-time callback/branch cause is unproven without its trace. |
+| Workflow readiness | `PartialOrInspectable`, Foundation pose `VALID`, base `BASE_UNLOCKED`, zero PreparedBranches. The saved support-ID list contains FDI42/41/32, not the separately operator-confirmed four-tooth 4B scene. No saved 4C docks, 5A support plane, final template or prepared branch exists here, so this bundle cannot provide the missing current 4C/5A plane readback or be substituted into P3. |
+| Persisted dimensions | Radius 15.0 mm, robot-dock bore 1.0 mm, 5A depth 3.0 mm, trajectory-guide hole 1.5 mm and research channel 1.5 mm remain as saved values. New-case source defaults do not rewrite them. No geometry, parameter or collision-policy correction was applied to this file. |
+
+**Disposition, clarified by the operator:** 15Sept is intended as a reusable
+mouth-opened + robot-base-placed foundation, not a Step-5B scene. Its saved
+opening/landmarks/base matrix can avoid repeating those placements, but its
+base is still `BASE_UNLOCKED` and the saved Step-4A target/ROI, three supports
+and two-layer FDI31 3D visibility mean it is not clean `FoundationOnly` input.
+Do not delete the authoritative FDI31 segmentation to remove a display copy,
+silently lock the base or overwrite the case. The separate Step-5B MRB in AM
+supplies current plane evidence. P1 overall remains `INCOMPLETE`; retained P2
+native evidence remains `PASS` with `USER_REVIEW_REQUIRED`; Campaign-1 frozen
+source/r7 and historical attempts remain unchanged. No Slicer/ROS/native/
+planning runtime, P3/P4 or hardware action was performed for this readback.
+
+## AM. Saved Step-5B world-scene audit and source-only plane repair, 2026-09-15
+
+**Operator statement:** `data/Slicer_Saved/SampleStudy1/FDI31/2026-09-15-Scene.mrb`
+is the expected Step-5B saved scene, separate from the intended reusable 15Sept
+foundation case. Its SHA-256 is
+`43bbeeacd6ecb738aa116b0076797f67f361acc2de1cccb0434e53f5c2adca9c`;
+`unzip -t` exited 0. The MRB's authoritative source segmentation bytes and
+its saved TMJ opening/base matrices match the 15Sept bundle exactly. Neither
+saved file was opened or rewritten in Slicer during this audit.
+
+| Saved MRB readback | Evidence and interpretation |
+|---|---|
+| Workflow/data | FDI31 Entry→Target trajectory and Step-4B draft are present. The draft records support FDI42/41/33/32, matching the operator's separate 4B confirmation. Four independent 4C robot docks and both 4C/5A planes are present. The current 5B patient-contact shell is saved, but `finalPrintableTemplateModel` is absent. |
+| Display | Closed-source FDI31 saves `Visible3D=false`; opened moving-lower FDI31 saves `Visible3D=true`, with both aggregate displays enabled. Thus the Step-5B MRB does **not** serialize the same two-layer FDI31 3D visibility seen in the 15Sept foundation bundle. This is saved MRML readback, not live image acceptance. |
+| Dimensions | Radius `10.0 mm`, 4C robot-dock bore `1.0 mm`, 5A depth `4.0 mm`; Step-5B drilling-trajectory guide hole and research channel both remain `1.5 mm` against the unchanged `2.0 mm` builder floor. The four dock bores and one guide hole remain separate roles. No parameter was clamped or changed. |
+| 4C plane/dock distinction | Saved docking `FrameJson` normal `[0.1062008629,-0.8351349009,-0.5396953530]` world-RAS; the MRML plane handle world-normal column matches within serialization rounding. Its target-crown fit is `1.666813577°` from the Entry→Target axis. The plane's displayed in-plane X/Y handles are each `14.736°` from the docking-frame X/Y; a point-normal plane does not by itself certify the four-dock model's yaw/fit. This is normal/point parity only, not full docking-frame or clinical acceptance. |
+| 5A frame | `CrownCapTiltMetricsJson` records fit normal `[0.0462882197,-0.7354511789,-0.6759947959]` and `11.432482206°` fit tilt from the Entry→Target axis. The saved MRML plane's actual world normal is `[0.064557,-0.997913,-0.00134685]`: `42.454376°` from that fit normal and `31.289385°` from the trajectory axis. Applying the saved jaw-opening rotation to the fit normal reproduces the actual normal within `4.7e-7` component error. This is a real saved plane-orientation/frame mismatch, not merely a camera-angle claim. |
+| 5A point | Actual world origin `[-95.5081,-71.6786,31.1928]` mm agrees with saved Entry plus `4.0 mm` along insertion within `0.000044 mm`; the defect is orientation, not depth/point placement. The 4C and 5A origins are `3.364800 mm` apart and actual normals differ `32.756783°`. The earlier pre-reset plane was not saved; its exact prior state remains unknown. |
+
+**Source finding and bounded correction:**
+`createOrUpdateTemplateSupportBoundaryPlane` computes the five-tooth normal in
+opened world-RAS and calls Slicer's `SetNormalWorld`. Subsequently,
+`refreshCaseFoundationNodeOwnership` can call the shared
+`_reparentCaseFoundationNodePreservingWorld` helper for a new plane. The helper
+already preserved each markup's world control-point position, but not a
+plane's world normal; reparenting could rotate that normal with the TMJ jaw.
+The saved MRB does not retain the exact callback sequence that produced its
+5A normal; attribution to this helper is a high-confidence inference from
+the exact jaw-rotation match and independently reproduced helper defect.
+The same helper is shared by Step-4C/Step-5A and other jaw-owned nodes. It now
+snapshots a plane markup's `GetNormalWorld` before reparent and restores it
+with `SetNormalWorld` afterward. No new interface, policy, transform, anatomy,
+tool, case or saved geometry was introduced or modified. This is a future
+creation/reattachment source correction, **not** a retroactive repair of the
+saved 5A MRB.
+
+Focused local AST/stub regression against old source failed as expected on
+world-normal preservation (`1 failed`, 24 deselected); after the six-line
+repair it passed (`1 passed`), and complete
+`Testing/test_step6_planning.py` passed `25/25`. Changed Python compiled with
+a `/tmp` pycache prefix, `git diff --check` passed, and the overlay-only
+Graphify graph refreshed successfully. These are source/pure/static checks;
+Slicer API behavior, save/reopen parity of a newly reconstructed 5A plane,
+the historical MRB's fit and operator scene review remain unverified.
+
+**Gate:** P1 prior saved-input checks PASS only for completed checks, but P1
+overall scene/input correctness remains INCOMPLETE. Retained P2 native static/
+transition packet stays PASS with USER_REVIEW_REQUIRED. The reusable 15Sept
+foundation is not yet clean/eligible, and the saved 5A plane is not accepted
+geometry. No P3/P4, planning, Slicer/ROS/native/container, controller,
+spindle, motion or patient-facing action occurred in this audit/repair.

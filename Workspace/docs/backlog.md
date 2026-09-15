@@ -23,7 +23,7 @@ not promotions into the current development sequence.
 
 ## Pending planned work — active correction and acceptance
 
-**Latest FDI31 scope — 2026-09-14:** The operator accepted the causal review and
+**Latest FDI31 scope — 2026-09-15:** The operator accepted the causal review and
 requested Astra architecture / Luna Max implementation orchestration. The
 [Campaign 1 contract](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) now
 governs `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`: scene/input review plus
@@ -42,6 +42,29 @@ historical. P3/P4, more full-planner retries, invariant changes and another
 tooth remain unauthorized. The exact runtime logs, hashes and review limits
 are in the canonical recovery report. Operator review and final
 architectural/clinical acceptance remain separate.
+
+The operator's current Step-4A–5B screenshots confirm the four Step-4B
+support-neighbour IDs only; they raise a duplicate closed/opened display and
+unreconciled Step-4C/5A plane state. New-case default and legacy Step-5B
+preflight/status source corrections passed focused pure checks, but the frozen
+r7 package/geometry were not changed. P1 overall remains INCOMPLETE, retained
+P2 evidence remains PASS with USER_REVIEW_REQUIRED, and P3 is not entered.
+See recovery report Section AK; Section AJ's grouped signoff questions are
+superseded, not answered wholesale.
+
+The operator separately saved `dentobot-case-15sept.dentocase` as an intended
+reusable opening/robot-base test foundation after deleting the perceived FDI31
+artifact. Read-only audit (report AL) found the opening, landmarks and base
+matrix are saved, but the base is unlocked, Step-4A target ID/ROI and three old
+supports remain, and closed/opened FDI31 are both saved 3D-visible; it is
+`PartialOrInspectable`, not `FoundationOnly`. The separate current Step-5B
+`2026-09-15-Scene.mrb` supplies the previously missing four-support, dock and
+plane readback (report AM): its closed-source FDI31 is hidden, but its 5A
+displayed plane normal is 42.45° from its recorded fit normal after jaw
+reparenting. A minimal shared source repair and focused pure checks pass;
+saved files/frozen Campaign-1 source/r7 are untouched. Next acceptance action
+is a bounded offline Slicer plane-frame save/reopen check plus operator scene
+review, not P3 or automatic reuse of the partial foundation case.
 
 The source-only follow-up recovered the existing wrapper control flow but could
 not prove the failed final2 branch because wrapper readiness/status and
@@ -187,7 +210,7 @@ from the source change.
 |---|---|---|---|
 | `W5-U-04` | 0 | Current FDI31 regeneration passes the explicit geometry gate; the historical 5-voxel fragment is not reproduced in the current artifact. FDI11 remains the comparison pass. | Preserve the one-solid/zero-channel/four-open-bore gate and complete the normal-window Step 5B/5C review, including fragment classification evidence. Construction remains the `W5-U-03` fusion owner; do not raise the cleanup threshold. |
 | `S3-P0-DENTAL-SEMANTICS` | 0 | DENTO-NOTE 2026-09-14: the installed class map, report/NIfTI/imported-package evidence, pure A-H semantic core, MRML/planning integration, current FDI31 spatial association and save/reopen evidence are captured; focused checks pass. The FDI31 target association is `HIGH`/`VALID`, while other unresolved pulp records remain fail-closed. | Preserve the current FDI31 semantic package and evidence. No new pulp-dependent target claim proceeds without the same canonical tooth+pulp+spatial gate. The remaining FDI31 acceptance is target-specific Stage-3 tool/geometry review and normal-window review, owned with `S6-REUSABLE-CASE-SETUP`; do not create an FDI11-only workaround. |
-| `S6-REUSABLE-CASE-SETUP` | 0 | **Full workflow blocked; P1 saved-input/machine checks PASS, P1 overall scene correctness/operator review INCOMPLETE, P2 bounded native diagnostic/evidence PASS with USER_REVIEW_REQUIRED.** Preserve r7 package/STL, r13 terminal spindle↔FDI31 rejection and r14 bounded probe. The final no-TTY recheck restored the existing container in place, produced the native FK/static/validate-only packet, reconciled the 31-object acknowledgement, and verified TCP/spindle/burr display FK. Contact fields remain unknown where not exposed; the earlier zero-observation and container exit 143 remain historical evidence. Return Home and repeat remain open. | Follow [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md): review the 15 selections, saved scenes, r4/r6/final visuals and native/display evidence, then obtain any separate P3/P4 approval only after operator review. No geometry-only presumption, invariant change, automatic full-flow retry or next tooth. |
+| `S6-REUSABLE-CASE-SETUP` | 0 | **Full workflow blocked; P1 saved-input/machine checks PASS, P1 overall scene correctness/operator review INCOMPLETE, P2 bounded native diagnostic/evidence PASS with USER_REVIEW_REQUIRED.** Step-4B support membership is operator-confirmed; live 4A duplicate-display and 4C/5A plane geometry remain unverified. New-case defaults and legacy 5B preflight/status were corrected source-only without changing frozen source/r7. Preserve r7 package/STL, r13 terminal spindle↔FDI31 rejection, r14 probe, 31-object native acknowledgement and unknown contact fields; historical failures/attempts remain history. Return Home and repeat remain open. | Follow [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and report AK: obtain separate world-MRML readback of the operator's current plane/display scene, reconcile it against opened-world constructors and the frozen inputs, then complete remaining decision-critical review before conditional P3. No invariant change, automatic full-flow retry or next tooth. |
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
@@ -230,7 +253,7 @@ Source observations, risks and evidence remain under the matching TASKS.md ID.
 
 | ID | Priority | Pending outcome / observation | Dependency / next bounded action |
 |---|---|---|---|
-| `W4B-P2-SUPPORT-AUTO` | 2 | DENTO-NOTE: narrow two-row support arch; four-nearest support suggestion and single-row jaw UI | P0 integrity first; suggest two same-jaw teeth each side in arch order, preserve manual review/lock and edge/missing-tooth handling. UI layout integrates with `UI-P3-01`. |
+| `W4B-P2-SUPPORT-AUTO` | 2 | DENTO-NOTE: narrow two-row support arch; four-nearest support suggestion and single-row jaw UI; source suggestion/pure checks complete 2026-09-15 | P0 integrity first; verify the current four-ID automatic suggestion in a normal window, preserve manual review/lock and edge/missing-tooth handling. UI layout integrates with `UI-P3-01`. |
 | `S6-U-01` | 4 | DENTO-NOTE: non-clean native shutdown despite functional lifecycle pass | Preserve P0–3 ordering unless normal workflow regresses; release native wrappers and process group; require clean zero-exit lifecycle without leaks. Coordinate, do not assume same cause as `QA-U-01`. |
 | `S6-WORKSPACE-PURPOSE` | Unprioritized | DENTO-NOTE: reported 5 mm clearance leaves no intraoral TCP workspace | Discuss 6.3 purpose; audit exact filter/consumers before any policy or value change; distinguish reach, whole-robot validity, Home connectivity and task feasibility. Prerequisite for Studio Workspace. Recommended P0 was never an assigned priority. |
 | `VERIFY-LEARN-01` | Unprioritized | DENTO-NOTE: operator wants one guided, hands-on session to understand the DENTOBOT testing and verification workflow, including `py_compile`, focused `pytest`, conditional `colcon build`, evidence levels and result interpretation | Wait for the active reusable-case/Step 6 reposition implementation handoff and a stable diff. Then use one real, bounded matrix profile to teach inspect → smallest check → static compile/diff → focused pure tests → conditional package build → runtime/manual boundary. Explain each command before approval/execution, let the operator run or follow it, preserve logs/result, and finish with a short operator-readable checklist. No duplicate harness, blanket suite, robot motion or build while files/install tree are changing. |
@@ -240,7 +263,7 @@ Source observations, risks and evidence remain under the matching TASKS.md ID.
 | `W4C-U-01` | Unprioritized | Dock/rail mechanical design and representative acceptance | Agree registration vs load-bearing role, tolerances, channels/collisions and nonparallel trajectories vs one robot axis; overlaps `A-038` fiducial interfaces. |
 | `W5-U-02` | Unprioritized | Physical/representative support, margin, undercut, shell seating/removal | Governed anatomy/phantom and criteria; includes remaining normal-window/manufacturing review after verified `S5B-TERMINAL-COLLAR`, without reopening its fixed defect. |
 | `W5-U-03` | Unprioritized | DENTO-NOTE: detailed Step 5B/5C testing beyond smoke | After `W5-U-04`, review FDI11/FDI31 fusion, PASS/WARNING/FAIL, reopen, stale lineage, channels, one STL, visibility/printability. Shared construction fix stays under `W5-U-04`. |
-| `W5-U-05` | Unprioritized | DENTO-NOTE: dimension coupling, missing Reset/interactive inspection, required controls hidden under Advanced | Plan Step 5B primary controls, owned geometry/parameter/stale reset, interactive sizing and upstream-lineage validation; coordinate GUI/progress plans. |
+| `W5-U-05` | Unprioritized | DENTO-NOTE: dimension coupling, missing Reset/interactive inspection; source now places primary dimensions in expanded section 2 and reports the legacy guide-hole preflight error | Verify live section-2 editability, then plan owned geometry/parameter/stale Reset, interactive sizing and upstream-lineage validation; coordinate GUI/progress plans. |
 | `VIEW-U-01` | Unprioritized | Cross-workflow normal-window display acceptance | Review grouped anatomy, presets/toggles, frame/restore, opacity, labels, save/reopen and Legacy/New parity. Missing controls owned by `VIEW-U-02`. |
 | `VIEW-U-02` | Unprioritized | DENTO-NOTE: lost mask 2D/3D opacity controls | Written UX plan acceptance first: map ownership, persistent stage-safe fill/outline/surface controls and CBCT parity, then implementation and normal-window trial. |
 | `S6-U-02` | Unprioritized | Physical forehead/mount-frame truth unresolved | Obtain mount-face CAD/normal; patient-contact→base transform, review, offsets/persistence/invalidation. Manual Simulation Base acceptance is insufficient. Shares physical metrology lane with `A-001`/`A-038`. |
