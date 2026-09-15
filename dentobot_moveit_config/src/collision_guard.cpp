@@ -94,6 +94,11 @@ std::string json_array(const std::vector<double>& values)
   return output.str();
 }
 
+std::string json_size_or_null(const std::size_t value)
+{
+  return value == 0 ? "null" : std::to_string(value);
+}
+
 std::string json_point_or_null(
   const std::array<double, 3>& point, const bool available)
 {
@@ -229,6 +234,7 @@ struct TaskGuardConfig
   bool valid{ false };
   std::string task_fingerprint;
   std::string guard_session_id;
+  std::string collision_scene_policy_fingerprint;
   std::string target_object_id;
   std::string allowed_robot_link;
   std::vector<std::string> clearance_exempt_object_ids;
@@ -244,6 +250,8 @@ struct TaskJointCommand
 {
   std::string task_fingerprint;
   std::string guard_session_id;
+  std::string request_id;
+  std::string validation_kind{ "transition" };
   std::string phase;
   std::int64_t sequence{ -1 };
   std::vector<double> joint_positions;
@@ -270,6 +278,11 @@ struct GuardResult
 {
   bool accepted{ false };
   std::string reason;
+  std::vector<double> starting_positions;
+  std::vector<double> evaluated_positions;
+  std::size_t evaluated_sample_index{ 0 };
+  double evaluated_interpolation_fraction{ std::numeric_limits<double>::quiet_NaN() };
+  std::size_t total_sample_count{ 0 };
   std::size_t checked_samples{ 0 };
   double minimum_self_distance_m{ std::numeric_limits<double>::infinity() };
   double minimum_world_distance_m{ std::numeric_limits<double>::infinity() };
@@ -484,6 +497,11 @@ private:
       return malformed("task_fingerprint");
     if (!json_string_field(document, "guard_session_id", config.guard_session_id))
       return malformed("guard_session_id");
+    if (document.isMember("collision_scene_policy_fingerprint") &&
+        !json_string_field(
+          document, "collision_scene_policy_fingerprint",
+          config.collision_scene_policy_fingerprint))
+      return malformed("collision_scene_policy_fingerprint");
     if (!json_string_field(document, "target_object_id", config.target_object_id))
       return malformed("target_object_id");
     if (!json_string_field(document, "allowed_robot_link", config.allowed_robot_link))
@@ -625,8 +643,22 @@ private:
       reason = "Malformed or unsupported phased joint command.";
       return false;
     }
+    if (document.isMember("request_id") &&
+        !json_string_field(document, "request_id", command.request_id))
+    {
+      reason = "Phased command request_id must be a string.";
+      return false;
+    }
+    if (document.isMember("validation_kind") &&
+        !json_string_field(document, "validation_kind", command.validation_kind))
+    {
+      reason = "Phased command validation_kind must be a string.";
+      return false;
+    }
     if (command.task_fingerprint.empty() || command.guard_session_id.empty() ||
         command.sequence < 0 ||
+        (command.validation_kind != "transition" &&
+         command.validation_kind != "static_state") ||
         (command.phase != "approach" && command.phase != "terminal_contact" &&
          command.phase != "drilling" && command.phase != "retraction"))
     {
@@ -658,6 +690,11 @@ private:
       }
       command.validate_only = document["validate_only"].asBool();
     }
+    if (command.validation_kind == "static_state" && !command.validate_only)
+    {
+      reason = "static_state validation must be read-only (validate_only=true).";
+      return false;
+    }
     return true;
   }
 
@@ -670,6 +707,7 @@ private:
       task_config_ = TaskGuardConfig{};
       active_task_config_payload_.clear();
       last_task_sequence_ = -1;
+      last_static_sequence_ = -1;
       RCLCPP_WARN(get_logger(), "%s", reason.c_str());
       return;
     }
@@ -686,6 +724,7 @@ private:
       task_config_ = TaskGuardConfig{};
       active_task_config_payload_.clear();
       last_task_sequence_ = -1;
+      last_static_sequence_ = -1;
       RCLCPP_WARN(
         get_logger(),
         "Rejected changed task-guard data that reused guard session %s.",
@@ -695,6 +734,7 @@ private:
     task_config_ = candidate;
     active_task_config_payload_ = message->data;
     last_task_sequence_ = -1;
+    last_static_sequence_ = -1;
     last_corridor_progress_m_ = -candidate.approach_standoff_m;
     preflight_positions_ = last_accepted_positions_;
     last_preflight_sequence_ = -1;
@@ -709,6 +749,7 @@ private:
   {
     TaskJointCommand command;
     GuardResult result;
+    bool static_state = false;
     std::string parse_reason;
     if (!parse_task_command(message->data, command, parse_reason))
     {
@@ -726,23 +767,41 @@ private:
     {
       result.reason = "Command guard session does not match the active preview session.";
     }
-    else if (command.sequence <= (command.validate_only ?
-                                  last_preflight_sequence_ : last_task_sequence_))
-    {
-      result.reason = "Phased command sequence is stale or duplicated.";
-    }
     else
     {
-      const std::vector<double>& start_positions = command.validate_only ?
-        preflight_positions_ : last_accepted_positions_;
-      const double prior_progress = command.validate_only ?
-        last_preflight_corridor_progress_m_ : last_corridor_progress_m_;
-      result = validate_motion(
-        start_positions, command.joint_positions, &task_config_, command.phase,
-        prior_progress);
+      static_state = command.validation_kind == "static_state";
+      const std::int64_t sequence_floor = static_state ?
+        last_static_sequence_ : (command.validate_only ?
+        last_preflight_sequence_ : last_task_sequence_);
+      if (command.sequence <= sequence_floor)
+      {
+        result.reason = "Phased command sequence is stale or duplicated.";
+      }
+      else if (static_state)
+      {
+        // A static query is an endpoint predicate only. It never uses or
+        // advances the preflight corridor history.
+        result = validate_motion(
+          command.joint_positions, command.joint_positions, &task_config_, command.phase,
+          std::numeric_limits<double>::quiet_NaN(), true);
+        if (result.checked_samples > 0)
+        {
+          last_static_sequence_ = command.sequence;
+        }
+      }
+      else
+      {
+        const std::vector<double>& start_positions = command.validate_only ?
+          preflight_positions_ : last_accepted_positions_;
+        const double prior_progress = command.validate_only ?
+          last_preflight_corridor_progress_m_ : last_corridor_progress_m_;
+        result = validate_motion(
+          start_positions, command.joint_positions, &task_config_, command.phase,
+          prior_progress);
+      }
     }
 
-    if (result.accepted)
+    if (result.accepted && !static_state)
     {
       if (command.validate_only)
       {
@@ -774,16 +833,18 @@ private:
     const std::vector<double>& target_positions,
     const TaskGuardConfig* task_config = nullptr,
     const std::string& phase = "",
-    double prior_corridor_progress_m = std::numeric_limits<double>::quiet_NaN())
+    double prior_corridor_progress_m = std::numeric_limits<double>::quiet_NaN(),
+    bool static_state = false)
   {
     GuardResult result;
+    result.starting_positions = static_state ? target_positions : start_positions;
     const bool contact_phase =
       task_config != nullptr && (phase == "terminal_contact" || phase == "drilling" ||
                                  phase == "retraction");
     const bool retraction_phase = task_config != nullptr && phase == "retraction";
     Eigen::Vector3d corridor_axis = Eigen::Vector3d::Zero();
     double corridor_length_m = 0.0;
-    if (!std::isfinite(prior_corridor_progress_m))
+    if (!static_state && !std::isfinite(prior_corridor_progress_m))
     {
       prior_corridor_progress_m = last_corridor_progress_m_;
     }
@@ -808,8 +869,9 @@ private:
       return result;
     }
 
-    const std::size_t sample_count = interpolation_sample_count(
+    const std::size_t sample_count = static_state ? 1 : interpolation_sample_count(
       start_positions, target_positions);
+    result.total_sample_count = sample_count;
     if (sample_count > static_cast<std::size_t>(maximum_interpolation_samples_))
     {
       result.reason = "Requested move exceeds the bounded interpolation budget.";
@@ -818,54 +880,100 @@ private:
 
     planning_scene_monitor::LockedPlanningSceneRO scene(planning_scene_monitor_);
     result.world_object_count = scene->getWorld()->size();
+    std::ostringstream world_signature;
+    world_signature << std::setprecision(17);
     for (const std::string& object_id : scene->getWorld()->getObjectIds())
     {
       const collision_detection::World::ObjectConstPtr object =
         scene->getWorld()->getObject(object_id);
+      world_signature << object_id << ':' << object.get();
       if (!object)
       {
+        world_signature << ';';
         continue;
       }
-      WorldObjectEvidence evidence;
-      evidence.id = object_id;
-      evidence.shape_count = object->shapes_.size();
-      const Eigen::Quaterniond object_orientation(object->pose_.linear());
-      evidence.pose_xyzw = {
-        object->pose_.translation().x(), object->pose_.translation().y(),
-        object->pose_.translation().z(), object_orientation.x(),
-        object_orientation.y(), object_orientation.z(), object_orientation.w()
-      };
-      for (std::size_t shape_index = 0;
-           shape_index < object->shapes_.size() &&
-           shape_index < object->global_shape_poses_.size();
-           ++shape_index)
+      world_signature << ':' << object->shapes_.size();
+      for (const auto& shape : object->shapes_)
       {
-        const shapes::ShapeConstPtr& shape = object->shapes_[shape_index];
-        if (!shape || shape->type != shapes::MESH)
+        world_signature << ':' << shape.get();
+        if (!shape)
+        {
+          world_signature << ":null";
+          continue;
+        }
+        world_signature << ':' << static_cast<int>(shape->type);
+        if (shape->type == shapes::MESH)
+        {
+          world_signature << ':'
+                          << static_cast<const shapes::Mesh*>(shape.get())->vertex_count;
+        }
+      }
+      for (const Eigen::Isometry3d& shape_pose : object->global_shape_poses_)
+      {
+        for (int row = 0; row < 4; ++row)
+        {
+          for (int column = 0; column < 4; ++column)
+          {
+            world_signature << ':' << shape_pose(row, column);
+          }
+        }
+      }
+      world_signature << ';';
+    }
+    if (world_signature.str() != world_evidence_signature_)
+    {
+      world_evidence_signature_ = world_signature.str();
+      world_evidence_cache_.clear();
+      for (const std::string& object_id : scene->getWorld()->getObjectIds())
+      {
+        const collision_detection::World::ObjectConstPtr object =
+          scene->getWorld()->getObject(object_id);
+        if (!object)
         {
           continue;
         }
-        const auto* mesh = static_cast<const shapes::Mesh*>(shape.get());
-        const Eigen::Isometry3d& shape_pose = object->global_shape_poses_[shape_index];
-        for (unsigned int vertex_index = 0;
-             vertex_index < mesh->vertex_count; ++vertex_index)
+        WorldObjectEvidence evidence;
+        evidence.id = object_id;
+        evidence.shape_count = object->shapes_.size();
+        const Eigen::Quaterniond object_orientation(object->pose_.linear());
+        evidence.pose_xyzw = {
+          object->pose_.translation().x(), object->pose_.translation().y(),
+          object->pose_.translation().z(), object_orientation.x(),
+          object_orientation.y(), object_orientation.z(), object_orientation.w()
+        };
+        for (std::size_t shape_index = 0;
+             shape_index < object->shapes_.size() &&
+             shape_index < object->global_shape_poses_.size();
+             ++shape_index)
         {
-          const Eigen::Vector3d local(
-            mesh->vertices[3 * vertex_index],
-            mesh->vertices[3 * vertex_index + 1],
-            mesh->vertices[3 * vertex_index + 2]);
-          const Eigen::Vector3d world = shape_pose * local;
-          evidence.bounds_m[0] = std::min(evidence.bounds_m[0], world.x());
-          evidence.bounds_m[1] = std::max(evidence.bounds_m[1], world.x());
-          evidence.bounds_m[2] = std::min(evidence.bounds_m[2], world.y());
-          evidence.bounds_m[3] = std::max(evidence.bounds_m[3], world.y());
-          evidence.bounds_m[4] = std::min(evidence.bounds_m[4], world.z());
-          evidence.bounds_m[5] = std::max(evidence.bounds_m[5], world.z());
-          evidence.has_mesh_bounds = true;
+          const shapes::ShapeConstPtr& shape = object->shapes_[shape_index];
+          if (!shape || shape->type != shapes::MESH)
+          {
+            continue;
+          }
+          const auto* mesh = static_cast<const shapes::Mesh*>(shape.get());
+          const Eigen::Isometry3d& shape_pose = object->global_shape_poses_[shape_index];
+          for (unsigned int vertex_index = 0;
+               vertex_index < mesh->vertex_count; ++vertex_index)
+          {
+            const Eigen::Vector3d local(
+              mesh->vertices[3 * vertex_index],
+              mesh->vertices[3 * vertex_index + 1],
+              mesh->vertices[3 * vertex_index + 2]);
+            const Eigen::Vector3d world = shape_pose * local;
+            evidence.bounds_m[0] = std::min(evidence.bounds_m[0], world.x());
+            evidence.bounds_m[1] = std::max(evidence.bounds_m[1], world.x());
+            evidence.bounds_m[2] = std::min(evidence.bounds_m[2], world.y());
+            evidence.bounds_m[3] = std::max(evidence.bounds_m[3], world.y());
+            evidence.bounds_m[4] = std::min(evidence.bounds_m[4], world.z());
+            evidence.bounds_m[5] = std::max(evidence.bounds_m[5], world.z());
+            evidence.has_mesh_bounds = true;
+          }
         }
+        world_evidence_cache_.push_back(std::move(evidence));
       }
-      result.world_objects.push_back(std::move(evidence));
     }
+    result.world_objects = world_evidence_cache_;
     if (contact_phase && !scene->getWorld()->hasObject(task_config->target_object_id))
     {
       result.reason = "The configured selected target-tooth collision object is missing.";
@@ -926,11 +1034,21 @@ private:
 
     for (std::size_t index = 1; index <= sample_count; ++index)
     {
-      const double interpolation = static_cast<double>(index) /
+      const double interpolation = static_state ? 1.0 : static_cast<double>(index) /
                                    static_cast<double>(sample_count);
-      start.interpolate(target, interpolation, sample, joint_model_group_);
+      if (static_state)
+      {
+        sample = target;
+      }
+      else
+      {
+        start.interpolate(target, interpolation, sample, joint_model_group_);
+      }
       sample.update();
       result.checked_samples = index;
+      result.evaluated_sample_index = index;
+      result.evaluated_interpolation_fraction = interpolation;
+      sample.copyJointGroupPositions(joint_model_group_, result.evaluated_positions);
 
       if (!sample.satisfiesBounds(joint_model_group_))
       {
@@ -1444,7 +1562,7 @@ private:
             "The terminal approach moved outside the pre-entry-to-Entry corridor.";
           return result;
         }
-        if (!retraction_phase &&
+        if (!static_state && !retraction_phase &&
             progress_m + CORRIDOR_MONOTONIC_EPSILON_M < prior_corridor_progress_m)
         {
           result.reason =
@@ -1453,7 +1571,7 @@ private:
             distance_mm_text(prior_corridor_progress_m) + " mm).";
           return result;
         }
-        if (retraction_phase &&
+        if (!static_state && retraction_phase &&
             progress_m > prior_corridor_progress_m + CORRIDOR_MONOTONIC_EPSILON_M)
         {
           result.reason =
@@ -1664,13 +1782,32 @@ private:
            << json_escape(command.task_fingerprint) << "\","
            << "\"guard_session_id\":\""
            << json_escape(command.guard_session_id) << "\","
+           << "\"request_id\":\""
+           << json_escape(command.request_id) << "\","
+           << "\"validation_kind\":\""
+           << json_escape(command.validation_kind) << "\","
            << "\"phase\":\"" << json_escape(command.phase) << "\","
            << "\"sequence\":" << command.sequence << ','
            << "\"validate_only\":" << (command.validate_only ? "true" : "false") << ','
+           << "\"collision_scene_policy_fingerprint\":\""
+           << json_escape(task_config_.collision_scene_policy_fingerprint) << "\","
            << "\"requested_positions\":"
            << json_array(command.joint_positions) << ','
            << "\"accepted_positions\":"
            << json_array(last_accepted_positions_) << ','
+           << "\"starting_positions\":"
+           << json_array(result.starting_positions) << ','
+           << "\"evaluated_positions\":"
+           << json_array(result.evaluated_positions) << ','
+           << "\"evaluated_sample_index\":"
+           << json_size_or_null(result.evaluated_sample_index) << ','
+           << "\"interpolation_fraction\":"
+           << json_number(result.evaluated_interpolation_fraction) << ','
+           << "\"first_rejection_interpolation_fraction\":"
+           << (result.accepted ? "null" :
+               json_number(result.evaluated_interpolation_fraction)) << ','
+           << "\"total_sample_count\":"
+           << result.total_sample_count << ','
            << "\"checked_samples\":" << result.checked_samples << ','
            << "\"corridor_ok\":" << (result.corridor_ok ? "true" : "false") << ','
            << "\"corridor_progress\":"
@@ -1762,9 +1899,12 @@ private:
   const moveit::core::JointModelGroup* joint_model_group_{ nullptr };
   std::vector<std::string> joint_names_;
   std::vector<double> last_accepted_positions_;
+  std::string world_evidence_signature_;
+  std::vector<WorldObjectEvidence> world_evidence_cache_;
   TaskGuardConfig task_config_;
   std::string active_task_config_payload_;
   std::int64_t last_task_sequence_{ -1 };
+  std::int64_t last_static_sequence_{ -1 };
   double last_corridor_progress_m_{ 0.0 };
   std::vector<double> preflight_positions_;
   std::int64_t last_preflight_sequence_{ -1 };

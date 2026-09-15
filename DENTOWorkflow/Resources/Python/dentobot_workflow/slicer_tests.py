@@ -1167,7 +1167,9 @@ class DENTOWorkflowTestMixin:
 
     def test_DENTOWorkflowCaseBundleRegistryNodeRecord(self) -> None:
         logic = DENTOWorkflowLogic()
-        trajectory = logic.createTrajectoryNode("Registry serialization")
+        trajectory = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsLineNode", "Registry serialization"
+        )
         expected = {
             logic.REGISTRY_TARGET_ID_ATTRIBUTE: "FDI31",
             logic.REGISTRY_TRAJECTORY_ID_ATTRIBUTE: "FDI31-T1",
@@ -1182,6 +1184,35 @@ class DENTOWorkflowTestMixin:
         record = logic._caseBundleNodeRecord("trajectoryLine", trajectory)
         for name, value in expected.items():
             self.assertEqual(record["attributes"][name], value)
+
+        trajectory.AddControlPoint(vtk.vtkVector3d(1.0, 2.0, 3.0))
+        trajectory.AddControlPoint(vtk.vtkVector3d(4.0, 5.0, 6.0))
+        originalFingerprint = logic._trajectoryRegistryGeometryFingerprint(trajectory)
+        originalPoints = logic._caseBundleNodeRecord("trajectoryLine", trajectory)[
+            "controlPointsWorldRasMm"
+        ]
+        trajectory.SetNthControlPointPositionWorld(0, 1.0 + 1.0e-12, 2.0, 3.0)
+        self.assertEqual(
+            logic._trajectoryRegistryGeometryFingerprint(trajectory),
+            originalFingerprint,
+        )
+        self.assertEqual(
+            logic._caseBundleNodeRecord("trajectoryLine", trajectory)[
+                "controlPointsWorldRasMm"
+            ],
+            originalPoints,
+        )
+        trajectory.SetNthControlPointPositionWorld(0, 1.0 + 1.0e-7, 2.0, 3.0)
+        self.assertNotEqual(
+            logic._trajectoryRegistryGeometryFingerprint(trajectory),
+            originalFingerprint,
+        )
+        self.assertNotEqual(
+            logic._caseBundleNodeRecord("trajectoryLine", trajectory)[
+                "controlPointsWorldRasMm"
+            ],
+            originalPoints,
+        )
         self.delayDisplay("DENTOWorkflow case registry serialization test passed")
 
     def test_DENTOWorkflowTrajectoryObliqueMprMath(self) -> None:
@@ -3844,6 +3875,16 @@ class DENTOWorkflowTestMixin:
             "mandible",
             (-50.0, 50.0, -100.0, -45.0, -30.0, -5.0),
         )
+        addCubeSegment(
+            "pulp-36",
+            "lower_left_first_molar_pulp_fdi136",
+            (-2.0, 2.0, -92.0, -88.0, -13.0, -11.0),
+        )
+        addCubeSegment(
+            "other-anatomy",
+            "tongue",
+            (-12.0, 12.0, -95.0, -82.0, -20.0, -5.0),
+        )
         segmentation.GetDisplayNode().SetAllSegmentsVisibility(True)
         parameterNode.teethSegmentation = segmentation
         parameterNode.targetToothSegmentId = "lower-tooth-36"
@@ -3943,8 +3984,13 @@ class DENTOWorkflowTestMixin:
         )
         self.assertIs(openedJaw.GetParentTransformNode(), transform)
         self.assertEqual(gapLine.GetNumberOfDefinedControlPoints(), 2)
+        sourceDisplay = segmentation.GetDisplayNode()
+        sourceIds = [
+            segmentation.GetSegmentation().GetNthSegmentID(index)
+            for index in range(segmentation.GetSegmentation().GetNumberOfSegments())
+        ]
         self.assertFalse(
-            segmentation.GetDisplayNode().GetSegmentVisibility3D("lower-tooth-36")
+            any(sourceDisplay.GetSegmentVisibility3D(segmentId) for segmentId in sourceIds)
         )
         self.assertEqual(
             tuple(sourceLowerBounds),
@@ -4018,10 +4064,20 @@ class DENTOWorkflowTestMixin:
             self.assertIsNone(
                 reloaded.finalPrintableTemplateModel.GetParentTransformNode()
             )
-            self.assertTrue(
-                reloaded.teethSegmentation.GetDisplayNode().GetSegmentVisibility3D(
-                    "lower-tooth-36"
+            reloadedDisplay = reloaded.teethSegmentation.GetDisplayNode()
+            reloadedIds = [
+                reloaded.teethSegmentation.GetSegmentation().GetNthSegmentID(index)
+                for index in range(
+                    reloaded.teethSegmentation.GetSegmentation().GetNumberOfSegments()
                 )
+            ]
+            self.assertTrue(
+                all(reloadedDisplay.GetSegmentVisibility3D(segmentId) for segmentId in reloadedIds),
+                {
+                    segmentId: bool(reloadedDisplay.GetSegmentVisibility3D(segmentId))
+                    for segmentId in reloadedIds
+                    if not reloadedDisplay.GetSegmentVisibility3D(segmentId)
+                },
             )
         finally:
             scenePath.unlink(missing_ok=True)
@@ -5665,6 +5721,17 @@ class DENTOWorkflowTestMixin:
     def test_DENTOWorkflowVisibleTemplateSupportSurface(self) -> None:
         """Select crown-like patches from separate full-tooth surfaces in RAS."""
 
+        with self.assertRaisesRegex(ValueError, "at least 2.00 mm"):
+            normalize_docking_parameters(
+                outer_diameter_mm=4.4,
+                inner_diameter_mm=1.5,
+                height_mm=2.5,
+                clearance_mm=0.3,
+                reinforcement_radial_mm=1.0,
+                reinforcement_depth_mm=2.0,
+                processing_resolution_mm=0.3,
+            )
+
         slicer.mrmlScene.Clear(0)
         logic = DENTOWorkflowLogic()
         focusedPreparedBranch = bool(
@@ -5790,6 +5857,35 @@ class DENTOWorkflowTestMixin:
         logic.stopTrajectoryPlacement()
         self.assertFalse(logic.step6CaseJawSurfaceEvidenceIssues(parameterNode))
         logic.createOrUpdateStep6CaseJawOpening(parameterNode)
+
+        closedLower = logic._getClosedSurfaceWorldCopy(
+            segmentationNode,
+            "lower-central",
+        )
+        planningLower = logic.caseFoundationPlanningSurfaceCopy(
+            parameterNode,
+            segmentationNode,
+            "lower-central",
+        )
+        expectedLower = logic._step6CaseJawPolydataWorld(
+            parameterNode,
+            closedLower,
+        )
+        self.assertFalse(
+            np.allclose(closedLower.GetBounds(), planningLower.GetBounds())
+        )
+        self.assertTrue(
+            np.allclose(expectedLower.GetBounds(), planningLower.GetBounds())
+        )
+        closedUpper = logic._getClosedSurfaceWorldCopy(segmentationNode, "tooth-16")
+        planningUpper = logic.caseFoundationPlanningSurfaceCopy(
+            parameterNode,
+            segmentationNode,
+            "tooth-16",
+        )
+        self.assertTrue(
+            np.allclose(closedUpper.GetBounds(), planningUpper.GetBounds())
+        )
 
         sourceModel, _details = logic.createOrUpdateDraftTemplateSupportModel(
             segmentationNode,
@@ -6097,7 +6193,7 @@ class DENTOWorkflowTestMixin:
                 targetDockingAssembly,
                 guideTrajectories,
                 outerDiameterMm=4.4,
-                innerDiameterMm=1.5,
+                innerDiameterMm=2.0,
                 heightMm=2.5,
                 dockingClearanceMm=0.3,
                 reinforcementRadialMm=1.0,
@@ -6112,7 +6208,7 @@ class DENTOWorkflowTestMixin:
                 targetDockingAssembly,
                 guideTrajectories,
                 outerDiameterMm=4.4,
-                innerDiameterMm=1.5,
+                innerDiameterMm=2.0,
                 heightMm=2.5,
                 dockingClearanceMm=0.3,
                 reinforcementRadialMm=1.0,
@@ -6340,7 +6436,7 @@ class DENTOWorkflowTestMixin:
                 collidingAssembly,
                 guideTrajectories,
                 outerDiameterMm=4.4,
-                innerDiameterMm=1.5,
+                innerDiameterMm=2.0,
                 heightMm=2.5,
                 dockingClearanceMm=0.3,
                 reinforcementRadialMm=1.0,
@@ -6434,6 +6530,16 @@ class DENTOWorkflowTestMixin:
         )
         reloadedSummary = reloadedLogic.getVisibleTemplateSupportModelSummary(
             reloadedPreview
+        )
+        savedDirectionGeometry = json.loads(
+            reloadedSummary["directionGeometryJson"]
+        )
+        savedDirectionGeometry["entryRas"][0] += 1e-12
+        self.assertTrue(
+            reloadedLogic.templateSupportDirectionGeometryMatches(
+                reloadedSummary["directionGeometryJson"],
+                savedDirectionGeometry,
+            )
         )
         self.assertEqual(reloadedSummary["metrics"]["surfaceRegionCount"], 2)
         self.assertEqual(reloadedSummary["metrics"]["omittedToothCount"], 1)

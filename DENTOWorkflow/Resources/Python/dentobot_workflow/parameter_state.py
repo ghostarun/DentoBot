@@ -28,13 +28,13 @@ class DENTOWorkflowParameterNode:
     assistedTrajectoryCount: int = 2
     targetDockingReferencePlane: vtkMRMLMarkupsPlaneNode
     targetDockingAssemblyModel: vtkMRMLModelNode
-    targetDockingPatternRadiusMm: float = 15.0
+    targetDockingPatternRadiusMm: float = 10.0
     targetDockingOuterDiameterMm: float = 3.0
-    targetDockingBoreDiameterMm: float = 1.0
+    targetDockingBoreDiameterMm: float = 1.5
     targetDockingConnectorDiameterMm: float = 3.5
     targetDockingConnectorThicknessMm: float = 2.0
     targetDockingSharedDepthMm: float = 5.0
-    targetDockingYawDeg: float = 0.0
+    targetDockingYawDeg: float = 35.0
     targetDockingCollisionClearanceMm: float = 0.5
     targetDockingYawConfirmed: bool = False
     targetDockingMeasurementsVisible: bool = True
@@ -66,9 +66,9 @@ class DENTOWorkflowParameterNode:
     templateShellClearanceMm: float = 0.3
     templateShellThicknessMm: float = 1.5
     templateSamplingSpacingMm: float = 0.3
-    templateChannelDiameterMm: float = 1.5
+    templateChannelDiameterMm: float = 2.0
     templateSleeveOuterDiameterMm: float = 4.4
-    templateSleeveInnerDiameterMm: float = 1.5
+    templateSleeveInnerDiameterMm: float = 2.0
     templateSleeveHeightMm: float = 2.5
     templateDockingClearanceMm: float = 0.3
     templateReinforcementRadialMm: float = 1.0

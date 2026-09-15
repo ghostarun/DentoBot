@@ -317,13 +317,11 @@ class TemplateBuildWidgetMixin:
             # Another PreparedBranch remains valid while this selection is prepared.
             finalSummary = None
         if finalSummary and finalSummary["geometryState"] == "Current":
-            currentTrajectoryGeometry = [
-                {
-                    "entryRas": record["entryRas"],
-                    "targetRas": record["targetRas"],
-                }
-                for record in validatedInputs["trajectories"]
-            ] if validatedInputs else []
+            currentTrajectoryGeometry = (
+                self.logic.canonicalTrajectoryGeometry(selectedTrajectories)
+                if validatedInputs
+                else []
+            )
             staleReason = ""
             if inputError:
                 staleReason = inputError
@@ -682,7 +680,9 @@ class TemplateBuildWidgetMixin:
                     staleReason = _("The insertion direction node changed.")
                 elif summary["parametersJson"] != undercutParametersJson:
                     staleReason = _("Undercut tolerance or processing resolution changed.")
-                elif summary["insertionGeometryJson"] != directionSummary["geometryJson"]:
+                elif not self.logic.insertionGeometryMatches(
+                    summary["insertionGeometryJson"], directionSummary
+                ):
                     staleReason = _("The insertion direction points changed.")
                 elif summary["sourceModelUpdatedUtc"] != (
                     supportModel.GetAttribute("DENTOBOT.UpdatedUtc") or ""
@@ -777,7 +777,9 @@ class TemplateBuildWidgetMixin:
                 visibleSupportModel.GetAttribute("DENTOBOT.UpdatedUtc") or ""
             ):
                 staleReason = _("The visible support surface was regenerated.")
-            elif patientSummary["insertionGeometryJson"] != directionSummary["geometryJson"]:
+            elif not self.logic.insertionGeometryMatches(
+                patientSummary["insertionGeometryJson"], directionSummary
+            ):
                 staleReason = _("The insertion direction points changed.")
             elif patientSummary["blockoutUpdatedUtc"] != (
                 blockoutModel.GetAttribute("DENTOBOT.UpdatedUtc") or ""

@@ -1,6 +1,6 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-14
+Last reconciled: 2026-09-15
 
 ## Record ownership
 
@@ -81,21 +81,19 @@ changes here and keep execution chronology in the dated logbook.
 ## P0 reusable Step 6 setup and PreparedBranches
 
 - **ID:** `S6-REUSABLE-CASE-SETUP`; **Priority:** 0.
-- **Current state (2026-09-14):** Case Foundation and reusable offline-base
+- **Current state (2026-09-14):** **Blocked pending external guide/tool/base
+  geometry correction.** Case Foundation and reusable offline-base
   implementation is source-complete in the current checkout. The authoritative
   source was preserved; the reviewed production foundation save/reopen passed;
   current FDI31 Step 5C produced one eligible schema-3 PreparedBranch and its
-  saved package reopened current. Targeted changed-Python compilation, the
-  focused pure suite, the synthetic phase-guard check and exact-case planning
-  evidence are recorded. The selected exact FDI31 route reached full-chain
-  Stage 1/2/3 planning with the requested depth (`6.671904931162032 mm`),
-  Stage 1/2/3 counts `232/12/28`, and Stage 3 fraction `1.0`. Guarded preview,
-  Goal 2, Return Home, repeatability, playback and ten normal-window
-  observations remain unaccepted. The current bounded runtime attempts did not
-  produce a complete exact-case preview artifact: one exposed a stale Home
-  state, one lost scene readback during stack shutdown, one was operator
-  interrupted, and the final clean attempt exceeded its six-minute harness
-  bound without writing its sidecar. No planner-success claim is made.
+  saved package reopened current. The approved current-source exact FDI31 run
+  reached the requested target endpoint kinematically, but both bounded
+  candidates were stopped by the authoritative guard at Stage 3: candidate 0
+  at composed waypoint 255 / Stage 3 waypoint 27 and candidate 1 at its
+  corresponding final Stage-3 boundary, on the selected-tooth ↔
+  `pneumatic_spindle-Copy` collision. Goal 2, Return Home, repeatability,
+  playback and ten normal-window observations remain `NOT_RUN`/open. No
+  planner-success claim is made.
 - **Opened-jaw display correction (2026-09-14):** The source segmentation is
   now treated as closed-pose inspection anatomy while the Case Foundation is
   current: every source segment is hidden per-segment in 3D, and the fixed /
@@ -111,10 +109,40 @@ changes here and keep execution chronology in the dated logbook.
   state through the guard; it falls back to saved display values only when no
   complete live vector exists for offline/fake tests. This removes the traced
   stale-slider path that republished `J2=0.00202 mm` after Task Home had been
-  verified. The focused pure suite remained `88 passed`; the clean exact run
-  reached active planning without reproducing that Home mismatch, but timed out
-  before a final diagnostic artifact. Guard policy, base, target depth and
-  collision rules were unchanged.
+  verified. The focused pure suite remained `88 passed`; the current exact run
+  reached active planning without reproducing that Home mismatch. Guard policy,
+  base, target depth and collision rules were unchanged.
+- **Current-source exact guard result (2026-09-14):** The native
+  `collision_guard` was rebuilt from the current checkout and the approved
+  exact run used that binary. The run produced a target-specific
+  `FIRST_INVALID` sidecar: Stage 1 and Stage 2 completed; Stage 3 reached the
+  requested target endpoint but the final waypoint was rejected because the
+  selected tooth collided with `pneumatic_spindle-Copy`. The exact runner did
+  not modify the r7 package, and the immutable source package remains
+  separate as documented. This is a
+  guide/tool/base geometry ownership question, not permission to add an
+  exemption, shorten depth, move the base or tune dimensions.
+- **Endpoint branch probe (2026-09-14):** A temporary read-only diagnostic
+  tried 22 deterministic endpoint position-axis seeds against the same exact
+  package; 8 met the native IK tolerances and all eight remained on the same
+  J5 branch with the same template↔spindle, burr↔selected-tooth and
+  selected-tooth↔spindle contacts. The hook was removed after the probe. No
+  alternate branch or compliant planner change was evidenced, so the strict
+  Stage-3 blocker remains open and downstream Goal 2/Return Home/repeatability
+  and playback remain `NOT_RUN`.
+- **Visual contact attribution gate (2026-09-14):** The operator reports that
+  they cannot select a geometry correction without seeing why the spindle
+  collides. The existing Step 5C reopen viewport is blank and the r13 sidecar
+  retains the rejected joint state but no nearest/contact point. Reconstruct
+  that saved Stage-3 terminal pose in an isolated offline Slicer scene using
+  the exact r7 package and robot/scene resources; show target tooth, spindle,
+  burr, guide and trajectory with context and close-up images, and mark any
+  mesh intersection. The sidecar's solver `last_valid` vector equals the
+  guard-rejected vector, so it is not an accepted guard state. Label onset
+  depth `unknown` until a bounded static scene query resolves it.
+  Reconcile the displayed meshes/frames against the native guard before a
+  geometry-owner choice. No preview, physical motion or policy change is part
+  of this evidence gate.
 - **Superseding workflow:** Reviewed segmentation now leads to one Case
   Foundation before Step 4A: four reviewed landmarks, one committed hinge/gap,
   fixed-upper and moving-lower planning displays, then Steps 4A–5C. Step 6
@@ -198,13 +226,173 @@ required pulp before Step 4A; absent pulp is an input-data result, not a
 license to synthesize anatomy or change target depth. The preceding target's
 scene is never the next target's input.
 
-One first-causal failure per tooth marks downstream stages `NOT_RUN`. Advance
-after a target-specific anatomy/geometry/planner/guard failure so the comparison
-can expose bias; stop on a shared source, serializer, fingerprint or runtime
+One first-causal failure per tooth marks downstream stages `NOT_RUN`. Preserve
+target-specific anatomy/geometry/planner/guard failures for comparison and
+propose the next tooth only after operator approval; stop on a shared source,
+serializer, fingerprint or runtime
 failure for a bounded root-cause correction. No base, depth, dimensions or
 collision/guard policy workaround. The previous FDI31-success prerequisite and
 FDI32 inclusion are superseded. The optional six-target matrix remains
 downstream. See [the campaign gate](DEVELOPMENT_PLAN.md#2026-09-14-four-central-incisor-exact-case-campaign).
+
+The operator selects Luna Max manually. On a novel ambiguous or higher-reasoning
+decision, Luna stops the affected path and returns the evidence/reasoning-type
+packet defined in the campaign gate; it does not silently change models,
+delegate or improvise a fix. This is campaign-specific, not a global model
+default.
+
+**Execution is packet-gated:** A is the generator's STL/folder/diagnostic edit;
+for each tooth, B input/fingerprint preflight, C one 4A–5C/STL/save, D
+new-process reload, E exact Stage 6 route and F repeat/playback only after a
+Complete E. One verified artifact or first-causal failure ends each packet.
+Even a classified tooth-specific failure requires operator approval before
+the next tooth; no compound instruction or automatic next packet. See the
+campaign plan for exit evidence and `NOT_RUN` disposition.
+
+**2026-09-14 operator approval and result:** After the first launch-only
+failure, the operator explicitly approved the offline Slicer runtime check for
+the current FDI31 semantic implementation and stated that no robot motion or
+patient-facing action was authorized. The corrected current-source run used
+the documented Jazzy/workspace/module-path setup and reached the exact
+requested target endpoint, then stopped at the first native Stage-3 guard
+failure: selected FDI31 tooth ↔ `pneumatic_spindle-Copy` at composed waypoint
+255 / Stage-3 waypoint 27. The full FDI31 Step 4→Step 6 simulation remains
+open; later packets and other teeth remain separately gated.
+
+### 2026-09-14 FDI31 planner recovery — Campaign 1 supersession (historical status)
+
+The operator accepted the causal review and assigned Astra architecture and Luna
+Max implementation/evidence/documentation ownership. Reuse
+`S6-REUSABLE-CASE-SETUP`, `S6-LIVE-01..04` and their existing upstream P0
+dependencies. The complete bounded contract, write allowlist, gate acceptance,
+runtime-approval boundary, exact Luna prompts and R1 report specification are in
+[FDI31 Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
+
+This supersedes earlier assertions that external geometry correction is the only
+next path. The r13/r14 evidence establishes tested collisions, not exhaustive
+infeasibility. Campaign 1 is P0 baseline, P1 input/scene audit with P2 supporting
+instrumentation, P3 bounded endpoint and conditional P4 insertion, then Astra
+review. P5–P7 are provisional later phases. On 2026-09-14 the operator
+approved P1/P2 only. P1's saved-input/machine checks are PASS, but P1 overall
+scene correctness and operator review are INCOMPLETE. P2 remains
+`INCONCLUSIVE`: the initial missing-runtime condition was recovered once under
+the later explicit cleanup authorization, and the final bounded packet now
+contains two native diagnostic reconstructions with separate static and
+transition records. The final scene acknowledgement reconciles 31/31 IDs,
+poses/bounds and policy; the earlier `expected 31, observed 0` result remains
+preserved historical evidence. The exact seven conflicting DentoBot simulation
+processes were verified and stopped with SIGINT, one coherent simulation-only
+stack reached ready on domain 73, and that launch-owned stack was then cleaned
+up. The canonical final evidence is `c1-p1p2-recheck-20260914-r6`, with the
+earlier attempts retained; no P3/P4 or motion was started. The three-failure
+ceiling and all frozen case/task/tool/policy invariants remain. The corrected
+handoff is now proven through Slicer entry, TCP/spindle FK pairing passes, and
+burr-transform alias repair is now source-repaired and unit-verified. Native
+verification of that repair was not completed because the shared container
+exited 143 during a malformed continuation command and the standing boundary
+excludes a restart. Do not infer operator review, input/geometry acceptance or
+full-cycle acceptance from diagnostics, runner/test PASS markers, generated
+flags or execution approval.
+
+**2026-09-14 source-only handoff diagnosis:** The approved final2 stack log
+proves simulation services initialized, but does not preserve the wrapper's
+readiness return code/parser result or a Slicer-launch request. The cause is
+therefore unproven. The existing launcher now delegates its unchanged
+simulation/readiness/cleanup flow to
+`Workspace/scripts/dentobot-simulation-slicer-handoff.bash`, which records
+stage/reason markers and preserves the initiating diagnostic status. Local
+stub tests pass for ready handoff, readiness failure and diagnostic-failure
+cleanup. This historical source-only boundary was followed by the later
+explicitly authorized bounded recheck: the first corrected invocation exposed
+the `--no-main-window` Slicer-entry defect, and the final two attempts reached
+Slicer and produced the current native packet. A subsequent source-only alias
+repair passed focused tests, but native verification was blocked when the
+shared container exited 143 during a malformed continuation command. This
+source-only/native-launch history is superseded by the retained final packet
+below; keep all P1 review and downstream gates open.
+
+**2026-09-15 current disposition:** The retained final packet is the bounded
+native P2 diagnostic/evidence result: P1 saved-input/machine checks are PASS
+for completed checks, P1 overall scene correctness and operator review are
+INCOMPLETE, and P2 bounded diagnostic evidence is PASS with campaign gate
+`USER_REVIEW_REQUIRED`. It separates phase-aware static rejection of both
+endpoints (final printable template ↔ spindle), generic static contacts
+(including FDI31 tooth ↔ spindle and tooth ↔ burr), and Home-to-endpoint
+corridor rejection. It also records trusted 31/31 scene acknowledgement and
+TCP/spindle/burr FK evidence. The earlier zero-object, launcher and
+container-exit results remain historical attempts; they do not make the
+retained packet inconclusive. Operator acceptance of the 15 selections,
+scene, geometry and contact interpretation remains unrecorded, and no P3/P4
+or full-cycle acceptance follows.
+
+**2026-09-15 Section-W source-only recapture correction:** The rejected
+display recaptures remain historical and are not faithful state/geometry
+evidence. The retained review driver now separates the endpoint from the
+Home-to-endpoint sample, reconstructs prepared world-RAS display copies,
+checks geometry fingerprints/bounds, compares displayed TCP/burr/spindle link
+frames with saved endpoint native FK, and verifies the same review robot nodes
+and transforms across save/reopen. Production transient robot persistence and
+all collision/native policy remain unchanged. Ten focused pure tests pass.
+One approved endpoint-only Slicer session loaded the retained MRB but stopped
+before capture because this runtime lacks
+`vtkMRMLModelDisplayNode.SetPropertiesLabelVisibility`; its error manifest is
+preserved separately and contains no image or review MRB. Endpoint parity was
+not reached, so this is a runtime compatibility stop rather than an endpoint
+geometry/FK parity failure. The driver consumes a future explicitly saved
+evaluated-sample FK record but does not substitute endpoint/offline FK. The
+transition image remains `NOT_RUN` until the saved packet contains native FK
+matrices for evaluated sample 1/134. No second display runtime is authorized
+without a new explicit approval.
+Operator scene review and acceptance remain open.
+
+**2026-09-15 endpoint-only repair continuation:** The operator later
+authorized a bounded rerun and source fixes for Slicer-session blockers. Two
+minimal compatibility repairs were pure-verified (`12 focused tests`): an
+optional display-label API guard and a model parent-transform world-matrix
+fallback. The third and final scoped display attempt reached the parity gate
+and failed closed. The final printable template matched exactly, but the
+prepared FDI31 target fingerprint differed and its maximum bound error was
+`40.74010467529297 mm` versus the `0.05 mm` tolerance. Robot mesh/link
+transforms matched; native-vs-offline FK matched for TCP, burr and spindle;
+displayed burr/spindle matched native FK; displayed TCP remained unavailable
+because the seven displayed models contain no TCP model. Save/reopen was not
+reached. The repair2 manifest and prior compatibility-error manifests are
+preserved. Endpoint review is `BLOCKED`, transition is `NOT_RUN`, no geometry
+or policy was changed, and the display-runtime retry ceiling is reached.
+P1/P2 campaign acceptance and operator scene review remain open.
+
+**2026-09-15 revised endpoint parity repair:** The operator explicitly
+authorized source-only correction and focused testing for the two evidenced
+repair2 defects, followed by at most three targeted endpoint-only offline
+Slicer attempts. The driver now reuses the native Case Foundation jaw-opening
+transform exactly once and the native triangle-filter semantics for the
+display-only target copy; it also derives the meshless canonical
+`dentobot_drill_tcp` from the actual displayed `pneumatic_spindle-Copy` mesh,
+its visual-origin offset and the retained URDF fixed relation, with loaded
+robot-profile identity matching. The focused suite passes 18 tests and the
+container-mounted source hash matches the host. The repair3 pre-execution
+command/output location is recorded in report Section AE. This remains an
+endpoint-review evidence task only: transition is NOT_RUN, operator/P1/P2
+acceptance is open, and P3/P4 plus geometry/policy/hardware actions remain
+unauthorized.
+
+**2026-09-15 endpoint parity repair result:** The final authorized repair5
+attempt passed the endpoint machine parity gate. It verified native target and
+template fingerprints/bounds, exactly one Case Foundation jaw preparation,
+robot-description identity, displayed seven-link/model transforms, derived
+meshless TCP/burr/spindle FK, and unchanged pose across save/reopen. The
+separate review MRB, JSON packet and two nonblank endpoint images are recorded
+in recovery report Section AH. The transition image remains `NOT_RUN` because
+saved native sample-1/134 FK is unavailable. Visual label/scale review and
+operator acceptance remain open; this does not close P1 overall scene review,
+change the retained native P2 status, or authorize P3/P4.
+
+**2026-09-15 operator visual review:** The operator accepts the repair5 endpoint
+screenshots and requests a next-phase Luna prompt. The visual-review blocker
+is closed for this retained endpoint only. Reconcile remaining P1 input/scene
+decisions before conditional P3 under the existing Campaign-1 contract;
+historical transition imagery is not a static-endpoint prerequisite. No blanket
+input acceptance, runtime execution, or P4 approval is recorded. See report AI.
 
 ## FDI11 / Stage 3 — paused pending workflow integrity
 
@@ -240,6 +428,226 @@ downstream. See [the campaign gate](DEVELOPMENT_PLAN.md#2026-09-14-four-central-
 - **Corrected contract:** New single/dual assisted generation must prove a shared interval between the selected tooth's FDI-matched binary pulp mask and its displayed 3D surface, preserve Entry and direction, and atomically set Target to the first point contained by both (the farther entry boundary). Record both boundary points and their offset. Reject a native/display miss or non-overlap. Off-slice trajectory projection is disabled. Existing/manual trajectories and Step 6 policy remain unchanged.
 - **Verification:** Final diff check and scoped pycompile passed; pure endpoint test passed 1/1; focused Slicer target emitted `DENTOBOT_ASSISTED_PULP_PASS` and `DENTOBOT_STEP4A_P0_PASS`, exited 0, and left no Slicer process. Evidence: `/tmp/dentobot-verification/step4a-p0-20260910/result.json`.
 - **Next:** Reload the module, deliberately delete the legacy FDI31 set, generate one current assisted line, and record normal-window 3D surface contact plus non-projecting 2D slice behavior before anatomical approval.
+
+## P0 dental semantic normalization and pulp-to-tooth association — 2026-09-14
+
+- **ID:** `S3-P0-DENTAL-SEMANTICS`; **Priority:** 0.
+- **State:** Active implementation/integration. The source trace, bounded
+  implementation plan, pure A-H semantic core, MRML registry integration and
+  target-specific planning gate are implemented; integrated Slicer runtime,
+  geometry, save/reopen and downstream full-workflow evidence remain open.
+- **Operator note:** The attached `dentonote` requests a reliable semantic
+  bridge between TotalSegmentator output and DentoWorkflow target/planning
+  logic. The operator specifically asked for inspection and a detailed plan
+  before any large refactor.
+- **Triage:** Active investigation/design pending implementation. Keep this
+  as one P0 owner. Do not create an FDI11-only special case or a second case
+  database. Existing `S4A-PULP-ENDPOINT` retains displayed/native endpoint
+  geometry; `S6-REUSABLE-CASE-SETUP` retains case/campaign sequencing and
+  save/reopen acceptance.
+
+### Source trace and current evidence
+
+1. `Inference/src/dentobot_inference/segmentation.py` invokes
+   `totalsegmentator(..., task="teeth", ml=True)` and reads the installed
+   `class_map["teeth"]`. It preserves the actual raw `{id, name}` pairs in
+   `result["labels"]`; `validate_segmentation_output()` checks geometry,
+   integer labels, unknown IDs and per-label counts. Source inspection found
+   no `label_value == 111` or `pulp_label_id - 100` assumption in the
+   inference backend.
+2. `widget_case_backend.py` imports the returned multilabel NIfTI into one
+   Slicer segmentation. It validates label IDs/counts and builds a color table
+   whose segment names come directly from the backend report. The importer
+   does not independently validate that imported names are semantically
+   equivalent to the report, and it does not create tooth/pulp relations.
+3. `logic_segmentation.py` stores `SegmentMetricsJson` with segment ID, raw
+   label ID, raw name, voxel count and volume. `describeSegmentForReview()`
+   currently classifies by name substrings and parses `_fdi<digits>`; for a
+   pulp suffix shaped like `1<FDI>` it strips the first digit. This is a
+   presentation-compatible legacy grammar, not a verified backend semantic
+   contract. `getSegmentationReviewRecords()` currently rebuilds records from
+   the current Slicer display name.
+4. `logic_lineage.py` treats review records with category `Teeth` as target
+   teeth and validates a target by segment ID plus that derived category. It
+   does not require canonical FDI provenance, non-empty geometry, or a
+   validated pulp relation.
+5. `logic_workflow.py` obtains assisted pulp by filtering review records for
+   category `Pulp and root canals` and equal derived `fdiNumber`, then uses
+   only that pulp mask/surface for the existing first-shared native/displayed
+   endpoint calculation. It has no target-to-pulp spatial association gate.
+6. `DENTOCaseBundle` persists the MRML scene inside `scene/case.mrb`, and the
+   current segmentation node's `SegmentMetricsJson` therefore survives in the
+   MRB. `workflow/lineage.json` currently records only the segmentation node
+   inventory/segment count, so a semantic registry is not independently
+   checked on reload.
+7. Read-only inspection of
+   `data/Slicer_Saved/SampleStudy1/FDI11/dentobot-case-step5b.dentocase` and
+   `dentobot-case-13sept.dentocase` found 54 segment names, 18 pulp names,
+   `upper_right_central_incisor_fdi11` at label 11, and no `*_pulp_fdi11*` or
+   `*_pulp_fdi21*` entry. The current exact evidence therefore classifies
+   FDI11/FDI21 missing pulp as an input-data failure. It does not prove that a
+   different visual FDI11 report was not misclassified by TotalSegmentator,
+   its class map, Slicer import, or our parser.
+
+**Unresolved origin boundary:** The source audit rules out the suspected
+hard-coded label arithmetic in the inference backend. A read-only inspection
+now captures the installed 77-entry class map with fingerprint
+`57c95824f888749b879511e06e4590b2029cdb35f1791b4a050ecebc35d9b328`; the
+retained report, NIfTI and saved imported `.seg.nrrd` agree on the detected
+54-label subset, including raw FDI31 tooth/pulp entries. A fresh current-
+revision Slicer import has not yet run, so no claim about a model-level FDI11
+identity error is made from the retained package.
+
+### Smallest robust architecture
+
+Keep `SegmentationLogicMixin` as the existing MRML-facing owner and add one
+small pure helper module, `dentobot_workflow/dental_semantics.py`, only for
+plain-record normalization, component association and validation math. Do not
+add a generic registry service, a second database, a new case archive member,
+or a new workflow façade.
+
+The import path becomes:
+
+```text
+backend report/class map (raw source facts)
+  -> canonical segment records in existing SegmentMetricsJson
+  -> target-specific pulp association/validation
+  -> target selection and assisted endpoint
+```
+
+The raw source name, raw label ID and terminology remain audit evidence. A
+versioned backend adapter may use the report's source map to identify raw
+structure kind and an optional FDI hint, but no downstream planner may parse a
+Slicer display name or infer FDI from an arithmetic label relationship.
+Unknown or changed backend naming becomes `UNRESOLVED`/reviewable input, not a
+guess. Legacy name parsing is retained only as an explicit migration fallback
+and is never sufficient by itself for pulp-dependent planning.
+
+Each canonical record must carry, at minimum:
+
+```text
+segmentId                    MRML segment identity
+sourceLabelId/sourceName     raw audit provenance only
+structureType                TOOTH, PULP, or another explicit type
+canonicalName                Tooth_FDI11 / Pulp_FDI11 when known
+fdiNumber                    optional canonical FDI
+parentToothSegmentIds       zero/one/many source segment IDs for pulp
+associationMethod            source-hint, spatial, or manual-confirmed
+associationConfidence        HIGH, MEDIUM, or null for failed states
+validationState              VALID, AMBIGUOUS, MISSING, INVALID,
+                              or MANUALLY_CONFIRMED
+associationEvidence          deterministic metrics and runner-up details
+```
+
+Canonical records are stored by extending the existing
+`DENTOBOT.SegmentMetricsJson`; node attributes carry the semantic schema
+version, overall status and a deterministic semantic fingerprint. The
+fingerprint includes segment IDs/label IDs and canonical relations, but not
+display-only raw names, so a backend naming change cannot break an already
+validated case. The full registry stays in MRML/MRB; `workflow/lineage.json`
+adds only the semantic version/status/fingerprint to its existing segmentation
+node record for save/reload integrity.
+
+### Target-specific association algorithm
+
+1. At import or migration, register every tooth candidate and every pulp
+   candidate/component as existing geometry. Build tooth records globally, but
+   defer expensive pulp-parent decisions until a target is selected.
+2. For the selected canonical tooth, require a unique valid FDI, non-empty
+   binary labelmap and usable closed surface. Enumerate every non-empty pulp
+   segment in the segmentation and split its binary mask into deterministic
+   connected components without creating a new anatomical segment.
+3. Transform occupied component voxel centers and both tooth/pulp surfaces to
+   the same world-RAS millimetre frame. For every component/tooth pair record
+   minimum and robust central surface distances, centroid/bounds relation,
+   enclosure or inside fraction against the closed tooth surface, and the
+   fraction of component samples for which that tooth is the nearest
+   consistent tooth. Voxel intersection is supporting evidence only.
+4. Rank candidates using the combined evidence and retain the best and
+   second-best candidate plus all raw metrics. Do not use nearest centroid as
+   the decision by itself. A raw FDI hint may corroborate the result but cannot
+   override a geometric disagreement.
+5. Group fragmented components only when every component is non-empty,
+   geometrically consistent with the same tooth and does not create a
+   duplicate/conflicting parent. If components split their best association
+   across adjacent teeth, or if the evidence disagrees without a safe margin,
+   return `AMBIGUOUS`/`INVALID` and do not merge them.
+6. Calibrate any numeric score/margin against the A–H fixtures before using
+   it as a confidence band. Until that calibration exists, preserve raw
+   metrics and fail closed rather than inventing an anatomical threshold.
+
+Confidence and failure behavior is:
+
+| Result | Meaning and workflow behavior |
+|---|---|
+| `HIGH` + `VALID` | Unique target tooth/pulp relation; eligible for the current pulp-dependent gate, still retaining ordinary manual verification. |
+| `MEDIUM` | Spatially plausible but lower margin or source-hint disagreement; eligible only when all validation rules pass and the required review/confirmation transitions it to `MANUALLY_CONFIRMED`. |
+| `AMBIGUOUS` | Competing adjacent candidate, inconsistent components, or unresolved top-two margin; block automatic pulp-dependent planning. |
+| `MISSING` | No non-empty pulp candidate for the target; block pulp-dependent planning and preserve the target tooth for non-pulp review. |
+| `INVALID` | Malformed geometry/metadata, duplicate canonical parent, non-finite metrics, or contradiction that cannot be safely resolved; block and expose diagnostics. |
+| `MANUALLY_CONFIRMED` | Explicit review accepted a non-HIGH result without changing source geometry; preserve who/when/evidence and keep the trajectory's manual-verification flag. |
+
+No state creates missing pulp. A target may proceed into the existing S4A
+shared native/displayed-surface endpoint code only after the selected tooth,
+one or more existing pulp components, and their spatial relation pass the
+canonical validation gate. Step 6 remains downstream and unchanged.
+
+### Implementation order and owned files
+
+1. **Evidence adapter:** capture of the installed TotalSegmentator
+   `class_map["teeth"]`, retained raw report, NIfTI IDs, imported Slicer IDs/
+   names and saved `.seg.nrrd` metadata is complete as read-only evidence;
+   fresh current-revision import remains pending.
+2. **Pure semantics:** implemented the plain-record normalizer, deterministic
+   component metrics/ranking, confidence states and A-H tests in one focused
+   semantic test file. The pure layer has no Slicer dependency.
+3. **MRML import/review:** `logic_segmentation.py` now builds/reads the
+   canonical registry after validated import, keeps raw fields for audit,
+   projects canonical records, and leaves the old name parser as a
+   migration-only fallback.
+4. **Target/planning gate:** `logic_lineage.py` and `logic_workflow.py` now
+   call one canonical target-anatomy query. Existing S4A endpoint math, line
+   creation and no-overwrite rules are preserved; the FDI/name pulp lookup is
+   replaced by spatially associated source segment/component IDs and a
+   semantic fingerprint.
+5. **Persistence/migration:** update `logic_case_bundle.py` to include the
+   semantic version/status/fingerprint in the existing segmentation node
+   lineage record. On load, validate an existing registry against current
+   segment IDs/label IDs/geometry; otherwise recover in memory, mark migration
+   pending/needs-review, and write only on explicit user save. Never mutate
+   mask voxels or silently rewrite a legacy case.
+6. **Focused acceptance:** run the cheapest pure/static checks first, then one
+   serialized Slicer save/reload test for the semantic registry. Only after
+   those pass and a separate verification approval exists should a target
+   packet exercise 4A–5C or Step 6. No broad Step 6 rerun is part of this
+   task.
+
+### Required acceptance cases
+
+| Case | Fixture and expected result |
+|---|---|
+| A | Native FDI11 tooth plus raw FDI111 pulp hint: canonical `Tooth_FDI11` and `Pulp_FDI11`, unique spatial match, `HIGH`/`VALID`. |
+| B | Pulp geometry is inside/consistent with FDI11 but raw identity is generic or absent: canonical FDI11 comes from spatial evidence, not the name. |
+| C | Raw pulp hint says FDI11 while geometry favors FDI21: preserve disagreement, never let the hint override geometry; resolve only with a clear validated margin or block/review. |
+| D | No FDI11 pulp component: `MISSING`, clear diagnostic, pulp-dependent generation blocked; no fabricated segment or endpoint. |
+| E | Adjacent FDI11/FDI21 candidates are close or metrics conflict: `AMBIGUOUS`, no automatic planning. |
+| F | One pulp is fragmented: same-tooth components may be grouped with component evidence; cross-tooth or duplicate assignments are `AMBIGUOUS`/`INVALID`. |
+| G | Save, close, reopen and re-import a `.dentocase`: canonical records, relations, states and fingerprint remain identical; legacy recovery is migration-pending until explicit save. |
+| H | Backend raw names/terminology change while source facts remain adaptable: target/pulp queries use canonical records and continue; an unadaptable source fails review rather than guessing. |
+
+### Boundaries and completion evidence
+
+Non-goals are TotalSegmentator retraining/fine-tuning, synthetic missing pulp,
+unnecessary mask edits, FDI11-only heuristics, and a broad Step 6 rewrite.
+Completion requires the source-map comparison, focused pure/static checks, A–F
+semantic fixtures, G save/reload evidence, H naming-independence evidence, and
+one explicit pulp-dependent planning gate check. A code change is not accepted
+until its verification command/result is recorded in the dated logbook.
+
+**Next bounded action:** run one explicitly approved serialized Slicer import
+and target-association check against the current source revision, then run the
+focused save/reopen evidence. The current FDI11/FDI21 missing-pulp package
+remains an input-data boundary; do not relabel or synthesize it.
 
 ## Immediate P0 — restore truthful Step 4A smooth masks
 
@@ -285,10 +693,10 @@ downstream. See [the campaign gate](DEVELOPMENT_PLAN.md#2026-09-14-four-central-
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | Source implemented; current alternate-route selection/replan and lock intent are added. Exact FDI31 selected-route planning reaches requested depth with Stage 1/2/3 `232/12/28` and fraction `1.0`; guarded preview/complete sidecar acceptance remains open after the bounded runtime packet timed out | Capture the exact first-invalid or complete guarded-preview artifact, then require endpoint/guard evidence including a selected/locked alternate route; do not shorten depth or add an exemption |
-| 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected; selected routes never bypass the guard | Runtime trial must confirm every Stage 1/2/3 waypoint, narrow burr exception, external-spindle boundary, and failed locked-route preservation |
-| 4 | `S6-LIVE-03` | 0 | Implemented: endpoint checks, consumed stop state, guarded Return Home/replan loop, diagnostic/live-preview overlap guard, and saved route intent | For each central incisor with a Complete route, trial Goal 1→Goal 2→guarded Return Home→replan/route choice; preserve other teeth's first-invalid results and defer the six-target matrix |
-| 5 | `S6-LIVE-04` | 0 | Implemented: timestamp/speed playback, 30 Hz display coalescing, progress UI, static phase paths, and diagnostic route selection controls | Runtime trial must confirm selectable speed preserves ordered acknowledgements, visible stage paths, route lock state, and current re-plan after restore for each accepted target package |
+| 2 | `S6-LIVE-01` | 0 | Source implemented; current alternate-route selection/replan and lock intent are added. The exact FDI31 r13 endpoint remains `FIRST_INVALID`; the bounded r6 diagnostic reconstruction and final no-TTY recheck do not establish a complete route. Native scene acknowledgement, static/transition attribution and display FK are now reconciled; operator scene review remains open | Keep the r13 endpoint/collision evidence and final bounded P2 packet under review; resolve guide/tool/base geometry ownership without shortening depth, moving the base or adding a collision exemption. Do not infer a Complete route or request P3/P4 from the diagnostic packet |
+| 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected; final native packet records phase-aware invalid static validity separately from the Home-to-endpoint transition rejection; correlated 31-object acknowledgement and TCP/spindle/burr FK all pass; contact fields remain unknown where not exposed | Preserve the strict result, scene/policy identity and unknown-contact boundary. Any future geometry correction must be verified across every Stage 1/2/3 waypoint, narrow burr exception, external-spindle boundary and failed locked-route preservation |
+| 4 | `S6-LIVE-03` | 0 | Implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result | For a Complete route only, trial Goal 1→Goal 2→guarded Return Home→replan/route choice; retain FDI31 failure and await approval before another tooth |
+| 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
 | 6 | `S6-LIVE-05` | 0 | Historical x4 Goal-1 evidence is retained only as a negative diagnostic; clean-case acceptance is not yet run | Select a reviewed post-surgery/clean case with finalized guide/tool geometry, then complete the full guarded loop |
 
 ### Stage 6.5/6.6 planner interaction correction (2026-09-13)
@@ -321,8 +729,8 @@ without restoring ROS runtime state. The new serialized matrix launcher remains
 a downstream six-target tool. The current acceptance campaign uses the same
 exact-case runner serially for FDI31, FDI41, FDI11 and FDI21, each with its
 own save/reopen evidence. A target-specific first-invalid result is retained
-and the next tooth proceeds; missing required anatomy is reported rather than
-synthesized by the planner.
+and the next tooth awaits explicit packet approval; missing required anatomy
+is reported rather than synthesized by the planner.
 
 The exact-case save path is fail-closed beyond ZIP/checksum validity. It records
 and checks the current outer bundle schema, DentoCase/Case Foundation/registry
@@ -338,7 +746,7 @@ rollback on failure, and requires the current-frame single-dock geometry gate.
 These are source constraints; they do not close the open runtime, package
 integrity, geometry, PreparedBranch, or normal-window acceptance records.
 
-### 2026-09-14 exact FDI31 campaign result
+### 2026-09-14 exact FDI31 campaign result — earlier r2 record
 
 The authoritative source package
 `data/Slicer_Saved/SampleStudy1/dentobot-case-13sept.dentocase` remains
@@ -372,11 +780,35 @@ diagnosis, not planner success. Goal 2 completion, guarded Return Home,
 repeatability, playback and route-intent save/reopen remain gated by a complete
 Stage 3 route and therefore were not claimed.
 
+**Current-source correction check (r13):** The generated current package is
+`data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-20260914-r7/FDI31-step5c.dentocase`
+(`SHA-256 5440961c2f1464df10adec3dfb6ab59f8a0e412c6074cae7852d8150babe4fff`);
+its verified STL is
+`data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-20260914-r7/DENTO_Final_Printable_Template.stl`
+(`SHA-256 ccee3e597b7e579b0224a31f00308ee1d65e42bc89ac17bf9c68330d5bcec425`).
+The approved r13 exact check used source HEAD
+`3af2d864449679ead25398899d6325aefb50595a`, current diff fingerprint
+`7e4e24d6278ba8bca98eb91bdf8902c2e6a018718b666e730e9fb97d6468be1c`, the
+current rebuilt `collision_guard` binary
+`9667b3aa6091db70cbb32c118af68af8f1d43179f099c6344f9184e2549c9ce9`, and
+the pinned local image digest
+`sha256:544c5b759ccef7ce6c41157bbd7bd8b602657de367f1f6b71352de054c81b019`.
+Both direct and seeded candidates reached the exact FDI31 endpoint. The
+selected direct candidate passed Cartesian Stage 1 and Stage 2 and was then
+rejected by the current native guard at composed waypoint 255 / Stage 3
+waypoint 27; the seeded candidate reached the corresponding Stage-3 boundary
+at composed waypoint 295. Both failures were the same strict collision between
+the selected FDI31 tooth and `pneumatic_spindle-Copy`. The requested depth,
+saved base and J6-zero policy were unchanged. The run is a target-specific
+`FIRST_INVALID`; Goal 2, Return Home and repeat/playback are `NOT_RUN`.
+
 Evidence: `data/dentobot-runs/fdi31-foundation-current-20260914-r3/`,
 `data/dentobot-runs/stage6-target-generation-fdi31-current-20260914-r2/FDI31/`,
-and the dated 2026-09-14 logbook. No further blind whole-flow retry is
-authorized until the guide/tool/base geometry owner explains or corrects this
-contact without weakening the guard.
+`data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-r7/diagnostics/FDI31-stage6-exact-r13.json`,
+`/tmp/dentobot-verification/step65-fdi31-20260914-r13/runtime.log`, and the
+dated 2026-09-14 logbook. No further blind whole-flow retry is authorized
+until the guide/tool/base geometry owner explains or corrects this contact
+without weakening the guard.
 
 ## P1 Case Platform / Simulation Studio — blocked by `S6-LIVE-05`
 

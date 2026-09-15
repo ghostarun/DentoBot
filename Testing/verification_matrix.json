@@ -34,6 +34,13 @@
       "runtime.s6_reusable_case",
       "manual.step6_normal_window"
     ],
+    "s6-target-matrix": [
+      "static.git_diff_check",
+      "static.step6_pycompile",
+      "pure.step6_planning",
+      "runtime.s6_target_matrix",
+      "manual.step6_normal_window"
+    ],
     "w5u04-bore-safe-template": [
       "static.git_diff_check",
       "static.w5u04_pycompile",
@@ -293,6 +300,29 @@
       "pass_condition": "marker:DENTOBOT_STEP65_EXACT_CASE_PASS and report fields guarded_preview_complete, guarded_return_home_complete, repeat_guarded_preview_complete are true; report shutdown exit separately"
     },
     {
+      "id": "runtime.s6_target_matrix",
+      "execution_kind": "slicer_ros_moveit_matrix",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "runtime.step65_exact_case",
+        "runtime.w5u04_bore_safe_template"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 5400,
+      "evidence_level": "six_target_saved_case_matrix",
+      "entrypoint": "Testing/run_dentobot_stage6_target_matrix.py",
+      "command_template": null,
+      "pass_condition": "marker:DENTOBOT_STAGE6_TARGET_MATRIX_PASS; all six FDI targets have zero process failures, detailed diagnostic JSON, valid saved .dentocase, and successful save/reopen route-intent preservation"
+    },
+    {
       "id": "runtime.step6_restore",
       "execution_kind": "slicer_headless",
       "parallel_safe": false,
@@ -393,6 +423,56 @@
       "entrypoint": "Testing/run_dentobot_segmentation_runs_smoke.py",
       "command_template": null,
       "pass_condition": "marker:DENTOBOT_SEGMENTATION_RUNS_PASS"
+    },
+    {
+      "id": "static.fdi31_recovery_pycompile",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "static",
+      "command_template": "PYTHONPYCACHEPREFIX={evidence_dir}/pycache python3 -m py_compile Testing/run_dentobot_fdi31_recovery_diagnostic.py Testing/test_fdi31_recovery_diagnostic.py",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "pure.fdi31_recovery_diagnostic",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": ["static.fdi31_recovery_pycompile"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "pure_test",
+      "command_template": "python3 -m pytest -q -p no:cacheprovider Testing/test_fdi31_recovery_diagnostic.py",
+      "pass_condition": "exit_code_zero"
+    },
+    {
+      "id": "recovery.p1_scene_audit",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["static.fdi31_recovery_pycompile", "pure.fdi31_recovery_diagnostic", "static.git_diff_check"],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "saved_scene_reconstruction",
+      "entrypoint": "Testing/run_dentobot_fdi31_recovery_diagnostic.py",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'export DENTOBOT_RECOVERY_PHASE=p1_scene_audit DENTOBOT_RECOVERY_SOURCE=/workspace/data/Slicer_Saved/SampleStudy1/dentobot-case-13sept.dentocase DENTOBOT_RECOVERY_PACKAGE=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-20260914-r7/FDI31-step5c.dentocase DENTOBOT_RECOVERY_R13=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-r7/diagnostics/FDI31-stage6-exact-r13.json DENTOBOT_RECOVERY_OUTPUT=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/planner-recovery/c1/c1-p1p2-20260914-r1/scene_audit.json; timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_fdi31_recovery_diagnostic.py'",
+      "pass_condition": "exit_code_zero; report status PASS; scene_audit.json, manifests, nonblank screenshots and runtime-handle-free inspection scene exist"
+    },
+    {
+      "id": "recovery.p2_state_contact",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": ["docker:dentobot-slicerros2", "ros_domain:73", "slicer_process", "mrml_scene", "display"],
+      "depends_on": ["recovery.p1_scene_audit"],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "native_static_contact_reconstruction",
+      "entrypoint": "Testing/run_dentobot_fdi31_recovery_diagnostic.py",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'set +u; source /opt/ros/jazzy/setup.bash; source /workspace/ros2_ws/install/setup.bash; set -u; export ROS_DOMAIN_ID=73 ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET; export LD_LIBRARY_PATH=/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules:/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules:${LD_LIBRARY_PATH:-}; export PYTHONPATH=/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules:${PYTHONPATH:-}; export DENTOBOT_RECOVERY_PHASE=p2_state_contact DENTOBOT_RECOVERY_PACKAGE=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-20260914-r7/FDI31-step5c.dentocase DENTOBOT_RECOVERY_R13=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-r7/diagnostics/FDI31-stage6-exact-r13.json DENTOBOT_RECOVERY_OUTPUT=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/planner-recovery/c1/c1-p1p2-20260914-r1/rejected_state.json; timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-loadable-modules --additional-module-paths /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_fdi31_recovery_diagnostic.py'",
+      "pass_condition": "exit_code_zero; rejected_state.json, state_identity.json, contact_records.json, nonblank diagnostic screenshots and runtime-handle-free inspection scene exist"
     },
     {
       "id": "manual.w5u04_normal_window",

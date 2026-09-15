@@ -2,10 +2,54 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from .runtime import *
 
 
 class PatientShellLogicMixin:
+    INSERTION_PROVENANCE_DECIMAL_PLACES = 9
+
+    @classmethod
+    def _canonicalInsertionPoint(cls, point) -> list[float]:
+        try:
+            values = tuple(float(value) for value in point)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(_("Insertion provenance contains invalid coordinates.")) from exc
+        if len(values) != 3 or any(not math.isfinite(value) for value in values):
+            raise ValueError(_("Insertion provenance requires three finite coordinates."))
+        return [
+            0.0
+            if (rounded := round(value, cls.INSERTION_PROVENANCE_DECIMAL_PLACES)) == 0.0
+            else rounded
+            for value in values
+        ]
+
+    @classmethod
+    def canonicalInsertionGeometryJson(cls, geometry) -> str:
+        """Normalize current and legacy insertion snapshots for identity checks only."""
+
+        if isinstance(geometry, str):
+            try:
+                geometry = json.loads(geometry)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(_("Insertion provenance is not valid JSON.")) from exc
+        if not isinstance(geometry, Mapping):
+            raise ValueError(_("Insertion provenance must be a JSON object."))
+        return canonical_json(
+            {
+                "approachRas": cls._canonicalInsertionPoint(geometry.get("approachRas")),
+                "seatRas": cls._canonicalInsertionPoint(geometry.get("seatRas")),
+            }
+        )
+
+    @classmethod
+    def insertionGeometryMatches(cls, left, right) -> bool:
+        try:
+            return cls.canonicalInsertionGeometryJson(left) == cls.canonicalInsertionGeometryJson(right)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+
     @staticmethod
     def isTemplateInsertionDirectionNode(node) -> bool:
         return bool(
@@ -214,7 +258,6 @@ class PatientShellLogicMixin:
             if any(not math.isfinite(float(value)) for value in point):
                 raise ValueError(_("The insertion direction contains invalid coordinates."))
             points.append([float(value) for value in point])
-            lineNode.SetNthControlPointLabel(index, "Approach" if index == 0 else "Seat")
         direction = np.asarray(points[1], dtype=float) - np.asarray(points[0], dtype=float)
         length = float(np.linalg.norm(direction))
         if length <= 1e-6:
@@ -230,11 +273,10 @@ class PatientShellLogicMixin:
             "lengthMm": length,
             "insertionDirectionRas": tuple(float(value) for value in insertion),
             "removalDirectionRas": tuple(float(value) for value in removal),
-            "geometryJson": json.dumps(
-                geometry,
-                sort_keys=True,
-                separators=(",", ":"),
-            ),
+            # Construction uses the full-precision points above. This field is
+            # provenance identity only and is intentionally reload-stable.
+            "geometryJson": self.canonicalInsertionGeometryJson(geometry),
+            "rawGeometryJson": json.dumps(geometry, sort_keys=True, separators=(",", ":")),
             "sourceSurface": lineNode.GetNodeReference(
                 self.TEMPLATE_INSERTION_DIRECTION_SOURCE_SURFACE_REFERENCE_ROLE
             ),
@@ -254,6 +296,7 @@ class PatientShellLogicMixin:
 
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         segmentationNode = sourceSummary["sourceSegmentation"]
+        parameterNode = self.getParameterNode()
         targetRecord = self.validateTargetTooth(
             segmentationNode,
             sourceSummary["targetSegmentId"],
@@ -276,7 +319,8 @@ class PatientShellLogicMixin:
         append = vtk.vtkAppendPolyData()
         perToothMetrics = []
         for record in collisionRecords:
-            surface = self._getClosedSurfaceCopy(
+            surface = self.caseFoundationPlanningSurfaceCopy(
+                parameterNode,
                 segmentationNode,
                 record["segmentId"],
             )

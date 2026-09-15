@@ -4,7 +4,8 @@ This repository contains the IITM autonomous dental drilling robot development e
 
 For every substantial task:
 
-1. Use `docs/AGENT_CONTEXT.md` as the compact routing entrypoint. For a narrow
+1. Use `docs/AGENT_CONTEXT.md` as the compact routing entrypoint and check
+   `docs/backlog.md` before scoping or planning any work. For a narrow
    routine change, also read today's logbook, the internal package routing map,
    and only the controlled/domain files that `AGENT_CONTEXT.md` identifies for
    that scope. Read `docs/PROJECT_CONTEXT.md`, `docs/SETUP.md`,
@@ -28,7 +29,12 @@ For every substantial task:
    Docker configuration, Slicer, or ROS 2 setup changes.
 6. Update `docs/DECISIONS.md` whenever an architectural or technical decision
    is made.
-7. Update `docs/TASKS.md` with completed, active, blocked, and next tasks.
+7. Keep all pending, active, blocked, planned, deferred, and unaccepted work in
+   `docs/backlog.md`. Keep detailed task contracts and completion records in
+   `docs/TASKS.md`; keep milestone/acceptance design in
+   `docs/DEVELOPMENT_PLAN.md`. When a task is accomplished, record its evidence
+   in today's logbook, update TASKS/DEVELOPMENT_PLAN as applicable, and remove
+   it from backlog.md in the same turn.
 8. Follow `docs/CONTEXT_SYNC.md` for Google Drive synchronization. Update
    existing Drive file IDs in place; do not create duplicates.
 9. Never record passwords, API keys, tokens, patient identifiers, or
@@ -44,7 +50,7 @@ For every substantial task:
 13. Treat any user message beginning with `DENTO-NOTE:` as a durable issue or
     mental-note capture. Triage it during the same turn as one of: fix now,
     active investigation, blocked, or backlog. Fix it immediately when safe,
-    authorized, and reasonably scoped; otherwise record it in `docs/TASKS.md`
+    authorized, and reasonably scoped; otherwise record it in `docs/backlog.md`
     with the affected workflow step, observed behavior, evidence available,
     risk/impact, and next verification action. Record the triage outcome in
     today's logbook. Never silently discard a `DENTO-NOTE:` item.
@@ -58,7 +64,8 @@ For every substantial task:
     external-write approvals, or the prohibition on unauthorized robot/hardware
     action. Do not invent a priority for an unprioritized note; retain it as
     `Unprioritized` until the user assigns one. When a priority changes, update
-    both `docs/TASKS.md` and today's logbook, including any sequencing effect.
+    `docs/backlog.md`, the linked TASKS.md contract when present, and today's
+    logbook, including any sequencing effect.
 
 15. For verification, testing, builds, Slicer/ROS/MoveIt diagnosis, subagents,
     or any `DENTO-VERIFY` keyword, follow
@@ -81,22 +88,25 @@ For every substantial task:
     explicitly names the artifact and requested action in the current message.
     Generic requests such as `resume`, `plan`, `reconcile`, `update docs`,
     `sync Drive`, a documentation checkpoint, or `DENTO-POSTMORTEM-SYNC` do not
-    authorize them. `docs/TASKS.md` remains the AI-maintained engineering work
-    order and is not the engineer-owned Drive project tracker.
+    authorize them. `docs/backlog.md` remains the AI-maintained pending-work
+    queue and is not the engineer-owned Drive project tracker; TASKS.md retains
+    detailed engineering contracts and completion records.
 
-## Existing-plan-first gate — mandatory
+## Backlog-first gate — mandatory
 
 Before scoping, planning, implementing, diagnosing, reprioritizing, or
 delegating any request framed as new work, a TODO/backlog item, continuation or
 resume, blocker follow-up, or milestone change:
 
-1. Search `docs/TASKS.md` first using the operator's terms, likely synonyms,
-   workflow step, affected component, and known task IDs. Read every relevant
-   entry in full, including its priority, state, dependencies, boundaries,
-   acceptance evidence, and next action.
-2. Follow that entry's references into `docs/DEVELOPMENT_PLAN.md`,
-   `docs/DECISIONS.md`, and the relevant dated logbook evidence.
-   `docs/AGENT_CONTEXT.md` is a routing aid and must not replace this lookup.
+1. Read and search all of `docs/backlog.md` first using the operator's terms,
+   likely synonyms, workflow step, affected component, tracker aliases and
+   known task IDs. Compare every actionable match's priority, dependencies,
+   overlap mapping, state and next acceptance action before selecting work.
+2. Follow each matching backlog ID into `docs/TASKS.md`,
+   `docs/DEVELOPMENT_PLAN.md`, `docs/DECISIONS.md`, and the relevant dated
+   logbook evidence. Read the applicable contract, boundaries, acceptance
+   evidence and next action in full. `docs/AGENT_CONTEXT.md` is only a routing
+   aid and must not replace this lookup.
 3. When a match exists, use its task ID and recorded contract. Do not create a
    parallel plan, rename or silently rescope the task, reorder its dependencies,
    or ask the operator to repeat settled decisions. For backlog work, compare
@@ -111,8 +121,14 @@ resume, blocker follow-up, or milestone change:
    until inspection proves it is independent. Do not automatically create a
    new task, tune parameters, change geometry or policy, or restart an expensive
    cycle merely because another downstream error appeared.
-6. Create a new plan only when the lookup finds no applicable recorded task;
-   record that result in today's logbook.
+6. Create a new plan only when both the backlog/overlap lookup and linked
+   controlled-record lookup find no applicable task. Add the resulting pending
+   task to backlog.md and record that no match was found in today's logbook.
+7. Never add a second pending queue or a dated `Next` list elsewhere. When a
+   pending item is completed, preserve the accepted result and evidence in the
+   logbook and applicable controlled records, then remove its backlog row. A
+   source-complete change stays in backlog.md while required operator,
+   representative, physical, or runtime acceptance remains open.
 
 ## Efficient task prompts — 2026-09-09
 
@@ -191,14 +207,33 @@ the 90/10 guideline is applied through task selection, not a config quota.
 
 ## graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+This project has a knowledge graph at `~/dentobot/graphify-out/` with god
+nodes, community structure, and cross-file relationships. That overlay path is
+the only live graph.
 
 When the user invokes `$graphify` or types `/graphify`, use the installed
 Graphify skill before doing anything else.
 
 Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- For codebase questions, first run `graphify query "<question>"` when
+  `~/dentobot/graphify-out/graph.json` exists. Use
+  `graphify path "<A>" "<B>"` for relationships and
+  `graphify explain "<concept>"` for focused concepts. These return a scoped
+  subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates;
+  dirty graph files are not a reason to skip graphify. Only skip graphify if
+  the task is about stale or incorrect graph output, or the user explicitly
+  says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of
+  raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review when
+  query/path/explain do not surface enough context.
+- After modifying code, refresh the overlay graph only. Prefer
+  `Workspace/scripts/graphify-update.bash`, or run
+  `cd /home/light-tarun/dentobot && graphify update .`. Never run
+  `graphify update` from `ros2_ws/src/DentoBot` or recreate
+  `ros2_ws/src/DentoBot/graphify-out/`.
+- Codex may prepend `Failed to create stream fd: Operation not permitted` to
+  ordinary command output. That line is exec-wrapper noise, not a graphify
+  rebuild failure. Treat the refresh as successful only when the command exits
+  0 and prints `Code graph updated` or `[graphify watch] Rebuilt:`.

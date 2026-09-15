@@ -364,14 +364,22 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             [float(value) for value in point] for point in sourceEntryPoints
         ]
 
-        pulpRecords = [
-            record for record in self.getSegmentationReviewRecords(segmentationNode)
-            if record["category"] == "Pulp and root canals"
-            and record["fdiNumber"] == inputs["targetRecord"]["fdiNumber"]
+        pulpAssociation = self.getTargetPulpAssociation(
+            segmentationNode,
+            inputs["targetRecord"]["segmentId"],
+        )
+        pulpId = pulpAssociation["pulpSegmentId"]
+        analysis["semanticAssociationState"] = pulpAssociation["validationState"]
+        analysis["semanticAssociationConfidence"] = pulpAssociation[
+            "associationConfidence"
         ]
-        if len(pulpRecords) != 1:
-            raise ValueError(_("Assisted generation requires exactly one pulp mask for the selected tooth."))
-        pulpId = pulpRecords[0]["segmentId"]
+        analysis["semanticAssociationMethod"] = pulpAssociation.get(
+            "associationMethod"
+        )
+        analysis["semanticAssociationFingerprint"] = pulpAssociation[
+            "semantic"
+        ]["fingerprint"]
+        analysis["semanticPulpComponentIds"] = pulpAssociation["componentIds"]
         pulpImage = slicer.vtkOrientedImageData()
         if not segmentationNode.GetBinaryLabelmapRepresentation(pulpId, pulpImage):
             raise ValueError(_("The selected tooth has no binary pulp mask. Create or restore that mask first."))

@@ -50,6 +50,7 @@ class DockingWidgetMixin:
             self.ui.deleteTargetDockingAssemblyButton.enabled = False
             self.ui.targetDockingTrajectorySummaryLabel.text = _("--")
             return
+        restoringCaseBundle = bool(self._caseBundleRestoreDepth)
         individual = bool(
             self._parameterNode.targetDockingIndividualDepthsEnabled
         )
@@ -108,21 +109,9 @@ class DockingWidgetMixin:
         if assemblyModel:
             try:
                 summary = self.logic.getTargetDockingAssemblySummary(assemblyModel)
-                trajectoryGeometry = []
-                for node in trajectories:
-                    trajectorySummary = self.logic.getTrajectorySummary(node)
-                    trajectoryGeometry.append(
-                        {
-                            "entryRas": [
-                                float(value)
-                                for value in trajectorySummary["entryRas"]
-                            ],
-                            "targetRas": [
-                                float(value)
-                                for value in trajectorySummary["targetRas"]
-                            ],
-                        }
-                    )
+                trajectoryGeometry = self.logic.canonicalTrajectoryGeometry(
+                    trajectories
+                )
                 staleReason = ""
                 if inputError:
                     staleReason = inputError
@@ -150,7 +139,7 @@ class DockingWidgetMixin:
                     separators=(",", ":"),
                 ):
                     staleReason = _("A source trajectory geometry changed.")
-                if staleReason:
+                if staleReason and not restoringCaseBundle:
                     self.logic.markTargetDockingAssemblyStale(
                         assemblyModel,
                         staleReason,
@@ -163,6 +152,8 @@ class DockingWidgetMixin:
                         assemblyModel
                     )
                 elif (
+                    not restoringCaseBundle
+                    and
                     summary["geometryState"] == "Stale"
                     and summary["staleReason"]
                     in {
@@ -196,7 +187,8 @@ class DockingWidgetMixin:
         isConfirmed = bool(
             isCurrent and summary.get("orientationState") == "Confirmed"
         )
-        self._parameterNode.targetDockingYawConfirmed = isConfirmed
+        if not restoringCaseBundle:
+            self._parameterNode.targetDockingYawConfirmed = isConfirmed
         self.ui.applyTargetDockingYawButton.enabled = bool(
             trajectories
             and parameters

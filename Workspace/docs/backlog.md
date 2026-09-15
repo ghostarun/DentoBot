@@ -1,6 +1,6 @@
 # DENTOBOT pending work and backlog
 
-Last reconciled: 2026-09-14. **Check this file before every plan or new task.**
+Last reconciled: 2026-09-15. **Check this file before every plan or new task.**
 This is the sole pending-work queue: active, blocked, planned, deferred and
 unaccepted work, including every open DENTO-NOTE. Detailed contracts live in
 [TASKS.md](TASKS.md) and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md); process and
@@ -23,26 +23,147 @@ not promotions into the current development sequence.
 
 ## Pending planned work — active correction and acceptance
 
-Current dependency sequence: `W5-U-04` → `S6-REUSABLE-CASE-SETUP` per-target
+**Latest FDI31 scope — 2026-09-14:** The operator accepted the causal review and
+requested Astra architecture / Luna Max implementation orchestration. The
+[Campaign 1 contract](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) now
+governs `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`: scene/input review plus
+diagnostic repair, bounded endpoint search, then conditional insertion evidence
+and Astra review. This supersedes the geometry-correction-only prerequisite and
+old stop-after-every-minor-failure interpretation for this scope. The operator
+subsequently approved P1/P2 only for run `c1-p1p2-20260914-r1`; P1's
+saved-input/machine checks PASS, but P1 overall scene correctness and operator
+review are INCOMPLETE. The final bounded native diagnostic/evidence result is
+`PASS_FOR_COMPLETED_DIAGNOSTIC_EVIDENCE`, with campaign gate
+`USER_REVIEW_REQUIRED`: its packet contains separate phase-aware static,
+generic-static and Home-to-endpoint transition records, trusted 31/31 scene
+acknowledgement, and TCP/spindle/burr FK evidence. The earlier
+`expected 31, observed 0` result and the container/launcher failures remain
+historical. P3/P4, more full-planner retries, invariant changes and another
+tooth remain unauthorized. The exact runtime logs, hashes and review limits
+are in the canonical recovery report. Operator review and final
+architectural/clinical acceptance remain separate.
+
+The source-only follow-up recovered the existing wrapper control flow but could
+not prove the failed final2 branch because wrapper readiness/status and
+Slicer-request evidence were not retained; that limitation is historical. The
+focused handoff helper records those stages and preserves exit status. The
+later explicit bounded recheck reached Slicer and produced the current packet;
+its bounded native evidence is the current P2 result in report Section T,
+while the campaign gate remains `USER_REVIEW_REQUIRED`. This does not
+authorize operator acceptance or any P3/P4 action.
+
+**2026-09-15 recapture review correction:** The operator-observed separation
+is supported by read-only artifact evidence: the new FDI31 display copy omits
+the mouth-opening transform, static labels use transition-sample centres,
+and both exported MRBs omit the robot pose transforms referenced by their
+models. See recovery report Section W. Under the existing
+`S6-REUSABLE-CASE-SETUP` / `S6-LIVE-01..02` owners, the recapture now requires
+technical frame/state/persistence correction before operator visual review.
+The source-only correction is retained in
+`Testing/run_dentobot_c1_display_only_recapture.py` with ten focused pure
+tests passing; it now separates endpoint versus transition capture, uses
+prepared world-frame copies, and verifies saved robot-pose persistence and
+native FK before any future image. It consumes a future explicitly saved
+evaluated-sample FK record but does not substitute endpoint/offline FK. No
+second display runtime is authorized from that source result. The one approved
+endpoint-only Slicer session loaded the retained MRB but stopped before
+endpoint capture because this runtime lacks
+`vtkMRMLModelDisplayNode.SetPropertiesLabelVisibility`; its manifest is
+preserved separately and contains no image or review MRB. Endpoint parity was
+therefore not established (this is not a geometry/FK parity failure), and the
+transition remains `NOT_RUN` with missing saved native FK for sample 1/134.
+Do not request blanket input acceptance or another camera-only/native retry.
+The retained native P2 packet is not erased or superseded by these display
+defects. No geometry/policy change, implementation or runtime authorization
+is inferred from the operator's diagnostic question.
+
+**2026-09-15 endpoint-only repair continuation:** The operator then authorized
+source fixes and bounded reruns for Slicer-session blockers. The retained
+driver now passes 12 focused pure tests after an optional display-label guard
+and a model parent-transform world-matrix fallback. The final scoped display
+attempt reached the endpoint parity gate and failed closed: final printable
+template geometry matched, but the prepared FDI31 target fingerprint differed
+and its maximum bound error was 40.74010467529297 mm versus the 0.05 mm
+tolerance. Robot mesh/link transforms and native-vs-offline FK matched; burr
+and spindle matched displayed native FK; displayed TCP remained unavailable
+because no TCP model exists in the seven-model display set. Save/reopen was
+not reached. Endpoint review is BLOCKED, transition is NOT_RUN, all three
+runtime artifacts are preserved, and the display retry ceiling is reached.
+No geometry/policy change or further runtime is authorized from this result;
+the remaining next action is a new evidence/implementation decision for the
+prepared-target frame and displayed-TCP contract, not operator acceptance.
+
+**2026-09-15 revised endpoint parity repair authorization:** The operator
+explicitly superseded that runtime stop for the two evidenced source defects:
+reuse native one-time Case Foundation target preparation plus native
+triangulation, and derive the legitimate meshless canonical TCP from the
+displayed spindle mesh and fixed URDF relation with robot-profile identity
+verification. The focused source suite passes 18 tests. The mounted driver
+hash matches the host, the existing container is up with no matching
+task-owned/native processes, and a separate repair3 output location is ready.
+At most three targeted endpoint-only offline Slicer attempts are authorized;
+the exact pre-execution record and command are in recovery report Section AE.
+Transition remains NOT_RUN, operator acceptance remains NOT_RECORDED, and the
+existing P1/P2 and P3/P4 gates are unchanged.
+
+**2026-09-15 endpoint repair result:** The three authorized targeted
+endpoint-only attempts are complete. Repair5 passed the full machine parity
+gate after the driver persisted the exact retained J1-J5 vector through the
+existing workflow parameter-node rehydration path: prepared target/template
+fingerprints and bounds, one-time jaw preparation, robot identity, displayed
+link/mesh transforms, derived meshless TCP/burr/spindle FK, save/reopen pose,
+and nonblank context/close-up images all passed. The separate review MRB and
+JSON packet are retained in recovery report Section AH. Transition remains
+`NOT_RUN` because saved sample-1/134 native FK is unavailable; image label
+placement/target scale and all operator acceptance remain for review. P1
+overall scene correctness remains `INCOMPLETE`, the retained native P2 status
+is unchanged, and P3/P4 plus later runtime/hardware actions remain
+unauthorized.
+
+**2026-09-15 operator review delta:** The operator accepts the corrected
+repair5 endpoint screenshots and requests the next Luna prompt. That visual
+review is no longer pending; all-input/clinical acceptance is not inferred.
+Under the same owners, reconcile remaining P1 decision-critical inputs from
+retained evidence before the proposed conditional P3 batch. Missing historical
+transition imagery is deferred and does not itself block static endpoint
+feasibility. See report Section AI. No P3 execution or P4 authority follows
+from this prompt-preparation turn.
+
+Current dependency sequence: `W5-U-04` → `S3-P0-DENTAL-SEMANTICS` for any
+pulp-dependent target packet → `S6-REUSABLE-CASE-SETUP` per-target
 4A–5C/STL/save/fresh-reopen gate → `S6-LIVE-01..04` per-target planner, guard,
 repeat and playback evidence → normal-window acceptance. Run independent
 central incisors FDI31 → FDI41 → FDI11 → FDI21. A target-specific failure
-records `FIRST_INVALID` and advances; shared source/package/runtime failures
+records `FIRST_INVALID` and proposes the next tooth only after operator
+approval; shared source/package/runtime failures
 stop for a bounded correction. Pairing, optional 32 × 3 testing and the
 six-target batch remain downstream. Step 4A review stays in the preparation
 review; Case Platform/Studio remains behind `S6-LIVE-05`.
+Campaign execution uses operator-selected Luna Max; unresolved higher-reasoning
+decisions return an evidence packet and pause the affected path, with no
+automatic model switch or speculative workaround. See the campaign gate in
+`DEVELOPMENT_PLAN.md`.
+The generator STL/folder/diagnostic change is implemented. The operator then
+explicitly approved the bounded offline Slicer/ROS/MoveIt check for the
+current FDI31 semantic implementation (no robot motion or patient-facing
+action). Its current-source run reached the exact target endpoint but stopped
+at the first native Stage-3 guard collision; the full FDI31 Step 4→Step 6
+simulation therefore remains open. Do not retry or advance to another tooth
+under the older full-flow packet. Campaign 1 instead investigates the responsible
+layer under its new diagnostic gates; execution approval remains pending.
 
 **Reusable-case implementation handoff:** the Case Foundation/offline-base
 revision and the opened-planning-frame correction are reconciled into this
 checkout. The authoritative 13-September package was preserved, migrated
 through the production serializer, and reopened as a current single-target
-FDI31 package with one eligible PreparedBranch. The selected exact route now
-reaches full-chain Stage 1/2/3 planning at the requested depth; guarded
-preview and normal-window operator acceptance remain open. A live-joint
-scene-sync correction removed the previously observed stale-Home republish.
-The latest clean runtime packet exceeded its six-minute bound without a
-diagnostic sidecar. Do not repeat source implementation or revive the retired
-phantom path.
+FDI31 package with one eligible PreparedBranch. The selected exact route
+reaches the requested target endpoint kinematically, but the current native
+guard rejects the final Stage-3 drilling waypoint because the spindle housing
+contacts the selected tooth. A live-joint scene-sync correction and a native
+world-evidence cache removed earlier runtime bottlenecks; the exact
+current-source failure is now a diagnostic `FIRST_INVALID`, not a timeout. Do
+not repeat source implementation, alter the base/depth/dimensions/guard
+policy, or revive the retired phantom path.
 
 **Current operator delta (2026-09-13; order superseded 2026-09-14):** bounded source-only Stage 6.5/6.6
 planner interaction work is authorized in parallel with these open gates. The
@@ -65,14 +186,15 @@ from the source change.
 | ID | Priority | Remaining work / state | Dependency, next acceptance and overlap |
 |---|---|---|---|
 | `W5-U-04` | 0 | Current FDI31 regeneration passes the explicit geometry gate; the historical 5-voxel fragment is not reproduced in the current artifact. FDI11 remains the comparison pass. | Preserve the one-solid/zero-channel/four-open-bore gate and complete the normal-window Step 5B/5C review, including fragment classification evidence. Construction remains the `W5-U-03` fusion owner; do not raise the cleanup threshold. |
-| `S6-REUSABLE-CASE-SETUP` | 0 | FDI31 has current schema-3 Step 5C, one eligible branch, geometry PASS and automated save/reopen; selected exact Stage 1/2/3 route planning reached `232/12/28` at requested depth. Guarded preview, fresh-process campaign save/reopen, STL and normal-window acceptance remain open. Manual Slicer fingerprint mismatch is unlocalized; last clean runtime packet timed out without a sidecar. | Resolve the package/resource fingerprint mismatch, then run four independent central-incisor cases in order FDI31→FDI41→FDI11→FDI21. Each gets automated 4A–5C, verified STL, explicit save, fresh-process reopen, Stage 6 first-invalid/complete artifact and its own folder/screenshots. Advance past target-specific failures; stop on shared source/package/runtime failure. Do not infer exact runtime acceptance from current FDI31 planning. |
+| `S3-P0-DENTAL-SEMANTICS` | 0 | DENTO-NOTE 2026-09-14: the installed class map, report/NIfTI/imported-package evidence, pure A-H semantic core, MRML/planning integration, current FDI31 spatial association and save/reopen evidence are captured; focused checks pass. The FDI31 target association is `HIGH`/`VALID`, while other unresolved pulp records remain fail-closed. | Preserve the current FDI31 semantic package and evidence. No new pulp-dependent target claim proceeds without the same canonical tooth+pulp+spatial gate. The remaining FDI31 acceptance is target-specific Stage-3 tool/geometry review and normal-window review, owned with `S6-REUSABLE-CASE-SETUP`; do not create an FDI11-only workaround. |
+| `S6-REUSABLE-CASE-SETUP` | 0 | **Full workflow blocked; P1 saved-input/machine checks PASS, P1 overall scene correctness/operator review INCOMPLETE, P2 bounded native diagnostic/evidence PASS with USER_REVIEW_REQUIRED.** Preserve r7 package/STL, r13 terminal spindle↔FDI31 rejection and r14 bounded probe. The final no-TTY recheck restored the existing container in place, produced the native FK/static/validate-only packet, reconciled the 31-object acknowledgement, and verified TCP/spindle/burr display FK. Contact fields remain unknown where not exposed; the earlier zero-observation and container exit 143 remain historical evidence. Return Home and repeat remain open. | Follow [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md): review the 15 selections, saved scenes, r4/r6/final visuals and native/display evidence, then obtain any separate P3/P4 approval only after operator review. No geometry-only presumption, invariant change, automatic full-flow retry or next tooth. |
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
-| `S6-LIVE-01` | 0 | Implemented; exact reopened FDI31 selected-route planning reaches the requested target depth with Stage 1/2/3 `232/12/28` and Stage 3 fraction `1.0`. The earlier stale Task Home mismatch was localized to scene acknowledgement and corrected. Full guarded preview remains unaccepted: the clean r7 packet exceeded its six-minute bound without a diagnostic sidecar. | Resolve the manually reported package fingerprint mismatch and capture one bounded exact first-invalid/complete artifact before another whole-flow attempt. Then require complete endpoint/guard evidence, selected/locked alternate-route behavior, and repeatability without shortening depth, moving the base, or adding a collision exemption; shares diagnostic owner `S6-FDI11-DEPTH`. |
-| `S6-LIVE-02` | 0 | Implemented; synthetic phase-guard matrix passes. Exact-case planning passes Stage 1/2/3 for the selected route, but complete runtime guard evidence is still pending because the bounded preview packet did not emit its final diagnostic. | Verify all three stages, J1–J5 guard, narrow burr exception, external-spindle boundary and no guard bypass through selected/locked routes after a complete exact runtime artifact exists. |
-| `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance pending | For each central-incisor package with a Complete route, check Goal 1→Goal 2→guarded Return Home→replan/route choice; retain first-invalid results for other teeth. Six-target matrix remains downstream. |
-| `S6-LIVE-04` | 0 | Implemented; playback/restore acceptance pending | Confirm speed, ordered acknowledgements, visible stage paths, saved route intent and current re-plan after restore in that campaign. |
+| `S6-LIVE-01` | 0 | **Blocked at tested terminal collision; P1 saved-input/machine checks PASS, but overall scene correctness/operator review is INCOMPLETE. P2 bounded native diagnostic/evidence is PASS with USER_REVIEW_REQUIRED.** r6 and the final no-TTY recheck confirm two kinematically valid reconstructed target states. The final packet separates invalid static validity from the Home-to-endpoint corridor rejection, reconciles the 31-object scene acknowledgement and verifies TCP/spindle/burr FK; contact fields remain unknown. Campaign 1 remains stopped before endpoint/insertion tests. | Complete operator review of the saved scene/selections and native/display evidence; do not use this packet to infer acceptance or a Complete route. Preserve the exact target and independent guard. P5–P7 and production planner changes require evidence-backed later architecture/approval. |
+| `S6-LIVE-02` | 0 | Implemented; synthetic phase-guard evidence and r13 forbidden spindle↔target rejection retained. The final native packet records static collision and validate-only guard evidence without changing policy; TaskJointStatus pair/depth fields remain explicitly unknown where not exposed. The additive static/transition/request-correlation correction and burr-transform alias repair are runtime-verified; the correlated 31-object acknowledgement and TCP/spindle/burr FK pass. Configured burr-target authorization and the separately bounded simulation spindle-guide warning remain distinct; neither authorizes spindle-tooth contact. | Preserve independent final guard, full-chain bounds/phase/identity checks, J1–J5 and J6-zero/external-spindle boundary. Any future source correction or native recheck requires operator review and must not change policy; no P3/P4 runtime follows automatically. |
+| `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance is `NOT_RUN` for FDI31 because Packet E stopped at its first-invalid Stage-3 guard result. | Run Goal 1→Goal 2→guarded Return Home→replan/route choice only after a Complete target route; retain the FDI31 failure and await approval before another tooth. |
+| `S6-LIVE-04` | 0 | Implemented; playback/restore acceptance is `NOT_RUN` for FDI31 because Packet E did not complete. | Confirm speed, ordered acknowledgements, visible stage paths, saved route intent and current re-plan only for an accepted Complete route. |
 | `S6-LIVE-05` | 0 | Blocked by workflow integrity and reviewed clean-case selection | Require finalized guide/tool geometry, complete guarded approach/drilling-preview/withdrawal/Home and fresh repeat. Gates P1 Studio; no hardware authorization. |
 | `S6-FDI11-DEPTH` | Unprioritized | Paused: FDI21 housing contact at final drilling waypoint | After integrity acceptance, reconcile exact case/tool/guide identity and propose smallest Stage-3 check. Old 91.7%/x4 values are historical; no automatic base/depth/margin tuning. |
 | `S6A-CHANGED-TARGET-GEOMETRY` | Unprioritized | Clear/save guard checks pass; clean FDI44 full workflow review pending | Verify Step 6A geometry from clean session; regenerate cross-target chains if reported. Coordinate stale-proxy ownership with reusable-case restore; do not infer mesh identity from text. |

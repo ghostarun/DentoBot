@@ -187,6 +187,48 @@ def test_task_guard_status_requires_and_preserves_transient_session_identity():
         raise AssertionError("task status without a guard session was accepted")
 
 
+def test_task_guard_status_preserves_validate_only_transition_kind_and_policy_echo():
+    payload = {
+        "schema": ROS2_TASK_JOINT_STATUS_SCHEMA,
+        "mode": "simulation_only",
+        "accepted": False,
+        "reason": "first interpolated sample left corridor",
+        "task_fingerprint": "immutable-task",
+        "guard_session_id": "transient-session",
+        "request_id": "transition-1",
+        "validation_kind": "transition",
+        "phase": "drilling",
+        "sequence": 4,
+        "validate_only": True,
+        "collision_scene_policy_fingerprint": "guard-policy-v1",
+        "requested_positions": [0.0] * 5,
+        "accepted_positions": [0.0] * 5,
+        "starting_positions": [0.0] * 5,
+        "evaluated_positions": [0.1] * 5,
+        "evaluated_sample_index": 1,
+        "interpolation_fraction": 0.25,
+        "first_rejection_interpolation_fraction": 0.25,
+        "total_sample_count": 4,
+        "checked_samples": 1,
+    }
+    status = parse_task_joint_status(json.dumps(payload))
+    assert status.validate_only is True
+    assert status.collision_scene_policy_fingerprint == "guard-policy-v1"
+    assert status.request_id == "transition-1"
+    assert status.validation_kind == "transition"
+    assert status.evaluated_positions == (0.1,) * 5
+    assert status.evaluated_sample_index == 1
+    assert status.interpolation_fraction == 0.25
+    assert status.total_sample_count == 4
+    malformed = dict(payload, validate_only="true")
+    try:
+        parse_task_joint_status(json.dumps(malformed))
+    except ValueError as exc:
+        assert "validate_only" in str(exc)
+    else:
+        raise AssertionError("non-boolean validate_only was accepted")
+
+
 def test_task_guard_status_preserves_bounded_housing_contact_warning_and_rejects_bad_types():
     payload = {
         "schema": ROS2_TASK_JOINT_STATUS_SCHEMA,

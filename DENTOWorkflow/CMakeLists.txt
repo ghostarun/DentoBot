@@ -51,6 +51,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/logic_backend.py
   Resources/Python/dentobot_workflow/logic_display.py
   Resources/Python/dentobot_workflow/logic_segmentation.py
+  Resources/Python/dentobot_workflow/dental_semantics.py
   Resources/Python/dentobot_workflow/logic_lineage.py
   Resources/Python/dentobot_workflow/logic_planning_dependencies.py
   Resources/Python/dentobot_workflow/logic_workflow.py

@@ -13,8 +13,12 @@ def test_ros_cli_is_confined_to_external_launchers():
     launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
         encoding="utf-8"
     )
-    assert "ros2 launch dentobot_moveit_config simulation.launch.py" in launcher
-    assert "/dentobot/simulation_status" in launcher
+    handoff = (
+        root / "Workspace/scripts/dentobot-simulation-slicer-handoff.bash"
+    ).read_text(encoding="utf-8")
+    assert "dentobot-simulation-slicer-handoff.bash" in launcher
+    assert "ros2 launch dentobot_moveit_config simulation.launch.py" in handoff
+    assert "/dentobot/simulation_status" in handoff
 
 
 def test_gui_launcher_scopes_nounset_around_ros_generated_setup_files():
@@ -66,14 +70,23 @@ def test_gui_launcher_bounds_simulation_process_group_cleanup():
     launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
         encoding="utf-8"
     )
+    handoff_path = root / "Workspace/scripts/dentobot-simulation-slicer-handoff.bash"
+    handoff = handoff_path.read_text(encoding="utf-8")
     gui_block = launcher.split("Opening 3D Slicer directly", 1)[1]
-    assert (
-        "setsid ros2 launch dentobot_moveit_config simulation.launch.py"
-        in gui_block
-    )
-    assert 'kill -INT -- "-${stack_pid}"' in gui_block
-    assert 'kill -TERM -- "-${stack_pid}"' in gui_block
-    assert 'kill -KILL -- "-${stack_pid}"' in gui_block
+    assert "dentobot-simulation-slicer-handoff.bash" in gui_block
+    assert "setsid ros2 launch dentobot_moveit_config simulation.launch.py" in handoff
+    assert 'kill -INT -- "-${stack_pid}"' in handoff
+    assert 'kill -TERM -- "-${stack_pid}"' in handoff
+    assert 'kill -KILL -- "-${stack_pid}"' in handoff
+    assert 'timeout "${readiness_timeout}" ros2 topic echo' in handoff
+    assert "readiness_observation" in handoff
+    assert "slicer_launch_request" in handoff
+    assert "diagnostic_entry" in handoff
+    assert 'exit "${initiating_status}"' in handoff
+    assert "readiness_timeout=2s" in handoff
+    assert "readiness_attempts=60" in handoff
+    assert "readiness_interval=0.5" in handoff
+    assert "set -x" not in handoff
 
 
 def test_gui_launcher_ensures_docker_daemon_before_compose():

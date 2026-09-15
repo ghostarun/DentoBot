@@ -5,9 +5,8 @@ from __future__ import annotations
 from .runtime import *
 
 from DENTOStep6State import (
-    SIMULATION_TARGET_DEPTH_CAP_MM,
     SIMULATION_TOOL_PROVENANCE,
-    cap_simulation_target,
+    validate_simulation_target,
 )
 
 from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
@@ -812,7 +811,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             raise ValueError(" ".join(freshness))
         trajectory = self.step6TrajectorySummary(parameterNode)
         home = self.taskHomeRecord(parameterNode)
-        effective_target = cap_simulation_target(
+        effective_target = validate_simulation_target(
             trajectory["entryRas"], trajectory["targetRas"]
         )
         record = build_task_snapshot(
@@ -926,6 +925,9 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
         if base_issues:
             return base_issues
+        package_issues = self.step6PlanningPackageFreshnessIssues(parameterNode)
+        if package_issues:
+            return tuple(package_issues)
         try:
             snapshot = self.confirmedTaskRecord(parameterNode)
         except (ValueError, json.JSONDecodeError):
@@ -936,7 +938,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             return (
                 _(
                     "Confirmed Step 6 task uses an older simulation Target policy; "
-                    f"reconfirm the Step 6 task for the {SIMULATION_TARGET_DEPTH_CAP_MM:g} mm cap."
+                    "reconfirm the task to preserve the exact requested Entry-to-Target depth."
                 ),
             )
         home = self.taskHomeRecord(parameterNode)

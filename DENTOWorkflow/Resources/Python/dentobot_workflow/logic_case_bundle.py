@@ -23,12 +23,18 @@ class CaseBundleLogicMixin:
     def _stableDentoCaseId(prefix: str, *values: object) -> str:
         return f"{prefix}-{fingerprint([str(value) for value in values])[:20]}"
 
+    @staticmethod
+    def _registryWorldPoint(point) -> list[float]:
+        """Keep package identity coordinates stable across MRML transform round-trips."""
+
+        return [round(float(value), 9) for value in point]
+
     def _trajectoryRegistryGeometryFingerprint(self, trajectoryNode) -> str:
         points = []
         for index in range(trajectoryNode.GetNumberOfDefinedControlPoints()):
             point = [0.0, 0.0, 0.0]
             trajectoryNode.GetNthControlPointPositionWorld(index, point)
-            points.append([float(value) for value in point])
+            points.append(self._registryWorldPoint(point))
         return fingerprint(
             {
                 "targetSegmentId": str(
@@ -292,9 +298,12 @@ class CaseBundleLogicMixin:
             insertionGeometry = ""
             if insertionDirection:
                 try:
-                    insertionGeometry = self.getTemplateInsertionDirectionSummary(
+                    insertionSummary = self.getTemplateInsertionDirectionSummary(
                         insertionDirection
-                    )["geometryJson"]
+                    )
+                    insertionGeometry = self.canonicalInsertionGeometryJson(
+                        insertionSummary
+                    )
                 except (RuntimeError, ValueError, json.JSONDecodeError):
                     pass
             branchRevision = fingerprint(
@@ -913,6 +922,7 @@ class CaseBundleLogicMixin:
             "DENTOBOT.TransformRole",
             "DENTOBOT.GeometryState",
             "DENTOBOT.VerificationState",
+            "DENTOBOT.FinalGuideSchemaVersion",
             "DENTOBOT.OrientationState",
             "DENTOBOT.SchemaVersion",
             "DENTOBOT.CoordinateSystem",
@@ -924,6 +934,10 @@ class CaseBundleLogicMixin:
             "DENTOBOT.HingeAngleDeg",
             "DENTOBOT.SourceGeometryFingerprint",
             "DENTOBOT.LandmarksFingerprint",
+            cls.SEMANTIC_SCHEMA_ATTRIBUTE,
+            cls.SEMANTIC_STATUS_ATTRIBUTE,
+            cls.SEMANTIC_FINGERPRINT_ATTRIBUTE,
+            cls.SEMANTIC_PERSISTENCE_ATTRIBUTE,
             "DENTOBOT.TargetSegmentID",
             "DENTOBOT.TargetAttachedGeometryFingerprint",
             "DENTOBOT.MovingSegmentIdsJson",
@@ -947,7 +961,7 @@ class CaseBundleLogicMixin:
             for index in range(node.GetNumberOfDefinedControlPoints()):
                 point = [0.0, 0.0, 0.0]
                 node.GetNthControlPointPositionWorld(index, point)
-                points.append([float(value) for value in point])
+                points.append(cls._registryWorldPoint(point))
             record["controlPointsWorldRasMm"] = points
             record["locked"] = bool(node.GetLocked())
             record["selectable"] = bool(node.GetSelectable())
@@ -1172,6 +1186,78 @@ class CaseBundleLogicMixin:
             )
         return projected
 
+    def _caseBundleUnlockedBaseRevisionDrift(
+        self,
+        parameterNode,
+        expectedStep6: dict[str, object],
+    ) -> bool:
+        """Recognize the retained pre-schema-3 unlocked-base revision drift.
+
+        One retained package serialized the unlocked MRML revision one step
+        ahead of the lineage/environment record.  Accept only that exact
+        bookkeeping discrepancy after independently matching the persisted
+        base pose, state, source, authority, and fingerprint.  The loaded
+        scene remains unchanged and explicit save writes the current revision.
+        """
+
+        expectedBase = expectedStep6.get("basePlacement")
+        expectedEnvironment = expectedStep6.get("environment")
+        base = parameterNode.robotBaseTransform
+        if not isinstance(expectedBase, dict) or not isinstance(
+            expectedEnvironment, dict
+        ) or not self.isRobotBaseTransformNode(base):
+            return False
+        try:
+            expectedRevision = int(expectedBase.get("sourceRevision"))
+            actualRevision = int(parameterNode.step6BasePlacementRevision)
+        except (TypeError, ValueError):
+            return False
+        if actualRevision != expectedRevision + 1:
+            return False
+        if (
+            expectedBase.get("status") != "Unlocked"
+            or expectedBase.get("source") != "operator-unlocked"
+            or bool(parameterNode.robotBaseMountLocked)
+            or str(parameterNode.step6BasePlacementStatus or "") != "Unlocked"
+            or str(parameterNode.step6BasePlacementSource or "")
+            != "operator-unlocked"
+            or str(
+                base.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE)
+                or ""
+            )
+            != self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY
+        ):
+            return False
+        expectedFingerprint = str(expectedBase.get("fingerprint") or "")
+        expectedEnvironmentFields = {
+            "base_fingerprint": expectedFingerprint,
+            "base_authority": "operator-unlocked",
+            "base_revision": expectedRevision,
+            "base_status": "Unlocked",
+            "base_locked": False,
+        }
+        if any(
+            expectedEnvironment.get(key) != value
+            for key, value in expectedEnvironmentFields.items()
+        ):
+            return False
+        currentMatrix = list(self._foundationMatrixValues(base))
+        if not self._caseBundleValuesMatch(
+            expectedEnvironment.get("base_matrix"),
+            currentMatrix,
+        ):
+            return False
+        currentFingerprint = fingerprint(
+            {
+                "poseFingerprint": self.robotBasePoseFingerprint(base),
+                "status": "Unlocked",
+                "source": "operator-unlocked",
+                "sourceRevision": expectedRevision,
+                "authority": self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+            }
+        )
+        return currentFingerprint == expectedFingerprint
+
     def validateLoadedCaseBundleWorkflow(
         self,
         parameterNode,
@@ -1250,6 +1336,9 @@ class CaseBundleLogicMixin:
         # prerequisites, so it is re-evaluated after integrity validation.
         expectedComparableStep6 = copy.deepcopy(expectedStep6)
         expectedComparableStep6.pop("freshnessIssuesAtSave", None)
+        # Hydration intentionally clears this transient runtime marker before
+        # the post-bind audit; it is not package identity or lineage.
+        expectedComparableStep6.pop("planningContextImportedAtSave", None)
         expectedJawOpening = expectedComparableStep6.get("jawOpening")
         if isinstance(expectedJawOpening, dict):
             expectedJawOpening.pop("current", None)
@@ -1262,6 +1351,34 @@ class CaseBundleLogicMixin:
             currentJawOpening = dict(currentJawOpening)
             currentJawOpening.pop("current", None)
             actualComparableStep6["jawOpening"] = currentJawOpening
+        if self._caseBundleUnlockedBaseRevisionDrift(
+            parameterNode,
+            expectedComparableStep6,
+        ):
+            actualBase = dict(actualComparableStep6["basePlacement"])
+            actualBase["sourceRevision"] = int(
+                expectedComparableStep6["basePlacement"]["sourceRevision"]
+            )
+            actualBase["fingerprint"] = str(
+                expectedComparableStep6["basePlacement"]["fingerprint"]
+            )
+            actualComparableStep6["basePlacement"] = actualBase
+            actualEnvironment = dict(actualComparableStep6["environment"])
+            actualEnvironment["base_revision"] = int(
+                expectedComparableStep6["basePlacement"]["sourceRevision"]
+            )
+            actualEnvironment["base_fingerprint"] = str(
+                expectedComparableStep6["basePlacement"]["fingerprint"]
+            )
+            for field in (
+                "base_setup_fingerprint",
+                "foundation_fingerprint",
+                "environment_fingerprint",
+            ):
+                actualEnvironment[field] = expectedComparableStep6[
+                    "environment"
+                ][field]
+            actualComparableStep6["environment"] = actualEnvironment
         actualComparableStep6 = self._caseBundleActualAtRecordedShape(
             expectedComparableStep6,
             actualComparableStep6,

@@ -109,6 +109,16 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
     assert "distanceRobot" in guard
     assert "clearance_exempt_object_ids" in guard
     assert "simulation_guide_clearance_object_ids" in guard
+    assert "validation_kind" in guard
+    assert "request_id" in guard
+    assert "starting_positions" in guard
+    assert "evaluated_positions" in guard
+    assert "evaluated_sample_index" in guard
+    assert "total_sample_count" in guard
+    assert 'validation_kind == "static_state"' in guard
+    assert "last_static_sequence_" in guard
+    assert "static_state ? 1" in guard
+    assert "collision_scene_policy_fingerprint" in guard
     assert "SIMULATION_GUIDE_CLEARANCE_M = 0.0001" in guard
     assert "preferred clearance is" in guard
     assert 'document.isMember("guide_clearance_exempt_robot_links")' in guard

@@ -648,11 +648,20 @@ class LifecycleWidgetMixin:
 
         if self._parameterNode:
             wasUpdating = self._updatingFromParameterNode
+            wasUpdatingTemplateUI = self._updatingTemplateUI
+            wasUpdatingTemplateGuideUI = self._updatingTemplateGuideUI
             self._updatingFromParameterNode = True
+            # Parameter-wrapper GUI writes are restoration, not operator edits.
+            # Keep template selectors/controls quiet until the complete node is
+            # connected and _updateFromParameterNodeOnce can compare stable state.
+            self._updatingTemplateUI = True
+            self._updatingTemplateGuideUI = True
             try:
                 self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
             finally:
                 self._updatingFromParameterNode = wasUpdating
+                self._updatingTemplateUI = wasUpdatingTemplateUI
+                self._updatingTemplateGuideUI = wasUpdatingTemplateGuideUI
             self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._updateFromParameterNode)
             self._updateFromParameterNode()
         else:
@@ -686,6 +695,7 @@ class LifecycleWidgetMixin:
         if (
             self._updatingFromParameterNode
             or self._restoringTrajectoryAssociation
+            or self._caseBundleRestoreDepth > 0
             or not self._parameterNode
             or not self.logic
         ):

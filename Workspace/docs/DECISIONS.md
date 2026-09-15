@@ -28,12 +28,104 @@ target, step/waypoint, expected/actual identities and evidence; downstream
 steps are `NOT_RUN`. Shared source, package, fingerprint, serializer or runtime
 failures stop for a bounded root-cause correction. Target-specific anatomy,
 trajectory, geometry, planner or guard first-invalid results are preserved as
-bias evidence and the next central incisor proceeds. No base movement, depth
-shortening, collision relaxation or dimension workaround is authorized. A
+bias evidence; the next central incisor awaits explicit packet approval. No
+base movement, depth shortening, collision relaxation or dimension workaround
+is authorized. A
 runtime timeout or operator interruption is not a planner result.
 
 This campaign is deliberately distinct from explicit trajectory pairing, the
 32 × 3 registry experiment and the downstream six-target batch launcher.
+
+**Operator model-control delta (2026-09-14):** The operator will manually run
+this campaign with Luna Max. This task-specific choice supersedes the general
+Sol-preferred routing for this campaign only; it does not change saved model
+defaults. Luna must stop the affected path when the next action requires an
+ambiguous or unplanned higher-reasoning decision, report the first-causal
+evidence and reasoning type, and wait for the operator to select any different
+model/effort. Classified target-specific results remain comparison evidence;
+the next tooth now requires explicit operator approval. Shared blockers stop
+the campaign. No automatic
+delegation, model switch, safety-policy change or runtime approval is implied.
+
+**Operator packet-gate delta (2026-09-14):** The campaign is not one compound
+Luna assignment. First deliver generator STL/per-case diagnostics with focused
+verification only. Then, one approved packet at a time, perform per-tooth
+input/fingerprint preflight, 4A–5C/STL/production save, **new-process** reload,
+exact Stage 6 route and, only for Complete routes, repeat/playback/restore.
+Each packet ends with a passing artifact or first-causal failure and a hard
+stop for operator review. The prior automatic advance after target-specific
+failure is superseded; the next FDI is proposed, never run without approval.
+Runtime approval remains a separate gate.
+
+**2026-09-14 corrected-retry approval:** After the first Packet A runtime
+attempt failed before widget initialization because the direct Slicer command
+did not expose the installed SlicerROS2 module paths, the operator approved
+continuation to one corrected FDI31 Packet A retry. Execution remains subject
+to the separate explicit runtime approval required by the verification
+protocol. The retry uses the documented Jazzy/workspace/module-path setup and
+remains limited to Packet A; later preflight, save, fresh reload and Stage 6
+packets remain separately gated. The acceptance objective remains a
+reproducible successful FDI31 Step 4→Step 6 full-planning simulation.
+
+## 2026-09-14 — DentoWorkflow owns canonical dental semantics
+
+**Status:** Adopted as the design and implementation contract for
+`S3-P0-DENTAL-SEMANTICS`; pure/static implementation is complete and integrated
+runtime verification is still pending. This decision does not mutate a
+segmentation, create a case, or authorize Slicer, ROS, robot or hardware
+execution.
+
+TotalSegmentator is an anatomical-geometry source. Its installed teeth class
+map, raw label ID, raw name and terminology are retained as provenance and
+must be compared at the import boundary, but no downstream target or robotics
+code may treat a display name, terminology entry or arithmetic relationship
+between label IDs as canonical FDI identity. The existing name parser remains
+only a legacy migration fallback; an unrecognized or changed backend naming
+scheme becomes reviewable unresolved input rather than a guess.
+
+Use the existing segmentation MRML node as the single authority. Extend its
+persisted `DENTOBOT.SegmentMetricsJson` with DentoWorkflow-owned canonical
+structure type, FDI, parent segment IDs, association method/confidence/state
+and deterministic evidence. Add a semantic schema/status/fingerprint to the
+existing node metadata and carry only that summary fingerprint into the
+existing `workflow/lineage.json` node record. MRB remains geometry authority;
+do not add a second database, a parallel semantic archive member or a new
+workflow façade. The semantic fingerprint covers stable segment/label identity
+and canonical relationships, but excludes display-only raw names so backend
+renaming cannot invalidate a valid canonical query.
+
+Build tooth records at import/recovery and resolve pulp parents on the selected
+target. Use existing pulp geometry/components and same-frame tooth geometry;
+combine surface distance, enclosure/inside evidence and nearest-tooth
+consistency, retain the runner-up and raw hint disagreement, and never use
+voxel intersection or nearest centroid as the only rule. Fragmented components
+may be grouped only when their evidence agrees on one tooth. Missing,
+ambiguous, duplicate, malformed or cross-tooth evidence blocks pulp-dependent
+trajectory generation. No missing pulp is synthesized and no source mask is
+silently edited.
+
+Only a target with a valid canonical tooth, non-empty pulp geometry and a
+validated tooth↔pulp spatial association may enter the existing S4A endpoint
+logic. `HIGH`/`VALID` can pass the ordinary automated gate; a lower-confidence
+result needs all validation rules and explicit review/confirmation; `AMBIGUOUS`,
+`MISSING` and `INVALID` fail closed. This is a semantic prerequisite and does
+not change the corrected native/displayed-surface endpoint, Step 6 collision
+policy, depth, or current campaign order. The inspected FDI11/FDI21 package
+still has no corresponding pulp label and remains an input-data failure.
+
+The initial software association policy is explicit and fixture-calibrated,
+not a clinical threshold: inside fraction ≥ 0.50, nearest-tooth fraction ≥
+0.75, robust surface distance ≤ 10.0 mm, minimum candidate margin ≥ 0.10,
+and `HIGH` margin ≥ 0.20. These values are the A-H implementation gate and
+must be revisited against representative reviewed anatomy before any clinical
+interpretation; they do not authorize hardware or patient use.
+
+Legacy load may recover canonical records in memory from stored raw facts or,
+as a last compatibility path, the old name grammar. Mark such recovery
+migration-pending/needs-review, do not change geometry, and write the upgraded
+registry only on explicit user save. Missing or stale semantic records must be
+validated against MRML segment IDs/label IDs before planning; a lineage
+fingerprint mismatch fails closed while preserving inspectable package state.
 
 ## 2026-09-14 — Planning-scene acknowledgement uses the live monitored joints
 
@@ -4658,10 +4750,14 @@ runtime stop, exact-package integrity, regenerated Step 5B/5C geometry,
 current PreparedBranch, normal-window observations, and explicit live-runtime
 approval remain separate acceptance gates.
 
-## 2026-09-14 — Exact FDI31 Stage 6 first-invalid boundary
+## 2026-09-14 — Exact FDI31 Stage 6 first-invalid boundary (earlier r2 run)
 
 Status: package, Step 5C geometry and PreparedBranch gates pass; exact full-chain
 planner acceptance remains blocked by an unapproved terminal collision.
+
+This is preserved historical r2 evidence. The later current-source r13 result
+and its updated waypoint numbers are recorded in the current-source section
+below and govern the active acceptance boundary.
 
 The authoritative `dentobot-case-13sept.dentocase` was not overwritten. A
 reviewed one-field base-revision migration was used only as input to an explicit
@@ -4717,3 +4813,612 @@ Agents must refresh with `Workspace/scripts/graphify-update.bash` or
 0 plus `Code graph updated` or `[graphify watch] Rebuilt:`; ignore the Codex
 stream-fd preamble. Do not install a DentoBot-package git hook that writes a
 second graph tree.
+
+## 2026-09-14 — Current-source FDI31 guard boundary and runtime-cost correction
+
+Status: current-source exact check produced a target-specific `FIRST_INVALID`;
+the full workflow goal remains open and is blocked pending a specific compliant
+guide/tool/base geometry correction.
+
+The operator explicitly approved the offline Slicer/ROS/MoveIt runtime check
+for the current FDI31 semantic implementation and explicitly excluded robot
+motion and patient-facing action. The check used the generated current package
+(`5440961c2f1464df10adec3dfb6ab59f8a0e412c6074cae7852d8150babe4fff`), source
+revision `3af2d864449679ead25398899d6325aefb50595a`, and the current rebuilt
+native guard. Both bounded IK candidates reached the exact requested target;
+the direct candidate was rejected at composed waypoint 255 / Stage-3 waypoint
+27 and the seeded candidate at composed waypoint 295, with the same
+`FDI31-tooth ↔ pneumatic_spindle-Copy` non-approved collision. The requested
+depth, base, J6-zero policy and collision rules were unchanged.
+
+Decisions made:
+
+- Keep the native collision policy strict. The existing exploratory exception
+  covers only the configured `burr`↔selected-target pair (plus the separately
+  evidenced guide-contact path); it must not be widened to the spindle housing
+  to manufacture a pass. A target endpoint that places the housing in the
+  selected tooth is a geometry/fit-owner question and remains a blocking
+  first-invalid result.
+- Keep the exact requested target and saved base immutable during diagnosis.
+  The read-only URDF/STL audit found the spindle mesh's nearest axial point
+  about 7.000 mm behind the canonical TCP, against the 6.671905 mm requested
+  Entry→Target length, leaving about 0.328095 mm nominal axial margin. This
+  corroborates the packet's existing provisional insertion warning; it does
+  not authorize changing depth, dimensions, base placement or margins.
+- Preserve legacy case-fingerprint identity separately from semantic identity.
+  `caseFoundationSourceSegmentationFingerprint` now projects the pre-semantic
+  legacy descriptor (`segmentId`, legacy review fields, mask shape and SHA)
+  while the canonical semantic registry remains its own validated planning
+  gate. This prevents the new registry metadata from invalidating historical
+  source geometry identity or silently weakening semantic validation.
+- Accept only the exact one-revision unlocked-base bookkeeping drift in the
+  post-hydration comparison when the expected/actual authority, environment
+  base fields, pose matrix and recomputed fingerprint all match. The
+  comparison normalization is transient; the scene and explicit saved
+  revision remain unchanged.
+- Pause the compatibility Slicer joint-command heartbeat for the whole
+  authoritative phase-guard session and resume it only when the session is
+  cleared. This removes queued raw-vector interference without changing
+  monitored-state tolerances, planner geometry or collision policy.
+- Cache only the expensive world-object evidence bounds behind a scene
+  signature containing object/shape identity, mesh type/count and all global
+  shape-pose matrix values. Collision, distance, interpolation and corridor
+  queries still execute for every waypoint; the cache is reporting-cost
+  reduction, not a safety or collision-query shortcut.
+- Run a bounded, read-only endpoint position-axis seed probe before changing
+  planner policy. Of 22 deterministic seeds, 8 met the native endpoint IK
+  tolerances; all eight stayed on the same J5 branch (`about 0.86104`–`0.86109`
+  rad) and reported the same template↔spindle, burr↔selected-tooth and
+  selected-tooth↔spindle contacts. The temporary diagnostic hook was removed
+  after the probe. This supplies evidence that no alternate kinematic branch
+  was found by that bounded probe, not that no alternate exists; it does not override the r13
+  first-invalid result or authorize a spindle collision exemption. The r14
+  runtime log is
+  `/tmp/dentobot-verification/step65-fdi31-20260914-r14-runtime.log`; its
+  stdout probe is authoritative because the requested sidecar was overwritten
+  when the temporary hook continued into the existing planner.
+
+Evidence: r13 runtime log
+`/tmp/dentobot-verification/step65-fdi31-20260914-r13/runtime.log`, native
+diagnostic
+`data/Slicer_Saved/SampleStudy1/FDI31/packet-a-fdi31-r7/diagnostics/FDI31-stage6-exact-r13.json`,
+host metadata in the same `/tmp/dentobot-verification/step65-fdi31-20260914-r13/`
+directory, and the 2026-09-14 logbook. The native target built successfully
+(`collision_guard` SHA-256
+`9667b3aa6091db70cbb32c118af68af8f1d43179f099c6344f9184e2549c9ce9`); the
+container `cmake --install` step reported a permission error for the root
+`symlink_install_manifest.txt`, but the existing install symlink pointed to
+the rebuilt target and the r13 process used it. Focused semantic/Step-6/case
+tests passed `41`, syntax checks and `git diff --check` passed, and exact
+runtime process cleanup was verified. No further blind retry or next-tooth
+run is authorized until the guide/tool/base geometry owner provides a
+specific compliant correction.
+
+## 2026-09-14 — Accepted causal review and bounded FDI31 recovery orchestration
+
+The operator accepts the prior causal review as architectural guidance and
+requests Campaign 1 design only. Existing r13/r14 collisions do not prove scene
+correctness, exhaustive IK coverage, insertion impossibility, planner culpability
+or a mandatory mechanical change. The previous geometry-only continuation
+requirement is superseded by the [Campaign 1 diagnostic hierarchy](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
+Historical results and full-flow retry counts remain intact.
+
+Use one Luna Max for essentially all scoped implementation, diagnostics, approved
+runtime, evidence and development-document updates; Astra specifies decision
+gates and reviews decisive evidence/diffs, without duplicating routine tests.
+This campaign-specific ownership supersedes the older coordinator-only controlled
+document rule and stop-after-every-minor-failure packet interpretation. It does
+not supersede the three-failure ceiling, manual input review, explicit runtime
+approval or immutable anatomy/task/tool/frame/policy boundary. No model is
+switched and no worker is launched by this decision.
+
+Campaign 1 stops after P3 if no valid Target is found, otherwise after bounded
+P4 insertion evidence; earlier ambiguity/invariant changes also return to
+Astra/operator. P1 may consume P2 instrumentation before its acceptance, but
+P3 cannot pass an unreviewed scene. P5–P7 remain later-campaign skeletons.
+Distinguish kinematically valid, guard-accepted and housing-clear states; the
+existing guide warning is not clearance. Only a later approved guarded full
+cycle and fresh-process repetition establish workflow acceptance.
+
+## 2026-09-14 — Campaign-1 P1/P2 execution boundary
+
+**Status:** Adopted for the completed `c1-p1p2-20260914-r1` evidence packet;
+operator review and any P3 authorization remain open.
+
+The operator explicitly approved P1 and P2 only from the frozen
+`execution_envelope.json`. P1 is a technical scene/input-audit PASS. Its
+automatic source, package, Foundation, target, Entry/Target, support, guide,
+dock, insertion-direction, shell, template, restored-Step-6 and saved-payload
+selections are evidence records only: each remains
+`operator_confirmed_in_this_run=false` and `operator_review_required=true`.
+The P1 MRB is a rotatable inspection artifact; it is not operator or clinical
+geometry acceptance.
+
+P2 uses the existing native interfaces as a fail-closed diagnostic dependency.
+The local seven-link robot display loaded, but the native
+`/dentobot_collision_guard`, `/move_group`, `/check_state_validity`,
+`/compute_cartesian_path` and `/compute_ik` interfaces were absent. Therefore
+P2 is `INCONCLUSIVE`; it records unknown/null native state, contact, clearance
+and penetration fields, retains the historical r13 forbidden pair only as
+historical evidence, and does not infer collision onset or planner infeasibility.
+No shared runtime restart, dependency installation, native build, geometry
+change, policy change or tolerance change is authorized by this result.
+
+The minimum diagnostic implementation is the new P1/P2 runner, its focused
+tests and explicit verification-matrix rows. A serializer repair was limited to
+the runner's MRML-safe dataclass traversal after the first P2 attempt exposed a
+deepcopy failure; no production file was changed. Inner container timeouts are
+mandatory, runtime resources remain serialized, cleanup may terminate only
+diagnostic-owned processes, and operator-owned sessions are preserved.
+
+The campaign is paused after P2. P3/P4 and all later phases remain separately
+approval-gated; no generated confirmation flag, focused-test PASS, execution
+approval, visual capture or saved scene is acceptance of the input or geometry.
+
+## 2026-09-14 — Corrected Campaign-1 P1/P2 status and bounded readiness stop
+
+**Status:** Current operator correction recorded; Campaign 1 remains paused and
+P3/P4 remain unauthorized.
+
+The P1 result is split explicitly: saved-input and machine checks are `PASS`
+for the checks actually completed; overall scene correctness and operator
+review are `INCOMPLETE`. The fifteen automatic selections, the saved scenes,
+visual captures, serialization flags, focused-test PASS markers and the P1/P2
+execution approval are evidence only. They do not record operator acceptance
+of any input or geometry.
+
+P2 remains `INCONCLUSIVE` because native runtime readiness was missing. The
+one bounded recovery authorized by the operator began with a read-only audit.
+On the pinned container and `ROS_DOMAIN_ID=73` with `SUBNET` discovery, actual
+no-daemon ROS queries saw existing nodes/topics and the simulation-status
+message. The MoveIt and collision-guard packages, launch file, binaries and
+linked libraries were present. The earlier approved stack log proves that
+`move_group` and `collision_guard` had launched and that planning services had
+been advertised before `move_group` later exited during shutdown with a
+segmentation fault; `collision_guard` finished cleanly. Thus missing current
+interfaces do not establish missing API or architecture.
+
+The recovery stopped before launch because the remaining description/status
+processes are parentless (`PPID 1`) and include duplicate node instances. The
+dedicated existing helper detects these active publishers and refuses a normal
+launch; its `--check-only` path builds before checking and is not a read-only
+probe. The top-level existing launcher starts the complete simulation stack,
+does not offer a selective P2-only mode, and would create duplicate
+participants if the survivors were left untouched. Closing or replacing those
+processes would require unresolved ownership authority. No process was
+started, stopped, killed or restarted; no dependency, native build, geometry,
+task, policy, tolerance or controller change was made. The exact audit is
+`data/Slicer_Saved/SampleStudy1/FDI31/planner-recovery/c1/c1-p1p2-recovery-20260914-r1/runtime_readiness.json`.
+
+This decision preserves the existing retry history and keeps contact, onset,
+clearance, penetration and accepted/rejected-state fields unknown where native
+evidence was not obtained. A future continuation requires resolving process
+ownership and providing a qualifying selective startup path, then a separate
+explicit decision; it does not authorize P3, P4, a full planner, repeat/
+playback, hardware, motion, or patient-facing action.
+
+## 2026-09-14 — Campaign-1 bounded readiness recovery and r6 diagnostic stop
+
+**Status:** Adopted for the one explicitly authorized P1/P2 recovery; Campaign
+1 remains paused, P1 operator review is open, and P3/P4 remain unauthorized.
+
+The operator later confirmed that no shared DentoBot simulation runtime was in
+use and that no unsaved Slicer work required preservation. Before replacement,
+the recovery refreshed the container inventory and matched executable, package,
+node, remap and ROS-domain identity for exactly seven conflicting DentoBot
+simulation processes: `6106`, `6812`, `7738`, and `8410`
+(`simulation_status_publisher`); `7734` and `8406`
+(`robot_state_publisher`); and `8407` (`slicer_joint_state_publisher`). These
+were the only processes stopped, each with `SIGINT`; no process was selected
+solely because it was parentless. The ROS daemon and unrelated processes were
+excluded. This superseded the earlier audit stop, which had correctly refused
+to act while ownership was unresolved.
+
+The existing `dentobot_moveit_config/simulation.launch.py` path was inspected
+before launch. It starts the description publishers, `move_group`,
+`collision_guard` and simulation status; it contains
+`allow_trajectory_execution=False`, no hardware/controller launch and no
+powered-spindle path. The launch log reported no controller manager and no
+executable paths. Although the standard ExecuteTrajectory action endpoint is
+advertised by MoveIt, no trajectory request, raw joint-command publication,
+controller connection, spindle activation or robot motion occurred. One
+launch-owned stack reached `ready:true`/`planning_ready:true` on
+`ROS_DOMAIN_ID=73` with subnet discovery, then was stopped with `SIGINT` after
+the bounded recheck. Post-stop inventory found no matching DentoBot simulation
+process. The known MoveIt shutdown-time exit `-11` occurred after the graceful
+signal; no force kill or container restart was used. No operator-owned GUI or
+session was closed.
+
+The final r6 probe used the frozen r13 vectors and the unchanged task/frame/
+tolerance/policy inputs, without a planner run. Native FK was finite and within
+the frozen tolerances for both reconstructed candidates. Native static
+validity reported the frozen target/template/burr contact set, while the
+phase-aware `validate_only` guard rejected both for leaving the approved
+Entry-to-Target corridor. The exact collision-payload acknowledgement reported
+`expected 31, observed 0`, while the later guard reported
+`world_object_count=31`; the static contact set was not reproduced in the
+TaskJointStatus pair fields. Those predicates remain separate. Native nearest
+points, TaskJointStatus pair, contact count/truncation, penetration, drilling
+depth and collision onset remain null/unknown where not exposed, and the
+setup-handshake accepted state is not promoted to the preceding accepted state
+of r13.
+
+Accordingly, P1 saved-input/machine checks remain `PASS`, P1 overall scene
+correctness and operator review remain `INCOMPLETE`, and P2 remains
+`INCONCLUSIVE`. The runner's artifact-level PASS is not a campaign PASS or
+operator acceptance. The r6 scene and labelled captures are diagnostic,
+display-only evidence; no geometry, task, policy, dependency, native source or
+build change was made. Preserve all r1–r6 retry outputs and stop at this
+bounded review gate. No P3/P4, full-flow, repeat/playback, normal-window,
+hardware, motion or patient-facing action is authorized by this decision.
+
+## 2026-09-14 — Approved corrected P2 contract and bounded runtime handoff stop
+
+**Status:** Adopted for the operator-approved corrected P2 proposal; Campaign
+1 remains paused, P1 operator review remains open, P2 is inconclusive, and
+P3/P4 remain unauthorized.
+
+The operator's `approved` response authorized one bounded use of the additive
+diagnostic contract in the existing `c1-p1p2-recheck-20260914-r6` run. The
+approval did not record acceptance of the 15 automatic selections, scene,
+geometry or contact interpretation and did not broaden any hardware, planner,
+full-flow, retry, geometry, task or policy boundary.
+
+The adopted technical correction is additive and read-only with respect to
+the guard policy: `validation_kind=static_state` evaluates exactly one
+requested joint state using the existing phase-aware predicate without
+mutating accepted/preflight state; `validation_kind=transition` retains the
+existing interpolated validate-only behavior; both carry an echoed
+`request_id`, task/session/phase identity, requested and actual evaluated
+sample telemetry, and the frozen policy fingerprint. The diagnostic runner
+does not promote a transition rejection to a Target static verdict. Scene
+acknowledgement is fail-closed unless one correlated response matches the
+exact frozen object IDs, base-link poses/bounds and policy fingerprint.
+Displayed goal TCP/spindle/burr transforms must be compared against native FK;
+a saved marker is insufficient. No collision object or ACM is removed to
+improve display.
+
+The corrected source built successfully with source SHA-256
+`8259a062b8c314fedb7a5ac95652a53ea280cfca2b67a6f6eda57b50ff2273b3` and
+container install binary SHA-256
+`f1132ea07d81c39249539c05c8900c817f39d50a95a6574ac3974f17e512fc3d`.
+Focused tests passed (`44 passed`), six scoped Python files parsed, and the
+graph overlay refreshed. These results are implementation evidence only.
+
+The approved runtime stack reached the simulation-only collision guard and
+MoveIt initialization on ROS domain 73. A bounded status trace had observed
+`ready:true`, `planning_ready:true`, and `mode=simulation_only`; therefore the
+native API was not declared absent merely because one startup wrapper missed a
+status observation. The final bounded wrapper nevertheless tore down at
+17:05:50 before launching Slicer or creating the corrected P2 packet. Its
+preserved log is
+`data/Slicer_Saved/SampleStudy1/FDI31/planner-recovery/c1/c1-p1p2-recheck-20260914-r6/corrected-p2/runtime-readiness-final2.log`
+with SHA-256
+`92cdd08c9923513c93a5793825f7a5e52aefaf44fc3cb27fbfe1140719ab0dae`.
+The exact remaining blocker is an incomplete approved-wrapper
+readiness-to-Slicer handoff; it is not a new Target or contact verdict and
+not evidence that the additive interface is architecturally absent.
+
+The launch used `allow_trajectory_execution=False` and no controller or
+hardware path. It issued no trajectory, joint command, spindle or motion
+request. The launch-owned processes were gracefully cleaned; the run-created
+ROS CLI daemon was stopped after identity verification; the final serial
+inventory was empty for DentoBot/ROS/Slicer/MoveIt. The known MoveIt shutdown
+`exit -11` occurred after SIGINT and is retained as runtime evidence. No
+additional runtime attempt is authorized under the existing retry ceiling.
+
+Corrected P2 native scene/contact/FK evidence is therefore absent. The r6
+packet remains the historical, separately labelled evidence boundary with
+unknown native contact/onset fields where not exposed. P1 is
+`saved-input/machine PASS; overall scene correctness/operator review
+INCOMPLETE`; P2 is `INCONCLUSIVE`; `operator_acceptance` remains
+`NOT_RECORDED`. No generated flag, test PASS, execution approval or saved
+scene records acceptance, and no P3/P4 or later campaign action is authorized.
+
+## 2026-09-15 — Campaign-1 container stop cause and bounded restoration
+
+**Decision:** Classify the stopped `dentobot-slicerros2` container as a
+task-cleanup signal-propagation failure, not an OOM or missing native API.
+Docker recorded `Exited (143)`/`OOMKilled=false`; its PID 1 was
+`sleep infinity`, restart policy was `no`, and the event stream recorded
+`/bin/kill -TERM -18306` immediately before the container died. The command
+was the task-owned cleanup from the malformed attempt. Restore the existing
+container in place only when explicitly authorized, and run bounded native
+checks through a no-TTY `docker exec` with one syntactically complete helper
+command so terminal interruption cannot be reused as container cleanup.
+
+**Verification:** The operator supplied that authorization. `docker start
+dentobot-slicerros2` restored the same container; preflight found no
+conflicting DentoBot runtime processes. The corrected handoff observed
+readiness, requested Slicer, entered the diagnostic, wrote a machine-PASS
+packet and completed helper-owned cleanup. The run-created domain-73 ROS CLI
+daemon was stopped via `ros2 daemon stop`; no operator-owned process or GUI
+session was touched, and the container remained Up with no matching runtime
+processes.
+
+**Evidence boundary:** The native packet contains trusted 31/31 scene
+acknowledgement, separate invalid static-state and Home-to-endpoint
+transition records, and native-FK matches for TCP, spindle and burr. Contact
+count/depth/onset/nearest-point/penetration fields remain unknown where not
+exposed. The Slicer process returned status 1 after writing a PASS packet and
+emitted existing shutdown warnings; this status is retained rather than
+suppressed. P1 overall scene/operator review remains incomplete, P2's
+campaign gate remains user review required, operator acceptance is not
+recorded, and P3/P4 remain unauthorized.
+
+## 2026-09-14 — P2 handoff diagnosis is source-only; cause remains unproven
+
+**Decision:** Treat the final2 failure as an incomplete launcher handoff, not
+as proof of a missing readiness API, parser defect, Slicer failure, native
+architecture defect or Target verdict. The preserved container log proves
+simulation-stack initialization and collision-guard/MoveIt readiness, but the
+failed wrapper did not preserve a readiness return code, parsed boolean,
+handoff marker or Slicer-launch request. A separate successful status trace is
+not evidence from that failed wrapper. The later MoveIt shutdown `exit -11`
+is downstream teardown evidence only.
+
+**Source correction:** Extract the existing inline handoff from
+`Workspace/scripts/launch-dentoworkflow.bash` into
+`Workspace/scripts/dentobot-simulation-slicer-handoff.bash`. Preserve the
+existing `setsid` process-group ownership, INT → TERM → KILL cleanup, ROS
+topic/schema and readiness defaults (`timeout 2s`, 60 attempts, 0.5-second
+interval). Capture the readiness command status without `set -e` ambiguity,
+emit lightweight stage/reason markers without command-argument tracing, and
+preserve the diagnostic command status through cleanup. This is a launcher
+observability/control-flow correction only; it does not change planner/native
+diagnostic interfaces, guard policy, geometry, task, dependencies or inputs.
+
+**Verification boundary:** The local stub tests prove success handoff,
+readiness-command failure blocking Slicer and nonzero diagnostic status
+preservation/cleanup. Bash syntax and diff checks pass. No native runtime was
+run, so P2 remains `INCONCLUSIVE` and the operator has not accepted inputs,
+scene, geometry or contact evidence.
+
+**Next gate:** The canonical recovery report contains one exact proposed
+domain-73 native P2 recheck with frozen r6/r7/r13 inputs, inner timeouts,
+durable output paths, process ownership/cleanup and a precise PASS condition.
+Do not execute it until the operator grants specific approval. P3/P4 and all
+later/hardware/full-flow actions remain unauthorized.
+
+## 2026-09-15 — Bounded P2 runtime recovery completed; burr FK evidence remains open
+
+**Decision:** Record the later operator-authorized runtime recovery as three
+preserved attempts in the existing `c1-p1p2-recheck-20260914-r6` run. The
+first attempt exposed a concrete Slicer entry defect (`--no-main-window` while
+the diagnostic calls `slicer.util.selectModule`); the second and third
+attempts used the smallest corrected entry path. The helper reached readiness,
+requested Slicer, entered the diagnostic and preserved its status through
+owned-process cleanup. This proves the corrected readiness-to-Slicer handoff
+branch, but it is not P2 acceptance.
+
+The final packet reconciles the native scene acknowledgement at 31/31
+matching IDs, poses/bounds and policy, records static-state and
+Home-to-endpoint transition predicates separately, and keeps contact/onset
+fields unknown where the guard does not expose them. Display TCP/spindle
+transforms match native FK within tolerance. The live goal catalog contains a
+matrix-bearing `burr_goal_transform`, but the runner's normalized-name
+classifier did not pair it, so burr FK remains unavailable. P2 therefore stays
+`INCONCLUSIVE`; the missing burr pairing is an evidence-contract defect, not a
+Target/contact/geometry verdict and not a reason to infer acceptance.
+
+The runner-only repair and focused tests are recorded in the canonical report
+Section R and the 2026-09-15 logbook. No native source/build/dependency,
+collision policy, geometry, task, input or planner change was made. The final
+runtime group and run-created ROS CLI daemon were verified and cleaned without
+touching an operator-owned session or restarting the container. The existing
+three-attempt runtime ceiling is reached; do not launch another native
+recheck, mark P2 PASS, record operator acceptance, or start P3/P4 without a
+new explicit decision.
+
+## 2026-09-15 — P2 burr-transform alias repaired; native verification paused on container boundary
+
+**Decision:** Treat the latest continuation request as authorization to repair
+the deterministic diagnostic alias and attempt one same-run verification, while
+preserving the frozen r6 run, P1 review gate and P3/P4 exclusion. The source
+defect was exact and minimal: `burr_goal_transform` normalized to
+`burr-goal-transform`, which was absent from the existing classifier. The
+alias-only repair passed the focused diagnostic suite (`11 passed`), isolated
+`py_compile` and `git diff --check`. It changes no native interface, build,
+policy, geometry, task, planner or input.
+
+The attempted native continuation was not a diagnostic execution: its shell
+construction split helper arguments across lines, so the helper printed usage
+and a blank Slicer/Xvfb command started instead. The exact task-owned process
+group was identified and cleaned through the original task-owned terminal
+session. The shared container exited 143 with no OOM condition; it was not
+restarted because the standing boundary excludes a container restart.
+
+Therefore the alias repair is `IMPLEMENTED / UNIT VERIFIED`, not Runtime
+Verified. The previous corrected packet remains the latest valid native
+evidence, P2 remains `INCONCLUSIVE`, operator acceptance remains unrecorded,
+and a specific container-restart authorization is required before another
+native verification attempt. No P3/P4 or later action is implied.
+
+## 2026-09-15 — Retained native P2 packet is current; operator review remains open
+
+**Decision:** Reconcile the active Campaign-1 status to the retained final
+native packet and canonical recovery report Sections T/U. The current bounded
+diagnostic/evidence result is `PASS_FOR_COMPLETED_DIAGNOSTIC_EVIDENCE` with
+campaign gate `USER_REVIEW_REQUIRED`; P1 saved-input/machine checks are PASS
+for completed checks, while P1 overall scene correctness and operator review
+remain INCOMPLETE. This supersedes active summaries that described the final
+packet as `P2 INCONCLUSIVE`.
+
+The corrected short description must preserve three separate results: (1)
+phase-aware static rejection of both retained endpoint candidates for final
+printable template ↔ spindle; (2) generic static contacts that additionally
+include FDI31 tooth ↔ burr and FDI31 tooth ↔ spindle; and (3) Home-to-endpoint
+corridor rejection at the first interpolated sample. The first is a static
+endpoint result, the second is an unmerged generic contact list, and the third
+is not a Target static verdict or the original r13 insertion edge.
+
+The static policy remains unchanged. In particular,
+`guide_clearance_warning=false` means no configured guide warning/admitted
+guide contact was reported by that endpoint query; it does not mean no
+collision. The existing bounded spindle-guide allowance and the historical
+r13 warning evidence remain distinct from the non-approved template ↔ spindle
+result. Contact count, depth, onset, nearest points and penetration remain
+unknown where the guard does not expose them.
+
+The 15 selections, saved screenshots and rotatable MRB are review evidence,
+not operator acceptance. The existing first-rejected image does not visibly
+prove the evaluated robot state, and the burr/spindle close-up does not explain
+the template ↔ spindle pair. A display-only saved-scene recapture may be
+considered separately; it must not rerun native diagnostics or authorize P3/P4.
+All earlier zero-object, launcher, container-exit and other P2-inconclusive
+records remain historical attempts and are retained for traceability.
+
+## 2026-09-15 — Section-W review recapture is source-only and fail-closed
+
+**Decision:** Correct the review-only recapture path without changing the
+production robot-placement persistence policy, source anatomy/template/tool
+geometry, collision policy, planner, task inputs or native diagnostic
+interface. The retained driver
+`Testing/run_dentobot_c1_display_only_recapture.py` loads a fresh review scene
+for each state, copies prepared world-RAS display surfaces, and records the
+static endpoint separately from the Home-to-endpoint evaluated sample.
+
+Only the review-copy robot base/models/link transforms and their display/storage
+nodes are made scene-persistent. After reopen, the driver resolves those same
+saved nodes and numerically compares every displayed mesh/link transform
+before versus after save. Endpoint TCP, burr and spindle link frames must also
+match saved native FK; a marker, endpoint substitution or offline-FK-only
+comparison is insufficient for a native claim. Review copies are explicitly
+display-only/excluded from collision use; native collision objects and policy
+are untouched.
+
+**Evidence gate:** The retained packet has native endpoint FK matrices but no
+native FK matrices for transition sample `1/134`. The driver must therefore
+stop before presenting a transition image until that missing evidence exists;
+it consumes a future explicitly saved evaluated-sample FK record but may not
+manufacture one from offline FK or the requested endpoint. Source checks
+passed (`9 passed`); no display runtime, native diagnostic, planning,
+controller, spindle, motion or P3/P4 action is authorized by this decision.
+
+## 2026-09-15 — Endpoint-only review runtime stopped before parity
+
+**Decision:** Preserve the one explicitly authorized bounded endpoint-only
+offline Slicer attempt and do not repeat it without a new explicit approval.
+The transition context image is `NOT_RUN`; its saved numerical state remains
+preserved and no new native FK or transition parser was added.
+
+The source-only correction now passes `10` focused tests plus `py_compile`,
+and Graphify was refreshed successfully. The minimal compatibility repair
+guards the optional `SetPropertiesLabelVisibility` call on review display
+nodes; it does not change source geometry, transforms, collision policy,
+production persistence, native interfaces or the transition path. Exception
+manifests now retain the endpoint-only review type and capture mode.
+
+The exact recorded endpoint invocation was run once in the already-running
+`dentobot-slicerros2` container with the existing inner `150s` and outer
+`180s` timeouts. Slicer loaded the retained inspection MRB, then the driver
+stopped before endpoint capture with:
+`MRMLCorePython.vtkMRMLModelDisplayNode` lacking
+`SetPropertiesLabelVisibility`. The output directory contains only the
+preserved error manifest (`endpoint-review.json`, SHA-256
+`25b6a9b113902967234b5edc2e875e72d40c06aae21b942e6df3ac4f5175594a`); no
+endpoint image, review MRB, geometry comparison, displayed TCP/FK comparison
+or save/reopen result exists. Endpoint status is therefore
+`NOT_ESTABLISHED` due to a runtime compatibility stop, not `FAIL` from an
+endpoint parity mismatch. The container remained up and the post-run process
+inventory contained no Slicer/Xvfb/ROS/MoveIt/guard/inference/trajectory
+process; no operator-owned process was touched.
+
+The retained native P2 packet and its status are unchanged. Operator
+acceptance remains `NOT_RECORDED`; P1 overall scene correctness remains
+`INCOMPLETE`; this display endpoint sub-result is unresolved; P3/P4 and all
+hardware, planning, motion, geometry/policy and full-flow actions remain
+unauthorized. A future runtime requires a new, specifically bounded approval.
+
+## 2026-09-15 — Endpoint-only parity gate reached and stopped
+
+**Decision:** Close the current endpoint-only display-runtime continuation at
+the measured parity blocker. Preserve all three endpoint-runtime artifacts,
+the source repairs and the frozen native packet. Do not move the target,
+regenerate anatomy/template/tool geometry, weaken tolerances, substitute a TCP
+marker, obtain transition FK, or launch another runtime under this approval.
+
+The final repair2 attempt reached the pre-save parity gate. The final printable
+template matched its native fingerprint and bounds exactly. The prepared FDI31
+target did not: display fingerprint
+`0dce3add8f84d8c990166a8190005ed0f1ad0f8d9b5a738b62521be07a543372` differed
+from native fingerprint
+`cb420afb7bb43829b235e0dc30780b1d85290d508757c8320c5474a10211231d`, with
+maximum bound error `40.74010467529297 mm` against `0.05 mm`. Robot mesh and
+model/link transforms matched. Native-vs-offline endpoint FK matched for TCP,
+burr and spindle, while displayed burr/spindle matched native FK; displayed
+TCP was unavailable because the seven-model display set has no TCP model and
+the retained catalog exposes TCP only as a transform node. Save/reopen was
+not reached. The exact packet is retained in the repair2 manifest recorded in
+the recovery report.
+
+Read-only source tracing attributes the target mismatch to using the
+segmentation-parent world helper without the Case Foundation/jaw-opening frame
+represented by the native prepared-target record. The separate TCP issue is a
+display-evidence contract gap. Neither finding authorizes a geometry/policy
+change or a new speculative display representation. Endpoint review is
+`BLOCKED`, transition is `NOT_RUN`, P1 overall scene correctness/operator
+review remain `INCOMPLETE`, operator acceptance remains `NOT_RECORDED`, and
+P3/P4 remain unauthorized. The display-runtime retry ceiling is reached for
+this scoped continuation.
+
+## 2026-09-15 — Revised endpoint-only parity repair authorized
+
+The operator explicitly superseded the prior repair2 display-runtime stop for
+the two evidenced source defects only. The review target must follow the
+native Step 6 sequence: segmentation closed surface in world RAS, exactly one
+`_step6CaseJawPolydataWorld` application using the retained Case Foundation
+jaw transform, then the native triangle filter with lines and vertices off.
+The review copy is the only geometry touched; source anatomy, parents,
+template, trajectory, native collision payload, policy and tolerances remain
+unchanged. The review must reject missing or doubled jaw preparation against
+the retained application count/fingerprint and independent prepared
+fingerprint/bounds.
+
+The canonical TCP is a meshless frame. The review must derive observed world
+TCP from the actual displayed spindle mesh after accounting for its visual
+origin and applying the fixed `pneumatic_spindle-Copy` →
+`dentobot_drill_tcp` relation from the existing URDF/FK utility. A standalone
+marker, expected matrix, legacy burr/J6 frame or transform-only catalog node
+cannot substitute. The loaded robot-profile identity must match the retained
+native identity, and perturbed spindle/offset evidence must fail closed.
+
+Focused source verification passed 18/18 tests and Graphify refreshed. One
+new bounded endpoint-only Slicer session is recorded for execution in report
+Section AE using the existing container and inner/outer 150s/180s timeouts.
+This decision does not authorize ROS/MoveIt/native diagnostics, planning,
+transition capture, hardware/motion, P3/P4, or operator acceptance.
+
+## 2026-09-15 — Endpoint-only parity repair completed; operator review remains open
+
+The three targeted offline Slicer attempts authorized for the endpoint-only
+parity repair are complete. Repair4 preserved a useful historical blocker: the
+display copy matched native evidence before save, but the existing workflow
+rehydrated transient robot links from stale parameter-node joint fields after
+reopen. The minimal driver correction persisted the retained J1-J5 endpoint
+vector through that existing degrees/mm rehydration path and held visual J6 at
+canonical zero; focused tests passed 22/22.
+
+Repair5 then passed the complete endpoint machine parity gate: native target
+and template fingerprints/bounds, exactly one jaw preparation, robot identity,
+displayed link/mesh transforms, derived meshless TCP/burr/spindle FK, and
+save/reopen pose persistence. The review MRB, JSON packet and context/close-up
+images are retained in recovery report Section AH. This decision does not
+convert nonblank images or machine checks into operator acceptance. Transition
+capture remains `NOT_RUN` because saved native sample-1/134 FK is unavailable;
+P1 overall scene correctness remains `INCOMPLETE`, the retained native P2
+status is unchanged, and P3/P4, planning, hardware, motion, full-flow and
+patient-facing actions remain unauthorized.
+
+## 2026-09-15 — Endpoint screenshots reviewed; conditional P3 handoff proposed
+
+The operator accepts the corrected repair5 endpoint screenshots and requests
+the next Luna prompt. Record that scoped visual review, not blanket approval
+of every automatic input, clinical fit, or endpoint collision validity.
+The remaining P1 closeout must use retained evidence and identify any actual
+decision-critical gap before P3. The historical Home-to-endpoint transition
+image is not required to evaluate static Target feasibility; defer it without
+claiming insertion or collision-onset evidence. Reuse the existing <=128-solve
+P3 contract and stop before P4. The reviewer only prepares the conditional
+authorization prompt; no runtime was launched or source changed. Report AI
+records the independently inspected artifact and its evidence boundary.

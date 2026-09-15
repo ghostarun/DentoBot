@@ -235,6 +235,7 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     assert "str(scenePath), {\"clear\": True}" in workflow_source
     assert "_beginCaseBundleRestore" in workflow_source
     assert "_bindAndValidateRestoredCase" in workflow_source
+    assert "_validateHydratedCaseBundle" in workflow_source
     assert "prepareDentoCaseSchema2ForSave" in workflow_source
     assert "_resumeLoadedStep6Checkpoint" not in workflow_source
     lifecycle_source = (
@@ -249,3 +250,32 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     assert "validateLoadedCaseBundleWorkflow" in workflow_source
     cmake = (ROOT / "DENTOWorkflow/CMakeLists.txt").read_text(encoding="utf-8")
     assert "Resources/Python/DENTOCaseBundle.py" in cmake
+
+
+def test_case_bundle_validates_before_gui_hydration() -> None:
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
+    ).read_text(encoding="utf-8")
+    bind_start = source.index("    def _bindAndValidateRestoredCase")
+    bind_end = source.index("\n    def ", bind_start + 5)
+    bind = source[bind_start:bind_end]
+    assert bind.count("validateLoadedCaseBundleWorkflow") == 2
+    assert "self.setParameterNode(" not in bind
+    assert "slicer.app.processEvents()" not in bind
+
+    open_start = source.index("    def _openCaseBundle")
+    open_end = source.index("\n    def onOpenCaseBundle", open_start)
+    open_case = source[open_start:open_end]
+    assert open_case.index(
+        "self.setParameterNode(self.logic.getParameterNode())"
+    ) < open_case.index("self._endCaseBundleRestore(restoreGeneration)") < open_case.index(
+        "self.logic.hydrateDentoCaseStateAfterLoad("
+    )
+    assert "self._updateFromParameterNodeOnce()" in open_case
+    assert open_case.index("self.logic.hydrateDentoCaseStateAfterLoad(") < open_case.index(
+        "self._validateHydratedCaseBundle(inspection.workflow)"
+    )
+    assert open_case.index("self._validateHydratedCaseBundle(inspection.workflow)") < open_case.index(
+        "self._revalidateImportedStep6ContextAfterLoad()"
+    )

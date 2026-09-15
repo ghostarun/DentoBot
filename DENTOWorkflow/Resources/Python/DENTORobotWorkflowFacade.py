@@ -21,7 +21,6 @@ import DENTOROS2Bridge as _default_bridge
 from DENTORobotPlacement import joint_positions_si_from_display
 from DENTOStep6State import (
     DRILL_TOOL_FRAME_POLICY,
-    SIMULATION_TARGET_DEPTH_CAP_MM,
     SIMULATION_TARGET_DEPTH_POLICY,
     SPINDLE_JOINT_NAME,
     SPINDLE_LOCKED_VALUE_RAD,
@@ -30,7 +29,9 @@ from DENTOStep6State import (
     canonicalize_planning_joint_positions,
     canonical_json,
     fingerprint,
+    motion_diagnostic_plan_selection,
     parse_motion_diagnostic_session,
+    update_motion_diagnostic_plan_selection,
 )
 
 
@@ -355,6 +356,7 @@ class DENTORobotWorkflowFacade:
         self._phase_sequence = 0
         self._completed_phase = ""
         self._phase_guard_task_fingerprint = ""
+        self._phase_stream_paused = False
         self._preview_exploratory_tool_contact = False
         self._preview_suppressed_tool_contact_samples = 0
         self._preview_guide_clearance_warnings: list[dict[str, object]] = []
@@ -365,6 +367,7 @@ class DENTORobotWorkflowFacade:
         self._runtime_task_home_evidence: dict[str, Any] = {}
         self._runtime_validated_workspace_key = ""
         self._diagnostic_candidate_paths: dict[int, dict[str, tuple]] = {}
+        self._diagnostic_plan_selection_override: Optional[dict[str, object]] = None
         self._accepted_motion_history: list[dict[str, object]] = []
         self._motion_history_task_fingerprint = ""
 
@@ -675,6 +678,15 @@ class DENTORobotWorkflowFacade:
     def _clear_phase_session(self) -> None:
         """Invalidate all local state tied to one transient task-guard session."""
 
+        if self._phase_stream_paused:
+            resume_stream = getattr(
+                self._bridge, "resume_slicer_joint_command_stream", None
+            )
+            try:
+                if callable(resume_stream):
+                    resume_stream()
+            finally:
+                self._phase_stream_paused = False
         clear_path = getattr(self._bridge, "clear_phase_plan_tcp_path", None)
         if callable(clear_path):
             try:
@@ -883,10 +895,11 @@ class DENTORobotWorkflowFacade:
         )
         maximum_combined_mm = PROVISIONAL_MAXIMUM_COMBINED_INSERTION_MM
         remaining_margin_mm = maximum_combined_mm - requested_combined_mm
-        passes = requested_combined_mm <= maximum_combined_mm + 1.0e-9
+        within_provisional_envelope = requested_combined_mm <= maximum_combined_mm + 1.0e-9
         return {
-            "status": "Pass" if passes else "Blocked",
-            "code": "" if passes else "TRAJECTORY_COMBINED_INSERTION_LIMIT_EXCEEDED",
+            "status": "Pass" if within_provisional_envelope else "Warning",
+            "code": "" if within_provisional_envelope else "PROVISIONAL_INSERTION_ENVELOPE_WARNING",
+            "planningAllowed": True,
             "requestedDrillingDepthMm": requested_depth_mm,
             "guideShellTraversalAllowanceMm": PROVISIONAL_GUIDE_SHELL_TRAVERSAL_ALLOWANCE_MM,
             "requestedCombinedInsertionMm": requested_combined_mm,
@@ -895,7 +908,8 @@ class DENTORobotWorkflowFacade:
             "remainingVisibleProtrusionMm": PROVISIONAL_REMAINING_VISIBLE_PROTRUSION_MM,
             # Compatibility aliases for older diagnostic consumers.
             "reservedAxialClearanceMm": PROVISIONAL_AXIAL_CLEARANCE_MM,
-            "maximumAllowedDrillingDepthMm": SIMULATION_TARGET_DEPTH_CAP_MM,
+            "maximumAllowedDrillingDepthMm": None,
+            "requestedTargetPreserved": True,
             "remainingInsertionMarginMm": remaining_margin_mm,
             "message": (
                 "Combined insertion envelope PASS (provisional operator-specified "
@@ -907,17 +921,18 @@ class DENTORobotWorkflowFacade:
                 f"tool protrusion {PROVISIONAL_EFFECTIVE_TOOL_PROTRUSION_MM:.3f} mm, "
                 f"remaining visible/protrusion clearance "
                 f"{PROVISIONAL_REMAINING_VISIBLE_PROTRUSION_MM:.3f} mm."
-                if passes
-                else "TRAJECTORY_COMBINED_INSERTION_LIMIT_EXCEEDED: requested "
+                if within_provisional_envelope
+                else "WARNING: requested "
                 f"combined insertion {requested_combined_mm:.3f} mm (drilling depth "
                 f"{requested_depth_mm:.3f} mm + provisional guide/shell allowance "
                 f"{PROVISIONAL_GUIDE_SHELL_TRAVERSAL_ALLOWANCE_MM:.3f} mm) exceeds "
-                f"the maximum combined insertion {maximum_combined_mm:.3f} mm by "
+                f"the provisional combined insertion envelope {maximum_combined_mm:.3f} mm by "
                 f"{-remaining_margin_mm:.3f} mm. Effective tool protrusion is "
                 f"{PROVISIONAL_EFFECTIVE_TOOL_PROTRUSION_MM:.3f} mm with "
                 f"{PROVISIONAL_REMAINING_VISIBLE_PROTRUSION_MM:.3f} mm remaining "
                 "visible/protrusion clearance; no shell measurement or calibration "
-                "is claimed. The approved Entry→Target line was not shortened or moved."
+                "is claimed. The exact approved Entry→Target line will be planned; "
+                "it was not shortened or moved."
             ),
         }
     def _scene_placement_issue(self, parameter_node) -> str:
@@ -2484,22 +2499,22 @@ class DENTORobotWorkflowFacade:
                 True,
                 "task_confirmed",
                 (
-                    "Confirmed one immutable SIMULATION task snapshot with a "
-                    f"maximum depth of {SIMULATION_TARGET_DEPTH_CAP_MM:g} mm. "
+                    "Confirmed one immutable SIMULATION task snapshot with "
+                    "the exact requested Entry-to-Target depth without a software cap. "
                     f"Effective Entry={effective_entry}, Target={effective_target}, "
                     f"depth={effective_depth:.3f} mm. The source trajectory remains "
-                    "unchanged; this capped Target is not claimed to be pulp. "
+                    "unchanged; this Target is not claimed to be pulp. "
                     "Any geometry, base, home, limit, tool, or robot-resource "
                     "change invalidates it."
                 ),
                 details={
                     "taskFingerprint": snapshot.snapshot_fingerprint,
-                    "simulationTargetDepthCapMm": SIMULATION_TARGET_DEPTH_CAP_MM,
                     "simulationTargetDepthPolicy": SIMULATION_TARGET_DEPTH_POLICY,
                     "effectiveEntryRasMm": effective_entry,
                     "effectiveTargetRasMm": effective_target,
                     "effectiveDepthMm": effective_depth,
                     "sourceTrajectoryUnchanged": True,
+                    "requestedTargetPreserved": True,
                     "effectiveTargetIsPulpClaim": False,
                 },
                 payload=snapshot,
@@ -2629,6 +2644,280 @@ class DENTORobotWorkflowFacade:
                 "maximumJointError": maximum_error,
             },
         )
+
+    @staticmethod
+    def _goal1_route_key(value: Mapping[str, object]) -> dict[str, object]:
+        """Return the stable identity used to reselect a route after reload."""
+
+        candidate = value.get("candidate")
+        source = candidate if isinstance(candidate, Mapping) else value
+        clearance = source.get("clearance")
+        if not isinstance(clearance, Mapping):
+            clearance = value.get("clearance")
+        if not isinstance(clearance, Mapping):
+            clearance = {}
+        route_type = (
+            "clearance-detour"
+            if isinstance(value.get("clearance"), Mapping)
+            else source.get("routeType", source.get("route_type", "direct"))
+        )
+        seed = source.get("seedSampleIndex", source.get("ik_seed_sample_index"))
+        clearance_index = source.get(
+            "clearance_sample_index",
+            clearance.get("sampleIndex"),
+        )
+        return {
+            "route_type": str(route_type or "direct"),
+            "ik_seed_sample_index": None if seed is None else int(seed),
+            "clearance_sample_index": (
+                None if clearance_index is None else int(clearance_index)
+            ),
+            "axial_roll_deg": round(
+                float(source.get("rollDeg", source.get("axial_roll_deg", 0.0))),
+                9,
+            ),
+        }
+
+    def _current_diagnostic_plan_selection(self, parameter_node):
+        payload = str(parameter_node.step6MotionDiagnosticJson or "").strip()
+        if not payload:
+            return None
+        try:
+            session = parse_motion_diagnostic_session(payload)
+            if self._logic.motionDiagnosticFreshnessIssues(parameter_node):
+                return None
+        except (RuntimeError, ValueError, OSError, KeyError):
+            return None
+        selection = motion_diagnostic_plan_selection(session)
+        if selection["state"] not in {"selected", "locked"}:
+            return None
+        if not selection.get("route_key"):
+            return None
+        return selection
+
+    def selectDiagnosticCandidate(
+        self,
+        candidate_index: int,
+        *,
+        lock: bool = False,
+    ) -> RobotActionResult:
+        """Persist an alternate route choice; planning remains transient."""
+
+        try:
+            parameter_node = self._require_context()
+            issues = self._logic.motionDiagnosticFreshnessIssues(parameter_node)
+            if issues:
+                raise ValueError(" ".join(issues))
+            session = self._logic.motionDiagnosticRecord(parameter_node)
+            if session is None:
+                raise ValueError("No current Step 6 motion diagnostic is available.")
+            index = int(candidate_index)
+            if index < 0 or index >= len(session.candidate_records):
+                raise ValueError("Diagnostic candidate index is out of range.")
+            if str(
+                session.candidate_records[index].get("full_chain_candidate_status") or ""
+            ) != "Complete":
+                raise ValueError(
+                    "Only a complete full-chain candidate can become the active route."
+                )
+            current = motion_diagnostic_plan_selection(session)
+            if current["state"] == "locked" and index != int(
+                current["candidate_index"]
+            ):
+                raise ValueError(
+                    "A different route is locked. Unlock it before selecting another route."
+                )
+            route_key = self._goal1_route_key(session.candidate_records[index])
+            updated = update_motion_diagnostic_plan_selection(
+                session,
+                index,
+                state="locked" if lock else "selected",
+                route_key=route_key,
+            )
+            parameter_node.step6MotionDiagnosticJson = canonical_json(
+                updated.to_dict()
+            )
+            selection = motion_diagnostic_plan_selection(updated)
+            self._diagnostic_plan_selection_override = selection
+            return RobotActionResult(
+                True,
+                "motion_diagnostic_plan_locked"
+                if lock
+                else "motion_diagnostic_plan_selected",
+                (
+                    f"Selected planner route {index + 1} and saved its route identity. "
+                    + (
+                        "It is locked to this route identity; re-planning remains required "
+                        "after restore or any transient runtime reset."
+                        if lock
+                        else "Run Goal 1 again to apply this route to the transient guarded plan."
+                    )
+                ),
+                details={"planSelection": selection},
+            )
+        except (RuntimeError, ValueError, OSError, KeyError) as exc:
+            return RobotActionResult(
+                False, "motion_diagnostic_plan_selection_failed", str(exc)
+            )
+
+    def _capture_route_activation_state(self, parameter_node) -> dict[str, object]:
+        """Capture the small transient state needed for atomic route apply."""
+
+        return {
+            "diagnostic_json": str(parameter_node.step6MotionDiagnosticJson or ""),
+            "motion_plan": self._motion_plan,
+            "phase_sequence": self._phase_sequence,
+            "completed_phase": self._completed_phase,
+            "phase_guard_task_fingerprint": self._phase_guard_task_fingerprint,
+            "preflight_drilling_plan": self._preflight_drilling_plan,
+            "preflight_task_fingerprint": self._preflight_task_fingerprint,
+            "preflight_orientation_commitment": self._preflight_orientation_commitment,
+            "accepted_motion_history": self._accepted_motion_history,
+            "motion_history_task_fingerprint": self._motion_history_task_fingerprint,
+            "diagnostic_candidate_paths": self._diagnostic_candidate_paths,
+            "diagnostic_plan_selection_override": self._diagnostic_plan_selection_override,
+            "planning_scene_object_count": self._planning_scene_object_count,
+            "planning_scene_synchronized": self._planning_scene_synchronized,
+            "robot_away_from_home": self._robot_away_from_home,
+        }
+
+    def _restore_route_activation_state(
+        self,
+        parameter_node,
+        state: Mapping[str, object],
+    ) -> None:
+        """Restore the prior route when an alternate cannot be activated."""
+
+        parameter_node.step6MotionDiagnosticJson = str(
+            state.get("diagnostic_json") or ""
+        )
+        self._motion_plan = state.get("motion_plan")
+        self._phase_sequence = int(state.get("phase_sequence", 0))
+        self._completed_phase = str(state.get("completed_phase") or "")
+        self._phase_guard_task_fingerprint = str(
+            state.get("phase_guard_task_fingerprint") or ""
+        )
+        self._preflight_drilling_plan = state.get("preflight_drilling_plan")
+        self._preflight_task_fingerprint = str(
+            state.get("preflight_task_fingerprint") or ""
+        )
+        self._preflight_orientation_commitment = state.get(
+            "preflight_orientation_commitment", {}
+        )
+        self._accepted_motion_history = state.get("accepted_motion_history", [])
+        self._motion_history_task_fingerprint = str(
+            state.get("motion_history_task_fingerprint") or ""
+        )
+        self._diagnostic_candidate_paths = state.get(
+            "diagnostic_candidate_paths", {}
+        )
+        self._diagnostic_plan_selection_override = state.get(
+            "diagnostic_plan_selection_override"
+        )
+        self._planning_scene_object_count = int(
+            state.get("planning_scene_object_count", 0)
+        )
+        self._planning_scene_synchronized = bool(
+            state.get("planning_scene_synchronized", False)
+        )
+        self._robot_away_from_home = bool(state.get("robot_away_from_home", False))
+
+    def applyDiagnosticCandidate(
+        self,
+        candidate_index: int,
+        *,
+        lock: bool = False,
+    ) -> RobotActionResult:
+        """Save a route choice and regenerate the current guarded plan from it."""
+
+        try:
+            parameter_node = self._require_context()
+        except (RuntimeError, ValueError, OSError) as exc:
+            return RobotActionResult(
+                False,
+                "motion_diagnostic_plan_apply_failed",
+                str(exc),
+            )
+        prior_state = self._capture_route_activation_state(parameter_node)
+        selection = self.selectDiagnosticCandidate(candidate_index, lock=lock)
+        if not selection.success:
+            return selection
+        try:
+            planned = self.planApproachPhase()
+        except (RuntimeError, ValueError, OSError) as exc:
+            self._restore_route_activation_state(parameter_node, prior_state)
+            return RobotActionResult(
+                False,
+                "motion_diagnostic_plan_apply_failed",
+                "Alternate route was not activated. " + str(exc),
+                details={"activationPreserved": True},
+            )
+        if not planned.success:
+            self._restore_route_activation_state(parameter_node, prior_state)
+            details = dict(planned.details)
+            details.update(
+                {
+                    "planSelection": selection.details.get("planSelection", {}),
+                    "activationPreserved": True,
+                }
+            )
+            return RobotActionResult(
+                False,
+                planned.code,
+                selection.message + " Alternate route was not activated. " + planned.message,
+                details=details,
+                payload=planned.payload,
+            )
+        details = dict(planned.details)
+        details["planSelection"] = selection.details.get("planSelection", {})
+        return RobotActionResult(
+            True,
+            "motion_diagnostic_plan_applied",
+            selection.message + " " + planned.message,
+            details=details,
+            payload=planned.payload,
+        )
+
+    def unlockDiagnosticCandidate(self) -> RobotActionResult:
+        """Release a saved route lock without selecting a different route."""
+
+        try:
+            parameter_node = self._require_context()
+            issues = self._logic.motionDiagnosticFreshnessIssues(parameter_node)
+            if issues:
+                raise ValueError(" ".join(issues))
+            session = self._logic.motionDiagnosticRecord(parameter_node)
+            if session is None:
+                raise ValueError("No current Step 6 motion diagnostic is available.")
+            selection = motion_diagnostic_plan_selection(session)
+            if selection["state"] != "locked":
+                return RobotActionResult(
+                    True,
+                    "motion_diagnostic_plan_already_unlocked",
+                    "The retained planner route is not locked.",
+                )
+            updated = update_motion_diagnostic_plan_selection(
+                session,
+                int(selection["candidate_index"]),
+                state="selected",
+                route_key=selection["route_key"],
+            )
+            parameter_node.step6MotionDiagnosticJson = canonical_json(
+                updated.to_dict()
+            )
+            self._diagnostic_plan_selection_override = motion_diagnostic_plan_selection(
+                updated
+            )
+            return RobotActionResult(
+                True,
+                "motion_diagnostic_plan_unlocked",
+                "Released the saved route lock. Re-plan Goal 1 to choose or apply another route.",
+                details={"planSelection": self._diagnostic_plan_selection_override},
+            )
+        except (RuntimeError, ValueError, OSError, KeyError) as exc:
+            return RobotActionResult(
+                False, "motion_diagnostic_plan_unlock_failed", str(exc)
+            )
 
     def showDiagnosticCandidate(self, candidate_index: int) -> RobotActionResult:
         """Show one retained last-valid state on the translucent goal robot."""
@@ -2828,6 +3117,11 @@ class DENTORobotWorkflowFacade:
         )
 
     def _prepare_phase_guard(self, parameter_node, snapshot) -> tuple[bool, str]:
+        pause_stream = getattr(
+            self._bridge, "pause_slicer_joint_command_stream", None
+        )
+        if callable(pause_stream):
+            self._phase_stream_paused = bool(pause_stream())
         count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
         self._planning_scene_object_count = count
         self._planning_scene_synchronized = True
@@ -3991,6 +4285,20 @@ class DENTORobotWorkflowFacade:
             and warning_summary["guideClearanceWarningCount"]
             else str(full_task_status)
         )
+        current_route_key = self._goal1_route_key(selected)
+        plan_selection = self._diagnostic_plan_selection_override
+        if plan_selection is None:
+            plan_selection_payload = {
+                "state": "auto",
+                "candidate_index": int(selected_index),
+                "route_key": current_route_key,
+            }
+        else:
+            plan_selection_payload = dict(plan_selection)
+            if not plan_selection_payload.get("route_key"):
+                plan_selection_payload["route_key"] = current_route_key
+            if plan_selection_payload.get("route_key") == current_route_key:
+                plan_selection_payload["candidate_index"] = int(selected_index)
         session = build_motion_diagnostic_session(
             state="Current",
             task_fingerprint=snapshot.snapshot_fingerprint,
@@ -4126,6 +4434,7 @@ class DENTORobotWorkflowFacade:
                     if self.anatomyReviewState.get("active")
                     else "AuthoritativeCompleteScene"
                 ),
+                "plan_selection": plan_selection_payload,
                 **warning_summary,
             },
         )
@@ -4277,6 +4586,10 @@ class DENTORobotWorkflowFacade:
 
         try:
             parameter_node = self._require_context()
+            preferred_plan_selection = self._current_diagnostic_plan_selection(
+                parameter_node
+            )
+            self._diagnostic_plan_selection_override = preferred_plan_selection
             self.stopPreview()
             self._diagnostic_candidate_paths = {}
             if self._robot_away_from_home:
@@ -4306,7 +4619,7 @@ class DENTORobotWorkflowFacade:
                 snapshot.entry_ras_mm,
                 snapshot.target_ras_mm,
             )
-            if tool_insertion["status"] != "Pass":
+            if not tool_insertion.get("planningAllowed", False):
                 return RobotActionResult(
                     False,
                     str(tool_insertion["code"]),
@@ -4375,6 +4688,7 @@ class DENTORobotWorkflowFacade:
             plan_failures: list[dict[str, object]] = []
             diagnostic_records: list[dict[str, object]] = []
             planned_candidate_routes: list[dict[str, object]] = []
+            clearance_candidate_routes: list[dict[str, object]] = []
             for candidate_index, candidate in enumerate(
                 ik_candidates[:GOAL1_MAX_PLANNED_IK_CANDIDATES]
             ):
@@ -4474,14 +4788,13 @@ class DENTORobotWorkflowFacade:
                             ),
                         }
                     )
-                    planned_candidate_routes.append(
-                        {
-                            "candidate": candidate,
-                            "strictPlan": candidate_plan,
-                            "chain": chain,
-                            "diagnosticIndex": len(diagnostic_records) - 1,
-                        }
-                    )
+                    route = {
+                        "candidate": candidate,
+                        "strictPlan": candidate_plan,
+                        "chain": chain,
+                        "diagnosticIndex": len(diagnostic_records) - 1,
+                    }
+                    planned_candidate_routes.append(route)
                     if chain["status"] != "Complete":
                         plan_failures.append(
                             {
@@ -4532,13 +4845,16 @@ class DENTORobotWorkflowFacade:
             if not any(
                 route["chain"]["status"] == "Complete"
                 for route in planned_candidate_routes
+            ) or (
+                preferred_plan_selection is not None
+                and str(preferred_plan_selection.get("route_key", {}).get("route_type"))
+                == "clearance-detour"
             ):
                 # A valid endpoint plus a failed straight joint-space route is
                 # not a proof that no route exists.  Reuse only the bounded
                 # 6.3 samples already shown to be static-valid and connected
                 # from Task Home, then independently replan both legs now.
                 clearance_start_plans: dict[int, object] = {}
-                clearance_candidate_routes: list[dict[str, object]] = []
                 direct_candidate_ids = {
                     id(route["candidate"]) for route in planned_candidate_routes
                 }
@@ -4671,15 +4987,14 @@ class DENTORobotWorkflowFacade:
                                     else ()
                                 ),
                             }
-                            clearance_candidate_routes.append(
-                                {
-                                    "candidate": candidate,
-                                    "strictPlan": merged_plan,
-                                    "chain": chain,
-                                    "clearance": clearance,
-                                    "diagnosticIndex": len(diagnostic_records) - 1,
-                                }
-                            )
+                            route = {
+                                "candidate": candidate,
+                                "strictPlan": merged_plan,
+                                "chain": chain,
+                                "clearance": clearance,
+                                "diagnosticIndex": len(diagnostic_records) - 1,
+                            }
+                            clearance_candidate_routes.append(route)
                             if chain["status"] != "Complete":
                                 plan_failures.append(
                                     {
@@ -4724,6 +5039,34 @@ class DENTORobotWorkflowFacade:
                         planned_candidate_routes + clearance_candidate_routes,
                         key=lambda route: route["chain"]["score"],
                     )
+                    strict_plan = selected_route["strictPlan"]
+                    selected_candidate = selected_route["candidate"]
+                    selected_chain_evaluation = selected_route["chain"]
+                    selected_axis_plan = selected_chain_evaluation["axisPlan"]
+                    selected_clearance = selected_route.get("clearance")
+                    selected_goal1_diagnostic_index = int(
+                        selected_route["diagnosticIndex"]
+                    )
+            all_candidate_routes = planned_candidate_routes + clearance_candidate_routes
+            if all_candidate_routes and preferred_plan_selection is not None:
+                preferred_key = preferred_plan_selection.get("route_key", {})
+                preferred_route = next(
+                    (
+                        route
+                        for route in all_candidate_routes
+                        if self._goal1_route_key(route) == preferred_key
+                        and str(route["chain"].get("status")) == "Complete"
+                    ),
+                    None,
+                )
+                if preferred_route is None:
+                    raise RuntimeError(
+                        "The saved planner route was not regenerated as a complete "
+                        "full-chain candidate. Review the current diagnostic before "
+                        "using another route."
+                    )
+                else:
+                    selected_route = preferred_route
                     strict_plan = selected_route["strictPlan"]
                     selected_candidate = selected_route["candidate"]
                     selected_chain_evaluation = selected_route["chain"]

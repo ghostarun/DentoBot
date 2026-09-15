@@ -285,7 +285,9 @@ def run() -> None:
         shell = widget._parameterNode.patientContactShellModel
         shell_summary = widget.logic.getPatientContactShellSummary(shell)
         process_events(0.25)
-        if direction_summary["geometryJson"] != shell_summary["insertionGeometryJson"]:
+        if not widget.logic.insertionGeometryMatches(
+            direction_summary, shell_summary["insertionGeometryJson"]
+        ):
             raise RuntimeError("loaded insertion geometry differs from shell provenance")
         if (
             shell.GetAttribute("DENTOBOT.GeometryState")

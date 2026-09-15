@@ -746,7 +746,14 @@ class RobotSceneSyncLogicMixin:
             display.SetLineWidth(2.0)
         return node
 
-    def syncStep6MoveItPlanningScene(self, parameterNode) -> int:
+    def syncStep6MoveItPlanningScene(
+        self,
+        parameterNode,
+        *,
+        expected_policy_fingerprint: str = "",
+        require_correlated_readback: bool = False,
+        defer_runtime_acknowledgement: bool = False,
+    ) -> int:
         """Publish Step 6 anatomy/guide surfaces in the base_link frame."""
         try:
             prior_audit = self.collisionSceneAuditRecord(parameterNode)
@@ -1035,6 +1042,11 @@ class RobotSceneSyncLogicMixin:
                 "outgoing_linear_unit_before_publish": "mm",
                 "publisher_linear_scale_m_per_mm": 0.001,
                 "collision_padding_mm": 0.0,
+                # The published mesh vertices are already expressed in
+                # base_link, so the CollisionObject pose must be identity.
+                # Keep this explicit for the runtime readback contract.
+                "outgoing_pose_base_link_m_xyzw": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                "outgoing_pose_source": "vertices_already_in_base_link_frame",
                 "outgoing_collision_object_id": source_name,
                 "publish_status": "Pending",
                 "runtime_acknowledgement_status": "NotQueried",
@@ -1074,21 +1086,45 @@ class RobotSceneSyncLogicMixin:
                 raise RuntimeError(message)
             record["publish_status"] = "PublishReturnedSuccess"
             object_records.append(record)
-        acknowledgement = acknowledge_moveit_collision_scene(
-            expected_objects=object_records,
-            current_joint_positions_si=joint_positions_si_from_display(
+        current_joint_positions_si = monitored_joint_positions_si()
+        if any(
+            name not in current_joint_positions_si for name in JOINT_NAMES
+        ):
+            current_joint_positions_si = joint_positions_si_from_display(
                 parameterNode.robotJoint1Deg,
                 parameterNode.robotJoint2Mm,
                 parameterNode.robotJoint3Deg,
                 parameterNode.robotJoint4Mm,
                 parameterNode.robotJoint5Deg,
                 parameterNode.robotJoint6Deg,
-            ),
-        )
+            )
+        if defer_runtime_acknowledgement:
+            acknowledgement = {
+                "status": "Deferred",
+                "reason": (
+                    "Ordinary joint-status readback was deferred; the diagnostic "
+                    "task-status request must prove exact scene identity and policy."
+                ),
+                "acknowledged_object_ids": [],
+                "mismatches": [],
+                "expected_policy_fingerprint": expected_policy_fingerprint or None,
+                "readback_correlated": False,
+                "trusted": False,
+                "attribution_allowed": False,
+            }
+        else:
+            acknowledgement = acknowledge_moveit_collision_scene(
+                expected_objects=object_records,
+                current_joint_positions_si=current_joint_positions_si,
+                expected_policy_fingerprint=expected_policy_fingerprint,
+                require_correlated_readback=require_correlated_readback,
+            )
         audit = build_collision_scene_audit(
             status=(
                 "Acknowledged"
                 if acknowledgement.get("status") == "Acknowledged"
+                else "RuntimeAcknowledgementDeferred"
+                if defer_runtime_acknowledgement
                 else "RuntimeAcknowledgementFailed"
             ),
             base_fingerprint=self.robotBaseFingerprint(parameterNode),
@@ -1106,6 +1142,8 @@ class RobotSceneSyncLogicMixin:
                 parameterNode,
                 _("Collision-scene payload or runtime acknowledgement changed."),
             )
+        if defer_runtime_acknowledgement:
+            return len(sources)
         if audit.status != "Acknowledged":
             mismatches = acknowledgement.get("mismatches", ())
             raise RuntimeError(

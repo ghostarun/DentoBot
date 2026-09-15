@@ -698,60 +698,9 @@ docker exec "${docker_exec_options[@]}" \
       export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
     fi
 
-    stack_log=/tmp/dentobot-simulation-stack.log
-    setsid ros2 launch dentobot_moveit_config simulation.launch.py >"${stack_log}" 2>&1 &
-    stack_pid=$!
-    stack_group_alive() {
-      kill -0 -- "-${stack_pid}" >/dev/null 2>&1
-    }
-    cleanup_stack() {
-      trap - EXIT INT TERM
-      if stack_group_alive; then
-        kill -INT -- "-${stack_pid}" >/dev/null 2>&1 || true
-        for _attempt in $(seq 1 20); do
-          stack_group_alive || break
-          sleep 0.25
-        done
-      fi
-      if stack_group_alive; then
-        kill -TERM -- "-${stack_pid}" >/dev/null 2>&1 || true
-        for _attempt in $(seq 1 20); do
-          stack_group_alive || break
-          sleep 0.25
-        done
-      fi
-      if stack_group_alive; then
-        kill -KILL -- "-${stack_pid}" >/dev/null 2>&1 || true
-      fi
-      wait "${stack_pid}" >/dev/null 2>&1 || true
-    }
-    trap cleanup_stack EXIT INT TERM
-
-    stack_ready=false
-    for _attempt in $(seq 1 60); do
-      if ! kill -0 "${stack_pid}" >/dev/null 2>&1; then
-        printf "%s\n" "DENTOBOT simulation stack exited during startup:" >&2
-        tail -n 80 "${stack_log}" >&2 || true
-        exit 2
-      fi
-      status="$(timeout 2s ros2 topic echo \
-        /dentobot/simulation_status std_msgs/msg/String \
-        --once --field data 2>/dev/null || true)"
-      if [[ ${status} == *'"'"'"ready":true'"'"'* ]]; then
-        stack_ready=true
-        break
-      fi
-      sleep 0.5
-    done
-    if [[ ${stack_ready} != true ]]; then
-      printf "%s\n" "DENTOBOT simulation stack was not ready within 30 seconds:" >&2
-      tail -n 80 "${stack_log}" >&2 || true
-      exit 2
-    fi
-
-    printf "%s\n" \
-      "DENTOBOT simulation stack ready (description + one joint-state source + MoveIt)." \
-      "Stack log: ${stack_log}"
-    ros2 launch slicer_ros2_module slicer.launch.py \
+    exec bash /workspace/ros2_ws/src/DentoBot/Workspace/scripts/dentobot-simulation-slicer-handoff.bash \
+      --stack-log /tmp/dentobot-simulation-stack.log \
+      -- \
+      ros2 launch slicer_ros2_module slicer.launch.py \
       "slicer_args:=--no-splash --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
   '

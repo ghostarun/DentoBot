@@ -6,6 +6,21 @@ from .runtime import *
 
 
 class DockingLogicMixin:
+    def canonicalTrajectoryGeometry(self, trajectories: list) -> list[dict]:
+        """Return reload-stable trajectory provenance without changing geometry inputs."""
+
+        return [
+            {
+                "entryRas": self._registryWorldPoint(
+                    self.getTrajectorySummary(node)["entryRas"]
+                ),
+                "targetRas": self._registryWorldPoint(
+                    self.getTrajectorySummary(node)["targetRas"]
+                ),
+            }
+            for node in trajectories
+        ]
+
     @staticmethod
     def isTargetDockingReferencePlaneNode(node) -> bool:
         return bool(
@@ -66,6 +81,7 @@ class DockingLogicMixin:
     ) -> tuple[list[vtk.vtkPolyData], list[str], list[str]]:
         """Return other same-jaw whole teeth used by the draft yaw screen."""
 
+        parameterNode = self.getParameterNode()
         targetArch = self.dentalArchForFdi(targetRecord.get("fdiNumber") or "")
         if not targetArch:
             raise ValueError(
@@ -99,7 +115,11 @@ class DockingLogicMixin:
                 continue
             try:
                 surfaces.append(
-                    self._getClosedSurfaceWorldCopy(segmentationNode, segmentId)
+                    self.caseFoundationPlanningSurfaceCopy(
+                        parameterNode,
+                        segmentationNode,
+                        segmentId,
+                    )
                 )
                 segmentIds.append(segmentId)
             except ValueError:
@@ -274,7 +294,8 @@ class DockingLogicMixin:
         autoSelectYaw: bool = False,
         measurementsVisible: bool = True,
     ) -> tuple[vtkMRMLMarkupsPlaneNode, vtkMRMLModelNode, dict]:
-        self.requireCaseFoundationPose(self.getParameterNode())
+        parameterNode = self.getParameterNode()
+        self.requireCaseFoundationPose(parameterNode)
         targetRecord = self.validateTargetTooth(segmentationNode, targetSegmentId)
         supportSummary = self.getDraftTemplateSupportModelSummary(supportModel)
         if supportSummary["geometryState"] != "Current":
@@ -305,7 +326,8 @@ class DockingLogicMixin:
                     "targetRas": [float(value) for value in summary["targetRas"]],
                 }
             )
-        toothSurfaceWorld = self._getClosedSurfaceWorldCopy(
+        toothSurfaceWorld = self.caseFoundationPlanningSurfaceCopy(
+            parameterNode,
             segmentationNode,
             targetRecord["segmentId"],
         )
@@ -369,7 +391,7 @@ class DockingLogicMixin:
         parametersJson = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
         frameJson = json.dumps(frame, sort_keys=True, separators=(",", ":"))
         trajectoryJson = json.dumps(
-            trajectoryGeometry,
+            self.canonicalTrajectoryGeometry(trajectories),
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -397,6 +419,10 @@ class DockingLogicMixin:
             planeNode.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
             planeNode.SetAttribute("DENTOBOT.TrajectoryGeometryJson", trajectoryJson)
             planeNode.SetAttribute("DENTOBOT.TargetSegmentId", targetRecord["segmentId"])
+            planeNode.SetAttribute(
+                "DENTOBOT.CaseFoundationPreparationMode",
+                str(parameterNode.step6CaseJawPreparationMode or ""),
+            )
             planeNode.SetAttribute("DENTOBOT.OrientationState", "Draft")
             planeNode.SetAttribute("DENTOBOT.OrientationConfirmedUtc", None)
             planeNode.SetAttribute(
@@ -453,6 +479,10 @@ class DockingLogicMixin:
             assemblyModel.SetAttribute("DENTOBOT.OrientationConfirmedUtc", None)
             assemblyModel.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
             assemblyModel.SetAttribute("DENTOBOT.TargetSegmentId", targetRecord["segmentId"])
+            assemblyModel.SetAttribute(
+                "DENTOBOT.CaseFoundationPreparationMode",
+                str(parameterNode.step6CaseJawPreparationMode or ""),
+            )
             assemblyModel.SetAttribute(
                 "DENTOBOT.ObstacleSegmentIdsJson",
                 json.dumps(obstacleSegmentIds, separators=(",", ":")),
@@ -616,6 +646,9 @@ class DockingLogicMixin:
             "staleReason": staleReason,
             "segmentation": segmentationNode,
             "targetSegmentId": assemblyModel.GetAttribute("DENTOBOT.TargetSegmentId") or "",
+            "caseFoundationPreparationMode": (
+                assemblyModel.GetAttribute("DENTOBOT.CaseFoundationPreparationMode") or ""
+            ),
             "plane": planeNode,
             "supportModel": supportModel,
             "supportSegmentIds": json.loads(

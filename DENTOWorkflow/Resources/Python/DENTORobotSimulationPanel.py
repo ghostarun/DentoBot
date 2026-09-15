@@ -926,6 +926,8 @@ class DENTORobotSimulationPanel:
         on_review,
         on_candidate_path=None,
         on_candidate_preview=None,
+        on_candidate_apply=None,
+        on_candidate_unlock=None,
     ) -> None:
         """Open the bounded operator-facing diagnostic candidate inspector."""
         if self._diagnosticDialog is not None:
@@ -972,6 +974,31 @@ class DENTORobotSimulationPanel:
         )
         full_task_label.wordWrap = True
         layout.addWidget(full_task_label)
+        plan_selection = session.full_task_outcome.get("plan_selection")
+        if not isinstance(plan_selection, dict):
+            plan_selection = {}
+        plan_selection_state = str(plan_selection.get("state") or "auto")
+        try:
+            plan_selection_index = int(
+                plan_selection.get("candidate_index", session.selected_candidate_index)
+            )
+        except (TypeError, ValueError):
+            plan_selection_index = int(session.selected_candidate_index)
+        selection_label = qt.QLabel(
+            "Saved route intent: "
+            + (
+                f"{plan_selection_state} (route {plan_selection_index + 1}). "
+                "Case save stores this identity only; reopening requires a current re-plan."
+                if plan_selection_state in {"selected", "locked"}
+                else "automatic planner choice. Select an eligible complete route to save an alternate."
+            ),
+            dialog,
+        )
+        selection_label.wordWrap = True
+        selection_label.setProperty(
+            "dentobotRole", "warning" if plan_selection_state == "locked" else "status"
+        )
+        layout.addWidget(selection_label)
         if template_excluded:
             collision_scope_label = qt.QLabel(
                 "FUNCTIONAL SIMULATION ONLY — the unresolved Step 5C final "
@@ -1101,10 +1128,16 @@ class DENTORobotSimulationPanel:
         dialog_buttons = qt.QHBoxLayout()
         path_button = qt.QPushButton("Show Selected Paths", dialog)
         preview_button = qt.QPushButton("Preview Selected Leg", dialog)
+        apply_button = qt.QPushButton("Use Selected Route (replan)", dialog)
+        lock_button = qt.QPushButton("Lock + Replan Selected Route", dialog)
+        unlock_button = qt.QPushButton("Unlock Saved Route", dialog)
         review_button = qt.QPushButton("Mark Current Evidence Reviewed", dialog)
         close_button = qt.QPushButton("Close", dialog)
         dialog_buttons.addWidget(path_button)
         dialog_buttons.addWidget(preview_button)
+        dialog_buttons.addWidget(apply_button)
+        dialog_buttons.addWidget(lock_button)
+        dialog_buttons.addWidget(unlock_button)
         dialog_buttons.addWidget(review_button)
         dialog_buttons.addWidget(close_button)
         layout.addLayout(dialog_buttons)
@@ -1137,6 +1170,14 @@ class DENTORobotSimulationPanel:
         path_button.enabled = bool(on_candidate_path)
         preview_button.enabled = bool(on_candidate_preview)
 
+        def update_plan_buttons(index: int) -> None:
+            record = records[index]
+            complete = str(record.get("full_chain_candidate_status") or "") == "Complete"
+            locked = plan_selection_state == "locked"
+            apply_button.enabled = bool(on_candidate_apply and complete and not locked)
+            lock_button.enabled = bool(on_candidate_apply and complete and not locked)
+            unlock_button.enabled = bool(on_candidate_unlock and locked)
+
         def select_candidate(index: int) -> None:
             index = max(0, min(len(records) - 1, int(index)))
             table.selectRow(index)
@@ -1146,9 +1187,40 @@ class DENTORobotSimulationPanel:
             record = records[index]
             feedback_label.text = self._motionPlannerFeedback(session, index)
             details.plainText = json.dumps(record, indent=2, sort_keys=True)
+            update_plan_buttons(index)
             if on_candidate_selected:
                 result = on_candidate_selected(index)
                 details.appendPlainText("\n\nDisplay result: " + result.message)
+
+        def apply_selected(lock: bool) -> None:
+            nonlocal plan_selection_state
+            if on_candidate_apply:
+                result = on_candidate_apply(int(table.currentRow()), lock)
+                details.appendPlainText("\n\nRoute plan result: " + result.message)
+                if result.success:
+                    plan_selection_state = "locked" if lock else "selected"
+                    selection_label.text = (
+                        "Saved route intent: "
+                        + ("locked" if lock else "selected")
+                        + f" (route {int(table.currentRow()) + 1}). Reopen the dialog after the current re-plan to review updated evidence."
+                    )
+                    if lock:
+                        apply_button.enabled = False
+                        lock_button.enabled = False
+                        unlock_button.enabled = bool(on_candidate_unlock)
+
+        def unlock_selected() -> None:
+            nonlocal plan_selection_state
+            if on_candidate_unlock:
+                result = on_candidate_unlock()
+                details.appendPlainText("\n\nRoute lock result: " + result.message)
+                if result.success:
+                    plan_selection_state = "selected"
+                    update_plan_buttons(int(table.currentRow))
+
+        apply_button.clicked.connect(lambda checked=False: apply_selected(False))
+        lock_button.clicked.connect(lambda checked=False: apply_selected(True))
+        unlock_button.clicked.connect(lambda checked=False: unlock_selected())
 
         table.currentCellChanged.connect(
             lambda row, column, previous_row, previous_column: (

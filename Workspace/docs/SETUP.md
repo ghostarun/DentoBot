@@ -330,6 +330,32 @@ or `ros2_ws/src/Arduino/`. Do not zip `~/dentobot` or copy
 `ros2_ws/build|install|log`, `data/` cases, or `graphify-out/`. Recreate the
 overlay with `bootstrap-workspace.bash` (`Workspace/HOST_LAYOUT.md`).
 
+### Multi-workstation development and saved case bundles
+
+Use the same source/data boundary on every workstation:
+
+1. Clone or update `ros2_ws/src/DentoBot`, run
+   `Workspace/bootstrap-workspace.bash`, and commit every script, test,
+   launcher, configuration example, and controlled-document change to Git.
+2. Create the workstation-local `.dentobot.env` from
+   `Workspace/.dentobot.env.example`. Do not commit it; absolute interpreter,
+   render-device, cache, and run-record paths belong to the workstation.
+3. Keep `data/`, `slicer-home/`, `ros2_ws/build|install|log/`, and generated
+   verification output local. They are already excluded from Git and are not
+   part of the controlled-document Drive mirror.
+4. If a saved case must move between workstations, exchange an individual
+   `data/Slicer_Saved/**/*.dentocase` bundle only. Do not sync the whole
+   `Slicer_Saved` folder or its `.mrb`, `.stl`, `.nrrd`, screenshot, or run
+   files. A `.dentocase` embeds an MRB and may contain CBCT-derived NRRD
+   volumes and segmentations, so use this path only for synthetic or explicitly
+   approved de-identified cases. Verify its checksum before opening it.
+
+The existing `IITM Dentobot/active-development-ubuntu` Drive folder remains
+the controlled-document mirror. The operator-approved saved-case location is
+`IITM Dentobot/Data`; preserve the local `SampleStudy1/FDI*` layout there. No
+automatic watcher, whole-folder mirror, or new sync service is part of the
+baseline. This boundary is tracked as `PLAT-U-07`.
+
 Run Git from the checkout or through the top-level helper:
 
 ```bash
@@ -706,6 +732,13 @@ The launcher starts the simulation stack in its own process group. When Slicer
 closes—even with the pinned SlicerROS2 build's known VTK-leak exit code—the
 launcher sends bounded INT, TERM, then KILL escalation to that owned group so
 ROS and MoveIt children cannot remain orphaned.
+The readiness-to-Slicer handoff is implemented by the launcher-owned
+`Workspace/scripts/dentobot-simulation-slicer-handoff.bash` helper. It keeps
+the verified 2-second status poll/60-attempt/0.5-second defaults, records
+`DENTOBOT_HANDOFF` stage and cleanup-reason markers without tracing command
+arguments, and preserves the diagnostic exit status through cleanup. This
+helper is a source-level launch-control aid; it does not change the ROS
+readiness schema or enable hardware/trajectory execution.
 The current verified CRD session reported:
 
 ```text
@@ -1063,19 +1096,30 @@ Codex and open this repository again.
 graphify query "<question>"
 graphify path "<symbol A>" "<symbol B>"
 graphify explain "<concept>"
-graphify update .               # after code edits (no LLM cost)
+Workspace/scripts/graphify-update.bash   # after code edits (no LLM cost)
+# equivalent: cd /home/light-tarun/dentobot && graphify update .
 ```
 
 In Cursor chat, `/graphify .` runs the full skill (code + optional docs). For
-token economy, prefer `graphify update .` plus `graphify query` for code
+token economy, prefer the overlay refresh above plus `graphify query` for code
 questions. Regenerate the graph after substantive refactors.
 
 The live graph is only `~/dentobot/graphify-out/`. Do not keep a second copy
-under `ros2_ws/src/DentoBot/graphify-out/`; that nested tree is gitignored.
+under `ros2_ws/src/DentoBot/graphify-out/`; that nested tree is gitignored and
+must be deleted if recreated. Always refresh from the overlay root. Running
+`graphify update .` inside `ros2_ws/src/DentoBot` builds a smaller wrong-root
+graph and leaves the authoritative overlay index stale.
 
-Optional: `graphify hook install` keeps the graph fresh on git commit (requires
-a git repository at the project root). The Ubuntu overlay root is not a git
-repository, so the hook belongs in `ros2_ws/src/DentoBot` if used.
+Codex Linux command output may begin with
+`Failed to create stream fd: Operation not permitted` (often three times). That
+is exec-wrapper noise on trusted projects, not a graphify rebuild failure.
+Judge success by exit code 0 plus `Code graph updated` or
+`[graphify watch] Rebuilt:`.
+
+Optional: `graphify hook install` can keep a graph fresh on git commit, but the
+Ubuntu overlay root is not a git repository. Do not install a DentoBot-package
+hook that writes `ros2_ws/src/DentoBot/graphify-out/`; use
+`Workspace/scripts/graphify-update.bash` after commits instead.
 
 ## Shared agentic verification (Codex, Cursor, Claude)
 

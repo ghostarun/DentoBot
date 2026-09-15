@@ -1,6 +1,7 @@
 """Pure tests for Step 6 planning helpers."""
 
 from pathlib import Path
+import json
 import sys
 
 import numpy as np
@@ -100,6 +101,223 @@ def test_case_view_roles_are_case_package_not_phantom() -> None:
     assert "targetToothBoundsRoi" in CASE_VIEW_ROLES
     assert "draftPhantomSkullModel" not in CASE_VIEW_ROLES
     assert "draftPhantomMandibleModel" not in CASE_VIEW_ROLES
+
+
+def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries() -> None:
+    parameter_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "parameter_state.py"
+    ).read_text()
+    assert "templateChannelDiameterMm: float = 2.0" in parameter_source
+    assert "templateSleeveInnerDiameterMm: float = 2.0" in parameter_source
+    generation_source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_stage6_target_generation.py"
+    ).read_text()
+    assert '"minimum_required_mm": 2.0' in generation_source
+    assert '"guide_bore": guide_bore' in generation_source
+    assert 'getModuleLogic("ROS2")' in generation_source
+    assert "def _write_startup_failure_reports" in generation_source
+    assert '"startup_error": failure' in generation_source
+    assert "def _capture_screenshot_evidence" in generation_source
+    assert '"diagnostic_evidence": diagnostic_evidence' in generation_source
+    assert "def _target_directory" in generation_source
+    assert 'FDI{_target_key(target_fdi)}-step5c.dentocase' in generation_source
+    assert '_target_directory(target_fdi) / "screenshots"' in generation_source
+    assert '"diagnostics"' in generation_source
+    assert "def _write_target_diagnostic" in generation_source
+    assert "exportFinalPrintableTemplateStl" in generation_source
+    assert '"verified_stl": {' in generation_source
+    assert '"saved_sha256":' in generation_source
+    assert generation_source.index("exportFinalPrintableTemplateStl") < generation_source.index(
+        "prepareDentoCaseSchema3ForSave"
+    )
+    assert "/workspace/data/Slicer_Saved/SampleStudy1" in generation_source
+    assert "RUN_ID = os.environ.get" in generation_source
+    assert "camera.SetParallelScale(max(5.0, 0.8 * span))" in generation_source
+    assert "view_size = view.size" in generation_source
+    assert "host.grab(qt.QRect(origin, view_size))" in generation_source
+    docking_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "logic_docking.py"
+    ).read_text()
+    assert "def canonicalTrajectoryGeometry" in docking_source
+    assert "self._registryWorldPoint" in docking_source
+    assert "CaseFoundationPreparationMode" in docking_source
+    guide_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py"
+    ).read_text()
+    assert "Single current-frame target dock" in guide_source
+    assert "no closed-jaw duplicate" in guide_source
+    for relative_path in (
+        "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_docking.py",
+        "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py",
+        "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_build.py",
+        "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_guide_support_setup.py",
+    ):
+        assert "canonicalTrajectoryGeometry" in (
+            REPOSITORY_ROOT / relative_path
+        ).read_text()
+    support_setup_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_guide_support_setup.py"
+    ).read_text()
+    assert "self._caseBundleRestoreDepth > 0" in support_setup_source
+    exact_smoke_source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    assert "def require_trajectory_guide_bore" in exact_smoke_source
+    assert '"guideBore": guide_bore' in exact_smoke_source
+    assert '"restoredGuideBore": restored_guide_bore' in exact_smoke_source
+
+    from xml.etree import ElementTree
+
+    ui_path = REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "UI" / "DENTOWorkflow.ui"
+    tree = ElementTree.parse(ui_path)
+    for name in (
+        "templateChannelDiameterSpinBox",
+        "templateSleeveInnerDiameterSpinBox",
+    ):
+        widget = next(
+            element
+            for element in tree.iter("widget")
+            if element.get("name") == name
+        )
+        minimum = widget.find("./property[@name='minimum']/double")
+        assert minimum is not None
+        assert float(minimum.text) == 2.0
+
+
+def test_new_dock_defaults_match_latest_saved_fdi31_case() -> None:
+    parameter_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "parameter_state.py"
+    ).read_text()
+    assert "targetDockingPatternRadiusMm: float = 10.0" in parameter_source
+    assert "targetDockingOuterDiameterMm: float = 3.0" in parameter_source
+    assert "targetDockingBoreDiameterMm: float = 1.5" in parameter_source
+    assert "targetDockingConnectorDiameterMm: float = 3.5" in parameter_source
+    assert "targetDockingConnectorThicknessMm: float = 2.0" in parameter_source
+    assert "targetDockingSharedDepthMm: float = 5.0" in parameter_source
+    assert "targetDockingYawDeg: float = 35.0" in parameter_source
+    assert "targetDockingCollisionClearanceMm: float = 0.5" in parameter_source
+
+
+def test_stage6_hard_constraints_preserve_depth_and_read_only_provenance() -> None:
+    state_source = (
+        REPOSITORY_ROOT / "DENTOWorkflow/Resources/Python/DENTOStep6State.py"
+    ).read_text()
+    robot_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    ).read_text()
+    facade_source = (
+        REPOSITORY_ROOT / "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py"
+    ).read_text()
+    shell_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_patient_shell.py"
+    ).read_text()
+    getter = shell_source[shell_source.index("    def getTemplateInsertionDirectionSummary") :]
+    getter = getter[:getter.index("\n    def ", 5)]
+    assert 'SIMULATION_TARGET_DEPTH_POLICY = "simulation-target-depth-preserve-request-v2"' in state_source
+    assert "SIMULATION_TARGET_DEPTH_CAP_MM" not in state_source
+    assert "validate_simulation_target(" in robot_source
+    assert "cap_simulation_target(" not in robot_source
+    assert "maximumAllowedDrillingDepthMm\": None" in facade_source
+    assert '"requestedTargetPreserved": True' in facade_source
+    assert "def canonicalInsertionGeometryJson" in shell_source
+    assert "def insertionGeometryMatches" in shell_source
+    assert "SetNthControlPointLabel" not in getter
+    assert "insertionGeometryMatches" in (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_build.py"
+    ).read_text()
+    assert "insertionGeometryMatches" in (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py"
+    ).read_text()
+
+
+def test_stage6_target_manifest_requires_each_distinct_campaign_target(tmp_path) -> None:
+    testing_directory = REPOSITORY_ROOT / "Testing"
+    if str(testing_directory) not in sys.path:
+        sys.path.insert(0, str(testing_directory))
+    from run_dentobot_stage6_target_matrix import load_case_manifest, run_matrix
+
+    targets = {}
+    for fdi in ("31", "32", "11", "12", "13", "14"):
+        case = tmp_path / f"FDI{fdi}.dentocase"
+        case.touch()
+        targets[f"FDI{fdi}"] = str(case)
+    manifest = tmp_path / "targets.json"
+    manifest.write_text(json.dumps({"targets": targets}), encoding="utf-8")
+
+    loaded = load_case_manifest(manifest)
+
+    assert tuple(loaded) == ("31", "32", "11", "12", "13", "14")
+    dry_run = run_matrix(
+        manifest,
+        tmp_path / "matrix-output",
+        slicer="Slicer",
+        module_root="DENTOWorkflow",
+        runner="runner.py",
+        timeout_sec=1,
+        dry_run=True,
+    )
+    assert all(result["status"] == "not-run" for result in dry_run["results"])
+    assert (tmp_path / "matrix-output" / "stage6-target-matrix-report.json").is_file()
+    del targets["FDI13"]
+    manifest.write_text(json.dumps({"targets": targets}), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing FDI13"):
+        load_case_manifest(manifest)
+
+
+def test_stage6_target_matrix_requires_complete_saved_case_smoke_evidence() -> None:
+    testing_directory = REPOSITORY_ROOT / "Testing"
+    if str(testing_directory) not in sys.path:
+        sys.path.insert(0, str(testing_directory))
+    from run_dentobot_stage6_target_matrix import smoke_report_issues
+
+    report = {
+        "targetFdi": "31",
+        "guideBore": {
+            "channelDiameterMm": 2.0,
+            "sleeveInnerDiameterMm": 2.0,
+        },
+        "guarded_preview_complete": True,
+        "guarded_return_home_complete": True,
+        "repeat_guarded_preview_complete": True,
+        "final_target_position_error_mm": 0.1,
+        "repeat_final_target_position_error_mm": 0.1,
+        "savedCase": {
+            "reopened": True,
+            "restoredFdi": "31",
+            "restoredPlanSelection": {"state": "locked"},
+        },
+        "hardware_execution_enabled": False,
+    }
+    assert smoke_report_issues(report, "31") == ()
+    report["guideBore"]["channelDiameterMm"] = 1.9
+    assert "report lacks a 2.0 mm trajectory-guide bore" in smoke_report_issues(
+        report, "31"
+    )
 
 
 def test_combine_ras_bounds_unions_finite_positive_extent_boxes() -> None:

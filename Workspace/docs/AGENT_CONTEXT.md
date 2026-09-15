@@ -18,7 +18,15 @@ live in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Current handoff
 
-- Active P0 owners: `W5-U-04`, `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`.
+- **Latest FDI31 override (2026-09-14):** The operator accepted the causal review
+  and requested Astra architecture / Luna Max implementation orchestration.
+  Read [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and its
+  TASKS/DECISIONS supersession before following older geometry-only/one-packet
+  next-action text below. Design issued; execution not authorized. P0 baseline,
+  P1 scene/operator review with P2 diagnostics, P3 endpoint, conditional P4
+  insertion, then R1/Astra; no automatic next tooth or full-flow retry.
+- Active P0 owners: `S3-P0-DENTAL-SEMANTICS`, `W5-U-04`,
+  `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`.
   Run central incisors FDI31 → FDI41 → FDI11 → FDI21 independently from the
   unchanged `data/Slicer_Saved/SampleStudy1/dentobot-case-13sept.dentocase`.
   The full gate and failure policy are in
@@ -29,18 +37,39 @@ live in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 - For each tooth: clean process → 4A–5C → verified STL → production save →
   **new-process** reload → exact Stage 6. Store package, STL, SHA-linked JSON
   and screenshots under `data/Slicer_Saved/SampleStudy1/FDI<nn>/<run-id>/`.
-  Advance past tooth-specific first-invalid results; stop on shared
+  Record tooth-specific first-invalid results and propose the next tooth only
+  after operator approval; stop on shared
   source/package/fingerprint/runtime failures. The source has all four tooth
   masks, pulp for FDI31/41 and no FDI11/21 pulp; never synthesize missing pulp.
-- Existing FDI31 has one current eligible PreparedBranch and automated reopen;
-  selected-route planning reached the requested depth. Guarded runtime, clean
-  process campaign reload, STL, ten normal-window observations and operator
-  acceptance remain open. A manually opened package produced an unlocalized
-  fingerprint mismatch; identify its path and expected/actual values first.
+- Existing FDI31 has one current eligible PreparedBranch, current STL and
+  save/reopen evidence. The approved current-source exact check reached the
+  requested target endpoint but stopped at the first native Stage-3 guard
+  collision between the selected tooth and `pneumatic_spindle-Copy`.
+  Goal 2/Return Home, repeat/playback and ten normal-window observations are
+  not accepted. Preserve the first-invalid evidence; do not relax the guard,
+  shorten depth, move the base or start another tooth automatically.
+- The operator manually selects Luna Max for this campaign. Continue the fixed
+  path for classified failures; stop before an ambiguous or unplanned
+  higher-reasoning fix and give the evidence/reasoning-type packet specified in
+  DEVELOPMENT_PLAN.md. Never switch models or delegate automatically.
+- **One packet only:** The generator STL/folder/diagnostic edit is implemented.
+  The operator explicitly approved the bounded offline Slicer/ROS/MoveIt check
+  for the current FDI31 semantic implementation, with no robot motion or
+  patient-facing action. That current-source check ended at the target-specific
+  Stage-3 first-invalid collision; preserve its r13 artifacts and wait for a
+  compliant guide/tool/base geometry correction and explicit recheck approval.
+  Do not start FDI41, FDI11 or FDI21 automatically.
 - `Testing/run_dentobot_stage6_target_generation.py` already generates/saves
   and reopens in-process; it lacks STL export and fresh-process verification.
   Reuse the exact-case Stage 6 runner separately. Six-target matrix, optional
   32 × 3, Studio, database and platform migration stay downstream.
+- `S3-P0-DENTAL-SEMANTICS` owns the source-only semantic-bridge plan. The
+  current parser derives category/FDI from display names and assisted
+  planning matches pulp by that derived FDI; the reviewed source package has
+  no FDI11/FDI21 pulp. Do not make a new pulp-dependent planning claim until
+  target tooth, pulp geometry and spatial association are canonically
+  validated. Keep `S4A-PULP-ENDPOINT` as the endpoint-geometry owner and
+  `S6-REUSABLE-CASE-SETUP` as the package/campaign owner.
 
 ## Where facts belong
 

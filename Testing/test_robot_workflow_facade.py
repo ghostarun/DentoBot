@@ -37,6 +37,72 @@ def test_route_selection_allows_direct_winner_after_detours():
     assert state["selected_clearance"] == {"sampleIndex": 3}
 
 
+def test_goal1_route_key_distinguishes_seed_and_clearance_identity():
+    direct = {
+        "candidate": {
+            "routeType": "seeded",
+            "seedSampleIndex": 4,
+            "rollDeg": 0.0,
+        }
+    }
+    detour = {
+        **direct,
+        "clearance": {"sampleIndex": 2},
+    }
+    direct_key = DENTORobotWorkflowFacade._goal1_route_key(direct)
+    detour_key = DENTORobotWorkflowFacade._goal1_route_key(detour)
+    assert direct_key["route_type"] == "seeded"
+    assert direct_key["clearance_sample_index"] is None
+    assert detour_key["route_type"] == "clearance-detour"
+    assert detour_key["clearance_sample_index"] == 2
+    assert direct_key != detour_key
+
+
+def test_failed_alternate_route_apply_preserves_active_plan_and_saved_identity(
+    monkeypatch,
+):
+    facade, parameter_node, _logic, _bridge = make_facade()
+    parameter_node.step6MotionDiagnosticJson = "prior-diagnostic"
+    prior_plan = object()
+    prior_paths = {0: {"stage1": ("prior",)}}
+    prior_override = {"state": "locked", "candidate_index": 0}
+    facade._motion_plan = prior_plan
+    facade._diagnostic_candidate_paths = prior_paths
+    facade._diagnostic_plan_selection_override = prior_override
+    facade._completed_phase = "approach"
+    facade._phase_sequence = 7
+
+    def select(_index, *, lock=False):
+        del lock
+        parameter_node.step6MotionDiagnosticJson = "attempted-diagnostic"
+        facade._motion_plan = object()
+        facade._diagnostic_candidate_paths = {1: {"stage1": ("attempt",)}}
+        return RobotActionResult(
+            True,
+            "motion_diagnostic_plan_locked",
+            "selected",
+            details={"planSelection": {"state": "locked", "candidate_index": 1}},
+        )
+
+    monkeypatch.setattr(facade, "selectDiagnosticCandidate", select)
+    monkeypatch.setattr(
+        facade,
+        "planApproachPhase",
+        lambda: RobotActionResult(False, "approach_plan_failed", "blocked"),
+    )
+
+    result = facade.applyDiagnosticCandidate(1, lock=True)
+
+    assert not result.success
+    assert result.details["activationPreserved"]
+    assert parameter_node.step6MotionDiagnosticJson == "prior-diagnostic"
+    assert facade._motion_plan is prior_plan
+    assert facade._diagnostic_candidate_paths is prior_paths
+    assert facade._diagnostic_plan_selection_override is prior_override
+    assert facade._completed_phase == "approach"
+    assert facade._phase_sequence == 7
+
+
 def test_guide_allowlist_uses_acknowledged_semantic_collision_audit():
     source = (HELPERS / "dentobot_workflow" / "logic_robot.py").read_text()
     method = source[source.index("    def step6GuidanceCollisionObjectIds"):]
@@ -97,6 +163,8 @@ class FakePoseMatrix:
 
 class FakeParameterNode:
     def __init__(self):
+        self.inputVolume = object()
+        self.teethSegmentation = object()
         self.step6PlanningContextImported = True
         self.robotBaseTransform = FakeBase()
         self.robotBaseMountLocked = False
@@ -191,14 +259,16 @@ def test_provisional_tool_insertion_limit_preserves_requested_depth():
     passing = DENTORobotWorkflowFacade._tool_insertion_evidence(
         (0.0, 0.0, 0.0), (0.0, 0.0, maximum)
     )
-    blocked = DENTORobotWorkflowFacade._tool_insertion_evidence(
+    warning = DENTORobotWorkflowFacade._tool_insertion_evidence(
         (0.0, 0.0, 0.0), (0.0, 0.0, maximum + 0.001)
     )
     assert passing["status"] == "Pass"
     assert abs(passing["remainingInsertionMarginMm"]) <= 1.0e-12
-    assert blocked["status"] == "Blocked"
-    assert blocked["code"] == "TRAJECTORY_COMBINED_INSERTION_LIMIT_EXCEEDED"
-    assert abs(blocked["requestedDrillingDepthMm"] - (maximum + 0.001)) <= 1.0e-12
+    assert warning["status"] == "Warning"
+    assert warning["planningAllowed"]
+    assert warning["code"] == "PROVISIONAL_INSERTION_ENVELOPE_WARNING"
+    assert warning["requestedTargetPreserved"]
+    assert abs(warning["requestedDrillingDepthMm"] - (maximum + 0.001)) <= 1.0e-12
     assert passing["requestedCombinedInsertionMm"] == 6.5
     assert passing["remainingVisibleProtrusionMm"] == 0.5
 

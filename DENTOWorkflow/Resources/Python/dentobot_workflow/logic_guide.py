@@ -355,7 +355,7 @@ class GuideLogicMixin(DockingLogicMixin):
         )
         parametersJson = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
         trajectoryJson = json.dumps(
-            trajectoryGeometry,
+            self.canonicalTrajectoryGeometry(trajectories),
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -708,9 +708,8 @@ class GuideLogicMixin(DockingLogicMixin):
             directionSummary = self.getTemplateInsertionDirectionSummary(
                 shellSummary["insertionDirection"]
             )
-            insertionCurrent = (
-                directionSummary["geometryJson"]
-                == shellSummary["insertionGeometryJson"]
+            insertionCurrent = self.insertionGeometryMatches(
+                directionSummary, shellSummary["insertionGeometryJson"]
             )
             add(
                 "PASS" if insertionCurrent else "FAIL",
@@ -826,6 +825,39 @@ class GuideLogicMixin(DockingLogicMixin):
                 if math.isfinite(topResidual)
                 else _("Dock count, layout, or occlusal-plane metadata is invalid."),
             )
+            parameterNode = self.getParameterNode()
+            targetDockingModels = [
+                node
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if self.isTargetDockingAssemblyModelNode(node)
+            ]
+            activeTargetId = str(dockingSummary.get("targetSegmentId") or "")
+            sameTargetModels = [
+                node
+                for node in targetDockingModels
+                if str(node.GetAttribute("DENTOBOT.TargetSegmentId") or "")
+                == activeTargetId
+            ]
+            currentFrameDock = (
+                str(parameterNode.step6CaseJawPreparationMode or "")
+                == "CaseFoundationCurrent"
+                and str(dockingSummary.get("caseFoundationPreparationMode") or "")
+                == "CaseFoundationCurrent"
+                and len(targetDockingModels) == 1
+                and len(sameTargetModels) == 1
+                and sameTargetModels[0] is summary["targetDockingAssembly"]
+            )
+            add(
+                "PASS" if currentFrameDock else "FAIL",
+                _("Single current-frame target dock"),
+                _(
+                    "Exactly one target dock is bound to the current opened Case Foundation frame; no closed-jaw duplicate is retained."
+                )
+                if currentFrameDock
+                else _(
+                    "Target docking is missing current opened-frame provenance or has a duplicate dock for the active target."
+                ),
+            )
         except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
             add("FAIL", _("Step 4C docking provenance"), str(exc))
 
@@ -836,6 +868,9 @@ class GuideLogicMixin(DockingLogicMixin):
             storedTrajectoryGeometry = json.loads(summary["trajectoryGeometryJson"])
             if len(summary["trajectories"]) not in (1, 2):
                 raise ValueError(_("The final template requires one or two trajectories."))
+            currentTrajectoryGeometry = self.canonicalTrajectoryGeometry(
+                summary["trajectories"]
+            )
             for index, trajectoryNode in enumerate(summary["trajectories"]):
                 trajectorySummary = self.getTrajectorySummary(trajectoryNode)
                 if (
@@ -846,11 +881,7 @@ class GuideLogicMixin(DockingLogicMixin):
                     raise ValueError(
                         _("Every final-template trajectory must remain complete and locked.")
                     )
-                currentRecord = {
-                    "entryRas": [float(value) for value in trajectorySummary["entryRas"]],
-                    "targetRas": [float(value) for value in trajectorySummary["targetRas"]],
-                }
-                currentTrajectoryGeometry.append(currentRecord)
+                currentRecord = currentTrajectoryGeometry[index]
                 storedRecord = storedTrajectoryGeometry[index]
                 storedAxis = np.asarray(storedRecord["targetRas"], dtype=float) - np.asarray(
                     storedRecord["entryRas"], dtype=float

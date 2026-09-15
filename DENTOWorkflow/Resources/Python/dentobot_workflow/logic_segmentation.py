@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from .runtime import *
+from .dental_semantics import (
+    apply_pulp_association,
+    build_segment_record,
+    presentation_record,
+    semantic_document,
+)
 
 
 class SegmentationLogicMixin:
@@ -362,6 +370,7 @@ class SegmentationLogicMixin:
         segmentIds = vtk.vtkStringArray()
         segmentation.GetSegmentIDs(segmentIds)
         segmentMetrics = []
+        semanticRecords = []
         unmatchedSegmentNames = []
         for index in range(segmentIds.GetNumberOfValues()):
             segmentId = segmentIds.GetValue(index)
@@ -376,16 +385,24 @@ class SegmentationLogicMixin:
                 continue
             labelId = int(metric["id"])
             label = labelsById.get(labelId)
+            sourceName = str(label["name"] if label else metric["name"])
             segmentMetrics.append(
                 {
                     "segmentId": segmentId,
                     "labelId": labelId,
-                    "sourceName": str(
-                        label["name"] if label else metric["name"]
-                    ),
+                    "sourceName": sourceName,
                     "voxelCount": int(metric["voxelCount"]),
                     "volumeMm3": float(metric["volumeMm3"]),
                 }
+            )
+            semanticRecords.append(
+                build_segment_record(
+                    segment_id=segmentId,
+                    label_id=labelId,
+                    source_name=sourceName,
+                    voxel_count=int(metric["voxelCount"]),
+                    volume_mm3=float(metric["volumeMm3"]),
+                )
             )
 
         metadataStatus = (
@@ -398,6 +415,7 @@ class SegmentationLogicMixin:
             "schemaVersion": self.REVIEW_METADATA_VERSION,
             "status": metadataStatus,
             "segments": segmentMetrics,
+            "semantic": semantic_document(semanticRecords),
         }
 
         backend = report["backend"]
@@ -519,6 +537,11 @@ class SegmentationLogicMixin:
                     separators=(",", ":"),
                 ),
             )
+            self._setSemanticMetadataAttributes(
+                segmentationNode,
+                metricsDocument["semantic"],
+                persistenceState="current",
+            )
             segmentationNode.SetAttribute(
                 "DENTOBOT.ReviewMetadataVersion",
                 self.REVIEW_METADATA_VERSION,
@@ -550,6 +573,240 @@ class SegmentationLogicMixin:
                 "Per-label metrics could not be matched for: %1"
             ).replace("%1", ", ".join(unmatchedSegmentNames))
         return ""
+
+    @staticmethod
+    def _semanticMetricRecord(
+        metric: dict,
+        segment,
+        fallbackIndex: int,
+    ) -> dict:
+        """Build a transient canonical record for old scenes without a registry."""
+
+        labelId = int(
+            metric.get("labelId")
+            or metric.get("id")
+            or (segment.GetLabelValue() if segment else 0)
+            or fallbackIndex
+            or 1
+        )
+        voxelCount = int(metric.get("voxelCount") or 1)
+        volumeMm3 = float(metric.get("volumeMm3") or 1.0)
+        sourceName = str(
+            metric.get("sourceName")
+            or (segment.GetName() if segment else "")
+            or ""
+        )
+        return build_segment_record(
+            segment_id=str(metric.get("segmentId") or ""),
+            label_id=labelId,
+            source_name=sourceName,
+            voxel_count=voxelCount,
+            volume_mm3=volumeMm3,
+        )
+
+    def _semanticRecordsFromMetrics(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+    ) -> list[dict]:
+        """Read the semantic registry and recover a transient legacy view."""
+
+        metricsDocument = {}
+        metricsText = segmentationNode.GetAttribute(
+            "DENTOBOT.SegmentMetricsJson"
+        )
+        if metricsText:
+            try:
+                parsed = json.loads(metricsText)
+                if isinstance(parsed, dict):
+                    metricsDocument = parsed
+            except (json.JSONDecodeError, TypeError):
+                metricsDocument = {}
+
+        topMetrics = {
+            str(metric.get("segmentId")): metric
+            for metric in metricsDocument.get("segments", [])
+            if isinstance(metric, dict) and metric.get("segmentId")
+        }
+        semanticMetrics = metricsDocument.get("semantic")
+        semanticById = {
+            str(record.get("segmentId")): record
+            for record in semanticMetrics.get("segments", [])
+            if isinstance(record, dict) and record.get("segmentId")
+        } if isinstance(semanticMetrics, dict) else {}
+
+        segmentation, _displayNode = self._segmentationAndDisplayNode(
+            segmentationNode
+        )
+        segmentIds = vtk.vtkStringArray()
+        segmentation.GetSegmentIDs(segmentIds)
+        records = []
+        for index in range(segmentIds.GetNumberOfValues()):
+            segmentId = segmentIds.GetValue(index)
+            segment = segmentation.GetSegment(segmentId)
+            if not segment:
+                continue
+            metric = {
+                **topMetrics.get(segmentId, {}),
+                "segmentId": segmentId,
+                "sourceName": topMetrics.get(segmentId, {}).get(
+                    "sourceName"
+                ) or segment.GetName(),
+            }
+            try:
+                record = self._semanticMetricRecord(metric, segment, index + 1)
+            except (TypeError, ValueError, OverflowError):
+                logging.warning(
+                    "Could not normalize legacy segment %s for semantic review",
+                    segmentId,
+                )
+                continue
+            persisted = semanticById.get(segmentId)
+            if persisted:
+                persistedLabelId = persisted.get("sourceLabelId")
+                labelMismatch = (
+                    persistedLabelId is not None
+                    and int(persistedLabelId) != int(record["sourceLabelId"])
+                )
+                for key in (
+                    "structureType",
+                    "canonicalName",
+                    "fdiNumber",
+                    "parentToothSegmentIds",
+                    "associationMethod",
+                    "associationConfidence",
+                    "validationState",
+                    "associationEvidence",
+                ):
+                    if key in persisted:
+                        record[key] = deepcopy(persisted[key])
+                if labelMismatch:
+                    record["validationState"] = "INVALID"
+                    evidence = deepcopy(record.get("associationEvidence") or {})
+                    evidence["persistenceMismatch"] = {
+                        "kind": "source-label-id",
+                        "stored": int(persistedLabelId),
+                        "current": int(record["sourceLabelId"]),
+                    }
+                    record["associationEvidence"] = evidence
+            records.append(record)
+        return records
+
+    def _semanticPersistenceIssues(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        records: list[dict] | None = None,
+    ) -> list[str]:
+        """Detect registry/scene identity drift before a planning query."""
+
+        metricsText = segmentationNode.GetAttribute(
+            "DENTOBOT.SegmentMetricsJson"
+        )
+        if not metricsText:
+            return []
+        try:
+            metricsDocument = json.loads(metricsText)
+        except (json.JSONDecodeError, TypeError):
+            return ["semantic metadata is not valid JSON"]
+        semantic = metricsDocument.get("semantic") if isinstance(metricsDocument, dict) else None
+        if not isinstance(semantic, dict):
+            return []
+        current = records if records is not None else self._semanticRecordsFromMetrics(segmentationNode)
+        currentById = {str(record.get("segmentId")): record for record in current}
+        storedById = {
+            str(record.get("segmentId")): record
+            for record in semantic.get("segments", [])
+            if isinstance(record, dict) and record.get("segmentId")
+        }
+        issues = []
+        missing = sorted(set(storedById) - set(currentById))
+        added = sorted(set(currentById) - set(storedById))
+        if missing:
+            issues.append("stored semantic segments are missing: " + ", ".join(missing))
+        if added:
+            issues.append("current segments are absent from the semantic registry: " + ", ".join(added))
+        for segmentId in sorted(set(storedById) & set(currentById)):
+            storedLabelId = storedById[segmentId].get("sourceLabelId")
+            currentLabelId = currentById[segmentId].get("sourceLabelId")
+            if storedLabelId is not None and str(storedLabelId) != str(currentLabelId):
+                issues.append(
+                    f"semantic label identity changed for {segmentId}: "
+                    f"stored {storedLabelId}, current {currentLabelId}"
+                )
+        return issues
+
+    def _setSemanticMetadataAttributes(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        semantic: dict,
+        *,
+        persistenceState: str,
+    ) -> None:
+        segmentationNode.SetAttribute(
+            self.SEMANTIC_SCHEMA_ATTRIBUTE,
+            str(semantic.get("schemaVersion") or self.SEMANTIC_SCHEMA_VERSION),
+        )
+        segmentationNode.SetAttribute(
+            self.SEMANTIC_STATUS_ATTRIBUTE,
+            str(semantic.get("status") or "needs-review"),
+        )
+        segmentationNode.SetAttribute(
+            self.SEMANTIC_FINGERPRINT_ATTRIBUTE,
+            str(semantic.get("fingerprint") or ""),
+        )
+        segmentationNode.SetAttribute(
+            self.SEMANTIC_PERSISTENCE_ATTRIBUTE,
+            str(persistenceState),
+        )
+
+    def persistSemanticPulpAssociation(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        association: dict,
+    ) -> tuple[list[dict], dict]:
+        """Persist one geometry-accepted pulp relation in the existing MRML record."""
+
+        records = self._semanticRecordsFromMetrics(segmentationNode)
+        updated = apply_pulp_association(records, association)
+        metricsText = segmentationNode.GetAttribute(
+            "DENTOBOT.SegmentMetricsJson"
+        )
+        try:
+            metricsDocument = json.loads(metricsText) if metricsText else {}
+        except (json.JSONDecodeError, TypeError):
+            metricsDocument = {}
+        if not isinstance(metricsDocument, dict):
+            metricsDocument = {}
+        metricsDocument.setdefault("schemaVersion", self.REVIEW_METADATA_VERSION)
+        metricsDocument.setdefault("status", "complete")
+        metricsDocument.setdefault(
+            "segments",
+            [
+                {
+                    "segmentId": record["segmentId"],
+                    "labelId": record["labelId"],
+                    "sourceName": record["sourceName"],
+                    "voxelCount": record["voxelCount"],
+                    "volumeMm3": record["volumeMm3"],
+                }
+                for record in updated
+            ],
+        )
+        semantic = semantic_document(updated)
+        metricsDocument["semantic"] = semantic
+        wasModifying = segmentationNode.StartModify()
+        try:
+            segmentationNode.SetAttribute(
+                "DENTOBOT.SegmentMetricsJson",
+                json.dumps(metricsDocument, sort_keys=True, separators=(",", ":")),
+            )
+            self._setSemanticMetadataAttributes(
+                segmentationNode,
+                semantic,
+                persistenceState="current",
+            )
+        finally:
+            segmentationNode.EndModify(wasModifying)
+        return updated, semantic
 
     def ensureSegmentationReviewMetadata(
         self,
@@ -587,6 +844,34 @@ class SegmentationLogicMixin:
             == self.REVIEW_METADATA_VERSION
             and segmentationNode.GetAttribute("DENTOBOT.SegmentMetricsJson")
         ):
+            records = self._semanticRecordsFromMetrics(segmentationNode)
+            metricsText = segmentationNode.GetAttribute(
+                "DENTOBOT.SegmentMetricsJson"
+            )
+            try:
+                metricsDocument = json.loads(metricsText)
+            except (json.JSONDecodeError, TypeError):
+                metricsDocument = {}
+            semantic = metricsDocument.get("semantic") if isinstance(metricsDocument, dict) else None
+            if not isinstance(semantic, dict):
+                semantic = semantic_document(records)
+                semanticPersistence = "migration-pending"
+            else:
+                semanticPersistence = (
+                    segmentationNode.GetAttribute(self.SEMANTIC_PERSISTENCE_ATTRIBUTE)
+                    or "current"
+                )
+            if self._semanticPersistenceIssues(segmentationNode, records):
+                semanticPersistence = "stale"
+                semantic = {
+                    **semantic,
+                    "status": "needs-review",
+                }
+            self._setSemanticMetadataAttributes(
+                segmentationNode,
+                semantic,
+                persistenceState=semanticPersistence,
+            )
             return ""
 
         resultPathText = segmentationNode.GetAttribute(
@@ -1068,17 +1353,36 @@ class SegmentationLogicMixin:
             category: index
             for index, category in enumerate(self.SEGMENT_REVIEW_CATEGORY_ORDER)
         }
+        semanticRecords = self._semanticRecordsFromMetrics(segmentationNode)
+        semanticById = {
+            str(record.get("segmentId")): record for record in semanticRecords
+        }
         records = []
         for index in range(segmentIds.GetNumberOfValues()):
             segmentId = segmentIds.GetValue(index)
             segment = segmentation.GetSegment(segmentId)
             if not segment:
                 continue
-            descriptor = self.describeSegmentForReview(segment.GetName())
+            record = semanticById.get(segmentId)
+            if record is None:
+                try:
+                    record = self._semanticMetricRecord(
+                        {
+                            "segmentId": segmentId,
+                            "sourceName": segment.GetName(),
+                        },
+                        segment,
+                        index + 1,
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    record = {
+                        "segmentId": segmentId,
+                        "sourceName": str(segment.GetName() or ""),
+                    }
             records.append(
                 {
-                    "segmentId": segmentId,
-                    **descriptor,
+                    **record,
+                    **presentation_record(record),
                 }
             )
         records.sort(

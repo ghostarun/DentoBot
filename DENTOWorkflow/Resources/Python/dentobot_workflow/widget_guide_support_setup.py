@@ -209,7 +209,11 @@ class GuideSupportSetupWidgetMixin:
 
     def _onSelectedGuideTrajectoryModified(self, caller=None, event=None) -> None:
         del event
-        if not self._parameterNode or caller not in self._guideTrajectoryObserverNodes:
+        if (
+            self._caseBundleRestoreDepth > 0
+            or not self._parameterNode
+            or caller not in self._guideTrajectoryObserverNodes
+        ):
             return
         reason = _("A source guide trajectory changed.")
         try:
@@ -217,23 +221,10 @@ class GuideSupportSetupWidgetMixin:
                 self._parameterNode.targetDockingAssemblyModel
             )
             if caller in dockingSummary["trajectories"]:
-                trajectoryGeometry = []
-                for node in dockingSummary["trajectories"]:
-                    trajectorySummary = self.logic.getTrajectorySummary(node)
-                    trajectoryGeometry.append(
-                        {
-                            "entryRas": [
-                                float(value)
-                                for value in trajectorySummary["entryRas"]
-                            ],
-                            "targetRas": [
-                                float(value)
-                                for value in trajectorySummary["targetRas"]
-                            ],
-                        }
-                    )
                 currentGeometryJson = json.dumps(
-                    trajectoryGeometry,
+                    self.logic.canonicalTrajectoryGeometry(
+                        dockingSummary["trajectories"]
+                    ),
                     sort_keys=True,
                     separators=(",", ":"),
                 )

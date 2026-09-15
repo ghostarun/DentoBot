@@ -143,8 +143,11 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
                 )
                 if (
                     directionSummary
-                    and planeNode.GetAttribute("DENTOBOT.DirectionGeometryJson")
-                    != directionSummary["directionGeometryJson"]
+                    and not self.logic.templateSupportDirectionGeometryMatches(
+                        planeNode.GetAttribute("DENTOBOT.DirectionGeometryJson")
+                        or "{}",
+                        directionSummary["directionGeometryJson"],
+                    )
                 ):
                     raise ValueError(
                         _(
@@ -216,9 +219,9 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
                 staleReason = directionError
             elif previewSummary["directionTrajectory"] is not directionTrajectory:
                 staleReason = _("The target trajectory used for direction changed.")
-            elif (
-                previewSummary["directionGeometryJson"]
-                != directionSummary["directionGeometryJson"]
+            elif not self.logic.templateSupportDirectionGeometryMatches(
+                previewSummary["directionGeometryJson"],
+                directionSummary["directionGeometryJson"],
             ):
                 staleReason = _("The target trajectory points or polarity changed.")
             elif previewSummary["directionReversed"] != reverseDirection:
@@ -646,7 +649,12 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
 
     def onTemplateSupportSurfaceParameterChanged(self, *args) -> None:
         del args
-        if self._updatingTemplateUI or not self._parameterNode:
+        if (
+            self._updatingTemplateUI
+            or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
+            or not self._parameterNode
+        ):
             return
         spacing = float(self.ui.templateSupportCurveSamplingSpacingSpinBox.value)
         terminalCoveragePercent = float(
@@ -677,7 +685,12 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
         self._updateTemplateModeling()
 
     def onTemplateSupportDirectionReversedToggled(self, checked: bool) -> None:
-        if self._updatingTemplateUI or not self._parameterNode:
+        if (
+            self._updatingTemplateUI
+            or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
+            or not self._parameterNode
+        ):
             return
         reversedValue = bool(checked)
         if (
@@ -772,7 +785,13 @@ class GuideSupportWidgetMixin(GuideSupportSetupWidgetMixin):
 
     def onTemplateSupportPlaneDepthChanged(self, value: float) -> None:
         del value
-        if self._updatingTemplateUI or not self._parameterNode or not self.logic:
+        if (
+            self._updatingTemplateUI
+            or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
+            or not self._parameterNode
+            or not self.logic
+        ):
             return
         depth = float(self.ui.templateSupportPlaneDepthSpinBox.value)
         capPercent = float(self.ui.templateSupportCrownCapSpinBox.value)

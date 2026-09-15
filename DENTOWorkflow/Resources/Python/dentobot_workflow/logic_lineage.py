@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from .runtime import *
+from .dental_semantics import (
+    associate_pulp_components,
+    occupied_components,
+)
 
 
 class LineageLogicMixin:
@@ -35,7 +39,10 @@ class LineageLogicMixin:
         return [
             record
             for record in self.getSegmentationReviewRecords(segmentationNode)
-            if record["category"] == "Teeth"
+            if record.get("structureType") == "TOOTH"
+            and record.get("canonicalName")
+            and record.get("canonicalFdiNumber")
+            and record.get("validationState") in {"VALID", "MANUALLY_CONFIRMED"}
         ]
 
     @staticmethod
@@ -70,6 +77,354 @@ class LineageLogicMixin:
                 )
             )
         return record
+
+    @staticmethod
+    def _semanticWorldPoints(
+        segmentationNode: vtkMRMLSegmentationNode,
+        image,
+        ijkPoints: list[tuple[int, int, int]],
+    ) -> np.ndarray:
+        if not ijkPoints:
+            return np.empty((0, 3), dtype=float)
+        imageToLocal = vtk.vtkMatrix4x4()
+        image.GetImageToWorldMatrix(imageToLocal)
+        localToWorld = vtk.vtkMatrix4x4()
+        localToWorld.Identity()
+        parent = segmentationNode.GetParentTransformNode()
+        if parent and not parent.GetMatrixTransformToWorld(localToWorld):
+            raise ValueError(
+                _(
+                    "Pulp spatial association requires a linear segmentation "
+                    "transform."
+                )
+            )
+        imageToWorld = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(
+            localToWorld,
+            imageToLocal,
+            imageToWorld,
+        )
+        points = []
+        for ijk in ijkPoints:
+            mapped = imageToWorld.MultiplyPoint((*ijk, 1.0))
+            scale = float(mapped[3])
+            if not math.isfinite(scale) or abs(scale) <= 1e-12:
+                raise ValueError(_("Pulp voxel-to-world mapping is invalid."))
+            point = np.asarray(mapped[:3], dtype=float) / scale
+            if point.shape != (3,) or not np.all(np.isfinite(point)):
+                raise ValueError(_("Pulp voxel-to-world mapping is invalid."))
+            points.append(point)
+        return np.asarray(points, dtype=float)
+
+    @staticmethod
+    def _semanticPointPolyData(points: np.ndarray) -> vtk.vtkPolyData:
+        pointData = vtk.vtkPoints()
+        pointData.SetNumberOfPoints(int(len(points)))
+        for index, point in enumerate(points):
+            pointData.SetPoint(index, *[float(value) for value in point])
+        polyData = vtk.vtkPolyData()
+        polyData.SetPoints(pointData)
+        return polyData
+
+    @classmethod
+    def _semanticInsideFraction(
+        cls,
+        surface: vtk.vtkPolyData,
+        points: np.ndarray,
+    ) -> float:
+        if len(points) == 0:
+            return 0.0
+        selector = vtk.vtkSelectEnclosedPoints()
+        selector.SetInputData(cls._semanticPointPolyData(points))
+        selector.SetSurfaceData(surface)
+        selector.Update()
+        selected = selector.GetOutput().GetPointData().GetArray(
+            "SelectedPoints"
+        )
+        if selected is None:
+            raise ValueError(_("Could not evaluate tooth enclosure evidence."))
+        values = np.asarray(vtk_to_numpy(selected))
+        return float(np.mean(values > 0))
+
+    def _semanticPulpComponents(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        record: dict,
+    ) -> list[dict]:
+        segmentId = str(record.get("segmentId") or "")
+        image = slicer.vtkOrientedImageData()
+        if not segmentationNode.GetBinaryLabelmapRepresentation(segmentId, image):
+            raise ValueError(_("The pulp segment has no binary labelmap."))
+        scalars = image.GetPointData().GetScalars()
+        dimensions = tuple(int(value) for value in image.GetDimensions())
+        if scalars is None or not all(value > 0 for value in dimensions):
+            return []
+        values = vtk_to_numpy(scalars)
+        expected = int(np.prod(dimensions))
+        if len(values) != expected:
+            raise ValueError(_("The pulp binary labelmap geometry is invalid."))
+        mask = values.reshape(tuple(reversed(dimensions))) > 0
+        occupied = np.argwhere(mask)[:, ::-1]
+        if len(occupied) == 0:
+            return []
+        extent = image.GetExtent()
+        offset = np.asarray(extent[::2], dtype=int)
+        components = occupied_components(
+            [tuple(int(value) for value in point + offset) for point in occupied]
+        )
+        result = []
+        for index, component in enumerate(components, 1):
+            result.append(
+                {
+                    "componentId": f"{segmentId}#component-{index}",
+                    "sourceSegmentId": segmentId,
+                    "voxelCount": len(component),
+                    "pointsWorld": self._semanticWorldPoints(
+                        segmentationNode,
+                        image,
+                        component,
+                    ),
+                }
+            )
+        return result
+
+    def _semanticPulpCandidates(
+        self,
+        pulpRecord: dict,
+        component: dict,
+        toothSurfaces: dict[str, dict],
+    ) -> list[dict]:
+        points = component["pointsWorld"]
+        if len(points) == 0:
+            return []
+        distances = {}
+        insideFractions = {}
+        for toothId, tooth in toothSurfaces.items():
+            distance = vtk.vtkImplicitPolyDataDistance()
+            distance.SetInput(tooth["surface"])
+            values = np.asarray(
+                [
+                    abs(float(distance.EvaluateFunction(point)))
+                    for point in points
+                ],
+                dtype=float,
+            )
+            distances[toothId] = np.where(
+                np.isfinite(values),
+                values,
+                1e9,
+            )
+            insideFractions[toothId] = self._semanticInsideFraction(
+                tooth["surface"],
+                points,
+            )
+        toothIds = list(toothSurfaces)
+        distanceMatrix = np.vstack([distances[toothId] for toothId in toothIds])
+        nearestIndices = np.argmin(distanceMatrix, axis=0)
+        sourceHint = pulpRecord.get("sourceFdiHint")
+        candidates = []
+        for index, toothId in enumerate(toothIds):
+            values = distances[toothId]
+            candidates.append(
+                {
+                    "toothSegmentId": toothId,
+                    "toothFdiNumber": toothSurfaces[toothId]["record"].get(
+                        "canonicalFdiNumber"
+                    ) or toothSurfaces[toothId]["record"].get("fdiNumber"),
+                    "sourceFdiHint": sourceHint,
+                    "insideFraction": insideFractions[toothId],
+                    "voxelIntersectionFraction": insideFractions[toothId],
+                    "nearestToothFraction": float(
+                        np.mean(nearestIndices == index)
+                    ),
+                    "minSurfaceDistanceMm": float(np.min(values)),
+                    "robustSurfaceDistanceMm": float(np.quantile(values, 0.90)),
+                    "componentVoxelCount": int(len(points)),
+                }
+            )
+        return candidates
+
+    def getTargetPulpAssociation(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> dict:
+        """Resolve one target's pulp by native geometry, then persist the relation."""
+
+        targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
+        if (
+            segmentationNode.GetAttribute(self.SEMANTIC_PERSISTENCE_ATTRIBUTE)
+            == "stale"
+        ):
+            raise ValueError(
+                _(
+                    "Assisted generation is blocked: the canonical dental "
+                    "registry no longer matches the imported segmentation."
+                )
+            )
+        if self._semanticPersistenceIssues(segmentationNode):
+            raise ValueError(
+                _(
+                    "Assisted generation is blocked: the canonical dental "
+                    "registry does not match the current segmentation."
+                )
+            )
+        targetId = targetRecord["segmentId"]
+        targetFdi = str(targetRecord.get("canonicalFdiNumber") or targetRecord.get("fdiNumber") or "")
+        records = self.getSegmentationReviewRecords(segmentationNode)
+        toothRecords = [
+            record
+            for record in records
+            if record.get("structureType") == "TOOTH"
+            and record.get("canonicalFdiNumber")
+        ]
+        toothSurfaces = {}
+        for record in toothRecords:
+            try:
+                toothSurfaces[record["segmentId"]] = {
+                    "record": record,
+                    "surface": self._getClosedSurfaceWorldCopy(
+                        segmentationNode,
+                        record["segmentId"],
+                    ),
+                }
+            except (TypeError, ValueError, RuntimeError):
+                continue
+        if targetId not in toothSurfaces:
+            raise ValueError(_("The selected target tooth has no usable surface."))
+
+        pulpRecords = [
+            record for record in records if record.get("structureType") == "PULP"
+        ]
+        if not pulpRecords:
+            raise ValueError(
+                _(
+                    "Assisted generation is blocked: no pulp segment is present "
+                    "for the selected tooth."
+                )
+            )
+
+        accepted = []
+        relevantFailures = []
+        for pulpRecord in pulpRecords:
+            try:
+                components = self._semanticPulpComponents(
+                    segmentationNode,
+                    pulpRecord,
+                )
+            except (TypeError, ValueError, RuntimeError) as exc:
+                if str(pulpRecord.get("sourceFdiHint") or "") == targetFdi:
+                    relevantFailures.append(
+                        {
+                            "validationState": "INVALID",
+                            "reason": str(exc),
+                            "sourceSegmentId": pulpRecord["segmentId"],
+                        }
+                    )
+                continue
+            if not components:
+                if str(pulpRecord.get("sourceFdiHint") or "") == targetFdi:
+                    relevantFailures.append(
+                        {
+                            "validationState": "MISSING",
+                            "reason": "the hinted pulp mask is empty",
+                            "sourceSegmentId": pulpRecord["segmentId"],
+                        }
+                    )
+                continue
+            componentPayloads = []
+            for component in components:
+                componentPayloads.append(
+                    {
+                        "componentId": component["componentId"],
+                        "sourceSegmentId": component["sourceSegmentId"],
+                        "candidates": self._semanticPulpCandidates(
+                            pulpRecord,
+                            component,
+                            toothSurfaces,
+                        ),
+                    }
+                )
+            association = associate_pulp_components(componentPayloads, targetId)
+            targetGateSeen = any(
+                any(
+                    candidate.get("toothSegmentId") == targetId
+                    and candidate.get("passesSpatialGate")
+                    for candidate in componentDecision.get("candidates", [])
+                )
+                for componentDecision in association.get("components", [])
+            )
+            if (
+                association.get("validationState") == "VALID"
+                and association.get("parentToothSegmentIds") == [targetId]
+            ):
+                accepted.append((pulpRecord, association))
+            elif targetGateSeen or targetId in association.get(
+                "parentToothSegmentIds", []
+            ):
+                relevantFailures.append(association)
+
+        if len(accepted) > 1:
+            raise ValueError(
+                _(
+                    "Assisted generation is blocked: multiple pulp segments "
+                    "spatially claim the selected tooth."
+                )
+            )
+        if not accepted:
+            if relevantFailures:
+                failure = relevantFailures[0]
+                raise ValueError(
+                    _(
+                        "Assisted generation is blocked by pulp semantic state "
+                        "%1: %2"
+                    ).replace("%1", str(failure.get("validationState") or "INVALID"))
+                    .replace("%2", str(failure.get("reason") or "review required"))
+                )
+            raise ValueError(
+                _(
+                    "Assisted generation is blocked: no non-empty pulp mask has "
+                    "a valid spatial association with the selected tooth."
+                )
+            )
+
+        pulpRecord, association = accepted[0]
+        if association.get("associationConfidence") != "HIGH":
+            raise ValueError(
+                _(
+                    "Assisted generation requires HIGH-confidence pulp "
+                    "association; review the spatial disagreement manually."
+                )
+            )
+        updatedRecords, semantic = self.persistSemanticPulpAssociation(
+            segmentationNode,
+            association,
+        )
+        selected = next(
+            (
+                record
+                for record in updatedRecords
+                if record.get("segmentId") == pulpRecord["segmentId"]
+            ),
+        )
+        if (
+            selected.get("validationState") != "VALID"
+            or selected.get("associationConfidence") != "HIGH"
+            or selected.get("parentToothSegmentIds") != [targetId]
+        ):
+            raise RuntimeError(_("The accepted pulp relation did not persist safely."))
+        return {
+            **association,
+            "pulpSegmentId": pulpRecord["segmentId"],
+            "componentIds": [
+                component.get("componentId")
+                for component in association.get("components", [])
+            ],
+            "targetSegmentId": targetId,
+            "targetFdiNumber": targetFdi,
+            "semantic": semantic,
+            "semanticRecords": updatedRecords,
+        }
 
     def getTargetToothBoundsWorld(
         self,

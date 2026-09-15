@@ -22,7 +22,6 @@ from DENTOStep6State import (  # noqa: E402
     LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
     MotionPhase,
-    SIMULATION_TARGET_DEPTH_CAP_MM,
     SIMULATION_TOOL_PROVENANCE,
     SPINDLE_PLANNING_POLICY,
     approach_points,
@@ -36,7 +35,7 @@ from DENTOStep6State import (  # noqa: E402
     build_task_snapshot,
     build_robot_environment_snapshot,
     canonical_json,
-    cap_simulation_target,
+    validate_simulation_target,
     fingerprint,
     empty_trajectory_registry,
     parse_attempt_context,
@@ -46,6 +45,8 @@ from DENTOStep6State import (  # noqa: E402
     parse_task_home,
     parse_task_snapshot,
     parse_motion_diagnostic_session,
+    motion_diagnostic_plan_selection,
+    update_motion_diagnostic_plan_selection,
     task_snapshot_invalidation_reasons,
     transition_base_status,
     robot_environment_invalidation_scopes,
@@ -592,31 +593,21 @@ def test_approach_uses_two_mm_research_default_for_new_cases():
     assert entry == (0.0, 0.0, 0.0)
 
 
-def test_simulation_target_cap_preserves_axis_round_trip_and_rejects_invalid_inputs():
+def test_simulation_target_preserves_exact_requested_depth_and_rejects_invalid_inputs():
     entry = (1.0, 2.0, 3.0)
     long_target = (4.0, 6.0, 15.0)  # 13 mm, non-axis aligned
-    capped = cap_simulation_target(entry, long_target)
-    assert capped == pytest.approx(
-        tuple(
-            entry[index]
-            + (SIMULATION_TARGET_DEPTH_CAP_MM / 13.0)
-            * (long_target[index] - entry[index])
-            for index in range(3)
-        )
-    )
-    assert sum((capped[index] - entry[index]) ** 2 for index in range(3)) ** 0.5 == pytest.approx(
-        SIMULATION_TARGET_DEPTH_CAP_MM
-    )
+    preserved = validate_simulation_target(entry, long_target)
+    assert preserved == tuple(float(value) for value in long_target)
+    assert sum((preserved[index] - entry[index]) ** 2 for index in range(3)) ** 0.5 == pytest.approx(13.0)
 
     short_target = (1.0, 2.0, -3.0)
-    assert cap_simulation_target(entry, short_target) == tuple(
+    assert validate_simulation_target(entry, short_target) == tuple(
         float(value) for value in short_target
     )
-    assert cap_simulation_target(entry, (1.0, 2.0, 5.0)) == (1.0, 2.0, 5.0)
+    assert validate_simulation_target(entry, (1.0, 2.0, 5.0)) == (1.0, 2.0, 5.0)
     seven_point_nine_target = (1.0, 2.0, 3.0 + 7.977207292891484)
-    clipped = cap_simulation_target(entry, seven_point_nine_target)
-    assert sum((clipped[index] - entry[index]) ** 2 for index in range(3)) ** 0.5 == pytest.approx(
-        SIMULATION_TARGET_DEPTH_CAP_MM
+    assert validate_simulation_target(entry, seven_point_nine_target) == pytest.approx(
+        seven_point_nine_target
     )
 
     home = build_task_home(
@@ -626,7 +617,7 @@ def test_simulation_target_cap_preserves_axis_round_trip_and_rejects_invalid_inp
         target_segment_id="FDI11",
         trajectory_revision="trajectory-a",
         entry_ras_mm=entry,
-        target_ras_mm=capped,
+        target_ras_mm=preserved,
         base_fingerprint="base-a",
         home_fingerprint=fingerprint(home.to_dict()),
         limits_fingerprint="limits-a",
@@ -635,7 +626,7 @@ def test_simulation_target_cap_preserves_axis_round_trip_and_rejects_invalid_inp
     )
     assert parse_task_snapshot(snapshot_record.to_dict()) == snapshot_record
     guard = build_phase_guard_configuration(snapshot_record, target_object_id="FDI11")
-    assert guard.target_ras_mm == capped
+    assert guard.target_ras_mm == preserved
     assert guard.task_fingerprint == snapshot_record.snapshot_fingerprint
     legacy_record = build_task_snapshot(
         target_segment_id="FDI11",
@@ -662,7 +653,7 @@ def test_simulation_target_cap_preserves_axis_round_trip_and_rejects_invalid_inp
     )
     for bad_entry, bad_target in invalid:
         with pytest.raises(ValueError):
-            cap_simulation_target(bad_entry, bad_target)
+            validate_simulation_target(bad_entry, bad_target)
 
 
 def test_confirmed_task_freshness_rejects_legacy_tool_policy():
@@ -681,7 +672,6 @@ def test_confirmed_task_freshness_rejects_legacy_tool_policy():
     namespace = {
         "_": lambda value: value,
         "json": json,
-        "SIMULATION_TARGET_DEPTH_CAP_MM": SIMULATION_TARGET_DEPTH_CAP_MM,
         "SIMULATION_TOOL_PROVENANCE": SIMULATION_TOOL_PROVENANCE,
         "task_snapshot_invalidation_reasons": task_snapshot_invalidation_reasons,
     }
@@ -697,6 +687,10 @@ def test_confirmed_task_freshness_rejects_legacy_tool_policy():
             return ()
 
         @staticmethod
+        def step6PlanningPackageFreshnessIssues(_parameter):
+            return ()
+
+        @staticmethod
         def confirmedTaskRecord(_parameter):
             return legacy
 
@@ -707,7 +701,54 @@ def test_confirmed_task_freshness_rejects_legacy_tool_policy():
     issues = namespace["confirmedTaskFreshnessIssues"](Probe(), parameter_node)
     assert issues == (
         "Confirmed Step 6 task uses an older simulation Target policy; "
-        "reconfirm the Step 6 task for the 6 mm cap.",
+        "reconfirm the task to preserve the exact requested Entry-to-Target depth.",
+    )
+
+
+def test_confirmed_task_freshness_blocks_stale_prepared_branch_before_task_use():
+    legacy = snapshot()
+    source_path = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "confirmedTaskFreshnessIssues"
+    )
+    namespace = {
+        "_": lambda value: value,
+        "json": json,
+        "SIMULATION_TOOL_PROVENANCE": SIMULATION_TOOL_PROVENANCE,
+        "task_snapshot_invalidation_reasons": task_snapshot_invalidation_reasons,
+    }
+    exec(compile(ast.Module([method], type_ignores=[]), str(source_path), "exec"), namespace)
+
+    class Probe:
+        @staticmethod
+        def step6AnatomyReviewFreshnessIssues(_parameter):
+            return ()
+
+        @staticmethod
+        def step6BasePlacementFreshnessIssues(_parameter):
+            return ()
+
+        @staticmethod
+        def step6PlanningPackageFreshnessIssues(_parameter):
+            return ["PreparedBranch is stale after Step 5C changed."]
+
+        @staticmethod
+        def confirmedTaskRecord(_parameter):
+            return legacy
+
+    parameter_node = SimpleNamespace(
+        targetToothSegmentId="FDI14",
+        step6ToolFrame="dentobot_drill_tcp",
+    )
+    assert namespace["confirmedTaskFreshnessIssues"](Probe(), parameter_node) == (
+        "PreparedBranch is stale after Step 5C changed.",
     )
 
 
@@ -760,3 +801,61 @@ def test_motion_diagnostic_v20_remains_readable_after_stage2_policy_upgrade():
         stage_name="stage2_strict_axis",
     )
     assert parse_motion_diagnostic_session(record.to_dict()) == record
+
+
+def test_motion_diagnostic_plan_selection_round_trip_and_lock_gate():
+    complete = {
+        **_motion_candidate(),
+        "full_chain_candidate_status": "Complete",
+        "route_type": "seeded",
+        "ik_seed_sample_index": 3,
+    }
+    partial = {
+        **_motion_candidate(),
+        "candidate_index": 1,
+        "full_chain_candidate_status": "BlockedStage3",
+        "route_type": "direct",
+    }
+    record = build_motion_diagnostic_session(
+        state="Current",
+        task_fingerprint="task-a",
+        base_fingerprint="base-a",
+        trajectory_fingerprint="trajectory-a",
+        robot_profile_fingerprint="robot-a",
+        collision_audit_fingerprint="collision-a",
+        planning_parameters_fingerprint="planner-a",
+        candidate_records=(complete, partial),
+        selected_candidate_index=0,
+        failure_classification="none",
+        stage_outcomes=(
+            {"stage": "stage1_free_space", "status": "Passed", "selected_candidate_index": 0},
+            {"stage": "stage2_fixed_axis_terminal", "status": "Passed", "selected_candidate_index": 0},
+            {"stage": "stage3_drilling", "status": "Passed", "selected_candidate_index": 0},
+        ),
+        full_task_outcome={"status": "Complete"},
+    )
+    locked = update_motion_diagnostic_plan_selection(
+        record,
+        0,
+        state="locked",
+        route_key={
+            "route_type": "seeded",
+            "ik_seed_sample_index": 3,
+            "clearance_sample_index": None,
+            "axial_roll_deg": 0.0,
+        },
+    )
+    restored = parse_motion_diagnostic_session(locked.to_dict())
+    assert motion_diagnostic_plan_selection(restored)["state"] == "locked"
+    assert motion_diagnostic_plan_selection(restored)["candidate_index"] == 0
+    assert restored.operator_review_state == "Unreviewed"
+    assert all(
+        stage.get("selected_candidate_index") == 0 for stage in restored.stage_outcomes
+    )
+    with pytest.raises(ValueError, match="complete full-chain"):
+        update_motion_diagnostic_plan_selection(
+            restored,
+            1,
+            state="locked",
+            route_key={"route_type": "direct"},
+        )

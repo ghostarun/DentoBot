@@ -14,8 +14,8 @@
 
 ## Document classes
 
-- Active controls: `AGENTS.md`, `docs/SETUP.md`, `docs/DECISIONS.md`,
-  `docs/TASKS.md`, and `docs/CONTEXT_SYNC.md`.
+- Active controls: `AGENTS.md`, `docs/backlog.md`, `docs/SETUP.md`,
+  `docs/DECISIONS.md`, `docs/TASKS.md`, and `docs/CONTEXT_SYNC.md`.
 - Continuous design baseline: `docs/PROJECT_CONTEXT.md`,
   `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT_PLAN.md`, and
   `docs/REPRODUCIBILITY_AND_TRACEABILITY.md`.
@@ -65,8 +65,8 @@ explicit batched operations under the existing approval rule.
 
 After a substantial Codex CLI development session:
 
-1. Update `SETUP.md`, `DECISIONS.md`, `TASKS.md`, and today's logbook as
-   required by `AGENTS.md`.
+1. Update `backlog.md`, `SETUP.md`, `DECISIONS.md`, `TASKS.md`, and today's
+   logbook as required by `AGENTS.md`.
 2. Record verification output or observed results.
 3. Upload changed active documents to
    `IITM Dentobot/active-development-ubuntu`, replacing the matching copies by
@@ -103,6 +103,35 @@ authoritative and future syncs update the existing Drive file ID in place.
 
 Never sync passwords, tokens, API keys, patient identifiers, or
 non-anonymized medical data.
+
+## Multi-workstation source/data boundary — 2026-09-12
+
+Git and Drive have separate jobs for the multi-workstation checkout:
+
+- Git at `ros2_ws/src/DentoBot` is authoritative for source, tests, launchers,
+  Compose/configuration examples, and controlled documentation. Each
+  workstation keeps its own `.dentobot.env`, build/install/log products,
+  `slicer-home/`, and local `data/` tree.
+- `IITM Dentobot/active-development-ubuntu` is the in-place mirror for active
+  Ubuntu documents. It is not a bulk case-data or run-record folder.
+- The operator-approved saved-case destination is `IITM Dentobot/Data`
+  (`1u1K2EVeBe3-U1-JeWxKhOKslEW-zFnkd`). Preserve the local
+  `SampleStudy1/FDI*` layout there; do not mix it with the document mirror.
+- The narrow exchange unit is an individual `*.dentocase` file, not the whole
+  `data/Slicer_Saved/` directory. A `.dentocase` is a portable archive: its
+  embedded MRB may contain CBCT-derived NRRD volumes, segmentations, and other
+  anatomy. Exchange only synthetic or explicitly approved de-identified
+  bundles. A personal Drive account and file size do not by themselves approve
+  storage of patient-derived data.
+- Keep `.mrb`, `.stl`, `.nrrd`, screenshots, run records, and other
+  `Slicer_Saved` files out of the exchange by default. Do not watch, mount, or
+  mirror the whole `data/` tree. Use a non-identifying logical case key and
+  verify the bundle checksum before opening it on another workstation.
+- Drive writes remain batched and explicit. Before replacing a file, verify
+  its name and parent and update the existing Drive file ID in place; never
+  create a duplicate logical path. The 2026-09-13 pilot is recorded in the
+  dated logbook; its remaining large-file uploads require an authenticated
+  browser because the connector has a 100 MB input limit.
 
 ## Dated logbook standard
 

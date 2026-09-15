@@ -35,6 +35,7 @@ DENTAL_FDI_TOOTH_IDS = tuple(
 COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
 MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
 SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
+MOTION_DIAGNOSTIC_PLAN_SELECTION_STATES = ("auto", "selected", "locked")
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
 """Commandable robot joints used by MoveIt and the Step 6 guard.
@@ -56,8 +57,7 @@ LEGACY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
 SPINDLE_LOCKED_VALUE_RAD = 0.0
 SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
 SPINDLE_PLANNING_POLICY = "external-pressure-spindle-nonplanning-v2"
-SIMULATION_TARGET_DEPTH_CAP_MM = 6.0
-SIMULATION_TARGET_DEPTH_POLICY = "simulation-target-depth-cap-v1"
+SIMULATION_TARGET_DEPTH_POLICY = "simulation-target-depth-preserve-request-v2"
 SIMULATION_TOOL_PROVENANCE = (
     "CAD-derived/provisional/un-calibrated; " + SIMULATION_TARGET_DEPTH_POLICY
 )
@@ -114,10 +114,10 @@ def _finite_tuple(values: Sequence[float], count: int, label: str) -> tuple[floa
     return result
 
 
-def cap_simulation_target(
+def validate_simulation_target(
     entry_ras_mm: Sequence[float], target_ras_mm: Sequence[float]
 ) -> tuple[float, float, float]:
-    """Return a finite simulation Target no deeper than the 6 mm cap."""
+    """Validate and return the exact requested Target without shortening it."""
 
     try:
         entry = _finite_tuple(entry_ras_mm, 3, "Entry RAS")
@@ -130,15 +130,12 @@ def cap_simulation_target(
     length = sqrt(sum(value * value for value in vector))
     if not isfinite(length) or length <= 0.0:
         raise ValueError("Entry and Target must define a finite non-zero trajectory")
-    if length <= SIMULATION_TARGET_DEPTH_CAP_MM:
-        return target
-    fraction = SIMULATION_TARGET_DEPTH_CAP_MM / length
-    capped = tuple(
-        entry[index] + fraction * vector[index] for index in range(3)
-    )
-    if not all(isfinite(value) for value in capped):
-        raise ValueError("Capped simulation Target must contain finite coordinates")
-    return capped
+    return target
+
+
+# Compatibility name for callers from the retired capped-target policy. It now
+# validates and preserves the requested endpoint; it never shortens geometry.
+cap_simulation_target = validate_simulation_target
 
 
 def canonical_json(value: object) -> str:
@@ -1556,6 +1553,101 @@ def parse_motion_diagnostic_session(
     if rebuilt.session_fingerprint != str(data.get("session_fingerprint") or ""):
         raise ValueError("motion-diagnostic fingerprint does not match its contents")
     return rebuilt
+
+
+def motion_diagnostic_plan_selection(
+    session: MotionDiagnosticSession,
+) -> dict[str, object]:
+    """Read the optional operator route choice without trusting saved state."""
+
+    raw = session.full_task_outcome.get("plan_selection")
+    if not isinstance(raw, Mapping):
+        return {
+            "state": "auto",
+            "candidate_index": int(session.selected_candidate_index),
+            "route_key": {},
+        }
+    state = str(raw.get("state") or "auto").strip().lower()
+    if state not in MOTION_DIAGNOSTIC_PLAN_SELECTION_STATES:
+        state = "auto"
+    try:
+        candidate_index = int(raw.get("candidate_index", session.selected_candidate_index))
+    except (TypeError, ValueError):
+        candidate_index = int(session.selected_candidate_index)
+    if candidate_index < 0 or candidate_index >= len(session.candidate_records):
+        candidate_index = int(session.selected_candidate_index)
+    route_key = raw.get("route_key")
+    if not isinstance(route_key, Mapping):
+        route_key = {}
+    return {
+        "state": state,
+        "candidate_index": candidate_index,
+        "route_key": json.loads(canonical_json(dict(route_key))),
+    }
+
+
+def update_motion_diagnostic_plan_selection(
+    session: MotionDiagnosticSession,
+    candidate_index: int,
+    *,
+    state: str,
+    route_key: Mapping[str, object],
+) -> MotionDiagnosticSession:
+    """Persist route intent; executable waypoints remain transient by design."""
+
+    state = str(state).strip().lower()
+    if state not in {"selected", "locked"}:
+        raise ValueError("plan selection state must be selected or locked")
+    selected = int(candidate_index)
+    if selected < 0 or selected >= len(session.candidate_records):
+        raise ValueError("selected plan candidate is out of range")
+    if state == "locked" and str(
+        session.candidate_records[selected].get("full_chain_candidate_status") or ""
+    ) != "Complete":
+        raise ValueError("only a complete full-chain candidate can be locked")
+    normalized_route_key = json.loads(canonical_json(dict(route_key)))
+    if not normalized_route_key:
+        raise ValueError("selected plan requires a route identity")
+    outcome = dict(session.full_task_outcome)
+    outcome["selected_candidate_index"] = selected
+    outcome["plan_selection"] = {
+        "state": state,
+        "candidate_index": selected,
+        "route_key": normalized_route_key,
+    }
+    stages = tuple(
+        {
+            **dict(stage),
+            **(
+                {"selected_candidate_index": selected}
+                if "selected_candidate_index" in stage
+                else {}
+            ),
+        }
+        for stage in session.stage_outcomes
+    )
+    return build_motion_diagnostic_session(
+        state=session.state,
+        stale_reason=session.stale_reason,
+        task_fingerprint=session.task_fingerprint,
+        base_fingerprint=session.base_fingerprint,
+        trajectory_fingerprint=session.trajectory_fingerprint,
+        robot_profile_fingerprint=session.robot_profile_fingerprint,
+        collision_audit_fingerprint=session.collision_audit_fingerprint,
+        planning_parameters_fingerprint=session.planning_parameters_fingerprint,
+        candidate_records=session.candidate_records,
+        selected_candidate_index=selected,
+        failure_classification=str(
+            session.candidate_records[selected].get(
+                "failure_classification", session.failure_classification
+            )
+        ),
+        operator_review_state="Unreviewed",
+        generated_at_utc=session.generated_at_utc,
+        schema_version=session.schema_version,
+        stage_outcomes=stages,
+        full_task_outcome=outcome,
+    )
 
 
 @dataclass(frozen=True)

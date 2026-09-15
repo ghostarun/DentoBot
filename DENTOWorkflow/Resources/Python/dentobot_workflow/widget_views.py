@@ -336,12 +336,34 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         display = segmentation.GetDisplayNode() if segmentation else None
         if not display:
             return
-        jawGroups = self.logic.step6CaseJawSegmentIds(segmentation)
-        for segmentId in jawGroups["upper"] + jawGroups["lower"]:
-            display.SetSegmentVisibility3D(segmentId, False)
+        segmentIds = vtk.vtkStringArray()
+        segmentation.GetSegmentation().GetSegmentIDs(segmentIds)
+        allSourceIds = tuple(
+            segmentIds.GetValue(index)
+            for index in range(segmentIds.GetNumberOfValues())
+        )
+        sourceVisibility = {
+            segmentId: bool(display.GetSegmentVisibility3D(segmentId))
+            for segmentId in allSourceIds
+        }
+        fixedUpper = self._parameterNode.step6FixedUpperAnatomy
+        movingLower = self._parameterNode.step6MovingLowerAnatomy
+        if fixedUpper and movingLower:
+            # Capture legacy packages' missing masks from one pre-hide baseline.
+            # The source segmentation is closed-pose anatomy; only the derived
+            # proxies may remain visible after the opened-jaw transition.
+            self.logic._hideStep6SourceJawSegments(
+                segmentation, fixedUpper, allSourceIds, sourceVisibility
+            )
+            self.logic._hideStep6SourceJawSegments(
+                segmentation, movingLower, allSourceIds, sourceVisibility
+            )
+        else:
+            for segmentId in allSourceIds:
+                display.SetSegmentVisibility3D(segmentId, False)
         for derived in (
-            self._parameterNode.step6FixedUpperAnatomy,
-            self._parameterNode.step6MovingLowerAnatomy,
+            fixedUpper,
+            movingLower,
         ):
             derivedDisplay = derived.GetDisplayNode() if derived else None
             if derivedDisplay:

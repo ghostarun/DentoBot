@@ -105,6 +105,7 @@ class CaseBackendWidgetMixin:
                 "Cancelled transient Case Foundation landmark placement before case save; "
                 "defined points were retained without silent provenance promotion"
             )
+        self._enforceStep6OpenedJawDisplaySeparation()
         self._restoreStageExclusiveInteractionLocks()
         try:
             self.logic.prepareDentoCaseSchema2ForSave(self._parameterNode)
@@ -240,7 +241,7 @@ class CaseBackendWidgetMixin:
         self,
         expectedWorkflow: dict[str, object],
     ) -> None:
-        """Validate loaded MRML before and after read-only GUI hydration."""
+        """Validate restored MRML before normal GUI hydration can mutate it."""
 
         parameterNode = self.logic.getParameterNode()
         try:
@@ -258,8 +259,8 @@ class CaseBackendWidgetMixin:
             parameterNode,
             expectedWorkflow,
         )
-        self.setParameterNode(parameterNode)
-        slicer.app.processEvents()
+        if str(parameterNode.step6CaseJawPreparationMode) == "CaseFoundationCurrent":
+            self.logic.rebuildCaseFoundationDisplayVolumes(parameterNode)
         try:
             self.logic.validateLoadedCaseBundleWorkflow(
                 parameterNode,
@@ -268,6 +269,24 @@ class CaseBackendWidgetMixin:
         except CaseBundleError as exc:
             raise CaseBundleError(
                 _("Post-bind package validation failed: %1").replace(
+                    "%1", str(exc)
+                )
+            ) from exc
+
+    def _validateHydratedCaseBundle(
+        self,
+        expectedWorkflow: dict[str, object],
+    ) -> None:
+        """Audit package lineage again after GUI hydration and event delivery."""
+
+        try:
+            self.logic.validateLoadedCaseBundleWorkflow(
+                self.logic.getParameterNode(),
+                expectedWorkflow,
+            )
+        except CaseBundleError as exc:
+            raise CaseBundleError(
+                _("Post-hydration package validation failed: %1").replace(
                     "%1", str(exc)
                 )
             ) from exc
@@ -315,6 +334,7 @@ class CaseBackendWidgetMixin:
         }
         recoveryLocationState = self._sceneLocationState()
         restoreGeneration = self._beginCaseBundleRestore()
+        restoreEnded = False
         try:
             with tempfile.TemporaryDirectory(
                 prefix="dentobot-case-open-",
@@ -352,6 +372,13 @@ class CaseBackendWidgetMixin:
                         ):
                             recoveryError = _(" Recovery scene restoration failed.")
                         recoveredParameterNode = self.logic.getParameterNode()
+                        if (
+                            str(recoveredParameterNode.step6CaseJawPreparationMode)
+                            == "CaseFoundationCurrent"
+                        ):
+                            self.logic.rebuildCaseFoundationDisplayVolumes(
+                                recoveredParameterNode
+                            )
                         self.setParameterNode(recoveredParameterNode)
                         slicer.app.processEvents()
                         self._restoreSceneLocationState(recoveryLocationState)
@@ -362,16 +389,75 @@ class CaseBackendWidgetMixin:
                     raise CaseBundleError(
                         f"{loadError}{recoveryError}"
                     ) from loadError
+                # Compatibility migrations and Step 6 freshness review are
+                # allowed only after package integrity has passed, and the
+                # recovery MRB must remain available until that audit passes.
+                # Keep the restore barrier through parameter-node binding so
+                # the first GUI refresh cannot recompute serialized target
+                # bounds before the post-hydration identity audit.
+                try:
+                    self.setParameterNode(self.logic.getParameterNode())
+                    self._endCaseBundleRestore(restoreGeneration)
+                    restoreEnded = True
+                    slicer.app.processEvents()
+                    hydrationGeneration = self._beginCaseBundleRestore()
+                    try:
+                        self.logic.hydrateDentoCaseStateAfterLoad(
+                            self._parameterNode,
+                            str(inspection.manifest.get("schemaVersion") or ""),
+                        )
+                        wasUpdating = self._updatingFromParameterNode
+                        self._updatingFromParameterNode = True
+                        try:
+                            # _updatePlanning observes the restore barrier and
+                            # reports saved ROI bounds without regenerating
+                            # them; this is still a full UI hydration pass.
+                            self._updateFromParameterNodeOnce()
+                        finally:
+                            self._updatingFromParameterNode = wasUpdating
+                        slicer.app.processEvents()
+                        self._validateHydratedCaseBundle(inspection.workflow)
+                    finally:
+                        self._endCaseBundleRestore(hydrationGeneration)
+                    self._revalidateImportedStep6ContextAfterLoad()
+                    self._enforceStep6OpenedJawDisplaySeparation()
+                except Exception as hydrationError:
+                    logging.exception(
+                        "DENTOBOT post-hydration package audit failed; "
+                        "restoring recovery scene"
+                    )
+                    recoveryError = ""
+                    recoveryGeneration = self._beginCaseBundleRestore()
+                    try:
+                        if not slicer.util.loadScene(
+                            str(recoveryPath), {"clear": True}
+                        ):
+                            recoveryError = _(
+                                " Recovery scene restoration failed."
+                            )
+                        recoveredParameterNode = self.logic.getParameterNode()
+                        if (
+                            str(recoveredParameterNode.step6CaseJawPreparationMode)
+                            == "CaseFoundationCurrent"
+                        ):
+                            self.logic.rebuildCaseFoundationDisplayVolumes(
+                                recoveredParameterNode
+                            )
+                        self.setParameterNode(recoveredParameterNode)
+                        slicer.app.processEvents()
+                        self._restoreSceneLocationState(recoveryLocationState)
+                    except Exception as exc:
+                        recoveryError = _(
+                            " Recovery scene restoration failed: %1"
+                        ).replace("%1", str(exc))
+                    finally:
+                        self._endCaseBundleRestore(recoveryGeneration)
+                    raise CaseBundleError(
+                        f"{hydrationError}{recoveryError}"
+                    ) from hydrationError
         finally:
-            self._endCaseBundleRestore(restoreGeneration)
-
-        # Compatibility migrations and Step 6 freshness review are allowed
-        # only after both package-integrity comparisons have succeeded.
-        self.logic.hydrateDentoCaseStateAfterLoad(
-            self._parameterNode,
-            str(inspection.manifest.get("schemaVersion") or ""),
-        )
-        self._revalidateImportedStep6ContextAfterLoad()
+            if not restoreEnded:
+                self._endCaseBundleRestore(restoreGeneration)
 
         # The extracted MRB is deleted with the temporary directory. Do not
         # leave it as Slicer's apparent save target, and do not use the outer

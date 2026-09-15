@@ -209,13 +209,32 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
             self._updatingPlanningUI = False
 
         targetBounds = None
+        restoringCaseBundle = bool(self._caseBundleRestoreDepth)
         if trajectoryAssociationError:
             self._planningConstraintWarning = trajectoryAssociationError
         if targetRecord:
-            targetBounds = self._ensureTargetBounds(
-                segmentationNode,
-                targetRecord,
-            )
+            if restoringCaseBundle:
+                roiNode = self._parameterNode.targetToothBoundsRoi
+                if self.logic.isTargetBoundsRoiForTarget(
+                    roiNode,
+                    segmentationNode,
+                    targetRecord["segmentId"],
+                ):
+                    bounds = [0.0] * 6
+                    roiNode.GetRASBounds(bounds)
+                    targetBounds = tuple(float(value) for value in bounds)
+                    self.ui.targetBoundsValueLabel.text = self.logic.formatRasBounds(
+                        targetBounds
+                    )
+                else:
+                    self._planningConstraintWarning = _(
+                        "The saved target bounds do not match the selected target tooth."
+                    )
+            else:
+                targetBounds = self._ensureTargetBounds(
+                    segmentationNode,
+                    targetRecord,
+                )
             self._applyTargetPriorityHighlight()
         else:
             self.ui.targetBoundsValueLabel.text = _("--")
@@ -246,7 +265,12 @@ class PlanningWidgetMixin(DockingWidgetMixin, PlanningFocusWidgetMixin, Trajecto
         self._updateTrajectorySelectorColorSwatches()
 
         self._bindPlanningTrajectoryNode(trajectoryNode)
-        if targetRecord and trajectoryNode and not trajectoryAssociationError:
+        if (
+            targetRecord
+            and trajectoryNode
+            and not trajectoryAssociationError
+            and not restoringCaseBundle
+        ):
             currentTargetNode = trajectoryNode.GetNodeReference(
                 self.logic.TARGET_SEGMENTATION_REFERENCE_ROLE
             )

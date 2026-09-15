@@ -254,7 +254,15 @@ class CaseFoundationLogicMixin:
                 records.append(
                     {
                         "id": segmentId,
-                        "review": review,
+                        # The source fingerprint predates the semantic registry.
+                        # Keep its legacy descriptor projection stable while
+                        # semantic identity remains a separate planning gate.
+                        "review": {
+                            "segmentId": segmentId,
+                            **self.describeSegmentForReview(
+                                str(review.get("sourceName") or "")
+                            ),
+                        },
                         "shape": tuple(int(value) for value in array.shape),
                         "sha256": hashlib.sha256(array.tobytes()).hexdigest(),
                     }
@@ -605,6 +613,23 @@ class CaseFoundationLogicMixin:
         if targetSegmentId in groups["upper"]:
             return "FixedUpper"
         return ""
+
+    def caseFoundationPlanningSurfaceCopy(
+        self,
+        parameterNode,
+        segmentationNode: vtkMRMLSegmentationNode,
+        segmentId: str,
+    ) -> vtk.vtkPolyData:
+        """Return authoritative anatomy in the current opened planning frame."""
+
+        surface = self._getClosedSurfaceWorldCopy(segmentationNode, segmentId)
+        if (
+            segmentationNode is not parameterNode.teethSegmentation
+            or self._targetJawOwner(parameterNode, segmentId) != "MovingLower"
+        ):
+            return surface
+        self.requireCaseFoundationPose(parameterNode)
+        return self._step6CaseJawPolydataWorld(parameterNode, surface)
 
     def _reparentCaseFoundationNodePreservingWorld(self, node, parent) -> None:
         oldParent = node.GetParentTransformNode()

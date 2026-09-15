@@ -6,6 +6,36 @@ from .runtime import *
 
 
 class GuideSupportLogicMixin:
+    @classmethod
+    def canonicalTemplateSupportDirectionGeometryJson(cls, geometry) -> str:
+        """Normalize support-direction provenance across MRML float reloads."""
+
+        if isinstance(geometry, str):
+            geometry = json.loads(geometry)
+        if not isinstance(geometry, dict):
+            raise ValueError(_("Support-direction provenance must be a JSON object."))
+        reverseDirection = geometry.get("reverseDirection")
+        if isinstance(reverseDirection, str):
+            reverseDirection = reverseDirection.lower() == "true"
+        if not isinstance(reverseDirection, bool):
+            raise ValueError(_("Support-direction polarity is invalid."))
+        return canonical_json(
+            {
+                "entryRas": cls._canonicalInsertionPoint(geometry.get("entryRas")),
+                "targetRas": cls._canonicalInsertionPoint(geometry.get("targetRas")),
+                "reverseDirection": reverseDirection,
+            }
+        )
+
+    @classmethod
+    def templateSupportDirectionGeometryMatches(cls, left, right) -> bool:
+        try:
+            return cls.canonicalTemplateSupportDirectionGeometryJson(
+                left
+            ) == cls.canonicalTemplateSupportDirectionGeometryJson(right)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+
     @staticmethod
     def encodeTemplateSupportSegmentIds(segmentIds: list[str]) -> str:
         """Serialize an ordered, unique list of manually selected support teeth."""
@@ -159,7 +189,8 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Create a traceable draft model from unmodified whole-tooth surfaces."""
 
-        self.requireCaseFoundationPose(self.getParameterNode())
+        parameterNode = self.getParameterNode()
+        self.requireCaseFoundationPose(parameterNode)
         selection = self.validateTemplateSupportSelection(
             segmentationNode,
             targetSegmentId,
@@ -170,7 +201,8 @@ class GuideSupportLogicMixin:
         sourcePointCount = 0
         sourceCellCount = 0
         for record in records:
-            surfaceCopy = self._getClosedSurfaceCopy(
+            surfaceCopy = self.caseFoundationPlanningSurfaceCopy(
+                parameterNode,
                 segmentationNode,
                 record["segmentId"],
             )
@@ -583,7 +615,8 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLMarkupsPlaneNode, dict]:
         """Create a locked plane normal to Entry→Target at one scalar depth."""
 
-        self.requireCaseFoundationPose(self.getParameterNode())
+        parameterNode = self.getParameterNode()
+        self.requireCaseFoundationPose(parameterNode)
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         if sourceSummary["geometryState"] != "Current":
             raise ValueError(_("Update the stale full support-anatomy model first."))
@@ -608,7 +641,8 @@ class GuideSupportLogicMixin:
         toothSurfaces = [
             {
                 "segmentId": segmentId,
-                "polyData": self._getClosedSurfaceCopy(
+                "polyData": self.caseFoundationPlanningSurfaceCopy(
+                    parameterNode,
                     sourceSummary["sourceSegmentation"],
                     segmentId,
                 ),
@@ -758,7 +792,8 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLMarkupsClosedCurveNode, dict]:
         """Initialize the authoritative editable curve from the support plane."""
 
-        self.requireCaseFoundationPose(self.getParameterNode())
+        parameterNode = self.getParameterNode()
+        self.requireCaseFoundationPose(parameterNode)
         self.validateTemplateSupportBoundaryPlane(
             sourceModel,
             planeNode,
@@ -772,7 +807,8 @@ class GuideSupportLogicMixin:
         surfaces = [
             {
                 "segmentId": segmentId,
-                "polyData": self._getClosedSurfaceCopy(
+                "polyData": self.caseFoundationPlanningSurfaceCopy(
+                    parameterNode,
                     sourceSummary["sourceSegmentation"],
                     segmentId,
                 ),
@@ -970,10 +1006,8 @@ class GuideSupportLogicMixin:
                 sort_keys=True,
                 separators=(",", ":"),
             ),
-            "directionGeometryJson": json.dumps(
-                directionGeometry,
-                sort_keys=True,
-                separators=(",", ":"),
+            "directionGeometryJson": self.canonicalTemplateSupportDirectionGeometryJson(
+                directionGeometry
             ),
         }
 
@@ -991,7 +1025,8 @@ class GuideSupportLogicMixin:
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Extract and persist only the clinician-selected visible support patch."""
 
-        self.requireCaseFoundationPose(self.getParameterNode())
+        parameterNode = self.getParameterNode()
+        self.requireCaseFoundationPose(parameterNode)
         sourceSummary = self.getDraftTemplateSupportModelSummary(sourceModel)
         self.validateTemplateSupportBoundary(sourceModel, curveNode)
         directionSummary = self.resolveTemplateSupportTrajectoryDirection(
@@ -1022,7 +1057,8 @@ class GuideSupportLogicMixin:
                 "segmentId": segmentId,
                 "displayName": sourceNames.get(segmentId) or segmentId,
                 "isTarget": segmentId == sourceSummary["targetSegmentId"],
-                "polyData": self._getClosedSurfaceCopy(
+                "polyData": self.caseFoundationPlanningSurfaceCopy(
+                    parameterNode,
                     sourceSegmentation,
                     segmentId,
                 ),

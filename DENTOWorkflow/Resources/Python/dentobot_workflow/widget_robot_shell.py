@@ -369,9 +369,50 @@ class RobotShellWidgetMixin:
                 self._robotWorkflowFacade.previewDiagnosticCandidate
                 if self._robotWorkflowFacade
                 else None,
+                self._onStep6ApplyDiagnosticCandidate
+                if self._robotWorkflowFacade
+                else None,
+                self._onStep6UnlockDiagnosticCandidate
+                if self._robotWorkflowFacade
+                else None,
             )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
+
+    def _onStep6ApplyDiagnosticCandidate(
+        self,
+        candidate_index: int,
+        lock: bool = False,
+    ):
+        if not self._robotWorkflowFacade:
+            return None
+        result = self._robotWorkflowFacade.applyDiagnosticCandidate(
+            candidate_index,
+            lock=lock,
+        )
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.approachStatusLabel,
+            result,
+        )
+        self._updateWorkflowViewControls()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+        return result
+
+    def _onStep6UnlockDiagnosticCandidate(self):
+        if not self._robotWorkflowFacade:
+            return None
+        result = self._robotWorkflowFacade.unlockDiagnosticCandidate()
+        if self._robotSimulationPanel:
+            self._setStep6PanelResult(
+                self._robotSimulationPanel.approachStatusLabel,
+                result,
+            )
+            self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+        return result
 
     def _onStep6ApplyTaskHome(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:

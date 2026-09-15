@@ -1,8 +1,10 @@
 # DENTOBOT Project Context
 
-Current routing (2026-09-10): [AGENT_CONTEXT.md](AGENT_CONTEXT.md) is the
-compact entrypoint; TASKS.md owns current work and DEVELOPMENT_PLAN.md owns
-the acceptance contract. This file describes product purpose, not a live queue.
+Current routing (2026-09-11): [AGENT_CONTEXT.md](AGENT_CONTEXT.md) is the
+compact entrypoint; [backlog.md](backlog.md) owns all pending work, order and
+overlap routing; TASKS.md retains detailed contracts/completion records; and
+DEVELOPMENT_PLAN.md owns milestone and acceptance design. This file describes
+product purpose, not a live queue.
 
 Main case preparation uses one target tooth and one trajectory, or an explicit
 pair. The 32 × 3 testing foundation is an optional alternative. The current P0

@@ -23,9 +23,10 @@ integration and operator verification therefore remain unclaimed.
 
 Dated results below apply only to their recorded case/revision. They do not
 establish acceptance of the reopened PreparedBranch contract or authorize
-historical retries. TASKS.md owns live status; DEVELOPMENT_PLAN.md owns the
-current correction. Keep unique commands, failures, hashes and observations in
-this evidence record/daily logs; do not copy them into compact startup context.
+historical retries. backlog.md owns pending status and order; TASKS.md owns the
+detailed contract/completion record; DEVELOPMENT_PLAN.md owns acceptance design.
+Keep unique commands, failures, hashes and observations in this evidence
+record/daily logs; do not copy them into compact startup context.
 
 ## 2026-09-10 FDI31 assisted-target representation mismatch
 

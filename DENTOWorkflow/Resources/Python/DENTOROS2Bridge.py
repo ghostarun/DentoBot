@@ -186,6 +186,7 @@ class JointCommandStatus:
     world_object_count: int = 0
     world_objects: tuple[dict[str, object], ...] = ()
     world_object_evidence_present: bool = False
+    collision_scene_policy_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -194,10 +195,19 @@ class TaskJointStatus:
     reason: str
     task_fingerprint: str = ""
     guard_session_id: str = ""
+    request_id: str = ""
+    validation_kind: str = "transition"
     phase: str = ""
     sequence: int = -1
+    validate_only: bool = False
     requested_positions: tuple[float, ...] = ()
     accepted_positions: tuple[float, ...] = ()
+    starting_positions: tuple[float, ...] = ()
+    evaluated_positions: tuple[float, ...] = ()
+    evaluated_sample_index: Optional[int] = None
+    interpolation_fraction: Optional[float] = None
+    first_rejection_interpolation_fraction: Optional[float] = None
+    total_sample_count: int = 0
     checked_samples: int = 0
     corridor_ok: bool = False
     corridor_progress: Optional[float] = None
@@ -222,6 +232,7 @@ class TaskJointStatus:
     guide_clearance_warning_contact_penetration_m: Optional[float] = None
     guide_clearance_warning_contact_sample_count: int = 0
     guide_clearance_warning_contact_position_base_m: Optional[tuple[float, float, float]] = None
+    collision_scene_policy_fingerprint: str = ""
 
 
 _status_subscriber = None
@@ -351,6 +362,9 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
 
     if not isinstance(data.get("accepted"), bool):
         raise ValueError("accepted must be a boolean.")
+    scene_policy_fingerprint = data.get("collision_scene_policy_fingerprint", "")
+    if not isinstance(scene_policy_fingerprint, str):
+        raise ValueError("collision_scene_policy_fingerprint must be a string.")
     minimum_clearance_m = float(
         data.get("minimum_clearance_m", ROS2_RESEARCH_MINIMUM_CLEARANCE_M)
     )
@@ -376,6 +390,7 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
         world_object_count=max(0, int(data.get("world_object_count", 0))),
         world_objects=world_objects(),
         world_object_evidence_present="world_objects" in data,
+        collision_scene_policy_fingerprint=scene_policy_fingerprint,
     )
 
 
@@ -423,6 +438,24 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         if not isinstance(value, str):
             raise ValueError(f"{key} must be a string.")
         return value
+
+    validate_only = data.get("validate_only", False)
+    if not isinstance(validate_only, bool):
+        raise ValueError("validate_only must be a boolean.")
+    scene_policy_fingerprint = data.get("collision_scene_policy_fingerprint", "")
+    if not isinstance(scene_policy_fingerprint, str):
+        raise ValueError("collision_scene_policy_fingerprint must be a string.")
+    request_id = optional_string("request_id")
+    validation_kind = optional_string("validation_kind") or "transition"
+    if validation_kind not in ("transition", "static_state"):
+        raise ValueError("validation_kind must be transition or static_state.")
+    evaluated_sample_index = data.get("evaluated_sample_index")
+    if evaluated_sample_index is not None and (
+        isinstance(evaluated_sample_index, bool)
+        or not isinstance(evaluated_sample_index, int)
+        or evaluated_sample_index < 1
+    ):
+        raise ValueError("evaluated_sample_index must be a positive integer or null.")
 
     def warning_kind() -> str:
         value = data.get("guide_warning_kind", "")
@@ -492,10 +525,21 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         reason=str(data.get("reason") or ""),
         task_fingerprint=task_fingerprint,
         guard_session_id=guard_session_id,
+        request_id=request_id,
+        validation_kind=validation_kind,
         phase=str(data.get("phase") or ""),
         sequence=int(data.get("sequence", -1)),
+        validate_only=validate_only,
         requested_positions=positions("requested_positions"),
         accepted_positions=positions("accepted_positions"),
+        starting_positions=positions("starting_positions"),
+        evaluated_positions=positions("evaluated_positions"),
+        evaluated_sample_index=evaluated_sample_index,
+        interpolation_fraction=optional_number("interpolation_fraction"),
+        first_rejection_interpolation_fraction=optional_number(
+            "first_rejection_interpolation_fraction"
+        ),
+        total_sample_count=nonnegative_integer("total_sample_count"),
         checked_samples=max(0, int(data.get("checked_samples", 0))),
         corridor_ok=bool(data.get("corridor_ok", False)),
         corridor_progress=optional_number("corridor_progress"),
@@ -540,6 +584,7 @@ def parse_task_joint_status(payload: str) -> TaskJointStatus:
         guide_clearance_warning_contact_position_base_m=optional_point(
             "guide_clearance_warning_contact_position_base_m"
         ),
+        collision_scene_policy_fingerprint=scene_policy_fingerprint,
     )
 
 
@@ -1099,7 +1144,9 @@ def _wait_for_task_command_result(
     phase: str,
     sequence: int,
     after_monotonic: float,
-    timeout_sec: float,
+    request_id: str = "",
+    validation_kind: str = "",
+    timeout_sec: float = 6.0,
 ) -> Optional[TaskJointStatus]:
     deadline = time.monotonic() + float(timeout_sec)
     while time.monotonic() < deadline:
@@ -1123,6 +1170,8 @@ def _wait_for_task_command_result(
             and status.guard_session_id == str(guard_session_id)
             and status.phase == str(phase)
             and status.sequence == int(sequence)
+            and (not request_id or status.request_id == str(request_id))
+            and (not validation_kind or status.validation_kind == str(validation_kind))
         ):
             return status
         time.sleep(0.01)
@@ -1157,6 +1206,7 @@ def configure_task_phase_guard(
     corridor_radius_mm: float,
     approach_standoff_mm: float,
     simulation_guide_clearance_object_ids: Sequence[str] = (),
+    collision_scene_policy_fingerprint: str = "",
 ) -> Tuple[bool, str]:
     global _last_task_config_json, _native_joint_positions
     if not target_object_id or any(
@@ -1198,6 +1248,7 @@ def configure_task_phase_guard(
         "target_base_m": world_ras_mm_to_base_m(target_ras_mm, base_transform),
         "corridor_radius_m": float(corridor_radius_mm) / 1000.0,
         "approach_standoff_m": float(approach_standoff_mm) / 1000.0,
+        "collision_scene_policy_fingerprint": str(collision_scene_policy_fingerprint or ""),
     }
     if not payload["task_fingerprint"] or not payload["target_object_id"]:
         return False, "Task-guard configuration is missing its task or target identity."
@@ -1284,6 +1335,8 @@ def apply_task_phase_joint_positions(
     phase: str,
     sequence: int,
     validate_only: bool = False,
+    validation_kind: str = "transition",
+    request_id: str = "",
     timeout_sec: float = 6.0,
 ) -> Tuple[bool, str]:
     global _native_joint_positions
@@ -1295,6 +1348,10 @@ def apply_task_phase_joint_positions(
     ):
         return False, "The transient task-guard ROS interface is unavailable."
     values = joint_si_vector(positions_si)
+    if validation_kind not in ("transition", "static_state"):
+        return False, "Unsupported task-guard validation kind."
+    if validation_kind == "static_state" and not validate_only:
+        return False, "static_state validation must be read-only (validate_only=true)."
     prior = list(_native_joint_positions)
     status_before = _last_task_status_at
     command = {
@@ -1325,34 +1382,54 @@ def apply_task_phase_joint_positions(
             "sequence": int(sequence),
             "joint_positions": values,
             "validate_only": bool(validate_only),
+            "validation_kind": str(validation_kind),
+            "request_id": str(request_id or ""),
         }
     )
-    command_publisher.Publish(json.dumps(command, sort_keys=True, separators=(",", ":")))
-    status = _wait_for_task_command_result(
-        task_fingerprint=str(task_fingerprint),
-        guard_session_id=active_session_id,
-        phase=str(phase),
-        sequence=int(sequence),
-        after_monotonic=status_before,
-        timeout_sec=float(timeout_sec),
+    # The ordinary raw-command stream is a compatibility heartbeat.  Pause it
+    # while the authoritative phased command is in flight; otherwise a timer
+    # tick can publish the previous native vector after this task command is
+    # accepted and move the simulated state back by one waypoint.
+    stream_was_active = bool(
+        _slicer_joint_command_timer is not None
+        and _slicer_joint_command_timer.isActive()
     )
-    if status is None:
-        return False, "Task guard did not answer the phased simulation command."
-    if status.accepted:
-        if not validate_only:
-            _native_joint_positions = values
-        return True, status.reason
-    _native_joint_positions = prior
-    pair = (
-        f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
-        if status.first_body or status.second_body
-        else ""
-    )
-    return (
-        False,
-        f"Task guard rejected {phase} sequence {int(sequence)}: "
-        f"{status.reason}{pair}",
-    )
+    if stream_was_active:
+        _slicer_joint_command_timer.stop()
+    try:
+        command_publisher.Publish(
+            json.dumps(command, sort_keys=True, separators=(",", ":"))
+        )
+        status = _wait_for_task_command_result(
+            task_fingerprint=str(task_fingerprint),
+            guard_session_id=active_session_id,
+            phase=str(phase),
+            sequence=int(sequence),
+            request_id=str(request_id or ""),
+            validation_kind=str(validation_kind),
+            after_monotonic=status_before,
+            timeout_sec=float(timeout_sec),
+        )
+        if status is None:
+            return False, "Task guard did not answer the phased simulation command."
+        if status.accepted:
+            if not validate_only:
+                _native_joint_positions = values
+            return True, status.reason
+        _native_joint_positions = prior
+        pair = (
+            f" ({status.first_body or '?'} ↔ {status.second_body or '?'})"
+            if status.first_body or status.second_body
+            else ""
+        )
+        return (
+            False,
+            f"Task guard rejected {phase} sequence {int(sequence)}: "
+            f"{status.reason}{pair}",
+        )
+    finally:
+        if stream_was_active and _slicer_joint_command_timer is not None:
+            _slicer_joint_command_timer.start()
 
 
 def validate_task_phase_waypoints(
@@ -2217,6 +2294,25 @@ def start_slicer_joint_command_stream() -> Tuple[bool, str]:
         _slicer_joint_command_timer.timeout.connect(_publish_slicer_joint_command)
     _slicer_joint_command_timer.start()
     return True, ""
+
+
+def pause_slicer_joint_command_stream() -> bool:
+    """Pause the compatibility heartbeat without deleting its publisher."""
+
+    if _slicer_joint_command_timer is None or not _slicer_joint_command_timer.isActive():
+        return False
+    _slicer_joint_command_timer.stop()
+    return True
+
+
+def resume_slicer_joint_command_stream() -> bool:
+    """Resume a previously paused compatibility heartbeat."""
+
+    if _slicer_joint_command_timer is None:
+        return False
+    if not _slicer_joint_command_timer.isActive():
+        _slicer_joint_command_timer.start()
+    return True
 
 
 def stop_slicer_joint_command_stream(*, delete_publisher: bool = True) -> None:
@@ -5026,6 +5122,8 @@ def acknowledge_moveit_collision_scene(
     expected_objects: Sequence[Mapping[str, object]],
     current_joint_positions_si: Mapping[str, float],
     timeout_sec: float = ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC,
+    expected_policy_fingerprint: str = "",
+    require_correlated_readback: bool = False,
 ) -> dict[str, object]:
     """Read back collision IDs/poses/bounds from the guard's PlanningScene.
 
@@ -5046,6 +5144,9 @@ def acknowledge_moveit_collision_scene(
             "reason": "No expected collision objects were supplied.",
             "acknowledged_object_ids": [],
             "mismatches": ["empty expected object set"],
+            "readback_correlated": False,
+            "trusted": False,
+            "attribution_allowed": False,
         }
     deadline = time.monotonic() + max(0.1, float(timeout_sec))
     last_status = None
@@ -5069,16 +5170,39 @@ def acknowledge_moveit_collision_scene(
                 ),
                 "acknowledged_object_ids": [],
                 "mismatches": [],
+                "readback_correlated": False,
+                "trusted": False,
+                "attribution_allowed": False,
             }
         runtime_by_id = {
             str(record.get("id") or ""): record for record in status.world_objects
         }
         mismatches: list[str] = []
+        unexpected_ids = sorted(set(runtime_by_id).difference(expected_by_id))
+        if set(runtime_by_id) != set(expected_by_id):
+            mismatches.append(
+                "runtime collision ID set differs: expected "
+                f"{len(expected_by_id)}, observed {len(runtime_by_id)}"
+                + (f"; unexpected [{', '.join(unexpected_ids[:5])}]" if unexpected_ids else "")
+            )
         for object_id, expected in expected_by_id.items():
             observed = runtime_by_id.get(object_id)
             if observed is None:
                 mismatches.append(f"missing runtime object {object_id}")
                 continue
+            expected_pose = expected.get("outgoing_pose_base_link_m_xyzw")
+            observed_pose = observed.get("pose_base_link_m_xyzw")
+            if expected_pose is None or observed_pose is None:
+                mismatches.append(f"missing comparable base-link pose for {object_id}")
+            else:
+                try:
+                    if len(expected_pose) != 7 or len(observed_pose) != 7 or any(
+                        abs(float(expected_value) - float(observed_value)) > 1.0e-9
+                        for expected_value, observed_value in zip(expected_pose, observed_pose)
+                    ):
+                        mismatches.append(f"runtime pose differs for {object_id}")
+                except (TypeError, ValueError):
+                    mismatches.append(f"invalid comparable base-link pose for {object_id}")
             expected_bounds_mm = tuple(
                 float(value)
                 for value in expected.get("outgoing_bounds_base_link_mm", ())
@@ -5097,9 +5221,21 @@ def acknowledge_moveit_collision_scene(
                 mismatches.append(f"runtime bounds differ for {object_id}")
             if int(observed.get("shape_count", 0)) < 1:
                 mismatches.append(f"runtime object {object_id} has no shape")
+        observed_policy_fingerprint = str(
+            getattr(status, "collision_scene_policy_fingerprint", "") or ""
+        )
+        if expected_policy_fingerprint and observed_policy_fingerprint != str(
+            expected_policy_fingerprint
+        ):
+            mismatches.append(
+                "runtime collision-scene policy fingerprint is missing or differs"
+            )
+        if require_correlated_readback:
+            mismatches.append(
+                "ordinary joint-status readback has no publication/request correlation"
+            )
         if mismatches:
             missing_ids = sorted(set(expected_by_id).difference(runtime_by_id))
-            unexpected_ids = sorted(set(runtime_by_id).difference(expected_by_id))
             legacy_prefix = "[Step 6] MoveIt obstacle - "
             legacy_proxy_ids = {
                 f"{legacy_prefix}{object_id}" for object_id in expected_by_id
@@ -5137,6 +5273,10 @@ def acknowledge_moveit_collision_scene(
                 "unexpected_object_ids": unexpected,
                 "world_object_count": int(status.world_object_count),
                 "objects": [runtime_by_id[key] for key in sorted(expected_by_id)],
+                "collision_scene_policy_fingerprint": observed_policy_fingerprint,
+                "readback_correlated": False,
+                "trusted": False,
+                "attribution_allowed": False,
             }
         time.sleep(0.1)
     return {
@@ -5154,6 +5294,14 @@ def acknowledge_moveit_collision_scene(
             int(last_status.world_object_count) if last_status is not None else 0
         ),
         "mismatches": last_mismatches,
+        "collision_scene_policy_fingerprint": (
+            str(getattr(last_status, "collision_scene_policy_fingerprint", "") or "")
+            if last_status is not None
+            else ""
+        ),
+        "readback_correlated": False,
+        "trusted": False,
+        "attribution_allowed": False,
     }
 
 

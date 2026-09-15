@@ -23,6 +23,7 @@ from DENTOTemplateGeometry import create_hollow_sleeve, surface_topology
 
 MAX_SAMPLE_POINTS = 48_000_000
 MAX_DISCARDED_OCCUPIED_ARTIFACT_VOLUME_MM3 = 0.1
+MINIMUM_TRAJECTORY_BORE_DIAMETER_MM = 2.0
 
 
 def _vector(values, label: str) -> np.ndarray:
@@ -1266,6 +1267,11 @@ def normalize_docking_parameters(
         raise ValueError("Docking dimensions must be finite.")
     if not 0.0 < values["innerDiameterMm"] < values["outerDiameterMm"]:
         raise ValueError("Docking diameters require 0 < inner < outer.")
+    if values["innerDiameterMm"] < MINIMUM_TRAJECTORY_BORE_DIAMETER_MM:
+        raise ValueError(
+            "Trajectory guide hole diameter must be at least "
+            f"{MINIMUM_TRAJECTORY_BORE_DIAMETER_MM:.2f} mm for the configured burr."
+        )
     if values["heightMm"] <= 0.0 or values["reinforcementDepthMm"] <= 0.0:
         raise ValueError("Docking height and reinforcement depth must be positive.")
     if values["clearanceMm"] < 0.0:

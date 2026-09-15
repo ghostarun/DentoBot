@@ -280,6 +280,7 @@ class Step6SceneLogicMixin:
         sourceNode: vtkMRMLSegmentationNode,
         ownerNode: vtkMRMLSegmentationNode,
         segmentIds: tuple[str, ...],
+        baselineVisibility: dict[str, bool] | None = None,
     ) -> None:
         display = sourceNode.GetDisplayNode()
         if not display:
@@ -293,7 +294,11 @@ class Step6SceneLogicMixin:
             visibility = {}
         for segmentId in segmentIds:
             if segmentId not in visibility:
-                visibility[segmentId] = bool(display.GetSegmentVisibility3D(segmentId))
+                visibility[segmentId] = bool(
+                    (baselineVisibility or {}).get(
+                        segmentId, display.GetSegmentVisibility3D(segmentId)
+                    )
+                )
             display.SetSegmentVisibility3D(segmentId, False)
         ownerNode.SetAttribute(
             "DENTOBOT.SourceSegmentVisibility3DJson", canonical_json(visibility)
@@ -946,8 +951,26 @@ class Step6SceneLogicMixin:
             mode="ProvisionalOpenProxy",
             transformNode=transform,
         )
-        self._hideStep6SourceJawSegments(segmentation, fixedUpper, upperIds)
-        self._hideStep6SourceJawSegments(segmentation, movingLower, lowerIds)
+        sourceSegmentIds = vtk.vtkStringArray()
+        segmentation.GetSegmentation().GetSegmentIDs(sourceSegmentIds)
+        allSourceIds = tuple(
+            sourceSegmentIds.GetValue(index)
+            for index in range(sourceSegmentIds.GetNumberOfValues())
+        )
+        sourceDisplay = segmentation.GetDisplayNode()
+        sourceVisibility = {
+            segmentId: bool(sourceDisplay.GetSegmentVisibility3D(segmentId))
+            for segmentId in allSourceIds
+        } if sourceDisplay else {}
+        self._hideStep6SourceJawSegments(
+            segmentation, fixedUpper, upperIds, sourceVisibility
+        )
+        # The source segmentation is a closed-pose inspection object. Hiding
+        # only jaw/tooth segments leaves pulp, canals, restorations, and other
+        # masks floating at their closed-pose locations beside the opened proxy.
+        self._hideStep6SourceJawSegments(
+            segmentation, movingLower, allSourceIds, sourceVisibility
+        )
         modelDisplay = model.GetDisplayNode()
         if modelDisplay:
             modelDisplay.SetVisibility3D(False)

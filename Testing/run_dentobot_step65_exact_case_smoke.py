@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import time
 import traceback
@@ -33,6 +34,13 @@ for path in (HELPERS, MODULE):
         sys.path.insert(0, str(path))
 
 import DENTOROS2Bridge as bridge  # noqa: E402
+from DENTOCaseBundle import CASE_BUNDLE_SCHEMA_VERSION, validate_case_bundle  # noqa: E402
+from DENTOStep6State import (  # noqa: E402
+    DENTOCASE_STATE_SCHEMA_VERSION,
+    ROBOT_ENVIRONMENT_SCHEMA_VERSION,
+    TRAJECTORY_REGISTRY_SCHEMA_VERSION,
+    motion_diagnostic_plan_selection,
+)
 from DENTOTemplateGeometry import model_polydata_in_world  # noqa: E402
 
 
@@ -55,6 +63,15 @@ PREVIEW_TIMEOUT_SEC = float(os.environ.get("DENTOBOT_PREVIEW_TIMEOUT_SEC", "240"
 BASE_LOCAL_Z_OFFSET_MM = float(
     os.environ.get("DENTOBOT_BASE_LOCAL_Z_OFFSET_MM", "0")
 )
+EXPECTED_FDI = str(os.environ.get("DENTOBOT_EXPECTED_FDI", "")).strip()
+OUTPUT_CASE = str(os.environ.get("DENTOBOT_OUTPUT_CASE", "")).strip()
+REOPEN_SAVED_CASE = os.environ.get("DENTOBOT_REOPEN_SAVED_CASE", "") == "1"
+LOCK_SELECTED_ROUTE = os.environ.get("DENTOBOT_LOCK_SELECTED_ROUTE", "") == "1"
+DIAGNOSTIC_OUTPUT = str(
+    os.environ.get("DENTOBOT_DIAGNOSTIC_OUTPUT", "/tmp/dentobot-exact-case-diagnostic.json")
+).strip()
+if REOPEN_SAVED_CASE and not OUTPUT_CASE:
+    raise RuntimeError("DENTOBOT_REOPEN_SAVED_CASE=1 requires DENTOBOT_OUTPUT_CASE.")
 
 
 def process_events(seconds: float = 0.25) -> None:
@@ -82,6 +99,138 @@ def require_success(result, stage: str):
         details = json.dumps(result.details, sort_keys=True, default=str)
         raise RuntimeError(f"{stage}: {result.message}; details={details}")
     return result
+
+
+def target_fdi(parameter_node) -> str:
+    trajectory = getattr(parameter_node, "trajectoryLine", None)
+    if trajectory is None:
+        return ""
+    return str(trajectory.GetAttribute("DENTOBOT.TargetFdiNumber") or "").strip()
+
+
+def require_trajectory_guide_bore(parameter_node) -> dict[str, float]:
+    minimum_mm = 2.0
+    channel_mm = float(parameter_node.templateChannelDiameterMm)
+    sleeve_inner_mm = float(parameter_node.templateSleeveInnerDiameterMm)
+    if channel_mm < minimum_mm or sleeve_inner_mm < minimum_mm:
+        raise RuntimeError(
+            "saved trajectory-guide bore is below the required 2.0 mm: "
+            f"channel={channel_mm:.3f} mm, sleeve={sleeve_inner_mm:.3f} mm"
+        )
+    return {
+        "channelDiameterMm": channel_mm,
+        "sleeveInnerDiameterMm": sleeve_inner_mm,
+        "minimumRequiredMm": minimum_mm,
+    }
+
+
+def require_current_saved_case(inspection, expected_fdi: str) -> dict[str, object]:
+    """Reject a legacy/partial save before reporting planner acceptance."""
+
+    workflow = inspection.workflow
+    step6 = workflow.get("step6")
+    errors = []
+    if str(inspection.manifest.get("schemaVersion") or "") != CASE_BUNDLE_SCHEMA_VERSION:
+        errors.append(
+            "outer case-bundle schema must be " + CASE_BUNDLE_SCHEMA_VERSION
+        )
+    trajectory_nodes = [
+        node
+        for node in workflow.get("nodes", ())
+        if isinstance(node, dict) and node.get("field") == "trajectoryLine"
+    ]
+    workflow_fdi = ""
+    if trajectory_nodes:
+        attributes = trajectory_nodes[0].get("attributes", {})
+        workflow_fdi = str(attributes.get("DENTOBOT.TargetFdiNumber") or "").strip()
+        if not workflow_fdi:
+            match = re.search(r"\bFDI\s*(\d+)", str(trajectory_nodes[0].get("name") or ""), re.I)
+            workflow_fdi = match.group(1) if match else ""
+    if not workflow_fdi:
+        errors.append("saved trajectory has no target FDI identity")
+    elif workflow_fdi.removeprefix("FDI") != str(expected_fdi or "").removeprefix("FDI"):
+        errors.append(
+            "saved trajectory target FDI is "
+            + workflow_fdi
+            + ", expected "
+            + str(expected_fdi or "unknown")
+        )
+    if str(workflow.get("schemaVersion") or "") != DENTOCASE_STATE_SCHEMA_VERSION:
+        errors.append(
+            "workflow schema must be " + DENTOCASE_STATE_SCHEMA_VERSION
+        )
+    if not isinstance(step6, dict):
+        errors.append("current Step 6 state is missing")
+        step6 = {}
+    environment = step6.get("environment")
+    if not isinstance(environment, dict) or str(
+        environment.get("schema_version") or ""
+    ) != ROBOT_ENVIRONMENT_SCHEMA_VERSION:
+        errors.append(
+            "Case Foundation environment schema must be "
+            + ROBOT_ENVIRONMENT_SCHEMA_VERSION
+        )
+    registry = step6.get("trajectoryRegistry")
+    if not isinstance(registry, dict) or str(
+        registry.get("schema_version") or ""
+    ) != TRAJECTORY_REGISTRY_SCHEMA_VERSION:
+        errors.append(
+            "PreparedBranch registry schema must be "
+            + TRAJECTORY_REGISTRY_SCHEMA_VERSION
+        )
+        registry = {}
+    if step6.get("freshnessIssuesAtSave") != []:
+        errors.append("save-time Step 6 freshness issues are present")
+    branches = registry.get("prepared_branches")
+    if not isinstance(branches, dict) or len(branches) != 1:
+        errors.append("saved case must contain exactly one PreparedBranch")
+        branches = {}
+    selected_branch_id = str(registry.get("selected_branch_id") or "")
+    branch = branches.get(selected_branch_id)
+    if not isinstance(branch, dict):
+        errors.append("saved selected PreparedBranch is missing")
+        branch = {}
+    if str(branch.get("state") or "") != "Current":
+        errors.append("saved PreparedBranch is not current")
+    for field in ("planning_pose_fingerprint", "verification_revision"):
+        if not str(branch.get(field) or ""):
+            errors.append(f"saved PreparedBranch lacks {field}")
+    final_templates = [
+        node
+        for node in workflow.get("nodes", ())
+        if isinstance(node, dict)
+        and node.get("field") == "finalPrintableTemplateModel"
+    ]
+    final_attributes = (
+        final_templates[0].get("attributes", {})
+        if final_templates
+        else {}
+    )
+    if str(final_attributes.get("DENTOBOT.FinalGuideSchemaVersion") or "") != "2.0":
+        errors.append("Step 5C final guide schema must be 2.0")
+    if str(final_attributes.get("DENTOBOT.VerificationState") or "") not in {
+        "PASS",
+        "WARNING",
+    }:
+        errors.append("Step 5C final guide is not verified")
+    if errors:
+        raise RuntimeError("saved current-case contract failed: " + "; ".join(errors))
+    return {
+        "workflowSchema": workflow.get("schemaVersion"),
+        "environmentSchema": environment.get("schema_version"),
+        "registrySchema": registry.get("schema_version"),
+        "selectedBranchId": selected_branch_id,
+        "preparedBranchCount": len(branches),
+        "preparedBranchRevision": branch.get("revision"),
+        "step5cGuideSchema": final_attributes.get(
+            "DENTOBOT.FinalGuideSchemaVersion"
+        ),
+        "step5cVerificationState": final_attributes.get(
+            "DENTOBOT.VerificationState"
+        ),
+        "expectedFdi": str(expected_fdi or "").removeprefix("FDI"),
+        "savedFdi": workflow_fdi.removeprefix("FDI"),
+    }
 
 
 def base_point_m_to_world_ras_mm(point, base_transform):
@@ -320,21 +469,36 @@ def run() -> dict[str, object]:
     facade = widget._robotWorkflowFacade
     if parameter_node is None or logic is None or facade is None:
         raise RuntimeError("restored Step 6 workflow services are unavailable")
+    actual_fdi = target_fdi(parameter_node)
+    if EXPECTED_FDI and actual_fdi != EXPECTED_FDI.removeprefix("FDI"):
+        raise RuntimeError(
+            f"expected FDI {EXPECTED_FDI}, restored trajectory is FDI {actual_fdi or 'unknown'}"
+        )
+    guide_bore = require_trajectory_guide_bore(parameter_node)
     if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
         raise RuntimeError("the package serialized a transient ROS robot")
     package_issues = logic.step6PlanningPackageFreshnessIssues(parameter_node)
     jaw_issues = logic.step6CaseJawOpeningFreshnessIssues(parameter_node)
     home_issues = logic.taskHomeFreshnessIssues(parameter_node)
-    # The historical x4 fixture predates the five-DOF/canonical-TCP robot
-    # profile.  Its geometry and base remain valid, but its persisted Home is
-    # expected to be stale at this migration boundary.  Exercise the explicit
-    # live revalidation path below instead of misclassifying that expected
-    # fingerprint change as a package-integrity failure.
+    # A current FDI31 package may intentionally stop at the offline Case
+    # Foundation/base gate.  Missing Task Home is the normal 6.1 -> 6.2
+    # transition and is created only after the live ROS/MoveIt runtime is
+    # connected below.  Existing, malformed, or mismatched Home records still
+    # fail closed here.
+    home_record_at_restore = logic.taskHomeRecord(parameter_node)
+    missing_home_at_restore = (
+        home_record_at_restore is None
+        and len(home_issues) == 1
+        and "case/base-specific Task Home" in str(home_issues[0])
+    )
     migration_home_issues = tuple(
         issue for issue in home_issues if "different robot resources" in str(issue).lower()
     )
     blocking_home_issues = tuple(
-        issue for issue in home_issues if issue not in migration_home_issues
+        issue
+        for issue in home_issues
+        if issue not in migration_home_issues
+        and not (missing_home_at_restore and issue == home_issues[0])
     )
     task_issues = logic.confirmedTaskFreshnessIssues(parameter_node)
     # A saved task snapshot may intentionally become stale after a robot-profile
@@ -344,13 +508,31 @@ def run() -> dict[str, object]:
     # reconstructed below.
     if package_issues or jaw_issues or blocking_home_issues:
         raise RuntimeError(
-            "restored x4 prerequisites are stale: "
+            "restored exact-case prerequisites are stale: "
             + " | ".join(
                 " ".join(group)
                 for group in (package_issues, jaw_issues, blocking_home_issues)
                 if group
             )
         )
+    # Case restore deliberately does not reactivate a PreparedBranch or live
+    # Step 6 context.  Perform the same explicit production import that the
+    # operator uses before Connect; registry eligibility alone is not active
+    # branch state.
+    if not bool(parameter_node.step6PlanningContextImported):
+        try:
+            planning_context = logic.importStep6PlanningContext(parameter_node)
+        except (RuntimeError, ValueError) as exc:
+            raise RuntimeError(
+                "activate the verified PreparedBranch: " + str(exc)
+            ) from exc
+        if not planning_context.ready:
+            raise RuntimeError(
+                "activate the verified PreparedBranch: "
+                + str(planning_context.message)
+            )
+    if not bool(parameter_node.step6PlanningContextImported):
+        raise RuntimeError("verified PreparedBranch activation did not persist")
     restored_snapshot = logic.confirmedTaskRecord(parameter_node)
     restored_task_before_runtime = (
         restored_snapshot.snapshot_fingerprint if restored_snapshot is not None else ""
@@ -398,9 +580,10 @@ def run() -> dict[str, object]:
         require_success(facade.confirmTask(), "confirm remediated task")
         task_home_remediated = True
     connected = connection
-    # Rebuild the live evidence invalidated by the saved package's legacy
-    # robot-profile migration.  This follows the normal 6.2→6.4 operator
-    # sequence; it is intentionally not an automatic connect/restore action.
+    # Rebuild the live evidence invalidated by the saved package's robot
+    # profile or by the normal foundation-only starting state.  This follows
+    # the normal 6.2→6.4 operator sequence; it is intentionally not an
+    # automatic connect/restore action.
     if not facade.taskHomeRuntimeValidated(parameter_node):
         require_success(facade.saveTaskHome(), "save migrated Task Home")
         require_success(facade.applyTaskHome(), "apply migrated Task Home")
@@ -520,6 +703,7 @@ def run() -> dict[str, object]:
     finally:
         if original_tool_insertion_evidence is not None:
             facade._tool_insertion_evidence = original_tool_insertion_evidence
+    exact_diagnostic = None
     if EXPLICIT_CASE:
         exact_diagnostic = {
             "case": str(PACKAGE),
@@ -529,7 +713,8 @@ def run() -> dict[str, object]:
             "task": snapshot.to_dict(),
             "motion": json.loads(str(parameter_node.step6MotionDiagnosticJson or "{}")),
         }
-        Path("/tmp/dentobot-exact-case-diagnostic.json").write_text(json.dumps(
+        Path(DIAGNOSTIC_OUTPUT).parent.mkdir(parents=True, exist_ok=True)
+        Path(DIAGNOSTIC_OUTPUT).write_text(json.dumps(
             exact_diagnostic, indent=2, default=str
         ))
         if os.environ.get("DENTOBOT_CAPTURE_FDI21_BOTTOM", "") == "1":
@@ -665,6 +850,31 @@ def run() -> dict[str, object]:
             f"{approach_plan.start_position_error_mm} mm, "
             f"{approach_plan.start_orientation_error_deg} deg"
         )
+    if LOCK_SELECTED_ROUTE:
+        session = logic.motionDiagnosticRecord(parameter_node)
+        if session is None:
+            raise RuntimeError("requested route lock has no current motion diagnostic")
+        selection_index = int(session.selected_candidate_index)
+        locked = facade.applyDiagnosticCandidate(selection_index, lock=True)
+        require_success(locked, "lock and re-plan selected Goal 1 route")
+        approach = locked
+        approach_plan = approach.payload
+        if approach_plan is None:
+            raise RuntimeError("locked Goal 1 route did not return a transient plan")
+        if exact_diagnostic is not None:
+            exact_diagnostic.update(
+                {
+                    "code": approach.code,
+                    "message": approach.message,
+                    "details": approach.details,
+                    "motion": json.loads(
+                        str(parameter_node.step6MotionDiagnosticJson or "{}")
+                    ),
+                }
+            )
+            Path(DIAGNOSTIC_OUTPUT).write_text(
+                json.dumps(exact_diagnostic, indent=2, default=str)
+            )
     if os.environ.get("DENTOBOT_PLAN_ONLY", "") == "1":
         try:
             diagnostic_payload = json.loads(
@@ -981,8 +1191,64 @@ def run() -> dict[str, object]:
         raise RuntimeError(
             "the exact case did not persist its expected guide-clearance warning"
         )
+    saved_case_report = {}
+    if OUTPUT_CASE:
+        output_case = Path(OUTPUT_CASE)
+        if output_case.suffix.lower() != ".dentocase":
+            output_case = output_case.with_name(output_case.name + ".dentocase")
+        if output_case.exists():
+            raise RuntimeError(f"refusing to overwrite existing output case: {output_case}")
+        inspection = widget._createCaseBundle(output_case)
+        validate_case_bundle(inspection.path)
+        current_case_contract = require_current_saved_case(
+            inspection,
+            actual_fdi,
+        )
+        saved_case_report = {
+            "path": str(inspection.path),
+            "packageId": inspection.manifest.get("packageId"),
+            "sceneSha256": inspection.scene_sha256,
+            "currentCaseContract": current_case_contract,
+            "guideBore": require_trajectory_guide_bore(parameter_node),
+            "reopened": False,
+        }
+        if REOPEN_SAVED_CASE:
+            bridge.disconnect_dentobot_motion_control([])
+            widget._openCaseBundle(inspection.path)
+            process_events(1.0)
+            widget = slicer.util.getModuleWidget("DENTOWorkflow")
+            restored_parameter_node = widget._parameterNode
+            if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
+                raise RuntimeError("saved Stage 6 case restored a live ROS robot")
+            restored_fdi = target_fdi(restored_parameter_node)
+            if EXPECTED_FDI and restored_fdi != EXPECTED_FDI.removeprefix("FDI"):
+                raise RuntimeError(
+                    "reopened case restored the wrong target FDI: "
+                    f"{restored_fdi or 'unknown'}"
+                )
+            restored_guide_bore = require_trajectory_guide_bore(
+                restored_parameter_node
+            )
+            restored_session = logic.motionDiagnosticRecord(restored_parameter_node)
+            restored_selection = (
+                motion_diagnostic_plan_selection(restored_session)
+                if restored_session is not None
+                else {"state": "auto"}
+            )
+            if LOCK_SELECTED_ROUTE and restored_selection.get("state") != "locked":
+                raise RuntimeError("reopened case lost the locked route intent")
+            saved_case_report.update(
+                {
+                    "reopened": True,
+                    "restoredFdi": restored_fdi,
+                    "restoredGuideBore": restored_guide_bore,
+                    "restoredPlanSelection": restored_selection,
+                }
+            )
     return {
         "package": PACKAGE.name,
+        "targetFdi": actual_fdi,
+        "guideBore": guide_bore,
         "restored_task_fingerprint": restored_task_before_runtime,
         "planned_task_fingerprint": snapshot.snapshot_fingerprint,
         "task_home_remediated": task_home_remediated,
@@ -1075,6 +1341,7 @@ def run() -> dict[str, object]:
         "template_collision_exclusion_active": bool(
             facade.templateCollisionExclusionActive
         ),
+        "savedCase": saved_case_report,
     }
 
 
