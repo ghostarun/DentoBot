@@ -2187,3 +2187,87 @@ scene/selection gaps before P3; present only genuinely unresolved operator
 choices. P1 overall remains incomplete until that reconciliation. This request
 does not execute P3 or authorize P4; the returned prompt supplies the bounded
 P3 authorization for the operator to send to Luna. No source changes were made.
+
+## AJ. Retained-evidence P1/P2 closeout gate after endpoint-image approval, 2026-09-15
+
+The operator's approval is recorded with the following limited scope: the
+repair5 endpoint screenshots are understandable visual evidence of the
+retained static endpoint. This does not accept all fifteen automatic input
+selections, clinical or physical fit, collision-free motion, full-workflow
+correctness, or any P3/P4 result. The machine manifest remains
+`operator_acceptance=NOT_RECORDED` and
+`operator_confirmed_in_this_run=false`; those fields are not changed by this
+review record.
+
+**Retained evidence reconciliation:**
+
+- The repair5 endpoint packet and MRB are the authoritative display-review
+  evidence. Endpoint geometry identity, displayed seven-link/model transforms,
+  derived meshless TCP, burr/spindle FK parity, and save/reopen pose persistence
+  are `PASS` within their recorded tolerances.
+- The retained native P2 result is now described precisely as three separate
+  evidence classes: (1) phase-aware static rejection of both retained endpoint
+  candidates for the final printable template ↔ spindle pair; (2) generic
+  static contacts, including FDI31 tooth ↔ spindle and tooth ↔ burr; and (3)
+  Home-to-requested-endpoint corridor rejection at transition sample `1/134`.
+  The third result is not a Target static verdict and is not the original r13
+  insertion edge or collision-onset evidence.
+- The native scene acknowledgement is trusted only for the later correlated
+  request that matched all expected object IDs, poses/bounds and the policy
+  fingerprint (`31/31`). The earlier P1 audit with a null/zero-object
+  acknowledgement remains historical evidence of the readback gap and is not
+  silently rewritten.
+- Row 13's “finalized template shell” is resolved as a bookkeeping alias to
+  the retained final printable template/STL in row 12; the P1 audit contains no
+  independently materialized finalized-shell object. Row 15's P1 null collision
+  payload is retained as the audit-history value; the later correlated native
+  31-object payload is the authoritative P2 collision-scene value. Neither
+  resolution changes geometry, policy or the operator-review requirement.
+- The historical transition image remains `NOT_RUN`: evaluated sample FK
+  matrices were not retained. The saved transition joint vector, start state,
+  requested endpoint, sample index and interpolation fraction remain preserved;
+  no endpoint FK was substituted for transition FK.
+
+**Gate verdict:**
+
+- P1 saved-input and machine checks: `PASS` for the checks actually completed.
+- P1 overall scene/input correctness and operator review: `INCOMPLETE`. The
+  endpoint image review is recorded, but the intent of the decision-critical
+  automatic inputs below has not been explicitly confirmed or corrected.
+- P2 bounded static diagnostic evidence: `PASS` with campaign gate
+  `USER_REVIEW_REQUIRED`. Contact point, penetration depth and clearance stay
+  `UNKNOWN` wherever the native packet did not provide them.
+- P3 conditional authorization is not entered yet. Campaign 1 requires the
+  P1 technical reconciliation plus recorded operator review before the bounded
+  P3 batch. No P3 source edit, runtime, native planning or P4 action occurred.
+
+**Only remaining operator questions:**
+
+1. **Frozen case and task inputs (rows 1–6 and 10):** Should the review and
+   any later conditional P3 use exactly the immutable source
+   `dentobot-case-13sept.dentocase`, diagnostic package
+   `packet-a-fdi31-20260914-r7/FDI31-step5c.dentocase`, Case Foundation Manual
+   Simulation Base/planning pose, FDI31 target segment
+   `2.25.127809691704402484963988182477922906518`, saved Entry
+   `[-95.5797808828, -68.3080212751, 32.5242792904]`, saved Target
+   `[-95.0791174633, -74.1254665588, 29.2961247214]`, the `6.6719049312 mm`
+   Entry→Target line, the assisted-entry point equal to saved Entry, and the
+   saved Entry→Target insertion direction? Reply “yes” or identify the item
+   to replace; this asks for intended inputs, not a technical certification.
+2. **Scene and workflow objects (rows 7–9, 11–12 and 14):** Should the review
+   use exactly the recorded current/locked draft support, visible five-tooth
+   support `[FDI31, FDI42, FDI41, FDI33, FDI32]`, four independent occlusal
+   tangent robot docks, current patient-contact shell, final printable
+   template/STL, and restored Step-6 `PlanningPackage` state on branch
+   `guide-5c0da27697aceceb8f14` with `ProvisionalLocked` base and
+   `never-auto-connect` restore policy? The four through-open dock bores are
+   recorded as robot-dock bores; the retained evidence does not identify a
+   separate drilling-trajectory guide bore. Reply “yes” or identify any object
+   or bore-role correction; this asks for intended object identity, not a
+   certification of the measured mesh facts.
+
+After those two answers, the coordinator can record the P1 review gate and
+apply the already-scoped conditional P3 contract if the answers preserve all
+frozen invariants. Until then, the campaign remains paused at the P1/P2 review
+gate. P4, P5–P7, full-flow/repeat/playback, controller, spindle, motion and
+patient-facing actions remain excluded.

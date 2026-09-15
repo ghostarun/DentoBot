@@ -5422,3 +5422,32 @@ claiming insertion or collision-onset evidence. Reuse the existing <=128-solve
 P3 contract and stop before P4. The reviewer only prepares the conditional
 authorization prompt; no runtime was launched or source changed. Report AI
 records the independently inspected artifact and its evidence boundary.
+
+## 2026-09-15 — Retained-evidence P1/P2 closeout gate remains open
+
+The operator's endpoint-image approval is recorded narrowly as approval that
+the repair5 screenshots are understandable visual evidence of the retained
+static endpoint. It is not acceptance of the fifteen automatic selections,
+scene/geometry, clinical fit, contact interpretation, collision-free motion or
+full workflow. The endpoint packet's generated acceptance fields remain
+`NOT_RECORDED` / `false`.
+
+Read-only reconciliation confirms that the native P2 evidence is useful and
+distinct: both retained endpoint candidates were phase-aware statically
+rejected for final printable template ↔ spindle; generic static contacts
+include tooth ↔ spindle and tooth ↔ burr; and the Home-to-requested-endpoint
+transition rejected sample 1/134 for corridor violation. The transition result
+is not a Target static verdict or original r13 onset. The later correlated
+31/31 scene acknowledgement is authoritative for P2; the earlier zero-object
+audit remains historical. The finalized-shell row is a bookkeeping alias to
+the retained final STL, and the P1 null payload is superseded only for
+attribution by the later correlated payload; no geometry or policy changed.
+
+Current gate: P1 saved-input/machine checks `PASS`; P1 overall scene/input
+correctness and operator review `INCOMPLETE`; P2 static diagnostic evidence
+`PASS` with `USER_REVIEW_REQUIRED`; P3 is not entered. Two grouped operator
+intent questions remain in report Section AJ: the frozen case/task inputs and
+the selected scene/workflow objects, including the distinction between the
+four robot-dock bores and any drilling-trajectory guide bore. No P3/P4 runtime,
+planning, source edit or hardware action follows until those questions are
+answered under the unchanged Campaign-1 contract.
