@@ -150,7 +150,7 @@
           "returns": "vtk.vtkPolyData"
         },
         "_hideStep6SourceJawSegments": {
-          "arguments": "self, sourceNode: vtkMRMLSegmentationNode, ownerNode: vtkMRMLSegmentationNode, segmentIds: tuple[str, ...]",
+          "arguments": "self, sourceNode: vtkMRMLSegmentationNode, ownerNode: vtkMRMLSegmentationNode, segmentIds: tuple[str, ...], baselineVisibility: dict[str, bool] | None=None",
           "decorators": [],
           "returns": "None"
         },
@@ -770,7 +770,7 @@
           "returns": "tuple[vtkMRMLMarkupsClosedCurveNode, dict]"
         },
         "createOrUpdateTemplateSupportBoundaryPlane": {
-          "arguments": "self, sourceModel: vtkMRMLModelNode, trajectoryNode: vtkMRMLMarkupsLineNode, *, reverseDirection: bool=False, depthFromEntryMm: float=3.0, crownCapPercent: float=10.0, planeNode: vtkMRMLMarkupsPlaneNode | None=None",
+          "arguments": "self, sourceModel: vtkMRMLModelNode, trajectoryNode: vtkMRMLMarkupsLineNode, *, reverseDirection: bool=False, depthFromEntryMm: float=4.0, crownCapPercent: float=10.0, planeNode: vtkMRMLMarkupsPlaneNode | None=None",
           "decorators": [],
           "returns": "tuple[vtkMRMLMarkupsPlaneNode, dict]"
         },
@@ -2074,7 +2074,7 @@
           "returns": "dict[str, object]"
         },
         "syncStep6MoveItPlanningScene": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, *, expected_policy_fingerprint: str='', require_correlated_readback: bool=False, defer_runtime_acknowledgement: bool=False",
           "decorators": [],
           "returns": "int"
         },

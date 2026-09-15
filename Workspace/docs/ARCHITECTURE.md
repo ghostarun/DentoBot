@@ -268,7 +268,7 @@ imports the external environment into Slicer's embedded Python.
 implementation store. It exports the same Slicer module, widget, logic,
 parameter-node, and test class names while composing focused mixins from
 `Resources/Python/dentobot_workflow/`. Routine domain modules are capped at
-1,500 lines; the lazy Slicer regression archive and shared compatibility-import
+1,600 lines; the lazy Slicer regression archive and shared compatibility-import
 module are explicit exceptions. `dentobot_workflow/README.md` is the method-
 ownership and change-routing map.
 

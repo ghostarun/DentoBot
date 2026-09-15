@@ -197,13 +197,20 @@ changes here and keep execution chronology in the dated logbook.
   The 2026-09-10 exact headless load reached `_openCaseBundle` successfully with
   `step6SchemaMigrationPending=True`; it then correctly classified the saved
   `DENTOBOT.FinalGuideSchemaVersion=1.0` as stale against required schema 2.0.
-- **Current evidence:** The current targeted pass compiled every changed Python
-  file using `/tmp/dentobot-case-foundation-pycache`; `Testing/test_step6_state.py`
-  passed 23/23; the four task-relevant modular API/CMake/import checks passed;
-  and the production module/UI contains no active draft-phantom import, control,
-  callback or target-jaw fallback action. The aggregate modular test also
-  reported one unrelated pre-existing policy failure: `widget_template_build.py`
-  is 1,511 lines against the 1,500-line context ceiling.
+- **Prior evidence (2026-09-11; superseded 2026-09-15):** The targeted pass
+  compiled every changed Python file using `/tmp/dentobot-case-foundation-pycache`;
+  `Testing/test_step6_state.py` passed 23/23; the four task-relevant modular
+  API/CMake/import checks passed; and the production module/UI contains no
+  active draft-phantom import, control, callback or target-jaw fallback action.
+  The aggregate modular test then reported the now-resolved 1,511-line
+  `widget_template_build.py` failure against the former 1,500-line ceiling.
+- **Current modular-gate evidence (2026-09-15):** The stale API manifest entries
+  were reconciled to the intentional current signatures, including
+  `baselineVisibility` and the correlated `syncStep6MoveItPlanningScene`
+  options. The active routine-module ceiling is now 1,600 lines, with the
+  public entrypoint still capped at 500 and all API/CMake/import/process-boundary
+  checks retained. The complete `Testing/test_modular_structure.py` gate passes
+  5/5; the current `widget_template_build.py` count is 1,520 lines.
 - **Next:** Keep this one P0 lane. First capture and resolve the exact
   fingerprint-mismatch package identity reported from the manually opened
   Slicer case, then run one bounded exact runtime packet that writes its

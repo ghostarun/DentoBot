@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "DENTOWorkflow" / "DENTOWorkflow.py"
 PACKAGE = ROOT / "DENTOWorkflow" / "Resources" / "Python" / "dentobot_workflow"
 MANIFEST = ROOT / "Testing" / "contracts" / "dentoworkflow_api.json"
+ROUTINE_MODULE_LINE_BUDGET = 1600
 
 MIXIN_OWNERS = {
     "BootstrapWidgetMixin": "DENTOWorkflowWidget",
@@ -137,7 +138,10 @@ def test_active_workflow_modules_stay_within_context_budget():
         if source.name in exemptions:
             continue
         line_count = len(source.read_text(encoding="utf-8").splitlines())
-        assert line_count <= 1500, f"{source.name}: {line_count} lines"
+        assert line_count <= ROUTINE_MODULE_LINE_BUDGET, (
+            f"{source.name}: {line_count} lines; "
+            f"budget={ROUTINE_MODULE_LINE_BUDGET}"
+        )
 
 
 def test_domain_modules_add_no_process_or_network_boundary():

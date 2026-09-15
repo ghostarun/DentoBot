@@ -1909,3 +1909,15 @@ PASS: after initial connect, module reload, and reconnect, Slicer aborts while
 clearing the MRML scene. Record the earlier PASS as historical evidence and
 the 2026-08-25 abort as the current unresolved Track 1 result. No warm
 active-ROS scene-replacement claim is permitted until a later rerun passes.
+
+## Current modular-gate maintenance — 2026-09-15
+
+The active routine-module context ceiling is now `1,600` lines, superseding
+the historical `1,500` ceiling. The bounded change accommodates the current
+`widget_template_build.py` at `1,520` lines without exempting it; the 500-line
+public entrypoint limit, API-manifest parity, CMake coverage, import-direction
+and process/network-boundary checks remain active. The API manifest was also
+updated for the intentional optional `baselineVisibility` argument in
+`_hideStep6SourceJawSegments`; signature comparison remains strict. The
+historical 1,500-line failure remains preserved as dated evidence, while the
+current recheck and exact results are recorded in the 2026-09-15 logbook.

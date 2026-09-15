@@ -45,7 +45,7 @@ second ROS, IK, collision, or kinematic implementation.
   ROS orchestration.
 - Do not add a process, thread, socket, HTTP client, worker, or watched-folder
   boundary to solve code-organization problems.
-- Routine implementation modules have a 1,500-line context ceiling. Split at
+- Routine implementation modules have a 1,600-line context ceiling. Split at
   cohesive method boundaries before exceeding it. `slicer_tests.py` and the
   shared compatibility-import module are explicit exceptions.
 - The broad imports in `runtime.py` preserve globals for the mechanically

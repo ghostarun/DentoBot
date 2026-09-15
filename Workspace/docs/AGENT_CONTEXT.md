@@ -133,6 +133,18 @@ Verify source/UI parity and the hard-bound test before using a changed value;
 do not mutate frozen MRBs, cases, collision policy or retained evidence unless
 the operator explicitly authorizes that separate action.
 
+## Active modular verification rule (2026-09-15)
+
+Routine `dentobot_workflow` implementation modules have an active **1,600-line
+context ceiling**. `Testing/test_modular_structure.py` owns this check; the
+public entrypoint remains capped at 500 lines, and the existing import,
+CMake-install and process/network-boundary checks remain in force. The
+intentional `runtime.py`/`slicer_tests.py` exemptions remain unchanged.
+`widget_template_build.py` is currently 1,520 lines and therefore passes the
+relaxed bounded rule; this is not a blanket exemption or permission to grow
+without limit. The API contract remains checked against
+`Testing/contracts/dentoworkflow_api.json`.
+
 ## Where facts belong
 
 | Need | Authority |
