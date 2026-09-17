@@ -448,6 +448,9 @@ class WorkflowNavigationWidgetMixin:
         self._syncScanContext()
         if index <= 2:
             self._displayInspectionContext()
+        elif index == 3:
+            self._maybeAutoCommitInspectionForCaseFoundation()
+            self._updateStep6CaseJawOpeningControls()
         self._updateWorkflowNavigationRecommendation()
         if self._applicationShell and self._applicationShell.active:
             self._applicationShell.syncStage(

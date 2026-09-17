@@ -305,6 +305,7 @@ class RobotSceneWidgetMixin:
     def _updateStep6CaseJawOpeningControls(self) -> None:
         if not hasattr(self, "ui") or not self._parameterNode or not self.logic:
             return
+        self._maybeAutoCommitInspectionForCaseFoundation()
         self._tryApplySessionFoundation()
         sourceReady = bool(
             self._parameterNode.inputVolume
@@ -477,15 +478,35 @@ class RobotSceneWidgetMixin:
                 "color: #b00020;" if error else "color: #207227;"
             )
             return
+        inspected = self._parameterNode.inspectedSegmentation
+        teeth = self._parameterNode.teethSegmentation
+        inspected_reviewed = bool(
+            inspected
+            and self.logic.getSegmentationReviewState(inspected) == "Reviewed"
+        )
+        planning_reviewed = bool(
+            teeth
+            and self.logic.getSegmentationReviewState(teeth) == "Reviewed"
+        )
         if (
             not self._parameterNode.inputVolume
-            or not self._parameterNode.teethSegmentation
-            or self.logic.getSegmentationReviewState(
-                self._parameterNode.teethSegmentation
-            )
-            != "Reviewed"
+            or not teeth
+            or not planning_reviewed
         ):
-            text = _("Review the source CBCT segmentation before establishing the Case Foundation.")
+            if inspected_reviewed and (
+                teeth is not inspected or not self._parameterNode.inputVolume
+            ):
+                text = _(
+                    "Segmentation review is complete for the inspection run, but it "
+                    "has not been adopted for planning yet. Use “Use for Planning → "
+                    "Step 3” on the Segmentation stage, or wait a moment while this "
+                    "stage adopts the reviewed result."
+                )
+            else:
+                text = _(
+                    "Review the source CBCT segmentation before establishing the "
+                    "Case Foundation."
+                )
             style = "color: #b36b00;"
         else:
             issues = self.logic.step6CaseJawOpeningFreshnessIssues(

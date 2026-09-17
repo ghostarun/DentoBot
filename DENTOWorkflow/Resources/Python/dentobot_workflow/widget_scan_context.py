@@ -56,6 +56,7 @@ class ScanContextWidgetMixin:
 
     def _setupScanContext(self):
         self._selectingInspection = False
+        self._autoCommittingInspection = False
         self._scanSliceStates = {}
         self._comparisonState = None
         self.ui.inputVolumeSelector.addAttribute(
@@ -385,6 +386,43 @@ class ScanContextWidgetMixin:
         self._displayInspectionContext()
         self.ui.segmentationReviewStatusLabel.text = _("Comparison closed. The selected scan and run are active again.")
         self._syncScanContext()
+
+    def _maybeAutoCommitInspectionForCaseFoundation(self) -> bool:
+        """Adopt a reviewed inspection run when Case Foundation needs planning refs."""
+
+        if (
+            getattr(self, "_autoCommittingInspection", False)
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return False
+        run = self._parameterNode.inspectedSegmentation
+        if not run or self.logic.getSegmentationReviewState(run) != "Reviewed":
+            return False
+        teeth = self._parameterNode.teethSegmentation
+        if (
+            teeth is run
+            and self._parameterNode.inputVolume
+            and self.logic.getSegmentationReviewState(teeth) == "Reviewed"
+        ):
+            return True
+        try:
+            source_volume = self.logic.getSegmentationSourceVolume(run)
+        except ValueError:
+            return False
+        inspected_volume = self._parameterNode.inspectedVolume or source_volume
+        if (
+            self._parameterNode.inspectedVolume is not None
+            and self._parameterNode.inspectedVolume != source_volume
+        ):
+            return False
+        if self._parameterNode.inspectedVolume is None:
+            self._parameterNode.inspectedVolume = inspected_volume
+        self._autoCommittingInspection = True
+        try:
+            return bool(self.commitInspectionContextForPlanning())
+        finally:
+            self._autoCommittingInspection = False
 
     def commitInspectionContextForPlanning(self):
         parameter = self._parameterNode
