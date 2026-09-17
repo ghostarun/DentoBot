@@ -118,6 +118,13 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
     assert 'validation_kind == "static_state"' in guard
     assert "last_static_sequence_" in guard
     assert "static_state ? 1" in guard
+    static_branch = guard.split('else if (static_state)', 1)[1].split(
+        "      else\n      {", 1
+    )[0]
+    assert "validate_motion(\n          command.joint_positions, command.joint_positions" in static_branch
+    assert "last_static_sequence_ = command.sequence" in static_branch
+    assert "preflight_positions_ =" not in static_branch
+    assert "last_accepted_positions_ =" not in static_branch
     assert "collision_scene_policy_fingerprint" in guard
     assert "SIMULATION_GUIDE_CLEARANCE_M = 0.0001" in guard
     assert "preferred clearance is" in guard
@@ -131,6 +138,33 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
     assert "scene->checkCollision(\n        collision_request, collision_result, sample, allowed_collision_matrix)" in guard
     assert "scene->checkCollision(\n          phase_request, phase_result, sample, phase_collision_matrix)" in guard
     assert "non-tool or unconfigured collision" in guard
+    assert 'if (!burr_target && !housing_guide)' in guard
+    assert 'first == "pneumatic_spindle-Copy" && is_configured_guide(second)' in guard
+    assert 'second == "pneumatic_spindle-Copy" && is_configured_guide(first)' in guard
+
+
+def test_task_guard_preflight_start_is_exact_five_and_read_only():
+    guard = (
+        ROOT / "dentobot_moveit_config/src/collision_guard.cpp"
+    ).read_text(encoding="utf-8")
+    parser = guard.split("bool parse_task_config", 1)[1].split(
+        "bool parse_task_command", 1
+    )[0]
+    config_callback = guard.split("void on_task_config", 1)[1].split(
+        "void on_task_command", 1
+    )[0]
+    compact_parser = "".join(parser.split())
+    compact_callback = "".join(config_callback.split())
+    assert 'document.isMember("preflight_start_positions")' in compact_parser
+    assert '"preflight_start_positions",config.preflight_start_positions' in compact_parser
+    assert "config.preflight_start_positions.size()!=5" in compact_parser
+    assert 'returnmalformed("preflight_start_positions")' in compact_parser
+    assert (
+        "preflight_positions_=candidate.preflight_start_positions.empty()?"
+        in compact_callback
+    )
+    assert "last_accepted_positions_:candidate.preflight_start_positions" in compact_callback
+    assert "publish_accepted" not in config_callback
 
 
 def test_phase_guard_rechecks_after_an_allowed_guide_pair():

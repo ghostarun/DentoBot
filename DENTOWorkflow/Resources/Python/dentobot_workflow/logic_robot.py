@@ -90,7 +90,12 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 return str(node.GetName() or "")
         return ""
 
-    def step6GuidanceCollisionObjectIds(self, parameterNode) -> tuple[str, ...]:
+    def step6GuidanceCollisionObjectIds(
+        self,
+        parameterNode,
+        *,
+        allow_deferred_static_ack: bool = False,
+    ) -> tuple[str, ...]:
         """Return audited MoveIt IDs for approved guide/template geometry."""
 
         guidance = (
@@ -113,7 +118,16 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             and node.GetAttribute("DENTOBOT.ModelRole") == model_role
         }
         audit = self.collisionSceneAuditRecord(parameterNode)
-        if not approved or audit is None or audit.status != "Acknowledged":
+        deferred_static_ack = bool(
+            audit is not None
+            and audit.status == "RuntimeAcknowledgementDeferred"
+            and str((audit.runtime_acknowledgement or {}).get("status") or "")
+            == "Deferred"
+        )
+        if not approved or audit is None or not (
+            audit.status == "Acknowledged"
+            or (allow_deferred_static_ack and deferred_static_ack)
+        ):
             return ()
         result = []
         for record in audit.object_records:

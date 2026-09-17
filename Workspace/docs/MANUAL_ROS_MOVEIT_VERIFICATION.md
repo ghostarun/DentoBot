@@ -1,6 +1,6 @@
 # Manual ROS / MoveIt Verification Guide
 
-Last updated: 2026-08-28
+Last updated: 2026-09-17
 
 This guide is a **minimal operator map** for continuing the Step 6 simulation
 verification loop **without AI assistance**. It lists only the launch scripts,
@@ -8,6 +8,38 @@ configuration files, Python seams, and headless smokes you need to adjust
 parameters and exercise the motion planner.
 
 Simulation only. No hardware execution, drilling, or patient-facing operation.
+
+## Current campaign checkpoint: GUI verification before work after P5
+
+As of 2026-09-17, Campaign 1 is paused at the completed P5 headless diagnostic
+while the normal operator path is verified. P5 is not a record that the GUI was
+clicked from Assisted Trajectory Generation through Step 6. It loaded the
+already prepared locked r4 case, programmatically activated its verified
+`PreparedBranch`, used a fresh monitored simulation start, and deliberately
+bypassed normal Task Home/workspace/preview behavior.
+
+Use these two tracks separately:
+
+1. **Locked r4 inspection:** open
+   `/home/light-tarun/dentobot/data/Slicer_Saved/SampleStudy1/FDI31/c1-gatea-fdi31-20260915-r4/FDI31-step5c.dentocase`.
+   Do not edit, unlock, delete or regenerate its trajectory, guide, base or
+   branch. Assisted generation is expected to be disabled because the FDI31
+   trajectory already exists. Inspect Entry/Target in oblique MPR, opened-mouth
+   anatomy, guide/template/support registration, Step-6 branch activation and
+   offline robot/base display.
+2. **Assisted-generation workflow:** use a fresh or disposable-copy case with
+   no existing trajectory for the selected tooth. Require a Reviewed
+   segmentation, selected target, current Case Foundation, unique non-empty
+   `HIGH`-confidence pulp association, and one/two placed crown Entry points.
+   Generate, inspect and correct every line in oblique MPR before continuing
+   through 4B→4C→5A→5B→5C→6.
+
+Record the exact status label, GUI mode, package/copy identity, screenshots and
+first failure. Stop if the trajectory or guide is detached from the
+opened-mouth anatomy, if lineage is stale, or if save/reopen changes the
+selection or placement. Do not tune geometry, collision policy, base, limits
+or planning to force progress. The campaign resumes only after that record is
+reconciled and the next post-P5 gate is separately authorized.
 
 ## Where to start
 

@@ -1,6 +1,6 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-15.
+Last reconciled: 2026-09-17.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
@@ -27,23 +27,133 @@ Slicer 5.12 migration remains the separate `PLAT-U-06` plan in
 for this task. Reviewed clean/post-surgery anatomy is the acceptance baseline;
 retired pre-surgery/x4 cases remain negative diagnostics.
 
-## 2026-09-14 FDI31 recovery Campaign 1 — design-only handoff
+## 2026-09-15 FDI31 recovery Campaign 1 — active revised execution
 
-The operator accepted the causal review and requested a bounded Astra/Luna Max
-campaign, not a blind full recovery run. The architectural specification is
+The operator has authorized the revised bounded Campaign 1, not a blind full
+recovery run. The architectural specification is
 [FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
-It reuses the existing reusable-case/Track-A IDs and replaces the earlier
-geometry-only next-action presumption and per-minor-failure packet stop for this
-FDI31 diagnostic scope. Scene correctness precedes endpoint, insertion,
-approach, integration and full-cycle acceptance. Instrumentation may support the
-scene audit without opening downstream feasibility gates.
+It reuses the existing reusable-case/Track-A IDs, supersedes the former
+Astra/design-only/P4 stop, and preserves the historical r7/r13 evidence.
+The campaign first binds the approximately 5.2394 mm saved FDI31 trajectory to
+an exact artifact, then constructs a new corrected case on the 15 September
+foundation with the reviewed four supports and distinct dock/guide bore roles.
+Scene correctness precedes endpoint, insertion, approach, integration and
+full-cycle acceptance.
 
-Campaign 1 ends at a blocked architectural gate or the conditional P4 insertion
-result; P5–P7 require a later evidence-backed contract. One Luna Max owns scoped
-implementation, approved checks and development records; Astra owns design and
-final acceptance, the operator owns decision-critical input/geometry review.
-No implementation, runtime or motion is authorized by issuance of this plan.
-Preserve existing retry/resource/safety gates and historical evidence.
+The main orchestrator owns design, evidence and acceptance; one Luna Max worker
+may implement an exact work order. The campaign originally allowed passed gates
+to continue automatically through guarded insertion, withdrawal, Task Home and
+fresh-process reproduction. The operator's 2026-09-17 checkpoint below now
+supersedes that automatic continuation: stop after P5 for GUI/operator
+verification. Runtime remains serialized and bounded; no hardware, motion,
+powered spindle or patient action is authorized. Preserve existing
+retry/resource/safety gates and historical evidence.
+
+**Current Gate-A disposition (2026-09-15):** Following r1-r3 first-failure
+evidence and an explicitly approved r4 exception plan, the corrected-case
+construction/save/reopen run `c1-gatea-fdi31-20260915-r4` is **PASS**. Its
+diagnostic confirms the exact saved 5.239400689721231-mm FDI31 trajectory,
+four reviewed supports (FDI42/41/32/33), current verified branch, verified STL
+and saved/reopened case. The outer Slicer process nonetheless returned exit 1
+during shutdown after emitting the runner's PASS markers; that is retained as a
+process-health warning rather than a successful clean shutdown. Gate A is
+complete only for construction/save/reopen. Gates B-D and every other tooth
+remain `NOT_RUN`; physical/clinical review and all motion/hardware paths remain
+outside this authorization.
+
+**P3 diagnostic-correctness result (2026-09-16):** Preserve the completed old
+r4 P3 artifact as immutable input, but not its bounded-negative phase-static
+classification: it used a Home-to-endpoint transition and let generic-static
+diagnostics veto the phase-aware result. Under the operator's explicit fourth
+ceiling exception, the repaired path evaluated exactly its 21 saved vectors
+with direct, correlated drilling `static_state` requests. The raw response
+artifact was initially false-inconclusive because native `collision_guard`
+emits status doubles with `std::setprecision(12)`; the bounded echo check and
+new companion evidence preserve the raw replies and establish **21 accepted,
+0 rejected, 0 unknown and 21 admissible**. Generic Template↔visual-spindle /
+target-tooth↔burr contacts remain diagnostic only. The phase guard accepts a
+configured non-rotating template/spindle warning for all 21, while its
+self/unrelated/corridor checks pass. Focused checks now pass **80 tests**.
+P3 conditionally opened P4 as the next feasibility discriminator. Under later
+explicit operator authority, P4 completed its bounded insertion diagnostic
+(`insertion_branches.json`, SHA `3cc1759d...`) and P5 completed its bounded
+approach diagnostic (`approach_branches.json`, SHA `6455a52e...`). P5 is a
+simulation-only `SAMPLED_PASS` from a fresh monitored start through one locked
+P4 witness, with a complete FK-attributed Stage-2 endpoint and exclusively
+`validate_only` guard evidence. It neither makes the guide physically seated
+or housing-clear nor authorizes executable motion, P6/P7, withdrawal/Home,
+repeat, another tooth, hardware, spindle or patient action.
+
+### 2026-09-17 grandmaster-plan checkpoint — pause at P5, verify the operator path
+
+Campaign 1 is intentionally paused at P5. The accepted chain is:
+
+```text
+Gate A corrected r4 construction/save/reopen
+  → P3 corrected phase-static endpoint evidence
+  → P4 bounded Entry-to-Target witnesses
+  → P5 bounded monitored-start-to-Entry witness
+  → PAUSE: GUI/operator workflow verification
+  → reconcile first visible failure and evidence level
+  → explicit decision on resuming after P5
+```
+
+This sequencing change closes a previously implicit gap in the plan. The r4
+construction path reused the saved 15 September Step-4A Entry/Target
+coordinates; it did not demonstrate manual Assisted Trajectory Generation.
+The P5 harness reused r4's verified `PreparedBranch` and intentionally returned
+through its diagnostic-only branch before the ordinary Step-6 Connect, Task
+Home, workspace, task-confirmation and preview sequence. A diagnostic
+`SAMPLED_PASS` therefore cannot be promoted to normal-window or Operator
+Verified status.
+
+For future planner acceptance, “headless” means production-sequence parity:
+the runner may automate the interface, but it must traverse the same public
+workflow actions, prerequisites, state transitions, save/reopen boundary and
+failure gates as the operator path. Direct logic calls, injected geometry,
+ephemeral replacement state or a diagnostic-only early return may still answer
+a bounded algorithm question, but must be labelled diagnostic-only and cannot
+close the corresponding GUI/integration gate. Separate compatible approach and
+insertion witnesses also cannot be described as one executable start-to-Target
+plan unless that complete production route is actually constructed and
+verified.
+
+The operator-verification milestone has two required tracks. First, inspect the
+locked r4 package without mutation and establish whether its saved trajectory,
+opened-mouth Case Foundation, guide/template/support geometry,
+`PreparedBranch`, Step-6 view and robot/base display are coherent. Second, use
+a fresh or disposable-copy case—not r4—to exercise Assisted Trajectory
+Generation and the normal 4A→4B→4C→5A→5B→5C→6 progression. An existing r4
+trajectory correctly disables assisted regeneration, because existing plans
+are never overwritten.
+
+The GUI lane stops at the first visible causal failure. Required evidence is
+the exact package/copy identity, GUI mode, visible status text, focused and
+context screenshots, relevant transform/registry selection, save/reopen
+behavior and an evidence-level label. A trajectory or guide detached from the
+opened-mouth anatomy is a stop condition. It is not repaired by advancing to
+Step 6 or by tuning planning, collision policy, geometry, base, limits or
+tolerances without a separately reviewed defect and scope.
+
+The return gate is explicit: after GUI evidence is reconciled, the coordinator
+must state one of three outcomes—(1) operator path accepted and Campaign 1 may
+seek separately authorized continuation **after P5**; (2) remain paused under
+the named existing workflow owner until its defect is fixed and rechecked; or
+(3) raise a decision-level physical/clinical/integration blocker. P3/P4/P5 are
+not rerun by default, and P6/P7 remain unauthorized.
+
+### 2026-09-17 quota-constrained recovery checkpoint
+
+The operator has hard-stopped further analysis because the available account
+quota is nearly exhausted. This checkpoint narrows the existing GUI pause; it
+does not create another campaign or authorize runtime. The next implementation
+session starts with the smallest shared-state corrections already supported by
+saved evidence: restore one authoritative opened-lower display, then instrument
+and correct the existing assisted-placement activation postcondition, then
+verify target-switch recovery. The separate P5 request-ID duplication is a
+bounded diagnostic bookkeeping fix. Corrected P3/P4/P5 evidence is preserved
+and is not rerun. P5 visual/operator acceptance, P6/P7, withdrawal/Home,
+replay/full cycle, hardware, spindle and patient work remain blocked.
 
 ## Immediate gate and next implementation package
 

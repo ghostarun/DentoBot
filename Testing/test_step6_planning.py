@@ -3,6 +3,7 @@
 from pathlib import Path
 import ast
 import json
+import math
 import sys
 from types import SimpleNamespace
 from xml.etree import ElementTree
@@ -184,6 +185,38 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
     assert "def require_trajectory_guide_bore" in exact_smoke_source
     assert '"guideBore": guide_bore' in exact_smoke_source
     assert '"restoredGuideBore": restored_guide_bore' in exact_smoke_source
+    assert "DENTOBOT_ENDPOINT_ONLY" in exact_smoke_source
+    assert "def endpoint_only_diagnostic" in exact_smoke_source
+    assert '"no approach or drilling planner invocation"' in exact_smoke_source
+    assert "DENTOBOT_ENDPOINT_ONLY_COMPLETE" in exact_smoke_source
+    assert "P3_MAX_IK_SOLVES = 128" in exact_smoke_source
+    assert "P3_HALTON_BASES = (2, 3, 5, 7, 11)" in exact_smoke_source
+    assert "P3 active joint range is invalid" in exact_smoke_source
+    assert "robot_node.GetJointTypes()" in exact_smoke_source
+    assert "SPINDLE_JOINT_NAME" in exact_smoke_source
+    assert "joint_type == \"continuous\"" in exact_smoke_source
+    assert '"seed_manifest": seeds' in exact_smoke_source
+    assert "generic_static_authoritative" in exact_smoke_source
+    assert "P3_REVALIDATION_INPUT" in exact_smoke_source
+    assert exact_smoke_source.index("endpoint_diagnostic = endpoint_only_diagnostic") < exact_smoke_source.index("facade.generateWorkspaceCloud()")
+    assert exact_smoke_source.index(
+        "if ENDPOINT_ONLY or INSERTION_ONLY or APPROACH_ONLY:\n        # P3/P4/P5 diagnostics"
+    ) < exact_smoke_source.index("selected_before_connect = slicer.util.selectedModule()")
+    assert "ephemeral_r4_p3_static_snapshot" in exact_smoke_source
+    assert "static_state_only_no_task_home" in exact_smoke_source
+    assert "P3 endpoint check has non-confirmation task freshness issues" in exact_smoke_source
+    assert "build_task_snapshot(" in exact_smoke_source
+    assert "bridge.joint_si_vector(positions_seed), 2.0, False" in exact_smoke_source
+
+    p3_driver_source = (
+        REPOSITORY_ROOT / "Testing/run_c1_p3_r4_batch.bash"
+    ).read_text()
+    assert "setsid ros2 launch dentobot_moveit_config simulation.launch.py" in p3_driver_source
+    assert 'kill -TERM -- "-${stack_pid}"' in p3_driver_source
+    assert "DENTOBOT_P3_READINESS_ONLY" in p3_driver_source
+    assert "DENTOBOT_P3_REVALIDATION_INPUT" in p3_driver_source
+    assert "8853f5208a87368d2611fd9c0a9737fe6b73b4da43de6851f4a428adee3f734c" in p3_driver_source
+    assert "generateWorkspaceCloud" not in p3_driver_source
 
     from xml.etree import ElementTree
 
@@ -241,6 +274,516 @@ def test_new_case_dock_and_support_defaults_match_operator_review() -> None:
         value = widget.find("./property[@name='value']/double")
         assert value is not None
         assert float(value.text) == expected
+
+
+def test_p3_endpoint_static_revalidation_is_correlated_and_nonplanning() -> None:
+    exact_source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    module = ast.parse(exact_source)
+    functions = {
+        node.name: ast.get_source_segment(exact_source, node) or ""
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    endpoint_source = functions["endpoint_only_diagnostic"]
+    static_source = functions["_p3_static_state_query"]
+    revalidation_source = functions["_p3_revalidation_input"]
+    recheck_source = functions["_p3_revalidate_saved_candidates"]
+    static_runtime_source = functions["_p3_connect_static_runtime"]
+    run_source = functions["run"]
+    assert 'validation_kind="static_state"' in static_source
+    assert 'phase: str = "drilling"' in static_source
+    assert "validate_only=True" in static_source
+    assert 'request_id=str(request_id)' in static_source
+    assert "sequence=int(sequence)" in static_source
+    assert "requested_positions" in static_source
+    assert "starting_positions" in static_source
+    assert "evaluated_positions" in static_source
+    assert "evaluated_sample_index" in static_source
+    assert "total_sample_count" in static_source
+    assert "checked_samples" in static_source
+    assert "guard_session_id" in static_source
+    assert "collision_scene_policy_fingerprint" in static_source
+    assert "INCONCLUSIVE" in static_source
+    admissibility_source = functions["_p3_admissibility"]
+    assert "generic_static_valid" not in admissibility_source
+    assert "native_fk" not in admissibility_source
+    assert "trustworthy_authoritative" in admissibility_source
+    assert 'static_query["accepted"] is True' in admissibility_source
+    assert "static_state_classification" in endpoint_source or "static_state_classification" in recheck_source
+    assert "validate_task_phase_waypoints" not in endpoint_source
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "ComputeMoveItPositionAxisIK"
+        for node in ast.walk(ast.parse(recheck_source))
+    )
+    assert "P3_REVALIDATION_SHA256" in revalidation_source
+    assert "read_bytes()" in revalidation_source
+    assert "hashlib.sha256" in revalidation_source
+    assert "P3_REVALIDATION_MODE" in revalidation_source
+    assert "exactly 21 finite canonical J1-J5 vectors" in revalidation_source
+    assert "source_candidate_indexes" in recheck_source
+    assert "seed_manifest" in recheck_source
+    assert "native_fk_evidence" in recheck_source
+    assert "static_only=True" in recheck_source
+    assert "facade.generateWorkspaceCloud()" not in endpoint_source
+    assert exact_source.index(
+        "endpoint_diagnostic = endpoint_only_diagnostic"
+    ) < exact_source.index("facade.generateWorkspaceCloud()")
+    assert "no Home-to-candidate transition" in endpoint_source
+    assert "start_joint_command_stream=False" in static_runtime_source
+    assert "defer_runtime_acknowledgement=True" in static_runtime_source
+    assert "wait_for_collision_guard_world" not in static_runtime_source
+    assert "_apply_positions_si" not in static_runtime_source
+    assert "plan_moveit" not in static_runtime_source
+    endpoint_run = run_source.split("if ENDPOINT_ONLY or INSERTION_ONLY or APPROACH_ONLY:", 1)[1].split(
+        "selected_before_connect", 1
+    )[0]
+    assert "_p3_connect_static_runtime" in endpoint_run
+    assert "facade.connect" not in endpoint_run
+    assert "saveTaskHome" not in endpoint_run
+    assert "applyTaskHome" not in endpoint_run
+    assert "generateWorkspaceCloud" not in endpoint_run
+
+
+def test_p4_insertion_is_bounded_neighbor_seeded_and_read_only() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    functions = {
+        node.name: ast.get_source_segment(source, node) or ""
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+    }
+    p4 = functions["p4_insertion_diagnostic"]
+    construction = functions["_p4_backward_continuation"]
+    recover = functions["_p4_recover_segment"]
+    ik = functions["_p4_ik_attempt"]
+    transition = functions["_p4_transition_query"]
+    forward = functions["_p4_forward_guard_validation"]
+    visuals = functions["_p4_capture_visual_evidence"]
+    assert "P4_MAX_REPRESENTATIVES = 8" in source
+    assert "P4_MAX_IK_SOLVES = 1024" in source
+    assert "P4_MAX_AXIAL_STEP_MM = 0.25" in source
+    assert "P4_MAX_MIDPOINT_REFINEMENTS = 3" in source
+    assert "list(reversed(construction[\"backward_states\"]))" in p4
+    assert "ComputeMoveItPositionAxisIK" in ik
+    assert "seed_positions" in ik
+    assert "2.0," in ik and "False," in ik
+    assert "P4_MAX_IK_SOLVES" in ik
+    assert "P4_MAX_MIDPOINT_REFINEMENTS" in recover
+    assert "reversed(forward_fractions[:-1])" in construction
+    assert "validation_kind=\"transition\"" in transition
+    assert "validate_only=True" in transition
+    assert "request_id=str(request_id)" in transition
+    assert "starting_positions" in transition
+    assert "INCONCLUSIVE" in transition
+    assert "preflight_start_positions_si=entry_positions" in forward
+    assert "static_only=True" in forward
+    assert "No P4 recovered J1-J5 state was applied or rendered." in visuals
+    assert "_capture_view" in visuals
+    for forbidden in (
+        "facade.connect",
+        "generateWorkspaceCloud",
+        "plan_moveit",
+        "apply_joint_positions_si_to_motion_control",
+        "start_slicer_joint_command_stream",
+    ):
+        assert forbidden not in "\n".join((p4, construction, recover, ik, transition, forward, visuals))
+    assert "P4 ends before P5" in p4
+
+    names = {"P4_MAX_AXIAL_STEP_MM", "_p4_axial_fractions"}
+    extracted = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, (ast.Assign, ast.FunctionDef))
+        and (
+            any(getattr(target, "id", "") in names for target in getattr(node, "targets", ()))
+            or getattr(node, "name", "") in names
+        )
+    ]
+    namespace = {"math": math}
+    exec(compile(ast.Module(body=extracted, type_ignores=[]), "<p4>", "exec"), namespace)
+    length, fractions = namespace["_p4_axial_fractions"](
+        (0.0, 0.0, 0.0), (0.0, 0.0, 5.239400689721231)
+    )
+    assert math.isclose(length, 5.239400689721231)
+    assert fractions[0] == 0.0 and fractions[-1] == 1.0
+    assert all(
+        (right - left) * length <= 0.25 + 1.0e-12
+        for left, right in zip(fractions, fractions[1:])
+    )
+
+    driver = (REPOSITORY_ROOT / "Testing" / "run_c1_p3_r4_batch.bash").read_text()
+    assert "DENTOBOT_P4_INSERTION_INPUT" in driver
+    assert "DENTOBOT_P4_OUTPUT_DIR" in driver
+    assert "ec6ad4febcf202de3469303f53ceb4d8056f14d2d6e03272a467ba5938fce362" in driver
+    assert "DENTOBOT_P4_NATIVE_SOURCE_SHA256" in driver
+    assert "DENTOBOT_P4_NATIVE_BINARY_SHA256" in driver
+    assert "DENTOBOT_ENDPOINT_ONLY" in driver
+
+
+def test_p5_approach_is_single_witness_guarded_and_nonapplying() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    functions = {
+        node.name: ast.get_source_segment(source, node) or ""
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+    }
+    p5 = functions["p5_approach_diagnostic"]
+    input_reader = functions["_p5_p4_input"]
+    edge_guard = functions["_p5_validate_guard_edges"]
+    static_query = functions["_p3_static_state_query"]
+    transition_query = functions["_p4_transition_query"]
+    run_source = functions["run"]
+
+    assert "P5_INPUT_SHA256" in source
+    assert "P5_MAX_P4_WITNESSES = 1" in source
+    assert "P5_STAGE1_PLANNING_ATTEMPTS = 1" in source
+    assert "P5_STAGE1_ALLOWED_PLANNING_TIME_SEC = 5.0" in source
+    assert "P5_APPROACH_INPUT" in source
+    assert "3cc1759d1dc5042748d729d5e2a1ae784a94a60d33cb7c8350695b321492bc72" in source
+    assert "p4_insertion_r4" in input_reader
+    assert "SAMPLED_PASS" in input_reader
+    assert "native_fk_evidence" in input_reader
+    assert "monitored_joint_positions_si" in p5
+    assert "wait_for_monitored_joint_positions_si" in p5
+    assert "preflight_start_positions_si=start" in p5
+    assert 'phase="approach"' in p5
+    assert 'phase="terminal_contact"' in p5
+    assert "include_workspace_seeds=False" in p5
+    assert "avoid_collisions=False" in p5
+    assert "require_generic_static=False" in p5
+    assert "plan_moveit_joint_goal" in p5
+    assert "plan_moveit_cartesian_path" in p5
+    assert "minimum_fraction=1.0" in p5
+    assert "stage2_endpoint" in p5
+    assert "_p4_fk_residual" in p5
+    assert "first_sequence=2" in p5
+    assert "validation_kind=\"static_state\"" in static_query
+    assert "validation_kind=\"transition\"" in transition_query
+    assert "validate_only=True" in static_query
+    assert "validate_only=True" in transition_query
+    assert "request_id=f\"{request_prefix}-{phase}-edge-{offset + 1}\"" in edge_guard
+    assert "INCONCLUSIVE" in edge_guard
+    assert "P5 ends before P6/P7" in p5
+
+    diagnostic_run = run_source.split(
+        "if ENDPOINT_ONLY or INSERTION_ONLY or APPROACH_ONLY:", 1
+    )[1].split("selected_before_connect", 1)[0]
+    for forbidden in (
+        "facade.connect",
+        "saveTaskHome",
+        "applyTaskHome",
+        "confirmTask",
+        "generateWorkspaceCloud",
+        "previewPhase",
+        "start_slicer_joint_command_stream",
+        "_apply_positions_si",
+    ):
+        assert forbidden not in diagnostic_run
+
+    driver = (REPOSITORY_ROOT / "Testing" / "run_c1_p3_r4_batch.bash").read_text()
+    assert "DENTOBOT_P5_APPROACH_INPUT" in driver
+    assert "DENTOBOT_P5_OUTPUT_DIR" in driver
+    assert "DENTOBOT_P5_NATIVE_SOURCE_SHA256" in driver
+    assert "DENTOBOT_P5_NATIVE_BINARY_SHA256" in driver
+    assert "approach_branches.json" in driver
+
+
+def test_p3_admissibility_is_phase_static_only_and_fails_closed() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    tree = ast.parse(source)
+    helpers = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"_p3_positions_within_ranges", "_p3_admissibility", "_p3_result"}
+    ]
+    namespace = {"math": math}
+    exec(compile(ast.Module(body=helpers, type_ignores=[]), "<p3>", "exec"), namespace)
+    positions = {"J1": 0.0}
+    ranges = ({"name": "J1", "lower": -1.0, "upper": 1.0},)
+    _, accepted = namespace["_p3_admissibility"](
+        position_residual_mm=0.01,
+        axis_residual_deg=0.01,
+        positions=positions,
+        ranges=ranges,
+        static_query={"trustworthy_authoritative": True, "accepted": True},
+    )
+    _, rejected = namespace["_p3_admissibility"](
+        position_residual_mm=0.01,
+        axis_residual_deg=0.01,
+        positions=positions,
+        ranges=ranges,
+        static_query={"trustworthy_authoritative": True, "accepted": False},
+    )
+    _, unknown = namespace["_p3_admissibility"](
+        position_residual_mm=0.01,
+        axis_residual_deg=0.01,
+        positions=positions,
+        ranges=ranges,
+        static_query={"trustworthy_authoritative": False, "accepted": None},
+    )
+    assert accepted  # Generic/static-FK diagnostics are intentionally not gates.
+    assert not rejected
+    assert not unknown
+    assert namespace["_p3_result"](
+        {"inconclusive": 1, "admissible": 1}
+    ) == "INCONCLUSIVE"
+
+
+def test_p3_offline_attribution_accepts_only_native_status_rounding() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    module = ast.parse(source)
+    names = {
+        "P3_MAX_IK_SOLVES",
+        "P3_REVALIDATION_SHA256",
+        "P3_R4_CASE_SUFFIX",
+        "P3_R4_CASE_SHA256",
+        "P3_STATUS_VECTOR_REL_TOL",
+        "P3_STATUS_VECTOR_ABS_TOL",
+        "_p3_exact_vector",
+        "_p3_exact_integer",
+        "_p3_positions_within_ranges",
+        "_p3_admissibility",
+        "_p3_reclassify_saved_static_record",
+        "_p3_summary",
+        "_p3_result",
+        "_p3_offline_reclassify_evidence",
+    }
+    extracted = [
+        node
+        for node in module.body
+        if isinstance(node, (ast.Assign, ast.FunctionDef))
+        and (
+            any(getattr(target, "id", "") in names for target in getattr(node, "targets", ()))
+            or getattr(node, "name", "") in names
+        )
+    ]
+    namespace = {"json": json, "math": math}
+    exec(
+        compile(ast.Module(body=extracted, type_ignores=[]), "<p3-offline>", "exec"),
+        namespace,
+    )
+    expected = [
+        0.1332152122817458,
+        0.05514424539772821,
+        -0.5860683514818626,
+        0.06430881861349524,
+        0.805514819841229,
+    ]
+    serialized = [
+        0.133215212282,
+        0.0551442453977,
+        -0.586068351482,
+        0.0643088186135,
+        0.805514819841,
+    ]
+    assert namespace["_p3_exact_vector"](serialized, expected)
+    assert not namespace["_p3_exact_vector"](
+        [serialized[0] + 1.0e-8, *serialized[1:]], expected
+    )
+    object_ids = [f"object-{index}" for index in range(31)]
+    original_reasons = [
+        "static response requested J1-J5 vector is missing or mismatched",
+        "static response starting J1-J5 vector is missing or mismatched",
+        "static response evaluated J1-J5 vector is missing or mismatched",
+        "scene readback is not correlated to this publication/request",
+    ]
+    record = {
+        "candidate_index": 0,
+        "source_candidate_index": 0,
+        "position_residual_mm": 0.01,
+        "axis_residual_deg": 0.01,
+        "solution_joint_positions_si": {"J1": expected[0]},
+        "joint_bounds_valid": True,
+        "phase_static_valid": None,
+        "phase_static_authoritative": False,
+        "static_state_classification": "INCONCLUSIVE",
+        "authoritative_static_valid": None,
+        "admissible": False,
+        "native_static_evidence": {
+            "command_ok": True,
+            "request": {
+                "request_id": "request-1",
+                "validation_kind": "static_state",
+                "phase": "drilling",
+                "sequence": 1,
+                "validate_only": True,
+                "task_fingerprint": "task",
+                "requested_positions": expected,
+            },
+            "response": {
+                "accepted": True,
+                "request_id": "request-1",
+                "validation_kind": "static_state",
+                "phase": "drilling",
+                "sequence": 1,
+                "validate_only": True,
+                "task_fingerprint": "task",
+                "guard_session_id": "session",
+                "collision_scene_policy_fingerprint": "policy",
+                "requested_positions": serialized,
+                "starting_positions": serialized,
+                "evaluated_positions": serialized,
+                "evaluated_sample_index": 1,
+                "total_sample_count": 1,
+                "checked_samples": 1,
+                "world_object_count": 31,
+                "world_objects": [{"id": object_id} for object_id in object_ids],
+            },
+            "policy_identity": {
+                "expected": "policy",
+                "configured": "policy",
+                "reported": "policy",
+                "guard_session_id": "session",
+            },
+            "scene_acknowledgement": {
+                "status": "Mismatch",
+                "trusted": False,
+                "attribution_allowed": False,
+                "readback_correlated": False,
+                "mismatches": [
+                    "scene readback is not correlated to this publication/request"
+                ],
+                "expected_object_ids": object_ids,
+                "observed_object_ids": object_ids,
+                "expected_policy_fingerprint": "policy",
+                "observed_policy_fingerprint": "policy",
+            },
+            "inconclusive_reasons": original_reasons,
+        },
+    }
+    payload = {
+        "mode": "p3_endpoint_revalidation_r4",
+        "case": "/workspace/data" + namespace["P3_R4_CASE_SUFFIX"],
+        "candidate_count": 21,
+        "converged_candidate_count": 21,
+        "active_joint_ranges": [{"name": "J1", "lower": -1.0, "upper": 1.0}],
+        "input": {
+            "sha256": namespace["P3_REVALIDATION_SHA256"],
+            "candidate_count": namespace["P3_MAX_IK_SOLVES"],
+        },
+        "native_build_trusted": True,
+        "candidates": [],
+    }
+    for index in range(21):
+        candidate = json.loads(json.dumps(record))
+        candidate["candidate_index"] = index
+        candidate["source_candidate_index"] = index
+        candidate["native_static_evidence"]["request"].update(
+            {"request_id": f"request-{index + 1}", "sequence": index + 1}
+        )
+        candidate["native_static_evidence"]["response"].update(
+            {"request_id": f"request-{index + 1}", "sequence": index + 1}
+        )
+        payload["candidates"].append(candidate)
+    corrected = namespace["_p3_offline_reclassify_evidence"](
+        payload,
+        source_path="/evidence/original.json",
+        source_sha256="a" * 64,
+        case_sha256=namespace["P3_R4_CASE_SHA256"],
+    )
+    assert corrected["result"] == "PASS"
+    assert corrected["phase_static_counts"] == {
+        "accepted": 21,
+        "rejected": 0,
+        "inconclusive": 0,
+    }
+    assert corrected["candidates"][0]["admissible"] is True
+    assert corrected["candidates"][0]["native_static_evidence"]["scene_acknowledgement"]["trusted"]
+    bad = json.loads(json.dumps(payload))
+    bad["candidates"][0]["native_static_evidence"]["response"]["request_id"] = "stale"
+    assert namespace["_p3_offline_reclassify_evidence"](
+        bad,
+        source_path="/evidence/original.json",
+        source_sha256="a" * 64,
+        case_sha256=namespace["P3_R4_CASE_SHA256"],
+    )["result"] == "INCONCLUSIVE"
+
+
+def test_static_only_guard_uses_only_the_exact_deferred_scene_audit() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    ).read_text()
+    mixin = next(
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin"
+    )
+    method = next(
+        node for node in mixin.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "step6GuidanceCollisionObjectIds"
+    )
+    extracted = ast.Module(
+        body=[ast.ClassDef(
+            name="ExtractedGuideLookup", bases=[], keywords=[], body=[method],
+            decorator_list=[],
+        )],
+        type_ignores=[],
+    )
+    namespace = {}
+    exec(
+        compile(ast.fix_missing_locations(extracted), "<static-guide-audit>", "exec"),
+        namespace,
+    )
+
+    class Model:
+        def GetID(self):
+            return "guide-node"
+
+        def GetName(self):
+            return "guide-id"
+
+        def GetAttribute(self, name):
+            return "FinalPrintableTemplate" if name == "DENTOBOT.ModelRole" else ""
+
+    class Host(namespace["ExtractedGuideLookup"]):
+        def __init__(self, audit):
+            self.audit = audit
+
+        def collisionSceneAuditRecord(self, _parameter):
+            return self.audit
+
+    parameter = SimpleNamespace(
+        finalPrintableTemplateModel=Model(),
+        draftTemplateSupportModel=None,
+        targetDockingAssemblyModel=None,
+    )
+    record = {
+        "source_id": "guide-node",
+        "outgoing_collision_object_id": "guide-id",
+        "source_role": "verified-final-template",
+        "publish_status": "PublishReturnedSuccess",
+    }
+    deferred = SimpleNamespace(
+        status="RuntimeAcknowledgementDeferred",
+        runtime_acknowledgement={"status": "Deferred"},
+        object_records=(record,),
+    )
+    host = Host(deferred)
+    assert host.step6GuidanceCollisionObjectIds(parameter) == ()
+    assert host.step6GuidanceCollisionObjectIds(
+        parameter, allow_deferred_static_ack=True
+    ) == ("guide-id",)
+    host.audit = SimpleNamespace(
+        status="RuntimeAcknowledgementDeferred",
+        runtime_acknowledgement={"status": "Acknowledged"},
+        object_records=(record,),
+    )
+    assert host.step6GuidanceCollisionObjectIds(
+        parameter, allow_deferred_static_ack=True
+    ) == ()
 
 
 def test_legacy_guide_hole_fails_5b_preflight_before_cached_geometry() -> None:

@@ -244,6 +244,7 @@ struct TaskGuardConfig
   Eigen::Vector3d target_base_m{ Eigen::Vector3d::Zero() };
   double corridor_radius_m{ 0.0 };
   double approach_standoff_m{ 0.0 };
+  std::vector<double> preflight_start_positions;
 };
 
 struct TaskJointCommand
@@ -551,6 +552,11 @@ private:
       return malformed("corridor_radius_m");
     if (!json_number_field(document, "approach_standoff_m", config.approach_standoff_m))
       return malformed("approach_standoff_m");
+    if (document.isMember("preflight_start_positions") &&
+        (!json_number_array_field(
+          document, "preflight_start_positions", config.preflight_start_positions) ||
+         config.preflight_start_positions.size() != 5))
+      return malformed("preflight_start_positions");
     if (config.task_fingerprint.empty() || config.guard_session_id.empty() ||
         config.target_object_id.empty() ||
         config.allowed_robot_link.empty() || config.tool_tip_frame.empty() ||
@@ -736,7 +742,8 @@ private:
     last_task_sequence_ = -1;
     last_static_sequence_ = -1;
     last_corridor_progress_m_ = -candidate.approach_standoff_m;
-    preflight_positions_ = last_accepted_positions_;
+    preflight_positions_ = candidate.preflight_start_positions.empty() ?
+      last_accepted_positions_ : candidate.preflight_start_positions;
     last_preflight_sequence_ = -1;
     last_preflight_corridor_progress_m_ = -candidate.approach_standoff_m;
     RCLCPP_INFO(

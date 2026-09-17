@@ -103,12 +103,15 @@ def test_failed_alternate_route_apply_preserves_active_plan_and_saved_identity(
     assert facade._phase_sequence == 7
 
 
-def test_guide_allowlist_uses_acknowledged_semantic_collision_audit():
+def test_guide_allowlist_uses_acknowledged_or_explicit_deferred_static_audit():
     source = (HELPERS / "dentobot_workflow" / "logic_robot.py").read_text()
     method = source[source.index("    def step6GuidanceCollisionObjectIds"):]
     method = method[:method.index("\n    def ", 5)]
     assert "collisionSceneAuditRecord(parameterNode)" in method
-    assert 'audit.status != "Acknowledged"' in method
+    assert "allow_deferred_static_ack: bool = False" in method
+    assert 'audit.status == "Acknowledged"' in method
+    assert 'audit.status == "RuntimeAcknowledgementDeferred"' in method
+    assert '== "Deferred"' in method
     assert 'record.get("publish_status") == "PublishReturnedSuccess"' in method
     assert '"FinalPrintableTemplate", "verified-final-template"' in method
     assert "getNodesByClass" not in method
@@ -642,7 +645,10 @@ def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
             return True, "goal", pose
 
         @staticmethod
-        def solve_moveit_tcp_position_axis_goal(*, seed_joint_positions_si=None):
+        def solve_moveit_tcp_position_axis_goal(
+            *, seed_joint_positions_si=None, avoid_collisions=True
+        ):
+            assert isinstance(avoid_collisions, bool)
             return True, "ik", dict(seed_joint_positions_si), {
                 "position_residual_mm": 0.0,
                 "drilling_axis_residual_deg": 0.0,
@@ -715,6 +721,23 @@ def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
         == 0.0
         for candidate in candidates
     )
+
+    bridge.audited.clear()
+    diagnostic_candidates, diagnostic_failures = facade._goal1_pre_entry_ik_candidates(
+        parameter_node,
+        (0.0, 0.0, -2.0),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 10.0),
+        home,
+        include_workspace_seeds=False,
+        avoid_collisions=False,
+        require_generic_static=False,
+        fixed_rotation_ras=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    )
+    assert diagnostic_failures == []
+    assert len(diagnostic_candidates) == 1
+    assert diagnostic_candidates[0]["routeType"] == "direct"
+    assert bridge.audited == []
 
 
 def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation():

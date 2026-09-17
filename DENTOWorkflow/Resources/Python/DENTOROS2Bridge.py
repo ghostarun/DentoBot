@@ -1080,7 +1080,7 @@ def _on_task_status_modified(caller=None, event=None) -> None:
         payload = caller.GetLastMessage() if caller is not None else ""
         _last_task_status = parse_task_joint_status(str(payload or ""))
         _last_task_status_at = time.monotonic()
-        if not _last_task_status.accepted:
+        if not _last_task_status.accepted and not _last_task_status.validate_only:
             _restore_motion_control_positions(_last_task_status.accepted_positions)
     except (TypeError, ValueError, json.JSONDecodeError):
         return
@@ -1207,6 +1207,8 @@ def configure_task_phase_guard(
     approach_standoff_mm: float,
     simulation_guide_clearance_object_ids: Sequence[str] = (),
     collision_scene_policy_fingerprint: str = "",
+    static_only: bool = False,
+    preflight_start_positions_si: Optional[Mapping[str, float]] = None,
 ) -> Tuple[bool, str]:
     global _last_task_config_json, _native_joint_positions
     if not target_object_id or any(
@@ -1214,6 +1216,12 @@ def configure_task_phase_guard(
         for value in (clearance_exempt_object_ids or ())
     ):
         return False, "Only the selected target may receive a burr-contact allowance."
+    preflight_positions = None
+    if preflight_start_positions_si is not None:
+        try:
+            preflight_positions = joint_si_vector(preflight_start_positions_si)
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            return False, f"Invalid preflight start joint vector: {exc}"
     config_publisher, command_publisher = _ensure_task_publishers()
     if (
         config_publisher is None
@@ -1250,12 +1258,33 @@ def configure_task_phase_guard(
         "approach_standoff_m": float(approach_standoff_mm) / 1000.0,
         "collision_scene_policy_fingerprint": str(collision_scene_policy_fingerprint or ""),
     }
+    if preflight_positions is not None:
+        payload["preflight_start_positions"] = preflight_positions
     if not payload["task_fingerprint"] or not payload["target_object_id"]:
         return False, "Task-guard configuration is missing its task or target identity."
     _last_task_config_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     if len(_native_joint_positions) != len(ROS2_JOINT_SI_ORDER):
         _last_task_config_json = ""
         return False, "The current five-joint planning state is unavailable for task-guard initialization."
+    if static_only or preflight_positions is not None:
+        # Static endpoint checks must not use the ordinary sequence-zero
+        # transition handshake: it validates and can publish the accepted
+        # current state.  An explicit preflight start is likewise read-only
+        # until its validate-only transition queries. Re-publish the immutable
+        # config; each query below carries the same session identity.
+        for _ in range(3):
+            config_publisher.Publish(_last_task_config_json)
+            try:
+                import slicer
+
+                slicer.app.processEvents()
+            except Exception:
+                pass
+            time.sleep(0.05)
+        return (
+            True,
+            "Task guard configuration was published for read-only static-state queries.",
+        )
     # Configuration and command use separate ROS topics, so DDS does not
     # guarantee cross-topic arrival order.  Sequence zero is a strict no-op
     # handshake at the already accepted state.  Only after the guard accepts
@@ -1353,7 +1382,6 @@ def apply_task_phase_joint_positions(
     if validation_kind == "static_state" and not validate_only:
         return False, "static_state validation must be read-only (validate_only=true)."
     prior = list(_native_joint_positions)
-    status_before = _last_task_status_at
     command = {
         "schema": ROS2_TASK_JOINT_COMMAND_SCHEMA,
         "mode": "simulation_only",
@@ -1375,6 +1403,19 @@ def apply_task_phase_joint_positions(
         )
     if not active_session_id:
         return False, "The active simulation task-guard session is invalid. Re-plan Goal 1."
+    if validation_kind == "static_state":
+        # Static configuration has no transition handshake.  Give the config
+        # topic a bounded head start without publishing an accepted joint state.
+        for _ in range(3):
+            config_publisher.Publish(_last_task_config_json)
+            try:
+                import slicer
+
+                slicer.app.processEvents()
+            except Exception:
+                pass
+            time.sleep(0.05)
+    status_before = _last_task_status_at
     command.update(
         {
             "guard_session_id": active_session_id,
@@ -2602,8 +2643,9 @@ def connect_dentobot_motion_control(
     open_motion_module: bool = True,
     start_stack_if_needed: bool = True,
     initial_joint_positions_si: Optional[Mapping[str, float]] = None,
+    start_joint_command_stream: bool = True,
 ) -> Tuple[Optional[object], str]:
-    """Create the Slicer robot and seed plan-only control from reviewed state."""
+    """Create the Slicer robot and optionally start its raw joint-state stream."""
     global _native_joint_positions
     del start_stack_if_needed
     import slicer
@@ -2660,9 +2702,10 @@ def connect_dentobot_motion_control(
         except (KeyError, TypeError, ValueError) as exc:
             return None, f"The reviewed Task Home joint vector is invalid: {exc}"
 
-    streamed, stream_error = start_slicer_joint_command_stream()
-    if not streamed:
-        return None, stream_error
+    if start_joint_command_stream:
+        streamed, stream_error = start_slicer_joint_command_stream()
+        if not streamed:
+            return None, stream_error
     base_transform.SetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE, "true")
     if hide_mrml_robot and mrml_robot_models:
         set_mrml_link_models_visible(mrml_robot_models, False)

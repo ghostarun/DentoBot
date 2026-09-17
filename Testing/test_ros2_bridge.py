@@ -397,7 +397,11 @@ def test_phased_waypoints_do_not_republish_and_reset_guard_configuration():
     apply_phase = source.split("def apply_task_phase_joint_positions", 1)[1].split(
         "def _wait_for_joint_command_result", 1
     )[0]
-    assert "config_publisher.Publish" not in apply_phase
+    static_refresh = apply_phase.split(
+        'if validation_kind == "static_state":', 1
+    )[1].split("status_before", 1)[0]
+    assert apply_phase.count("config_publisher.Publish") == 1
+    assert "config_publisher.Publish(_last_task_config_json)" in static_refresh
     assert "active_fingerprint" in apply_phase
 
 
@@ -427,6 +431,189 @@ def test_task_guard_guide_clearance_field_is_optional_at_bridge_boundary():
     assert parameter.default == ()
     source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
     assert '"simulation_guide_clearance_object_ids"' in source
+
+
+def test_preflight_start_is_canonical_read_only_and_rejects_malformed_mapping(monkeypatch):
+    parameter = inspect.signature(configure_task_phase_guard).parameters[
+        "preflight_start_positions_si"
+    ]
+    assert parameter.default is None
+    source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    configure = source.split("def configure_task_phase_guard", 1)[1].split(
+        "def apply_task_phase_joint_positions", 1
+    )[0]
+    assert "preflight_start_positions_si: Optional[Mapping[str, float]] = None" in configure
+    assert "preflight_positions = joint_si_vector(preflight_start_positions_si)" in configure
+    assert 'payload["preflight_start_positions"] = preflight_positions' in configure
+    read_only = configure.split(
+        "if static_only or preflight_positions is not None:", 1
+    )[1].split("# Configuration and command use separate ROS topics", 1)[0]
+    assert "config_publisher.Publish(_last_task_config_json)" in read_only
+    assert "command_publisher.Publish" not in read_only
+    assert '"sequence": 0' not in read_only
+
+    publisher_calls = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_ensure_task_publishers",
+        lambda: publisher_calls.append(True) or (None, None),
+    )
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="test",
+        target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth"],
+        base_transform=None,
+        entry_ras_mm=(0, 0, 0),
+        target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75,
+        approach_standoff_mm=5,
+        preflight_start_positions_si={ROS2_JOINT_SI_ORDER[0]: 0.0},
+    )
+    assert not ok
+    assert "Invalid preflight start joint vector" in reason
+    assert publisher_calls == []
+
+    class Publisher:
+        def __init__(self):
+            self.messages = []
+
+        def Publish(self, message):
+            self.messages.append(message)
+
+    config_publisher = Publisher()
+    command_publisher = Publisher()
+    native_before = [0.1] * len(ROS2_JOINT_SI_ORDER)
+    monkeypatch.setattr(bridge_module, "_native_joint_positions", native_before)
+    monkeypatch.setattr(bridge_module, "_last_task_config_json", "")
+    monkeypatch.setattr(
+        bridge_module,
+        "_ensure_task_publishers",
+        lambda: (config_publisher, command_publisher),
+    )
+    monkeypatch.setattr(
+        bridge_module, "_ensure_task_status_subscriber", lambda: object()
+    )
+    monkeypatch.setattr(
+        bridge_module, "world_ras_mm_to_base_m", lambda point, _base: list(point)
+    )
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+    canonical = dict(
+        zip(ROS2_JOINT_SI_ORDER, (1.0, 2.0, 3.0, 4.0, 5.0))
+    )
+    canonical["pneumatic_spindle"] = 99.0
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="task",
+        target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth"],
+        base_transform=None,
+        entry_ras_mm=(0, 0, 0),
+        target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75,
+        approach_standoff_mm=5,
+        preflight_start_positions_si=canonical,
+    )
+    assert ok, reason
+    assert len(config_publisher.messages) == 3
+    assert command_publisher.messages == []
+    assert json.loads(config_publisher.messages[-1])["preflight_start_positions"] == [
+        1.0, 2.0, 3.0, 4.0, 5.0
+    ]
+    assert bridge_module._native_joint_positions == native_before
+
+
+def test_facade_phase_guard_passes_the_active_policy_fingerprint():
+    facade_source = (
+        ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "DENTORobotWorkflowFacade.py"
+    ).read_text(encoding="utf-8")
+    configure = facade_source.split(
+        "    def _configure_phase_guard", 1
+    )[1].split("    def _prepare_phase_guard", 1)[0]
+    assert (
+        "collision_scene_policy_fingerprint=self._strict_guard_policy_fingerprint()"
+        in configure
+    )
+    assert "static_only=bool(static_only)" in configure
+    assert "preflight_start_positions_si: Optional[Mapping[str, float]] = None" in configure
+    assert "preflight_start_positions_si=preflight_start_positions_si" in configure
+    assert "preflight_start_positions_si is not None" in configure
+    logic_source = (
+        ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "logic_robot.py"
+    ).read_text(encoding="utf-8")
+    guidance = logic_source.split("def step6GuidanceCollisionObjectIds", 1)[1].split(
+        "def step6BurrProximityCollisionObjectIds", 1
+    )[0]
+    assert "allow_deferred_static_ack: bool = False" in guidance
+    assert 'audit.status == "RuntimeAcknowledgementDeferred"' in guidance
+    assert '== "Deferred"' in guidance
+
+
+def test_motion_bridge_can_initialize_a_static_guard_without_a_raw_joint_stream():
+    bridge_source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
+    connect = bridge_source.split("def connect_dentobot_motion_control", 1)[1].split(
+        "def prepare_dentobot_motion_diagnostics", 1
+    )[0]
+    assert "start_joint_command_stream: bool = True" in connect
+    assert "if start_joint_command_stream:" in connect
+    assert "start_slicer_joint_command_stream()" in connect
+    configure = bridge_source.split("def configure_task_phase_guard", 1)[1].split(
+        "def apply_task_phase_joint_positions", 1
+    )[0]
+    static_configuration = configure.split(
+        "if static_only or preflight_positions is not None:", 1
+    )[1].split(
+        "# Configuration and command use separate ROS topics", 1
+    )[0]
+    assert "config_publisher.Publish(_last_task_config_json)" in static_configuration
+    assert "command_publisher.Publish" not in static_configuration
+    task_status_callback = bridge_source.split("def _on_task_status_modified", 1)[1].split(
+        "def _ensure_task_status_subscriber", 1
+    )[0]
+    assert "not _last_task_status.validate_only" in task_status_callback
+    assert "_restore_motion_control_positions" in task_status_callback
+
+
+def test_validate_only_task_rejection_never_restores_display_state(monkeypatch):
+    class Caller:
+        def GetLastMessage(self):
+            return "status"
+
+    restored = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_restore_motion_control_positions",
+        lambda values: restored.append(tuple(values)),
+    )
+    monkeypatch.setattr(
+        bridge_module,
+        "parse_task_joint_status",
+        lambda _payload: SimpleNamespace(
+            accepted=False,
+            validate_only=True,
+            accepted_positions=(1.0,) * len(ROS2_JOINT_SI_ORDER),
+        ),
+    )
+    bridge_module._on_task_status_modified(Caller())
+    assert restored == []
+    monkeypatch.setattr(
+        bridge_module,
+        "parse_task_joint_status",
+        lambda _payload: SimpleNamespace(
+            accepted=False,
+            validate_only=False,
+            accepted_positions=(2.0,) * len(ROS2_JOINT_SI_ORDER),
+        ),
+    )
+    bridge_module._on_task_status_modified(Caller())
+    assert restored == [(2.0,) * len(ROS2_JOINT_SI_ORDER)]
 
 
 class _FakeTransform:

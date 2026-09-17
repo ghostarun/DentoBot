@@ -1,6 +1,6 @@
 # DENTOBOT pending work and backlog
 
-Last reconciled: 2026-09-15. **Check this file before every plan or new task.**
+Last reconciled: 2026-09-17. **Check this file before every plan or new task.**
 This is the sole pending-work queue: active, blocked, planned, deferred and
 unaccepted work, including every open DENTO-NOTE. Detailed contracts live in
 [TASKS.md](TASKS.md) and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md); process and
@@ -21,15 +21,104 @@ IDs and provisional status; its old dates, allocations and case diagnostics do
 not override later local decisions. Tracker priorities are source metadata,
 not promotions into the current development sequence.
 
+## Active operator-directed pause and return route — 2026-09-17
+
+The operator has paused Campaign 1 gate verification at the completed P5
+diagnostic and redirected the active work to the existing `VERIFY-LEARN-01`
+guided GUI/operator-verification lane. This is an explicit sequencing change,
+not a retraction of Gate A or P3/P4/P5 evidence and not authority for P6, P7,
+another tooth, a new IK search, motion, hardware, spindle or patient action.
+
+The reason is an evidence-level mismatch. Locked r4 was built with the saved
+15 September Step-4A Entry/Target coordinates; the construction runner inserted
+that line and tagged it `SavedStep4A15Sept`. P5 then opened the prepared r4
+package, programmatically activated its saved `PreparedBranch`, loaded the
+robot and used a diagnostic-only runtime path that deliberately bypassed the
+normal GUI Connect → Task Home → Workspace → Task Confirmation sequence.
+Therefore P5 proves bounded simulation feasibility only. It does **not** prove
+that an operator can use Assisted Trajectory Generation or complete the
+ordinary 4A→4B→4C→5A→5B→5C→6 normal-window workflow.
+
+The active acceptance route is now:
+
+1. Inspect the exact locked r4 package without editing it: confirm the saved
+   FDI31 trajectory, opened-mouth Case Foundation, support/template/guide
+   registration, verified `PreparedBranch`, and Step-6 activation/display.
+2. Treat Assisted Trajectory Generation on locked r4 as intentionally blocked:
+   r4 already contains a trajectory and the UI never overwrites an existing
+   plan. Test assisted generation only in a fresh or disposable-copy case with
+   Reviewed segmentation, selected target, current Case Foundation, zero
+   existing target trajectories, and a unique non-empty `HIGH`-confidence
+   tooth↔pulp association.
+3. Walk the ordinary GUI path in order and record the exact visible status,
+   first failure, screenshots and save/reopen behavior. A guide or trajectory
+   visibly detached from the opened-mouth anatomy is a stop condition, not a
+   reason to advance to Step 6.
+4. Reconcile the operator-visible result with the headless evidence and fix
+   only an evidence-backed source defect under its existing owner. Do not tune
+   geometry, policy or planning merely to make the GUI proceed.
+5. Return to the gate/P-series only after the controlled records contain an
+   operator-readable GUI verdict and the coordinator explicitly confirms which
+   unmet gate is next. The default return point is **after P5**, not a rerun of
+   P3/P4/P5 and not automatic entry to P6.
+
+`VERIFY-LEARN-01` owns the guided session and evidence interpretation;
+`S6-REUSABLE-CASE-SETUP` retains the r4/P3/P4/P5 artifacts and campaign
+boundary. `S4A-PULP-ENDPOINT`, `W5-U-04`/`W5-U-03`, `VIEW-U-01` and
+`S6-REUSABLE-CASE-SETUP` own any first failure in their respective 4A,
+5B/5C, display, or Step-6 portions. Do not create a parallel GUI-verification
+task.
+
+**2026-09-17 quota-constrained recovery stop:** The operator has ended further
+analysis and wants the next session to proceed with fixes from the preserved
+findings. This does not close `VERIFY-LEARN-01` or constitute operator
+acceptance. The active P0 correction order under the existing owners is:
+
+1. `S6-REUSABLE-CASE-SETUP` / restore ownership: synchronize post-restore
+   Step-4A references and allow only the opened moving-lower representation to
+   be 3D-visible while preserving the closed source segmentation. The saved
+   15Sept MRML contains both representations visible, which explains the
+   detached FDI31 ghost as a display-state defect; no evidence promotes that
+   ghost into the native collision scene.
+2. `S4A-PULP-ENDPOINT`: capture the expected/active markup ID, interaction
+   state and placement-valid state immediately around the existing
+   `StartPlaceMode(0)` call, then correct only the demonstrated shared-state
+   failure. The existing error proves activation failed but does not identify
+   which checked postcondition failed; do not add a blind retry or forced
+   success.
+3. Preserve the FDI21 target-ownership warning, but make target switching exit
+   stale placement and replace/rebind the prior target-owned assisted-entry
+   node so the operator can recover.
+4. Under `S6-LIVE-02`, make P5 diagnostic request IDs globally unique. Existing
+   sequence/vector checks distinguish the saved responses, so retain P5 as
+   diagnostic evidence; do not call the duplicate ID acceptable traceability.
+
+P5 remains `SAMPLED_PASS` only at guard-policy feasibility scope. Its current
+images do not contain a parity-proven robot state with full anatomy, and the
+configured template↔spindle allowance means it is not literal housing-clear
+evidence. Operator verification therefore remains blocked. A fresh independent
+reviewer was attempted but stopped before review at the account usage limit;
+completed read-only worker summaries are retained as evidence inputs, not
+acceptance. Do not repeat those investigations merely because their reviewer
+was unavailable.
+
 ## Pending planned work — active correction and acceptance
 
-**Latest FDI31 scope — 2026-09-15:** The operator accepted the causal review and
-requested Astra architecture / Luna Max implementation orchestration. The
+**Latest FDI31 scope — 2026-09-15:** The operator has activated the revised
+Campaign 1 execution contract. It replaces the former Astra/design-only/P4
+limit with one main orchestrator and one bounded Luna Max implementation worker.
+The new corrected FDI31 case must preserve r7/r13 as historical evidence, use
+the 15 September opening/landmark/base foundation, the exact saved identity for
+the operator-specified approximately 5.2394 mm trajectory, FDI42/41/32/33
+supports, 1.0 mm dock bores and >=2.0 mm trajectory-guide/channel dimensions.
+The
 [Campaign 1 contract](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) now
 governs `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`: scene/input review plus
-diagnostic repair, bounded endpoint search, then conditional insertion evidence
-and Astra review. This supersedes the geometry-correction-only prerequisite and
-old stop-after-every-minor-failure interpretation for this scope. The operator
+diagnostic repair, bounded endpoint/insertion search, approach reconciliation
+and guarded fresh-process simulation evidence. P0 must extract the trajectory
+identity before case construction; it may not infer it from rounded text. This
+supersedes the geometry-correction-only prerequisite and old
+stop-after-every-minor-failure interpretation for this scope. The operator
 subsequently approved P1/P2 only for run `c1-p1p2-20260914-r1`; P1's
 saved-input/machine checks PASS, but P1 overall scene correctness and operator
 review are INCOMPLETE. The final bounded native diagnostic/evidence result is
@@ -42,6 +131,219 @@ historical. P3/P4, more full-planner retries, invariant changes and another
 tooth remain unauthorized. The exact runtime logs, hashes and review limits
 are in the canonical recovery report. Operator review and final
 architectural/clinical acceptance remain separate.
+
+**2026-09-15 Gate-A result — blocked at construction:** The one authorized,
+serialized offline construction/reopen run `c1-gatea-fdi31-20260915-r1` passed
+container/process/hash preflight but stopped before template construction,
+export or reopen. The new runner loaded the 15-September source and rejected
+the imported FDI31 line at `getTrajectorySummary(...)["isValid"]`; its emitted
+first failure is `FDI31 trajectory is invalid`. This is a shared corrected-case
+construction failure, not a planner, insertion, guard, hardware or motion
+result. Preserve the generated FAIL diagnostic/screenshots and do not retry
+Gate A, enter Gates B–D, or advance to another tooth. Next bounded action:
+identify the exact MRML trajectory-state mismatch in the runner/source path,
+add the smallest regression check, and seek a fresh runtime authorization only
+after the source correction is reviewed.
+
+**2026-09-15 source correction / r2 authorization state:** The runner now
+validates the imported saved line before locking it, matching the established
+assisted-line lifecycle, and reports a full existing trajectory summary if it
+remains invalid. Focused pure checks passed 29/29. r2 runtime preflight passed,
+but the runtime execution gate correctly declined to launch a second
+state-changing Slicer/case run because the current authorization did not name
+that new attempt. Gate A remains FAIL until the operator explicitly authorizes
+one new isolated offline construction/reopen attempt; Gates B–D remain NOT RUN.
+
+**2026-09-15 r2 point-insertion evidence / r3 limit:** Authorized r2 confirmed
+that the live saved line has zero defined points, not a degenerate coordinate
+pair; r2 is FAIL before template generation. The source now explicitly unlocks
+the line before point insertion and fails immediately if two points are not
+accepted; focused pure checks pass 29/29. This is the third and final permitted
+causal hypothesis under the verification ceiling. It needs explicit r3 offline
+Gate-A authorization; a third runtime failure ends autonomous retry and keeps
+Gates B–D/other teeth NOT RUN.
+
+**2026-09-15 revised Gate-A completion:** The operator approved the r4
+exception plan after r1-r3. `c1-gatea-fdi31-20260915-r4` passed its serialized
+container/process/hash/fresh-output preflight, then emitted
+`STAGE6_TARGET_PASS FDI31` and `STAGE6_TARGET_GENERATION_COMPLETE {"passed":
+1, ...}`. It produced a new 84-MB `.dentocase`, verified STL, diagnostic,
+campaign report and post-reopen UI/viewport captures. The diagnostic is PASS:
+the FDI31 selected branch is current/verified, its two planning-frame points
+are within bounds, saved trajectory length remains `5.239400689721231 mm`, and
+the support IDs are FDI42/41/32/33. The outer Slicer process returned exit 1
+during shutdown with known leak warnings after those PASS markers; record this
+as a process-health warning, not a functional Gate-A failure. Gate A is closed
+for corrected-case construction/save/reopen. Gates B-D, other teeth,
+physical/clinical fit review, motion and hardware remain NOT RUN and require
+their own approved gate entry.
+
+**2026-09-15 r4-only active baseline:** The operator explicitly directed that
+the current work must use `c1-gatea-fdi31-20260915-r4/FDI31-step5c.dentocase`
+only. Historical r7/r13 and other prior outputs remain retained evidence but
+are not execution inputs, comparators or fallbacks. The next bounded work is a
+r4-only endpoint diagnostic: direct native position-axis IK at r4's saved
+Target with the existing generic and phase-aware static checks, using Task Home
+plus at most 13 saved Home-connected workspace seeds. It excludes approach or
+drilling planning, preview, insertion, route locking, controller/hardware
+connection, motion, powered spindle and patient work. A zero-candidate outcome
+is a bounded endpoint result, not an instruction to substitute a historical
+case or alter r4 geometry/policy.
+
+**2026-09-15 r4 endpoint runtime disposition:** The r4-only endpoint branch
+is source-verified, but the runtime diagnostic is **NOT EXECUTED**. Preflight
+confirmed the container and the exact r4 checksum. The first launch stopped
+at an unsupported `sh` option; the next two stopped during SlicerROS2 module
+initialization, before the r4 case or runner opened, most specifically because
+`libqSlicerROS2Module.so` could not find `librclcpp.so`. The attempted
+fully-configured retry was rejected at the three-failure ceiling. No planner,
+preview, insertion, motion, hardware, or historical case path ran. Any further
+runtime attempt requires an explicit operator-approved exception after review
+of this environment-only blocker.
+
+**2026-09-15 P3 authorization / r4-only execution delta:** The operator now
+authorizes Gate-B P3 according to the Campaign 1 plan, retaining r4 as the sole
+case and excluding every historical output from inputs, anchors, comparisons and
+fallbacks. The prior 14-seed r4 probe is preparation only, not P3 acceptance.
+P3 must manifest one deterministic batch of no more than 128 J1–J5 seeds from
+current r4 Task Home/workspace evidence and active runtime limits; every
+converged position-axis IK result must receive existing generic and phase-aware
+static validation before post-validation deduplication. Its one offline runtime
+batch is authorized after the preceding environment retry ceiling: sourcing
+`/opt/ros/jazzy/setup.bash` plus `/workspace/ros2_ws/install/setup.bash` now
+resolves `librclcpp.so`. P4 remains conditional on a P3-admissible Target; no
+planning, preview, insertion, motion, controller/hardware, spindle or patient
+action is authorized in P3.
+
+**2026-09-15 P3 runtime approval boundary:** The r4-only P3 implementation,
+matrix entry and focused source checks are ready, and checksum/process/output
+preflight passed. The subsequent runtime request was rejected **before any
+process started** because it is the fourth Slicer/ROS initialization attempt
+after three recorded initialization failures. The operator's general direction
+to proceed under the plan did not name that concrete retry risk for the runtime
+safety gate. This is not a fourth execution failure and does not alter r4 or
+create output. The sole pending action is a specific operator authorization for
+one fourth initialization attempt: source Jazzy and the workspace setup, start
+one temporary simulation stack, run the r4-only <=128-seed P3 native static
+batch, write fresh evidence, and tear it down; still no planner, insertion,
+motion, controller/hardware, spindle, patient or historical input.
+
+**2026-09-15 P3 interrupted no-planning correction:** The authorized fourth
+initialization attempt started, loaded r4 and its temporary simulation stack,
+but was stopped before a P3 diagnostic after the log showed MoveIt planning
+requests. No preview, execution, controller/hardware, spindle, patient or
+historical input ran; no `endpoint_candidates.json` was written. The owned
+Slicer, launcher and orphaned guard process were terminated and verified gone.
+Root cause: the generic exact-case runner regenerated its workspace before its
+endpoint-only return, and that helper makes planning requests. The smallest
+correction moves the P3 return before `generateWorkspaceCloud()` and has a
+focused ordering regression check; source checks pass 29/29. P3 is
+**INTERRUPTED / no endpoint result**, not PASS or bounded negative. Preserve
+the attempted logs in `c1-p3-fdi31-20260915-r4`; a replacement must use a
+fresh output directory and needs new explicit authorization after this distinct
+no-planning-boundary interruption.
+
+**2026-09-15 P3 r2 harness interruption / r3 approval requirement:** The
+authorized replacement's `r2` wrapper launched only its temporary simulation
+stack and then exited before Slicer, runtime logging or candidate evaluation;
+the stack log is retained and its known launcher and guard PIDs were cleaned up.
+This is an **INTERRUPTED harness run**, not P3 evidence. The runner's direct
+native position-axis call was also corrected to bypass its generic collision
+prefilter so every kinematically converged candidate can be evaluated by the
+authoritative existing phase predicate. Static checks remain 29/29. A proposed
+fresh `r3` dispatch was rejected before launch because the original one-run
+replacement authorization was consumed and broad pattern-based cleanup was too
+risky. Any next authorization must explicitly cover one additional r3 attempt
+after the r2 harness interruption and permit cleanup only of PIDs first proven
+to be created by that exact run.
+
+**2026-09-15 P3 r3 interruption / runtime ceiling:** The explicitly authorized
+r3 attempt again started only the temporary simulation stack and never reached
+Slicer, `runtime.log`, the endpoint runner or candidate evaluation. Its own
+records identified launcher PID 3775 and guard PID 3800; both were first
+recorded in the r3 evidence and then terminated/verified absent. Across this
+P3 runtime lane, r1 stopped on the no-planning boundary and r2/r3 stopped at
+the pre-Slicer harness/readiness stage. These are three recorded P3 runtime/
+setup interruptions, so the verification retry ceiling closes the runtime lane.
+There is no P3 PASS, FAIL or bounded-negative endpoint result. Do not launch a
+r4 P3 retry from this state. The next action requires an operator-approved
+revised execution plan that first resolves the launcher/readiness harness with
+the smallest non-Slicer discriminating evidence; it may not substitute
+historical data, relax the no-planning boundary or alter r4 geometry/policy.
+
+**2026-09-15 launcher/readiness blocker resolved:** Read-only attribution
+identified twelve orphaned ROS children from the first three P3 temporary
+stacks; their PIDs and command lines matched retained stack logs, and they were
+terminated. The resulting clean baseline has zero `/joint_states` publishers.
+`Testing/run_c1_p3_r4_batch.bash` now sources ROS before strict-unset mode,
+starts the simulation stack with `setsid`, records its process group and tears
+down that entire group. Its fresh no-Slicer readiness check passed on attempt
+one with `ready:true` and one publisher; post-exit verification found zero
+publishers and no simulation child process. Static checks pass 29/29. This
+resolves only the launcher blocker; P3 remains NOT TESTED/INCONCLUSIVE at its
+prior runtime ceiling. The next pending action is an explicit revised P3
+runtime authorization for this verified driver and a fresh r4 output directory.
+
+**2026-09-16 P3 r4 runtime interruption / task-reconfirmation repair:** One
+explicitly authorized fresh run, `c1-p3-fdi31-20260916-r4`, passed the r4
+checksum and stack readiness, opened r4 in Slicer, and stopped before any
+native candidate, `endpoint_candidates.json`, P3 marker, planner request or
+motion action. The terminal error was the generic post-restore
+`confirmTask()` call requiring workspace-assisted limits; P3 may not generate
+that workspace because it issues planning requests. The owned stack group
+cleaned up with no matching residual process. The smallest repair makes
+endpoint-only mode retain the restored r4 task snapshot and fail closed when
+it is absent, instead of reconfirming through workspace limits; the normal
+path is unchanged and focused checks pass 29/29. P3 remains
+**NOT TESTED/INCONCLUSIVE**. A future runtime requires a new explicit,
+one-batch r4-only authorization for the repaired driver; P4 remains NOT RUN.
+
+**2026-09-16 P3 r4 second setup interruption / ephemeral snapshot repair:** A
+second explicitly authorized fresh run, `c1-p3-fdi31-20260916-r4-r2`, passed
+checksum, readiness and r4 load, then stopped before any candidate, candidate
+JSON, completion marker, planner request or motion action because r4 has no
+persisted confirmed-task record after offline restore. The P3-only repair uses
+the existing pure task-snapshot constructor to build a non-persisted,
+evidence-labelled snapshot from unchanged r4 Entry/Target, live Task Home,
+current base/limits/resource fingerprints and established tool provenance. It
+rejects every freshness issue except that exact missing-confirmation state; no
+workspace or normal task confirmation is invoked. Focused checks pass 29/29.
+P3 remains **NOT TESTED/INCONCLUSIVE** and needs a new explicit one-batch
+r4-only runtime authorization; P4 remains NOT RUN.
+
+**2026-09-16 P3 r4 third setup interruption / native joint-topology repair:**
+The explicitly authorized fresh run `c1-p3-fdi31-20260916-r4-r3` passed the
+r4 checksum, readiness and Slicer load, then stopped before any native IK,
+candidate JSON/completion marker, planner request, preview, insertion or motion
+because the diagnostic assumed the native joint-limit API contained exactly
+J1–J5. Read-only native source/API evidence established the actual complete KDL
+chain as J1–J5 plus the known external visual spindle. The P3-only repair now
+requires precisely that known topology, uses native joint types, selects only
+J1–J5 in planning order, rejects unknown/duplicate/incomplete topology, and
+wraps deduplication only for continuous J5. It does not seed, solve or guard
+the spindle. Focused source checks passed 29/29 with syntax/matrix/compile/diff
+checks and Graphify refresh. This is a topology/setup interruption, not
+endpoint evidence; P3 remains **NOT TESTED/INCONCLUSIVE** and needs a new
+explicit one-batch r4-only authorization. P4 remains NOT RUN.
+
+**2026-09-16 P3 r4 completed bounded-negative gate:** The explicitly
+authorized fresh batch `c1-p3-fdi31-20260916-r4-r4` completed after the
+native-topology repair. It passed locked-r4 checksum/readiness, emitted
+`DENTOBOT_ENDPOINT_ONLY_COMPLETE`, and wrote fresh candidate evidence SHA-256
+`8853f5208a87368d2611fd9c0a9737fe6b73b4da43de6851f4a428adee3f734c` in its
+own r4-only directory. It completed exactly 128 seeds: 21 native position-axis
+IK convergences, six unique solution clusters, zero generic-static-valid,
+zero phase-static-valid and zero P4-retained candidates. Result:
+**NO VALID TARGET SOLUTION FOUND IN BOUNDED SEARCH**. All converged candidates
+had a phase rejection for provisional-tip departure from the approved
+Entry-to-Target corridor; generic static records additionally reject the
+Template↔visual-spindle and target-tooth↔burr contacts. There was no `Planning
+request`, preview, joint command, controller/hardware motion, spindle/patient
+action or historical-data input; teardown left zero matching processes. This
+is not proof of global/physical infeasibility and does not authorize changing
+geometry, tool, base, limits, target, guard policy, seeds or solver. Campaign 1
+stops at this unresolved P3 negative. **P4 is NOT RUN**; the sole next action
+is an architectural review to choose a separately scoped later campaign.
 
 The operator's current Step-4A–5B screenshots confirm the four Step-4B
 support-neighbour IDs only; they raise a duplicate closed/opened display and
@@ -210,7 +512,7 @@ from the source change.
 |---|---|---|---|
 | `W5-U-04` | 0 | Current FDI31 regeneration passes the explicit geometry gate; the historical 5-voxel fragment is not reproduced in the current artifact. FDI11 remains the comparison pass. | Preserve the one-solid/zero-channel/four-open-bore gate and complete the normal-window Step 5B/5C review, including fragment classification evidence. Construction remains the `W5-U-03` fusion owner; do not raise the cleanup threshold. |
 | `S3-P0-DENTAL-SEMANTICS` | 0 | DENTO-NOTE 2026-09-14: the installed class map, report/NIfTI/imported-package evidence, pure A-H semantic core, MRML/planning integration, current FDI31 spatial association and save/reopen evidence are captured; focused checks pass. The FDI31 target association is `HIGH`/`VALID`, while other unresolved pulp records remain fail-closed. | Preserve the current FDI31 semantic package and evidence. No new pulp-dependent target claim proceeds without the same canonical tooth+pulp+spatial gate. The remaining FDI31 acceptance is target-specific Stage-3 tool/geometry review and normal-window review, owned with `S6-REUSABLE-CASE-SETUP`; do not create an FDI11-only workaround. |
-| `S6-REUSABLE-CASE-SETUP` | 0 | **Full workflow blocked; P1 saved-input/machine checks PASS, P1 overall scene correctness/operator review INCOMPLETE, P2 bounded native diagnostic/evidence PASS with USER_REVIEW_REQUIRED.** Step-4B support membership is operator-confirmed; live 4A duplicate-display and 4C/5A plane geometry remain unverified. New-case defaults and legacy 5B preflight/status were corrected source-only without changing frozen source/r7. Preserve r7 package/STL, r13 terminal spindle↔FDI31 rejection, r14 probe, 31-object native acknowledgement and unknown contact fields; historical failures/attempts remain history. Return Home and repeat remain open. | Follow [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and report AK: obtain separate world-MRML readback of the operator's current plane/display scene, reconcile it against opened-world constructors and the frozen inputs, then complete remaining decision-critical review before conditional P3. No invariant change, automatic full-flow retry or next tooth. |
+| `S6-REUSABLE-CASE-SETUP` | 0 | **Paused at completed P5 while GUI/operator workflow verification is active.** P3's corrected companion evidence (SHA `ec6ad4...`) establishes **21 phase-static accepted, 0 rejected, 0 unknown, 21 admissible**; P4 retains six bounded insertion witnesses (SHA `3cc1759d...`); P5 retains one bounded simulation-only approach witness (SHA `6455a52e...`): fresh monitored start, 208 Stage-1 plus 12 Stage-2 plus one P4-join read-only guard edges, all accepted. These diagnostic paths reused the prepared r4 trajectory/branch and did not prove manual Assisted Trajectory Generation or the ordinary GUI sequence. P1/P2 and historical evidence remain unchanged; Return Home, repeat and full workflow remain NOT RUN. | Preserve frozen r4/case/task/tool/base/limit/tolerance/collision policy, raw/companion/P4/P5 evidence and causal history. Route now to `VERIFY-LEARN-01`: inspect locked r4 without editing, test assisted generation only in a fresh/copy case, then record the normal-window 4A→6 first failure and screenshots. Do not resume after P5 until that verdict is reconciled and the coordinator names the next gate under new explicit scope. |
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
@@ -256,7 +558,7 @@ Source observations, risks and evidence remain under the matching TASKS.md ID.
 | `W4B-P2-SUPPORT-AUTO` | 2 | DENTO-NOTE: narrow two-row support arch; four-nearest support suggestion and single-row jaw UI; source suggestion/pure checks complete 2026-09-15 | P0 integrity first; verify the current four-ID automatic suggestion in a normal window, preserve manual review/lock and edge/missing-tooth handling. UI layout integrates with `UI-P3-01`. |
 | `S6-U-01` | 4 | DENTO-NOTE: non-clean native shutdown despite functional lifecycle pass | Preserve P0–3 ordering unless normal workflow regresses; release native wrappers and process group; require clean zero-exit lifecycle without leaks. Coordinate, do not assume same cause as `QA-U-01`. |
 | `S6-WORKSPACE-PURPOSE` | Unprioritized | DENTO-NOTE: reported 5 mm clearance leaves no intraoral TCP workspace | Discuss 6.3 purpose; audit exact filter/consumers before any policy or value change; distinguish reach, whole-robot validity, Home connectivity and task feasibility. Prerequisite for Studio Workspace. Recommended P0 was never an assigned priority. |
-| `VERIFY-LEARN-01` | Unprioritized | DENTO-NOTE: operator wants one guided, hands-on session to understand the DENTOBOT testing and verification workflow, including `py_compile`, focused `pytest`, conditional `colcon build`, evidence levels and result interpretation | Wait for the active reusable-case/Step 6 reposition implementation handoff and a stable diff. Then use one real, bounded matrix profile to teach inspect → smallest check → static compile/diff → focused pure tests → conditional package build → runtime/manual boundary. Explain each command before approval/execution, let the operator run or follow it, preserve logs/result, and finish with a short operator-readable checklist. No duplicate harness, blanket suite, robot motion or build while files/install tree are changing. |
+| `VERIFY-LEARN-01` | Unprioritized | **Active by explicit operator sequencing, with numeric priority still unassigned.** Guided hands-on verification now owns the pause after P5: explain the evidence-level mismatch, inspect locked r4 without mutation, exercise Assisted Trajectory Generation only on a fresh/copy case, and follow the ordinary 4A→4B→4C→5A→5B→5C→6 GUI path until the first truthful PASS or failure. | The stable P5 handoff satisfies the former wait condition. Explain every command/action before use; record visible status text, screenshots, first causal failure, save/reopen state and evidence level. Use the existing matrix/protocol only when a focused automated discriminator is needed. No duplicate harness, blanket suite, r4 trajectory deletion/regeneration, policy/geometry tuning, robot motion or automatic P6/P7. Finish with a reusable operator checklist and an explicit return-to-gates recommendation. |
 | `W4-U-01` | Unprioritized | Reviewed crown Entry snapping/MPR contract | Define crown region, then source-fingerprinted snapping; remaining Entry subset of `A-035`. |
 | `W5-U-01` | Unprioritized | Physical guide/burr fit provenance; optional export manifest | Verify actual dimensions and physical fit; decide manifest separately. Neither export nor STL becomes Step 6 authority. Includes tracker A-032 dimensional concern. |
 | `IMG-U-01` | Unprioritized | Representative mask/display and uncertainty acceptance | Governed CBCT, acquisition/artifact/segmentation evidence; coordinate `VIEW-U-01` display campaign. |

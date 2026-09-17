@@ -17,6 +17,7 @@ from pathlib import Path
 import sys
 import time
 import traceback
+import zipfile
 
 import numpy as np
 import qt
@@ -60,6 +61,16 @@ TARGET_FDI = tuple(
     if value.strip()
 )
 
+SAVED_FDI31_TRAJECTORY_ARCHIVE_ENV = "DENTOBOT_STAGE6_FDI31_TRAJECTORY_MRB"
+SAVED_FDI31_TRAJECTORY_MEMBER = (
+    "2026-09-15-Scene/Data/Step 4A DENTO FDI 31 - Trajectory 1 Complete.mrk.json"
+)
+SAVED_FDI31_TRAJECTORY_MEMBER_SHA256 = (
+    "61dac3962cca0db6ddd3742daed85c17e6e339758dcfab880a49aeac30038d1d"
+)
+SAVED_FDI31_TRAJECTORY_LENGTH_MM = 5.239400689721231
+SAVED_FDI31_TRAJECTORY_FLOAT_TOLERANCE_MM = 1.0e-12
+
 
 def process_events(seconds: float = 0.25) -> None:
     deadline = time.monotonic() + float(seconds)
@@ -71,6 +82,158 @@ def process_events(seconds: float = 0.25) -> None:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _parse_saved_fdi31_trajectory(archive_path: Path) -> dict:
+    """Read the exact 15-Sep Step-4A line and convert LPS to world RAS once."""
+
+    archive_path = Path(archive_path)
+    require(archive_path.is_file(), f"missing saved FDI31 trajectory archive: {archive_path}")
+    try:
+        archive_bytes = archive_path.read_bytes()
+        archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+        with zipfile.ZipFile(archive_path) as archive:
+            members = [
+                info
+                for info in archive.infolist()
+                if info.filename == SAVED_FDI31_TRAJECTORY_MEMBER
+            ]
+            require(
+                len(members) == 1,
+                "saved FDI31 trajectory archive must contain exactly one "
+                f"{SAVED_FDI31_TRAJECTORY_MEMBER!r} member",
+            )
+            member_bytes = archive.read(members[0])
+    except (OSError, RuntimeError, zipfile.BadZipFile, KeyError) as exc:
+        raise RuntimeError(
+            f"could not read saved FDI31 trajectory archive {archive_path}: {exc}"
+        ) from exc
+
+    member_sha256 = hashlib.sha256(member_bytes).hexdigest()
+    try:
+        document = json.loads(member_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"saved FDI31 trajectory member is not valid UTF-8 JSON: {exc}"
+        ) from exc
+
+    require(isinstance(document, dict), "saved FDI31 trajectory JSON must be an object")
+    markups = document.get("markups")
+    require(
+        isinstance(markups, list) and len(markups) == 1,
+        "saved FDI31 trajectory JSON must contain exactly one markup",
+    )
+    markup = markups[0]
+    require(isinstance(markup, dict) and markup.get("type") == "Line",
+            "saved FDI31 trajectory markup must be one Line")
+    require(markup.get("coordinateSystem") == "LPS",
+            "saved FDI31 trajectory markup must use LPS coordinates")
+    require(markup.get("coordinateUnits") == "mm",
+            "saved FDI31 trajectory markup must use millimetres")
+
+    control_points = markup.get("controlPoints")
+    require(
+        isinstance(control_points, list) and len(control_points) == 2,
+        "saved FDI31 trajectory must contain exactly two control points",
+    )
+    points_lps = {}
+    for control_point in control_points:
+        require(isinstance(control_point, dict), "saved FDI31 control point is malformed")
+        label = control_point.get("label")
+        require(label in {"Entry", "Target"} and label not in points_lps,
+                "saved FDI31 control points must be uniquely labeled Entry and Target")
+        require(control_point.get("positionStatus") == "defined",
+                f"saved FDI31 {label} control point must be defined")
+        position = control_point.get("position")
+        require(isinstance(position, list) and len(position) == 3,
+                f"saved FDI31 {label} position must contain three coordinates")
+        values = []
+        for value in position:
+            require(
+                isinstance(value, (int, float)) and not isinstance(value, bool),
+                f"saved FDI31 {label} coordinates must be numeric",
+            )
+            value = float(value)
+            require(math.isfinite(value), f"saved FDI31 {label} coordinates must be finite")
+            values.append(value)
+        points_lps[label] = values
+    require(set(points_lps) == {"Entry", "Target"},
+            "saved FDI31 control points must be labeled Entry and Target")
+
+    measurements = markup.get("measurements")
+    require(isinstance(measurements, list), "saved FDI31 measurements are missing")
+    length_measurements = [
+        measurement
+        for measurement in measurements
+        if isinstance(measurement, dict) and measurement.get("name") == "length"
+    ]
+    require(len(length_measurements) == 1,
+            "saved FDI31 trajectory must contain exactly one length measurement")
+    length_measurement = length_measurements[0]
+    require(length_measurement.get("enabled") is True,
+            "saved FDI31 length measurement must be enabled")
+    require(length_measurement.get("units") == "mm",
+            "saved FDI31 length measurement must use millimetres")
+    measured_length_mm = length_measurement.get("value")
+    require(
+        isinstance(measured_length_mm, (int, float))
+        and not isinstance(measured_length_mm, bool),
+        "saved FDI31 measured length must be numeric",
+    )
+    measured_length_mm = float(measured_length_mm)
+    require(math.isfinite(measured_length_mm), "saved FDI31 measured length must be finite")
+    computed_length_mm = math.sqrt(
+        sum(
+            (points_lps["Target"][axis] - points_lps["Entry"][axis]) ** 2
+            for axis in range(3)
+        )
+    )
+    for label, length_mm in (
+        ("measured", measured_length_mm),
+        ("computed", computed_length_mm),
+    ):
+        require(
+            math.isclose(
+                length_mm,
+                SAVED_FDI31_TRAJECTORY_LENGTH_MM,
+                rel_tol=0.0,
+                abs_tol=SAVED_FDI31_TRAJECTORY_FLOAT_TOLERANCE_MM,
+            ),
+            f"saved FDI31 {label} length does not match "
+            f"{SAVED_FDI31_TRAJECTORY_LENGTH_MM} mm",
+        )
+    require(
+        math.isclose(
+            measured_length_mm,
+            computed_length_mm,
+            rel_tol=0.0,
+            abs_tol=SAVED_FDI31_TRAJECTORY_FLOAT_TOLERANCE_MM,
+        ),
+        "saved FDI31 measured and computed lengths disagree",
+    )
+    require(
+        member_sha256 == SAVED_FDI31_TRAJECTORY_MEMBER_SHA256,
+        "saved FDI31 trajectory member SHA-256 does not match the locked "
+        f"15-Sep artifact ({member_sha256})",
+    )
+
+    def lps_to_ras(point):
+        return [-float(point[0]), -float(point[1]), float(point[2])]
+
+    return {
+        "source_archive_path": str(archive_path),
+        "source_archive_sha256": archive_sha256,
+        "source_member_path": SAVED_FDI31_TRAJECTORY_MEMBER,
+        "source_member_sha256": member_sha256,
+        "coordinate_system": "LPS",
+        "coordinate_units": "mm",
+        "saved_length_mm": measured_length_mm,
+        "computed_length_mm": computed_length_mm,
+        "entry_lps_mm": points_lps["Entry"],
+        "target_lps_mm": points_lps["Target"],
+        "entry_ras_mm": lps_to_ras(points_lps["Entry"]),
+        "target_ras_mm": lps_to_ras(points_lps["Target"]),
+    }
 
 
 def _target_key(target_fdi: str) -> str:
@@ -295,7 +458,7 @@ def _apply_saved_fdi31_defaults(parameter) -> None:
     values = {
         "targetDockingPatternRadiusMm": 10.0,
         "targetDockingOuterDiameterMm": 3.0,
-        "targetDockingBoreDiameterMm": 1.5,
+        "targetDockingBoreDiameterMm": 1.0,
         "targetDockingConnectorDiameterMm": 3.5,
         "targetDockingConnectorThicknessMm": 2.0,
         "targetDockingSharedDepthMm": 5.0,
@@ -609,6 +772,11 @@ def _reopen_diagnostic(logic, parameter, registry=None, eligibility=None) -> dic
 
 
 def _target_case(widget, source: Path, target_fdi: str, output: Path) -> dict:
+    saved_trajectory = None
+    if _target_key(target_fdi) == "31":
+        saved_archive = os.environ.get(SAVED_FDI31_TRAJECTORY_ARCHIVE_ENV, "").strip()
+        if saved_archive:
+            saved_trajectory = _parse_saved_fdi31_trajectory(Path(saved_archive))
     inspection = widget._openCaseBundle(str(source))
     process_events(0.8)
     parameter = widget._parameterNode
@@ -650,34 +818,84 @@ def _target_case(widget, source: Path, target_fdi: str, output: Path) -> dict:
     roi, _bounds = logic.createOrUpdateTargetBoundsRoi(segmentation, target_id)
     parameter.targetToothBoundsRoi = roi
 
-    entry_node, _ = logic.createOrResetAssistedTrajectoryEntries(
-        segmentation, target_id, 1
-    )
-    parameter.assistedTrajectoryEntries = entry_node
-    source_entry, entry_report = _crown_center_entry(logic, segmentation, target_id)
-    entry_point = list(source_entry)
-    if logic._targetJawOwner(parameter, target_id) == "MovingLower":
-        entry_point = _map_point(logic._step6CaseJawMatrixWorld(parameter), source_entry)
-    entry_node.AddControlPointWorld(vtk.vtkVector3d(*entry_point))
-    logic.stopTrajectoryPlacement()
-    trajectories, assisted_analysis = logic.generateAssistedTrajectories(
-        entry_node, segmentation, target_id, 1, roi
-    )
-    require(len(trajectories) == 1, f"FDI{target_fdi} generated {len(trajectories)} trajectories")
-    semantic_before = _semantic_snapshot(
-        segmentation,
-        assisted_analysis["pulpSegmentId"],
-    )
+    entry_report = None
+    assisted_analysis = None
+    pulp_association = None
+    if saved_trajectory is not None:
+        entry_ras = list(saved_trajectory["entry_ras_mm"])
+        target_ras = list(saved_trajectory["target_ras_mm"])
+        if logic._targetJawOwner(parameter, target_id) == "MovingLower":
+            jaw_matrix = logic._step6CaseJawMatrixWorld(parameter)
+            entry_ras = _map_point(jaw_matrix, entry_ras)
+            target_ras = _map_point(jaw_matrix, target_ras)
+        saved_trajectory["planning_coordinate_system"] = "OpenedCaseFoundationWorldRAS"
+        saved_trajectory["planning_entry_ras_mm"] = entry_ras
+        saved_trajectory["planning_target_ras_mm"] = target_ras
+        trajectory = logic.createTrajectoryNode(
+            "[Step 4A] DENTO FDI 31 - Trajectory 1 Complete"
+        )
+        logic.configureTrajectoryTarget(trajectory, segmentation, target_id)
+        trajectory.SetNodeReferenceID(
+            logic.TARGET_BOUNDS_ROI_REFERENCE_ROLE, roi.GetID()
+        )
+        trajectory.SetLocked(False)
+        trajectory.AddControlPointWorld(
+            vtk.vtkVector3d(*entry_ras)
+        )
+        trajectory.AddControlPointWorld(
+            vtk.vtkVector3d(*target_ras)
+        )
+        logic.labelTrajectoryControlPoints(trajectory)
+        inserted_summary = logic.getTrajectorySummary(trajectory)
+        require(
+            inserted_summary["definedPointCount"] == 2,
+            "saved FDI31 trajectory points were not accepted: "
+            f"{json.dumps(inserted_summary, sort_keys=True)}",
+        )
+        inserted_bounds = logic.getTrajectoryBoundsReport(
+            trajectory, segmentation, target_id
+        )
+        require(
+            inserted_bounds["allDefinedPointsWithinBounds"],
+            "saved FDI31 planning-frame trajectory leaves target bounds: "
+            f"{json.dumps(inserted_bounds, sort_keys=True, default=str)}",
+        )
+        trajectory.SetAttribute(
+            "DENTOBOT.TrajectoryCreationMethod", "SavedStep4A15Sept"
+        )
+        pulp_association = logic.getTargetPulpAssociation(segmentation, target_id)
+        pulp_segment_id = pulp_association["pulpSegmentId"]
+    else:
+        entry_node, _ = logic.createOrResetAssistedTrajectoryEntries(
+            segmentation, target_id, 1
+        )
+        parameter.assistedTrajectoryEntries = entry_node
+        source_entry, entry_report = _crown_center_entry(logic, segmentation, target_id)
+        entry_point = list(source_entry)
+        if logic._targetJawOwner(parameter, target_id) == "MovingLower":
+            entry_point = _map_point(logic._step6CaseJawMatrixWorld(parameter), source_entry)
+        entry_node.AddControlPointWorld(vtk.vtkVector3d(*entry_point))
+        logic.stopTrajectoryPlacement()
+        trajectories, assisted_analysis = logic.generateAssistedTrajectories(
+            entry_node, segmentation, target_id, 1, roi
+        )
+        require(len(trajectories) == 1, f"FDI{target_fdi} generated {len(trajectories)} trajectories")
+        pulp_segment_id = assisted_analysis["pulpSegmentId"]
+        trajectory = trajectories[0]
+    semantic_before = _semantic_snapshot(segmentation, pulp_segment_id)
     require(
         semantic_before["pulp"]["canonicalName"] == f"Pulp_FDI{target_fdi}",
         f"FDI{target_fdi} did not persist its canonical pulp name",
     )
-    trajectory = trajectories[0]
     parameter.trajectoryLine = trajectory
     widget._bindPlanningTrajectoryNode(trajectory)
     bounds_report = logic.getTrajectoryBoundsReport(trajectory, segmentation, target_id)
     require(bounds_report["allDefinedPointsWithinBounds"], f"FDI{target_fdi} trajectory leaves target bounds")
-    require(logic.getTrajectorySummary(trajectory)["isValid"], f"FDI{target_fdi} trajectory is invalid")
+    trajectory_summary = logic.getTrajectorySummary(trajectory)
+    require(
+        trajectory_summary["isValid"],
+        f"FDI{target_fdi} trajectory is invalid: {json.dumps(trajectory_summary, sort_keys=True)}",
+    )
     trajectory.SetLocked(True)
 
     support_ids, support_report = _support_selection(logic, segmentation, record)
@@ -893,7 +1111,7 @@ def _target_case(widget, source: Path, target_fdi: str, output: Path) -> dict:
     require(reopened_fdi == str(target_fdi), f"FDI{target_fdi} reopened as FDI{reopened_fdi}")
     semantic_after = _semantic_snapshot(
         reopened_parameter.teethSegmentation,
-        assisted_analysis["pulpSegmentId"],
+        pulp_segment_id,
     )
     require(
         semantic_after == semantic_before,
@@ -921,10 +1139,15 @@ def _target_case(widget, source: Path, target_fdi: str, output: Path) -> dict:
         "support_details": support_details,
         "trajectory": {
             "node_id": trajectory.GetID(),
+            "provenance": trajectory.GetAttribute(
+                "DENTOBOT.TrajectoryCreationMethod"
+            )
+            or "manual",
             "entry": logic.getTrajectorySummary(trajectory),
             "assisted_analysis": assisted_analysis,
             "entry_report": entry_report,
             "bounds_report": bounds_report,
+            "saved_source": saved_trajectory,
         },
         "step5a": {
             "plane": plane_details,

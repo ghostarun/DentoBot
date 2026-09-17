@@ -1,6 +1,6 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-15. Routing plus the durable Step-4A–5B testing
+Last reconciled: 2026-09-17. Routing plus the durable Step-4A–5B testing
 baseline below; all pending work and current order live in
 [backlog.md](backlog.md). Detailed task contracts and completion records live
 in [TASKS.md](TASKS.md). Historical attempts are not instructions.
@@ -19,6 +19,85 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Current handoff
 
+- **Quota-constrained recovery checkpoint — stop analysis and implement P0 next
+  (2026-09-17):** The operator ended the extended read-only audit because the
+  USD 20 plan quota was nearly exhausted. Do not restart the audit or spawn a
+  replacement review. Existing worker outputs and direct reconciliation support
+  four immediate findings: the 15Sept fixture restores two visible FDI31
+  representations (closed-source plus opened moving-lower proxy); assisted-entry
+  activation fails when Slicer's post-`StartPlaceMode(0)` active-node or
+  placement-valid state does not match the expected markup, but the saved run
+  lacks the discriminator identifying which postcondition failed; the FDI21
+  ownership warning is valid stale-target protection; and P5 has a duplicated
+  request ID despite distinct sequence/vector correlation. Preserve corrected
+  P3/P4/P5 as diagnostic evidence, keep P5 operator verification blocked, and
+  begin future implementation at the shared restore/display-state transition,
+  followed by one bounded native placement-state discriminator. No P3–P5 rerun
+  or P6/P7 follows from this checkpoint. Full evidence and interrupted-work
+  accounting are in the recovery report Section AW and the 2026-09-17 logbook.
+
+- **Active operator route — pause after P5 for GUI verification
+  (2026-09-17):** Do not continue the gate/P-series. Preserve locked r4 and all
+  P3/P4/P5 artifacts. Route work through `VERIFY-LEARN-01`: inspect r4 without
+  mutation, then exercise Assisted Trajectory Generation only in a fresh or
+  disposable-copy case and walk the ordinary 4A→4B→4C→5A→5B→5C→6 GUI path to
+  its first truthful PASS/failure. r4 already contains the saved 15 September
+  trajectory, so its assisted controls are expected to block overwrite. P5
+  programmatically reused that trajectory/PreparedBranch and bypassed normal
+  Connect/Task Home/workspace/task-confirmation; it is not Operator Verified.
+  Record status text, screenshots, save/reopen result and owner mapping. Resume
+  only after a controlled-record reconciliation explicitly names the next gate
+  after P5; P3–P5 rerun and P6/P7 are not defaults.
+
+- **Campaign 1 is active (2026-09-15):** The operator superseded the former
+  Astra/design-only/P4 limit and started implementation in the existing
+  `S6-REUSABLE-CASE-SETUP` / `S6-LIVE-01..04` lane. One bounded Luna Max worker
+  may implement exact work orders; the main orchestrator owns diagnosis, runtime
+  and acceptance. The new FDI31 case preserves r7/r13 and uses the 15Sept
+  foundation, supports FDI42/41/32/33, 1.0 mm dock bores, >=2.0 mm
+  trajectory-guide/channel values, and the locked Step-4A 15Sept FDI31 markup
+  (`5.239400689721231 mm`, member SHA `61dac396...`) as its trajectory input.
+  The runner's opt-in parser/import and 1.0-mm dock default are source/unit
+  verified (29 focused tests). Revised runtime `c1-gatea-fdi31-20260915-r4`
+  then produced and reopened a new corrected FDI31 package with a PASS
+  diagnostic, the immutable 5.239400689721231-mm trajectory, and all four
+  reviewed supports. Gate A is complete for construction/save/reopen only;
+  Gates B-D, physical/clinical review and every hardware path remain NOT RUN.
+  The Slicer process returned nonzero during shutdown after emitting PASS, so
+  preserve that process-health warning separately; see Campaign 1 and today's
+  logbook for hashes and evidence boundaries.
+- **P3 corrected static revalidation (2026-09-16):** The operator's explicit
+  fourth ceiling exception evaluated only the immutable old-r4 21-vector input
+  (input SHA `8853f520...`) with drilling `validate_only` `static_state`
+  requests. The fresh raw batch
+  `c1-p3-fdi31-20260916-r4-static-revalidation-r4/endpoint_candidates.json`
+  (SHA `d5a3ef...`) retained all replies but initially marked them
+  inconclusive because native `collision_guard` serializes status vectors with
+  `std::setprecision(12)`. The repaired bounded echo check and companion
+  evidence `endpoint_candidates.corrected_static_attribution.json` (SHA
+  `ec6ad4...`) establish **21 accepted, 0 rejected, 0 unknown and 21
+  admissible**; 80 focused checks pass. Generic static rejects all 21 only as
+  diagnostic Template↔visual-spindle / target-tooth↔burr contacts. The
+  authoritative guard accepts all 21 with its configured non-rotating
+  template/spindle warning; no candidate is strictly guide/housing-clear, but
+  native self/unrelated/corridor checks pass. P3 conditionally admitted P4;
+  no fifth static batch is authorized.
+- **P4/P5 bounded diagnostic completion (2026-09-16):** Under later explicit
+  operator authority, P4 wrote `c1-p4-fdi31-20260916-r4/insertion_branches.json`
+  (SHA `3cc1759d...`) with six complete bounded insertion witnesses. P5 then
+  wrote `c1-p5-fdi31-20260916-r4/approach_branches.json` (SHA
+  `6455a52e...`), a `SAMPLED_PASS` from a fresh zero-vector monitored
+  simulation start through one P4 source-6 witness: 208 Phase-`approach`
+  Stage-1 edges, 12 Phase-`terminal_contact` Stage-2 edges and one P4 join,
+  all uniquely sequenced `validate_only` requests. The Stage-2 endpoint has
+  native FK residual `0.000429 mm / 0.000202°`; native positions and the raw
+  joint stream stayed unchanged/off, and the owned stack was torn down. The
+  existing Stage-2 Cartesian request first returned no native points and its
+  existing bounded position-axis continuity fallback supplied the complete
+  diagnostic witness; this is evidence, not a planner/configuration change.
+  P5 is not a physical fit, housing-clear, executable-motion, P6/P7,
+  withdrawal/Home, repeat, hardware, spindle or patient result. See today's
+  logbook and recovery report Sections AU–AV.
 - **Latest FDI31 override (2026-09-14):** The operator accepted the causal review
   and requested Astra architecture / Luna Max implementation orchestration.
   Read [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and its

@@ -290,6 +290,94 @@
       "pass_condition": "exit_code_zero_and_all_report_fields_true"
     },
     {
+      "id": "runtime.c1_p3_r4_endpoint",
+      "execution_kind": "slicer_ros_moveit_p3",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "static.git_diff_check",
+        "static.step6_pycompile",
+        "pure.step6_planning"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 600,
+      "evidence_level": "native_static_saved_candidate_revalidation",
+      "entrypoint": "Testing/run_c1_p3_r4_batch.bash",
+      "command_template": "Set DENTOBOT_P3_OUTPUT_DIR to a fresh r4 revalidation directory and DENTOBOT_P3_REVALIDATION_INPUT to the SHA-256-locked prior r4 endpoint_candidates.json, then execute Testing/run_c1_p3_r4_batch.bash. The driver validates both hashes, starts one dedicated simulation stack, waits for readiness, runs only read-only static_state checks of the 21 saved J1-J5 vectors, then terminates that stack process group.",
+      "pass_condition": "marker:DENTOBOT_ENDPOINT_ONLY_COMPLETE; input SHA-256 8853f5208a87368d2611fd9c0a9737fe6b73b4da43de6851f4a428adee3f734c; exactly 21 saved candidates, zero IK solves, unique increasing static request identities, one-state requested/evaluated attribution, policy/scene correlation, and no planner, workspace generation, preview, applied joint motion or hardware path"
+    },
+    {
+      "id": "build.c1_p4_guard",
+      "execution_kind": "container_colcon",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "static.git_diff_check",
+        "static.step6_pycompile",
+        "pure.step6_planning"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "native_guard_build",
+      "entrypoint": "dentobot_moveit_config",
+      "command_template": "Source /opt/ros/jazzy/setup.bash, run colcon build --base-paths src/DentoBot/dentobot_moveit_config --packages-select dentobot_moveit_config --symlink-install from /workspace/ros2_ws, then record the source and installed collision_guard SHA-256 values used by P4.",
+      "pass_condition": "exit_code_zero; only dentobot_moveit_config is rebuilt; installed collision_guard hash is available for the P4 launcher"
+    },
+    {
+      "id": "runtime.c1_p4_r4_insertion",
+      "execution_kind": "slicer_ros_moveit_p4",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "build.c1_p4_guard"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 2700,
+      "evidence_level": "native_sampled_insertion_saved_case",
+      "entrypoint": "Testing/run_c1_p3_r4_batch.bash",
+      "command_template": "Set DENTOBOT_P4_OUTPUT_DIR to a fresh r4 P4 directory and DENTOBOT_P4_INSERTION_INPUT to corrected_static_attribution.json with SHA-256 ec6ad4febcf202de3469303f53ceb4d8056f14d2d6e03272a467ba5938fce362, then execute Testing/run_c1_p3_r4_batch.bash. The shared driver verifies locked r4/P3 evidence hashes, starts one owned simulation stack, runs no more than eight neighbor-seeded Target-to-Entry continuations with a 1024 global native-IK cap, validates only Entry-to-Target validate-only drilling edges, captures labelled scene-only screenshots, and tears down its process group.",
+      "pass_condition": "marker:DENTOBOT_P4_INSERTION_COMPLETE; insertion_branches.json retains P3 provenance, runtime source/binary hashes, all requested/evaluated joint state and native response evidence, at most eight candidates/1024 IK solves/0.25 mm axial sampling/three midpoint levels, correlated scene-policy identity, no planner/workspace/preview/applied joint motion/hardware path, and nonblank labelled scene-only screenshots"
+    },
+    {
+      "id": "runtime.c1_p5_r4_approach",
+      "execution_kind": "slicer_ros_moveit_p5",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "runtime.c1_p4_r4_insertion"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "native_bounded_approach_saved_case",
+      "entrypoint": "Testing/run_c1_p3_r4_batch.bash",
+      "command_template": "Set DENTOBOT_P5_OUTPUT_DIR to a fresh r4 P5 directory and DENTOBOT_P5_APPROACH_INPUT to the locked P4 insertion_branches.json with SHA-256 3cc1759d1dc5042748d729d5e2a1ae784a94a60d33cb7c8350695b321492bc72, then execute Testing/run_c1_p3_r4_batch.bash. The shared driver verifies locked r4/P4 hashes and native build identity, starts one owned simulation stack, reads one fresh monitored /joint_states vector, evaluates one saved P4 witness, makes one current-RRTConnect Stage-1 request (5 s), constructs the existing fixed-axis Stage 2 line, validates every actual Stage-1/Stage-2/join edge with validate-only native guard requests, records actual endpoint FK, and tears down its process group.",
+      "pass_condition": "marker:DENTOBOT_P5_APPROACH_COMPLETE; approach_branches.json result:SAMPLED_PASS; exact P4 SHA/build/task/scene/policy attribution, one monitored start, one P4 witness, one 5-second Stage-1 request, complete FK-attributed Stage-2 endpoint, monotonically increasing request sequences, complete validate-only edge evidence, raw joint stream inactive and native positions unchanged; no Task Home/workspace/preview/applied motion/controller/hardware/spindle/patient/P6/P7 path"
+    },
+    {
       "id": "runtime.step65_exact_case",
       "execution_kind": "slicer_ros_moveit",
       "parallel_safe": false,

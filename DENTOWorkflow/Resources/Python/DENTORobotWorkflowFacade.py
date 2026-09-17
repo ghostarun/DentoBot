@@ -3071,7 +3071,14 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "motion_diagnostic_review_failed", str(exc))
 
-    def _configure_phase_guard(self, parameter_node, snapshot) -> tuple[bool, str]:
+    def _configure_phase_guard(
+        self,
+        parameter_node,
+        snapshot,
+        *,
+        static_only: bool = False,
+        preflight_start_positions_si: Optional[Mapping[str, float]] = None,
+    ) -> tuple[bool, str]:
         """Start one fresh transient guard session for the synchronized scene."""
 
         if (
@@ -3086,7 +3093,10 @@ class DENTORobotWorkflowFacade:
         if not target_object_id:
             return False, "The selected target-tooth collision object is unavailable."
         guidance_object_ids = self._logic.step6GuidanceCollisionObjectIds(
-            parameter_node
+            parameter_node,
+            allow_deferred_static_ack=(
+                bool(static_only) or preflight_start_positions_si is not None
+            ),
         )
         if not guidance_object_ids and not self._template_collision_exclusion_active:
             return False, (
@@ -3114,6 +3124,9 @@ class DENTORobotWorkflowFacade:
             # applies the narrower simulation-only margin only to burr-guide
             # distance pairs; actual collisions remain authoritative.
             simulation_guide_clearance_object_ids=guidance_object_ids,
+            collision_scene_policy_fingerprint=self._strict_guard_policy_fingerprint(),
+            static_only=bool(static_only),
+            preflight_start_positions_si=preflight_start_positions_si,
         )
 
     def _prepare_phase_guard(self, parameter_node, snapshot) -> tuple[bool, str]:
@@ -3811,8 +3824,18 @@ class DENTORobotWorkflowFacade:
         entry: Sequence[float],
         target: Sequence[float],
         home_positions: Mapping[str, float],
+        *,
+        include_workspace_seeds: bool = True,
+        avoid_collisions: bool = True,
+        require_generic_static: bool = True,
+        fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
     ) -> tuple[list[dict[str, object]], list[str]]:
-        """Return collision-aware PreEntry endpoints for the five-DOF drill task."""
+        """Return bounded PreEntry endpoints for the five-DOF drill task.
+
+        Routine Goal 1 retains its collision-aware direct-plus-workspace search.
+        A read-only diagnostic may instead retain one supplied seed and defer
+        every contact decision to the authoritative phase guard.
+        """
 
         candidates: list[dict[str, object]] = []
         failures: list[str] = []
@@ -3824,32 +3847,33 @@ class DENTORobotWorkflowFacade:
         seeds: list[tuple[str, Mapping[str, float], Optional[int]]] = [
             ("direct", home_positions, None)
         ]
-        try:
-            proposal = json.loads(
-                str(parameter_node.step6AssistedLimitProposalJson or "")
-            )
-        except (TypeError, json.JSONDecodeError):
-            proposal = {}
-        for evidence in proposal.get("accepted_sample_evidence", ()):
-            if len(seeds) >= GOAL1_MAX_IK_SEEDS:
-                break
-            if not isinstance(evidence, dict):
-                continue
-            names = tuple(evidence.get("joint_names", ()))
-            values = tuple(evidence.get("joint_positions_si", ()))
-            connectivity = evidence.get("home_connectivity", {})
-            if names != JOINT_NAMES or len(values) != len(JOINT_NAMES) or (
-                not isinstance(connectivity, dict)
-                or connectivity.get("status") != "HomeConnected"
-            ):
-                continue
-            seeds.append(
-                (
-                    "seeded",
-                    canonicalize_planning_joint_positions(dict(zip(names, values))),
-                    int(evidence.get("sample_index", len(seeds))),
+        if include_workspace_seeds:
+            try:
+                proposal = json.loads(
+                    str(parameter_node.step6AssistedLimitProposalJson or "")
                 )
-            )
+            except (TypeError, json.JSONDecodeError):
+                proposal = {}
+            for evidence in proposal.get("accepted_sample_evidence", ()):
+                if len(seeds) >= GOAL1_MAX_IK_SEEDS:
+                    break
+                if not isinstance(evidence, dict):
+                    continue
+                names = tuple(evidence.get("joint_names", ()))
+                values = tuple(evidence.get("joint_positions_si", ()))
+                connectivity = evidence.get("home_connectivity", {})
+                if names != JOINT_NAMES or len(values) != len(JOINT_NAMES) or (
+                    not isinstance(connectivity, dict)
+                    or connectivity.get("status") != "HomeConnected"
+                ):
+                    continue
+                seeds.append(
+                    (
+                        "seeded",
+                        canonicalize_planning_joint_positions(dict(zip(names, values))),
+                        int(evidence.get("sample_index", len(seeds))),
+                    )
+                )
         seen_solutions: set[tuple[float, ...]] = set()
         for route_type, seed_positions, seed_sample_index in seeds:
             axial_roll_deg = LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG
@@ -3859,6 +3883,7 @@ class DENTORobotWorkflowFacade:
                 2,
                 axial_roll_start_deg=axial_roll_deg,
                 axial_roll_end_deg=axial_roll_deg,
+                fixed_rotation_ras=fixed_rotation_ras,
             )[0]
             for index, value in enumerate(pre_entry):
                 pose.SetElement(index, 3, float(value))
@@ -3872,7 +3897,8 @@ class DENTORobotWorkflowFacade:
                 _default_bridge.solve_moveit_tcp_position_axis_goal,
             )
             ok, message, positions, ik_diagnostic = solve_position_axis(
-                seed_joint_positions_si=seed_positions
+                seed_joint_positions_si=seed_positions,
+                avoid_collisions=bool(avoid_collisions),
             )
             if not ok:
                 residual = ""
@@ -3884,21 +3910,22 @@ class DENTORobotWorkflowFacade:
                     )
                 failures.append(f"canonical TCP position-axis IK: {message}{residual}")
                 continue
-            valid, validity_message, authoritative = (
-                self._bridge.check_moveit_static_joint_state(positions)
-            )
-            if not authoritative:
-                failures.append(
-                    "canonical TCP IK state could not be audited: "
-                    + validity_message
+            if require_generic_static:
+                valid, validity_message, authoritative = (
+                    self._bridge.check_moveit_static_joint_state(positions)
                 )
-                continue
-            if not valid:
-                failures.append(
-                    "canonical TCP IK state is invalid: "
-                    + validity_message
-                )
-                continue
+                if not authoritative:
+                    failures.append(
+                        "canonical TCP IK state could not be audited: "
+                        + validity_message
+                    )
+                    continue
+                if not valid:
+                    failures.append(
+                        "canonical TCP IK state is invalid: "
+                        + validity_message
+                    )
+                    continue
             fk_ok, fk_message, authoritative_pose = (
                 self._bridge.compute_tcp_pose_world_ras_mm(
                     positions,

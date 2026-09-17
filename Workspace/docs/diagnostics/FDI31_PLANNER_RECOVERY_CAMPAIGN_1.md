@@ -1,5 +1,136 @@
 # FDI31 planner recovery — Campaign 1 architecture and Luna handoff
 
+## 2026-09-16 P3 fourth static revalidation — corrected endpoint verdict
+
+The operator expressly authorized one fourth fresh r4-only P3 static batch
+after the repaired deferred-audit guide-ID path. It consumed only the immutable
+21 saved J1–J5 vectors from old input SHA-256
+`8853f5208a87368d2611fd9c0a9737fe6b73b4da43de6851f4a428adee3f734c`; it did
+not run new IK, planning, workspace generation, preview, motion, hardware,
+policy change or P4. The locked Gate-A r4 SHA-256 remained
+`6235772e2d14d74b5417d42ed8a5e0cc160df82c77efd3014f589dd264113d83`.
+
+The fresh raw static artifact (SHA-256
+`d5a3ef8857b518a293d1ed7c8a9c750d0bfe0922110150242c4a4107729acd4f`) retained
+all 21 accepted native replies but was falsely classified inconclusive because
+`collision_guard` emits status doubles with `std::setprecision(12)`. The
+repaired bounded echo attribution and companion artifact (SHA-256
+`ec6ad4febcf202de3469303f53ceb4d8056f14d2d6e03272a467ba5938fce362`) preserve
+the raw requests/responses/FK/generic diagnostics and establish **21
+phase-static accepted, 0 rejected, 0 unknown and 21 admissible**. Each request
+has a unique ID and sequence 1–21; every reply proves one requested/starting/
+evaluated state with a matching 31-object scene, task, policy and guard session.
+
+All generic-static checks still reject only as diagnostic
+Template↔visual-spindle / target-tooth↔burr contact evidence. The authoritative
+guard accepts every candidate with its configured non-rotating
+template/spindle warning (`0.326643468686`–`0.406108573858 mm`, below
+`0.500000 mm`); the native result reports self, unrelated-world and corridor
+checks passed. This is not literal guide/housing clearance. No candidate was
+applied or displayed, so no screenshot is claimed. Focused checks pass 80 tests
+and the owned runtime is cleanly gone.
+
+**Campaign consequence:** P3 endpoint evidence is **PASS** and conditionally
+qualifies P4 as the next feasibility question: whether a permitted static
+Target yields a valid bounded insertion path. P4 remains NOT RUN and requires
+separate authorization. A fifth P3 batch, all motion/hardware work and all
+frozen-invariant changes remain unauthorized. Detailed evidence is in recovery
+report Section AU and the 2026-09-16 logbook.
+
+## 2026-09-16 P4/P5 explicit-operator supersession and bounded result
+
+The operator subsequently authorized the scoped P4 diagnostic, P4 evidence
+visuals, and the work necessary to reach P5. That current decision supersedes
+only this document's historical stop-after-P4/architecture-review instruction:
+it permits the one r4-only P5 approach diagnostic below, not P6, P7, a full
+cycle, withdrawal/Home, repeat, geometry/policy/configuration change, hardware,
+powered spindle or patient action.
+
+P4 wrote `c1-p4-fdi31-20260916-r4/insertion_branches.json`, SHA-256
+`3cc1759d1dc5042748d729d5e2a1ae784a94a60d33cb7c8350695b321492bc72`, with six
+complete diagnostic insertion witnesses. P5 wrote
+`c1-p5-fdi31-20260916-r4/approach_branches.json`, SHA-256
+`6455a52eb170ca304f33bf1b4e76bcb583bc552cc5991971fa3e9593546b7f9b`.
+It is a `SAMPLED_PASS` from a fresh monitored zero-vector simulation state via
+one saved P4 source-6 Entry witness: one 5-second RRTConnect Stage-1 request,
+208 accepted Phase-`approach` edges, a complete fixed-axis Stage 2 with 12
+accepted Phase-`terminal_contact` edges, and one accepted P4 Entry join. The
+222 requests are distinct/increasing and `validate_only`; native positions and
+the raw stream remained unchanged/off. Stage 2's actual FK residual is
+`0.0004285879962906579 mm / 0.0002018339679783406°`. Its existing Cartesian
+interpolator returned no points, while its existing bounded position-axis
+continuity fallback completed the diagnostic line; this does not alter OMPL,
+the guard policy or any frozen invariant. P5 is not physical guide-fit or
+housing-clear evidence. The authoritative report is Section AV.
+
+## 2026-09-16 P3 diagnostic-correctness correction — current supersession
+
+The old r4 P3 artifact remains immutable Campaign-1 input, but its completed
+bounded-negative result is superseded as a phase-static verdict: it evaluated a
+Home-to-endpoint transition and allowed generic static collision diagnostics to
+be an independent veto. The repaired r4-only runner reuses exactly its 21 saved
+vectors and issues only correlated drilling `static_state` requests; generic
+contacts remain evidence, and authoritative phase-aware static validation alone
+can admit a candidate after unchanged residual/bounds checks.
+
+Corrective runtime attempts r1–r3 all stopped before a candidate request or new
+evidence JSON. r1 exposed an ordinary raw state/readback acknowledgement route;
+r2 exposed absent offline Task Home; r3 exposed a deferred-audit guide-ID lookup.
+The narrow r3 repair is source-verified (79 focused tests), but the required
+three-attempt causal ceiling is reached. The corrected P3 endpoint status is
+**INCONCLUSIVE; accepted/rejected/unknown counts are not measured**. Do not run
+P4 or a fourth revalidation batch without a fresh explicit ceiling exception.
+
+## 2026-09-16 P3 terminal execution record
+
+The authorized repaired r4-only endpoint batch
+`c1-p3-fdi31-20260916-r4-r4` completed the P3 contract: exactly 128
+premanifested J1–J5 seeds, 21 native position-axis IK convergences, six unique
+solution clusters and zero generic-static/phase-static admissible Target
+states. Its fresh `endpoint_candidates.json` SHA-256 is
+`8853f5208a87368d2611fd9c0a9737fe6b73b4da43de6851f4a428adee3f734c`; the
+result is **NO VALID TARGET SOLUTION FOUND IN BOUNDED SEARCH**. All converged
+candidates were rejected by the existing phase guard because the provisional
+tip left the approved Entry-to-Target corridor. The generic static records also
+retain Template↔visual-spindle and target-tooth↔burr contacts.
+
+No planning request, preview, joint command, controller/hardware motion,
+spindle/patient action or historical-data input occurred; the owned temporary
+stack left no matching process. This is a bounded-search discriminator, not a
+claim of global, physical or clinical infeasibility. In accordance with P3,
+Campaign 1 stops here: P4 is NOT RUN, no more seeds/solver tuning or
+geometry/policy alteration is authorized, and the next action is the required
+architectural review for any later campaign.
+
+## 2026-09-15 revised active-execution supersession
+
+The operator has superseded this document's former design-only/Astra wording
+and authorized Campaign 1 implementation under the existing
+`S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04` owners. The main orchestrator
+owns diagnosis, gate decisions, runtime resources, evidence review and
+controlled records; one `gpt-5.6-luna` worker at `max` may implement only a
+fully specified, bounded work order. The worker neither changes a hypothesis,
+geometry/policy invariant, acceptance decision nor delegates recursively.
+
+The active outcome is a **new corrected FDI31 case**, never a retroactive
+claim about r7/r13. It uses the 15 September opening/landmark/robot-base
+foundation, the operator-specified latest saved FDI31 trajectory (approximately
+5.2394 mm), and supports FDI42/FDI41/FDI32/FDI33. The 1.0 mm robot-dock bores
+and the distinct >=2.0 mm trajectory-guide/channel floor remain fixed. P0 must
+bind the rounded trajectory statement to an exact saved artifact, IDs and
+coordinates before construction; it must not invent or regenerate a trajectory
+to fill a missing identity.
+
+Gates now continue, after their stated acceptance, from A (corrected production
+case and scene) through B (bounded endpoint/insertion feasibility), C (approach
+and production-path reconciliation), and D (guarded insertion, withdrawal,
+Task Home and fresh-process reproduction). Hardware/controller connection,
+physical motion, powered spindle, patient action, collision-policy relaxation
+and changes to frozen anatomy, base, TCP, limits, depth or tool geometry remain
+forbidden. The three-failure causal ceiling and serialized Slicer/ROS/MoveIt
+runtime lane remain in force. Historical sections below retain their evidence
+but are superseded where they limit Campaign 1 to design-only or P4.
+
 Issued 2026-09-14. **DESIGN ONLY; no execution authorized by this document.**
 Owner: existing `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01..04`; upstream
 dependencies remain `W5-U-04`, `S3-P0-DENTAL-SEMANTICS`,
@@ -56,6 +187,58 @@ structure, joint limits, TCP definition and base/opening matrices; RAS/mm and
 base_link/metre conventions; active collision/clearance/phase authorization;
 J1–J5 planning and J6 excluded/zero compatibility state. Preserve the independent
 final guard and all existing staleness/identity checks.
+
+### Gate-A execution result — 2026-09-15
+
+Run `c1-gatea-fdi31-20260915-r1` is the single explicitly authorized offline
+Slicer construction/reopen attempt for this revision. Its preflight passed: the
+isolated `dentobot-slicerros2` container had no active Slicer/ROS/MoveIt owner,
+the new output directories did not exist, and the source package and exact MRB
+matched their locked hashes. The runner loaded the 15-September source but
+stopped at the existing `getTrajectorySummary(trajectory)["isValid"]` assertion
+after constructing the saved-trajectory line. It emitted
+`STAGE6_TARGET_FAIL FDI31 {"error": "FDI31 trajectory is invalid"}` and
+`STAGE6_TARGET_GENERATION_COMPLETE {"passed": 0, ...}`.
+
+This is **Gate A: FAIL / shared construction blocker**, not evidence about
+endpoint, insertion, approach, guard, withdrawal, Home, planner feasibility or
+hardware. No case, STL or reopen PASS was created; no such downstream path ran.
+The retained evidence is the runtime log SHA-256
+`ea00448978da1b09b2c47577fd9f4bb77c1bb86d5325173d3f7d0be81f738270`, FAIL
+diagnostic SHA-256
+`d505726dd6647906190baa06d8a7c861d90dae36436c41cf6f1e38a1f43f2295`, and the
+failure UI/viewport screenshots in the versioned run directory. Preserve this
+first failure and do not retry Gate A or enter Gates B–D. The next action is a
+minimal source-level diagnosis of the trajectory-state mismatch plus a focused
+regression check, followed by a separately approved runtime attempt if needed.
+
+### Revised Gate-A r4 completion — 2026-09-15
+
+The operator approved the exception plan after r1-r3: map the immutable
+closed-scene FDI31 points through the already frozen lower-jaw Case Foundation
+matrix exactly once, assert the two accepted points and their bounds before
+template construction, and rerun the same isolated construction/save/reopen
+scope only. Run `c1-gatea-fdi31-20260915-r4` passed its container/process/hash
+and fresh-output preflight. It emitted `STAGE6_TARGET_PASS FDI31` and
+`STAGE6_TARGET_GENERATION_COMPLETE {"passed": 1, ...}`, then wrote and reopened
+`FDI31-step5c.dentocase` (SHA-256
+`6235772e2d14d74b5417d42ed8a5e0cc160df82c77efd3014f589dd264113d83`). Its PASS
+diagnostic (SHA-256
+`5cda22b0eb98f71e9d3b04ab78c38f9e07c70da29fcb411952e5ed22b9d95f7b`) records
+the unchanged 5.239400689721231-mm saved path, two bounded planning-frame
+points, FDI42/41/32/33 support selection, a current/verified reopened branch,
+and an STL SHA-256 `5e0b3c3ff4e6491daa591108ab94fc646f61b35a0fdf01051bffa6fa69fd085e`.
+Post-reopen UI and viewport captures are retained in the versioned run
+directory.
+
+The outer Slicer command returned exit 1 during shutdown after producing those
+PASS artifacts, with nonfatal ROS2Tests package-install and VTK leak warnings.
+This is a process-health warning, not a functional construction/reopen failure.
+Therefore **Gate A is PASS for corrected-case construction/save/reopen only**.
+It is not evidence about endpoint, insertion, approach, final guard,
+withdrawal/Home, fresh-process full-cycle reproduction, physical/clinical fit,
+robot motion or hardware. Gates B-D and every other tooth remain NOT RUN and
+need separate authorization and acceptance.
 
 Correctly applying an already frozen transform once, fixing a serializer that
 misreads an existing field, or removing a proven duplicate transient publication
