@@ -1,0 +1,14 @@
+[Unit]
+Description=DentoBot Drive upload watch (IITM Dentobot/Data, .dentocase only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/light-tarun/dentobot/ros2_ws/src/DentoBot/Workspace/scripts/gdrive-data-sync.bash watch
+Restart=on-failure
+RestartSec=30
+Environment=ENV_FILE=/home/light-tarun/dentobot/data/drive-sync/gdrive-sync.env
+
+[Install]
+WantedBy=default.target

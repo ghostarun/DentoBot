@@ -352,9 +352,29 @@ Use the same source/data boundary on every workstation:
 
 The existing `IITM Dentobot/active-development-ubuntu` Drive folder remains
 the controlled-document mirror. The operator-approved saved-case location is
-`IITM Dentobot/Data`; preserve the local `SampleStudy1/FDI*` layout there. No
-automatic watcher, whole-folder mirror, or new sync service is part of the
-baseline. This boundary is tracked as `PLAT-U-07`.
+`IITM Dentobot/Data`; preserve the local `SampleStudy1/FDI*` layout there.
+This boundary is tracked as `PLAT-U-07`.
+
+### Optional: watched upload to `IITM Dentobot/Data` (2026-09-17)
+
+Operator-approved **upload-only** sync for individual `*.dentocase` bundles
+(not the whole `data/Slicer_Saved/` tree):
+
+1. Install once: `sudo apt install rclone inotify-tools`
+2. Run `Workspace/scripts/install-gdrive-data-sync.bash`
+3. Complete one-time Drive auth: `rclone config` → remote `dentobot_gdrive`
+4. Stage files under `data/drive-sync/Data/` with the same `SampleStudy1/FDI*`
+   layout as Drive; only synthetic or explicitly approved de-identified bundles.
+5. Enable the user service:
+   `systemctl --user enable --now gdrive-data-sync.service`
+6. Manual upload: `Workspace/scripts/gdrive-data-sync.bash once`
+
+Logs: `data/drive-sync/gdrive-sync.log`. Uses `rclone copy` (upload new/changed
+`*.dentocase` and `data/Slicer_Saved/DRIVE_SYNC_INSTRUCTIONS.md`; does **not**
+delete Drive files you remove from staging). Operator guide:
+`data/Slicer_Saved/DRIVE_SYNC_INSTRUCTIONS.md`.
+Large bundles (>100 MiB) require rclone (the Cursor Drive connector limit does
+not apply). Drive edits are not pulled back to the workstation.
 
 Run Git from the checkout or through the top-level helper:
 
