@@ -96,6 +96,12 @@ class LifecycleWidgetMixin:
         self._caseBundleRobotProfileCompatible = None
         self._caseBundleRobotProfileMigrationMessage = ""
         self._workflowNavigationInitializedFromScene = False
+        self._comparisonState = None
+        self._scanSliceStates = {}
+        self._step3SubstepIndex = 0
+        self._step6SubstepIndex = 0
+        self._caseFoundationSnapshot = None
+        self._applyingSessionFoundation = False
         self._resumeTrajectoryVerificationAfterSave = False
         self._trajectoryVerificationResumeStateAfterSave = None
         self._resumeTemplateSupportBoundaryFocusAfterSave = False
@@ -165,6 +171,52 @@ class LifecycleWidgetMixin:
             return
         if is_entered and self._parameterNode is None:
             self.initializeParameterNode()
+        if getattr(self, "_pendingFreshCaseReset", False):
+            self._resetWorkflowStateForFreshCase()
+
+    def _resetWorkflowStateForFreshCase(self) -> None:
+        """Wipe transient workflow UI state and open a clean Step 0 case."""
+
+        if not getattr(self, "_pendingFreshCaseReset", False) or not hasattr(self, "ui"):
+            return
+        self._pendingFreshCaseReset = False
+        self._caseFoundationSnapshot = None
+        self._applyingSessionFoundation = False
+        self._comparisonState = None
+        self._scanSliceStates = {}
+        self._workflowViewPriorState = None
+        self._workflowViewActivePresetKey = ""
+        self._workflowViewVisibleKeys.clear()
+        self._workflowViewComposition = None
+        self._workflowViewEntriesByKey.clear()
+        self._step3SubstepIndex = 0
+        self._step6SubstepIndex = 0
+        self._step6MotionPlan = None
+        self._step6ExpertDiagnosticHandoffActive = False
+        self._offlinePlacementAttachedToStep3B = False
+        self._restoreTrajectoryVerificationViewState(updateUi=False)
+        self._restoreCrossViewNavigation(updateUi=False)
+        self._restoreAssistedTrajectoryFocus(updateUi=False)
+        self._restoreTemplateFinalizationViewState(updateUi=False)
+        self._restoreTemplateSupportBoundaryFocus(updateUi=False)
+        if self._robotSimulationPanel:
+            self._robotSimulationPanel.setPlacementSurfaceActive(False)
+            self._robotSimulationPanel.resetPreviewProgress()
+        if self._robotWorkflowFacade:
+            self._robotWorkflowFacade.clearTransientState()
+        self._syncOfflinePlacementHost()
+        self._workflowNavigationInitializedFromScene = True
+        self._setWorkflowStage(0, ensureVisible=True)
+        if self._step3SubstepNavigator is not None:
+            self._configureStep3Substep(0)
+        if self._step6SubstepNavigator is not None:
+            self._configureRobotSimulationShellSubstep(0)
+        self._updateWorkflowNavigationRecommendation()
+        if self._applicationShell and self._applicationShell.active:
+            self._applicationShell.syncStage(
+                0,
+                self._recommendedWorkflowStageIndex(),
+            )
 
     def onSceneEndImport(self, caller=None, event=None) -> None:
         """Rebind the persisted workflow node after every MRML scene import."""

@@ -129,13 +129,21 @@ class ViewCompositionWidgetMixin:
         if not self._parameterNode or not self.logic:
             return composition
         if stageIndex == 3:
+            if self._isStep3BActive():
+                return ViewComposition(
+                    anatomy_scope="none",
+                    anatomy_dimension="3d",
+                    cbct_mode="slices",
+                    overlay_groups=frozenset({"jaw_opening", "robot"}),
+                    anatomy_opacity=1.0,
+                )
             if (
                 self._step6SceneKind() == "case"
                 and not self.logic.step6CaseJawOpeningFreshnessIssues(
                     self._parameterNode
                 )
             ):
-                # Once committed, Step 3 shows the complete rigid planning
+                # Once committed, Step 3A shows the complete rigid planning
                 # proxy: fixed upper anatomy plus the colored moving lower
                 # anatomy under the jaw transform.  The immutable source
                 # segmentation stays hidden so closed-pose internals cannot
@@ -330,6 +338,23 @@ class ViewCompositionWidgetMixin:
                     visibleKeys.discard(entry["key"])
                 if not rosActive and category in {"robot_ros", "robot_goal"}:
                     visibleKeys.discard(entry["key"])
+        if (
+            self._parameterNode
+            and self.logic
+            and self._isOfflinePlacementSurfaceActive()
+        ):
+            from dentobot_workflow.offline_placement_status import (
+                EXPECTED_ROBOT_LINK_COUNT,
+            )
+
+            if len(self.logic.robotModelNodes()) >= EXPECTED_ROBOT_LINK_COUNT:
+                for entry in entries:
+                    if entry["category"] in {
+                        "robot_mrml",
+                        "robot_mount",
+                        "forehead_proxy",
+                    }:
+                        visibleKeys.add(entry["key"])
         return visibleKeys
 
     def _setWorkflowCbctSlices(self, enabled: bool) -> None:

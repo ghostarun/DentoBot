@@ -133,6 +133,63 @@ def test_step6_legacy_and_shell_use_the_same_seven_substep_cards():
     assert "workspace_for_stage(10).substep_titles" in workflow
     assert "self._configureRobotSimulationShellSubstep(substep_index)" in workflow
     assert "def _restoreLegacyRobotSimulationGroups" in workflow
+    assert "def _syncOfflinePlacementHost" in workflow
+
+
+def test_step3b_shares_one_offline_placement_surface_with_step61() -> None:
+    navigation = (
+        HELPERS / "dentobot_workflow/widget_navigation.py"
+    ).read_text(encoding="utf-8")
+    panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    placement = (
+        HELPERS / "dentobot_workflow/widget_robot_placement.py"
+    ).read_text(encoding="utf-8")
+    scene = (
+        HELPERS / "dentobot_workflow/widget_robot_scene.py"
+    ).read_text(encoding="utf-8")
+    assert "DENTOBOTStep3SubstepNavigator" in navigation
+    assert "DENTOBOTStep3AContentWidget" not in navigation
+    assert "_setStep3AOriginalWidgetsVisible" in navigation
+    assert "3B — Offline Robot Placement" in navigation
+    assert "Confirm and continue to Step 3B" in scene
+    assert "onStep3BGoToStep4" in scene
+    assert "PLACEMENT_SURFACE_ACTIONS" in panel
+    assert "setPlacementSurfaceActive" in panel
+    assert "PASS — Step 3B virtual-forehead auto-placement" in placement
+    assert "_isOfflinePlacementSurfaceActive" in placement
+
+
+def test_workflow_scroll_area_installs_combo_popup_wheel_guards() -> None:
+    application = (
+        HELPERS / "dentobot_workflow/widget_application.py"
+    ).read_text(encoding="utf-8")
+    scroll_support = (
+        HELPERS / "dentobot_workflow/ui_scroll_support.py"
+    ).read_text(encoding="utf-8")
+    assert "installScrollAreaComboBoxWheelGuards(scrollArea)" in application
+    assert "def installScrollAreaComboBoxWheelGuards" in scroll_support
+    assert "setWindowFlags" not in scroll_support
+    assert "showPopup" not in scroll_support
+    assert "maxVisibleItems" in scroll_support
+
+
+def test_new_empty_case_resets_entire_workflow_to_step_zero() -> None:
+    lifecycle = (
+        HELPERS / "dentobot_workflow/widget_lifecycle.py"
+    ).read_text(encoding="utf-8")
+    navigation = (
+        HELPERS / "dentobot_workflow/widget_navigation.py"
+    ).read_text(encoding="utf-8")
+    case_backend = (
+        HELPERS / "dentobot_workflow/widget_case_backend.py"
+    ).read_text(encoding="utf-8")
+    assert "_resetWorkflowStateForFreshCase" in lifecycle
+    assert "_captureCaseFoundationSessionSnapshot" not in case_backend.split(
+        "def onNewCase", 1
+    )[1].split("def ", 1)[0]
+    assert "self._pendingFreshCaseReset = True" in case_backend
+    assert "_pendingFreshCaseReset" in navigation
+    assert "_setWorkflowStage(0" in lifecycle
 
 
 def test_saved_case_navigation_keeps_every_workspace_selectable():

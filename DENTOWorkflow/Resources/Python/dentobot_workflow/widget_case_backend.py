@@ -606,7 +606,7 @@ class CaseBackendWidgetMixin:
         if not confirmed:
             return
 
-        self._captureCaseFoundationSessionSnapshot()
+        self._pendingFreshCaseReset = True
         slicer.mrmlScene.Clear(0)
         self._loadedCaseBundlePath = ""
         self._caseBundleRobotProfileCompatible = None

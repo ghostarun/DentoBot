@@ -804,6 +804,20 @@ class ViewCatalogWidgetMixin:
 
     def _workflowViewRecommendedCategories(self, stageIndex: int) -> set[str]:
         categories = recommended_view_categories(stageIndex)
+        if stageIndex == 3:
+            if self._isStep3BActive():
+                ros_active = self.logic.isRos2MotionControlActive(
+                    self._parameterNode.robotBaseTransform
+                )
+                robot_category = {"robot_ros"} if ros_active else {"robot_mrml"}
+                return {
+                    "case_volume",
+                    "case_jaw_opening",
+                    "robot_mount",
+                    "forehead_proxy",
+                    *robot_category,
+                }
+            return categories
         if stageIndex == 7:
             if not self._parameterNode.visibleTemplateSupportModel:
                 categories.add("draft_support")

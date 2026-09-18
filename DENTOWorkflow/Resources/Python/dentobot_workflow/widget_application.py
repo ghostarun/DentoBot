@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .ui_scroll_support import installScrollAreaComboBoxWheelGuards
 
 
 class ApplicationWidgetMixin:
@@ -657,6 +658,7 @@ class ApplicationWidgetMixin:
             qt.QSizePolicy.Expanding,
         )
         scrollArea.setWidget(contentWidget)
+        installScrollAreaComboBoxWheelGuards(scrollArea)
         rootLayout.addWidget(scrollArea, 1)
         uiWidget.setMinimumHeight(0)
         uiWidget.setSizePolicy(

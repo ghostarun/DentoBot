@@ -131,11 +131,15 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         if not hasattr(self, "ui"):
             return
         stage_entries = self._workflowStageEntries()
-        if (
-            not stage_entries
-            or int(self.ui.workflowStageComboBox.currentIndex)
-            != len(stage_entries) - 1
-        ):
+        last_stage = bool(
+            stage_entries
+            and int(self.ui.workflowStageComboBox.currentIndex)
+            == len(stage_entries) - 1
+        )
+        if self._isStep3BActive():
+            self._applyStep3BRecommendedView()
+            return
+        if not last_stage:
             return
         if self._step6SceneKind() == "case":
             self._showStep6CaseVolumeInSliceViewers()
@@ -406,9 +410,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
             panel.enableCbctRenderingButton.enabled = imported and scene_prepared
             panel.createProxyButton.enabled = bool(
-                scene_prepared and not ros2_active
-            )
-            panel.copyForeheadSeatingButton.enabled = bool(
                 scene_prepared and not ros2_active
             )
             panel.saveTaskHomeButton.enabled = bool(
@@ -754,6 +755,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         result = self._robotWorkflowFacade.lockBase()
         if result.success:
             self._captureCaseFoundationSessionSnapshot()
+            if self._isStep3BActive():
+                self._updateRobotPlacement()
+                self._applyStep3BRecommendedView()
+                self._ensureOfflinePlacementSceneVisible()
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)

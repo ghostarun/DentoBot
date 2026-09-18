@@ -1,7 +1,8 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-15. Case Foundation AUTO-primary GUI completion
-recorded 2026-09-18 (not a backlog ID; not a second pending queue).
+Last reconciled: 2026-09-19. Case Foundation AUTO-primary GUI completion
+recorded 2026-09-18; Step 3B placement mirror source-complete 2026-09-19
+(not a second pending queue beyond `S3B-ROBOT-PLACEMENT-MIRROR`).
 
 ## Record ownership
 
@@ -1362,6 +1363,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | ID | State | Next bounded action |
 |---|---|---|
 | `S3-U-01` | Scan/run inspection workflow implemented; focused Slicer PASS | Operator reload and visual check on the real preDental/postDental scene; confirm Step 0–3 context bar, source-paired switching, compare, rename, and Step 4 handoff |
+| `S3B-ROBOT-PLACEMENT-MIRROR` | Source-complete 2026-09-19. Nested Step 3A/3B navigator on the existing combo row. 3B reparents `visualizationGroup` + `step6MountLockGroupBox` (ROS hidden). Same `robotBaseTransform` / forehead proxy as 6.1. Mirror banner: PASS (`VirtualForeheadPriorV1` + matching fingerprint + 7 links), manual, or missing. Placement panel actions allowed when the 3B surface is active without selecting Step 6.1. Same-day fixes: 3A layout orphaning, robot visibility after propose/lock, full New Empty Case reset (`_resetWorkflowStateForFreshCase`), Step 4A combo scroll (`ui_scroll_support` v2 after v1 regression). Evidence: `logbook/2026-09-19.md`; focused pytest 26 passed. | Operator: Reload Module → 3A AUTO → Confirm to 3B → Propose virtual forehead + base → one robot stays visible through lock → Continue to 4A → Step 4A target tooth scrollable → later 6.1 PASS/green, forehead visible, manual nudge; Connect ROS remains 6.1B. Does not close `S6-U-02`. No second robot allocation. |
 | `S6-U-04` | Fix implemented; normal-window acceptance pending. Goal 1 diagnostics **Close** did not dismiss the window before or after evidence review, forcing use of the title-bar X | Run Goal 1, open diagnostics, verify **Close** dismisses it both before and after **Mark Current Evidence Reviewed**, then reopen it and confirm no stale callback/window state |
 | `S6-U-02` | Manual Simulation Base containment accepted; physical forehead/mount relationship unresolved. 2026-09-18 simulation `VirtualForeheadPriorV1` is not this acceptance | Obtain mount-face CAD/contact normal and define patient-contact-to-base transform, offsets, review, persistence, and invalidation |
 | `W4-U-01` | Active design | Define reviewed crown region and MPR contract, then implement source-fingerprinted Entry snapping |

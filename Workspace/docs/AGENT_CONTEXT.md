@@ -1,7 +1,8 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-18 (Case Foundation AUTO-primary GUI recorded; P5/gate
-campaign handoff from 2026-09-17 is unchanged). Routing plus the durable
+Last reconciled: 2026-09-19. Case Foundation AUTO-primary GUI and Step 3B
+offline-placement mirror recorded (P5/gate campaign handoff from 2026-09-17 is
+unchanged). Routing plus the durable
 Step-4A–5B testing
 baseline below; all pending work and current order live in
 [backlog.md](backlog.md). Detailed task contracts and completion records live
@@ -20,6 +21,21 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
    and checkout-relative `Testing/verification_matrix.json`.
 
 ## Current handoff
+
+- **2026-09-19 — Step 3B offline robot placement (6.1 mirror):** After AUTO
+  open-mouth, Confirm goes to **3B** on the same Step 3 combo row. 3B reparents
+  the existing 6.1A + Placement Context widgets onto one MRML robot/base/forehead.
+  Step 6.1 shows PASS/green when `VirtualForeheadPriorV1` matches the Case
+  Foundation fingerprint; manual nudge is still allowed. Same-day regressions
+  fixed: 3A layout orphaning, robot hidden after lock/propose, full **New Empty
+  Case** reset, Step 4A target-tooth combo scroll (safe `ui_scroll_support` v2).
+  Operator visual acceptance still open (`S3B-ROBOT-PLACEMENT-MIRROR`). Not
+  `S6-U-02`.
+
+- **2026-09-19 — New Empty Case full workflow reset:** Step 0 **New Empty Case**
+  clears MRML only, then `_resetWorkflowStateForFreshCase()` wipes transient UI
+  (views, substeps, placement reparent, foundation snapshot) and always opens
+  Step 0. No session/foundation carry-over.
 
 - **2026-09-18 — Virtual forehead prior (simulation only):** After AUTO
   open-mouth, Step 6 **Propose virtual forehead + base** seats

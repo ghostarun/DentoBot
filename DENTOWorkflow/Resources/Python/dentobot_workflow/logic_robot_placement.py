@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from .runtime import *
+from dentobot_workflow.offline_placement_status import (
+    classify_offline_base_placement,
+)
 
 
 class RobotPlacementLogicMixin:
@@ -13,6 +16,47 @@ class RobotPlacementLogicMixin:
     ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
     ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "QuarantinedCircularMountPlane"
     ROBOT_BASE_VIRTUAL_FOREHEAD_AUTHORITY = "VirtualForeheadPriorV1"
+
+    def offlinePlacementMirrorState(self, parameterNode) -> dict[str, object]:
+        """Shared 3B / 6.1 classifier: pass, manual, or missing."""
+
+        pose = self.evaluateCaseFoundationEligibility(parameterNode)["pose"]
+        pose_eligible = bool(pose.get("eligible"))
+        pose_fingerprint = ""
+        if pose_eligible:
+            try:
+                snapshot = self.buildCaseFoundationSnapshot(parameterNode)
+                pose_fingerprint = str(snapshot.planning_pose_fingerprint or "")
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                pose_fingerprint = str(
+                    pose.get("planning_pose_fingerprint") or ""
+                )
+        base = parameterNode.robotBaseTransform
+        authority = ""
+        base_fingerprint = ""
+        if self.isRobotBaseTransformNode(base):
+            authority = str(
+                base.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE)
+                or ""
+            )
+            base_fingerprint = str(
+                base.GetAttribute("DENTOBOT.CaseFoundationFingerprint") or ""
+            )
+        state = classify_offline_base_placement(
+            pose_eligible=pose_eligible,
+            robot_link_count=len(self.robotModelNodes()),
+            placement_authority=authority,
+            base_case_fingerprint=base_fingerprint,
+            pose_fingerprint=pose_fingerprint,
+        )
+        return {
+            "state": state,
+            "poseEligible": pose_eligible,
+            "placementAuthority": authority,
+            "poseFingerprint": pose_fingerprint,
+            "baseFingerprint": base_fingerprint,
+            "robotLinkCount": len(self.robotModelNodes()),
+        }
 
     def _validateSingleStep6RobotPlacement(
         self,
@@ -779,6 +823,11 @@ class RobotPlacementLogicMixin:
         parameterNode.robotJoint5Deg = DEFAULT_JOINT_DISPLAY[4]
         parameterNode.robotJoint6Deg = DEFAULT_JOINT_DISPLAY[5]
         self.updateRobotJointPoses(joints_si)
+        for model in self.robotModelNodes():
+            display = model.GetDisplayNode() if model else None
+            if display:
+                display.SetVisibility(True)
+                display.SetOpacity(1.0)
         base.SetAndObserveTransformNodeID(None)
         base.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
         base.SetAttribute(

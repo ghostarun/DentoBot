@@ -24,7 +24,6 @@ class RobotShellWidgetMixin:
                 "enable_cbct_rendering": self._onStep6EnableCbctRendering,
                 "cbct_preset": self._onStep6CbctPresetChanged,
                 "create_proxy": self._onStep6CreateForeheadProxy,
-                "copy_forehead_seating": self._onStep6CopyForeheadSeating,
                 "placement_review": self._onStep6PlacementReview,
                 "appearance_changed": self._onStep6AppearanceChanged,
                 "save_home": self._onStep6SaveTaskHome,
@@ -50,6 +49,21 @@ class RobotShellWidgetMixin:
             },
         )
         self._setupStep6SubstepNavigator()
+        self._setupStep3SubstepNavigator()
+        self._step61PlacementMirrorStatusLabel = qt.QLabel(
+            _("Complete Step 3B offline placement, then review it here."),
+            self.ui.robotPlacementCollapsibleButton,
+        )
+        self._step61PlacementMirrorStatusLabel.objectName = (
+            "DENTOBOTStep61PlacementMirrorStatusLabel"
+        )
+        self._step61PlacementMirrorStatusLabel.wordWrap = True
+        self._step61PlacementMirrorStatusLabel.styleSheet = (
+            "color: #b36b00; font-weight: 600;"
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._step61PlacementMirrorStatusLabel
+        )
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.visualizationGroup
         )
@@ -210,7 +224,11 @@ class RobotShellWidgetMixin:
         self._robotSimulationPanel.showRuntimeResult(result)
         if result.success:
             self._updateRobotPlacement()
-            self.onFrameStep6ResearchWorkspace()
+            if self._isStep3BActive():
+                self._applyStep3BRecommendedView()
+                self._ensureOfflinePlacementSceneVisible()
+            else:
+                self.onFrameStep6ResearchWorkspace()
         else:
             slicer.util.errorDisplay(result.message)
         self._refreshShellRobotCapabilities()
@@ -327,21 +345,11 @@ class RobotShellWidgetMixin:
             ).replace("%3", slide_note).replace("%4", error_text)
             self._robotSimulationPanel.visualizationStatusLabel.text = message
             self._updateRobotPlacement()
-            self._applyStep6RecommendedView()
-        except (RuntimeError, ValueError) as exc:
-            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
-            slicer.util.errorDisplay(str(exc))
-
-    def _onStep6CopyForeheadSeating(self) -> None:
-        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
-            return
-        try:
-            seating = self.logic.dumpForeheadRelativeSeating(self._parameterNode)
-            line = str(seating["copyLine"])
-            clipboard = qt.QApplication.clipboard()
-            if clipboard is not None:
-                clipboard.setText(line)
-            self._robotSimulationPanel.visualizationStatusLabel.text = line
+            if self._isStep3BActive():
+                self._applyStep3BRecommendedView()
+            else:
+                self._applyStep6RecommendedView()
+            self._ensureOfflinePlacementSceneVisible()
         except (RuntimeError, ValueError) as exc:
             self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
             slicer.util.errorDisplay(str(exc))
@@ -851,6 +859,9 @@ class RobotShellWidgetMixin:
             group.visible = True
         self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.robotPlacementDescriptionLabel.visible = index == 0
+        if self._step61PlacementMirrorStatusLabel is not None:
+            self._step61PlacementMirrorStatusLabel.visible = index == 1
+        self._syncOfflinePlacementHost()
         shellActive = bool(self._applicationShell and self._applicationShell.active)
         if self._step6SubstepNavigator is not None:
             self._step6SubstepNavigator.visible = not shellActive
@@ -875,3 +886,90 @@ class RobotShellWidgetMixin:
         if not self._robotSimulationPanel:
             return
         self._configureRobotSimulationShellSubstep(self._step6SubstepIndex)
+
+    def _offlinePlacementWidgets(self) -> tuple:
+        if not self._robotSimulationPanel:
+            return ()
+        return (
+            self._robotSimulationPanel.visualizationGroup,
+            self.ui.step6MountLockGroupBox,
+        )
+
+    def _reparentOfflinePlacementWidgets(self, layout, *, visible: bool) -> None:
+        for widget in self._offlinePlacementWidgets():
+            if widget is None:
+                continue
+            layout.addWidget(widget)
+            widget.visible = bool(visible)
+        self.ui.ros2MotionControlGroupBox.visible = False
+
+    def _syncOfflinePlacementHost(self) -> None:
+        if not self._robotSimulationPanel:
+            return
+        attach_to_3b = self._isStep3BActive() and self._step3BPlacementHost is not None
+        show_surface = attach_to_3b or self._isStep61Active()
+        if attach_to_3b:
+            host_layout = self._step3BPlacementHost.layout()
+            self._reparentOfflinePlacementWidgets(host_layout, visible=True)
+            if self._step3BContinueButton is not None:
+                host_layout.addWidget(self._step3BContinueButton)
+            self._robotSimulationPanel.setPlacementSurfaceActive(True)
+            self._offlinePlacementAttachedToStep3B = True
+        else:
+            layout = self.ui.robotPlacementVerticalLayout
+            self._reparentOfflinePlacementWidgets(layout, visible=self._isStep61Active())
+            self._robotSimulationPanel.setPlacementSurfaceActive(self._isStep61Active())
+            self._offlinePlacementAttachedToStep3B = False
+            if self._step61PlacementMirrorStatusLabel is not None:
+                self._step61PlacementMirrorStatusLabel.visible = self._isStep61Active()
+        if show_surface:
+            self._updateOfflinePlacementMirrorStatus()
+            self._ensureOfflinePlacementSceneVisible()
+
+    def _ensureOfflinePlacementSceneVisible(self) -> None:
+        """Keep loaded MRML robot and placement aids visible on Step 3B / 6.1."""
+        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
+            return
+        if not self._isOfflinePlacementSurfaceActive():
+            return
+        from dentobot_workflow.offline_placement_status import (
+            EXPECTED_ROBOT_LINK_COUNT,
+        )
+
+        if len(self.logic.robotModelNodes()) == EXPECTED_ROBOT_LINK_COUNT:
+            robot_opacity = float(
+                getattr(self._parameterNode, "step6RobotOpacity", 1.0) or 1.0
+            )
+            self._robotSimulationPanel.setAppearance("robot", True, robot_opacity)
+            self.logic.setStep6Appearance(
+                self._parameterNode,
+                "robot",
+                visible=True,
+                opacity=robot_opacity,
+            )
+        plane_node = self._parameterNode.robotMountPlane
+        if self.logic.isRobotMountPlaneNode(plane_node):
+            plane_opacity = float(
+                getattr(self._parameterNode, "step6MountPlaneOpacity", 0.35) or 0.35
+            )
+            self._robotSimulationPanel.setAppearance(
+                "mount_plane", True, plane_opacity
+            )
+            self.logic.setStep6Appearance(
+                self._parameterNode,
+                "mount_plane",
+                visible=True,
+                opacity=plane_opacity,
+            )
+        proxy_node = self._parameterNode.robotForeheadProxyModel
+        if proxy_node:
+            opacity = float(
+                getattr(self._parameterNode, "step6ForeheadProxyOpacity", 0.2) or 0.2
+            )
+            self._robotSimulationPanel.setAppearance("forehead_proxy", True, opacity)
+            self.logic.setStep6Appearance(
+                self._parameterNode,
+                "forehead_proxy",
+                visible=True,
+                opacity=opacity,
+            )

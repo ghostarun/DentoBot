@@ -61,8 +61,9 @@ class RobotPlacementWidgetMixin:
             and int(self.ui.workflowStageComboBox.currentIndex)
             == len(stageEntries) - 1
         )
+        placementSurfaceActive = self._isOfflinePlacementSurfaceActive()
         enabled = bool(
-            robotStageActive
+            placementSurfaceActive
             and self._parameterNode
             and not self._parameterNode.robotBaseMountLocked
             and self._parameterNode.robotKeyboardNudgeEnabled
@@ -73,7 +74,7 @@ class RobotPlacementWidgetMixin:
         )
         for shortcut in self._robotKeyboardShortcuts:
             shortcut.enabled = enabled
-        self._setRobotTransformInteractionVisible(robotStageActive)
+        self._setRobotTransformInteractionVisible(placementSurfaceActive)
 
     def _onRobotKeyboardNudge(
         self,
@@ -215,7 +216,7 @@ class RobotPlacementWidgetMixin:
             status = _("ROS robot is in the viewport. Place the mount, then lock.")
             style = "color: #207227;"
         elif not self.logic.isRobotBaseTransformNode(baseTransform) or modelCount != 7:
-            status = _("Complete the Case Foundation, then load the offline robot in 6.1A.")
+            status = _("Complete the Case Foundation, then load the offline robot in Step 3B (mirrored in 6.1A).")
             style = "color: #b36b00;"
         else:
             matrix = vtk.vtkMatrix4x4()
@@ -231,6 +232,7 @@ class RobotPlacementWidgetMixin:
             style = "color: #207227;"
         self.ui.robotPlacementStatusLabel.text = status
         self.ui.robotPlacementStatusLabel.styleSheet = style
+        self._updateOfflinePlacementMirrorStatus()
 
     def _updateRobotPlacement(self) -> None:
         if not self._parameterNode or not self.logic or not hasattr(self, "ui"):
@@ -252,6 +254,7 @@ class RobotPlacementWidgetMixin:
             and int(self.ui.workflowStageComboBox.currentIndex)
             == len(stageEntries) - 1
         )
+        placementSurfaceActive = self._isOfflinePlacementSurfaceActive()
         if baseValid and modelCount:
             self.logic.updateRobotJointPoses(self._robotJointPositionsSi())
         self._updatingRobotPlacementUI = True
@@ -299,7 +302,7 @@ class RobotPlacementWidgetMixin:
             except ValueError:
                 pass
         self._updateStep6PlanningUi()
-        if robotStageActive:
+        if robotStageActive or placementSurfaceActive:
             self._updateWorkflowViewControls()
 
     def _updateRos2MotionControlStatus(self, message: str = "") -> None:
@@ -384,6 +387,42 @@ class RobotPlacementWidgetMixin:
         self.ui.ros2MotionControlStatusLabel.text = status
         self.ui.ros2MotionControlStatusLabel.styleSheet = style
         self._updateStep6PlanningUi()
+
+    def _updateOfflinePlacementMirrorStatus(self) -> None:
+        label = getattr(self, "_step61PlacementMirrorStatusLabel", None)
+        if label is None or not self._parameterNode or not self.logic:
+            return
+        try:
+            payload = self.logic.offlinePlacementMirrorState(self._parameterNode)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return
+        state = str(payload.get("state") or "missing")
+        if state == "pass":
+            text = _(
+                "PASS — Step 3B virtual-forehead auto-placement is current "
+                "(7-link robot, matching Case Foundation fingerprint). "
+                "Forehead plane is shown. Manual nudge/lock remain available."
+            )
+            style = "color: #207227; font-weight: 600;"
+        elif state == "manual":
+            text = _(
+                "Placement present (manual adjustment). Auto-PASS requires an "
+                "unmodified VirtualForeheadPriorV1 that still matches the "
+                "Case Foundation. Nudge, review, and lock remain available."
+            )
+            style = "color: #207227;"
+        else:
+            text = _(
+                "Offline base auto-placement is not current. Complete it in "
+                "Step 3B (Propose virtual forehead + base). This 6.1 mirror "
+                "does not create a second robot."
+            )
+            style = "color: #b36b00; font-weight: 600;"
+        label.text = text
+        label.styleSheet = style
+        if self._step3BContinueButton is not None:
+            pose_ok = bool(payload.get("poseEligible"))
+            self._step3BContinueButton.enabled = pose_ok
 
     def onConnectRos2MotionControl(self, checked: bool = False) -> None:
         del checked

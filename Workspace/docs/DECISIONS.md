@@ -5900,3 +5900,44 @@ The circular base-derived mount snap stays quarantined. This does **not** close
 `S6-U-02` physical forehead CAD/normal truth. Operator review-and-lock remains
 required. No hardware motion.
 
+## 2026-09-19 — Step 3B hosts offline robot placement; Step 6.1 is the same widgets
+
+**Decision:** Workflow home for simulation-only offline robot placement
+(load local robot, propose `VirtualForeheadPriorV1`, Manual Simulation Base
+nudge/lock, Placement Context) is **Step 3B**, nested on the existing Step 3
+combo row after 3A Open Mouth. Confirm after AUTO continues to 3B, not 4A.
+3B and 6.1 **reparent the same Qt groups** onto one MRML allocation — one
+robot, one base, one forehead. Step 6.1 is a mirror: PASS/green when the
+virtual-forehead prior is current, forehead plane shown, manual adjustments
+still available. 6.0 PreparedBranch, 6.1B ROS/MoveIt, and 6.2+ stay on Step 6.
+This supersedes the 2026-09-18 Case Foundation GUI line that Confirm continued
+directly to Step 4A. It does **not** close `S6-U-02`.
+
+## 2026-09-19 — New Empty Case must reset the full workflow shell, not only MRML
+
+**Decision:** Step 0 **New Empty Case** is a complete fresh-workflow action.
+`onNewCase` clears the MRML scene (`Clear(0)`) and sets `_pendingFreshCaseReset`.
+It must **not** capture or restore a Case Foundation session snapshot. After
+scene rebind, `_resetWorkflowStateForFreshCase()` clears transient workflow UI
+state (recommended views, compare/verification modes, substep indices, robot
+facade, offline placement reparent) and always opens **Step 0 · Case**.
+Navigation auto-jump to a recommended later stage is deferred while the fresh-
+case flag is set.
+
+Reason: reparenting Step 3B/6.1 placement widgets left stale navigation and view
+state after scene clear alone, so operators could not start a clean case from
+Step 0.
+
+## 2026-09-19 — Scroll-area combo popups: configure only; no window-flag hacks
+
+**Decision:** Combo boxes inside `workflowContentScrollArea` (including Step 4A
+**Target tooth**) use `ui_scroll_support.installScrollAreaComboBoxWheelGuards`:
+bounded `maxVisibleItems`, list-view scrollbar settings, and a narrow viewport
+wheel router that forwards events only when the cursor is over an open combo
+list.
+
+**Forbidden after live regression:** calling `setWindowFlags` on combo popup
+parents, monkey-patching `showPopup` / `hidePopup`, or broad scroll-area wheel
+blocking keyed on `view.isVisible()` heuristics. The first attempt made the
+entire workflow panel unusable until module reload.
+

@@ -443,6 +443,9 @@ class RobotSceneWidgetMixin:
             self.ui.caseFoundationGoToStep4Button.enabled = bool(
                 pose_eligible and not blocked
             )
+            self.ui.caseFoundationGoToStep4Button.text = _(
+                "Confirm and continue to Step 3B"
+            )
             self.ui.resetStep6CaseJawOpeningButton.enabled = bool(
                 not rosActive
                 and bool(self._parameterNode.caseFoundationPreviewUncommitted)
@@ -1075,7 +1078,7 @@ class RobotSceneWidgetMixin:
             self._updateStep6CaseJawOpeningStatus(
                 _(
                     "Opened mouth %1°; measured incisor gap %2 mm; hinge %3. "
-                    "Visually confirm, then Confirm and continue to Step 4A."
+                    "Visually confirm, then Confirm and continue to Step 3B."
                 )
                 .replace("%1", f"{summary['angleDeg']:.2f}")
                 .replace("%2", f"{summary['gapMm']:.2f}")
@@ -1270,11 +1273,28 @@ class RobotSceneWidgetMixin:
             if not pose["eligible"]:
                 slicer.util.warningDisplay(str(pose["message"]))
                 return
+        if step6_enabled() and self._step3SubstepNavigator is not None:
+            self._setWorkflowStage(3)
+            self._configureStep3Substep(1)
+            return
+        self._setWorkflowStage(4)
+
+    def onStep3BGoToStep4(self, checked: bool = False) -> None:
+        del checked
+        if self._parameterNode and self.logic:
+            pose = self.logic.evaluateCaseFoundationEligibility(
+                self._parameterNode
+            )["pose"]
+            if not pose["eligible"]:
+                slicer.util.warningDisplay(str(pose["message"]))
+                return
         self._setWorkflowStage(4)
 
     def onCaseFoundationGoToStep6(self, checked: bool = False) -> None:
         del checked
         self._setWorkflowStage(len(self._workflowStageEntries()) - 1)
+        if hasattr(self, "_configureRobotSimulationShellSubstep"):
+            self._configureRobotSimulationShellSubstep(1)
 
     def onLoadRobotModel(self, checked: bool = False) -> None:
         del checked

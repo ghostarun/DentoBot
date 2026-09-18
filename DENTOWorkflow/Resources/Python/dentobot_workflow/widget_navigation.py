@@ -22,7 +22,7 @@ class WorkflowNavigationWidgetMixin:
                 or self.ui.segmentationReviewCollapsibleButton,
             ),
             (
-                _("3 · Case Foundation — Open Mouth Setup"),
+                _("3 · Case Foundation (3A Open Mouth / 3B Robot Placement)"),
                 self.ui.step6CaseJawOpeningGroupBox,
             ),
             (_("4A · Trajectory Planning"), self.ui.planningCollapsibleButton),
@@ -407,6 +407,8 @@ class WorkflowNavigationWidgetMixin:
                 self._workflowViewActivePresetKey,
                 updateStatus=False,
             )
+        if self._isOfflinePlacementSurfaceActive():
+            self._ensureOfflinePlacementSceneVisible()
 
     def onWorkflowStageChanged(self, index: int) -> None:
         if self._updatingWorkflowNavigationUI:
@@ -420,6 +422,197 @@ class WorkflowNavigationWidgetMixin:
     def onNextWorkflowStage(self, checked: bool = False) -> None:
         del checked
         self._setWorkflowStage(self.ui.workflowStageComboBox.currentIndex + 1)
+
+    def _isStep3BActive(self) -> bool:
+        return bool(
+            hasattr(self, "ui")
+            and int(self.ui.workflowStageComboBox.currentIndex) == 3
+            and int(getattr(self, "_step3SubstepIndex", 0)) == 1
+            and step6_enabled()
+        )
+
+    def _isStep61Active(self) -> bool:
+        if not hasattr(self, "ui"):
+            return False
+        entries = self._workflowStageEntries()
+        return bool(
+            entries
+            and int(self.ui.workflowStageComboBox.currentIndex) == len(entries) - 1
+            and int(getattr(self, "_step6SubstepIndex", 0)) == 1
+        )
+
+    def _isOfflinePlacementSurfaceActive(self) -> bool:
+        return self._isStep3BActive() or self._isStep61Active()
+
+    def _setupStep3SubstepNavigator(self) -> None:
+        """Add 3A/3B navigator on the existing Case Foundation stage."""
+
+        if self._step3SubstepNavigator is not None or not step6_enabled():
+            return
+        if not hasattr(self, "ui") or not hasattr(self.ui, "step6CaseJawOpeningGroupBox"):
+            return
+        parent = self.ui.step6CaseJawOpeningGroupBox
+        layout = self.ui.step6CaseJawOpeningVerticalLayout
+        navigator = qt.QGroupBox(
+            _("Step 3 workflow — open mouth then offline robot placement"),
+            parent,
+        )
+        navigator.objectName = "DENTOBOTStep3SubstepNavigator"
+        navigatorLayout = qt.QGridLayout(navigator)
+        navigatorLayout.setContentsMargins(8, 7, 8, 7)
+        navigatorLayout.setHorizontalSpacing(6)
+        previousButton = qt.QPushButton(_("‹ Back"), navigator)
+        previousButton.objectName = "DENTOBOTStep3PreviousSubstepButton"
+        comboBox = qt.QComboBox(navigator)
+        comboBox.objectName = "DENTOBOTStep3SubstepComboBox"
+        comboBox.addItem(_("3A — Open Mouth Setup"))
+        comboBox.addItem(_("3B — Offline Robot Placement"))
+        nextButton = qt.QPushButton(_("Next ›"), navigator)
+        nextButton.objectName = "DENTOBOTStep3NextSubstepButton"
+        hint = qt.QLabel(
+            _(
+                "3A commits the Case Foundation opening. 3B uses the same "
+                "offline robot, virtual forehead, and Manual Simulation Base "
+                "as Step 6.1 — one MRML allocation, not a second robot."
+            ),
+            navigator,
+        )
+        hint.wordWrap = True
+        hint.styleSheet = "color: #5f6368;"
+        navigatorLayout.addWidget(previousButton, 0, 0)
+        navigatorLayout.addWidget(comboBox, 0, 1)
+        navigatorLayout.addWidget(nextButton, 0, 2)
+        navigatorLayout.addWidget(hint, 1, 0, 1, 3)
+        navigatorLayout.setColumnStretch(1, 1)
+
+        host = qt.QWidget(parent)
+        host.objectName = "DENTOBOTStep3BPlacementHost"
+        hostLayout = qt.QVBoxLayout(host)
+        hostLayout.setContentsMargins(0, 0, 0, 0)
+        hostLayout.setSpacing(4)
+        continueButton = qt.QPushButton(
+            _("Confirm placement and continue to Step 4A"),
+            host,
+        )
+        continueButton.objectName = "DENTOBOTStep3BContinueToStep4Button"
+        continueButton.toolTip = _(
+            "Open Step 4A. Restored cases may skip 3B; Step 6.1 reports PASS "
+            "only after virtual-forehead auto-placement on this surface."
+        )
+        hostLayout.addWidget(continueButton)
+        host.visible = False
+
+        # Keep the Designer 3A form/button layouts in place. Re-parenting those
+        # nested layouts into a wrapper collapses the AUTO/confirm controls.
+        layout.insertWidget(0, navigator)
+        layout.addWidget(host)
+        comboBox.connect("currentIndexChanged(int)", self._onStep3SubstepChanged)
+        previousButton.connect("clicked(bool)", self._onPreviousStep3Substep)
+        nextButton.connect("clicked(bool)", self._onNextStep3Substep)
+        continueButton.connect("clicked(bool)", self.onStep3BGoToStep4)
+        self._step3SubstepNavigator = navigator
+        self._step3SubstepComboBox = comboBox
+        self._step3PreviousSubstepButton = previousButton
+        self._step3NextSubstepButton = nextButton
+        self._step3AContentWidget = None
+        self._step3BPlacementHost = host
+        self._step3BContinueButton = continueButton
+        stage_index = 3
+        try:
+            stage_index = int(self.ui.workflowStageComboBox.currentIndex)
+        except (AttributeError, TypeError, ValueError):
+            stage_index = 3
+        initial = (
+            self._recommendedStep3SubstepIndex()
+            if stage_index == 3
+            else 0
+        )
+        self._configureStep3Substep(initial)
+
+    def _onStep3SubstepChanged(self, substep_index: int) -> None:
+        if self._updatingStep3SubstepNavigation:
+            return
+        self._configureStep3Substep(substep_index)
+
+    def _onPreviousStep3Substep(self, checked: bool = False) -> None:
+        del checked
+        self._configureStep3Substep(int(self._step3SubstepIndex) - 1)
+
+    def _onNextStep3Substep(self, checked: bool = False) -> None:
+        del checked
+        self._configureStep3Substep(int(self._step3SubstepIndex) + 1)
+
+    def _configureStep3Substep(self, substep_index: int) -> None:
+        if self._step3SubstepNavigator is None:
+            return
+        index = max(0, min(int(substep_index), 1))
+        self._step3SubstepIndex = index
+        self._updatingStep3SubstepNavigation = True
+        try:
+            if self._step3SubstepComboBox is not None:
+                self._step3SubstepComboBox.currentIndex = index
+            if self._step3PreviousSubstepButton is not None:
+                self._step3PreviousSubstepButton.enabled = index > 0
+            if self._step3NextSubstepButton is not None:
+                self._step3NextSubstepButton.enabled = index < 1
+        finally:
+            self._updatingStep3SubstepNavigation = False
+        if self._step3BPlacementHost is not None:
+            self._step3BPlacementHost.visible = index == 1
+        self._setStep3AOriginalWidgetsVisible(index == 0)
+        self.ui.step6CaseJawOpeningGroupBox.text = (
+            _("3B — Offline Robot Placement")
+            if index == 1
+            else _("Case Foundation — Open Mouth Setup (required before Step 4A)")
+        )
+        self._syncOfflinePlacementHost()
+        self._updateRobotKeyboardShortcutState()
+        if index == 1:
+            self._updateOfflinePlacementMirrorStatus()
+            self._updateRobotPlacement()
+            self._applyStep3BRecommendedView()
+        elif self.ui.autoWorkflowViewCheckBox.checked:
+            self._applyWorkflowViewPreset("recommended", updateStatus=False)
+
+    def _setStep3AOriginalWidgetsVisible(self, visible: bool) -> None:
+        if not hasattr(self, "ui"):
+            return
+        skip = {
+            widget
+            for widget in (
+                self._step3SubstepNavigator,
+                self._step3BPlacementHost,
+            )
+            if widget is not None
+        }
+        self._setLayoutTreeVisible(
+            self.ui.step6CaseJawOpeningVerticalLayout,
+            visible,
+            skip,
+        )
+
+    def _setLayoutTreeVisible(self, layout, visible: bool, skip: set) -> None:
+        if layout is None:
+            return
+        for index in range(self._qtLayoutCount(layout)):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            widget = item.widget() if hasattr(item, "widget") else None
+            nested = item.layout() if hasattr(item, "layout") else None
+            if widget is not None:
+                if widget in skip:
+                    continue
+                widget.visible = bool(visible)
+            elif nested is not None:
+                self._setLayoutTreeVisible(nested, visible, skip)
+
+    def _applyStep3BRecommendedView(self) -> None:
+        if not self._isStep3BActive():
+            return
+        self._applyWorkflowViewPreset("recommended", updateStatus=False)
+        self._updateWorkflowViewControls()
+        self._ensureOfflinePlacementSceneVisible()
 
     def _setWorkflowStage(self, index: int, ensureVisible: bool = True) -> None:
         entries = self._workflowStageEntries()
@@ -451,6 +644,12 @@ class WorkflowNavigationWidgetMixin:
         elif index == 3:
             self._maybeAutoCommitInspectionForCaseFoundation()
             self._updateStep6CaseJawOpeningControls()
+            if self._step3SubstepNavigator is not None:
+                if not self._workflowNavigationInitializedFromScene:
+                    self._configureStep3Substep(self._recommendedStep3SubstepIndex())
+                else:
+                    self._configureStep3Substep(self._step3SubstepIndex)
+        self._syncOfflinePlacementHost()
         self._updateWorkflowNavigationRecommendation()
         if self._applicationShell and self._applicationShell.active:
             self._applicationShell.syncStage(
@@ -598,6 +797,8 @@ class WorkflowNavigationWidgetMixin:
         )["pose"]["eligible"]:
             # The Case Foundation section is the dedicated stage 3.
             return 3
+        if step6_enabled() and not self._offlinePlacementIsPresent():
+            return 3
         trajectoryNode = self._parameterNode.trajectoryLine
         if not trajectoryNode or trajectoryNode.GetNumberOfDefinedControlPoints() < 2:
             return 4
@@ -641,8 +842,32 @@ class WorkflowNavigationWidgetMixin:
             "Open any workflow stage for inspection or continuation; saved "
             "prerequisites gate actions, not navigation. %1"
         ).replace("%1", recommendation)
+        if getattr(self, "_pendingFreshCaseReset", False):
+            return
         if not self._workflowNavigationInitializedFromScene:
             self._workflowNavigationInitializedFromScene = True
             self._setWorkflowStage(recommendedIndex, ensureVisible=False)
         elif self._applicationShell and self._applicationShell.active:
             self._applicationShell.syncStage(currentIndex, recommendedIndex)
+
+    def _recommendedStep3SubstepIndex(self) -> int:
+        if not self._parameterNode or not self.logic or not step6_enabled():
+            return 0
+        pose = self.logic.evaluateCaseFoundationEligibility(self._parameterNode)["pose"]
+        if not pose.get("eligible"):
+            return 0
+        if not self._offlinePlacementIsPresent():
+            return 1
+        return 0
+
+    def _offlinePlacementIsPresent(self) -> bool:
+        if not self._parameterNode or not self.logic:
+            return False
+        try:
+            state = str(
+                self.logic.offlinePlacementMirrorState(self._parameterNode).get("state")
+                or ""
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return False
+        return state in {"pass", "manual"}
