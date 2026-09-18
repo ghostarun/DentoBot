@@ -58,9 +58,9 @@ class DENTORobotSimulationPanel:
         visualization_layout = qt.QVBoxLayout(self.visualizationGroup)
         visualization_description = qt.QLabel(
             "CBCT rendering is opt-in and display-only: it reuses the source "
-            "volume without resampling or changing IJK-to-RAS. Legacy mount-plane "
-            "and forehead-proxy tools are quarantined because they were derived "
-            "from the robot base rather than independent patient evidence.",
+            "volume without resampling or changing IJK-to-RAS. Propose a virtual "
+            "forehead from the opened Case Foundation (not from the robot). "
+            "That prior is visualization-only, not physical mount truth.",
             self.visualizationGroup,
         )
         visualization_description.wordWrap = True
@@ -74,11 +74,13 @@ class DENTORobotSimulationPanel:
         self.cbctPresetCombo.addItem("CT-Bone intensity appearance", "CT-Bone")
         self.cbctPresetCombo.addItem("uCT-Skull intensity appearance", "uCT-Skull")
         self.createProxyButton = qt.QPushButton(
-            "Forehead Proxy — Quarantined", self.visualizationGroup
+            "Propose virtual forehead + base", self.visualizationGroup
         )
-        self.createProxyButton.enabled = False
+        self.createProxyButton.enabled = True
         self.createProxyButton.toolTip = (
-            "Deferred until an independent forehead/mount reference exists."
+            "Build an independent virtual forehead outside the CBCT FOV from "
+            "the Case Foundation dental frame, then seat an unreviewed "
+            "simulation base. Review and lock afterwards. Not S6-U-02."
         )
         self.loadFallbackButton = qt.QPushButton(
             "Load / Reuse Local MRML Robot", self.visualizationGroup

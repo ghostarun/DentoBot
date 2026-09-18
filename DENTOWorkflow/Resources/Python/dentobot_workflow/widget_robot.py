@@ -405,7 +405,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 scene_prepared and (not locked or robot_recovery_allowed)
             )
             panel.enableCbctRenderingButton.enabled = imported and scene_prepared
-            panel.createProxyButton.enabled = False
+            panel.createProxyButton.enabled = bool(
+                scene_prepared and not ros2_active
+            )
             panel.saveTaskHomeButton.enabled = bool(
                 scene_prepared and locked and ros2_active
             )

@@ -1,5 +1,24 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-18 — Extraoral virtual-forehead base seating
+
+- **Why:** AUTO seating used −90° about forehead X plus TCP-to-incisor slide,
+  so the q=0 chain hung down the face through the FOV. The mount plane was
+  accepted; base pose was not.
+- **Change:** Identity `T_forehead_base` (URDF +Z = forehead outward). Propose
+  seats at the glabella origin without planar TCP slide.
+- **Verification:** `Testing/test_virtual_forehead_mount.py` (6 passed). Live GUI review
+  after Reload Module. `S6-U-02` stays open.
+
+## 2026-09-18 — Virtual forehead prior + approximate base pose
+
+- **Why:** Dental CBCT FOV has no forehead; the robot is head-mounted.
+- **Change:** Independent `VirtualForeheadPriorV1` from Case Foundation (not
+  the robot). Step 6 **Propose virtual forehead + base** seats an unreviewed
+  Manual Simulation Base; circular snap stays quarantined.
+- **Verification:** `Testing/test_virtual_forehead_mount.py` (pure). Live GUI
+  review/lock remains operator evidence. `S6-U-02` stays open.
+
 ## 2026-09-18 — AUTO-primary Case Foundation open mouth
 
 - **Why:** Manual four-landmark placement was co-equal with AUTO and was not

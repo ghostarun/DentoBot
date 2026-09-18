@@ -12,6 +12,7 @@ class RobotPlacementLogicMixin:
     ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
     ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
     ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "QuarantinedCircularMountPlane"
+    ROBOT_BASE_VIRTUAL_FOREHEAD_AUTHORITY = "VirtualForeheadPriorV1"
 
     def _validateSingleStep6RobotPlacement(
         self,
@@ -478,6 +479,279 @@ class RobotPlacementLogicMixin:
             makeBaseStale=bool(parameterNode.robotBaseMountLocked),
         )
         return model
+
+    def _volumeRasBounds6(self, volume) -> np.ndarray | None:
+        if volume is None:
+            return None
+        bounds = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        volume.GetRASBounds(bounds)
+        return np.asarray(bounds, dtype=float)
+
+    def _applyIndependentForeheadMountPlane(
+        self,
+        parameterNode,
+        plane,
+        fingerprint: str,
+    ):
+        from dentobot_workflow.virtual_forehead_mount import PLACEMENT_AUTHORITY
+
+        node = parameterNode.robotMountPlane
+        if node is not None and not self.isRobotMountPlaneNode(node):
+            raise ValueError(_("Select the DENTOBOT robot mount plane."))
+        node = node or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsPlaneNode",
+            "[Step 6] Virtual Forehead Mount Plane",
+        )
+        node.SetName("[Step 6] Virtual Forehead Mount Plane")
+        node.SetPlaneType(node.PlaneTypePointNormal)
+        if hasattr(node, "SetNormalPointRequired"):
+            node.SetNormalPointRequired(False)
+        node.SetOriginWorld(tuple(float(v) for v in plane.origin_mm))
+        node.SetNormalWorld(tuple(float(v) for v in plane.z_hat))
+        node.SetSize(
+            float(parameterNode.step6ForeheadProxyWidthMm),
+            float(parameterNode.step6ForeheadProxyHeightMm),
+        )
+        node.SetLocked(False)
+        node.SetSelectable(True)
+        node.SetAttribute("DENTOBOT.MarkupsRole", self.ROBOT_MOUNT_PLANE_ROLE)
+        node.SetAttribute(
+            "DENTOBOT.RobotPlacementSchemaVersion",
+            self.ROBOT_PLACEMENT_SCHEMA_VERSION,
+        )
+        node.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+        node.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
+        node.SetAttribute("DENTOBOT.GeometryState", "Provisional")
+        node.SetAttribute("DENTOBOT.IntendedUse", "VisualizationOnly")
+        node.SetAttribute("DENTOBOT.ExcludedFromPlacement", "false")
+        node.SetAttribute("DENTOBOT.PlacementAuthority", PLACEMENT_AUTHORITY)
+        node.SetAttribute("DENTOBOT.CaseFoundationFingerprint", str(fingerprint))
+        node.SetAttribute("DENTOBOT.StaleReason", None)
+        node.CreateDefaultDisplayNodes()
+        displayNode = node.GetDisplayNode()
+        if displayNode:
+            displayNode.SetVisibility(True)
+            displayNode.SetVisibility2D(True)
+            displayNode.SetVisibility3D(True)
+            displayNode.SetOpacity(0.28)
+            displayNode.SetColor(0.15, 0.80, 0.95)
+            displayNode.SetHandlesInteractive(True)
+            displayNode.SetTranslationHandleVisibility(True)
+            displayNode.SetRotationHandleVisibility(True)
+        parameterNode.robotMountPlane = node
+        return node
+
+    def createOrUpdateIndependentForeheadProxy(self, parameterNode, plane) -> vtkMRMLModelNode:
+        width = float(parameterNode.step6ForeheadProxyWidthMm)
+        height = float(parameterNode.step6ForeheadProxyHeightMm)
+        depth = float(parameterNode.step6ForeheadProxyDepthMm)
+        offset = float(parameterNode.step6ForeheadProxyOffsetMm)
+        if not all(math.isfinite(value) and value > 0.0 for value in (width, height, depth)):
+            raise ValueError(_("Forehead-proxy width, height, and depth must be positive."))
+        existing = self.step6ForeheadProxyNodes()
+        selected = parameterNode.robotForeheadProxyModel
+        if selected is not None and selected not in existing:
+            raise ValueError(_("The selected forehead proxy is not owned by Step 6."))
+        if len(existing) > 1:
+            raise ValueError(_("Multiple Step 6 forehead proxies are present; remove duplicates before continuing."))
+        model = selected or (existing[0] if existing else None)
+        origin = np.asarray(plane.origin_mm, dtype=float)
+        x_axis = np.asarray(plane.x_hat, dtype=float)
+        y_axis = np.asarray(plane.y_hat, dtype=float)
+        normal = np.asarray(plane.z_hat, dtype=float)
+        points = vtk.vtkPoints()
+        quads = vtk.vtkCellArray()
+        columns, rows = 40, 24
+        point_ids = []
+        for row in range(rows + 1):
+            v = -1.0 + 2.0 * row / rows
+            row_ids = []
+            for column in range(columns + 1):
+                u = -1.0 + 2.0 * column / columns
+                local_x = 0.5 * width * u
+                local_y = 0.5 * height * v
+                local_z = offset - depth * (0.55 * u * u + 0.45 * v * v)
+                world = origin + x_axis * local_x + y_axis * local_y + normal * local_z
+                row_ids.append(points.InsertNextPoint(*map(float, world)))
+            point_ids.append(row_ids)
+        for row in range(rows):
+            for column in range(columns):
+                quad = vtk.vtkQuad()
+                quad.GetPointIds().SetId(0, point_ids[row][column])
+                quad.GetPointIds().SetId(1, point_ids[row][column + 1])
+                quad.GetPointIds().SetId(2, point_ids[row + 1][column + 1])
+                quad.GetPointIds().SetId(3, point_ids[row + 1][column])
+                quads.InsertNextCell(quad)
+        polydata = vtk.vtkPolyData()
+        polydata.SetPoints(points)
+        polydata.SetPolys(quads)
+        normals = vtk.vtkPolyDataNormals()
+        normals.SetInputData(polydata)
+        normals.AutoOrientNormalsOn()
+        normals.SplittingOff()
+        normals.Update()
+        resolved = vtk.vtkPolyData()
+        resolved.DeepCopy(normals.GetOutput())
+        if model is None:
+            model = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode", "[Step 6] Virtual Forehead Contact Envelope"
+            )
+        from dentobot_workflow.virtual_forehead_mount import PLACEMENT_AUTHORITY
+
+        model.SetName("[Step 6] Virtual Forehead Contact Envelope")
+        model.SetAttribute("DENTOBOT.ModelRole", self.ROBOT_FOREHEAD_PROXY_ROLE)
+        model.SetAttribute("DENTOBOT.RegistrationState", "Unregistered")
+        model.SetAttribute("DENTOBOT.GeometryState", "Provisional")
+        model.SetAttribute("DENTOBOT.IntendedUse", "VisualizationOnly")
+        model.SetAttribute("DENTOBOT.ExcludedFromCollision", "true")
+        model.SetAttribute("DENTOBOT.RegistrationEvidence", "false")
+        model.SetAttribute("DENTOBOT.CoordinateSystem", "SlicerRASmm")
+        model.SetAttribute("DENTOBOT.PlacementAuthority", PLACEMENT_AUTHORITY)
+        model.SetAndObserveTransformNodeID(None)
+        model.SetAndObservePolyData(resolved)
+        model.CreateDefaultDisplayNodes()
+        display = model.GetDisplayNode()
+        if display:
+            display.SetVisibility(True)
+            display.SetVisibility2D(False)
+            display.SetVisibility3D(True)
+            display.SetColor(0.35, 0.75, 0.95)
+            display.SetOpacity(float(parameterNode.step6ForeheadProxyOpacity))
+            display.SetBackfaceCulling(False)
+        model.SetSelectable(True)
+        parameterNode.robotForeheadProxyModel = model
+        return model
+
+    def proposeVirtualForeheadAndBase(self, parameterNode) -> dict[str, object]:
+        """Independent virtual-forehead prior then unreviewed Manual Simulation Base."""
+
+        from DENTORobotPlacement import (
+            drill_tip_origin_base_m,
+            joint_positions_si_from_display,
+        )
+        from dentobot_workflow.virtual_forehead_mount import (
+            DEFAULT_JOINT_DISPLAY,
+            PLACEMENT_AUTHORITY,
+            VirtualForeheadConfig,
+            arch_scale_from_laterals,
+            propose_virtual_forehead_plane,
+            seat_base_on_forehead,
+            slide_base_for_tcp_target,
+        )
+        from dentobot_workflow.virtual_open_mouth_articulator import transform_point
+
+        pose = self.evaluateCaseFoundationEligibility(parameterNode)["pose"]
+        if not pose["eligible"]:
+            raise ValueError(str(pose["message"]))
+        if self.isRos2MotionControlActive(parameterNode.robotBaseTransform):
+            raise ValueError(_("Disconnect ROS before proposing a virtual forehead base."))
+        snapshot = self.buildCaseFoundationSnapshot(parameterNode)
+        fingerprint = str(snapshot.planning_pose_fingerprint)
+        proposal = self.proposeCaseFoundationArticulatorInputs(parameterNode)
+        frame = proposal["dentalFrame"]
+        laterals = (proposal["lateralLeftMm"], proposal["lateralRightMm"])
+        scale = 1.0
+        if laterals[0] is not None and laterals[1] is not None:
+            scale = arch_scale_from_laterals(laterals[0], laterals[1])
+        transform = parameterNode.step6CaseJawTransform
+        lower_closed = np.asarray(proposal["lowerIncisorMm"], dtype=float)
+        target = lower_closed
+        if self.isStep6CaseJawTransformNode(transform):
+            world = vtk.vtkMatrix4x4()
+            transform.GetMatrixTransformToWorld(world)
+            target = transform_point(self._numpyFromVtkMatrix(world), lower_closed)
+        config = VirtualForeheadConfig(
+            patch_width_mm=float(parameterNode.step6ForeheadProxyWidthMm),
+            patch_height_mm=float(parameterNode.step6ForeheadProxyHeightMm),
+            patch_depth_mm=float(parameterNode.step6ForeheadProxyDepthMm),
+        )
+        plane = propose_virtual_forehead_plane(
+            frame,
+            arch_scale=scale,
+            volume_ras_bounds=self._volumeRasBounds6(parameterNode.inputVolume),
+            config=config,
+        )
+        self._applyIndependentForeheadMountPlane(parameterNode, plane, fingerprint)
+        proxy = self.createOrUpdateIndependentForeheadProxy(parameterNode, plane)
+        proxy.SetAttribute("DENTOBOT.CaseFoundationFingerprint", fingerprint)
+        joints_si = joint_positions_si_from_display(*DEFAULT_JOINT_DISPLAY)
+        tcp_base = np.array([0.0, 0.0, 0.0], dtype=float)
+        try:
+            urdf_path, package_root = self.robotDescriptionPaths()
+            tcp_base_m = drill_tip_origin_base_m(joints_si, urdf_path, package_root)
+            tcp_base = np.asarray(tcp_base_m, dtype=float) * 1000.0
+        except (OSError, RuntimeError, ValueError):
+            tcp_base = np.array([0.0, -80.0, 40.0], dtype=float)
+        matrix = seat_base_on_forehead(plane, config=config)
+        unslid_tcp = (matrix @ np.append(tcp_base, 1.0))[:3]
+        unslid_error = float(np.linalg.norm(unslid_tcp - np.asarray(target, dtype=float)))
+        slid = {
+            "errorMm": unslid_error,
+            "slideUMm": 0.0,
+            "slideVMm": 0.0,
+            "yawDeg": 0.0,
+            "matrix_world_ras": matrix,
+            "tcpSlideApplied": False,
+        }
+        if config.apply_tcp_slide_on_propose:
+            candidate = slide_base_for_tcp_target(
+                plane, tcp_base, target, config=config
+            )
+            if float(candidate["errorMm"]) <= 80.0:
+                matrix = candidate["matrix_world_ras"]
+                slid = {
+                    **candidate,
+                    "tcpSlideApplied": True,
+                }
+        base = self.ensureRobotBaseTransform(parameterNode.robotBaseTransform)
+        parameterNode.robotBaseTransform = base
+        if not self.robotModelNodes():
+            base, _models = self.createOrUpdateRobotPlacement(base, joints_si)
+            parameterNode.robotBaseTransform = base
+        parameterNode.robotJoint1Deg = DEFAULT_JOINT_DISPLAY[0]
+        parameterNode.robotJoint2Mm = DEFAULT_JOINT_DISPLAY[1]
+        parameterNode.robotJoint3Deg = DEFAULT_JOINT_DISPLAY[2]
+        parameterNode.robotJoint4Mm = DEFAULT_JOINT_DISPLAY[3]
+        parameterNode.robotJoint5Deg = DEFAULT_JOINT_DISPLAY[4]
+        parameterNode.robotJoint6Deg = DEFAULT_JOINT_DISPLAY[5]
+        self.updateRobotJointPoses(joints_si)
+        base.SetAndObserveTransformNodeID(None)
+        base.SetMatrixTransformToParent(self._vtkFromNumpyMatrix(matrix))
+        base.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.ROBOT_BASE_VIRTUAL_FOREHEAD_AUTHORITY,
+        )
+        base.SetAttribute("DENTOBOT.CaseFoundationFingerprint", fingerprint)
+        base.SetAttribute("DENTOBOT.VirtualForeheadPrior", "1")
+        base.SetAttribute(
+            "DENTOBOT.PlacementWarning",
+            "Virtual forehead prior (visualization only). Review and lock "
+            "the Manual Simulation Base; not physical mount truth.",
+        )
+        parameterNode.robotBaseMountLocked = False
+        parameterNode.step6BasePlacementStatus = BasePlacementStatus.UNLOCKED.value
+        parameterNode.step6BasePlacementSource = "virtual-forehead-prior"
+        self._applyRobotBaseMountInteractionState(parameterNode, False)
+        self.invalidateStep6TaskConfirmation(
+            parameterNode,
+            _("Virtual forehead prior proposed a new unreviewed base."),
+        )
+        summary = {
+            "placementAuthority": PLACEMENT_AUTHORITY,
+            "hingeEligible": True,
+            "originMm": plane.origin_mm.tolist(),
+            "pushedForFov": plane.pushed_for_fov,
+            "slideUMm": float(slid["slideUMm"]),
+            "slideVMm": float(slid["slideVMm"]),
+            "yawDeg": float(slid["yawDeg"]),
+            "tcpErrorMm": slid["errorMm"],
+            "tcpSlideApplied": bool(slid.get("tcpSlideApplied", False)),
+            "tcpAimMm": np.asarray(target, dtype=float).tolist(),
+            "archScale": plane.arch_scale,
+            "caseFoundationFingerprint": fingerprint,
+        }
+        return summary
+
 
     def step6CbctVolumeRenderingDisplayNode(self, parameterNode):
         volume = parameterNode.inputVolume

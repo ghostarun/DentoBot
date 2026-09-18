@@ -655,6 +655,7 @@ class CaseFoundationLogicMixin:
             makeBaseStale=True,
         )
         self.deleteRobotWorkspaceModel()
+        self._staleVirtualForeheadPrior(parameterNode, reason)
 
     def invalidateCaseFoundationForSourceChange(
         self,
@@ -689,6 +690,18 @@ class CaseFoundationLogicMixin:
         parameterNode.step6CaseJawPreparationMode = "LegacyUnverified"
         parameterNode.step6PlanningContextImported = False
         self._invalidateCaseFoundationPoseDependents(parameterNode, reason)
+
+    def _staleVirtualForeheadPrior(self, parameterNode, reason: str) -> None:
+        for node in (
+            parameterNode.robotForeheadProxyModel,
+            parameterNode.robotMountPlane,
+        ):
+            if node is None:
+                continue
+            if str(node.GetAttribute("DENTOBOT.PlacementAuthority") or "") != "VirtualForeheadPriorV1":
+                continue
+            node.SetAttribute("DENTOBOT.GeometryState", "Stale")
+            node.SetAttribute("DENTOBOT.StaleReason", str(reason))
 
     def invalidateCaseFoundationBase(self, parameterNode, reason: str) -> None:
         base = parameterNode.robotBaseTransform

@@ -21,6 +21,11 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
 ## Current handoff
 
+- **2026-09-18 — Virtual forehead prior (simulation only):** After AUTO
+  open-mouth, Step 6 can **Propose virtual forehead + base**. Plane is
+  extra-FOV; base seating is identity extraoral (not −90° X / TCP slide).
+  Not `S6-U-02` closure; no robot hardware motion.
+
 - **2026-09-18 — Case Foundation AUTO-primary GUI (source-complete):** Default
   operator path is **Open mouth (AUTO)** → visual confirm → **Confirm and
   continue to Step 4A**. Manual landmarks are fallback only. Headless

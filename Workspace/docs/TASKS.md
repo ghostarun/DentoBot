@@ -1363,7 +1363,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 |---|---|---|
 | `S3-U-01` | Scan/run inspection workflow implemented; focused Slicer PASS | Operator reload and visual check on the real preDental/postDental scene; confirm Step 0–3 context bar, source-paired switching, compare, rename, and Step 4 handoff |
 | `S6-U-04` | Fix implemented; normal-window acceptance pending. Goal 1 diagnostics **Close** did not dismiss the window before or after evidence review, forcing use of the title-bar X | Run Goal 1, open diagnostics, verify **Close** dismisses it both before and after **Mark Current Evidence Reviewed**, then reopen it and confirm no stale callback/window state |
-| `S6-U-02` | Manual Simulation Base containment accepted; physical forehead/mount relationship unresolved | Obtain mount-face CAD/contact normal and define patient-contact-to-base transform, offsets, review, persistence, and invalidation |
+| `S6-U-02` | Manual Simulation Base containment accepted; physical forehead/mount relationship unresolved. 2026-09-18 simulation `VirtualForeheadPriorV1` is not this acceptance | Obtain mount-face CAD/contact normal and define patient-contact-to-base transform, offsets, review, persistence, and invalidation |
 | `W4-U-01` | Active design | Define reviewed crown region and MPR contract, then implement source-fingerprinted Entry snapping |
 | `W5-U-01` | Source gate implemented: new-case trajectory-guide channel/hole defaults and UI floor are 2.0 mm; the immutable 13-Sept source still stores 1.5 mm in both fields. Focused legacy-hole Step-5B preflight now fails before cached work; representative/physical fit acceptance and optional export manifest remain open | Only in an explicitly revised new case, regenerate dependent Step 5B/5C geometry at the 2.0 mm guide-hole floor and review guide/burr and physical fit. Do not mutate the immutable source or substitute that case into frozen Campaign-1 r7/P3. Decide optional path-independent STL manifest separately |
 | `IMG-U-01` | Representative acceptance pending | Compare authoritative masks and optional display previews on governed CBCT; define acquisition/artifact/segmentation uncertainty evidence |
@@ -1444,6 +1444,7 @@ reproducibility record, changelog, and dated logbook.
 | Earlier spindle-roll candidate planning | Superseded by spindle-locked arm-route planning; old evidence is historical only |
 | Economical workflow modularization | Completed; the active ROS scene-clear abort remains only under `S6-U-01` |
 | Virtual open-mouth AUTO-primary GUI (2026-09-18) | Source-complete on `cursor-agent/dentoworkflow-debug-20260918`. Production path is AUTO propose → visualize → confirm → Step 4A. Manual landmarks are fallback only. Unit tests 20 passed; `runtime.auto_open_mouth_test1_post` PASS (`ARCH_INFERRED`, `landmarkSource=AUTO`). TRL-4 occlusal-plane / condyle-head ROI / DW_Derived viz remain later work, not this GUI contract. |
+| Virtual forehead prior V1 (2026-09-18) | Simulation visualization/placement source-complete. Independent of robot pose. Does not close `S6-U-02`. Pure tests in `test_virtual_forehead_mount.py`. |
 
 ## Verification workflow learning session — DENTO-NOTE 2026-09-11
 

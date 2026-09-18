@@ -15,7 +15,11 @@ The persistent jaw-opening transform is the parent frame for mandibular
 trajectories, ROI, docking/support/insertion outputs, shell and final template.
 Existing nodes are converted once into jaw-local coordinates with their world
 pose preserved. Maxillary descendants, source anatomy, robot, Manual Simulation
-Base and Task Home stay in world/head-fixed coordinates. Display-volume previews
+Base and Task Home stay in world/head-fixed coordinates. A
+`VirtualForeheadPriorV1` patch may be proposed in world RAS from the dental
+frame and CBCT FOV bounds to seat an unreviewed extraoral simulation base
+(identity `T_forehead_base`, no TCP-to-incisor slide); it is not
+parented to the jaw transform and is not physical mount evidence. Display-volume previews
 change only the transform matrix and never resample the source anatomy.
 
 Step 6 is layered: activate an eligible PreparedBranch; reconstruct/review the

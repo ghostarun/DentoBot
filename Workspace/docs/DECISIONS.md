@@ -5884,3 +5884,19 @@ then **Confirm and continue to Step 4A**. Landmark placement, force-manual
 axis, and articulator probe are a collapsed fallback, revealed when AUTO
 fails or the operator explicitly opens that section. AUTO and manual
 landmarks are not co-equal primary controls.
+
+## 2026-09-18 — Virtual forehead prior for restricted-FOV base seating
+
+**Decision:** Approximate Manual Simulation Base placement uses
+`VirtualForeheadPriorV1`: a geometric glabella/forehead plane from the opened
+Case Foundation dental frame (arch-scaled superior/posterior offsets, reclined
+outward normal, optional push just outside the CBCT RAS AABB). The robot base
+is `T_world_forehead @ T_forehead_base` with frozen URDF-zero joints.
+`T_forehead_base` is identity so URDF +Z hangs extraoral along the forehead
+outward normal (operator desired-vs-AUTO screenshots, 2026-09-18). Propose does
+**not** planar-slide the compact q=0 TCP onto the incisor; that seating put the
+chain through the FOV. Nodes are VisualizationOnly / Unregistered / excluded from collision.
+The circular base-derived mount snap stays quarantined. This does **not** close
+`S6-U-02` physical forehead CAD/normal truth. Operator review-and-lock remains
+required. No hardware motion.
+

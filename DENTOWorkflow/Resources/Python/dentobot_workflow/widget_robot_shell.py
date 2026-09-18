@@ -304,13 +304,32 @@ class RobotShellWidgetMixin:
     def _onStep6CreateForeheadProxy(self) -> None:
         if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
             return
-        message = _(
-            "Forehead-proxy creation is quarantined with the circular mount-plane "
-            "workflow. Existing proxies remain visualization-only; position the "
-            "Manual Simulation Base directly in Robot + CBCT context."
-        )
-        self._robotSimulationPanel.visualizationStatusLabel.text = message
-        slicer.util.errorDisplay(message)
+        try:
+            summary = self.logic.proposeVirtualForeheadAndBase(self._parameterNode)
+            error_mm = summary.get("tcpErrorMm")
+            error_text = (
+                f"{float(error_mm):.1f} mm"
+                if error_mm == error_mm
+                else "n/a"
+            )
+            slide_note = (
+                "TCP slide on"
+                if summary.get("tcpSlideApplied")
+                else "extraoral seat, no TCP slide"
+            )
+            message = _(
+                "Proposed virtual forehead + unreviewed base "
+                "(authority=%1, FOV-push=%2, %3, unslid TCP error %4). "
+                "Review in Robot + CBCT and lock. Not physical mount truth."
+            ).replace("%1", str(summary.get("placementAuthority"))).replace(
+                "%2", str(summary.get("pushedForFov"))
+            ).replace("%3", slide_note).replace("%4", error_text)
+            self._robotSimulationPanel.visualizationStatusLabel.text = message
+            self._updateRobotPlacement()
+            self._applyStep6RecommendedView()
+        except (RuntimeError, ValueError) as exc:
+            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
+            slicer.util.errorDisplay(str(exc))
 
     def _onStep6PlacementReview(self) -> None:
         if not self._robotSimulationPanel:
