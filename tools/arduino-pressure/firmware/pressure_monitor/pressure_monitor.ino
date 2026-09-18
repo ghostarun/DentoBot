@@ -1,20 +1,44 @@
 /*
  * DENTOBOT pneumatic pressure firmware for Arduino UNO WiFi R4.
  *
+ * Arduino IDE name: sketch (this file is the sketch entry point).
+ *
  * Line format expected by pressure_monitor.py:
  *   seq,micros,raw_adc
  *
- * 14-bit ADC, 460800 baud, NXP MPX5700 on A0.
- * Default sample rate 1000 Hz. MPX5700 tR typical 1.0 ms (10-90%) implies
- * analog bandwidth ~350 Hz; 1 kHz is about 3x that bandwidth (NXP MPX5700
- * Rev 10). Host may send:
+ * 14-bit ADC, NXP MPX5700 on A0. USB serial uses 460800 baud.
+ * Optional WiFi: TCP server on PRESSURE_TCP_PORT (see arduino_secrets.h).
+ * Same text lines and commands on USB and WiFi.
+ *
+ * Default sample rate 1000 Hz. Host may send:
  *   RATE <hz>
- * with hz in 200-1500. The sketch replies with a comment line
+ * with hz in 200-1500. Reply comment line:
  *   # RATE <hz>
- * Data lines stay seq,micros,raw_adc.
+ *
+ * After WiFi join, USB prints:
+ *   # WIFI IP <address>
+ *   # TCP port <port>
  *
  * Sensing only. Does not command a robot or drill.
  */
+
+#include <WiFiS3.h>
+#include "arduino_secrets.h"
+
+#ifndef PRESSURE_WIFI_MODE
+#if defined(PRESSURE_WIFI_ENABLE) && (PRESSURE_WIFI_ENABLE == 0)
+#define PRESSURE_WIFI_MODE 0
+#else
+#define PRESSURE_WIFI_MODE 1
+#endif
+#endif
+
+#ifndef AP_SSID
+#define AP_SSID "DENTOBOT-Pressure"
+#endif
+#ifndef AP_PASS
+#define AP_PASS "dentobot-pressure"
+#endif
 
 const int PRESSURE_PIN = A0;
 const int ADC_BITS = 14;
@@ -26,7 +50,12 @@ const int MAX_HZ = 1500;
 unsigned long seq = 0;
 unsigned long period_us = 1000000UL / DEFAULT_HZ;
 unsigned long next_us = 0;
-String cmd;
+String serialCmd;
+String wifiCmd;
+
+WiFiServer tcpServer(PRESSURE_TCP_PORT);
+WiFiClient tcpClient;
+bool wifiReady = false;
 
 int clampHz(int hz)
 {
@@ -47,35 +76,130 @@ void applyRate(int hz)
   period_us = 1000000UL / (unsigned long)hz;
 }
 
-void pollCommand()
+void emitLine(const String &line)
 {
-  while (Serial.available() > 0)
+  Serial.println(line);
+  if (tcpClient && tcpClient.connected())
   {
-    const char c = (char)Serial.read();
+    tcpClient.println(line);
+  }
+}
+
+void handleRateCommand(const String &cmd)
+{
+  if (!cmd.startsWith("RATE"))
+  {
+    return;
+  }
+  const int hz = cmd.substring(4).toInt();
+  if (hz <= 0)
+  {
+    return;
+  }
+  applyRate(hz);
+  String reply = "# RATE ";
+  reply += String(1000000UL / period_us);
+  emitLine(reply);
+}
+
+void pollCommandStream(Stream &stream, String &buffer)
+{
+  while (stream.available() > 0)
+  {
+    const char c = (char)stream.read();
     if (c == '\n' || c == '\r')
     {
-      cmd.trim();
-      if (cmd.startsWith("RATE"))
+      buffer.trim();
+      if (buffer.length() > 0)
       {
-        const int hz = cmd.substring(4).toInt();
-        if (hz > 0)
-        {
-          applyRate(hz);
-          Serial.print("# RATE ");
-          Serial.println(1000000UL / period_us);
-        }
+        handleRateCommand(buffer);
       }
-      cmd = "";
+      buffer = "";
     }
     else
     {
-      cmd += c;
-      if (cmd.length() > 40)
+      buffer += c;
+      if (buffer.length() > 40)
       {
-        cmd = "";
+        buffer = "";
       }
     }
   }
+}
+
+void pollCommands()
+{
+  pollCommandStream(Serial, serialCmd);
+
+  if (wifiReady && (!tcpClient || !tcpClient.connected()))
+  {
+    WiFiClient incoming = tcpServer.available();
+    if (incoming)
+    {
+      tcpClient = incoming;
+      emitLine("# WIFI client connected");
+    }
+  }
+
+  if (wifiReady && tcpClient && tcpClient.connected())
+  {
+    pollCommandStream(tcpClient, wifiCmd);
+  }
+}
+
+void announceTcpServer()
+{
+  wifiReady = true;
+  String ipLine = "# WIFI IP ";
+  ipLine += WiFi.localIP();
+  emitLine(ipLine);
+
+  String portLine = "# TCP port ";
+  portLine += String(PRESSURE_TCP_PORT);
+  emitLine(portLine);
+
+  tcpServer.begin();
+}
+
+void startWifiStation()
+{
+  WiFi.begin(SECRET_SSID, SECRET_PASS);
+  const unsigned long deadline = millis() + 60000UL;
+  while (WiFi.status() != WL_CONNECTED && millis() < deadline)
+  {
+    delay(500);
+  }
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("# WIFI STA failed; USB serial only");
+    return;
+  }
+  emitLine("# WIFI mode STA");
+  announceTcpServer();
+}
+
+void startWifiAccessPoint()
+{
+  const int status = WiFi.beginAP(AP_SSID, AP_PASS);
+  if (status != WL_AP_LISTENING)
+  {
+    Serial.println("# WIFI AP failed; USB serial only");
+    return;
+  }
+  emitLine("# WIFI mode AP");
+  String ssidLine = "# AP SSID ";
+  ssidLine += AP_SSID;
+  emitLine(ssidLine);
+  announceTcpServer();
+}
+
+void startWifi()
+{
+#if PRESSURE_WIFI_MODE == 2
+  startWifiAccessPoint();
+#elif PRESSURE_WIFI_MODE == 1
+  startWifiStation();
+#endif
 }
 
 void setup()
@@ -84,11 +208,16 @@ void setup()
   Serial.begin(BAUD);
   applyRate(DEFAULT_HZ);
   next_us = micros();
+#if PRESSURE_WIFI_MODE != 0
+  startWifi();
+#else
+  Serial.println("# WIFI disabled; USB serial only (use host bridge for TCP)");
+#endif
 }
 
 void loop()
 {
-  pollCommand();
+  pollCommands();
   const unsigned long now = micros();
   if ((long)(now - next_us) < 0)
   {
@@ -102,10 +231,14 @@ void loop()
 
   const int raw = analogRead(PRESSURE_PIN);
   const unsigned long t = micros();
-  Serial.print(seq);
-  Serial.print(',');
-  Serial.print(t);
-  Serial.print(',');
-  Serial.println(raw);
+
+  String line;
+  line.reserve(32);
+  line += seq;
+  line += ',';
+  line += t;
+  line += ',';
+  line += raw;
+  emitLine(line);
   seq++;
 }

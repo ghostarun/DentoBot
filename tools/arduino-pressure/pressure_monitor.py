@@ -7,7 +7,6 @@ from pathlib import Path
 from datetime import datetime
 
 import numpy as np
-import serial
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -45,14 +44,26 @@ from pressure_config import (
     fs_mismatch,
     status_line,
 )
-from pressure_cli import apply_monitor_cli
+from pressure_cli import parse_monitor_args
+from pressure_transport import PressureLink, open_pressure_link
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-PORT, BAUD = apply_monitor_cli()
+# True: run with no CLI args uses WiFi TCP (board AP). False: USB serial default.
+USE_WIFI_BY_DEFAULT = True
+DEFAULT_WIFI_HOST = "192.168.4.1"
+DEFAULT_WIFI_PORT = 8765
+
+_cli_args = parse_monitor_args()
+PORT, BAUD = _cli_args.port, _cli_args.baud
+_USE_WIFI = _cli_args.wifi
+if USE_WIFI_BY_DEFAULT:
+    _USE_WIFI = True
+    if not (_cli_args.wifi_host or "").strip():
+        _cli_args.wifi_host = DEFAULT_WIFI_HOST
 
 pipeline = PipelineConfig(baud=BAUD)
 
@@ -103,36 +114,41 @@ last_cued_label = None
 # SERIAL
 # ============================================================
 
-print(f"Opening {PORT} at {BAUD}...")
-
-try:
-    ser = serial.Serial(
-        PORT,
-        BAUD,
-        timeout=0
-    )
-except serial.SerialException as exc:
+if _USE_WIFI:
     print(
-        f"Could not open {PORT} at {BAUD}: {exc}\n"
-        "List ports:  python pressure_monitor.py --list-ports\n"
-        "Then retry:  python pressure_monitor.py --port <device>"
+        f"Opening WiFi TCP {_cli_args.wifi_host}:{_cli_args.wifi_port}..."
     )
-    raise SystemExit(1) from exc
+else:
+    print(f"Opening {PORT} at {BAUD}...")
 
-time.sleep(1.0)
-ser.reset_input_buffer()
+_wifi_port = (
+    DEFAULT_WIFI_PORT if USE_WIFI_BY_DEFAULT else _cli_args.wifi_port
+)
+link: PressureLink = open_pressure_link(
+    PORT,
+    BAUD,
+    use_wifi=_USE_WIFI,
+    wifi_host=_cli_args.wifi_host,
+    wifi_port=_wifi_port,
+)
+
+if not _USE_WIFI:
+    time.sleep(1.0)
+link.reset_input_buffer()
 
 print("Connected.")
+if _USE_WIFI:
+    print("USB serial is not used; data and RATE commands go over WiFi TCP.")
 print("Live display is idle until Start Recording + Cues.\n")
 
 
 def send_sample_rate(hz: float) -> None:
-    if not ser.is_open:
+    if not link.is_open:
         return
     pipeline.sample_hz = float(hz)
     try:
-        ser.write(f"RATE {int(round(pipeline.sample_hz))}\n".encode("ascii"))
-    except (OSError, serial.SerialException):
+        link.write_line(f"RATE {int(round(pipeline.sample_hz))}")
+    except OSError:
         pass
 
 
@@ -1399,25 +1415,15 @@ def update():
     global rx_buffer
     global last_flush
 
-    if not ser.is_open:
+    if not link.is_open:
         return
 
     try:
-        waiting = ser.in_waiting
-    except (
-        TypeError,
-        OSError,
-        serial.SerialException
-    ):
+        chunk = link.read_chunk().decode(errors="ignore")
+    except (TypeError, OSError):
         return
 
-    if waiting:
-
-        chunk = ser.read(
-            waiting
-        ).decode(
-            errors="ignore"
-        )
+    if chunk:
 
         rx_buffer += chunk
 
@@ -1540,10 +1546,10 @@ def cleanup():
         stop_recording()
     finally:
 
-        if ser.is_open:
+        if link.is_open:
 
             try:
-                ser.close()
+                link.close()
             except Exception:
                 pass
 

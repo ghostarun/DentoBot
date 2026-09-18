@@ -369,9 +369,11 @@ Operator-approved **upload-only** sync for individual `*.dentocase` bundles
    `systemctl --user enable --now gdrive-data-sync.service`
 6. Manual upload: `Workspace/scripts/gdrive-data-sync.bash once`
 
-Logs: `data/drive-sync/gdrive-sync.log`. Uses `rclone copy` (upload new/changed
-`*.dentocase` and `data/Slicer_Saved/DRIVE_SYNC_INSTRUCTIONS.md`; does **not**
-delete Drive files you remove from staging). Operator guide:
+Logs: `data/drive-sync/gdrive-sync.log`. Ongoing service uses `rclone copy` for
+staged `*.dentocase` only (does **not** delete remote files removed from
+staging). One-time full tree: `gdrive-data-sync.bash bulk-slicer-saved-once`
+uploads all of `data/Slicer_Saved/` to `Data/Slicer_Saved/` on Drive (~5 GiB;
+see `gdrive-bulk-slicer-saved.log`). Operator guide:
 `data/Slicer_Saved/DRIVE_SYNC_INSTRUCTIONS.md`.
 Large bundles (>100 MiB) require rclone (the Cursor Drive connector limit does
 not apply). Drive edits are not pulled back to the workstation.

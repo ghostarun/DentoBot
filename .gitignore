@@ -56,6 +56,7 @@ tools/arduino-pressure/pressure_runs/run_*/
 tools/arduino-pressure/.venv/
 tools/arduino-pressure/venv/
 tools/arduino-pressure/graphify-out/
+tools/arduino-pressure/firmware/pressure_monitor/arduino_secrets.h
 
 # Local knowledge-graph and Drive-sync scratch (regenerate / do not commit)
 graphify-out/
