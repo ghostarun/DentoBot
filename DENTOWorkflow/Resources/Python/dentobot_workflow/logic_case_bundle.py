@@ -616,19 +616,26 @@ class CaseBundleLogicMixin:
                     and savedSegmentation == currentSegmentation
                 )
                 if exactSources:
-                    transform.SetAttribute(
-                        "DENTOBOT.HingeModelSchema",
-                        self.CASE_FOUNDATION_HINGE_SCHEMA,
+                    hinge_schema = str(
+                        transform.GetAttribute("DENTOBOT.HingeModelSchema") or ""
                     )
-                    transform.SetAttribute("DENTOBOT.GeometryState", "Current")
-                    transform.SetAttribute("DENTOBOT.StaleReason", None)
-                    parameterNode.step6CaseJawPreparationMode = "CaseFoundationCurrent"
-                    self.rebuildCaseFoundationDisplayVolumes(parameterNode)
-                    foundation = self.buildCaseFoundationSnapshot(parameterNode)
-                    transform.SetAttribute(
-                        "DENTOBOT.PlanningPoseFingerprint",
-                        foundation.planning_pose_fingerprint,
-                    )
+                    if hinge_schema == self.CASE_FOUNDATION_HINGE_SCHEMA:
+                        transform.SetAttribute("DENTOBOT.GeometryState", "Current")
+                        transform.SetAttribute("DENTOBOT.StaleReason", None)
+                        parameterNode.step6CaseJawPreparationMode = "CaseFoundationCurrent"
+                        self.rebuildCaseFoundationDisplayVolumes(parameterNode)
+                        foundation = self.buildCaseFoundationSnapshot(parameterNode)
+                        transform.SetAttribute(
+                            "DENTOBOT.PlanningPoseFingerprint",
+                            foundation.planning_pose_fingerprint,
+                        )
+                    else:
+                        transform.SetAttribute("DENTOBOT.GeometryState", "Stale")
+                        transform.SetAttribute(
+                            "DENTOBOT.StaleReason",
+                            "LEGACY_JAW_OPENING_UNSUPPORTED",
+                        )
+                        parameterNode.step6CaseJawPreparationMode = "LegacyUnverified"
                 else:
                     transform.SetAttribute("DENTOBOT.GeometryState", "Stale")
                     transform.SetAttribute(
@@ -929,6 +936,9 @@ class CaseBundleLogicMixin:
             "DENTOBOT.StaleReason",
             "DENTOBOT.RobotBaseMountLocked",
             "DENTOBOT.JawMotion",
+            "DENTOBOT.HingeModelSchema",
+            "DENTOBOT.OpenMouthModelVersion",
+            "DENTOBOT.ArticulatorProvenanceJson",
             "DENTOBOT.TargetIncisorGapMm",
             "DENTOBOT.AchievedIncisorGapMm",
             "DENTOBOT.HingeAngleDeg",
@@ -941,6 +951,8 @@ class CaseBundleLogicMixin:
             "DENTOBOT.TargetSegmentID",
             "DENTOBOT.TargetAttachedGeometryFingerprint",
             "DENTOBOT.MovingSegmentIdsJson",
+            "DENTOBOT.FixedSegmentIdsJson",
+            "DENTOBOT.FixedGeometryFingerprint",
             cls.REGISTRY_TARGET_ID_ATTRIBUTE,
             cls.REGISTRY_TRAJECTORY_ID_ATTRIBUTE,
             cls.REGISTRY_TRAJECTORY_SLOT_ATTRIBUTE,
@@ -1098,7 +1110,28 @@ class CaseBundleLogicMixin:
                         )
                         else ""
                     ),
-                    "motionModel": "PureTMJHingeRotation",
+                    "motionModel": "VirtualOpenMouthArticulator",
+                    "hingeModelSchema": (
+                        parameterNode.step6CaseJawTransform.GetAttribute(
+                            "DENTOBOT.HingeModelSchema"
+                        )
+                        if self.isStep6CaseJawTransformNode(
+                            parameterNode.step6CaseJawTransform
+                        )
+                        else ""
+                    ),
+                    "articulatorProvenance": (
+                        json.loads(
+                            parameterNode.step6CaseJawTransform.GetAttribute(
+                                "DENTOBOT.ArticulatorProvenanceJson"
+                            )
+                            or "{}"
+                        )
+                        if self.isStep6CaseJawTransformNode(
+                            parameterNode.step6CaseJawTransform
+                        )
+                        else None
+                    ),
                 },
                 "taskHome": (
                     json.loads(parameterNode.step6TaskHomeJson)

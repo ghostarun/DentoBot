@@ -5858,3 +5858,14 @@ and artifact-inventory worker summaries remain evidence inputs. A fresh Sol
 independent review ended before substantive output at the account usage limit.
 The unavailable review is recorded as a process limitation, not a technical
 contradiction and not a reason to discard or automatically accept prior work.
+
+## 2026-09-18 — Virtual Open-Mouth Articulator hinge AUTO selection
+
+**Decision:** Case Foundation opening uses one mean-value q kinematic solver
+(`VirtualOpenMouthArticulatorV1`) with hinge-source AUTO resolution:
+segmented mandible-surface condyle centres when patient-axis QA passes, else
+arch-inferred virtual axis (scaled from lateral dental geometry), else manual
+TMJ landmark axis only when arch validation fails. Manual four-landmark placement
+remains required for incisors and anatomy gates; operators may force manual axis
+via `DENTOBOT.ForceManualCondylarAxis` on the jaw landmark node. Simulation prior
+only — not surgical registration truth.

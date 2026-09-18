@@ -547,6 +547,17 @@ class RobotSceneWidgetMixin:
                 transform = self._parameterNode.step6CaseJawTransform
                 angle = transform.GetAttribute("DENTOBOT.HingeAngleDeg") or "--"
                 gap = transform.GetAttribute("DENTOBOT.AchievedIncisorGapMm") or "--"
+                hinge_source = "--"
+                provenance_json = transform.GetAttribute(
+                    "DENTOBOT.ArticulatorProvenanceJson"
+                )
+                if provenance_json:
+                    try:
+                        hinge_source = str(
+                            json.loads(provenance_json).get("hinge_source") or "--"
+                        )
+                    except (TypeError, json.JSONDecodeError):
+                        hinge_source = "--"
                 model = self._parameterNode.step6OpenedLowerJawModel
                 try:
                     movingCount = (
@@ -562,11 +573,11 @@ class RobotSceneWidgetMixin:
                 except (TypeError, json.JSONDecodeError):
                     movingCount = 0
                 text = _(
-                    "Case Foundation current: rigid TMJ hinge display %1°, measured "
-                    "incisor gap %2 mm; %3 lower-jaw surface(s) share the jaw transform."
-                ).replace("%1", angle).replace("%2", gap).replace(
-                    "%3", str(movingCount)
-                )
+                    "Case Foundation current: hinge %1, rigid opening %2°, measured "
+                    "incisor gap %3 mm; %4 lower-jaw surface(s) share the jaw transform."
+                ).replace("%1", hinge_source).replace("%2", angle).replace(
+                    "%3", gap
+                ).replace("%4", str(movingCount))
                 style = "color: #207227;"
         self.ui.step6CaseJawOpeningStatusLabel.text = text
         self.ui.step6CaseJawOpeningStatusLabel.styleSheet = style

@@ -829,13 +829,13 @@ class Step6SceneLogicMixin:
             parameterNode.step6CaseJawLandmarks
         )
         self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
-        angle, matrix, openedLower, gap = solve_anatomy_directed_hinge_rotation_for_gap(
-            left,
-            right,
-            upper,
-            lower,
+        articulator_result, upper, openedLower = self._solveCaseFoundationOpeningArticulator(
+            parameterNode,
             float(parameterNode.step6CaseJawTargetGapMm),
         )
+        matrix = articulator_result.matrix_world_ras
+        angle = float(articulator_result.theta_deg)
+        gap = float(articulator_result.achieved_opening_mm)
         sourceSurface = self._segmentationSegmentsSurfaceWorld(
             segmentation,
             set(lowerIds),
@@ -863,8 +863,16 @@ class Step6SceneLogicMixin:
         transform.SetAttribute("DENTOBOT.SchemaVersion", self.STEP6_CASE_JAW_SCHEMA_VERSION)
         transform.SetAttribute("DENTOBOT.GeometryState", "Current")
         transform.SetAttribute("DENTOBOT.StaleReason", None)
-        transform.SetAttribute("DENTOBOT.JawMotion", "PureTMJHingeRotation")
+        transform.SetAttribute("DENTOBOT.JawMotion", "VirtualOpenMouthArticulator")
         transform.SetAttribute("DENTOBOT.HingeModelSchema", self.CASE_FOUNDATION_HINGE_SCHEMA)
+        transform.SetAttribute(
+            "DENTOBOT.OpenMouthModelVersion",
+            articulator_result.provenance.get("openMouthModelVersion", ""),
+        )
+        transform.SetAttribute(
+            "DENTOBOT.ArticulatorProvenanceJson",
+            canonical_json(articulator_result.provenance),
+        )
         transform.SetAttribute(
             "DENTOBOT.TargetIncisorGapMm",
             f"{float(parameterNode.step6CaseJawTargetGapMm):.6f}",
@@ -1021,8 +1029,12 @@ class Step6SceneLogicMixin:
                 "schemaVersion": self.STEP6_CASE_JAW_SCHEMA_VERSION,
                 "mode": "CaseFoundationCurrent",
                 "state": "Current",
-                "motionModel": "AnatomyDirectedPureTMJHingeRotation",
+                "motionModel": "VirtualOpenMouthArticulator",
                 "hingeModelSchema": self.CASE_FOUNDATION_HINGE_SCHEMA,
+                "openMouthModelVersion": articulator_result.provenance.get(
+                    "openMouthModelVersion", ""
+                ),
+                "articulatorProvenance": articulator_result.provenance,
                 "openingRevision": int(parameterNode.caseFoundationOpeningRevision),
                 "fixedUpperSegmentIds": list(upperIds),
                 "movingLowerSegmentIds": list(lowerIds),
@@ -1031,6 +1043,9 @@ class Step6SceneLogicMixin:
                 "targetGapMm": float(parameterNode.step6CaseJawTargetGapMm),
                 "achievedGapMm": float(gap),
                 "hingeAngleDeg": float(angle),
+                "openingParameterQ": float(articulator_result.q),
+                "condylarTranslationMm": float(articulator_result.translation_mm),
+                "hingeSource": articulator_result.hinge_source.value,
                 "worldRasMatrix": tuple(
                     tuple(float(value) for value in row) for row in matrix
                 ),

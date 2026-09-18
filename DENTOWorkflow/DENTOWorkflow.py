@@ -32,6 +32,7 @@ from dentobot_workflow.logic_guide_support import GuideSupportLogicMixin
 from dentobot_workflow.logic_patient_shell import PatientShellLogicMixin
 from dentobot_workflow.logic_robot import RobotLogicMixin
 from dentobot_workflow.logic_segmentation import SegmentationLogicMixin
+from dentobot_workflow.logic_step6_condyle_extraction import Step6CondyleExtractionMixin
 from dentobot_workflow.logic_step6_scene import Step6SceneLogicMixin
 from dentobot_workflow.logic_workflow import WorkflowLogicMixin
 from dentobot_workflow.parameter_state import DENTOWorkflowParameterNode
@@ -102,6 +103,7 @@ class DENTOWorkflowLogic(
     GuideSupportLogicMixin,
     WorkflowLogicMixin,
     RobotLogicMixin,
+    Step6CondyleExtractionMixin,
     CaseFoundationLogicMixin,
     Step6SceneLogicMixin,
     CaseBundleLogicMixin,
