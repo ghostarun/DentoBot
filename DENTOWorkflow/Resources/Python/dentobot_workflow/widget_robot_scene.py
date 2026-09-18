@@ -433,7 +433,15 @@ class RobotSceneWidgetMixin:
                 and (pointCount > 0 or placementPending)
             )
             self.ui.applyStep6CaseJawOpeningButton.enabled = bool(
-                sourceReady and not blocked and reviewedComplete
+                sourceReady and not blocked
+            )
+            pose_eligible = bool(
+                self.logic.evaluateCaseFoundationEligibility(
+                    self._parameterNode
+                )["pose"]["eligible"]
+            )
+            self.ui.caseFoundationGoToStep4Button.enabled = bool(
+                pose_eligible and not blocked
             )
             self.ui.resetStep6CaseJawOpeningButton.enabled = bool(
                 not rosActive
@@ -450,7 +458,7 @@ class RobotSceneWidgetMixin:
                 getattr(self, "_caseFoundationSnapshot", None)
             )
             self.ui.caseFoundationGapSlider.enabled = bool(
-                reviewedComplete
+                sourceReady
                 and self.logic.isStep6CaseJawTransformNode(
                     self._parameterNode.step6CaseJawTransform
                 )
@@ -462,6 +470,41 @@ class RobotSceneWidgetMixin:
                     round(float(self._parameterNode.step6CaseJawTargetGapMm) * 10.0)
                 )
                 self.ui.caseFoundationGapSlider.blockSignals(False)
+            if hasattr(self.ui, "step6ForceManualCondylarAxisCheckBox"):
+                force_manual = bool(
+                    node
+                    and str(
+                        node.GetAttribute("DENTOBOT.ForceManualCondylarAxis") or ""
+                    )
+                    .strip()
+                    .lower()
+                    in {"1", "true", "yes"}
+                )
+                self.ui.step6ForceManualCondylarAxisCheckBox.blockSignals(True)
+                self.ui.step6ForceManualCondylarAxisCheckBox.checked = force_manual
+                self.ui.step6ForceManualCondylarAxisCheckBox.blockSignals(False)
+                self.ui.step6ForceManualCondylarAxisCheckBox.enabled = bool(
+                    reviewedComplete and not blocked
+                )
+                self.ui.applyStep6CaseJawOpeningButton.text = (
+                    _("Open mouth (manual landmarks)")
+                    if force_manual
+                    else _("Open mouth (AUTO)")
+                )
+                if hasattr(self.ui, "caseFoundationManualFallbackGroupBox") and (
+                    force_manual or placementPending
+                ):
+                    self.ui.caseFoundationManualFallbackGroupBox.collapsed = False
+            else:
+                self.ui.applyStep6CaseJawOpeningButton.text = _("Open mouth (AUTO)")
+            if hasattr(self.ui, "probeCaseFoundationArticulatorButton"):
+                self.ui.probeCaseFoundationArticulatorButton.enabled = bool(
+                    sourceReady and not blocked
+                )
+            if hasattr(self.ui, "copyCaseFoundationArticulatorJsonButton"):
+                self.ui.copyCaseFoundationArticulatorJsonButton.enabled = bool(
+                    getattr(self, "_lastArticulatorProvenanceJson", "")
+                )
         finally:
             self._updatingRobotPlacementUI = False
 
@@ -528,20 +571,19 @@ class RobotSceneWidgetMixin:
                 )
                 if pointCount == 4 and evidenceIssues:
                     text = _(
-                        "The four visible landmark points have not passed the "
-                        "guided Case Foundation surface workflow; their anatomical "
-                        "positions have not been evaluated by the hinge solver. "
-                        "Use Review / re-snap existing landmarks for an explicit "
-                        "current-surface check, or Clear and arm each labelled "
-                        "surface in sequence. Fallback is not authorized by this "
-                        "operator-review prerequisite. %1"
+                        "Optional landmark correction is incomplete: the four "
+                        "visible points have not passed the guided surface "
+                        "workflow. AUTO commit does not require them. To use "
+                        "manual override, Review / re-snap or Clear and replace. %1"
                     ).replace("%1", " ".join(evidenceIssues))
-                else:
+                elif pointCount:
                     text = (
-                        _("Case jaw landmarks placed: %1/4. %2")
+                        _("Optional landmarks placed: %1/4. %2")
                         .replace("%1", str(pointCount))
                         .replace("%2", " ".join(issues))
                     )
+                else:
+                    text = " ".join(issues)
                 style = "color: #b36b00;"
             else:
                 transform = self._parameterNode.step6CaseJawTransform
@@ -581,6 +623,242 @@ class RobotSceneWidgetMixin:
                 style = "color: #207227;"
         self.ui.step6CaseJawOpeningStatusLabel.text = text
         self.ui.step6CaseJawOpeningStatusLabel.styleSheet = style
+        if not message and hasattr(self.ui, "step6ArticulatorDiagnosticsLabel"):
+            probe_summary = self._articulatorProbeSummaryFromTransform()
+            if probe_summary:
+                self._setCaseFoundationArticulatorDiagnostics(probe_summary)
+
+    def _formatCaseFoundationArticulatorProbe(self, summary: dict) -> str:
+        lines = [
+            _("selection=%1  hinge_source=%2  confidence=%3")
+            .replace("%1", str(summary.get("selection", "--")))
+            .replace("%2", str(summary.get("hingeSource", "--")))
+            .replace(
+                "%3",
+                f"{float(summary.get('axisConfidence', 0.0)):.2f}",
+            ),
+            _("target=%1 mm  achieved=%2 mm  q=%3  theta=%4°  translation=%5 mm")
+            .replace("%1", f"{float(summary.get('targetGapMm', 0.0)):.1f}")
+            .replace("%2", f"{float(summary.get('achievedGapMm', 0.0)):.2f}")
+            .replace("%3", f"{float(summary.get('openingParameterQ', 0.0)):.3f}")
+            .replace("%4", f"{float(summary.get('thetaDeg', 0.0)):.2f}")
+            .replace("%5", f"{float(summary.get('condylarTranslationMm', 0.0)):.2f}"),
+        ]
+        closed_gap = summary.get("closedGapMm")
+        profile_max = summary.get("profileMaxGapMm")
+        if closed_gap is not None and profile_max is not None:
+            lines.append(
+                _("closed=%1 mm  profile_max=%2 mm")
+                .replace("%1", f"{float(closed_gap):.2f}")
+                .replace("%2", f"{float(profile_max):.2f}")
+            )
+        arch_scale = summary.get("archScale")
+        if arch_scale is not None:
+            lines.append(_("archScale=%1").replace("%1", f"{float(arch_scale):.3f}"))
+        comparison = summary.get("segmentedComparison")
+        if isinstance(comparison, dict):
+            lines.append(
+                _(
+                    "manual vs auto condyle offset (L/R): %1 / %2 mm; separation delta %3 mm"
+                )
+                .replace("%1", f"{float(comparison.get('leftOffsetMm', 0.0)):.1f}")
+                .replace("%2", f"{float(comparison.get('rightOffsetMm', 0.0)):.1f}")
+                .replace(
+                    "%3", f"{float(comparison.get('separationDeltaMm', 0.0)):.1f}"
+                )
+            )
+        if summary.get("patientRejected"):
+            lines.append(
+                _("patient axis rejected: %1").replace(
+                    "%1", str(summary.get("patientRejected"))
+                )
+            )
+        if summary.get("segmentedExtractionError"):
+            lines.append(
+                _("segmented extraction: %1").replace(
+                    "%1", str(summary.get("segmentedExtractionError"))
+                )
+            )
+        return "\n".join(lines)
+
+    def _setCaseFoundationArticulatorDiagnostics(
+        self,
+        summary: dict | None,
+        *,
+        error: str = "",
+    ) -> None:
+        if not hasattr(self.ui, "step6ArticulatorDiagnosticsLabel"):
+            return
+        label = self.ui.step6ArticulatorDiagnosticsLabel
+        if error:
+            label.text = error
+            label.styleSheet = "color: #b00020;"
+            return
+        if not summary:
+            label.text = _(
+                "After Open mouth (AUTO), inspect the 3D opening and these "
+                "diagnostics, then Confirm and continue."
+            )
+            label.styleSheet = "color: #555555;"
+            return
+        provenance = summary.get("articulatorProvenance") or {}
+        self._lastArticulatorProvenanceJson = canonical_json(provenance)
+        label.text = self._formatCaseFoundationArticulatorProbe(summary)
+        label.styleSheet = "color: #207227;"
+        if hasattr(self.ui, "copyCaseFoundationArticulatorJsonButton"):
+            self.ui.copyCaseFoundationArticulatorJsonButton.enabled = bool(
+                self._lastArticulatorProvenanceJson
+            )
+
+    def _revealCaseFoundationManualFallback(self) -> None:
+        if hasattr(self.ui, "caseFoundationManualFallbackGroupBox"):
+            self.ui.caseFoundationManualFallbackGroupBox.collapsed = False
+
+    def _reportCaseFoundationActionFailure(self, exc: BaseException) -> None:
+        message = str(exc) or exc.__class__.__name__
+        self._revealCaseFoundationManualFallback()
+        try:
+            self._setCaseFoundationArticulatorDiagnostics(None, error=message)
+        except Exception:
+            pass
+        self._updateStep6CaseJawOpeningStatus(message, error=True)
+        slicer.util.errorDisplay(message)
+
+    def _articulatorProbeSummaryFromTransform(self) -> dict | None:
+        if not self._parameterNode or not self.logic:
+            return None
+        transform = self._parameterNode.step6CaseJawTransform
+        if not self.logic.isStep6CaseJawTransformNode(transform):
+            return None
+        raw = transform.GetAttribute("DENTOBOT.ArticulatorProvenanceJson") or ""
+        if not raw.strip():
+            return None
+        try:
+            provenance = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        resolution = provenance.get("hingeResolution") or {}
+        if not isinstance(resolution, dict):
+            resolution = {}
+        return {
+            "targetGapMm": float(provenance.get("target_opening_mm", 0.0)),
+            "achievedGapMm": float(provenance.get("achieved_opening_mm", 0.0)),
+            "hingeSource": str(provenance.get("hinge_source", "")),
+            "axisConfidence": float(provenance.get("axis_confidence", 0.0)),
+            "openingParameterQ": float(provenance.get("q", 0.0)),
+            "thetaDeg": float(provenance.get("theta_deg", 0.0)),
+            "condylarTranslationMm": float(provenance.get("translation_mm", 0.0)),
+            "selection": str(resolution.get("selection") or provenance.get("hinge_source", "")),
+            "patientRejected": resolution.get("patientRejected"),
+            "segmentedComparison": resolution.get("segmentedComparison"),
+            "archScale": resolution.get("archScale"),
+            "segmentedExtractionError": resolution.get("segmentedExtractionError"),
+            "articulatorProvenance": provenance,
+        }
+
+    def _articulatorProbeSummaryFromPreview(self, preview: dict) -> dict:
+        provenance = preview.get("articulatorProvenance") or {}
+        resolution = provenance.get("hingeResolution") or {}
+        if not isinstance(resolution, dict):
+            resolution = {}
+        return {
+            "targetGapMm": float(provenance.get("target_opening_mm", preview.get("gapMm", 0.0))),
+            "achievedGapMm": float(preview.get("gapMm", 0.0)),
+            "hingeSource": str(preview.get("hingeSource", "")),
+            "axisConfidence": float(provenance.get("axis_confidence", 0.0)),
+            "openingParameterQ": float(preview.get("openingParameterQ", 0.0)),
+            "thetaDeg": float(preview.get("angleDeg", 0.0)),
+            "condylarTranslationMm": float(preview.get("condylarTranslationMm", 0.0)),
+            "selection": str(resolution.get("selection") or preview.get("hingeSource", "")),
+            "patientRejected": resolution.get("patientRejected"),
+            "segmentedComparison": resolution.get("segmentedComparison"),
+            "archScale": resolution.get("archScale"),
+            "segmentedExtractionError": resolution.get("segmentedExtractionError"),
+            "articulatorProvenance": provenance,
+        }
+
+    def onProbeCaseFoundationArticulator(self, checked: bool = False) -> None:
+        del checked
+        if not self._parameterNode or not self.logic:
+            slicer.util.warningDisplay(
+                _("DENTOWorkflow is not ready (missing parameter node or logic).")
+            )
+            return
+        try:
+            summary = self.logic.probeCaseFoundationArticulator(
+                self._parameterNode,
+                float(self._parameterNode.step6CaseJawTargetGapMm),
+            )
+            self._setCaseFoundationArticulatorDiagnostics(summary)
+            probe_text = self._formatCaseFoundationArticulatorProbe(summary)
+            self._updateStep6CaseJawOpeningStatus(probe_text)
+            slicer.util.infoDisplay(
+                probe_text,
+                windowTitle=_("Virtual articulator probe"),
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._reportCaseFoundationActionFailure(exc)
+        except Exception as exc:
+            self._reportCaseFoundationActionFailure(exc)
+
+    def onCopyCaseFoundationArticulatorJson(self, checked: bool = False) -> None:
+        del checked
+        payload = getattr(self, "_lastArticulatorProvenanceJson", "") or ""
+        if not payload.strip():
+            transform = (
+                self._parameterNode.step6CaseJawTransform
+                if self._parameterNode
+                else None
+            )
+            if transform:
+                payload = str(
+                    transform.GetAttribute("DENTOBOT.ArticulatorProvenanceJson") or ""
+                )
+        if not payload.strip():
+            slicer.util.warningDisplay(
+                _("Run Probe or commit an opening before copying provenance JSON.")
+            )
+            return
+        qt.QApplication.clipboard().setText(payload)
+        slicer.util.infoDisplay(_("Articulator provenance JSON copied to the clipboard."))
+
+    def onStep6ForceManualCondylarAxisToggled(self, checked: bool) -> None:
+        if (
+            self._updatingRobotPlacementUI
+            or not self._parameterNode
+            or not self.logic
+        ):
+            return
+        landmarks = self._parameterNode.step6CaseJawLandmarks
+        if landmarks and self.logic.isStep6CaseJawLandmarksNode(landmarks):
+            if checked:
+                landmarks.SetAttribute("DENTOBOT.ForceManualCondylarAxis", "1")
+            else:
+                landmarks.RemoveAttribute("DENTOBOT.ForceManualCondylarAxis")
+        override_text = (
+            _("Manual condylar axis override enabled for the next solve.")
+            if checked
+            else _("Manual condylar axis override disabled; AUTO hinge selection restored.")
+        )
+        if self.logic.isStep6CaseJawTransformNode(
+            self._parameterNode.step6CaseJawTransform
+        ):
+            try:
+                preview = self.logic.previewCaseFoundationOpening(
+                    self._parameterNode,
+                    float(self._parameterNode.step6CaseJawTargetGapMm),
+                )
+                self._setCaseFoundationArticulatorDiagnostics(
+                    self._articulatorProbeSummaryFromPreview(preview)
+                )
+                self._updateStep6CaseJawOpeningStatus(override_text)
+            except (RuntimeError, ValueError) as exc:
+                self._reportCaseFoundationActionFailure(exc)
+            except Exception as exc:
+                self._reportCaseFoundationActionFailure(exc)
+        else:
+            self._updateStep6CaseJawOpeningStatus(override_text)
+        self._updateStep6CaseJawOpeningControls()
 
     def _applyCaseFoundationAuthoringGate(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -796,12 +1074,63 @@ class RobotSceneWidgetMixin:
             self._updateStep6CaseJawOpeningControls()
             self._updateStep6CaseJawOpeningStatus(
                 _(
-                    "Committed Case Foundation opening %1°; measured incisor gap "
-                    "%2 mm. Continue to Step 4A or the Step 6 offline base setup."
+                    "Opened mouth %1°; measured incisor gap %2 mm; hinge %3. "
+                    "Visually confirm, then Confirm and continue to Step 4A."
                 )
                 .replace("%1", f"{summary['angleDeg']:.2f}")
                 .replace("%2", f"{summary['gapMm']:.2f}")
+                .replace("%3", str(summary.get("hingeSource", "--")))
             )
+            try:
+                if summary.get("articulatorProvenance"):
+                    self._setCaseFoundationArticulatorDiagnostics(
+                        {
+                            "targetGapMm": float(
+                                self._parameterNode.step6CaseJawTargetGapMm
+                            ),
+                            "achievedGapMm": float(summary["gapMm"]),
+                            "hingeSource": str(summary.get("hingeSource", "")),
+                            "axisConfidence": float(
+                                summary["articulatorProvenance"].get(
+                                    "axis_confidence", 0.0
+                                )
+                            ),
+                            "openingParameterQ": float(
+                                summary.get("openingParameterQ", 0.0)
+                            ),
+                            "condylarTranslationMm": float(
+                                summary.get("condylarTranslationMm", 0.0)
+                            ),
+                            "thetaDeg": float(summary["angleDeg"]),
+                            "selection": str(
+                                (
+                                    summary["articulatorProvenance"].get(
+                                        "hingeResolution"
+                                    )
+                                    or {}
+                                ).get("selection", summary.get("hingeSource", ""))
+                            ),
+                            "patientRejected": (
+                                summary["articulatorProvenance"].get("hingeResolution")
+                                or {}
+                            ).get("patientRejected"),
+                            "segmentedComparison": (
+                                summary["articulatorProvenance"].get("hingeResolution")
+                                or {}
+                            ).get("segmentedComparison"),
+                            "archScale": (
+                                summary["articulatorProvenance"].get("hingeResolution")
+                                or {}
+                            ).get("archScale"),
+                            "segmentedExtractionError": (
+                                summary["articulatorProvenance"].get("hingeResolution")
+                                or {}
+                            ).get("segmentedExtractionError"),
+                            "articulatorProvenance": summary["articulatorProvenance"],
+                        }
+                    )
+            except Exception:
+                pass
             self._applyStep6RecommendedView()
             # Opening is the boundary that releases the Step 4A authoring
             # gate. Refresh planning controls now; waiting for a later base
@@ -813,8 +1142,10 @@ class RobotSceneWidgetMixin:
             self._updateStep6PlanningUi()
         except (RuntimeError, ValueError) as exc:
             self._updateStep6CaseJawOpeningControls()
-            self._updateStep6CaseJawOpeningStatus(str(exc), error=True)
-            slicer.util.errorDisplay(str(exc))
+            self._reportCaseFoundationActionFailure(exc)
+        except Exception as exc:
+            self._updateStep6CaseJawOpeningControls()
+            self._reportCaseFoundationActionFailure(exc)
 
     def onResetStep6CaseJawOpening(self, checked: bool = False) -> None:
         del checked
@@ -876,6 +1207,14 @@ class RobotSceneWidgetMixin:
             summary = self.logic.previewCaseFoundationOpening(
                 self._parameterNode, gap
             )
+            self._setCaseFoundationArticulatorDiagnostics(
+                self._articulatorProbeSummaryFromPreview(
+                    {
+                        **summary,
+                        "angleDeg": summary.get("angleDeg", summary.get("thetaDeg", 0.0)),
+                    }
+                )
+            )
             self._updateStep6CaseJawOpeningStatus(
                 _("Uncommitted preview: %1° / %2 mm.")
                 .replace("%1", f"{summary['angleDeg']:.2f}")
@@ -924,6 +1263,13 @@ class RobotSceneWidgetMixin:
 
     def onCaseFoundationGoToStep4(self, checked: bool = False) -> None:
         del checked
+        if self._parameterNode and self.logic:
+            pose = self.logic.evaluateCaseFoundationEligibility(
+                self._parameterNode
+            )["pose"]
+            if not pose["eligible"]:
+                slicer.util.warningDisplay(str(pose["message"]))
+                return
         self._setWorkflowStage(4)
 
     def onCaseFoundationGoToStep6(self, checked: bool = False) -> None:

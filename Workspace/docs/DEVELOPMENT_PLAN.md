@@ -197,6 +197,14 @@ partial cases; package load never restores live ROS, planning, guard,
 acknowledgement or validity state. Gap/source changes retain inspectable branch
 geometry but apply the recorded Step 5C/base/runtime staleness scopes.
 
+**2026-09-18 — AUTO-primary open-mouth GUI.** Production Case Foundation
+opening is `Open mouth (AUTO)` from the reviewed segmentation, visual
+confirm, then `Confirm and continue to Step 4A`. Landmark placement is a
+collapsed fallback when AUTO fails or the operator explicitly overrides.
+`MANUAL` is not a co-equal primary control. Headless evidence:
+`runtime.auto_open_mouth_test1_post` on `test1_post.mrb` passed with
+`hinge_source=ARCH_INFERRED` and `landmarkSource=AUTO`.
+
 Targeted static and pure-state evidence passes. The next automated gate is only
 `runtime.s6_reusable_case`; the final gate is the recorded ten-observation
 normal-window review. No SlicerROS2 rebuild is required because no compiled C++

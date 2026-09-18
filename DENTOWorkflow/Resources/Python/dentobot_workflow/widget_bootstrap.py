@@ -949,6 +949,18 @@ class BootstrapWidgetMixin:
             "sliderReleased()",
             self.onCaseFoundationGapSliderReleased,
         )
+        self.ui.step6ForceManualCondylarAxisCheckBox.connect(
+            "toggled(bool)",
+            self.onStep6ForceManualCondylarAxisToggled,
+        )
+        self.ui.probeCaseFoundationArticulatorButton.connect(
+            "clicked(bool)",
+            self.onProbeCaseFoundationArticulator,
+        )
+        self.ui.copyCaseFoundationArticulatorJsonButton.connect(
+            "clicked(bool)",
+            self.onCopyCaseFoundationArticulatorJson,
+        )
         self.ui.createRobotMountPlaneButton.connect(
             "clicked(bool)",
             self.onCreateRobotMountPlane,

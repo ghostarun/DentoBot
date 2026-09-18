@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from dentobot_workflow.virtual_open_mouth_articulator import (
+    inferior_opening_rotation_sign,
+    CASE_FOUNDATION_ARTICULATOR_CONFIG,
     HINGE_MODEL_SCHEMA,
     HingeSource,
     VirtualArticulatorConfig,
@@ -121,6 +123,26 @@ def test_upper_incisor_untransformed_by_mandible_matrix() -> None:
     )
 
 
+def test_opening_selects_inferior_rotation_branch() -> None:
+    left = np.array([-50.0, -45.0, -5.0])
+    right = np.array([50.0, -45.0, -5.0])
+    upper = np.array([0.0, -90.0, -10.0])
+    lower = np.array([0.0, -90.0, -12.0])
+    axis = virtual_condylar_axis_manual(left, right)
+    frame = dental_frame_from_landmarks(left, right, lower)
+    sign = inferior_opening_rotation_sign(axis, frame, lower)
+    matrix, _, _ = opening_at_q(
+        0.5,
+        axis,
+        frame,
+        CASE_FOUNDATION_ARTICULATOR_CONFIG,
+        lower,
+        rotation_sign=sign,
+    )
+    moved = transform_point(matrix, lower)
+    assert moved[2] < lower[2]
+
+
 def test_legacy_schema_detection() -> None:
     assert is_legacy_jaw_opening_schema("AnatomyDirectedPureTMJHingeRotationV2")
     assert not is_legacy_jaw_opening_schema(HINGE_MODEL_SCHEMA)
@@ -197,6 +219,52 @@ def test_arch_inferred_opening_reaches_target() -> None:
     result = solve_arch_inferred_opening(left, right, upper, lower, 35.0, arch_scale=1.0)
     assert result.hinge_source is HingeSource.ARCH_INFERRED
     assert result.achieved_opening_mm == pytest.approx(35.0, abs=0.11)
+
+
+def test_auto_segmented_axis_does_not_require_manual_condyles() -> None:
+    left, right, upper, lower = _fixture_landmarks()
+    lat_left = np.array([-25.0, -70.0, -12.0])
+    lat_right = np.array([25.0, -70.0, -12.0])
+    from dentobot_workflow.virtual_open_mouth_articulator import solve_auto_opening
+
+    result = solve_auto_opening(
+        upper_incisor_mm=upper,
+        lower_incisor_mm=lower,
+        target_opening_mm=35.0,
+        segmented_condyle_left_mm=left,
+        segmented_condyle_right_mm=right,
+        lateral_arch_left_mm=lat_left,
+        lateral_arch_right_mm=lat_right,
+    )
+    assert result.hinge_source is HingeSource.PATIENT_CONDYLES_SEGMENTED
+    assert "segmentedComparison" not in (
+        result.provenance.get("hingeResolution") or {}
+    )
+
+
+def test_auto_arch_axis_does_not_require_manual_condyles() -> None:
+    _left, _right, upper, lower = _fixture_landmarks()
+    lat_left = np.array([-25.0, -70.0, -12.0])
+    lat_right = np.array([25.0, -70.0, -12.0])
+    from dentobot_workflow.virtual_open_mouth_articulator import solve_auto_opening
+
+    result = solve_auto_opening(
+        upper_incisor_mm=upper,
+        lower_incisor_mm=lower,
+        target_opening_mm=35.0,
+        lateral_arch_left_mm=lat_left,
+        lateral_arch_right_mm=lat_right,
+    )
+    assert result.hinge_source is HingeSource.ARCH_INFERRED
+    assert result.provenance.get("hingeResolution", {}).get("selection") == "ARCH_INFERRED"
+    moved = transform_point(result.matrix_world_ras, lower)
+    assert moved[2] < lower[2]
+
+
+def test_auto_fails_loud_without_frame_sources() -> None:
+    lower = np.array([0.0, -90.0, -12.0])
+    with pytest.raises(ValueError, match="dental frame"):
+        resolve_virtual_condylar_axis(lower_incisor_mm=lower)
 
 
 def test_arch_scale_clamps_smoothly() -> None:

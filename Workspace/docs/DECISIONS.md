@@ -5862,10 +5862,25 @@ contradiction and not a reason to discard or automatically accept prior work.
 ## 2026-09-18 — Virtual Open-Mouth Articulator hinge AUTO selection
 
 **Decision:** Case Foundation opening uses one mean-value q kinematic solver
-(`VirtualOpenMouthArticulatorV1`) with hinge-source AUTO resolution:
-segmented mandible-surface condyle centres when patient-axis QA passes, else
-arch-inferred virtual axis (scaled from lateral dental geometry), else manual
-TMJ landmark axis only when arch validation fails. Manual four-landmark placement
-remains required for incisors and anatomy gates; operators may force manual axis
-via `DENTOBOT.ForceManualCondylarAxis` on the jaw landmark node. Simulation prior
-only — not surgical registration truth.
+(`VirtualOpenMouthArticulatorV1`) with production AUTO resolution:
+`AUTO PROPOSE → VISUALIZE → ACCEPT/LOCK → SOLVE`. Segmented mandible-surface
+condyle centres are used when patient-axis QA passes; otherwise an
+arch-inferred virtual axis (incisor midpoint + dental/occlusal frame + arch
+scale) is constructed automatically. `ARCH_INFERRED` must not require manual
+placement of virtual condyles or a hinge axis. `MANUAL` landmarks are a
+development oracle, debugging aid, and optional user-correction fallback
+(`DENTOBOT.ForceManualCondylarAxis`), not a mandatory production step.
+Manual interaction is required only when automatic extraction fails, the user
+rejects a proposal, or validation intentionally uses manual ground truth.
+Simulation prior only — not surgical registration truth.
+
+This supersedes the same-day note that four-landmark placement remained
+required for incisors and anatomy gates.
+
+## 2026-09-18 — Case Foundation GUI: AUTO is the only primary open-mouth action
+
+**Decision:** The Case Foundation panel’s default path is **Open mouth (AUTO)**
+then **Confirm and continue to Step 4A**. Landmark placement, force-manual
+axis, and articulator probe are a collapsed fallback, revealed when AUTO
+fails or the operator explicitly opens that section. AUTO and manual
+landmarks are not co-equal primary controls.

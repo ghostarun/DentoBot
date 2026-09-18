@@ -525,6 +525,26 @@
       "pass_condition": "marker:DENTOBOT_SEGMENTATION_RUNS_PASS"
     },
     {
+      "id": "runtime.auto_open_mouth_test1_post",
+      "execution_kind": "slicer_headless",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 180,
+      "evidence_level": "saved_case_slicer",
+      "entrypoint": "Testing/run_dentobot_auto_open_mouth_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 sh -lc 'DENTOBOT_CASE_SOURCE=/workspace/data/Slicer_Saved/SampleStudy1/test1_post.mrb timeout 180s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_auto_open_mouth_smoke.py'",
+      "pass_condition": "marker:DENTOBOT_AUTO_OPEN_MOUTH_PASS; hinge_source PATIENT_CONDYLES_* or ARCH_INFERRED; landmarkSource AUTO"
+    },
+    {
       "id": "static.fdi31_recovery_pycompile",
       "execution_kind": "host",
       "parallel_safe": true,

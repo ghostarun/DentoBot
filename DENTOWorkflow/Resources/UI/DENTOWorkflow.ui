@@ -1693,30 +1693,52 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
      <property name="text"><string>Case Foundation — Open Mouth Setup (required before Step 4A)</string></property>
      <property name="collapsed"><bool>false</bool></property>
      <layout class="QVBoxLayout" name="step6CaseJawOpeningVerticalLayout">
-      <item><widget class="QLabel" name="step6CaseJawOpeningDescriptionLabel"><property name="text"><string>Review Left TMJ, Right TMJ, upper-incisor, and lower-incisor landmarks once. The committed hinge pose drives rigid bone/tooth planning displays; source CBCT voxels and reviewed segmentation masks remain unchanged.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item><widget class="QLabel" name="step6CaseJawOpeningDescriptionLabel"><property name="text"><string>Default: one-click AUTO open from the reviewed segmentation, visually confirm, then continue to Step 4A. Source CBCT and reviewed masks stay unchanged. Manual TMJ/incisor landmarks are a fallback only when AUTO fails or you explicitly override.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
       <item>
        <layout class="QFormLayout" name="step6CaseJawOpeningFormLayout">
-        <item row="0" column="0"><widget class="QLabel" name="step6CaseJawLandmarksLabel"><property name="text"><string>Four reviewed landmarks:</string></property></widget></item>
-        <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="step6CaseJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawLandmarks</string></property></widget></item>
-        <item row="1" column="0"><widget class="QLabel" name="step6CaseJawTargetGapLabel"><property name="text"><string>Committed incisor gap:</string></property></widget></item>
-        <item row="1" column="1"><widget class="QDoubleSpinBox" name="step6CaseJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="keyboardTracking"><bool>false</bool></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawTargetGapMm</string></property></widget></item>
-        <item row="2" column="0"><widget class="QLabel" name="caseFoundationGapSliderLabel"><property name="text"><string>Live gap preview:</string></property></widget></item>
-        <item row="2" column="1"><widget class="QSlider" name="caseFoundationGapSlider"><property name="minimum"><number>200</number></property><property name="maximum"><number>600</number></property><property name="singleStep"><number>1</number></property><property name="pageStep"><number>10</number></property><property name="value"><number>400</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+        <item row="0" column="0"><widget class="QLabel" name="step6CaseJawTargetGapLabel"><property name="text"><string>Target incisor gap:</string></property></widget></item>
+        <item row="0" column="1"><widget class="QDoubleSpinBox" name="step6CaseJawTargetGapSpinBox"><property name="decimals"><number>1</number></property><property name="minimum"><double>20.000000</double></property><property name="maximum"><double>60.000000</double></property><property name="singleStep"><double>1.000000</double></property><property name="keyboardTracking"><bool>false</bool></property><property name="suffix"><string> mm</string></property><property name="value"><double>40.000000</double></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawTargetGapMm</string></property></widget></item>
+        <item row="1" column="0"><widget class="QLabel" name="caseFoundationGapSliderLabel"><property name="text"><string>Live gap preview:</string></property></widget></item>
+        <item row="1" column="1"><widget class="QSlider" name="caseFoundationGapSlider"><property name="minimum"><number>200</number></property><property name="maximum"><number>600</number></property><property name="singleStep"><number>1</number></property><property name="pageStep"><number>10</number></property><property name="value"><number>400</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
        </layout>
       </item>
       <item>
-       <layout class="QGridLayout" name="step6CaseJawOpeningButtonLayout">
-        <item row="0" column="0"><widget class="QPushButton" name="createStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
-        <item row="0" column="1"><widget class="QPushButton" name="clearStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Landmarks</string></property></widget></item>
-        <item row="1" column="0"><widget class="QPushButton" name="applyStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Commit Case Foundation Opening</string></property></widget></item>
-        <item row="1" column="1"><widget class="QPushButton" name="resetStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Revert Uncommitted Opening</string></property></widget></item>
-        <item row="2" column="0"><widget class="QPushButton" name="clearCaseFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Foundation…</string></property></widget></item>
-        <item row="2" column="1"><widget class="QPushButton" name="forgetSessionFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Forget Session Foundation</string></property></widget></item>
-        <item row="3" column="0"><widget class="QPushButton" name="caseFoundationGoToStep4Button"><property name="text"><string>Continue to Step 4A</string></property></widget></item>
-        <item row="3" column="1"><widget class="QPushButton" name="caseFoundationGoToStep6Button"><property name="text"><string>Go to Step 6 Offline Base Setup</string></property></widget></item>
+       <layout class="QHBoxLayout" name="step6CaseJawOpeningPrimaryButtonLayout">
+        <item><widget class="QPushButton" name="applyStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Open mouth (AUTO)</string></property><property name="toolTip"><string>Propose incisors, dental frame, and hinge from the reviewed segmentation, then open the mandible to the target gap.</string></property></widget></item>
+        <item><widget class="QPushButton" name="caseFoundationGoToStep4Button"><property name="enabled"><bool>false</bool></property><property name="text"><string>Confirm and continue to Step 4A</string></property><property name="toolTip"><string>Enabled after a current AUTO (or accepted fallback) opening. Visually confirm the mandible motion first.</string></property></widget></item>
        </layout>
       </item>
-      <item><widget class="QLabel" name="step6CaseJawOpeningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Review the segmentation, then place the four Case Foundation landmarks.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item><widget class="QLabel" name="step6ArticulatorDiagnosticsLabel"><property name="styleSheet"><string notr="true">color: #555555;</string></property><property name="text"><string>After Open mouth (AUTO), inspect the 3D opening and these diagnostics, then Confirm and continue.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item><widget class="QLabel" name="step6CaseJawOpeningStatusLabel"><property name="styleSheet"><string notr="true">color: #b36b00;</string></property><property name="text"><string>Review the source CBCT segmentation, then Open mouth (AUTO).</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item>
+       <widget class="ctkCollapsibleButton" name="caseFoundationManualFallbackGroupBox">
+        <property name="text"><string>Fallback — manual landmarks (AUTO failed or explicit override)</string></property>
+        <property name="collapsed"><bool>true</bool></property>
+        <layout class="QVBoxLayout" name="caseFoundationManualFallbackVerticalLayout">
+         <item><widget class="QLabel" name="caseFoundationManualFallbackDescriptionLabel"><property name="text"><string>Use only if AUTO cannot propose a hinge, or you choose to correct it. This is not part of the default production path.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item>
+          <layout class="QFormLayout" name="caseFoundationManualFallbackFormLayout">
+           <item row="0" column="0"><widget class="QLabel" name="step6CaseJawLandmarksLabel"><property name="text"><string>Optional landmarks:</string></property></widget></item>
+           <item row="0" column="1"><widget class="qMRMLNodeComboBox" name="step6CaseJawLandmarksSelector"><property name="nodeTypes"><stringlist notr="true"><string>vtkMRMLMarkupsFiducialNode</string></stringlist></property><property name="noneEnabled"><bool>true</bool></property><property name="addEnabled"><bool>false</bool></property><property name="removeEnabled"><bool>false</bool></property><property name="SlicerParameterName" stdset="0"><string>step6CaseJawLandmarks</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="step6ForceManualCondylarAxisLabel"><property name="text"><string>Hinge axis override:</string></property></widget></item>
+           <item row="1" column="1"><widget class="QCheckBox" name="step6ForceManualCondylarAxisCheckBox"><property name="text"><string>Force manual TMJ landmarks (disable AUTO)</string></property><property name="toolTip"><string>Developer/oracle path: use placed Left/Right TMJ markups as the condylar axis. Requires complete landmarks.</string></property></widget></item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QGridLayout" name="step6CaseJawOpeningButtonLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="createStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Place first landmark (Left TMJ)</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="clearStep6CaseJawLandmarksButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Landmarks</string></property></widget></item>
+           <item row="1" column="0"><widget class="QPushButton" name="resetStep6CaseJawOpeningButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Revert Uncommitted Opening</string></property></widget></item>
+           <item row="1" column="1"><widget class="QPushButton" name="clearCaseFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Clear Case Foundation…</string></property></widget></item>
+           <item row="2" column="0"><widget class="QPushButton" name="forgetSessionFoundationButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Forget Session Foundation</string></property></widget></item>
+           <item row="2" column="1"><widget class="QPushButton" name="probeCaseFoundationArticulatorButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Probe virtual articulator (dry run)</string></property><property name="toolTip"><string>Developer dry-run of the hinge solver at the current target gap without committing.</string></property></widget></item>
+           <item row="3" column="0"><widget class="QPushButton" name="copyCaseFoundationArticulatorJsonButton"><property name="enabled"><bool>false</bool></property><property name="text"><string>Copy last provenance JSON</string></property></widget></item>
+           <item row="3" column="1"><widget class="QPushButton" name="caseFoundationGoToStep6Button"><property name="text"><string>Go to Step 6 Offline Base Setup</string></property></widget></item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

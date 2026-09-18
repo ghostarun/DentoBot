@@ -1,6 +1,7 @@
 # DENTOBOT Tasks
 
-Last reconciled: 2026-09-15
+Last reconciled: 2026-09-15. Case Foundation AUTO-primary GUI completion
+recorded 2026-09-18 (not a backlog ID; not a second pending queue).
 
 ## Record ownership
 
@@ -1442,6 +1443,7 @@ reproducibility record, changelog, and dated logbook.
 | Goal 1 world/base Cartesian conversion defect | Diagnosed/fixed; remaining full-chain work belongs only to `S6-P0-01` |
 | Earlier spindle-roll candidate planning | Superseded by spindle-locked arm-route planning; old evidence is historical only |
 | Economical workflow modularization | Completed; the active ROS scene-clear abort remains only under `S6-U-01` |
+| Virtual open-mouth AUTO-primary GUI (2026-09-18) | Source-complete on `cursor-agent/dentoworkflow-debug-20260918`. Production path is AUTO propose → visualize → confirm → Step 4A. Manual landmarks are fallback only. Unit tests 20 passed; `runtime.auto_open_mouth_test1_post` PASS (`ARCH_INFERRED`, `landmarkSource=AUTO`). TRL-4 occlusal-plane / condyle-head ROI / DW_Derived viz remain later work, not this GUI contract. |
 
 ## Verification workflow learning session — DENTO-NOTE 2026-09-11
 

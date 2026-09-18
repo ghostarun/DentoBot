@@ -1,6 +1,8 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-17. Routing plus the durable Step-4A–5B testing
+Last reconciled: 2026-09-18 (Case Foundation AUTO-primary GUI recorded; P5/gate
+campaign handoff from 2026-09-17 is unchanged). Routing plus the durable
+Step-4A–5B testing
 baseline below; all pending work and current order live in
 [backlog.md](backlog.md). Detailed task contracts and completion records live
 in [TASKS.md](TASKS.md). Historical attempts are not instructions.
@@ -18,6 +20,12 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
    and checkout-relative `Testing/verification_matrix.json`.
 
 ## Current handoff
+
+- **2026-09-18 — Case Foundation AUTO-primary GUI (source-complete):** Default
+  operator path is **Open mouth (AUTO)** → visual confirm → **Confirm and
+  continue to Step 4A**. Manual landmarks are fallback only. Headless
+  `runtime.auto_open_mouth_test1_post` PASS. This does not resume the P5/gate
+  campaign or authorize robot motion.
 
 - **Quota-constrained recovery checkpoint — stop analysis and implement P0 next
   (2026-09-17):** The operator ended the extended read-only audit because the

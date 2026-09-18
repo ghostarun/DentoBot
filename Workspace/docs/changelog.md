@@ -1,5 +1,16 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-18 — AUTO-primary Case Foundation open mouth
+
+- **Why:** Manual four-landmark placement was co-equal with AUTO and was not
+  a production prerequisite.
+- **Change:** Default GUI is **Open mouth (AUTO)** then **Confirm and continue
+  to Step 4A**. Landmarks, force-manual axis, and probe live in a collapsed
+  fallback that opens on AUTO failure or explicit override. Solver AUTO path
+  does not require manuals; `ARCH_INFERRED` does not require virtual condyles.
+- **Verification:** `test_virtual_open_mouth_articulator.py` 20 passed;
+  `runtime.auto_open_mouth_test1_post` PASS on `test1_post.mrb`.
+
 ## 2026-09-07 — Retire pre-surgery case workarounds
 
 - Retired the pre-surgery/x4 case-specific collision workarounds from the

@@ -9,6 +9,14 @@ class CaseFoundationLogicMixin:
     CASE_FOUNDATION_HINGE_SCHEMA = "VirtualOpenMouthArticulatorV1"
 
     @classmethod
+    def caseFoundationArticulatorConfig(cls):
+        from dentobot_workflow.virtual_open_mouth_articulator import (
+            CASE_FOUNDATION_ARTICULATOR_CONFIG,
+        )
+
+        return CASE_FOUNDATION_ARTICULATOR_CONFIG
+
+    @classmethod
     def isStep6CaseJawLandmarksNode(cls, node) -> bool:
         return bool(
             node
@@ -382,12 +390,15 @@ class CaseFoundationLogicMixin:
             volume and segmentation
             and self.getSegmentationReviewState(segmentation) == "Reviewed"
         ):
-            if not self.isStep6CaseJawLandmarksNode(landmarks):
-                pose = component(False, "MISSING_LANDMARKS", _("Place the four Case Foundation landmarks."))
-            elif landmarks.GetNumberOfDefinedControlPoints() != 4 or self.step6CaseJawSurfaceEvidenceIssues(parameterNode):
-                pose = component(False, "INCOMPLETE_LANDMARK_REVIEW", _("Review all four Case Foundation landmarks on their source surfaces."))
-            elif not self.isStep6CaseJawTransformNode(transform):
-                pose = component(False, "STALE_MOUTH_OPENING", _("Calculate and commit the Case Foundation mouth opening."))
+            if not self.isStep6CaseJawTransformNode(transform):
+                pose = component(
+                    False,
+                    "STALE_MOUTH_OPENING",
+                    _(
+                        "Commit the AUTO Case Foundation open-mouth from the "
+                        "reviewed segmentation, or optionally edit landmarks."
+                    ),
+                )
             elif (
                 not parameterNode.caseFoundationFixedUpperVolume
                 or not parameterNode.caseFoundationMovingLowerVolume
@@ -451,6 +462,17 @@ class CaseFoundationLogicMixin:
             raise ValueError(result["pose"]["message"])
         return result
 
+    def _caseFoundationForceManualAxis(self, parameterNode) -> bool:
+        landmarks = parameterNode.step6CaseJawLandmarks
+        return bool(
+            landmarks
+            and self.isStep6CaseJawLandmarksNode(landmarks)
+            and str(landmarks.GetAttribute("DENTOBOT.ForceManualCondylarAxis") or "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes"}
+        )
+
     def _solveCaseFoundationOpeningArticulator(
         self,
         parameterNode,
@@ -462,60 +484,87 @@ class CaseFoundationLogicMixin:
             transform_point,
         )
 
-        left, right, upper, lower = self.step6CaseJawLandmarkPositions(
-            parameterNode.step6CaseJawLandmarks
-        )
-        self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
-        landmarks = parameterNode.step6CaseJawLandmarks
-        force_manual = bool(
-            landmarks
-            and str(
-                landmarks.GetAttribute("DENTOBOT.ForceManualCondylarAxis") or ""
-            )
-            .strip()
-            .lower()
-            in {"1", "true", "yes"}
-        )
-        segmented_left = None
-        segmented_right = None
+        force_manual = self._caseFoundationForceManualAxis(parameterNode)
         extraction_error = ""
-        try:
-            segmented_left, segmented_right, _confidence = (
-                self.step6EstimatePatientCondyleCentres(
-                    parameterNode,
-                    left,
-                    right,
-                    lower,
-                )
+        proposed_left = None
+        proposed_right = None
+        if force_manual:
+            left, right, upper, lower = self.step6CaseJawLandmarkPositions(
+                parameterNode.step6CaseJawLandmarks
             )
-        except ValueError as exc:
-            extraction_error = str(exc)
-        lateral_left, lateral_right = self.step6LateralArchReferencePoints(
-            parameterNode
-        )
-        result = solve_auto_opening(
-            manual_condyle_left_mm=left,
-            manual_condyle_right_mm=right,
-            upper_incisor_mm=upper,
-            lower_incisor_mm=lower,
-            target_opening_mm=float(targetGapMm),
-            segmented_condyle_left_mm=segmented_left,
-            segmented_condyle_right_mm=segmented_right,
-            lateral_arch_left_mm=lateral_left,
-            lateral_arch_right_mm=lateral_right,
-            force_manual_axis=force_manual,
-        )
+            self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
+            frame = None
+            lateral_left, lateral_right = self.step6LateralArchReferencePoints(
+                parameterNode
+            )
+            try:
+                proposed_left, proposed_right, _confidence = (
+                    self.step6EstimatePatientCondyleCentres(
+                        parameterNode,
+                        left,
+                        right,
+                        lower,
+                    )
+                )
+            except ValueError as exc:
+                extraction_error = str(exc)
+            result = solve_auto_opening(
+                upper_incisor_mm=upper,
+                lower_incisor_mm=lower,
+                target_opening_mm=float(targetGapMm),
+                manual_condyle_left_mm=left,
+                manual_condyle_right_mm=right,
+                segmented_condyle_left_mm=proposed_left,
+                segmented_condyle_right_mm=proposed_right,
+                lateral_arch_left_mm=lateral_left,
+                lateral_arch_right_mm=lateral_right,
+                force_manual_axis=True,
+                config=self.caseFoundationArticulatorConfig(),
+            )
+            result.provenance["landmarkSource"] = "MANUAL_OVERRIDE"
+            result.provenance["manualCondyleLeftRasMm"] = left.tolist()
+            result.provenance["manualCondyleRightRasMm"] = right.tolist()
+        else:
+            proposal = self.proposeCaseFoundationArticulatorInputs(parameterNode)
+            upper = proposal["upperIncisorMm"]
+            lower = proposal["lowerIncisorMm"]
+            proposed_left = proposal["segmentedCondyleLeftMm"]
+            proposed_right = proposal["segmentedCondyleRightMm"]
+            extraction_error = str(proposal.get("segmentedExtractionError") or "")
+            result = solve_auto_opening(
+                upper_incisor_mm=upper,
+                lower_incisor_mm=lower,
+                target_opening_mm=float(targetGapMm),
+                segmented_condyle_left_mm=proposed_left,
+                segmented_condyle_right_mm=proposed_right,
+                lateral_arch_left_mm=proposal["lateralLeftMm"],
+                lateral_arch_right_mm=proposal["lateralRightMm"],
+                dental_frame=proposal["dentalFrame"],
+                force_manual_axis=False,
+                config=self.caseFoundationArticulatorConfig(),
+            )
+            result.provenance["landmarkSource"] = "AUTO"
+            result.provenance["autoUpperIncisorRasMm"] = np.asarray(upper).tolist()
+            result.provenance["autoLowerIncisorRasMm"] = np.asarray(lower).tolist()
+            result.provenance["autoLateralLeftRasMm"] = np.asarray(
+                proposal["lateralLeftMm"]
+            ).tolist()
+            result.provenance["autoLateralRightRasMm"] = np.asarray(
+                proposal["lateralRightMm"]
+            ).tolist()
         if extraction_error:
             result.provenance.setdefault("hingeResolution", {})
             if isinstance(result.provenance["hingeResolution"], dict):
                 result.provenance["hingeResolution"]["segmentedExtractionError"] = (
                     extraction_error
                 )
-        result.provenance["manualCondyleLeftRasMm"] = left.tolist()
-        result.provenance["manualCondyleRightRasMm"] = right.tolist()
-        if segmented_left is not None and segmented_right is not None:
-            result.provenance["segmentedCondyleLeftRasMm"] = segmented_left.tolist()
-            result.provenance["segmentedCondyleRightRasMm"] = segmented_right.tolist()
+        if proposed_left is not None and proposed_right is not None:
+            result.provenance["segmentedCondyleLeftRasMm"] = np.asarray(
+                proposed_left
+            ).tolist()
+            result.provenance["segmentedCondyleRightRasMm"] = np.asarray(
+                proposed_right
+            ).tolist()
         opened_lower = transform_point(result.matrix_world_ras, lower)
         result.provenance["openMouthModelVersion"] = OPEN_MOUTH_MODEL_VERSION
         return result, upper, opened_lower
@@ -528,7 +577,6 @@ class CaseFoundationLogicMixin:
         transform = parameterNode.step6CaseJawTransform
         if not self.isStep6CaseJawTransformNode(transform):
             raise ValueError(_("Commit the initial Case Foundation opening first."))
-        self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
         result, upper, openedLower = self._solveCaseFoundationOpeningArticulator(
             parameterNode,
             float(targetGapMm),
@@ -552,6 +600,46 @@ class CaseFoundationLogicMixin:
             "openingParameterQ": float(result.q),
             "condylarTranslationMm": float(result.translation_mm),
             "hingeSource": result.hinge_source.value,
+            "articulatorProvenance": result.provenance,
+        }
+
+    def probeCaseFoundationArticulator(
+        self,
+        parameterNode,
+        targetGapMm: float | None = None,
+    ) -> dict[str, object]:
+        """Dry-run the virtual articulator for manual GUI testing (no scene commit)."""
+
+        target = float(
+            targetGapMm
+            if targetGapMm is not None
+            else parameterNode.step6CaseJawTargetGapMm
+        )
+        result, _upper, _opened_lower = self._solveCaseFoundationOpeningArticulator(
+            parameterNode,
+            target,
+        )
+        resolution = result.provenance.get("hingeResolution") or {}
+        if not isinstance(resolution, dict):
+            resolution = {}
+        return {
+            "targetGapMm": target,
+            "achievedGapMm": float(result.achieved_opening_mm),
+            "hingeSource": result.hinge_source.value,
+            "axisConfidence": float(result.axis_confidence),
+            "openingParameterQ": float(result.q),
+            "thetaDeg": float(result.theta_deg),
+            "condylarTranslationMm": float(result.translation_mm),
+            "closedGapMm": float(result.closed_gap_mm),
+            "profileMaxGapMm": float(
+                result.provenance.get("profile_max_gap_mm", 0.0)
+            ),
+            "selection": str(resolution.get("selection") or result.hinge_source.value),
+            "patientRejected": resolution.get("patientRejected"),
+            "segmentedComparison": resolution.get("segmentedComparison"),
+            "archScale": resolution.get("archScale"),
+            "segmentedExtractionError": resolution.get("segmentedExtractionError"),
+            "articulatorProvenance": result.provenance,
         }
 
     def _invalidateCaseFoundationPoseDependents(self, parameterNode, reason: str) -> None:

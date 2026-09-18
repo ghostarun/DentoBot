@@ -4,10 +4,12 @@
 
 `CaseFoundationLogicMixin` is the single Case Foundation domain owner. It
 fingerprints the immutable closed-source CBCT and reviewed segmentation,
-governs four-landmark/hinge/opening state, constructs transient fixed-upper and
-moving-lower CBCT displays, and returns the centralized pose/base eligibility
-result. Persistent state remains in the existing parameter node and environment
-snapshot; no parallel registry exists.
+proposes AUTO incisors/dental-frame/hinge from that segmentation, constructs
+the persistent jaw-opening transform and transient fixed-upper / moving-lower
+CBCT displays, and returns the centralized pose/base eligibility result.
+Manual four-landmark placement is an optional correction/oracle fallback, not
+the production gate. Persistent state remains in the existing parameter node
+and environment snapshot; no parallel registry exists.
 
 The persistent jaw-opening transform is the parent frame for mandibular
 trajectories, ROI, docking/support/insertion outputs, shell and final template.

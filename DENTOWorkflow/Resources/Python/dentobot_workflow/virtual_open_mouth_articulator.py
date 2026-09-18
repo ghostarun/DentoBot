@@ -52,6 +52,12 @@ class VirtualArticulatorConfig:
     bisection_iterations: int = 48
 
 
+CASE_FOUNDATION_ARTICULATOR_CONFIG = VirtualArticulatorConfig(
+    theta_max_deg=58.0,
+    translation_max_mm=18.0,
+)
+
+
 @dataclass(frozen=True)
 class DentalFrame:
     origin_mm: np.ndarray
@@ -193,6 +199,37 @@ def guidance_direction(frame: DentalFrame, guidance_angle_deg: float) -> np.ndar
     gamma = np.radians(float(guidance_angle_deg))
     direction = np.cos(gamma) * frame.y_hat - np.sin(gamma) * frame.z_hat
     return _normalize(direction, "condylar guidance")
+
+
+def inferior_opening_rotation_sign(
+    axis: VirtualCondylarAxis,
+    frame: DentalFrame,
+    lower_incisor_mm: np.ndarray,
+) -> float:
+    """Match legacy Case Foundation: open by rotating the mandible inferiorly (RAS -Z)."""
+
+    del frame
+    probe_rad = np.radians(0.5)
+    lower = _as_point3(lower_incisor_mm, "lower incisor")
+    h0 = axis.midpoint_mm
+    axis_unit = axis.axis_direction
+    positive = compose_mandible_open_transform(h0, axis_unit, probe_rad, h0)
+    negative = compose_mandible_open_transform(h0, axis_unit, -probe_rad, h0)
+    positive_delta_z = float(transform_point(positive, lower)[2] - lower[2])
+    negative_delta_z = float(transform_point(negative, lower)[2] - lower[2])
+    direction_epsilon_mm = 1e-4
+    positive_inferior = positive_delta_z < -direction_epsilon_mm
+    negative_inferior = negative_delta_z < -direction_epsilon_mm
+    if positive_inferior and not negative_inferior:
+        return 1.0
+    if negative_inferior and not positive_inferior:
+        return -1.0
+    if positive_inferior and negative_inferior:
+        return 1.0 if positive_delta_z <= negative_delta_z else -1.0
+    raise ValueError(
+        "The case anatomy does not define one unambiguous inferior opening "
+        "direction at the selected hinge and incisor landmarks."
+    )
 
 
 def virtual_condylar_axis_from_points(
@@ -368,24 +405,57 @@ class HingeResolution:
 
 def resolve_virtual_condylar_axis(
     *,
-    manual_condyle_left_mm: np.ndarray,
-    manual_condyle_right_mm: np.ndarray,
     lower_incisor_mm: np.ndarray,
+    manual_condyle_left_mm: np.ndarray | None = None,
+    manual_condyle_right_mm: np.ndarray | None = None,
     segmented_condyle_left_mm: np.ndarray | None = None,
     segmented_condyle_right_mm: np.ndarray | None = None,
     lateral_arch_left_mm: np.ndarray | None = None,
     lateral_arch_right_mm: np.ndarray | None = None,
+    dental_frame: DentalFrame | None = None,
     force_manual_axis: bool = False,
     config: VirtualArticulatorConfig | None = None,
 ) -> HingeResolution:
     config = config or VirtualArticulatorConfig()
-    frame = dental_frame_from_landmarks(
-        manual_condyle_left_mm,
-        manual_condyle_right_mm,
-        lower_incisor_mm,
-    )
-    diagnostics: dict[str, Any] = {"frameOriginMm": frame.origin_mm.tolist()}
+    if dental_frame is not None:
+        frame = dental_frame
+        diagnostics: dict[str, Any] = {
+            "frameOriginMm": frame.origin_mm.tolist(),
+            "frameSource": "ARCH_OR_PROPOSED",
+        }
+    elif (
+        manual_condyle_left_mm is not None
+        and manual_condyle_right_mm is not None
+    ):
+        frame = dental_frame_from_landmarks(
+            manual_condyle_left_mm,
+            manual_condyle_right_mm,
+            lower_incisor_mm,
+        )
+        diagnostics = {
+            "frameOriginMm": frame.origin_mm.tolist(),
+            "frameSource": "MANUAL_CONDYLES",
+        }
+    elif lateral_arch_left_mm is not None and lateral_arch_right_mm is not None:
+        left_lat = _as_point3(lateral_arch_left_mm, "left arch")
+        right_lat = _as_point3(lateral_arch_right_mm, "right arch")
+        if float(left_lat[0]) > float(right_lat[0]):
+            left_lat, right_lat = right_lat, left_lat
+        frame = dental_frame_from_landmarks(left_lat, right_lat, lower_incisor_mm)
+        diagnostics = {
+            "frameOriginMm": frame.origin_mm.tolist(),
+            "frameSource": "ARCH_LATERALS",
+        }
+    else:
+        raise ValueError(
+            "AUTO hinge resolution needs a dental frame from the arch or "
+            "optional manual condylar landmarks."
+        )
     if force_manual_axis:
+        if manual_condyle_left_mm is None or manual_condyle_right_mm is None:
+            raise ValueError(
+                "Manual condylar-axis override requires placed Left/Right TMJ landmarks."
+            )
         axis = virtual_condylar_axis_manual(
             manual_condyle_left_mm,
             manual_condyle_right_mm,
@@ -394,13 +464,16 @@ def resolve_virtual_condylar_axis(
         return HingeResolution(axis=axis, frame=frame, diagnostics=diagnostics)
 
     if segmented_condyle_left_mm is not None and segmented_condyle_right_mm is not None:
-        comparison = compare_condyle_centres(
-            segmented_condyle_left_mm,
-            segmented_condyle_right_mm,
-            manual_condyle_left_mm,
-            manual_condyle_right_mm,
-        )
-        diagnostics["segmentedComparison"] = comparison
+        if (
+            manual_condyle_left_mm is not None
+            and manual_condyle_right_mm is not None
+        ):
+            diagnostics["segmentedComparison"] = compare_condyle_centres(
+                segmented_condyle_left_mm,
+                segmented_condyle_right_mm,
+                manual_condyle_left_mm,
+                manual_condyle_right_mm,
+            )
         axis = virtual_condylar_axis_from_points(
             segmented_condyle_left_mm,
             segmented_condyle_right_mm,
@@ -444,13 +517,11 @@ def resolve_virtual_condylar_axis(
         )
     except ValueError as exc:
         diagnostics["archRejected"] = str(exc)
-        axis = virtual_condylar_axis_manual(
-            manual_condyle_left_mm,
-            manual_condyle_right_mm,
-        )
-        diagnostics["selection"] = "MANUAL_FALLBACK"
-        diagnostics["manualFallbackReason"] = str(exc)
-        return HingeResolution(axis=axis, frame=frame, diagnostics=diagnostics)
+        raise ValueError(
+            "AUTO condylar axis is unavailable: patient condyles were rejected "
+            f"or missing and arch inference failed ({exc}). Place or correct "
+            "landmarks only as an optional override."
+        ) from exc
     diagnostics["selection"] = axis.source.value
     return HingeResolution(axis=axis, frame=frame, diagnostics=diagnostics)
 
@@ -542,26 +613,28 @@ def solve_arch_inferred_opening(
 
 def solve_auto_opening(
     *,
-    manual_condyle_left_mm: np.ndarray,
-    manual_condyle_right_mm: np.ndarray,
     upper_incisor_mm: np.ndarray,
     lower_incisor_mm: np.ndarray,
     target_opening_mm: float,
+    manual_condyle_left_mm: np.ndarray | None = None,
+    manual_condyle_right_mm: np.ndarray | None = None,
     segmented_condyle_left_mm: np.ndarray | None = None,
     segmented_condyle_right_mm: np.ndarray | None = None,
     lateral_arch_left_mm: np.ndarray | None = None,
     lateral_arch_right_mm: np.ndarray | None = None,
+    dental_frame: DentalFrame | None = None,
     force_manual_axis: bool = False,
     config: VirtualArticulatorConfig | None = None,
 ) -> ArticulatorResult:
     resolution = resolve_virtual_condylar_axis(
+        lower_incisor_mm=lower_incisor_mm,
         manual_condyle_left_mm=manual_condyle_left_mm,
         manual_condyle_right_mm=manual_condyle_right_mm,
-        lower_incisor_mm=lower_incisor_mm,
         segmented_condyle_left_mm=segmented_condyle_left_mm,
         segmented_condyle_right_mm=segmented_condyle_right_mm,
         lateral_arch_left_mm=lateral_arch_left_mm,
         lateral_arch_right_mm=lateral_arch_right_mm,
+        dental_frame=dental_frame,
         force_manual_axis=force_manual_axis,
         config=config,
     )
@@ -582,11 +655,15 @@ def opening_at_q(
     frame: DentalFrame,
     config: VirtualArticulatorConfig,
     lower_incisor_mm: np.ndarray,
+    rotation_sign: float = 1.0,
 ) -> tuple[np.ndarray, float, float]:
     q_value = float(q)
     if not isfinite(q_value) or q_value < 0.0 or q_value > 1.0:
         raise ValueError("Opening parameter q must lie in [0, 1].")
-    theta_rad = np.radians(config.theta_max_deg * q_value)
+    sign = float(rotation_sign)
+    if sign not in (-1.0, 1.0):
+        raise ValueError("Opening rotation sign must be +1 or -1.")
+    theta_rad = sign * np.radians(config.theta_max_deg * q_value)
     translation_mag = config.translation_max_mm * (q_value ** config.translation_profile_exponent)
     guidance = guidance_direction(frame, config.condylar_guidance_angle_deg)
     h0 = axis.midpoint_mm
@@ -598,6 +675,37 @@ def opening_at_q(
         hq,
     )
     return matrix, float(np.degrees(theta_rad)), float(translation_mag)
+
+
+def _opening_rotation_sign_for_solve(
+    axis: VirtualCondylarAxis,
+    frame: DentalFrame,
+    lower_incisor_mm: np.ndarray,
+) -> float:
+    return inferior_opening_rotation_sign(axis, frame, lower_incisor_mm)
+
+
+def articulator_opening_profile_mm(
+    axis: VirtualCondylarAxis,
+    frame: DentalFrame,
+    upper_incisor_mm: np.ndarray,
+    lower_incisor_mm: np.ndarray,
+    config: VirtualArticulatorConfig | None = None,
+) -> dict[str, float]:
+    config = config or VirtualArticulatorConfig()
+    upper = _as_point3(upper_incisor_mm, "upper incisor")
+    lower = _as_point3(lower_incisor_mm, "lower incisor")
+    identity = np.eye(4, dtype=float)
+    closed_gap = interincisal_distance_mm(upper, lower, identity)
+    rotation_sign = _opening_rotation_sign_for_solve(axis, frame, lower)
+    max_matrix, _, _ = opening_at_q(
+        1.0, axis, frame, config, lower, rotation_sign=rotation_sign
+    )
+    profile_max = interincisal_distance_mm(upper, lower, max_matrix)
+    return {
+        "closedGapMm": float(closed_gap),
+        "profileMaxGapMm": float(profile_max),
+    }
 
 
 def solve_opening_for_target_mm(
@@ -620,11 +728,18 @@ def solve_opening_for_target_mm(
         raise ValueError(
             "The closed interincisal distance already reaches the requested opening."
         )
-    max_matrix, _, _ = opening_at_q(1.0, axis, frame, config, lower)
+    rotation_sign = _opening_rotation_sign_for_solve(axis, frame, lower)
+    max_matrix, _, _ = opening_at_q(
+        1.0, axis, frame, config, lower, rotation_sign=rotation_sign
+    )
     max_gap = interincisal_distance_mm(upper, lower, max_matrix)
     if max_gap + config.opening_tolerance_mm < target:
         raise ValueError(
-            "The requested opening exceeds the configured articulator profile maximum."
+            "The requested opening "
+            f"({target:.1f} mm) exceeds the configured articulator profile maximum "
+            f"({max_gap:.1f} mm at full opening; closed interincisal gap "
+            f"{closed_gap:.1f} mm). Reduce the committed incisor gap or adjust "
+            "landmarks / hinge axis."
         )
     low = 0.0
     high = 1.0
@@ -636,7 +751,7 @@ def solve_opening_for_target_mm(
     for _ in range(config.bisection_iterations):
         mid = 0.5 * (low + high)
         matrix, theta_deg, translation_mm = opening_at_q(
-            mid, axis, frame, config, lower
+            mid, axis, frame, config, lower, rotation_sign=rotation_sign
         )
         gap = interincisal_distance_mm(upper, lower, matrix)
         if gap < target:
@@ -673,6 +788,8 @@ def solve_opening_for_target_mm(
         "theta_deg": float(best_theta),
         "translation_mm": float(best_translation),
         "closed_gap_mm": float(closed_gap),
+        "profile_max_gap_mm": float(max_gap),
+        "opening_rotation_sign": float(rotation_sign),
     }
     return ArticulatorResult(
         matrix_world_ras=best_matrix,

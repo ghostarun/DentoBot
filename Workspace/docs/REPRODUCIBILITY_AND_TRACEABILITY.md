@@ -19,6 +19,19 @@ because unrelated `widget_template_build.py` has 1,511 lines against its
 1,500-line policy. No Docker rebuild or Slicer workflow was run. Runtime,
 integration and operator verification therefore remain unclaimed.
 
+## 2026-09-18 — AUTO open-mouth headless check (`test1_post`)
+
+Matrix check `runtime.auto_open_mouth_test1_post` loads
+`data/Slicer_Saved/SampleStudy1/test1_post.mrb` in headless Slicer inside
+`dentobot-slicerros2` (entrypoint
+`Testing/run_dentobot_auto_open_mouth_smoke.py`). Marker
+`DENTOBOT_AUTO_OPEN_MOUTH_PASS` with `hingeSource=ARCH_INFERRED`,
+`landmarkSource=AUTO`, ~28 mm smoke target (GUI default remains 40 mm;
+profile max on this case ~86.8 mm). Isolated
+`Testing/test_virtual_open_mouth_articulator.py` 20 passed. Live GUI
+acceptance of the AUTO-primary panel is operator-observed, not this
+headless marker.
+
 ## Evidence routing — 2026-09-10
 
 Dated results below apply only to their recorded case/revision. They do not

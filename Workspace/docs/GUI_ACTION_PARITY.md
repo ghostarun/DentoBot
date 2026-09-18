@@ -1,6 +1,7 @@
 # DENTOBOT GUI Action Parity Inventory
 
-Status: active migration inventory, 2026-08-24
+Status: active migration inventory, 2026-08-24; Case Foundation AUTO-primary
+row added 2026-09-18.
 
 This inventory classifies the interactive action surfaces during the Legacy to
 six-workspace shell migration. Child controls inherit the classification of
@@ -19,6 +20,7 @@ presentation is pending migration.
 | DICOM import, volume selection, metadata/display | 1 | Temporary Legacy UI | Slicer DICOM/MRML | Visual migration pending |
 | AI inference, progress/cancel and backend details | 2 | Temporary Legacy UI; backend details Advanced | External adapter/MRML | Visual migration pending |
 | Segmentation review/correction/display | 3 | Temporary Legacy UI | Segmentation MRML | Visual migration pending |
+| Case Foundation open mouth | 3–4 | New routine UI | `CaseFoundationLogicMixin` / articulator | AUTO-primary 2026-09-18; landmarks fallback only |
 | Manual/assisted trajectory, locking and metrics | 4 | Temporary Legacy UI | Markups/parameter node | Visual migration pending |
 | Support anatomy and docking (4B/4C) | 5–6 | Temporary Legacy UI | Existing geometry logic | Visual migration pending |
 | Visible support, shell/fusion, verify/export (5A–5C) | 7–9 | Temporary Legacy UI | Existing geometry/lineage logic | Visual migration pending |

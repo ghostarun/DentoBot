@@ -19,7 +19,7 @@ def _polydata_points_world_ras(polydata: vtk.vtkPolyData) -> np.ndarray:
     count = int(polydata.GetNumberOfPoints())
     array = np.zeros((count, 3), dtype=float)
     for index in range(count):
-        points.GetPoint(index, array[index, 0], array[index, 1], array[index, 2])
+        array[index] = points.GetPoint(index)
     return array
 
 
@@ -89,12 +89,56 @@ class Step6CondyleExtractionMixin:
             return np.mean(left_points, axis=0), np.mean(right_points, axis=0)
         return None, None
 
-    def step6EstimatePatientCondyleCentres(
+    def step6IncisorMidpointsFromTeeth(
         self,
         parameterNode,
-        manual_left_mm: np.ndarray,
-        manual_right_mm: np.ndarray,
-        lower_incisor_mm: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            raise ValueError(_("The authoritative dental segmentation is missing."))
+        records = self.getSegmentationReviewRecords(segmentation)
+        teeth_by_fdi: dict[int, str] = {}
+        for record in records:
+            if str(record.get("category") or "") != "Teeth":
+                continue
+            try:
+                fdi = int(record.get("fdiNumber"))
+            except (TypeError, ValueError):
+                continue
+            segment_id = str(record.get("segmentId") or "")
+            if segment_id:
+                teeth_by_fdi[fdi] = segment_id
+
+        def midpoint(preferred: tuple[int, ...], jaw_name: str) -> np.ndarray:
+            points = []
+            for fdi in preferred:
+                segment_id = teeth_by_fdi.get(fdi)
+                if not segment_id:
+                    continue
+                surface = self._segmentationSegmentsSurfaceWorld(
+                    segmentation, {segment_id}
+                )
+                cloud = _polydata_points_world_ras(surface)
+                if cloud.shape[0] == 0:
+                    continue
+                points.append(np.mean(cloud, axis=0))
+            if not points:
+                raise ValueError(
+                    _(
+                        "AUTO open-mouth could not estimate the %1 incisor midpoint "
+                        "from reviewed tooth segments."
+                    ).replace("%1", jaw_name)
+                )
+            return np.mean(np.vstack(points), axis=0)
+
+        upper = midpoint((11, 21), _("upper"))
+        lower = midpoint((31, 41), _("lower"))
+        return upper, lower
+
+    def step6EstimatePatientCondyleCentresFromFrame(
+        self,
+        parameterNode,
+        frame: DentalFrame,
     ) -> tuple[np.ndarray, np.ndarray, float]:
         segmentation = parameterNode.teethSegmentation
         if segmentation is None:
@@ -106,12 +150,73 @@ class Step6CondyleExtractionMixin:
         surface = self._segmentationSegmentsSurfaceWorld(segmentation, lower_ids)
         if surface is None or surface.GetNumberOfPoints() == 0:
             raise ValueError(_("Could not build the lower-jaw closed surface."))
+        return estimate_condyle_centres_from_mandible_points(
+            _polydata_points_world_ras(surface),
+            frame,
+        )
+
+    def proposeCaseFoundationArticulatorInputs(
+        self,
+        parameterNode,
+    ) -> dict[str, object]:
+        """AUTO propose incisors, dental frame, and condyle centres from segmentation."""
+
+        from dentobot_workflow.virtual_open_mouth_articulator import (
+            dental_frame_from_landmarks,
+        )
+
+        upper, lower = self.step6IncisorMidpointsFromTeeth(parameterNode)
+        lateral_left, lateral_right = self.step6LateralArchReferencePoints(
+            parameterNode
+        )
+        if lateral_left is None or lateral_right is None:
+            raise ValueError(
+                _(
+                    "AUTO open-mouth needs bilateral mandibular laterals "
+                    "(molars, premolars, or centrals) to build the dental frame."
+                )
+            )
+        left_lat = np.asarray(lateral_left, dtype=float)
+        right_lat = np.asarray(lateral_right, dtype=float)
+        if float(left_lat[0]) > float(right_lat[0]):
+            left_lat, right_lat = right_lat, left_lat
+        frame = dental_frame_from_landmarks(left_lat, right_lat, lower)
+        extraction_error = ""
+        segmented_left = None
+        segmented_right = None
+        confidence = 0.0
+        try:
+            segmented_left, segmented_right, confidence = (
+                self.step6EstimatePatientCondyleCentresFromFrame(
+                    parameterNode,
+                    frame,
+                )
+            )
+        except ValueError as exc:
+            extraction_error = str(exc)
+        return {
+            "upperIncisorMm": upper,
+            "lowerIncisorMm": lower,
+            "lateralLeftMm": left_lat,
+            "lateralRightMm": right_lat,
+            "dentalFrame": frame,
+            "segmentedCondyleLeftMm": segmented_left,
+            "segmentedCondyleRightMm": segmented_right,
+            "segmentedConfidence": float(confidence),
+            "segmentedExtractionError": extraction_error,
+            "landmarkSource": "AUTO",
+        }
+
+    def step6EstimatePatientCondyleCentres(
+        self,
+        parameterNode,
+        manual_left_mm: np.ndarray,
+        manual_right_mm: np.ndarray,
+        lower_incisor_mm: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, float]:
         frame = dental_frame_from_landmarks(
             manual_left_mm,
             manual_right_mm,
             lower_incisor_mm,
         )
-        return estimate_condyle_centres_from_mandible_points(
-            _polydata_points_world_ras(surface),
-            frame,
-        )
+        return self.step6EstimatePatientCondyleCentresFromFrame(parameterNode, frame)

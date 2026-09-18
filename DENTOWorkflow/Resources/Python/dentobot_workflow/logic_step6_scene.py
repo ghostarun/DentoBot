@@ -825,10 +825,6 @@ class Step6SceneLogicMixin:
             raise ValueError(
                 _("The imported segmentation has no mandibular jaw or lower-tooth surfaces.")
             )
-        left, right, upper, lower = self.step6CaseJawLandmarkPositions(
-            parameterNode.step6CaseJawLandmarks
-        )
-        self.validateStep6CaseJawLandmarkAnatomy(parameterNode)
         articulator_result, upper, openedLower = self._solveCaseFoundationOpeningArticulator(
             parameterNode,
             float(parameterNode.step6CaseJawTargetGapMm),
@@ -880,11 +876,33 @@ class Step6SceneLogicMixin:
         transform.SetAttribute("DENTOBOT.AchievedIncisorGapMm", f"{gap:.6f}")
         transform.SetAttribute("DENTOBOT.HingeAngleDeg", f"{angle:.6f}")
         transform.SetAttribute("DENTOBOT.SourceGeometryFingerprint", sourceFingerprint)
+        landmarks = parameterNode.step6CaseJawLandmarks
+        if (
+            self.isStep6CaseJawLandmarksNode(landmarks)
+            and landmarks.GetNumberOfDefinedControlPoints() == 4
+        ):
+            transform.SetAttribute(
+                "DENTOBOT.LandmarksFingerprint",
+                self._step6CaseJawLandmarksFingerprint(landmarks),
+            )
+        else:
+            transform.SetAttribute(
+                "DENTOBOT.LandmarksFingerprint",
+                fingerprint(
+                    {
+                        "source": "AUTO",
+                        "upper": tuple(
+                            round(float(v), 6) for v in upper
+                        ),
+                        "lower": tuple(
+                            round(float(v), 6) for v in openedLower
+                        ),
+                    }
+                ),
+            )
         transform.SetAttribute(
-            "DENTOBOT.LandmarksFingerprint",
-            self._step6CaseJawLandmarksFingerprint(
-                parameterNode.step6CaseJawLandmarks
-            ),
+            "DENTOBOT.LandmarkSource",
+            str(articulator_result.provenance.get("landmarkSource") or "AUTO"),
         )
         transform.RemoveAttribute("DENTOBOT.TargetSegmentID")
         transform.RemoveAttribute("DENTOBOT.TargetAttachedGeometryFingerprint")
@@ -1079,6 +1097,10 @@ class Step6SceneLogicMixin:
             "gapMm": gap,
             "openedLowerIncisorRas": openedLower,
             "movingSegmentCount": len(lowerIds),
+            "hingeSource": articulator_result.hinge_source.value,
+            "openingParameterQ": float(articulator_result.q),
+            "condylarTranslationMm": float(articulator_result.translation_mm),
+            "articulatorProvenance": articulator_result.provenance,
         }
 
     def resetStep6CaseJawOpening(self, parameterNode) -> None:
