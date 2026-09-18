@@ -29,8 +29,8 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
   Foundation fingerprint; manual nudge is still allowed. Same-day regressions
   fixed: 3A layout orphaning, robot hidden after lock/propose, full **New Empty
   Case** reset, Step 4A target-tooth combo scroll (safe `ui_scroll_support` v2).
-  Operator visual acceptance still open (`S3B-ROBOT-PLACEMENT-MIRROR`). Not
-  `S6-U-02`.
+  **Accepted 2026-09-19** (`S3B-ROBOT-PLACEMENT-MIRROR` closed). Operator also
+  closed `S6-U-02` at simulation scope (not hardware metrology).
 
 - **2026-09-19 — New Empty Case full workflow reset:** Step 0 **New Empty Case**
   clears MRML only, then `_resetWorkflowStateForFreshCase()` wipes transient UI

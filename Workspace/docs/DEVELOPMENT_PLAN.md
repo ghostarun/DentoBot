@@ -1030,11 +1030,17 @@ make the lifecycle harness terminate its complete ROS process group.
 
 ### `S6-U-02` — physical mount-frame truth
 
-The reviewed Manual Simulation Base is sufficient only for bounded simulation.
-Future physical placement must separate a patient/world contact frame from a
-CAD-defined robot mount-face frame and solve the explicit transform between
-them. The circular robot-derived forehead plane remains quarantined and no
-proxy is registration, fit, or safety evidence.
+**Accepted 2026-09-19 at simulation scope (operator closure).** The lab
+workflow accepts `VirtualForeheadPriorV1`, Step 3B/6.1 offline placement, and
+manual Simulation Base nudge/lock for bounded simulation. See
+`logbook/2026-09-19.md` §7 and `DECISIONS.md` (2026-09-19 operator closure).
+
+The original physical-metrology contract remains documented for future hardware
+campaigns: separate patient/world contact frame from CAD-defined robot mount-
+face frame and solve the explicit measured transform between them. The circular
+robot-derived forehead plane remains quarantined and no proxy is registration,
+fit, or safety evidence. Hardware chain work, if needed, stays under `A-001` /
+`A-038`.
 
 ### `S6-P1-01` — Step 6A anatomical safeguards
 

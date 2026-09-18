@@ -5941,3 +5941,17 @@ parents, monkey-patching `showPopup` / `hidePopup`, or broad scroll-area wheel
 blocking keyed on `view.isVisible()` heuristics. The first attempt made the
 entire workflow panel unusable until module reload.
 
+## 2026-09-19 — Operator closure of `S6-U-02` at simulation scope
+
+**Decision:** Operator accepted closure of `S6-U-02` after live confirmation of
+Step 3B offline placement and the 6.1 mirror (`S3B-ROBOT-PLACEMENT-MIRROR`
+accepted the same day). For current lab workflow, the simulation mount path —
+`VirtualForeheadPriorV1`, shared 3B/6.1 widgets, manual nudge/lock, and PASS
+banner — is sufficient.
+
+**Evidence boundary:** This closure does **not** assert completion of the
+original physical-metrology contract (mount-face CAD/contact normal, measured
+patient-contact→base transform, hardware calibration). Those remain under
+`A-001` / `A-038` if a future hardware or registration campaign requires them.
+No robot hardware motion was authorized by this acceptance.
+
