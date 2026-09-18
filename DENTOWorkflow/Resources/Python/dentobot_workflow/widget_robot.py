@@ -754,7 +754,12 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         result = self._robotWorkflowFacade.lockBase()
         if result.success:
-            self._captureCaseFoundationSessionSnapshot()
+            try:
+                self._captureCaseFoundationSessionSnapshot()
+            except Exception:
+                logging.exception(
+                    "Case Foundation session snapshot failed after locking the robot base"
+                )
             if self._isStep3BActive():
                 self._updateRobotPlacement()
                 self._applyStep3BRecommendedView()

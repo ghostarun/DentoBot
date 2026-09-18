@@ -1,10 +1,12 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-19. Case Foundation AUTO-primary GUI and Step 3B
-offline-placement mirror recorded (P5/gate campaign handoff from 2026-09-17 is
-unchanged). Routing plus the durable
-Step-4A–5B testing
-baseline below; all pending work and current order live in
+Last reconciled: 2026-09-19. Operator-confirmed ordinary GUI workflow on
+`cursor-agent/dentoworkflow-debug-20260918` through **Step 6.5 planner**.
+Immediate next implementation is Goal 1 **PreEntry** (motion-diagnostics P1)
+on saved FDI31 `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`.
+Campaign 1 P5/gate handoff from 2026-09-17 remains diagnostic evidence, not a
+substitute for this live planner stall. Routing plus the durable Step-4A–5B
+testing baseline below; all pending work and current order live in
 [backlog.md](backlog.md). Detailed task contracts and completion records live
 in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 
@@ -21,6 +23,22 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
    and checkout-relative `Testing/verification_matrix.json`.
 
 ## Current handoff
+
+- **2026-09-19 — Ordinary GUI path reaches Step 6.5; planner stalls at PreEntry:**
+  The operator confirmed the Cursor debug-branch workflow through Step 6.5 on
+  saved FDI31
+  `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`.
+  Motion diagnostics listed **13 planner legs**, all failing at **P1 /
+  PreEntry** (Home→PreEntry). **P2 (PreEntry→Entry) and P3 (Entry→Target)
+  preflight never ran.** This live GUI result contradicts earlier Codex
+  headless verification trials (Campaign 1 P3/P4/P5 diagnostic witnesses on
+  locked r4). Do not treat those trials as operator-verified Goal 1. Immediate
+  work for the **Tuesday weekly meeting** (2026-09-22) is to solve Goal 1
+  PreEntry or produce a bounded issue packet for professor discussion. Owner:
+  `S6-LIVE-01` (planner). Branch
+  `cursor-agent/dentoworkflow-debug-20260918` is source-successful through
+  6.5 and may merge to `main` only after further testing **and** planner
+  completion. No robot hardware motion.
 
 - **2026-09-19 — Step 3B offline robot placement (6.1 mirror):** After AUTO
   open-mouth, Confirm goes to **3B** on the same Step 3 combo row. 3B reparents
@@ -200,23 +218,23 @@ the frozen 13Sept/r7 evidence to make it match these defaults.
 | 4C | Dock dimensions and draft screen | Pattern radius `10.0 mm`; dock outer diameter `3.0 mm`; **robot-dock bore `1.0 mm`**; connector/branch width `3.5 mm`; endpoint overlap/thickness `2.0 mm`; shared depth `5.0 mm`; obstacle clearance `0.5 mm`; yaw `35.0°`; individual depths disabled with each depth `5.0 mm`; measurements visible | New parameter/UI defaults in `parameter_state.py` and `DENTOWorkflow.ui`. The 1.0-mm value is only the registration/robot-dock bore; it is not the drilling trajectory bore. |
 | 5A | Visible support and automatic plane | Visible support preview; insertion-aligned support plane; plane depth from Entry `4.0 mm`; crown-cap tilt fit `10%`; boundary sampling `0.5 mm`; terminal support coverage `50%`; polarity reversal off | The 4.0/10/0.5/50 values are source/UI defaults; some lower-crop values were not visible in the supplied screenshot. The oblique plane is an unresolved display/world-frame review item, not accepted geometry. |
 | 5B | Undercut/blockout inputs | Undercut angle tolerance `5°`; interproximal relief `1.0 mm`; blockout safety `0.1 mm`; voxel closing `0.3 mm` | Source/UI defaults; these controls were visible in the supplied 5B view. The grey derived-output controls and `Unified template=None` are output/state observations, not defaults. |
-| 5B | Shell/guide construction inputs | Shell clearance `0.3 mm`; shell thickness `1.5 mm`; geometry sampling `0.3 mm`; shell channel `2.0 mm`; trajectory-guide outer diameter `4.4 mm`; trajectory-guide hole/bore `2.0 mm`; guide height `2.5 mm`; guide/dock clearance `0.3 mm`; collar radial width `1.0 mm`; collar depth `2.0 mm` | These are source/UI defaults; several are not visible in the supplied screenshot crop. The direct UI field is `templateSleeveInnerDiameterMm` (“Trajectory guide hole diameter”). |
+| 5B | Shell/guide construction inputs | Shell clearance `0.3 mm`; shell thickness `1.5 mm`; geometry sampling `0.3 mm`; shell channel `2.0 mm`; trajectory-guide outer diameter `4.4 mm`; trajectory-guide hole/bore **`2.1 mm`**; guide height `2.5 mm`; guide/dock clearance `0.3 mm`; collar radial width `1.0 mm`; collar depth `2.0 mm` | These are source/UI defaults; several are not visible in the supplied screenshot crop. The direct UI field is `templateSleeveInnerDiameterMm` (“Trajectory guide hole diameter”). Operator 2026-09-19: live default `2.1 mm`. |
 
 ### Non-negotiable trajectory-guide bore rule
 
 The drill-burr/trajectory-guide hole must be **at least 2.0 mm in diameter**;
-values below 2.0 mm are invalid and must fail closed. The persisted default
-`templateSleeveInnerDiameterMm` is `2.0`, the UI minimum is `2.0`, and
-`DENTOGuideGeometry.py` enforces the same floor through
-`MINIMUM_TRAJECTORY_BORE_DIAMETER_MM`. The related shell channel
-`templateChannelDiameterMm` also defaults to and is UI-bounded at `2.0 mm`.
+values below 2.0 mm are invalid and must fail closed. The persisted live
+default `templateSleeveInnerDiameterMm` is **`2.1 mm`** (operator 2026-09-19).
+The UI minimum remains `2.0` (the burr floor). `DENTOGuideGeometry.py` keeps
+`MINIMUM_TRAJECTORY_BORE_DIAMETER_MM = 2.0` and
+`DEFAULT_TRAJECTORY_BORE_DIAMETER_MM = 2.1`. The related shell channel
+`templateChannelDiameterMm` still defaults to and is UI-bounded at `2.0 mm`.
 This rule does not raise the separate Step-4C `targetDockingBoreDiameterMm`
 default of `1.0 mm`.
 
-The immutable 13Sept/r7 package may retain a historical `1.5 mm` saved guide
-value as rejected evidence. Do not clamp it, rebuild it, or call it a valid
-default. A new test case must be initialized at the 2.0-mm floor before
-dependent Step 5B/5C geometry is generated.
+Entering Step 5B lifts an in-memory hole **below 2.0 mm** to the live `2.1 mm`
+default so section-2 spinboxes stay in range and editable. Frozen 13Sept/r7
+files on disk are not rewritten. A hole of `2.0 mm` or larger is left unchanged.
 
 ### Baseline change-control rule
 

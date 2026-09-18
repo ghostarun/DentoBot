@@ -240,7 +240,7 @@ class BootstrapWidgetMixin:
         self.ui.templateGuideTrajectorySelector.addAttribute(
             "vtkMRMLMarkupsLineNode",
             "DENTOBOT.TrajectoryRole",
-            "EntryTarget",
+            "EntryToTarget",
         )
         self.ui.templateInsertionDirectionSelector.addAttribute(
             "vtkMRMLMarkupsLineNode",

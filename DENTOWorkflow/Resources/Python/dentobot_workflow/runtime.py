@@ -69,6 +69,8 @@ from DENTOTemplateGeometry import (
     write_stl_atomic,
 )
 from DENTOGuideGeometry import (
+    DEFAULT_TRAJECTORY_BORE_DIAMETER_MM,
+    MINIMUM_TRAJECTORY_BORE_DIAMETER_MM,
     combine_guide_geometry_sets,
     compute_target_docking_frame,
     create_independent_shell_contact_reinforcements,

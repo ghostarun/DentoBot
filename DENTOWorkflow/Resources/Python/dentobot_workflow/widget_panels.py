@@ -251,6 +251,23 @@ class WorkflowPanelsWidgetMixin:
         self._unifiedTemplateReadinessGroup = readinessGroup
         self._unifiedTemplateInputsGroup = inputsGroup
         self._unifiedTemplateActionGroup = actionGroup
+        inputsGroup.enabled = True
+        for spinBox in (
+            self.ui.templateShellClearanceSpinBox,
+            self.ui.templateShellThicknessSpinBox,
+            self.ui.templateSamplingSpacingSpinBox,
+            self.ui.templateSleeveOuterDiameterSpinBox,
+            self.ui.templateSleeveInnerDiameterSpinBox,
+            self.ui.templateSleeveHeightSpinBox,
+            self.ui.templateDockingClearanceSpinBox,
+            self.ui.templateReinforcementRadialSpinBox,
+            self.ui.templateReinforcementDepthSpinBox,
+        ):
+            spinBox.enabled = True
+            spinBox.setReadOnly(False)
+        self.ui.templateSleeveInnerDiameterSpinBox.setMinimum(
+            MINIMUM_TRAJECTORY_BORE_DIAMETER_MM
+        )
 
     def _setupTrajectoryPlanningModes(self) -> None:
         """Place manual/assisted initialization behind one Step 4A choice."""

@@ -68,7 +68,7 @@ class DENTOWorkflowParameterNode:
     templateSamplingSpacingMm: float = 0.3
     templateChannelDiameterMm: float = 2.0
     templateSleeveOuterDiameterMm: float = 4.4
-    templateSleeveInnerDiameterMm: float = 2.0
+    templateSleeveInnerDiameterMm: float = 2.1
     templateSleeveHeightMm: float = 2.5
     templateDockingClearanceMm: float = 0.3
     templateReinforcementRadialMm: float = 1.0

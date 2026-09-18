@@ -107,6 +107,34 @@ def test_case_view_roles_are_case_package_not_phantom() -> None:
     assert "draftPhantomMandibleModel" not in CASE_VIEW_ROLES
 
 
+def test_step5b_guide_selector_inherits_entry_to_target_trajectories() -> None:
+    bootstrap = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_bootstrap.py"
+    ).read_text()
+    selector_index = bootstrap.index(
+        "self.ui.templateGuideTrajectorySelector.addAttribute("
+    )
+    role_block = bootstrap[selector_index : selector_index + 220]
+    assert '"DENTOBOT.TrajectoryRole"' in role_block
+    assert '"EntryToTarget"' in role_block
+    assert '"EntryTarget"' not in role_block
+    build_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_template_build.py"
+    ).read_text()
+    assert "def _inheritSelectedTemplateGuideTrajectoriesIfNeeded" in build_source
+    assert "self._inheritSelectedTemplateGuideTrajectoriesIfNeeded()" in build_source
+
+
 def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries() -> None:
     parameter_source = (
         REPOSITORY_ROOT
@@ -117,7 +145,7 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
         / "parameter_state.py"
     ).read_text()
     assert "templateChannelDiameterMm: float = 2.0" in parameter_source
-    assert "templateSleeveInnerDiameterMm: float = 2.0" in parameter_source
+    assert "templateSleeveInnerDiameterMm: float = 2.1" in parameter_source
     generation_source = (
         REPOSITORY_ROOT / "Testing" / "run_dentobot_stage6_target_generation.py"
     ).read_text()
@@ -234,6 +262,33 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
         minimum = widget.find("./property[@name='minimum']/double")
         assert minimum is not None
         assert float(minimum.text) == 2.0
+    inner_widget = next(
+        element
+        for element in tree.iter("widget")
+        if element.get("name") == "templateSleeveInnerDiameterSpinBox"
+    )
+    inner_value = inner_widget.find("./property[@name='value']/double")
+    assert inner_value is not None
+    assert float(inner_value.text) == 2.1
+    guide_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "DENTOGuideGeometry.py"
+    ).read_text()
+    assert "MINIMUM_TRAJECTORY_BORE_DIAMETER_MM = 2.0" in guide_source
+    assert "DEFAULT_TRAJECTORY_BORE_DIAMETER_MM = 2.1" in guide_source
+    build_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_template_build.py"
+    ).read_text()
+    assert "innerBoreMm < MINIMUM_TRAJECTORY_BORE_DIAMETER_MM" in build_source
+    assert "spinBox.setReadOnly(False)" in build_source
 
 
 def test_new_case_dock_and_support_defaults_match_operator_review() -> None:

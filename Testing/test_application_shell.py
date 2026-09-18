@@ -192,6 +192,24 @@ def test_new_empty_case_resets_entire_workflow_to_step_zero() -> None:
     assert "_setWorkflowStage(0" in lifecycle
 
 
+def test_lock_base_session_snapshot_tolerates_missing_landmarks() -> None:
+    scene = (
+        HELPERS / "dentobot_workflow/widget_robot_scene.py"
+    ).read_text(encoding="utf-8")
+    robot = (
+        HELPERS / "dentobot_workflow/widget_robot.py"
+    ).read_text(encoding="utf-8")
+    capture = scene.split(
+        "def _captureCaseFoundationSessionSnapshot", 1
+    )[1].split("def ", 1)[0]
+    assert "if landmarks is not None:" in capture
+    assert 'landmarks.GetAttribute("DENTOBOT.SurfaceEvidenceJson")' in capture
+    lock = robot.split("def onLockRobotBaseMount", 1)[1].split("def ", 1)[0]
+    assert "try:" in lock
+    assert "_captureCaseFoundationSessionSnapshot()" in lock
+    assert "logging.exception" in lock
+
+
 def test_saved_case_navigation_keeps_every_workspace_selectable():
     shell = (HELPERS / "DENTOApplicationShell.py").read_text(encoding="utf-8")
     navigation = (

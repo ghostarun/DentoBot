@@ -446,6 +446,35 @@ class TemplateBuildWidgetMixin:
         self.ui.templateDockingFusionStatusLabel.text = message
         self.ui.templateDockingFusionStatusLabel.styleSheet = style
 
+    def _inheritSelectedTemplateGuideTrajectoriesIfNeeded(self) -> None:
+        """Bind Step 5B's guide selection to the active Step 4A trajectory.
+
+        Insertion direction can already exist while the guide selector stays
+        empty: the combo previously filtered a non-existent TrajectoryRole, and
+        selected-guide references are not written unless the operator changes
+        the combo. Inherit once from trajectoryLine when that line is eligible
+        for the current Step 4B target.
+        """
+
+        if not self._parameterNode or not self.logic:
+            return
+        if self.logic.getSelectedTemplateGuideTrajectories():
+            return
+        trajectoryNode = self._parameterNode.trajectoryLine
+        sourceModel = self._parameterNode.draftTemplateSupportModel
+        if not trajectoryNode or not sourceModel:
+            return
+        try:
+            eligible = self.logic.getEligibleTemplateGuideTrajectories(sourceModel)
+            if trajectoryNode not in eligible:
+                return
+            self.logic.setSelectedTemplateGuideTrajectories(
+                sourceModel,
+                [trajectoryNode],
+            )
+        except (RuntimeError, ValueError):
+            return
+
     def _updateTemplateGuide(self) -> None:
         if self._updatingTemplateGuideUI:
             return
@@ -453,6 +482,36 @@ class TemplateBuildWidgetMixin:
             self._clearTemplateGuide()
             return
 
+        self._inheritSelectedTemplateGuideTrajectoriesIfNeeded()
+        innerBoreMm = float(self._parameterNode.templateSleeveInnerDiameterMm)
+        if innerBoreMm < MINIMUM_TRAJECTORY_BORE_DIAMETER_MM:
+            logging.info(
+                "Step 5B raised trajectory-guide hole from %.2f mm to live default %.2f mm",
+                innerBoreMm,
+                DEFAULT_TRAJECTORY_BORE_DIAMETER_MM,
+            )
+            self._updatingTemplateGuideUI = True
+            try:
+                self._parameterNode.templateSleeveInnerDiameterMm = float(
+                    DEFAULT_TRAJECTORY_BORE_DIAMETER_MM
+                )
+            finally:
+                self._updatingTemplateGuideUI = False
+        if getattr(self, "_unifiedTemplateInputsGroup", None) is not None:
+            self._unifiedTemplateInputsGroup.enabled = True
+        for spinBox in (
+            self.ui.templateShellClearanceSpinBox,
+            self.ui.templateShellThicknessSpinBox,
+            self.ui.templateSamplingSpacingSpinBox,
+            self.ui.templateSleeveOuterDiameterSpinBox,
+            self.ui.templateSleeveInnerDiameterSpinBox,
+            self.ui.templateSleeveHeightSpinBox,
+            self.ui.templateDockingClearanceSpinBox,
+            self.ui.templateReinforcementRadialSpinBox,
+            self.ui.templateReinforcementDepthSpinBox,
+        ):
+            spinBox.enabled = True
+            spinBox.setReadOnly(False)
         supportModel = self._parameterNode.draftTemplateSupportModel
         visibleSupportModel = self._parameterNode.visibleTemplateSupportModel
         insertionDirection = self._parameterNode.templateInsertionDirection

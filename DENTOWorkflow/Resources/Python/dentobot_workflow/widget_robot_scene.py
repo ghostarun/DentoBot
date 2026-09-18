@@ -19,14 +19,17 @@ class RobotSceneWidgetMixin:
             return False
         environment = self.logic.buildCaseFoundationSnapshot(self._parameterNode)
         landmarks = self._parameterNode.step6CaseJawLandmarks
+        evidence_json = ""
+        if landmarks is not None:
+            evidence_json = str(
+                landmarks.GetAttribute("DENTOBOT.SurfaceEvidenceJson") or ""
+            )
         self._caseFoundationSnapshot = {
             "sourceVolumeFingerprint": environment.source_volume_fingerprint,
             "sourceSegmentationFingerprint": environment.source_segmentation_fingerprint,
             "robotProfileFingerprint": environment.robot_profile_fingerprint,
             "landmarkPositionsRasMm": list(environment.landmark_positions_ras_mm),
-            "landmarkEvidenceJson": str(
-                landmarks.GetAttribute("DENTOBOT.SurfaceEvidenceJson") or ""
-            ),
+            "landmarkEvidenceJson": evidence_json,
             "targetGapMm": environment.mouth_gap_mm,
             "openingRevision": environment.opening_revision,
             "baseMatrix": list(environment.base_matrix),

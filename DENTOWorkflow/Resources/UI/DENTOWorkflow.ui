@@ -3187,6 +3187,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           <property name="minimum"><double>2.000000000000000</double></property>
           <property name="maximum"><double>15.000000000000000</double></property>
           <property name="singleStep"><double>0.100000000000000</double></property>
+          <property name="value"><double>2.100000000000000</double></property>
           <property name="suffix"><string> mm</string></property>
           <property name="SlicerParameterName" stdset="0"><string>templateSleeveInnerDiameterMm</string></property>
          </widget>

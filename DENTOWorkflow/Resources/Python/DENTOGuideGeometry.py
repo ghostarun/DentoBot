@@ -24,6 +24,7 @@ from DENTOTemplateGeometry import create_hollow_sleeve, surface_topology
 MAX_SAMPLE_POINTS = 48_000_000
 MAX_DISCARDED_OCCUPIED_ARTIFACT_VOLUME_MM3 = 0.1
 MINIMUM_TRAJECTORY_BORE_DIAMETER_MM = 2.0
+DEFAULT_TRAJECTORY_BORE_DIAMETER_MM = 2.1
 
 
 def _vector(values, label: str) -> np.ndarray:

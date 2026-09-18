@@ -5955,3 +5955,37 @@ patient-contact→base transform, hardware calibration). Those remain under
 `A-001` / `A-038` if a future hardware or registration campaign requires them.
 No robot hardware motion was authorized by this acceptance.
 
+## 2026-09-19 — Step 5B live trajectory-guide hole default 2.1 mm
+
+The operator's live Step 5B session stored **1.50 mm** in Trajectory guide hole
+diameter. That value is below the UI/spinbox floor of **2.0 mm**, which left
+section-2 dimension controls out of range (appearing greyed/unusable) and
+blocked **Build / Update Unified Template**.
+
+This supersedes the 2026-09-15 instruction not to lift a live sub-floor hole
+during Step 5B. Frozen 13Sept/r7 **files** remain untouched. In the live
+parameter node, a hole **below 2.0 mm** is raised to the new default
+**2.1 mm** when Step 5B refreshes. Values already at or above 2.0 mm are not
+changed.
+
+- Burr/builder floor remains `MINIMUM_TRAJECTORY_BORE_DIAMETER_MM = 2.0`.
+- New-case / UI default is `DEFAULT_TRAJECTORY_BORE_DIAMETER_MM = 2.1`
+  (`templateSleeveInnerDiameterMm`).
+- Step-4C robot-dock bore stays `1.0 mm`. Shell channel stays `2.0 mm`.
+- Section-2 spinboxes are explicitly enabled and writable on Step 5B setup
+  and refresh.
+
+No collision-policy, frozen-case, or hardware change.
+
+## 2026-09-19 — Debug-branch GUI through 6.5; live Goal 1 PreEntry is next
+
+The operator confirmed the Cursor branch
+`cursor-agent/dentoworkflow-debug-20260918` ordinary GUI path through
+**Step 6.5**. Live FDI31 Goal 1 on
+`dentobot-case-step19-step6.dentocase` shows **13 planner legs**, all failing
+at motion-diagnostics **P1 PreEntry**, with **P2/P3 preflight not entered**.
+That GUI result supersedes any implication that Codex Campaign-1 P3–P5
+headless witnesses proved this operator Goal 1. The branch may merge to
+`main` only after further testing **and** planner completion. Immediate
+implementation owner remains `S6-LIVE-01`. No hardware motion.
+
