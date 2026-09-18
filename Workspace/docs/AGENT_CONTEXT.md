@@ -22,8 +22,9 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 ## Current handoff
 
 - **2026-09-18 — Virtual forehead prior (simulation only):** After AUTO
-  open-mouth, Step 6 can **Propose virtual forehead + base**. Plane is
-  extra-FOV; base seating is identity extraoral (not −90° X / TCP slide).
+  open-mouth, Step 6 **Propose virtual forehead + base** seats
+  `T_world_forehead @ T_rel` from the operator dump
+  (`-176.5538/-83.1910/86.5294 deg`, `1.3063/8.8267/56.5915 mm`, q=0).
   Not `S6-U-02` closure; no robot hardware motion.
 
 - **2026-09-18 — Case Foundation AUTO-primary GUI (source-complete):** Default

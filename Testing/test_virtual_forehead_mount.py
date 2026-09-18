@@ -14,6 +14,7 @@ from dentobot_workflow.virtual_forehead_mount import (
     TCP_AIM_OPENED_LOWER_INCISOR,
     VirtualForeheadConfig,
     forehead_base_offset_matrix,
+    forehead_relative_seating,
     propose_virtual_forehead_plane,
     seat_base_on_forehead,
     slide_base_for_tcp_target,
@@ -60,11 +61,18 @@ def test_fov_push_never_pulls_into_volume() -> None:
 def test_seat_uses_named_forehead_to_base_rotation() -> None:
     frame, _lower = _fixture_frame()
     plane = propose_virtual_forehead_plane(frame)
-    base = seat_base_on_forehead(plane)
-    offset = forehead_base_offset_matrix()
+    identity = VirtualForeheadConfig(
+        base_rx_deg=0.0,
+        base_ry_deg=0.0,
+        base_rz_deg=0.0,
+        tu_mm=0.0,
+        tv_mm=0.0,
+        tz_mm=0.0,
+    )
+    base = seat_base_on_forehead(plane, config=identity)
+    offset = forehead_base_offset_matrix(identity)
     expected = plane.matrix_world() @ offset
     assert np.allclose(base, expected)
-    # Identity T_forehead_base: URDF +Z is the forehead outward normal (extraoral).
     assert np.allclose(offset[:3, 2], np.array([0.0, 0.0, 1.0]), atol=1e-9)
     assert np.allclose(base[:3, 2], plane.z_hat, atol=1e-9)
 
@@ -82,19 +90,44 @@ def test_planar_slide_reduces_tcp_error() -> None:
     assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
-def test_propose_defaults_do_not_point_chain_through_the_face() -> None:
+def test_propose_defaults_recover_operator_capture() -> None:
     frame, _lower = _fixture_frame()
     plane = propose_virtual_forehead_plane(frame)
     base = seat_base_on_forehead(plane)
-    chain = base[:3, 2]
-    toward_mouth = plane.y_hat
-    outward = plane.z_hat
-    assert float(np.dot(chain, outward)) > 0.9
-    assert abs(float(np.dot(chain, toward_mouth))) < 0.2
-    assert np.allclose(base[:3, 3], plane.origin_mm)
+    dumped = forehead_relative_seating(plane.matrix_world(), base)
+    assert dumped["baseRxDeg"] == pytest.approx(-176.5538, abs=1e-3)
+    assert dumped["baseRyDeg"] == pytest.approx(-83.1910, abs=1e-3)
+    assert dumped["baseRzDeg"] == pytest.approx(86.5294, abs=1e-3)
+    assert dumped["tuMm"] == pytest.approx(1.3063, abs=1e-3)
+    assert dumped["tvMm"] == pytest.approx(8.8267, abs=1e-3)
+    assert dumped["tzMm"] == pytest.approx(56.5915, abs=1e-3)
+    extraoral = float(np.dot(base[:3, 3] - plane.origin_mm, plane.z_hat))
+    assert extraoral > 0.0
+    assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 def test_x_axis_points_patient_right() -> None:
     frame, _ = _fixture_frame()
     plane = propose_virtual_forehead_plane(frame)
     assert float(np.dot(plane.x_hat, frame.x_hat)) > 0.7
+
+
+def test_forehead_relative_seating_roundtrip() -> None:
+    frame, _ = _fixture_frame()
+    plane = propose_virtual_forehead_plane(frame)
+    config = VirtualForeheadConfig(
+        base_rx_deg=-40.0,
+        base_ry_deg=18.0,
+        base_rz_deg=7.5,
+        tu_mm=12.0,
+        tv_mm=-8.0,
+        tz_mm=5.0,
+    )
+    seated = seat_base_on_forehead(plane, config=config)
+    dumped = forehead_relative_seating(plane.matrix_world(), seated)
+    assert dumped["baseRxDeg"] == pytest.approx(-40.0, abs=1e-4)
+    assert dumped["baseRyDeg"] == pytest.approx(18.0, abs=1e-4)
+    assert dumped["baseRzDeg"] == pytest.approx(7.5, abs=1e-4)
+    assert dumped["tuMm"] == pytest.approx(12.0, abs=1e-4)
+    assert dumped["tvMm"] == pytest.approx(-8.0, abs=1e-4)
+    assert dumped["tzMm"] == pytest.approx(5.0, abs=1e-4)

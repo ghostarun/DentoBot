@@ -24,6 +24,7 @@ class RobotShellWidgetMixin:
                 "enable_cbct_rendering": self._onStep6EnableCbctRendering,
                 "cbct_preset": self._onStep6CbctPresetChanged,
                 "create_proxy": self._onStep6CreateForeheadProxy,
+                "copy_forehead_seating": self._onStep6CopyForeheadSeating,
                 "placement_review": self._onStep6PlacementReview,
                 "appearance_changed": self._onStep6AppearanceChanged,
                 "save_home": self._onStep6SaveTaskHome,
@@ -327,6 +328,20 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.visualizationStatusLabel.text = message
             self._updateRobotPlacement()
             self._applyStep6RecommendedView()
+        except (RuntimeError, ValueError) as exc:
+            self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
+            slicer.util.errorDisplay(str(exc))
+
+    def _onStep6CopyForeheadSeating(self) -> None:
+        if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
+            return
+        try:
+            seating = self.logic.dumpForeheadRelativeSeating(self._parameterNode)
+            line = str(seating["copyLine"])
+            clipboard = qt.QApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText(line)
+            self._robotSimulationPanel.visualizationStatusLabel.text = line
         except (RuntimeError, ValueError) as exc:
             self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
             slicer.util.errorDisplay(str(exc))

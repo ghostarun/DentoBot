@@ -512,8 +512,8 @@ class RobotPlacementLogicMixin:
             float(parameterNode.step6ForeheadProxyWidthMm),
             float(parameterNode.step6ForeheadProxyHeightMm),
         )
-        node.SetLocked(False)
-        node.SetSelectable(True)
+        node.SetLocked(True)
+        node.SetSelectable(False)
         node.SetAttribute("DENTOBOT.MarkupsRole", self.ROBOT_MOUNT_PLANE_ROLE)
         node.SetAttribute(
             "DENTOBOT.RobotPlacementSchemaVersion",
@@ -526,6 +526,22 @@ class RobotPlacementLogicMixin:
         node.SetAttribute("DENTOBOT.ExcludedFromPlacement", "false")
         node.SetAttribute("DENTOBOT.PlacementAuthority", PLACEMENT_AUTHORITY)
         node.SetAttribute("DENTOBOT.CaseFoundationFingerprint", str(fingerprint))
+        node.SetAttribute(
+            "DENTOBOT.ForeheadOriginMm",
+            ",".join(f"{float(v):.9f}" for v in plane.origin_mm),
+        )
+        node.SetAttribute(
+            "DENTOBOT.ForeheadX",
+            ",".join(f"{float(v):.9f}" for v in plane.x_hat),
+        )
+        node.SetAttribute(
+            "DENTOBOT.ForeheadY",
+            ",".join(f"{float(v):.9f}" for v in plane.y_hat),
+        )
+        node.SetAttribute(
+            "DENTOBOT.ForeheadZ",
+            ",".join(f"{float(v):.9f}" for v in plane.z_hat),
+        )
         node.SetAttribute("DENTOBOT.StaleReason", None)
         node.CreateDefaultDisplayNodes()
         displayNode = node.GetDisplayNode()
@@ -535,11 +551,59 @@ class RobotPlacementLogicMixin:
             displayNode.SetVisibility3D(True)
             displayNode.SetOpacity(0.28)
             displayNode.SetColor(0.15, 0.80, 0.95)
-            displayNode.SetHandlesInteractive(True)
-            displayNode.SetTranslationHandleVisibility(True)
-            displayNode.SetRotationHandleVisibility(True)
+            displayNode.SetHandlesInteractive(False)
+            displayNode.SetTranslationHandleVisibility(False)
+            displayNode.SetRotationHandleVisibility(False)
         parameterNode.robotMountPlane = node
         return node
+
+    def _foreheadFrameFromStoredPlane(self, plane_node) -> np.ndarray:
+        def _vec(name: str) -> np.ndarray:
+            text = str(plane_node.GetAttribute(name) or "")
+            parts = [float(part) for part in text.split(",") if part.strip()]
+            if len(parts) != 3:
+                raise ValueError(
+                    _("Propose virtual forehead + base first so the constructed "
+                      "forehead axes are stored (not Markups in-plane X/Y).")
+                )
+            return np.asarray(parts, dtype=float)
+
+        matrix = np.eye(4, dtype=float)
+        matrix[:3, 0] = _vec("DENTOBOT.ForeheadX")
+        matrix[:3, 1] = _vec("DENTOBOT.ForeheadY")
+        matrix[:3, 2] = _vec("DENTOBOT.ForeheadZ")
+        matrix[:3, 3] = _vec("DENTOBOT.ForeheadOriginMm")
+        return matrix
+
+    def dumpForeheadRelativeSeating(self, parameterNode) -> dict[str, object]:
+        from dentobot_workflow.virtual_forehead_mount import forehead_relative_seating
+
+        plane = parameterNode.robotMountPlane
+        if plane is None or not self.isRobotMountPlaneNode(plane):
+            raise ValueError(_("Propose virtual forehead + base first."))
+        base = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base):
+            raise ValueError(_("Load the robot and propose a virtual forehead first."))
+        world = vtk.vtkMatrix4x4()
+        base.GetMatrixTransformToWorld(world)
+        seating = forehead_relative_seating(
+            self._foreheadFrameFromStoredPlane(plane),
+            self._numpyFromVtkMatrix(world),
+        )
+        joints = (
+            float(parameterNode.robotJoint1Deg),
+            float(parameterNode.robotJoint2Mm),
+            float(parameterNode.robotJoint3Deg),
+            float(parameterNode.robotJoint4Mm),
+            float(parameterNode.robotJoint5Deg),
+            float(parameterNode.robotJoint6Deg),
+        )
+        seating["joints"] = joints
+        seating["copyLine"] = (
+            f"{seating['copyLine']} joints={joints[0]:.4f},{joints[1]:.4f},"
+            f"{joints[2]:.4f},{joints[3]:.4f},{joints[4]:.4f},{joints[5]:.4f}"
+        )
+        return seating
 
     def createOrUpdateIndependentForeheadProxy(self, parameterNode, plane) -> vtkMRMLModelNode:
         width = float(parameterNode.step6ForeheadProxyWidthMm)

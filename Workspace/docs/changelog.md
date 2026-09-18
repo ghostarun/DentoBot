@@ -1,5 +1,24 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-09-18 — Freeze operator forehead-relative seating
+
+- **Why:** Operator rotated the unlocked base to the intended look and dumped
+  `T_forehead_inv @ T_world_base`.
+- **Change:** Propose uses that forehead-relative `T_rel` (Rx/Ry/Rz + tu/tv/tz)
+  at q=0. Not screenshot RAS. TCP slide stays off.
+- **Verification:** `Testing/test_virtual_forehead_mount.py` (7 passed, including
+  operator-capture round-trip). Live Reload Module + Propose. `S6-U-02` stays open.
+
+## 2026-09-18 — Interactive forehead-relative seating dump
+
+- **Why:** Frame-to-frame AABB seating missed the intended pose. Reset to
+  `f3ed6cd` and capture `T_forehead_inv @ T_base` after the operator rotates
+  the unlocked base.
+- **Change:** **Copy forehead-relative seating**; constructed forehead axes
+  stored on the plane node; plane locked after Propose.
+- **Verification:** `Testing/test_virtual_forehead_mount.py` (7 passed, including
+  dump round-trip). Freeze of those numbers waits on the operator screenshot + copy line.
+
 ## 2026-09-18 — Extraoral virtual-forehead base seating
 
 - **Why:** AUTO seating used −90° about forehead X plus TCP-to-incisor slide,

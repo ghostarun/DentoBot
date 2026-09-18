@@ -3,27 +3,20 @@
 Simulation visualization only: Unregistered / VisualizationOnly. Not physical
 mount CAD, not collision authority, and not S6-U-02 closure.
 
-Operator-captured defaults (2026-09-18, corrected after desired-vs-AUTO
-screenshots):
+Operator-captured defaults (2026-09-18 interactive dump, joints remain
+URDF-zero):
 
-- Default joints: URDF selected-zero (all published q = 0) after the 2026-08-14
-  draft-zero absorption into joint origins.
-- T_forehead_base: identity. URDF ``base_link`` +Z (chain after the integration
-  ``base_link_to_link-1`` −90° X) maps to the forehead outward normal so the
-  mechanism hangs extraoral/anterior of the plane, not down the face through
-  the FOV. The earlier −90° X seating mapped +Z onto forehead +Y (toward the
-  mouth) and is rejected.
-- Planar TCP slide is **not** applied on propose. Sliding a compact q=0 TCP
-  onto the opened incisor pulled the chain through the volume. Slide remains
-  available for a later Entry aim; it is not the default extraoral seat.
-- base_link skin offset: 0 mm (empty URDF root; contact face not separately
-  measured).
+- ``T_world_base = T_world_forehead @ T_rel`` with
+  ``base_rx_deg=-176.5538``, ``base_ry_deg=-83.1910``, ``base_rz_deg=86.5294``,
+  ``tu_mm=1.3063``, ``tv_mm=8.8267``, ``tz_mm=56.5915``.
+- Those numbers are forehead-frame relative, not screenshot RAS.
+- Planar TCP slide is **not** applied on propose.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
+from math import atan2, copysign, degrees, isfinite, pi, sqrt
 from typing import Any
 
 import numpy as np
@@ -54,10 +47,12 @@ class VirtualForeheadConfig:
     fov_clearance_mm: float = 8.0
     max_planar_slide_mm: float = 40.0
     max_yaw_deg: float = 15.0
-    base_rx_deg: float = 0.0
-    base_ry_deg: float = 0.0
-    base_rz_deg: float = 0.0
-    base_link_contact_offset_mm: float = 0.0
+    base_rx_deg: float = -176.5538
+    base_ry_deg: float = -83.1910
+    base_rz_deg: float = 86.5294
+    tu_mm: float = 1.3063
+    tv_mm: float = 8.8267
+    tz_mm: float = 56.5915
     apply_tcp_slide_on_propose: bool = False
 
 
@@ -97,8 +92,58 @@ def forehead_base_offset_matrix(config: VirtualForeheadConfig | None = None) -> 
     matrix[:3, :3] = _rotation_xyz_deg(
         config.base_rx_deg, config.base_ry_deg, config.base_rz_deg
     )
-    matrix[:3, 3] = np.array([0.0, 0.0, -float(config.base_link_contact_offset_mm)])
+    matrix[:3, 3] = np.array(
+        [float(config.tu_mm), float(config.tv_mm), float(config.tz_mm)]
+    )
     return matrix
+
+
+def _rigid_inverse(matrix: np.ndarray) -> np.ndarray:
+    inverse = np.eye(4, dtype=float)
+    rotation = np.asarray(matrix, dtype=float)[:3, :3]
+    inverse[:3, :3] = rotation.T
+    inverse[:3, 3] = -rotation.T @ np.asarray(matrix, dtype=float)[:3, 3]
+    return inverse
+
+
+def euler_xyz_deg_from_rotation(rotation: np.ndarray) -> tuple[float, float, float]:
+    """Inverse of ``_rotation_xyz_deg`` (R = Rz @ Ry @ Rx)."""
+
+    matrix = np.asarray(rotation, dtype=float)
+    sine_y = -float(matrix[2, 0])
+    cosine_y = sqrt(max(0.0, 1.0 - sine_y * sine_y))
+    if cosine_y > 1e-8:
+        rx = atan2(float(matrix[2, 1]), float(matrix[2, 2]))
+        ry = atan2(sine_y, cosine_y)
+        rz = atan2(float(matrix[1, 0]), float(matrix[0, 0]))
+    else:
+        rx = atan2(-float(matrix[0, 1]), float(matrix[1, 1]))
+        ry = copysign(pi / 2.0, sine_y)
+        rz = 0.0
+    return (degrees(rx), degrees(ry), degrees(rz))
+
+
+def forehead_relative_seating(
+    t_world_forehead: np.ndarray,
+    t_world_base: np.ndarray,
+) -> dict[str, Any]:
+    relative = _rigid_inverse(t_world_forehead) @ np.asarray(t_world_base, dtype=float)
+    rx, ry, rz = euler_xyz_deg_from_rotation(relative[:3, :3])
+    tu, tv, tz = (float(v) for v in relative[:3, 3])
+    line = (
+        f"base_rx_deg={rx:.4f} base_ry_deg={ry:.4f} base_rz_deg={rz:.4f} "
+        f"tu_mm={tu:.4f} tv_mm={tv:.4f} tz_mm={tz:.4f}"
+    )
+    return {
+        "baseRxDeg": rx,
+        "baseRyDeg": ry,
+        "baseRzDeg": rz,
+        "tuMm": tu,
+        "tvMm": tv,
+        "tzMm": tz,
+        "copyLine": line,
+        "matrix_forehead_from_base": relative,
+    }
 
 
 def propose_virtual_forehead_plane(
@@ -151,7 +196,9 @@ def propose_virtual_forehead_plane(
         "baseRxDeg": float(config.base_rx_deg),
         "baseRyDeg": float(config.base_ry_deg),
         "baseRzDeg": float(config.base_rz_deg),
-        "baseLinkContactOffsetMm": float(config.base_link_contact_offset_mm),
+        "tuMm": float(config.tu_mm),
+        "tvMm": float(config.tv_mm),
+        "tzMm": float(config.tz_mm),
     }
     return VirtualForeheadPlane(
         origin_mm=origin,

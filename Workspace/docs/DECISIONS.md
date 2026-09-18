@@ -5891,11 +5891,11 @@ landmarks are not co-equal primary controls.
 `VirtualForeheadPriorV1`: a geometric glabella/forehead plane from the opened
 Case Foundation dental frame (arch-scaled superior/posterior offsets, reclined
 outward normal, optional push just outside the CBCT RAS AABB). The robot base
-is `T_world_forehead @ T_forehead_base` with frozen URDF-zero joints.
-`T_forehead_base` is identity so URDF +Z hangs extraoral along the forehead
-outward normal (operator desired-vs-AUTO screenshots, 2026-09-18). Propose does
-**not** planar-slide the compact q=0 TCP onto the incisor; that seating put the
-chain through the FOV. Nodes are VisualizationOnly / Unregistered / excluded from collision.
+is `T_world_forehead @ T_rel` with the 2026-09-18 operator dump
+(`base_rx_deg=-176.5538`, `base_ry_deg=-83.1910`, `base_rz_deg=86.5294`,
+`tu_mm=1.3063`, `tv_mm=8.8267`, `tz_mm=56.5915`) at URDF-zero joints. Those
+values are forehead-relative, not screenshot RAS. Propose does
+**not** planar-slide the compact q=0 TCP onto the incisor. Nodes are VisualizationOnly / Unregistered / excluded from collision.
 The circular base-derived mount snap stays quarantined. This does **not** close
 `S6-U-02` physical forehead CAD/normal truth. Operator review-and-lock remains
 required. No hardware motion.

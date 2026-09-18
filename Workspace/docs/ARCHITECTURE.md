@@ -18,7 +18,8 @@ pose preserved. Maxillary descendants, source anatomy, robot, Manual Simulation
 Base and Task Home stay in world/head-fixed coordinates. A
 `VirtualForeheadPriorV1` patch may be proposed in world RAS from the dental
 frame and CBCT FOV bounds to seat an unreviewed extraoral simulation base
-(identity `T_forehead_base`, no TCP-to-incisor slide); it is not
+(`T_world_forehead @ T_rel` from the operator forehead-relative dump);
+it is not
 parented to the jaw transform and is not physical mount evidence. Display-volume previews
 change only the transform matrix and never resample the source anatomy.
 

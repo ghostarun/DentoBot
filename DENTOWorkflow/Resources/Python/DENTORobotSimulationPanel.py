@@ -24,6 +24,7 @@ class DENTORobotSimulationPanel:
         "enable_cbct_rendering": 1,
         "cbct_preset": 1,
         "create_proxy": 1,
+        "copy_forehead_seating": 1,
         "placement_review": 1,
         "appearance_changed": 1,
         "expert_diagnostics": 1,
@@ -82,6 +83,14 @@ class DENTORobotSimulationPanel:
             "the Case Foundation dental frame, then seat an unreviewed "
             "simulation base. Review and lock afterwards. Not S6-U-02."
         )
+        self.copyForeheadSeatingButton = qt.QPushButton(
+            "Copy forehead-relative seating", self.visualizationGroup
+        )
+        self.copyForeheadSeatingButton.toolTip = (
+            "After rotating the unlocked robot base to the intended look, "
+            "copy T_forehead_inv @ T_world_base (Rx/Ry/Rz and tu/tv/tz) "
+            "plus current joints. Do not move the cyan plane."
+        )
         self.loadFallbackButton = qt.QPushButton(
             "Load / Reuse Local MRML Robot", self.visualizationGroup
         )
@@ -90,6 +99,7 @@ class DENTORobotSimulationPanel:
         render_actions.addWidget(self.enableCbctRenderingButton)
         render_actions.addWidget(self.cbctPresetCombo)
         render_actions.addWidget(self.createProxyButton)
+        render_actions.addWidget(self.copyForeheadSeatingButton)
         visualization_layout.addLayout(render_actions)
         appearance_grid = qt.QGridLayout()
         appearance_grid.addWidget(qt.QLabel("Element"), 0, 0)
@@ -611,6 +621,9 @@ class DENTORobotSimulationPanel:
         )
         self.createProxyButton.clicked.connect(
             lambda checked=False: self._invoke("create_proxy")
+        )
+        self.copyForeheadSeatingButton.clicked.connect(
+            lambda checked=False: self._invoke("copy_forehead_seating")
         )
         self.placementReviewButton.clicked.connect(
             lambda checked=False: self._invoke("placement_review")
