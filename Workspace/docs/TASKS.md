@@ -1200,12 +1200,81 @@ remains an input-data boundary; do not relabel or synthesize it.
 - **Verification:** Temporary-cache compile and `git diff --check` passed; the focused pure Step 6 suite passed `58 tests` including the modular/context budget; Graphify refreshed. The authorized pinned-container Slicer round-trip loaded FD14, cleared it with New Empty Case, saved a validated bundle, and reported `mrml_FDI14=0` and `lineage_FDI14=0`; no motion or hardware operation was performed.
 - **Next action:** Repeat the complete FDI44 workflow from a clean session and visually verify Step 6A. The clear/save regression now supports session carry-over as the cause when New Empty Case is used successfully, while the separate FDI44 archive audit remains text/lineage-only and cannot establish binary mesh identity. Regenerate FDI44 Step 4A/4C/5C if the package reports a cross-target chain; only then repeat 6.0A. See `logbook/2026-09-07.md`.
 
+## FDI31 GUI planner P0 reset — active contract (2026-09-21)
+
+**Bound task:** `S6-LIVE-01` (Priority 0); `S6-LIVE-02..05` require acceptance
+of their preceding milestone.
+
+**Canonical contract:**
+[diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
+
+**Input identity:** `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+(SHA-256 `b0b38bd7679294da0eead0f4d8a3a2877391847c8e984bb137e93575f456d262`).
+The operator verified this package; `step19` is the corrected old filename.
+
+**State and acceptance:** Valid collision-aware PreEntry endpoints exist, but
+the visible workflow has 13 Home→PreEntry P1 failures and no P2/P3 preflight.
+Acceptance is GUI-visible and operator-reviewed; headless results are
+diagnostic only. The next approved action is M0 GUI baseline. The canonical
+plan owns all milestone procedures and Experiment A/B/C mechanics, including
+the `M1-DIAG / HOUSING-OFF` boundary. Campaign-1 r4/P3/P4/P5 is preserved
+historical evidence, not an execution input or acceptance substitute.
+
+## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
+
+**Bound task:** `S6-LIVE-01`
+**Canonical file:** [diagnostics/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md](diagnostics/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md)
+
+### Mandatory agent read order (before planner scoping or fixes)
+
+1. Read `STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md` in full.
+2. Follow its §22 linked records when code-level evidence is required:
+   - [PLANNER_IMPLEMENTATION_MAP_2026-09-20.md](diagnostics/PLANNER_IMPLEMENTATION_MAP_2026-09-20.md)
+   - [preentry-ik-moveit-queries-2026-09-20.md](diagnostics/preentry-ik-moveit-queries-2026-09-20.md)
+   - [joint-goal-planning-queries-2026-09-20.md](diagnostics/joint-goal-planning-queries-2026-09-20.md)
+3. Then read today's logbook entry and the active `S6-LIVE-01` contract row below.
+
+### Restart statement (resume from §21 of context file)
+
+> We are no longer debugging PreEntry reachability. The live system already
+> produced collision-aware J1–J5 PreEntry IK endpoints with authoritative FK
+> validation. The active failure is Task Home → PreEntry free-space connection.
+> J6 is not part of the Step 6 MoveIt group and is not the current primary
+> suspect. The direct-interpolation collision percentage is diagnostic only and
+> occurs after OMPL failure.
+
+### Debugging order (operator-approved)
+
+TF / coordinate truth → FK → IK → Home→PreEntry joint planning → Cartesian
+insertion → self-collision → patient collision → automation / guards /
+diagnostics.
+
+### Forbidden without explicit operator authorization
+
+- Treating Codex Campaign-1 P3–P5 as proof of the 2026-09-19 live GUI Goal 1.
+- Depth/base/guard relaxation or hardware motion.
+- Permanent spindle-collision removal (spindle-off experiment is diagnostic only).
+
+### Experiments recorded in the 2026-09-20 context
+
+1. Task Home / configuration-space connectivity review.
+2. OMPL search policy / route-orchestration audit.
+3. **Spindle housing collision envelope:** temporarily suppress only
+   `pneumatic_spindle-Copy` collision geometry while preserving burr, anatomy,
+   TCP, and planner settings (§2.3, §21).
+
+The 2026-09-21 active contract supersedes this ordering: spindle diagnostic
+first, then Home, then native search allowance, with operator review between
+each experiment. The diagnosis and ruled-out hypotheses above remain valid.
+
+---
+
 ## Track A acceptance contracts — migration baseline
 
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **2026-09-19 live GUI:** FDI31 `dentobot-case-step19-step6.dentocase` Goal 1 shows 13 planner legs, all fail at motion-diagnostics P1 (PreEntry); P2/P3 preflight never run. Contradicts Codex Campaign-1 P3–P5. Historical r13 Stage-3 `FIRST_INVALID` remains a different evidence level. | Diagnose live PreEntry stall for Tuesday 2026-09-22 professor discussion; do not infer a Complete route from Codex trials. No depth/base/guard relaxation. |
+| 2 | `S6-LIVE-01` | 0 | **Active:** 13 GUI P1 Home→PreEntry failures; valid collision-aware PreEntry endpoints; P2/P3 not entered. See the active contract above and [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Complete M0 GUI baseline under its operator-review gate. Campaign-1 evidence is historical only. |
 | 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected; final native packet records phase-aware invalid static validity separately from the Home-to-endpoint transition rejection; correlated 31-object acknowledgement and TCP/spindle/burr FK all pass; contact fields remain unknown where not exposed | Preserve the strict result, scene/policy identity and unknown-contact boundary. Any future geometry correction must be verified across every Stage 1/2/3 waypoint, narrow burr exception, external-spindle boundary and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result | For a Complete route only, trial Goal 1→Goal 2→guarded Return Home→replan/route choice; retain FDI31 failure and await approval before another tooth |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
@@ -1493,7 +1562,8 @@ reproducibility record, changelog, and dated logbook.
   Step 6.5 on `cursor-agent/dentoworkflow-debug-20260918`. First truthful live
   planner failure is Goal 1 motion-diagnostics **P1 PreEntry** (13 legs, no
   P2/P3 preflight) on
-  `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`.
+  `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+  (the earlier `step19` spelling was corrected on 2026-09-21).
   Teaching-session pytest/colcon checklist remains open. Planner work returns
   to `S6-LIVE-01`. Codex Campaign-1 P3–P5 is not this GUI result.
 

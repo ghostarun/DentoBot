@@ -205,6 +205,31 @@ Sol Advisor model prerequisites or mandatory-review rules while permitting its
 compatible Sol recommendations. Saved defaults live in `~/.codex/config.toml`;
 the 90/10 guideline is applied through task selection, not a config quota.
 
+### Active `S6-LIVE-01` task-specific override — 2026-09-21
+
+While the 2026-09-21 FDI31 GUI planner P0 backlog row remains active, its
+[canonical contract](docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
+supersedes the general Sol routing above for that task only:
+
+- Use `gpt-5.6-terra` at `xhigh` as orchestrator for planning, diagnosis,
+  integration, controlled records and acceptance recommendations.
+- Use only `gpt-5.6-luna` at `max` for bounded implementation work with settled
+  interfaces. No more than two subagents may be active; zero or one is preferred.
+- If an exact preset is unavailable or the current root task is not Terra
+  xhigh, report the mismatch. Documentation preservation/reconciliation may
+  continue with a Terra xhigh analysis agent, but planner implementation and
+  runtime must wait for the required orchestrator or new operator direction.
+- Trivial/non-visible results return to Terra without interrupting the operator.
+  Every demonstrable GUI success or failure stops for Tarun's manual verdict.
+  Fatal or unresolved algorithm-specific failures pause development for his
+  instruction; do not escalate models or enter a retry loop automatically.
+- The two-agent allowance is a ceiling, not a mandatory pipeline. Do not add
+  broad verification suites, duplicate fixtures, repeated review agents,
+  planner abstractions or speculative recovery paths.
+
+Remove this scoped override when `S6-LIVE-01` closes or the operator explicitly
+replaces it; preserve the dated decision and evidence in controlled records.
+
 ## graphify
 
 This project has a knowledge graph at `~/dentobot/graphify-out/` with god

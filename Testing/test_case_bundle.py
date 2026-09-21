@@ -252,6 +252,19 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
     assert "Resources/Python/DENTOCaseBundle.py" in cmake
 
 
+def test_step6_jaw_opening_readiness_is_excluded_from_lineage_equivalence() -> None:
+    source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py"
+    ).read_text(encoding="utf-8")
+    validate_start = source.index("    def validateLoadedCaseBundleWorkflow")
+    validate = source[validate_start:]
+    assert 'expectedJawOpening.pop("current", None)' in validate
+    assert 'expectedJawOpening.pop("placementReady", None)' in validate
+    assert 'currentJawOpening.pop("current", None)' in validate
+    assert 'currentJawOpening.pop("placementReady", None)' in validate
+
+
 def test_case_bundle_validates_before_gui_hydration() -> None:
     source = (
         ROOT

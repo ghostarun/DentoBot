@@ -1,24 +1,20 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-17.
+Last reconciled: 2026-09-21.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
-this file owns milestone and acceptance design. The current P0 is
-main-workflow recovery and PreparedBranch integrity. The audit was accepted on
-2026-09-10 and its product patch passed static, pure and focused headless Slicer
-checks; normal-window operator review remains pending.
+this file owns milestone and acceptance design. The current P0 is the GUI-first
+FDI31 planner recovery under `S6-LIVE-01`, using the 2026-09-21 milestone
+amendment below. PreparedBranch/workflow integrity remains a prerequisite, not
+a competing active campaign.
 
 The main workflow has one target tooth and one trajectory, or an explicitly
 paired two. The optional 32 × 3 testing foundation is an alternative workflow,
 not a replacement for or expansion of routine case preparation.
 
-The active P0 comparison runs four independent central incisors in order:
-FDI31 → FDI41 → FDI11 → FDI21. Each target starts from the immutable reviewed
-open-mouth/base source in a clean Slicer process and receives its own package,
-STL, diagnostics and screenshots. A target-specific failure is recorded and
-reviewed before the next tooth is approved; a shared source/package/runtime
-failure stops the campaign.
+The earlier proposed four-central-incisor comparison remains downstream. Do not
+start FDI41, FDI11 or FDI21 while the saved FDI31 GUI milestones are active.
 
 Stage 3 / Track A remains incomplete and follows this integrity correction.
 The remaining P1 Case Platform/Studio roadmap stays behind Track-A acceptance.
@@ -27,7 +23,11 @@ Slicer 5.12 migration remains the separate `PLAT-U-06` plan in
 for this task. Reviewed clean/post-surgery anatomy is the acceptance baseline;
 retired pre-surgery/x4 cases remain negative diagnostics.
 
-## 2026-09-15 FDI31 recovery Campaign 1 — active revised execution
+## 2026-09-15 FDI31 recovery Campaign 1 — preserved historical execution
+
+This section preserves the r4/P3/P4/P5 contract and evidence. Its execution
+sequence is superseded by the 2026-09-21 GUI-first P0 contract; r4 is not a
+current input or fallback.
 
 The operator has authorized the revised bounded Campaign 1, not a blind full
 recovery run. The architectural specification is
@@ -472,6 +472,25 @@ Record this replacement roadmap, preserve the previous decisions as historical
 evidence, and absorb unfinished `S6-P0-01` work into Track A. The clean source
 baseline before Track A changes is
 `ea504349f99f7604318130024b224aebd2e57170`.
+
+### 2026-09-21 FDI31 GUI-first P0 milestone amendment
+
+The active acceptance route is
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+It replaces one-shot/full-flow execution with these operator-reviewed milestones:
+
+1. M0 ordinary GUI reconstruction and baseline failure;
+2. M1-DIAG housing-off native Home→PreEntry result;
+3. M1 canonical housing-on native Home→PreEntry plan;
+4. M2 complete full-geometry P1/P2/P3 forward plan and independent guard result;
+5. M3 normal Goal 1/Goal 2 forward preview; and
+6. M4 guarded withdrawal/Home, fresh replan and repeat.
+
+Each demonstrable result stops for Tarun's manual verdict; acceptance of one
+milestone does not enter the next. `M1-DIAG / HOUSING-OFF PASS` or `FAIL` is a
+diagnostic acceptance state only: it never closes canonical M1, and housing-off
+M2 requires explicit operator authority. The canonical plan owns execution
+mechanics, investigation order, governance, and implementation limits.
 
 ### `S6-LIVE-01` — complete Stage 3 planning
 

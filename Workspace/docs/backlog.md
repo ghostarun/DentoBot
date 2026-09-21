@@ -1,6 +1,6 @@
 # DENTOBOT pending work and backlog
 
-Last reconciled: 2026-09-17. **Check this file before every plan or new task.**
+Last reconciled: 2026-09-21. **Check this file before every plan or new task.**
 This is the sole pending-work queue: active, blocked, planned, deferred and
 unaccepted work, including every open DENTO-NOTE. Detailed contracts live in
 [TASKS.md](TASKS.md) and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md); process and
@@ -21,9 +21,22 @@ IDs and provisional status; its old dates, allocations and case diagnostics do
 not override later local decisions. Tracker priorities are source metadata,
 not promotions into the current development sequence.
 
-## Active operator-directed pause and return route — 2026-09-17
+## Active P0 planner reset — 2026-09-21
 
-The operator has paused Campaign 1 gate verification at the completed P5
+`S6-LIVE-01` — **Priority 0, active.** The authoritative contract is
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+Input: `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+(SHA-256 `b0b38bd7...56d262`). Current blocker: 13 GUI Home→PreEntry P1
+failures despite valid collision-aware PreEntry endpoints; P2/P3 were not run.
+Next approved action: M0 GUI baseline under the plan's operator-review gate.
+Campaign-1 r4/P3/P4/P5 remains historical evidence only. Runtime and
+implementation remain separately approval-gated.
+
+## Preserved prior pause and return route — 2026-09-17
+
+This route is superseded for current sequencing by the 2026-09-21 P0 reset
+above; its evidence boundaries and task ownership remain valid. The operator
+had paused Campaign 1 gate verification at the completed P5
 diagnostic and redirected the active work to the existing `VERIFY-LEARN-01`
 guided GUI/operator-verification lane. This is an explicit sequencing change,
 not a retraction of Gate A or P3/P4/P5 evidence and not authority for P6, P7,
@@ -512,11 +525,11 @@ from the source change.
 |---|---|---|---|
 | `W5-U-04` | 0 | Current FDI31 regeneration passes the explicit geometry gate; the historical 5-voxel fragment is not reproduced in the current artifact. FDI11 remains the comparison pass. | Preserve the one-solid/zero-channel/four-open-bore gate and complete the normal-window Step 5B/5C review, including fragment classification evidence. Construction remains the `W5-U-03` fusion owner; do not raise the cleanup threshold. |
 | `S3-P0-DENTAL-SEMANTICS` | 0 | DENTO-NOTE 2026-09-14: the installed class map, report/NIfTI/imported-package evidence, pure A-H semantic core, MRML/planning integration, current FDI31 spatial association and save/reopen evidence are captured; focused checks pass. The FDI31 target association is `HIGH`/`VALID`, while other unresolved pulp records remain fail-closed. | Preserve the current FDI31 semantic package and evidence. No new pulp-dependent target claim proceeds without the same canonical tooth+pulp+spatial gate. The remaining FDI31 acceptance is target-specific Stage-3 tool/geometry review and normal-window review, owned with `S6-REUSABLE-CASE-SETUP`; do not create an FDI11-only workaround. |
-| `S6-REUSABLE-CASE-SETUP` | 0 | **2026-09-19: ordinary GUI path reached Step 6.5 on this debug branch.** Campaign 1 P3/P4/P5 remain diagnostic-only on locked r4 and did not prove live Goal 1. **Paused P5 diagnostic evidence retained.** P3's corrected companion evidence (SHA `ec6ad4...`) establishes **21 phase-static accepted, 0 rejected, 0 unknown, 21 admissible**; P4 retains six bounded insertion witnesses (SHA `3cc1759d...`); P5 retains one bounded simulation-only approach witness (SHA `6455a52e...`): fresh monitored start, 208 Stage-1 plus 12 Stage-2 plus one P4-join read-only guard edges, all accepted. These diagnostic paths reused the prepared r4 trajectory/branch and did not prove manual Assisted Trajectory Generation or the ordinary GUI sequence. P1/P2 and historical evidence remain unchanged; Return Home, repeat and full workflow remain NOT RUN. | Preserve frozen r4/case/task/tool/base/limit/tolerance/collision policy, raw/companion/P4/P5 evidence and causal history. Next planner implementation is `S6-LIVE-01` on `dentobot-case-step19-step6.dentocase`. Do not treat Codex P3–P5 as this GUI Goal 1. |
+| `S6-REUSABLE-CASE-SETUP` | 0 | **2026-09-19: ordinary GUI path reached Step 6.5 on this debug branch.** Campaign 1 P3/P4/P5 remain diagnostic-only on locked r4 and did not prove live Goal 1. **Paused P5 diagnostic evidence retained.** P3's corrected companion evidence (SHA `ec6ad4...`) establishes **21 phase-static accepted, 0 rejected, 0 unknown and 21 admissible**; P4 retains six bounded insertion witnesses (SHA `3cc1759d...`); P5 retains one bounded simulation-only approach witness (SHA `6455a52e...`). These paths reused the prepared r4 trajectory/branch and bypassed the ordinary GUI sequence. | Preserve frozen r4 evidence and causal history. Current planner input is the operator-verified `dentobot-case-sep19-step6.dentocase`; do not use r4 as a fallback or treat Campaign-1 evidence as this GUI Goal 1. |
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
-| `S6-LIVE-01` | 0 | **Immediate next (Tuesday 2026-09-22 meeting).** Live FDI31 Goal 1 on `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`: **13 planner legs, all fail at motion-diagnostics P1 (PreEntry / Home→PreEntry); P2 and P3 preflight never run.** Contradicts Codex/headless Campaign-1 P3–P5 witnesses. Historical r13 Stage-3 `FIRST_INVALID` and r6 P2 packet remain on file at a different evidence level. | Diagnose why live Goal 1 never leaves PreEntry; record first causal classification per leg; prepare a professor-discussion packet (scene, 13-leg table, contradiction vs Codex trials). Do not treat Codex P3–P5 as this GUI run. No depth/base/guard relaxation and no hardware motion. |
+| `S6-LIVE-01` | 0 | **Active.** Current queue state is in the Active P0 planner reset above; detailed execution is in the [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Complete M0 GUI baseline under its operator-review gate. |
 | `S6-LIVE-02` | 0 | Implemented; synthetic phase-guard evidence and r13 forbidden spindle↔target rejection retained. The final native packet records static collision and validate-only guard evidence without changing policy; TaskJointStatus pair/depth fields remain explicitly unknown where not exposed. The additive static/transition/request-correlation correction and burr-transform alias repair are runtime-verified; the correlated 31-object acknowledgement and TCP/spindle/burr FK pass. Configured burr-target authorization and the separately bounded simulation spindle-guide warning remain distinct; neither authorizes spindle-tooth contact. | Preserve independent final guard, full-chain bounds/phase/identity checks, J1–J5 and J6-zero/external-spindle boundary. Any future source correction or native recheck requires operator review and must not change policy; no P3/P4 runtime follows automatically. |
 | `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance is `NOT_RUN` for FDI31 because Packet E stopped at its first-invalid Stage-3 guard result. | Run Goal 1→Goal 2→guarded Return Home→replan/route choice only after a Complete target route; retain the FDI31 failure and await approval before another tooth. |
 | `S6-LIVE-04` | 0 | Implemented; playback/restore acceptance is `NOT_RUN` for FDI31 because Packet E did not complete. | Confirm speed, ordered acknowledgements, visible stage paths, saved route intent and current re-plan only for an accepted Complete route. |
@@ -558,7 +571,7 @@ Source observations, risks and evidence remain under the matching TASKS.md ID.
 | `W4B-P2-SUPPORT-AUTO` | 2 | DENTO-NOTE: narrow two-row support arch; four-nearest support suggestion and single-row jaw UI; source suggestion/pure checks complete 2026-09-15 | P0 integrity first; verify the current four-ID automatic suggestion in a normal window, preserve manual review/lock and edge/missing-tooth handling. UI layout integrates with `UI-P3-01`. |
 | `S6-U-01` | 4 | DENTO-NOTE: non-clean native shutdown despite functional lifecycle pass | Preserve P0–3 ordering unless normal workflow regresses; release native wrappers and process group; require clean zero-exit lifecycle without leaks. Coordinate, do not assume same cause as `QA-U-01`. |
 | `S6-WORKSPACE-PURPOSE` | Unprioritized | DENTO-NOTE: reported 5 mm clearance leaves no intraoral TCP workspace | Discuss 6.3 purpose; audit exact filter/consumers before any policy or value change; distinguish reach, whole-robot validity, Home connectivity and task feasibility. Prerequisite for Studio Workspace. Recommended P0 was never an assigned priority. |
-| `VERIFY-LEARN-01` | Unprioritized | **Ordinary 4A→6.5 GUI path operator-confirmed 2026-09-19** on this debug branch. First truthful live planner failure is Goal 1 P1 PreEntry (13 legs) on `dentobot-case-step19-step6.dentocase`. Teaching-session checklist (pytest/colcon/matrix) remains open. | Planner diagnosis returns to `S6-LIVE-01`. Keep Codex P3–P5 vs GUI evidence levels distinct. |
+| `VERIFY-LEARN-01` | Unprioritized | **Ordinary 4A→6.5 GUI path operator-confirmed 2026-09-19** on this debug branch. First truthful live planner failure is Goal 1 P1 PreEntry (13 legs) on the verified `dentobot-case-sep19-step6.dentocase`. Teaching-session checklist remains open. | Planner diagnosis is owned by `S6-LIVE-01` under the 2026-09-21 milestone contract. Keep Campaign-1 versus GUI evidence levels distinct. |
 | `W4-U-01` | Unprioritized | Reviewed crown Entry snapping/MPR contract | Define crown region, then source-fingerprinted snapping; remaining Entry subset of `A-035`. |
 | `W5-U-01` | Unprioritized | Physical guide/burr fit provenance; optional export manifest | Verify actual dimensions and physical fit; decide manifest separately. Neither export nor STL becomes Step 6 authority. Includes tracker A-032 dimensional concern. |
 | `IMG-U-01` | Unprioritized | Representative mask/display and uncertainty acceptance | Governed CBCT, acquisition/artifact/segmentation evidence; coordinate `VIEW-U-01` display campaign. |

@@ -1,14 +1,12 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-19. Operator-confirmed ordinary GUI workflow on
-`cursor-agent/dentoworkflow-debug-20260918` through **Step 6.5 planner**.
-Immediate next implementation is Goal 1 **PreEntry** (motion-diagnostics P1)
-on saved FDI31 `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`.
-Campaign 1 P5/gate handoff from 2026-09-17 remains diagnostic evidence, not a
-substitute for this live planner stall. Routing plus the durable Step-4A–5B
-testing baseline below; all pending work and current order live in
-[backlog.md](backlog.md). Detailed task contracts and completion records live
-in [TASKS.md](TASKS.md). Historical attempts are not instructions.
+Last reconciled: 2026-09-22. The active P0 is `S6-LIVE-01` GUI-first FDI31
+planner recovery. Its sole detailed contract is
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+Use only `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+(SHA-256 `b0b38bd7...56d262`). Pending order is in [backlog.md](backlog.md);
+task state and acceptance evidence are in [TASKS.md](TASKS.md). Campaign-1
+r4/P3/P4/P5 is historical diagnostic evidence, not current instruction.
 
 ## Start here
 
@@ -22,12 +20,36 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
 4. For checks follow [AGENTIC_VERIFICATION_PROTOCOL.md](AGENTIC_VERIFICATION_PROTOCOL.md)
    and checkout-relative `Testing/verification_matrix.json`.
 
-## Current handoff
+## Active P0 routing
+
+- **Current state:** valid collision-aware PreEntry endpoints exist; the live
+  blocker is Home→PreEntry P1 connectivity (13 GUI legs failed; P2/P3 did not
+  run). The next milestone is M0 GUI baseline, under the canonical plan's
+  approval boundary.
+- **Before planner source work:** read the preserved manual diagnosis context
+  below and its linked implementation/query records, then follow the canonical
+  P0 plan. AGENTS.md supplies enforceable model, stop, and anti-bloat rules.
+
+## Preserved routing context and evidence
+
+- **2026-09-20 — Step 6 planner manual diagnosis context (read before fixes):**
+  Operator saved the consolidated manual-intervention diagnosis, mental model,
+  and next-step plan in
+  [STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md](diagnostics/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md).
+  **Agents working on `S6-LIVE-01` or any Step 6 planner change must read this
+  file first**, then its §22 linked records
+  (`PLANNER_IMPLEMENTATION_MAP_2026-09-20.md`,
+  `preentry-ik-moveit-queries-2026-09-20.md`,
+  `joint-goal-planning-queries-2026-09-20.md`). Contract and restart statement
+  are in [TASKS.md](TASKS.md) under **Step 6 planner manual diagnosis — agent
+  context (2026-09-20)**. Active failure is **Home→PreEntry OMPL connection**,
+  not PreEntry IK reachability.
 
 - **2026-09-19 — Ordinary GUI path reaches Step 6.5; planner stalls at PreEntry:**
   The operator confirmed the Cursor debug-branch workflow through Step 6.5 on
   saved FDI31
-  `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-step19-step6.dentocase`.
+  `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+  (filename corrected 2026-09-21).
   Motion diagnostics listed **13 planner legs**, all failing at **P1 /
   PreEntry** (Home→PreEntry). **P2 (PreEntry→Entry) and P3 (Entry→Target)
   preflight never ran.** This live GUI result contradicts earlier Codex
@@ -97,7 +119,8 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
   only after a controlled-record reconciliation explicitly names the next gate
   after P5; P3–P5 rerun and P6/P7 are not defaults.
 
-- **Campaign 1 is active (2026-09-15):** The operator superseded the former
+- **Preserved Campaign-1 execution record (2026-09-15; superseded for current
+  sequencing on 2026-09-21):** The operator superseded the former
   Astra/design-only/P4 limit and started implementation in the existing
   `S6-REUSABLE-CASE-SETUP` / `S6-LIVE-01..04` lane. One bounded Luna Max worker
   may implement exact work orders; the main orchestrator owns diagnosis, runtime
@@ -146,7 +169,7 @@ in [TASKS.md](TASKS.md). Historical attempts are not instructions.
   P5 is not a physical fit, housing-clear, executable-motion, P6/P7,
   withdrawal/Home, repeat, hardware, spindle or patient result. See today's
   logbook and recovery report Sections AU–AV.
-- **Latest FDI31 override (2026-09-14):** The operator accepted the causal review
+- **Preserved FDI31 override (2026-09-14; historical):** The operator accepted the causal review
   and requested Astra architecture / Luna Max implementation orchestration.
   Read [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and its
   TASKS/DECISIONS supersession before following older geometry-only/one-packet

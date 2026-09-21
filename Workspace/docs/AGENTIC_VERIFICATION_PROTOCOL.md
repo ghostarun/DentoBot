@@ -19,6 +19,19 @@ stop condition. Reuse existing evidence when its inputs/build/policy match;
 saved evidence never restores live scene or guard validity. Reading source,
 logs and documentation is not permission to execute a test.
 
+### Active FDI31 GUI-planner overlay — 2026-09-21
+
+For `S6-LIVE-01`, follow
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+GUI-visible results require Tarun's verdict; headless/backend results remain
+diagnostic evidence. Runtime resources remain serialized.
+
+For Experiment A, the one source check proves that the canonical URDF
+contains `pneumatic_spindle-Copy_collision`, the diagnostic URDF omits it, and
+canonical bytes with only that complete block removed equal the diagnostic
+bytes. Do not build an XML-transform/comparison framework. A visible P1 result
+is M1-DIAG only and stops before any P2/P3 request.
+
 | Level | Choose when it answers the question | Scope |
 |---|---|---|
 | 0 — inspect | Existing source, logs, settings or saved evidence suffice | Callers, units/frames, dimensions, registration, first causal error |
@@ -183,11 +196,14 @@ silently retry with different inputs.
 For Codex model/effort selection, follow `Workspace/AGENTS.md`: Sol at High or
 lower for roughly 90% of Sol work, justified Extra High for up to 10%; Luna Max
 and Terra High remain implementation and verification auxiliary options.
+The active `S6-LIVE-01` override instead requires Terra xhigh orchestration,
+Luna max implementation and at most two active subagents.
 Default to solo, or one justified auxiliary. The three workers below are available responsibilities, not a
 mandatory team. More than one requires an explicit operator request or approved
 verification plan. The matrix limit is a hard maximum, not a target.
 
-Use at most three workers alongside the coordinator:
+Outside a stricter task-specific override, use at most three workers alongside
+the coordinator:
 
 1. **Static worker** — Python compilation, Git diff checks, contracts.
 2. **Pure-test/package worker** — scoped pytest and read-only package/schema

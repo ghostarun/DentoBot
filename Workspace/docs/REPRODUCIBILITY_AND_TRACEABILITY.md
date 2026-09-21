@@ -41,6 +41,29 @@ detailed contract/completion record; DEVELOPMENT_PLAN.md owns acceptance design.
 Keep unique commands, failures, hashes and observations in this evidence
 record/daily logs; do not copy them into compact startup context.
 
+## 2026-09-21 FDI31 GUI-planner evidence boundary
+
+The active acceptance source is the operator-visible workflow for
+`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`,
+SHA-256 `b0b38bd7...56d262`, under
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+After load, record activation of PreparedBranch, robot/base visibility and lock,
+ROS connection, Task Home/workspace/task validity and the Step 6.5 action.
+Opening the archive does not restore those live states.
+
+For each milestone/experiment, retain the case/source/robot-description
+identity, changed variable, Home and goal joints, planner/time allowance, stage
+reached, native result, first-invalid collision pair and the operator verdict.
+For a new collision, retain one context and one close-up view when available.
+Mark unavailable fields `unknown`; do not create a broader report framework.
+
+Headless Campaign-1 and backend-only results remain diagnostic evidence at their
+recorded inputs. They cannot close M0–M4. Experiment A must record both the
+canonical and selected diagnostic URDF identities and the exact single-block
+equivalence check. Its P1 result is `M1-DIAG / HOUSING-OFF PASS` or `FAIL`,
+never M1. Stop after that result; housing-off M2 needs a new explicit operator
+decision, and normal M1/M2 require the restored canonical description.
+
 ## 2026-09-10 FDI31 assisted-target representation mismatch
 
 The operator supplied orthogonal-slice and 3D screenshots showing a 4.23 mm

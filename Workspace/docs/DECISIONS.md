@@ -5982,10 +5982,55 @@ No collision-policy, frozen-case, or hardware change.
 The operator confirmed the Cursor branch
 `cursor-agent/dentoworkflow-debug-20260918` ordinary GUI path through
 **Step 6.5**. Live FDI31 Goal 1 on
-`dentobot-case-step19-step6.dentocase` shows **13 planner legs**, all failing
+`dentobot-case-sep19-step6.dentocase` shows **13 planner legs**, all failing
 at motion-diagnostics **P1 PreEntry**, with **P2/P3 preflight not entered**.
 That GUI result supersedes any implication that Codex Campaign-1 P3–P5
 headless witnesses proved this operator Goal 1. The branch may merge to
 `main` only after further testing **and** planner completion. Immediate
 implementation owner remains `S6-LIVE-01`. No hardware motion.
 
+## 2026-09-21 — Reset FDI31 planner recovery to GUI-reviewed milestones
+
+**Decision:** The current P0 planner contract is
+[FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+Use only the operator-opened and verified
+`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+(SHA-256 `b0b38bd7...56d262`). The earlier `step19` spelling was a filename
+error. Campaign-1 r4/P3/P4/P5 evidence remains valid at its recorded diagnostic
+scope but cannot prove or replace this case's ordinary GUI planner path.
+This decision supersedes Campaign-1 sequencing and model allocation for
+`S6-LIVE-01..05` while preserving all Campaign-1 evidence at its recorded scope.
+
+The workflow advances through separately reviewed M0 baseline, M1
+Home→PreEntry, M2 complete forward planner, M3 forward preview and M4
+withdrawal/Home/repeat. Every demonstrable success or failure stops for Tarun's
+manual trial and explicit verdict. Trivial and non-visible implementation
+findings return to the orchestrator without interrupting the operator.
+
+Experiment A uses a checked-in, default-off
+`dentobot.diagnostic-no-spindle-collision.urdf`, selected by the simulation
+launcher before `MoveItConfigsBuilder` loads `robot_description`. It is byte-for-
+byte canonical `dentobot.urdf` after removal of exactly the complete named
+`pneumatic_spindle-Copy_collision` block; runtime XML transformation is
+rejected. Every other collision body, link, joint, visual, inertial and TCP
+definition remains unchanged.
+
+Experiment A's visible P1 result is recorded as `M1-DIAG / HOUSING-OFF PASS` or
+`FAIL` and immediately returns to the operator. A pass supports the housing as
+a contributing blocker but cannot close full-geometry M1 or advance to normal
+M2. Housing-off P2/P3 exploration requires a new explicit operator decision;
+otherwise restore canonical geometry before testing a temporary operator-
+reviewed Home and, if still required, a five-to-fifteen-second native planning
+allowance with model/Home/scene fixed.
+
+Task-specific orchestration is `gpt-5.6-terra` at `xhigh`; bounded implementation
+uses `gpt-5.6-luna` at `max`, with no more than two active subagents. If an exact
+preset is unavailable, report it instead of substituting silently. Fatal or
+unresolved algorithm-specific failures pause development for operator direction.
+
+This decision deliberately rejects another planner abstraction, route taxonomy,
+candidate sweep, broad verification campaign or repeated review pipeline.
+Native MoveIt, existing Cartesian planning and the independent phase guard
+remain responsible for their current layers. Documentation reconciliation does
+not authorize implementation/runtime, hardware motion, another tooth, merge,
+commit, push or external synchronization.

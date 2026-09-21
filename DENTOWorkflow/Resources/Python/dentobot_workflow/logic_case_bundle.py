@@ -1374,7 +1374,9 @@ class CaseBundleLogicMixin:
         expectedComparableStep6.pop("planningContextImportedAtSave", None)
         expectedJawOpening = expectedComparableStep6.get("jawOpening")
         if isinstance(expectedJawOpening, dict):
+            # Derived readiness is re-evaluated after integrity validation.
             expectedJawOpening.pop("current", None)
+            expectedJawOpening.pop("placementReady", None)
         actualComparableStep6 = {
             key: currentStep6.get(key)
             for key in expectedComparableStep6
@@ -1383,6 +1385,7 @@ class CaseBundleLogicMixin:
         if isinstance(currentJawOpening, dict):
             currentJawOpening = dict(currentJawOpening)
             currentJawOpening.pop("current", None)
+            currentJawOpening.pop("placementReady", None)
             actualComparableStep6["jawOpening"] = currentJawOpening
         if self._caseBundleUnlockedBaseRevisionDrift(
             parameterNode,

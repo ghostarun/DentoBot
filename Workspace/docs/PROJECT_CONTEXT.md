@@ -8,8 +8,11 @@ product purpose, not a live queue.
 
 Main case preparation uses one target tooth and one trajectory, or an explicit
 pair. The 32 × 3 testing foundation is an optional alternative. The current P0
-is PreparedBranch/workflow integrity; Stage 3 and the major Studio revamp remain
-pending. No historical checkpoint authorizes new work.
+is the operator-reviewed FDI31 GUI planner recovery under `S6-LIVE-01`, after
+the ordinary workflow reached Step 6.5. PreparedBranch/workflow integrity
+remains a prerequisite; the major Studio revamp remains downstream. See the
+2026-09-21 canonical plan routed from `AGENT_CONTEXT.md`. No historical
+checkpoint authorizes new work.
 
 ## Project goal
 
