@@ -45,6 +45,7 @@ from DENTOStep6State import (  # noqa: E402
     parse_task_home,
     parse_task_snapshot,
     parse_motion_diagnostic_session,
+    retain_motion_diagnostic_error_message,
     motion_diagnostic_plan_selection,
     update_motion_diagnostic_plan_selection,
     task_snapshot_invalidation_reasons,
@@ -793,6 +794,17 @@ def test_motion_diagnostic_v21_names_fixed_axis_terminal_stage():
         stage_name="stage2_fixed_axis_terminal",
     )
     assert parse_motion_diagnostic_session(record.to_dict()) == record
+
+
+def test_motion_diagnostic_retains_exact_error_dialog_text():
+    record = _motion_diagnostic(
+        schema_version="2.1", stage_name="stage2_fixed_axis_terminal"
+    )
+    message = "Guard rejected waypoint 407: selected tooth ↔ spindle.\nInspect evidence."
+    updated = retain_motion_diagnostic_error_message(record, message)
+    reopened = parse_motion_diagnostic_session(updated.to_dict())
+    assert reopened.full_task_outcome["operator_error_message"] == message
+    assert reopened.session_fingerprint != record.session_fingerprint
 
 
 def test_motion_diagnostic_v20_remains_readable_after_stage2_policy_upgrade():

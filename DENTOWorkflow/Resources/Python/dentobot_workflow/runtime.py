@@ -219,6 +219,7 @@ from DENTOStep6State import (
     parse_task_home,
     parse_collision_scene_audit,
     parse_motion_diagnostic_session,
+    retain_motion_diagnostic_error_message,
     parse_robot_environment_snapshot,
     parse_trajectory_registry,
     prepared_branch_ids_for_trajectory,

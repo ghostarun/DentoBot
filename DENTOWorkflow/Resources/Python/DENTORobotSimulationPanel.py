@@ -1176,6 +1176,14 @@ class DENTORobotSimulationPanel:
         feedback_label.wordWrap = True
         feedback_label.setProperty("dentobotRole", "status")
         layout.addWidget(feedback_label)
+        operator_error = str(session.full_task_outcome.get("operator_error_message") or "")
+        if operator_error:
+            error_text = qt.QPlainTextEdit(dialog)
+            error_text.readOnly = True
+            error_text.plainText = operator_error
+            error_text.toolTip = "Exact error-dialog text from this planner attempt; copyable after the dialog closes."
+            layout.addWidget(qt.QLabel("Planner error-dialog text (retained):", dialog))
+            layout.addWidget(error_text)
         stage_table = qt.QTableWidget(dialog)
         stages = tuple(session.stage_outcomes)
         stage_table.setColumnCount(5)

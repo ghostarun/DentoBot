@@ -1555,6 +1555,35 @@ def parse_motion_diagnostic_session(
     return rebuilt
 
 
+def retain_motion_diagnostic_error_message(
+    session: MotionDiagnosticSession, message: str
+) -> MotionDiagnosticSession:
+    """Attach the exact operator error to the same fingerprinted diagnostic."""
+
+    if session.schema_version == "1.0":
+        return session
+    outcome = dict(session.full_task_outcome)
+    outcome["operator_error_message"] = str(message)
+    return build_motion_diagnostic_session(
+        state=session.state,
+        stale_reason=session.stale_reason,
+        task_fingerprint=session.task_fingerprint,
+        base_fingerprint=session.base_fingerprint,
+        trajectory_fingerprint=session.trajectory_fingerprint,
+        robot_profile_fingerprint=session.robot_profile_fingerprint,
+        collision_audit_fingerprint=session.collision_audit_fingerprint,
+        planning_parameters_fingerprint=session.planning_parameters_fingerprint,
+        candidate_records=session.candidate_records,
+        selected_candidate_index=session.selected_candidate_index,
+        failure_classification=session.failure_classification,
+        operator_review_state=session.operator_review_state,
+        generated_at_utc=session.generated_at_utc,
+        schema_version=session.schema_version,
+        stage_outcomes=session.stage_outcomes,
+        full_task_outcome=outcome,
+    )
+
+
 def motion_diagnostic_plan_selection(
     session: MotionDiagnosticSession,
 ) -> dict[str, object]:

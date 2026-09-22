@@ -593,6 +593,19 @@ class RobotShellWidgetMixin:
         # View refreshes may process parameter/display observers. Re-derive the
         # action gate last so a complete plan cannot leave stale grey controls.
         self._updateStep6PlanningUi(result.message, error=not result.success)
+        diagnostic_fingerprint = result.details.get("motionDiagnosticSessionFingerprint")
+        if not result.success and diagnostic_fingerprint and self._parameterNode:
+            try:
+                session = parse_motion_diagnostic_session(
+                    str(self._parameterNode.step6MotionDiagnosticJson or "")
+                )
+            except ValueError:
+                session = None
+            if session and session.session_fingerprint == diagnostic_fingerprint:
+                retained = retain_motion_diagnostic_error_message(session, result.message)
+                self._parameterNode.step6MotionDiagnosticJson = canonical_json(
+                    retained.to_dict()
+                )
         if not result.success:
             slicer.util.errorDisplay(result.message)
         if (
