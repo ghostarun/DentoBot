@@ -94,6 +94,26 @@ The first visible comparison can report selected ID, configured echo, installed
 YAML mapping and plan result, but may claim an executed algorithm only with
 separate planning-server evidence. Do not infer that from matching IDs alone.
 
+**Bounded Cartesian-off design (source audit, not enabled):** The current
+Stage-2/3 callers are `_goal1_candidate_chain_preflight()` and the retained
+full-line/terminal preparation in `DENTORobotWorkflowFacade`. They call
+`DENTOROS2Bridge.plan_moveit_cartesian_path()`; its existing
+`_position_axis_continuity_fallback()` already samples the unchanged straight
+TCP line, solves each pose with non-approximate J1–J5 position-axis IK from the
+last accepted state, checks FK/residuals, and retains first-invalid evidence.
+For a later Cartesian-off source pass, reuse that helper as the primary line
+generator behind the same bridge result contract, without invoking
+`PlanMoveItCartesianTrajectoryFromPoseMarkers`. Keep explicit start-state FK
+continuity, the exact requested Entry/Target points and fixed axis, bounded
+sampling/seeds, canonical joint/limit checks, endpoint FK, and the existing
+independent full-chain phase guard before any preview promotion. Do not replace
+the line with a free-space endpoint joint plan, infer collision safety from IK,
+or introduce a new route/state machine. The current helper is a fallback only;
+this paragraph is a design boundary, not evidence that Cartesian-off works.
+First obtain the one-at-a-time RRTConnect/RRT visible comparison and Tarun's
+verdict; then implement and check this mode separately before making its
+Step 6.5/6.6 control editable.
+
 ## Outcome and authority
 
 Recover the saved FDI31 case through the ordinary visible Step 6 workflow by
