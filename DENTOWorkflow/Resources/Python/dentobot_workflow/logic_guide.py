@@ -560,6 +560,15 @@ class GuideLogicMixin(DockingLogicMixin):
                 self.TEMPLATE_FINAL_GUIDE_CHANNELS_REFERENCE_ROLE
             ),
         }
+        researchShell = finalModel.GetNodeReference(
+            self.TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE
+        )
+        researchSleeve = finalModel.GetNodeReference(
+            self.TEMPLATE_FINAL_GUIDE_RESEARCH_SLEEVE_REFERENCE_ROLE
+        )
+        finalizedShell = finalModel.GetNodeReference(
+            self.TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE
+        )
         expectedRoles = {
             "docking": "TemplateDockingAssembly",
             "clearance": "TemplateDockingClearance",
@@ -602,6 +611,9 @@ class GuideLogicMixin(DockingLogicMixin):
             "patientShell": patientShell,
             "targetDockingAssembly": targetDockingAssembly,
             "roleModels": roleModels,
+            "researchShell": researchShell,
+            "researchSleeve": researchSleeve,
+            "finalizedShell": finalizedShell,
             "trajectories": trajectories,
             "parametersJson": finalModel.GetAttribute("DENTOBOT.ParametersJson") or "",
             "trajectoryGeometryJson": finalModel.GetAttribute("DENTOBOT.TrajectoryGeometryJson") or "",
@@ -826,36 +838,54 @@ class GuideLogicMixin(DockingLogicMixin):
                 else _("Dock count, layout, or occlusal-plane metadata is invalid."),
             )
             parameterNode = self.getParameterNode()
+            registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+            registeredDockIds = {
+                str(branch.get("target_docking_node_id") or "")
+                for branch in registry["prepared_branches"].values()
+            }
             targetDockingModels = [
                 node
                 for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
                 if self.isTargetDockingAssemblyModelNode(node)
+                and node.GetID() in registeredDockIds
             ]
             activeTargetId = str(dockingSummary.get("targetSegmentId") or "")
-            sameTargetModels = [
-                node
-                for node in targetDockingModels
-                if str(node.GetAttribute("DENTOBOT.TargetSegmentId") or "")
-                == activeTargetId
-            ]
+            activeTrajectoryIds = [node.GetID() for node in summary["trajectories"]]
+            activePlanningPose = str(
+                finalModel.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or ""
+            )
+            sameBranchModels = []
+            for node in targetDockingModels:
+                try:
+                    candidate = self.getTargetDockingAssemblySummary(node)
+                except (RuntimeError, ValueError, json.JSONDecodeError):
+                    continue
+                if (
+                    str(candidate.get("targetSegmentId") or "") == activeTargetId
+                    and [value.GetID() for value in candidate["trajectories"]]
+                    == activeTrajectoryIds
+                    and str(node.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or "")
+                    == activePlanningPose
+                ):
+                    sameBranchModels.append(node)
             currentFrameDock = (
                 str(parameterNode.step6CaseJawPreparationMode or "")
                 == "CaseFoundationCurrent"
                 and str(dockingSummary.get("caseFoundationPreparationMode") or "")
                 == "CaseFoundationCurrent"
-                and len(targetDockingModels) == 1
-                and len(sameTargetModels) == 1
-                and sameTargetModels[0] is summary["targetDockingAssembly"]
+                and bool(activePlanningPose)
+                and len(sameBranchModels) == 1
+                and sameBranchModels[0] is summary["targetDockingAssembly"]
             )
             add(
                 "PASS" if currentFrameDock else "FAIL",
                 _("Single current-frame target dock"),
                 _(
-                    "Exactly one target dock is bound to the current opened Case Foundation frame; no closed-jaw duplicate is retained."
+                    "Exactly one dock matches this target, ordered trajectory set, and opened Case Foundation pose."
                 )
                 if currentFrameDock
                 else _(
-                    "Target docking is missing current opened-frame provenance or has a duplicate dock for the active target."
+                    "Target docking is missing current branch/frame provenance or has a duplicate for this exact target and trajectory set."
                 ),
             )
         except (RuntimeError, ValueError, json.JSONDecodeError) as exc:

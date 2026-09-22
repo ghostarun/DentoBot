@@ -450,22 +450,22 @@ class TemplateBuildWidgetMixin:
         """Bind Step 5B's guide selection to the active Step 4A trajectory.
 
         Insertion direction can already exist while the guide selector stays
-        empty: the combo previously filtered a non-existent TrajectoryRole, and
-        selected-guide references are not written unless the operator changes
-        the combo. Inherit once from trajectoryLine when that line is eligible
-        for the current Step 4B target.
+        empty or still belongs to the previously active target. Inherit from
+        trajectoryLine when that line is eligible for the current Step 4B
+        target; preserve an already-valid one/pair selection.
         """
 
         if not self._parameterNode or not self.logic:
             return
-        if self.logic.getSelectedTemplateGuideTrajectories():
-            return
+        selected = self.logic.getSelectedTemplateGuideTrajectories()
         trajectoryNode = self._parameterNode.trajectoryLine
         sourceModel = self._parameterNode.draftTemplateSupportModel
         if not trajectoryNode or not sourceModel:
             return
         try:
             eligible = self.logic.getEligibleTemplateGuideTrajectories(sourceModel)
+            if selected and all(node in eligible for node in selected):
+                return
             if trajectoryNode not in eligible:
                 return
             self.logic.setSelectedTemplateGuideTrajectories(
@@ -1352,6 +1352,21 @@ class TemplateBuildWidgetMixin:
         ]
         self._parameterNode.templateDockingChannelsModel = roleModels["channels"]
         self._parameterNode.finalPrintableTemplateModel = finalModel
+        for role, node in (
+            (
+                self.logic.TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE,
+                self._parameterNode.researchTemplateShellModel,
+            ),
+            (
+                self.logic.TEMPLATE_FINAL_GUIDE_RESEARCH_SLEEVE_REFERENCE_ROLE,
+                self._parameterNode.researchTemplateSleeveModel,
+            ),
+            (
+                self.logic.TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE,
+                self._parameterNode.finalizedTemplateShellModel,
+            ),
+        ):
+            finalModel.SetNodeReferenceID(role, node.GetID() if node else None)
         self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
         logging.info(
             "Generated unified template %s from %d trajectories with %d triangles",

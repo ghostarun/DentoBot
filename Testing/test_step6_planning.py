@@ -133,6 +133,133 @@ def test_step5b_guide_selector_inherits_entry_to_target_trajectories() -> None:
     ).read_text()
     assert "def _inheritSelectedTemplateGuideTrajectoriesIfNeeded" in build_source
     assert "self._inheritSelectedTemplateGuideTrajectoriesIfNeeded()" in build_source
+    assert "selected and all(node in eligible for node in selected)" in build_source
+
+
+def test_step5c_target_guide_selector_uses_atomic_preverification_activation() -> None:
+    ui_root = ElementTree.parse(
+        REPOSITORY_ROOT / "DENTOWorkflow" / "Resources" / "UI" / "DENTOWorkflow.ui"
+    ).getroot()
+    selector = ui_root.find(".//widget[@name='finalVerificationModelSelector']")
+    assert selector is not None
+    assert selector.get("class") == "QComboBox"
+
+    widget_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_template_finalization.py"
+    ).read_text()
+    assert "registry[\"prepared_branches\"].items()" in widget_source
+    assert "activateDentoCasePreparedBranchForVerification" in widget_source
+
+    logic_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "logic_case_bundle.py"
+    ).read_text()
+    ready_gate = logic_source.index("if _forVerification:")
+    strict_gate = logic_source.index('finalSummary["verificationState"] not in')
+    assert ready_gate < strict_gate
+    assert "def activateDentoCasePreparedBranchForVerification" in logic_source
+    assert 'SetVisibility(nodeId in selectedNodeIds)' in logic_source
+
+
+def test_step5c_dock_uniqueness_is_scoped_to_the_selected_branch() -> None:
+    guide_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "logic_guide.py"
+    ).read_text()
+    assert "sameBranchModels" in guide_source
+    assert 'candidate["trajectories"]' in guide_source
+    assert 'GetAttribute("DENTOBOT.PlanningPoseFingerprint")' in guide_source
+    assert 'node.GetID() in registeredDockIds' in guide_source
+    assert "len(sameBranchModels) == 1" in guide_source
+    assert "len(targetDockingModels) == 1" not in guide_source
+
+
+def test_prepared_branch_activation_restores_target_owned_build_nodes() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "logic_case_bundle.py"
+    ).read_text()
+    for assignment in (
+        "parameterNode.draftTemplateSupportModel = draftSupport",
+        "parameterNode.templateSupportBoundaryCurve = boundaryCurve",
+        "parameterNode.visibleTemplateSupportModel = visibleSupport",
+        'parameterNode.templateUndercutBlockoutModel = shellSummary["blockoutModel"]',
+        "parameterNode.researchTemplateShellModel = researchShell",
+        "parameterNode.researchTemplateSleeveModel = researchSleeve",
+        "parameterNode.finalizedTemplateShellModel = finalizedShell",
+        "parameterNode.templateTrimPlane = trimPlane",
+        "parameterNode.templateTrimCurve = trimCurve",
+        "parameterNode.targetDockingYawDeg = dockingParameters",
+        ') = dockingParameters["configuredIndividualDepthsMm"]',
+        "parameterNode.templateSamplingSpacingMm = dockingParameters",
+    ):
+        assert assignment in source
+    assert "activeDockingParameters == dockingParameters" in source
+    assert "model_node_ids=[node.GetID() for node in ownedNodes]" in source
+
+    fallback = source[source.index("def activateDentoCaseTrajectory") :]
+    for field in (
+        "draftTemplateSupportModel",
+        "templateSupportBoundaryPlane",
+        "templateSupportBoundaryCurve",
+        "visibleTemplateSupportModel",
+        "templateUndercutSurfaceModel",
+        "templateUndercutBlockoutModel",
+        "researchTemplateShellModel",
+        "researchTemplateSleeveModel",
+        "finalizedTemplateShellModel",
+        "templateTrimPlane",
+        "templateTrimCurve",
+    ):
+        assert f"parameterNode.{field} = None" in fallback
+
+    planning_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_planning.py"
+    ).read_text()
+    assert "if segmentId != previousTargetId:" in planning_source
+    assert "self._parameterNode.draftTemplateSupportModel = None" in planning_source
+    assert "self._parameterNode.visibleTemplateSupportModel = None" in planning_source
+    assert "TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE" in source
+    assert "TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE" in source
+
+
+def test_step64_disabled_confirmation_reports_the_missing_runtime_gate() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow"
+        / "Resources"
+        / "Python"
+        / "dentobot_workflow"
+        / "widget_robot.py"
+    ).read_text()
+    assert "confirmation_prerequisites = []" in source
+    assert "Activate the verified PreparedBranch in 6.0." in source
+    assert "Apply and live-validate Task Home in 6.2." in source
+    assert "Generate or revalidate workspace evidence in 6.3." in source
+    assert "Complete the authoritative planning-scene audit in 6.1." in source
+    assert '" ".join(confirmation_prerequisites or task_issues)' in source
 
 
 def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries() -> None:
@@ -188,7 +315,7 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
         / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py"
     ).read_text()
     assert "Single current-frame target dock" in guide_source
-    assert "no closed-jaw duplicate" in guide_source
+    assert "duplicate for this exact target and trajectory set" in guide_source
     for relative_path in (
         "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_docking.py",
         "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_guide.py",

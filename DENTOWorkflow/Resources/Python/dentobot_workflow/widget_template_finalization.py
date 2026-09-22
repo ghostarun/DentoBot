@@ -12,7 +12,7 @@ class TemplateFinalizationWidgetMixin:
         self._bindTemplateFinalizationEditNodes(None, None)
         self._updatingTemplateFinalizationUI = True
         try:
-            self.ui.finalVerificationModelSelector.setCurrentNode(None)
+            self.ui.finalVerificationModelSelector.clear()
             self.ui.finalVerificationTreeWidget.clear()
             self.ui.verifyFinalTemplateButton.enabled = False
             self.ui.showFinalTemplateButton.enabled = False
@@ -149,10 +149,56 @@ class TemplateFinalizationWidgetMixin:
             self._clearTemplateFinalization()
             return
         finalModel = self._parameterNode.finalPrintableTemplateModel
+        registry = self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
+        selectedBranchId = str(registry.get("selected_branch_id") or "")
         self._updatingTemplateFinalizationUI = True
         try:
-            if self.ui.finalVerificationModelSelector.currentNode() is not finalModel:
-                self.ui.finalVerificationModelSelector.setCurrentNode(finalModel)
+            selector = self.ui.finalVerificationModelSelector
+            selector.clear()
+            selector.addItem(_("Select a target guide"), "")
+            selectedIndex = 0
+            for branchId, branch in registry["prepared_branches"].items():
+                toothId = next(
+                    (
+                        toothId
+                        for toothId, tooth in registry["teeth"].items()
+                        if branchId in {
+                            value
+                            for slot in tooth["trajectory_set"]["slots"]
+                            for value in slot.get("prepared_branch_ids", [])
+                        }
+                    ),
+                    str(branch.get("target_id") or _("Unknown target")),
+                )
+                readiness = self.logic.evaluatePreparedBranchForVerification(
+                    self._parameterNode, branchId, registry=registry
+                )
+                strict = self.logic.evaluatePreparedBranchEligibility(
+                    self._parameterNode, branchId, registry=registry
+                )
+                state = (
+                    _("Verified")
+                    if strict["eligible"]
+                    else _("Ready for verification")
+                    if readiness["eligible"]
+                    else _("Stale")
+                    if branch.get("state") == "Stale"
+                    else _("Incomplete")
+                )
+                templateNode = slicer.mrmlScene.GetNodeByID(
+                    str(branch.get("template_node_id") or "")
+                )
+                selector.addItem(
+                    "%s — %s — %s" % (
+                        toothId,
+                        templateNode.GetName() if templateNode else _("Missing template"),
+                        state,
+                    ),
+                    branchId,
+                )
+                if branchId == selectedBranchId:
+                    selectedIndex = selector.count - 1
+            selector.setCurrentIndex(selectedIndex)
             self.ui.finalVerificationTreeWidget.clear()
             self.ui.verifyFinalTemplateButton.enabled = False
             self.ui.showFinalTemplateButton.enabled = bool(
@@ -196,7 +242,6 @@ class TemplateFinalizationWidgetMixin:
         self.ui.finalVerificationTreeWidget.resizeColumnToContents(1)
 
         current = summary["geometryState"] == "Current"
-        registry = self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
         branchId = next(
             (
                 branch_id
@@ -234,10 +279,30 @@ class TemplateFinalizationWidgetMixin:
         self.ui.finalVerificationStatusLabel.text = message
         self.ui.finalVerificationStatusLabel.styleSheet = style
 
-    def onFinalVerificationModelSelectionChanged(self, modelNode) -> None:
+    def onFinalVerificationModelSelectionChanged(self, index: int) -> None:
         if self._updatingTemplateFinalizationUI or not self._parameterNode:
             return
-        self._parameterNode.finalPrintableTemplateModel = modelNode
+        branchId = str(self.ui.finalVerificationModelSelector.itemData(index) or "")
+        if not branchId:
+            return
+        if self._step6MotionPreviewTimer is not None or bool(
+            self._robotWorkflowFacade
+            and (
+                self._robotWorkflowFacade.previewActive
+                or self._robotWorkflowFacade.returnHomeRequired
+            )
+        ):
+            slicer.util.errorDisplay(
+                _("Stop the active preview and complete Guarded Return Home before switching target guides.")
+            )
+            self._updateTemplateFinalization()
+            return
+        try:
+            self.logic.activateDentoCasePreparedBranchForVerification(
+                self._parameterNode, branchId
+            )
+        except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            slicer.util.errorDisplay(str(exc))
         self._updateTemplateFinalization()
 
     def onVerifyFinalTemplate(self) -> None:

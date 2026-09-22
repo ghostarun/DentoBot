@@ -8,6 +8,7 @@ stack_log=/tmp/dentobot-simulation-stack.log
 readiness_timeout=2s
 readiness_attempts=60
 readiness_interval=0.5
+diagnostic_no_spindle_collision=${DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION:-false}
 
 usage() {
   printf '%s\n' \
@@ -65,6 +66,11 @@ done
 
 if (($# == 0)); then
   usage
+  exit 64
+fi
+if [[ ${diagnostic_no_spindle_collision} != true && ${diagnostic_no_spindle_collision} != false ]]; then
+  printf 'Invalid DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION value: %s\n' \
+    "${diagnostic_no_spindle_collision}" >&2
   exit 64
 fi
 if [[ ! ${readiness_attempts} =~ ^[1-9][0-9]*$ ]]; then
@@ -150,8 +156,17 @@ if ! : >"${stack_log}"; then
 fi
 
 handoff_reason=stack_start_requested
-handoff_log stack_start log="${stack_log}"
-setsid ros2 launch dentobot_moveit_config simulation.launch.py >"${stack_log}" 2>&1 &
+robot_description_file=dentobot.urdf
+if [[ ${diagnostic_no_spindle_collision} == true ]]; then
+  robot_description_file=dentobot.diagnostic-no-spindle-collision.urdf
+fi
+handoff_log stack_start \
+  "log=${stack_log}" \
+  "diagnostic_no_spindle_collision=${diagnostic_no_spindle_collision}" \
+  "robot_description_file=${robot_description_file}"
+setsid ros2 launch dentobot_moveit_config simulation.launch.py \
+  "diagnostic_no_spindle_collision:=${diagnostic_no_spindle_collision}" \
+  >"${stack_log}" 2>&1 &
 stack_pid=$!
 handoff_reason=stack_started
 handoff_log stack_started pid="${stack_pid}"

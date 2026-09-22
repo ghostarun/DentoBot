@@ -41,12 +41,20 @@ detailed contract/completion record; DEVELOPMENT_PLAN.md owns acceptance design.
 Keep unique commands, failures, hashes and observations in this evidence
 record/daily logs; do not copy them into compact startup context.
 
-## 2026-09-21 FDI31 GUI-planner evidence boundary
+## 2026-09-22 FDI31 GUI-planner evidence boundary
 
 The active acceptance source is the operator-visible workflow for
-`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`,
-SHA-256 `b0b38bd7...56d262`, under
+`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`,
+SHA-256 `eb48a805c81578bafcc8ca72663b6f8a98b1f9721c7f9e680d44b458558e7adb`, under
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+The Sep-19 package (SHA-256 `b0b38bd7...56d262`) remains historical GUI
+baseline evidence, not an alternative runtime input. The Sep-22 Experiment A
+result is `M1-DIAG / HOUSING-OFF PASS` only; canonical housing-on M1/M2 remain
+open. The later 45.96-mm mouth-gap, Home and base changes produced a feasible
+alternate housing-on chain but changed multiple inputs and are not canonical
+milestone acceptance. Preserve that configuration under a separately named
+case before an exact-case rerun; never infer a fresh FDI21 plan from the
+subsequent stale diagnostics screenshot.
 After load, record activation of PreparedBranch, robot/base visibility and lock,
 ROS connection, Task Home/workspace/task validity and the Step 6.5 action.
 Opening the archive does not restore those live states.

@@ -497,10 +497,25 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and facade_capabilities
                 and facade_capabilities.planning_scene_synchronized
             )
+            confirmation_prerequisites = []
+            if not imported:
+                confirmation_prerequisites.append(_("Activate the verified PreparedBranch in 6.0."))
+            if not planning_anatomy_ready:
+                confirmation_prerequisites.append(_("Refresh the Case Foundation planning anatomy."))
+            if not ros2_active:
+                confirmation_prerequisites.append(_("Connect ROS + MoveIt in 6.1."))
+            if not home_runtime_validated:
+                confirmation_prerequisites.append(_("Apply and live-validate Task Home in 6.2."))
+            if not workspace_runtime_validated:
+                confirmation_prerequisites.append(_("Generate or revalidate workspace evidence in 6.3."))
+            if not assisted_reviewed:
+                confirmation_prerequisites.append(_("Review and apply the assisted task limits in 6.3."))
+            if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
+                confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
             panel.confirmationStatusLabel.text = (
                 _("Immutable task snapshot is current; phased plans are enabled.")
                 if task_ready
-                else " ".join(task_issues)
+                else " ".join(confirmation_prerequisites or task_issues)
             )
             preview_active = bool(
                 self._robotWorkflowFacade

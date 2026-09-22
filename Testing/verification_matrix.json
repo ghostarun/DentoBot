@@ -103,7 +103,7 @@
       "evidence_level": "synthetic_slicer_and_saved_case",
       "entrypoint": "Testing/run_dentobot_reusable_case_smoke.py",
       "command_template": "docker exec dentobot-slicerros2 sh -lc 'timeout 300s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_reusable_case_smoke.py'",
-      "pass_condition": "Case Foundation ownership/save-reopen scenario and PreparedBranch activation scenario both complete; marker:DENTOBOT_REUSABLE_CASE_PASS"
+      "pass_condition": "Default synthetic mode: Case Foundation ownership/save-reopen and PreparedBranch activation complete with marker DENTOBOT_REUSABLE_CASE_PASS. With DENTOBOT_REUSABLE_CASE_SOURCE: FDI21 GUI regeneration through 4B/4C/5A/5B, FDI31-FDI21-FDI31 alternating 5C verification, final FDI21 selection and Step 6A activation complete with marker DENTOBOT_MULTITARGET_STEP5C_PASS"
     },
     {
       "id": "runtime.pulp_shell_fdi11",

@@ -8,6 +8,24 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_diagnostic_urdf_omits_only_spindle_collision():
+    canonical = (ROOT / "dentobot_description/urdf/dentobot.urdf").read_bytes()
+    diagnostic = (
+        ROOT / "dentobot_description/urdf/dentobot.diagnostic-no-spindle-collision.urdf"
+    ).read_bytes()
+    spindle_collision = (
+        b'        <collision name="pneumatic_spindle-Copy_collision">\n'
+        b'            <origin xyz="0.05494618457295404 -0.008269433599944023 0.032342388899358164" rpy="0.44718022829377824 1.1053864680655217 3.141592653589792" />\n'
+        b'            <geometry>\n'
+        b'                <mesh filename="package://dentobot_description/meshes/pneumatic_spindle-Copy.stl" scale="0.001 0.001 0.001" />\n'
+        b'            </geometry>\n'
+        b'        </collision>\n'
+    )
+    assert spindle_collision in canonical
+    assert b"pneumatic_spindle-Copy_collision" not in diagnostic
+    assert canonical.replace(spindle_collision, b"", 1) == diagnostic
+
+
 def test_urdf_has_non_spinning_tcp_sibling_and_retains_visual_burr_branch():
     robot = ElementTree.parse(
         ROOT / "dentobot_description/urdf/dentobot.urdf"

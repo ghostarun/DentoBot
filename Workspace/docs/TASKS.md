@@ -170,6 +170,109 @@ changes here and keep execution chronology in the dated logbook.
   three-slot registry. T1→A, T2→B, T3→C are independent PreparedBranches;
   T1+T2→AB is allowed only through deliberate pairing. Registry capacity is
   neither template multiplicity nor a main-workflow requirement.
+- **2026-09-22 target-switch repair:** In the operator's combined FDI31/FDI21
+  case, Step 5B retained FDI31's selected-guide reference after FDI21 became
+  the active target. The existing inheritance helper now preserves a valid
+  current-target one/pair selection but replaces an empty or stale cross-target
+  selection with the eligible active `trajectoryLine`. This unblocks an
+  independent FDI21 template in the same session; it does not fuse different
+  target teeth or implement batch/Studio execution. Focused source check passes;
+  normal-window reload/build acceptance remains open.
+- **2026-09-22 Step 5C design:** The operator confirmed the Step 5B repair and
+  built the FDI21 template, then Step 5C failed `Single current-frame target
+  dock`. The selector currently swaps only a raw template model and the check
+  incorrectly requires one docking model scene-wide. Implement the existing
+  PreparedBranch contract in four bounded phases: registry-backed target-guide
+  selection with pre-verification atomic activation; exact-branch dock
+  verification and evidence binding; explicit eligible Step 6 activation; then
+  two-branch save/reopen/switch acceptance. Detailed behavior and stopping gates
+  are in the PreparedBranch correction plan. No cross-target fusion or batch
+  runner is included.
+- **2026-09-22 Phase 1 implementation:** Step 5C's raw model picker is replaced
+  by a registry-backed Target guide selector. A separate pre-verification gate
+  reuses every strict dependency check through the current Step 5B template,
+  then the existing rollback-safe activation transaction swaps the full branch,
+  invalidates runtime evidence and isolates registered branch geometry. The
+  ordinary `evaluatePreparedBranchEligibility()` path still requires matching
+  PASS/WARNING Step 5C evidence. Focused source evidence passes; operator GUI
+  acceptance is pending before the branch-scoped dock check changes in Phase 2.
+- **2026-09-22 Phase 2 implementation:** The operator-visible Phase 1 selector
+  correctly activated FDI21, while the deliberately unchanged scene-global
+  dock count still failed. `Single current-frame target dock` now counts only
+  assemblies matching the selected template's target, ordered trajectory set
+  and Case Foundation planning-pose fingerprint. Other target branches may
+  coexist; a second exact-branch assembly remains FAIL. Focused source checks
+  pass; the operator's normal-window verification verdict is pending.
+- **2026-09-22 per-target builder ownership:** Operator confirmed rebuilt FDI31
+  passes Step 5C, but FDI21 had become stale during the pre-fix rebuild. The
+  existing PreparedBranch activation transaction now restores upstream Step
+  4B/5A/5B nodes from stored shell provenance, and new/unprepared target
+  selection clears those active pointers before generation. Registry display
+  ownership includes the upstream nodes without adding a second store or
+  changing the branch verification revision formula. Focused source checks
+  pass. Rebuild FDI21 once, verify it, then confirm FDI31 remains Verified;
+  Phase 3 Step 6 handoff remains pending that manual two-branch verdict.
+- **2026-09-22 Phase 3 operator evidence:** FDI21 passed Step 5C and the fresh
+  Step 6 Goal 1 request consumed FDI21, then stopped in canonical TCP
+  position-axis IK preflight with no collision contacts. The diagnostics viewer
+  retained the prior FDI31 66/10/22 result but correctly marked it `Stale`
+  because the target tooth changed. This accepts branch attribution and
+  diagnostic invalidation only; it does not claim an FDI21 plan. Further
+  algorithm/geometry diagnosis pauses for operator direction, and Phase 4
+  save/reopen switching remains pending.
+- **2026-09-22 residual branch-lineage and 6.4 repair:** Alternating FDI21 and
+  FDI31 regeneration still staled the inactive target because PreparedBranch
+  activation did not own/restore the mutable research shell, research sleeve,
+  finalized shell and trim node. Newly generated final guides now hold explicit
+  MRML references to those exact intermediates; registry revision/ownership and
+  activation follow those references, while an unprepared target clears them.
+  The immutable-task button remains fail-closed, but its status now enumerates
+  the actual missing 6.0/6.1/6.2/6.3 prerequisite instead of showing only the
+  circular confirmation prompt. Focused source checks pass; operator reload,
+  one-time rebuild of both old-format branches, alternating verification, and
+  6.4 UI acceptance remain pending.
+- **2026-09-22 saved-package scalar-lineage diagnosis:** Read-only inspection
+  of `FDI21-32-dentobot-case-sep22-step5c.dentocase` (SHA-256
+  `5425ea7d6d58d3c4eeb7915e01fa735de06d6a967d3f52ed1267cc49b91d1953`)
+  found distinct FDI21/FDI31 branch node sets. FDI21's retained docking assembly
+  stores yaw `-40°`, while FDI31 stores `35°`; branch activation restored the
+  dock node but not these parameter-node scalars. The shared activation
+  transaction now restores the complete normalized Step 4C parameter set,
+  rolls it back on failure and requires scalar equality before taking its
+  idempotent return. This prevents selection alone from manufacturing a Step
+  4C dimension change. Source verification passes; existing explicitly stale
+  FDI21 data still requires one honest rebuild and normal-window/save-reopen
+  acceptance.
+- **2026-09-22 headless GUI runtime evidence:** The matrix-owned reusable-case
+  runner now has an opt-in saved-case mode while retaining its default
+  synthetic behavior. Against package SHA
+  `5425ea7d6d58d3c4eeb7915e01fa735de06d6a967d3f52ed1267cc49b91d1953`,
+  real GUI button clicks selected FDI21 in 4A and regenerated 4B, 4C, 5A and
+  5B. Step 5C then verified FDI31→FDI21→FDI31, checking after every selection
+  that active normalized docking parameters exactly equal the branch's stored
+  parameters. FDI31 restored yaw `35°`; FDI21 restored `-40°`; neither became
+  stale. A final FDI21 selection verified and Step 6A activation imported
+  branch `guide-fe8080de25e7eb57622d`. Marker
+  `DENTOBOT_MULTITARGET_STEP5C_PASS`, process exit 0 and clean teardown are
+  retained with six screenshots. Normal-window operator verdict and a newly
+  saved/reopened two-current-branch package remain open.
+- **2026-09-22 headless save/reopen evidence:** The same GUI workflow saved a
+  new package at `data/Slicer_Saved/SampleStudy1/FDI21-31-headless-verified-sep22-step6a.dentocase`
+  (SHA-256 `c16e0406b589de1cb2144628b38a26100157458d48b5edb9c56ad4f8792d1c1d`)
+  without overwriting the supplied source. A separate fresh Slicer process
+  reopened and post-hydration validated it: selected FDI21 PreparedBranch
+  `guide-fe8080de25e7eb57622d` was eligible/`VALID`, and both FDI21 and FDI31
+  trajectory slots were `Current`. Normal-window operator acceptance remains
+  open; no ROS, MoveIt, planner or preview was started.
+- **2026-09-22 postmortem boundary:** The later operator screenshot identifies
+  FDI21 in the viewport after a reported minor base adjustment, but its motion
+  diagnostics are explicitly `Stale` after target change and retain the older
+  FDI31 66/10/22 route. Do not promote this screenshot to fresh FDI21 planner
+  success. The adjusted base is not in the saved headless package above. One
+  exact-case, plan-only automated check is prepared but not run; it requires a
+  separately saved adjusted scene and serialized runtime after the operator
+  closes the active session. The 96-trajectory Studio ambition and predictive
+  base/IK diagnostics remain downstream, not part of this acceptance gate.
 - **PreparedBranch:** Exact trajectory selection and pairing intent, patient
   shell, unified template, dependent guide references and Step 5C verification
   identity. Step 6 selects this complete branch, not a raw trajectory.
@@ -1208,15 +1311,44 @@ of their preceding milestone.
 **Canonical contract:**
 [diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
 
-**Input identity:** `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
-(SHA-256 `b0b38bd7679294da0eead0f4d8a3a2877391847c8e984bb137e93575f456d262`).
-The operator verified this package; `step19` is the corrected old filename.
+**Input identity:** `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
+(SHA-256 `eb48a805c81578bafcc8ca72663b6f8a98b1f9721c7f9e680d44b458558e7adb`).
+The operator created this fresh workflow after installing the diagnostic URDF;
+the Sep-19 package remains historical baseline evidence only.
 
-**State and acceptance:** Valid collision-aware PreEntry endpoints exist, but
-the visible workflow has 13 Home→PreEntry P1 failures and no P2/P3 preflight.
+**State and acceptance:** The initial Sep-22 run was canonical housing-on and
+failed Home→PreEntry against tooth→`pneumatic_spindle-Copy`. After the launcher
+propagation correction, the operator ran the explicit diagnostic description:
+**`M1-DIAG / HOUSING-OFF PASS`**. The visible preflight completed P1 with 150
+waypoints; it also computed P2 with 12 and P3 with 23 waypoints. Those P2/P3
+results are retained diagnostic evidence only and do not authorize housing-off
+preview, M2, or canonical acceptance. Route-selection then reported that Task
+Home was not validated in the current session; no housing-off replan follows.
 Acceptance is GUI-visible and operator-reviewed; headless results are
-diagnostic only. The next approved action is M0 GUI baseline. The canonical
-plan owns all milestone procedures and Experiment A/B/C mechanics, including
+diagnostic only. Canonical M1 remains open. The next bounded action is to end
+the housing-off session, restore canonical housing-on mode, and have the
+operator select/review one temporary collision-valid Home for Experiment B.
+The later screenshot with an approximately 45.96-mm mouth gap is not an
+Experiment B result: it changed anatomy as well as Home and failed before P1
+because no canonical TCP position-axis IK candidate met tolerance; its reported
+collision sets were empty. Restore the Sep-22 anatomy/gap before comparing Home.
+With that altered 45.96-mm geometry held fixed, a later operator-selected Home
+did produce 31 free-space P1 samples and all 12 fixed-axis P2 checkpoints from
+179 MoveIt samples; the full task then stopped at Stage 3. The paired results
+show Home/IK-seed or branch sensitivity at the altered geometry, but do not by
+themselves prove that base placement/orientation is incorrect and do not close
+canonical M1 or M2.
+The operator subsequently changed robot-base position and orientation while
+retaining the displayed 45.96-mm gap and canonical spindle collision. The
+visible Motion Diagnostics reports `CompletedWithWarnings`, with P1 66, P2 10
+and P3 22 waypoints and a complete seeded chain on planner attempt 2. This is a
+housing-on alternate-geometry full-chain diagnostic pass. It proves that the
+housing is not intrinsically incompatible with FDI31 and makes the original
+physical placement/configuration-space clearance the leading causal boundary.
+Because base, anatomy and Home differ from the Sep-22 baseline, it does not yet
+close canonical M1/M2 or authorize preview.
+The canonical plan owns all
+milestone procedures and Experiment A/B/C mechanics, including
 the `M1-DIAG / HOUSING-OFF` boundary. Campaign-1 r4/P3/P4/P5 is preserved
 historical evidence, not an execution input or acceptance substitute.
 
@@ -1274,7 +1406,7 @@ each experiment. The diagnosis and ruled-out hypotheses above remain valid.
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **Active:** 13 GUI P1 Home→PreEntry failures; valid collision-aware PreEntry endpoints; P2/P3 not entered. See the active contract above and [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Complete M0 GUI baseline under its operator-review gate. Campaign-1 evidence is historical only. |
+| 2 | `S6-LIVE-01` | 0 | **Active:** `M1-DIAG / HOUSING-OFF PASS`; diagnostic P1 completed 150 waypoints. Canonical M1 remains open. See the active contract above and [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Restore canonical housing-on mode and review one temporary collision-valid Home for Experiment B; do not preview or replan the housing-off route. |
 | 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected; final native packet records phase-aware invalid static validity separately from the Home-to-endpoint transition rejection; correlated 31-object acknowledgement and TCP/spindle/burr FK all pass; contact fields remain unknown where not exposed | Preserve the strict result, scene/policy identity and unknown-contact boundary. Any future geometry correction must be verified across every Stage 1/2/3 waypoint, narrow burr exception, external-spindle boundary and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result | For a Complete route only, trial Goal 1→Goal 2→guarded Return Home→replan/route choice; retain FDI31 failure and await approval before another tooth |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
@@ -1425,7 +1557,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P2-03` | 2 | Planned | Priority-0 correctness accepted | Add shared truthful busy/progress/result/cancel behavior to long-running actions without fake percentages |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned | Studio functional acceptance and Priority 1–2 correctness | Refine the New GUI while proving Legacy parity, incorporating the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and adding no new MRML/ROS side effects |
-| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings | Priority 0–3 work or an observed runtime regression no longer blocks it | Centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct test process-group cleanup, then require a zero-exit lifecycle run with no SlicerROS2 leaks |
+| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. | Priority 0–3 work or an observed runtime regression no longer blocks it | Preserve the open scene and close it normally when the operator is ready; then verify that the owned Slicer/ROS/MoveIt tree is gone and host memory recovers. Only if retained memory/processes remain, centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct lifecycle cleanup, and require a zero-exit lifecycle run with no SlicerROS2 leaks. |
 
 ## Unprioritized task contracts — migration baseline
 
@@ -1442,7 +1574,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `W5-U-02` | Representative and physical acceptance pending | Validate the read-only Step 4B support pack in Step 5A, editable margin, undercut/removability, shell contact, seating, and terminal support on governed anatomy/phantom |
 | `W5-U-03` | Representative acceptance pending. **DENTO-NOTE 2026-09-07:** Step 5B unified-template creation needs detailed operator testing beyond smoke. During 2026-09-10 Step 4A verification, the combined runner passed Step 4A display, assisted pulp and FDI11 shell stages, then failed independently at unified fusion with 10 occupied volumes `[60677, 9, 4, 3, 1, 1, 1, 1, 1, 1]`. Read-only diagnosis traces the regression boundary to the current `W5-U-04` extended through-bore subtraction: the same case passed on 2026-09-08 before dock channels grew from 5.6 mm to 9.6 mm; FDI11's 2.2 mm bore leaves 9- and 4-voxel slivers above the conservative 0.1 mm³ cleanup ceiling. The supplied FDI31 run-2 Step6x5 package is a successful comparison case (saved raw regions `[45846, 1]`, cleaned to one), not the failed artifact | Localize the FDI11 slivers and correct the shared bore/attachment construction under `W5-U-04` without relaxing the one-solid gate or blindly raising the artifact threshold; then run current Step 5B fusion and Step 5C PASS/WARNING/FAIL on both FDI11 and FDI31, reopen, stale-lineage, channel-preservation, and one-STL flow; include dock/rail visibility and printability review |
 | `W5-U-05` | **DENTO-NOTE 2026-09-07 (UX / workflow).** Primary unified-template dimensions are in expanded section 2. 2026-09-19: section-2 spinboxes are force-enabled; live sub-floor holes lift to 2.1 mm. A clear owned Reset, interactive view while sizing/fusing, and full upstream dimension/lineage coupling still need representative UX work | Confirm section-2 editability in the live scene after Reload/restart; remaining Reset and interactive 3D inspection stay open. Do not relax the 2.0 mm builder floor. |
-| `VIEW-U-01` | Cross-workflow normal-window acceptance pending. **DENTO-NOTE 2026-09-07:** mask 2D/3D opacity sliders no longer reachable in the viewer path the operator uses — see `VIEW-U-02` | Exercise grouped anatomy, stage presets, manual toggles, frame/restore, opacity, CBCT rendering labels, save/reopen, and Legacy/New parity without renderer or geometry side effects |
+| `VIEW-U-01` | **Priority 1 (operator-promoted 2026-09-22). DENTO-NOTE:** Cross-module closed-mouth ghost anatomy remains after mouth opening: target-tooth and other concerned masks/models may appear at pre-opening positions. The 2026-09-14 source-mask suppression is implemented and focused-tested but cross-module normal-window acceptance is reopened. The earlier opacity-controls observation remains owned by `VIEW-U-02`. | After active edits stabilize, audit the shared source/opened display transition and every re-entry path: navigation, target/view changes, presets, restore/load, save/reopen, reset and branch activation. Capture exact MRML node/segment IDs, parent transforms and aggregate/per-segment 2D/3D visibility at the first failure. Correct one shared ownership/normalization path; preserve source anatomy and avoid per-screen deletion, geometry, collision or planner changes. Require ordinary-workflow/save-reopen proof with no stale-position anatomy and Legacy/New parity. Coordinate restore/branch causes with `S6-REUSABLE-CASE-SETUP`. |
 | `VIEW-U-02` | **DENTO-NOTE 2026-09-07.** Viewer no longer exposes **2D / 3D opacity sliders for masks**. Legacy still wires `segmentation2DOpacitySlider` / `segmentation3DOpacitySlider` in segmentation UI; operator path (likely New GUI / View Controls) lost them. Needs a **deeper UI/UX plan**, not a one-off restore | Map Legacy vs New GUI vs View Composition ownership of mask opacity; design always-available 2D fill/outline + 3D surface opacity controls (stage-safe, display-only, scene-persistent); plan parity with CBCT opacity and group visibility; implement after written UX plan acceptance, then close with normal-window trial |
 | `S6-U-03` | Experimental design; not planning authority | Derive only confidence-labelled observed oral-air surfaces when suitable open-mouth/phantom data exists; keep unobserved space occupied/unknown |
 | `CASE-U-01` | Backlog | Define and implement an offline no-ROS migrator for contaminated historical MRML/MRB scenes; never load them into a live ROS process |

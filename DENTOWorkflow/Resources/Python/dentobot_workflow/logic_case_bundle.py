@@ -244,11 +244,11 @@ class CaseBundleLogicMixin:
                 self.TEMPLATE_FINAL_GUIDE_TARGET_DOCKING_REFERENCE_ROLE
             )
             insertionDirection = None
+            shellSummary = None
             if shell and self.isPatientContactShellModelNode(shell):
                 try:
-                    insertionDirection = self.getPatientContactShellSummary(shell)[
-                        "insertionDirection"
-                    ]
+                    shellSummary = self.getPatientContactShellSummary(shell)
+                    insertionDirection = shellSummary["insertionDirection"]
                 except (RuntimeError, ValueError, json.JSONDecodeError):
                     insertionDirection = None
             templateId = self._stableDentoCaseId(
@@ -265,6 +265,15 @@ class CaseBundleLogicMixin:
                 shell,
                 targetDocking,
                 insertionDirection,
+                finalModel.GetNodeReference(
+                    self.TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE
+                ),
+                finalModel.GetNodeReference(
+                    self.TEMPLATE_FINAL_GUIDE_RESEARCH_SLEEVE_REFERENCE_ROLE
+                ),
+                finalModel.GetNodeReference(
+                    self.TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE
+                ),
                 *[
                     finalModel.GetNodeReference(role)
                     for role in (
@@ -276,6 +285,36 @@ class CaseBundleLogicMixin:
                 ],
             ]
             related = [node for node in related if node]
+            finalizedShell = finalModel.GetNodeReference(
+                self.TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE
+            )
+            if finalizedShell:
+                try:
+                    finalizedSummary = self.getFinalizedTemplateShellSummary(
+                        finalizedShell
+                    )
+                    related.extend(
+                        node
+                        for node in (
+                            finalizedSummary["editNode"],
+                            finalizedSummary["dynamicModelerNode"],
+                        )
+                        if node and node not in related
+                    )
+                except (RuntimeError, ValueError, json.JSONDecodeError):
+                    pass
+            ownedNodes = list(related)
+            if shellSummary:
+                ownedNodes.extend(
+                    node
+                    for node in (
+                        shellSummary["sourceModel"],
+                        shellSummary["visibleSupport"],
+                        shellSummary["boundary"],
+                        shellSummary["blockoutModel"],
+                    )
+                    if node not in ownedNodes
+                )
             primaryNodeId = str(
                 finalModel.GetAttribute("DENTOBOT.PrimaryTrajectoryNodeID")
                 or sourceTrajectories[0].GetID()
@@ -365,7 +404,7 @@ class CaseBundleLogicMixin:
                 template_node_id=finalModel.GetID(),
                 shell_id=shellId if shell else "",
                 shell_node_id=shell.GetID() if shell else "",
-                model_node_ids=[node.GetID() for node in related],
+                model_node_ids=[node.GetID() for node in ownedNodes],
                 guide_fingerprint=branchRevision,
                 primary_trajectory_id=primaryTrajectoryId,
                 pairing_intent=pairingIntent,
@@ -389,6 +428,7 @@ class CaseBundleLogicMixin:
         branchId: str | None = None,
         *,
         registry: dict[str, object] | None = None,
+        _forVerification: bool = False,
     ) -> dict[str, object]:
         """Return the single fail-closed PreparedBranch decision used by 5C/load/6."""
 
@@ -488,6 +528,8 @@ class CaseBundleLogicMixin:
             or finalSummary["trajectories"] != trajectories
         ):
             return result("UPSTREAM_CHANGED", _("PreparedBranch dependencies changed after build."), branch)
+        if _forVerification:
+            return result("VALID", _("PreparedBranch is ready for Step 5C verification."), branch)
         verification = finalSummary["verification"]
         if (
             finalSummary["verificationState"] not in {"PASS", "WARNING"}
@@ -500,6 +542,22 @@ class CaseBundleLogicMixin:
         ):
             return result("STEP5C_MISMATCH", _("Step 5C verification does not match this PreparedBranch revision."), branch)
         return result("VALID", _("PreparedBranch is current and verified."), branch)
+
+    def evaluatePreparedBranchForVerification(
+        self,
+        parameterNode,
+        branchId: str,
+        *,
+        registry: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Validate a complete branch through Step 5B without claiming Step 6 readiness."""
+
+        return self.evaluatePreparedBranchEligibility(
+            parameterNode,
+            branchId,
+            registry=registry,
+            _forVerification=True,
+        )
 
     def buildDentoCaseRobotEnvironment(self, parameterNode):
         environment = self.buildCaseFoundationSnapshot(parameterNode)
@@ -698,10 +756,17 @@ class CaseBundleLogicMixin:
         *,
         registry: dict[str, object] | None = None,
         invalidateRuntime: bool = True,
+        _forVerification: bool = False,
     ) -> dict[str, object]:
         registry = registry or self.syncDentoCaseTrajectoryRegistry(parameterNode)
-        eligibility = self.evaluatePreparedBranchEligibility(
-            parameterNode, branchId, registry=registry
+        eligibility = (
+            self.evaluatePreparedBranchForVerification(
+                parameterNode, branchId, registry=registry
+            )
+            if _forVerification
+            else self.evaluatePreparedBranchEligibility(
+                parameterNode, branchId, registry=registry
+            )
         )
         if not eligibility["eligible"]:
             raise ValueError(eligibility["message"])
@@ -715,12 +780,132 @@ class CaseBundleLogicMixin:
         association = self.getTrajectoryTargetAssociation(primaryTrajectory)
         targetDocking = slicer.mrmlScene.GetNodeByID(branch["target_docking_node_id"])
         dockingSummary = self.getTargetDockingAssemblySummary(targetDocking)
+        dockingParameters = json.loads(dockingSummary["parametersJson"])
+        activeDockingParameters = normalize_target_docking_parameters(
+            pattern_radius_mm=parameterNode.targetDockingPatternRadiusMm,
+            outer_diameter_mm=parameterNode.targetDockingOuterDiameterMm,
+            bore_diameter_mm=parameterNode.targetDockingBoreDiameterMm,
+            connector_diameter_mm=parameterNode.targetDockingConnectorDiameterMm,
+            connector_thickness_mm=parameterNode.targetDockingConnectorThicknessMm,
+            shared_depth_mm=parameterNode.targetDockingSharedDepthMm,
+            individual_depths_mm=(
+                parameterNode.targetDockingDepth1Mm,
+                parameterNode.targetDockingDepth2Mm,
+                parameterNode.targetDockingDepth3Mm,
+                parameterNode.targetDockingDepth4Mm,
+            ),
+            individual_depths_enabled=(
+                parameterNode.targetDockingIndividualDepthsEnabled
+            ),
+            yaw_deg=parameterNode.targetDockingYawDeg,
+            collision_clearance_mm=parameterNode.targetDockingCollisionClearanceMm,
+            clearance_mm=parameterNode.templateDockingClearanceMm,
+            reinforcement_radial_mm=parameterNode.templateReinforcementRadialMm,
+            processing_resolution_mm=parameterNode.templateSamplingSpacingMm,
+        )
         insertionDirection = slicer.mrmlScene.GetNodeByID(
             branch["insertion_direction_node_id"]
         )
         patientShell = slicer.mrmlScene.GetNodeByID(branch["shell_node_id"])
+        shellSummary = self.getPatientContactShellSummary(patientShell)
+        visibleSupport = shellSummary["visibleSupport"]
+        draftSupport = shellSummary["sourceModel"]
+        boundaryCurve = shellSummary["boundary"]
+        boundaryPlane = next(
+            (
+                node
+                for node in slicer.util.getNodesByClass("vtkMRMLMarkupsPlaneNode")
+                if self.isTemplateSupportBoundaryPlaneNode(node)
+                and node.GetNodeReference(
+                    self.TEMPLATE_SUPPORT_PLANE_SOURCE_MODEL_REFERENCE_ROLE
+                )
+                is draftSupport
+                and node.GetNodeReference(
+                    self.TEMPLATE_SUPPORT_PLANE_SOURCE_TRAJECTORY_REFERENCE_ROLE
+                )
+                is primaryTrajectory
+            ),
+            None,
+        )
+        undercutSurface = next(
+            (
+                node
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if self.isTemplateUndercutSurfaceModelNode(node)
+                and node.GetNodeReference(
+                    self.TEMPLATE_UNDERCUT_SOURCE_ANATOMY_REFERENCE_ROLE
+                )
+                is draftSupport
+                and node.GetNodeReference(
+                    self.TEMPLATE_UNDERCUT_SOURCE_SURFACE_REFERENCE_ROLE
+                )
+                is visibleSupport
+                and node.GetNodeReference(
+                    self.TEMPLATE_UNDERCUT_INSERTION_DIRECTION_REFERENCE_ROLE
+                )
+                is insertionDirection
+            ),
+            None,
+        )
         finalModel = slicer.mrmlScene.GetNodeByID(branch["template_node_id"])
         finalSummary = self.getFinalPrintableTemplateSummary(finalModel)
+        researchModels = []
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if not self.isResearchTemplateModelNode(node):
+                continue
+            try:
+                summary = self.getResearchTemplateModelSummary(
+                    node, node.GetAttribute("DENTOBOT.ModelRole") or ""
+                )
+            except (RuntimeError, ValueError, json.JSONDecodeError):
+                continue
+            if (
+                summary["sourceModel"] is draftSupport
+                and summary["trajectory"] in trajectories
+            ):
+                researchModels.append(node)
+        researchShell = finalSummary["researchShell"] or next(
+            (
+                node
+                for node in researchModels
+                if node.GetAttribute("DENTOBOT.ModelRole")
+                == "ResearchTemplateShell"
+            ),
+            None,
+        )
+        researchSleeve = finalSummary["researchSleeve"] or next(
+            (
+                node
+                for node in researchModels
+                if node.GetAttribute("DENTOBOT.ModelRole")
+                == "ResearchTemplateSleeve"
+            ),
+            None,
+        )
+        finalizedShell = finalSummary["finalizedShell"] or next(
+            (
+                node
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if self.isFinalizedTemplateShellModelNode(node)
+                and self.getFinalizedTemplateShellSummary(node)["sourceShell"]
+                is researchShell
+            ),
+            None,
+        )
+        finalizedSummary = (
+            self.getFinalizedTemplateShellSummary(finalizedShell)
+            if finalizedShell
+            else None
+        )
+        trimNode = finalizedSummary["editNode"] if finalizedSummary else None
+        trimPlane = (
+            trimNode if trimNode and trimNode.IsA("vtkMRMLMarkupsPlaneNode") else None
+        )
+        trimCurve = (
+            trimNode
+            if trimNode and trimNode.IsA("vtkMRMLMarkupsClosedCurveNode")
+            else None
+        )
         roleModels = finalSummary["roleModels"]
         selectedRegistry = select_prepared_branch(registry, branchId)
         parameterMrmlNode = parameterNode.parameterNode
@@ -731,7 +916,16 @@ class CaseBundleLogicMixin:
             and parameterNode.targetDockingReferencePlane is dockingSummary["plane"]
             and parameterNode.targetDockingAssemblyModel is targetDocking
             and bool(parameterNode.targetDockingYawConfirmed)
+            and activeDockingParameters == dockingParameters
             and parameterNode.templateInsertionDirection is insertionDirection
+            and parameterNode.draftTemplateSupportModel is draftSupport
+            and parameterNode.visibleTemplateSupportModel is visibleSupport
+            and parameterNode.templateSupportBoundaryCurve is boundaryCurve
+            and parameterNode.researchTemplateShellModel is researchShell
+            and parameterNode.researchTemplateSleeveModel is researchSleeve
+            and parameterNode.finalizedTemplateShellModel is finalizedShell
+            and parameterNode.templateTrimPlane is trimPlane
+            and parameterNode.templateTrimCurve is trimCurve
             and parameterNode.patientContactShellModel is patientShell
             and parameterNode.finalPrintableTemplateModel is finalModel
             and parameterNode.templateDockingAssemblyModel is roleModels["docking"]
@@ -749,7 +943,35 @@ class CaseBundleLogicMixin:
             "targetDockingReferencePlane",
             "targetDockingAssemblyModel",
             "targetDockingYawConfirmed",
+            "targetDockingPatternRadiusMm",
+            "targetDockingOuterDiameterMm",
+            "targetDockingBoreDiameterMm",
+            "targetDockingConnectorDiameterMm",
+            "targetDockingConnectorThicknessMm",
+            "targetDockingSharedDepthMm",
+            "targetDockingIndividualDepthsEnabled",
+            "targetDockingDepth1Mm",
+            "targetDockingDepth2Mm",
+            "targetDockingDepth3Mm",
+            "targetDockingDepth4Mm",
+            "targetDockingYawDeg",
+            "targetDockingCollisionClearanceMm",
+            "templateDockingClearanceMm",
+            "templateReinforcementRadialMm",
+            "templateSamplingSpacingMm",
+            "draftTemplateSupportModel",
+            "templateSupportBoundaryPlane",
+            "templateSupportBoundaryCurve",
+            "visibleTemplateSupportModel",
             "templateInsertionDirection",
+            "templateUndercutSurfaceModel",
+            "templateUndercutBlockoutModel",
+            "templateSupportToothSegmentIdsJson",
+            "researchTemplateShellModel",
+            "researchTemplateSleeveModel",
+            "finalizedTemplateShellModel",
+            "templateTrimPlane",
+            "templateTrimCurve",
             "patientContactShellModel",
             "templateDockingAssemblyModel",
             "templateDockingClearanceModel",
@@ -776,7 +998,64 @@ class CaseBundleLogicMixin:
             parameterNode.targetDockingReferencePlane = dockingSummary["plane"]
             parameterNode.targetDockingAssemblyModel = targetDocking
             parameterNode.targetDockingYawConfirmed = True
+            parameterNode.targetDockingPatternRadiusMm = dockingParameters[
+                "patternRadiusMm"
+            ]
+            parameterNode.targetDockingOuterDiameterMm = dockingParameters[
+                "outerDiameterMm"
+            ]
+            parameterNode.targetDockingBoreDiameterMm = dockingParameters[
+                "boreDiameterMm"
+            ]
+            parameterNode.targetDockingConnectorDiameterMm = dockingParameters[
+                "connectorDiameterMm"
+            ]
+            parameterNode.targetDockingConnectorThicknessMm = dockingParameters[
+                "connectorThicknessMm"
+            ]
+            parameterNode.targetDockingSharedDepthMm = dockingParameters[
+                "sharedDepthMm"
+            ]
+            parameterNode.targetDockingIndividualDepthsEnabled = dockingParameters[
+                "individualDepthsEnabled"
+            ]
+            (
+                parameterNode.targetDockingDepth1Mm,
+                parameterNode.targetDockingDepth2Mm,
+                parameterNode.targetDockingDepth3Mm,
+                parameterNode.targetDockingDepth4Mm,
+            ) = dockingParameters["configuredIndividualDepthsMm"]
+            parameterNode.targetDockingYawDeg = dockingParameters["yawDeg"]
+            parameterNode.targetDockingCollisionClearanceMm = dockingParameters[
+                "collisionClearanceMm"
+            ]
+            parameterNode.templateDockingClearanceMm = dockingParameters[
+                "clearanceMm"
+            ]
+            parameterNode.templateReinforcementRadialMm = dockingParameters[
+                "reinforcementRadialMm"
+            ]
+            parameterNode.templateSamplingSpacingMm = dockingParameters[
+                "processingResolutionMm"
+            ]
+            parameterNode.draftTemplateSupportModel = draftSupport
+            parameterNode.templateSupportBoundaryPlane = boundaryPlane
+            parameterNode.templateSupportBoundaryCurve = boundaryCurve
+            parameterNode.visibleTemplateSupportModel = visibleSupport
             parameterNode.templateInsertionDirection = insertionDirection
+            parameterNode.templateUndercutSurfaceModel = undercutSurface
+            parameterNode.templateUndercutBlockoutModel = shellSummary["blockoutModel"]
+            parameterNode.templateSupportToothSegmentIdsJson = json.dumps(
+                self.getDraftTemplateSupportModelSummary(draftSupport)[
+                    "supportSegmentIds"
+                ],
+                separators=(",", ":"),
+            )
+            parameterNode.researchTemplateShellModel = researchShell
+            parameterNode.researchTemplateSleeveModel = researchSleeve
+            parameterNode.finalizedTemplateShellModel = finalizedShell
+            parameterNode.templateTrimPlane = trimPlane
+            parameterNode.templateTrimCurve = trimCurve
             parameterNode.patientContactShellModel = patientShell
             parameterNode.finalPrintableTemplateModel = finalModel
             parameterNode.templateDockingAssemblyModel = roleModels["docking"]
@@ -802,11 +1081,43 @@ class CaseBundleLogicMixin:
             parameterNode.EndModify(wasModifying)
         if oldRoi and oldRoi is not parameterNode.targetToothBoundsRoi and oldRoi.GetDisplayNode():
             oldRoi.GetDisplayNode().SetVisibility(False)
+        selectedNodeIds = set(branch.get("model_node_ids", ())) | {
+            node.GetID() for node in trajectories
+        }
+        branchNodeIds = {
+            nodeId
+            for candidate in registry["prepared_branches"].values()
+            for nodeId in candidate.get("model_node_ids", ())
+        } | set(trajectoryById[value].GetID() for value in trajectoryById) | {
+            node.GetID()
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if self.isTargetDockingAssemblyModelNode(node)
+        }
+        for nodeId in branchNodeIds:
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if node and node.GetDisplayNode():
+                node.GetDisplayNode().SetVisibility(nodeId in selectedNodeIds)
         if invalidateRuntime:
             self.markStep6MotionDiagnosticStale(
                 parameterNode, _("The active PreparedBranch changed.")
             )
         return eligibility
+
+    def activateDentoCasePreparedBranchForVerification(
+        self,
+        parameterNode,
+        branchId: str,
+        *,
+        registry: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Atomically select a complete Step 5B branch for Step 5C review."""
+
+        return self.activateDentoCasePreparedBranch(
+            parameterNode,
+            branchId,
+            registry=registry,
+            _forVerification=True,
+        )
 
     def activateDentoCaseTrajectory(self, parameterNode, trajectoryNode) -> dict:
         """Resolve a prepared trajectory through its branch; otherwise select it for preparation."""
@@ -848,10 +1159,22 @@ class CaseBundleLogicMixin:
             parameterNode.targetToothSegmentId = association["targetRecord"]["segmentId"]
             parameterNode.targetToothBoundsRoi = association["targetBoundsRoi"]
             parameterNode.trajectoryLine = trajectoryNode
+            parameterNode.draftTemplateSupportModel = None
+            parameterNode.templateSupportBoundaryPlane = None
+            parameterNode.templateSupportBoundaryCurve = None
+            parameterNode.visibleTemplateSupportModel = None
             parameterNode.targetDockingReferencePlane = None
             parameterNode.targetDockingAssemblyModel = None
             parameterNode.targetDockingYawConfirmed = False
             parameterNode.templateInsertionDirection = None
+            parameterNode.templateUndercutSurfaceModel = None
+            parameterNode.templateUndercutBlockoutModel = None
+            parameterNode.templateSupportToothSegmentIdsJson = "[]"
+            parameterNode.researchTemplateShellModel = None
+            parameterNode.researchTemplateSleeveModel = None
+            parameterNode.finalizedTemplateShellModel = None
+            parameterNode.templateTrimPlane = None
+            parameterNode.templateTrimCurve = None
             parameterNode.patientContactShellModel = None
             parameterNode.finalPrintableTemplateModel = None
             parameterNode.templateDockingAssemblyModel = None
@@ -1295,6 +1618,8 @@ class CaseBundleLogicMixin:
         self,
         parameterNode,
         expected: dict[str, object],
+        *,
+        allowDerivedEnvironmentMismatch: bool = False,
     ) -> None:
         """Cross-check manifest lineage against the freshly loaded MRML scene."""
 
@@ -1415,6 +1740,12 @@ class CaseBundleLogicMixin:
                     "environment"
                 ][field]
             actualComparableStep6["environment"] = actualEnvironment
+        if allowDerivedEnvironmentMismatch:
+            # step6EnvironmentJson is rebuilt from authoritative MRML during
+            # hydration. Its persisted copy is redundant derived state; the
+            # node, lineage, registry, and matrix checks above remain strict.
+            expectedComparableStep6.pop("environment", None)
+            actualComparableStep6.pop("environment", None)
         actualComparableStep6 = self._caseBundleActualAtRecordedShape(
             expectedComparableStep6,
             actualComparableStep6,

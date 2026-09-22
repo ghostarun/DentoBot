@@ -3,10 +3,27 @@
 Last reconciled: 2026-09-22. The active P0 is `S6-LIVE-01` GUI-first FDI31
 planner recovery. Its sole detailed contract is
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
-Use only `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
-(SHA-256 `b0b38bd7...56d262`). Pending order is in [backlog.md](backlog.md);
+The Sep-22 FDI31 baseline is `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
+(SHA-256 `eb48a805...e7adb`). `M1-DIAG / HOUSING-OFF PASS` completed diagnostic
+P1 with 150 waypoints. An operator-repositioned base at an altered 45.96-mm
+mouth gap later completed a housing-on P1/P2/P3 chain, but its exact adjusted
+scene has not been saved for an independent run and canonical M1/M2 remain open.
+Do not run the prepared FDI21 plan-only automation against the older saved base;
+obtain a separately named adjusted-state package and serialize runtime first.
+Pending order is in [backlog.md](backlog.md);
 task state and acceptance evidence are in [TASKS.md](TASKS.md). Campaign-1
 r4/P3/P4/P5 is historical diagnostic evidence, not current instruction.
+
+The Step 5B target-switch repair under `S6-REUSABLE-CASE-SETUP` / `W5-U-03`
+was operator-confirmed in `FDI21-and-32-working#1-dentobot-case-sep22-step6.dentocase`.
+The Step 5C PreparedBranch work remains active under `S6-REUSABLE-CASE-SETUP`.
+The repaired two-target GUI sequence passed headlessly through FDI21 Step 6A;
+a new package `FDI21-31-headless-verified-sep22-step6a.dentocase` (SHA-256
+`c16e0406...d1c1d`) passed fresh-process reopen with both trajectory slots
+Current. Tarun's normal-window alternating-branch verdict remains pending.
+The subsequent FDI21 screenshot shows a stale FDI31 motion-diagnostic session,
+not independent proof of a fresh FDI21 planner pass. Do not weaken stale
+evidence or implement the 96-trajectory batch proposal.
 
 ## Start here
 
@@ -22,10 +39,11 @@ r4/P3/P4/P5 is historical diagnostic evidence, not current instruction.
 
 ## Active P0 routing
 
-- **Current state:** valid collision-aware PreEntry endpoints exist; the live
-  blocker is Home→PreEntry P1 connectivity (13 GUI legs failed; P2/P3 did not
-  run). The next milestone is M0 GUI baseline, under the canonical plan's
-  approval boundary.
+- **Current state:** the Sep-19 Home→PreEntry P1 blocker (13 failed GUI legs)
+  remains historical baseline evidence. The Sep-22 housing-off P1 diagnostic
+  and alternate-base housing-on full chain are separate, non-canonical
+  observations. Canonical M1/M2 and a fresh FDI21 planner result remain open;
+  follow the canonical plan and today's logbook before another runtime action.
 - **Before planner source work:** read the preserved manual diagnosis context
   below and its linked implementation/query records, then follow the canonical
   P0 plan. AGENTS.md supplies enforceable model, stop, and anti-bloat rules.

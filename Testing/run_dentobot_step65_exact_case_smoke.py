@@ -63,7 +63,6 @@ if EXPLICIT_CASE and any(os.environ.get(name, "") == "1" for name in (
     "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE",
     "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW",
     "DENTOBOT_AUDIT_ACTUAL_CONTACT_ONLY",
-    "DENTOBOT_PLAN_ONLY",
     "DENTOBOT_GOAL1_ONLY",
     "DENTOBOT_FOCUSED_STAGE3_DIAG",
 )):
@@ -104,6 +103,7 @@ LOCK_SELECTED_ROUTE = os.environ.get("DENTOBOT_LOCK_SELECTED_ROUTE", "") == "1"
 DIAGNOSTIC_OUTPUT = str(
     os.environ.get("DENTOBOT_DIAGNOSTIC_OUTPUT", "/tmp/dentobot-exact-case-diagnostic.json")
 ).strip()
+PLAN_SCREENSHOT_DIR = str(os.environ.get("DENTOBOT_PLAN_SCREENSHOT_DIR", "")).strip()
 if REOPEN_SAVED_CASE and not OUTPUT_CASE:
     raise RuntimeError("DENTOBOT_REOPEN_SAVED_CASE=1 requires DENTOBOT_OUTPUT_CASE.")
 if ENDPOINT_ONLY and not EXPLICIT_CASE:
@@ -128,6 +128,35 @@ def process_events(seconds: float = 0.25) -> None:
         if ros_logic is not None:
             ros_logic.Spin()
         time.sleep(0.01)
+
+
+def capture_plan_screenshots() -> list[str]:
+    if not PLAN_SCREENSHOT_DIR:
+        return []
+    output = Path(PLAN_SCREENSHOT_DIR)
+    output.mkdir(parents=True, exist_ok=True)
+    main_window = slicer.util.mainWindow()
+    main_window.show()
+    process_events(0.25)
+    ui_path = output / "step65-planner-ui.png"
+    viewport_path = output / "step65-planner-viewport.png"
+    pixmap = main_window.grab()
+    if pixmap.isNull() or not pixmap.save(str(ui_path)):
+        raise RuntimeError("Step 6.5 planner UI capture failed")
+    view = slicer.app.layoutManager().threeDWidget(0).threeDView()
+    view.forceRender()
+    slicer.util.forceRenderAllViews()
+    capture_filter = vtk.vtkWindowToImageFilter()
+    capture_filter.SetInput(view.renderWindow())
+    capture_filter.ReadFrontBufferOff()
+    capture_filter.Update()
+    writer = vtk.vtkPNGWriter()
+    writer.SetFileName(str(viewport_path))
+    writer.SetInputConnection(capture_filter.GetOutputPort())
+    writer.Write()
+    if not viewport_path.is_file():
+        raise RuntimeError("Step 6.5 planner viewport capture failed")
+    return [str(ui_path), str(viewport_path)]
 
 
 def wait_until(predicate, timeout_sec: float):
@@ -3878,6 +3907,7 @@ def run() -> dict[str, object]:
             "details": approach.details,
             "task": snapshot.to_dict(),
             "motion": json.loads(str(parameter_node.step6MotionDiagnosticJson or "{}")),
+            "screenshots": capture_plan_screenshots(),
         }
         Path(DIAGNOSTIC_OUTPUT).parent.mkdir(parents=True, exist_ok=True)
         Path(DIAGNOSTIC_OUTPUT).write_text(json.dumps(

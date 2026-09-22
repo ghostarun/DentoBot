@@ -1,0 +1,41 @@
+{
+  "status": "PASS",
+  "case": "/workspace/data/Slicer_Saved/SampleStudy1/FDI21-32-dentobot-case-sep22-step5c.dentocase",
+  "case_sha256": "5425ea7d6d58d3c4eeb7915e01fa735de06d6a967d3f52ed1267cc49b91d1953",
+  "switches": [
+    {
+      "fdi": "31",
+      "branch_id": "guide-5c0da27697aceceb8f14",
+      "yaw_deg": 35.0,
+      "reason": "VALID"
+    },
+    {
+      "fdi": "21",
+      "branch_id": "guide-fe8080de25e7eb57622d",
+      "yaw_deg": -40.0,
+      "reason": "VALID"
+    },
+    {
+      "fdi": "31",
+      "branch_id": "guide-5c0da27697aceceb8f14",
+      "yaw_deg": 35.0,
+      "reason": "VALID"
+    }
+  ],
+  "final_fdi21": {
+    "fdi": "21",
+    "branch_id": "guide-fe8080de25e7eb57622d",
+    "yaw_deg": -40.0,
+    "reason": "VALID"
+  },
+  "step6_selected_branch_id": "guide-fe8080de25e7eb57622d",
+  "step6_imported": true,
+  "evidence": [
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step5c-third-alternate-fdi31-ui.png",
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step5c-third-alternate-fdi31-viewport.png",
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step5c-final-fdi21-verified-ui.png",
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step5c-final-fdi21-verified-viewport.png",
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step6a-fdi21-preparedbranch-active-ui.png",
+    "/workspace/data/dentobot-runs/multitarget-step5c-20260922-r1/step6a-fdi21-preparedbranch-active-viewport.png"
+  ]
+}

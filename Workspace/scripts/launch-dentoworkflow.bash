@@ -21,11 +21,12 @@ backend_dependency_probe=""
 backend_dependency_label=""
 check_only=false
 print_backend_python=false
+diagnostic_no_spindle_collision=false
 x11_access_granted=false
 
 usage() {
   printf '%s\n' \
-    "Usage: scripts/launch-dentoworkflow.bash [--check-only]" \
+    "Usage: scripts/launch-dentoworkflow.bash [--check-only] [--diagnostic-no-spindle-collision]" \
     "" \
     "Without options, verify the dentobot Conda backend and open" \
     "3D Slicer with DENTO Workflow loaded from the repository source." \
@@ -36,7 +37,9 @@ usage() {
     "--check-only  Verify Compose, the backend, and module files without" \
     "              opening a GUI." \
     "--print-backend-python" \
-    "              Print the single configured backend interpreter path."
+    "              Print the single configured backend interpreter path." \
+    "--diagnostic-no-spindle-collision" \
+    "              Experiment A only: omit the spindle-housing collision body."
 }
 
 while (( $# > 0 )); do
@@ -46,6 +49,9 @@ while (( $# > 0 )); do
       ;;
     --print-backend-python)
       print_backend_python=true
+      ;;
+    --diagnostic-no-spindle-collision)
+      diagnostic_no_spindle_collision=true
       ;;
     --help|-h)
       usage
@@ -537,8 +543,13 @@ docker exec "${container_name}" bash -lc '
       /workspace/ros2_ws/src/DentoBot/dentobot_description \
       /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
       /workspace/ros2_ws/src/slicer_ros2_module \
-    --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module
+    --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
+    --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
   test -d /workspace/ros2_ws/install/slicer_ros2_module
+  # Symlink installs do not remove modules omitted by a later configure.
+  rm -f \
+    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
+    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
 '
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
@@ -661,6 +672,7 @@ fi
 docker_exec_env=(
   -e "DISPLAY=${DISPLAY}"
   -e "DENTOBOT_SLICER_MODULE_PATHS=${slicer_module_paths}"
+  -e "DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION=${diagnostic_no_spindle_collision}"
   -e "PYTHONNOUSERSITE=1"
 )
 if [[ ${graphics_mode} == "wslg" ]]; then

@@ -2166,7 +2166,7 @@
           "returns": "None"
         },
         "validateLoadedCaseBundleWorkflow": {
-          "arguments": "self, parameterNode, expected: dict[str, object]",
+          "arguments": "self, parameterNode, expected: dict[str, object], *, allowDerivedEnvironmentMismatch: bool = False",
           "decorators": [],
           "returns": "None"
         },

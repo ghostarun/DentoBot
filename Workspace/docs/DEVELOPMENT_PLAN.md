@@ -396,6 +396,156 @@ integrity, resume `S6-LIVE-01..05` against a current reviewed branch and its
 recorded case constraints; exact Target, axial withdrawal, guarded Home and a
 fresh repeat remain required. Major Studio work stays behind that acceptance.
 
+### 6. 2026-09-22 Step 5C multi-target branch-selection amendment
+
+**Observed boundary:** In one subject case, FDI31 already has a completed guide
+branch and FDI21 can now build its own Step 5B unified template. Step 5C still
+shows a raw final-template model selector. Selecting or inheriting a model
+changes only `finalPrintableTemplateModel`; it does not atomically switch the
+target, trajectory selection, 4C docking, insertion direction, shell, guide
+role models or PreparedBranch identity. Verification then evaluates a mixed
+branch. Its current `Single current-frame target dock` check also requires one
+target-docking model in the entire scene, incorrectly rejecting a valid second
+target even when each target owns one coherent branch.
+
+**Product behavior:** Replace raw-model selection as the user-facing authority
+with one Step 5C **Target guide** selector backed by the existing PreparedBranch
+registry. Each row identifies target FDI, trajectory or explicit same-target
+pair, template, and state: `Ready for verification`, `Verified`, `Stale`, or
+`Incomplete`. Preserve every branch in MRML and the registry. Selecting a row
+shows only that branch's trajectory/dock/shell/template geometry and never
+merges different target teeth.
+
+**Two distinct gates:** A branch may be activated for Step 5C review when its
+foundation, target/trajectory ownership, confirmed 4C docking, insertion
+direction, current patient shell and current Step 5B template all match. This
+pre-verification activation must not claim Step 6 eligibility. Step 6 remains
+strictly gated by the existing `evaluatePreparedBranchEligibility()` result,
+including matching PASS/WARNING Step 5C evidence and verification revision.
+Do not weaken that method or treat selection as verification.
+
+**Atomic Step 5C activation:** Pre-resolve the destination branch and swap its
+target, bounds, exact trajectory one/pair selection, 4C plane/assembly,
+confirmed yaw, insertion direction, shell, final template and guide-role models
+inside one rollback-safe transaction. Set the registry selected-branch ID,
+clear task confirmation/collision acknowledgement/import state, plans,
+previews, guards and diagnostics, and refresh/hide branch display proxies.
+Preserve unchanged Case Foundation, anatomy, base matrix/lock and saved Home
+configuration; require fresh live validity in Step 6. Block switching during an
+active preview/action or unresolved Return Home obligation.
+
+**Branch-scoped Step 5C verification:** Verify the selected branch's exact
+4C/template/trajectory identities. Replace scene-global dock uniqueness with
+exact-branch uniqueness: the selected docking assembly must have current
+opened-frame provenance and be the sole current assembly for that branch's
+target + ordered trajectory set + planning-pose fingerprint. Docks belonging
+to other branches/targets may coexist but remain inactive/hidden. A true
+duplicate for the same branch remains a hard failure. On PASS/WARNING, bind the
+verification and policy identities to that branch revision, resynchronize the
+registry, and only then make it Step 6 eligible. Failure leaves the branch
+selected for repair but does not erase another verified branch.
+
+**Step 6 handoff:** Step 6.0 lists only fully eligible verified branches. The
+selected Step 5C branch is the default candidate, but activation remains an
+explicit operator action. Switching from FDI31 to FDI21 invalidates branch
+runtime evidence and requires fresh scene synchronization, Task Home validity,
+workspace/task confirmation and planning; it never reuses FDI31 plans or guard
+acknowledgements.
+
+**Bounded implementation order:** (1) add registry-backed Step 5C selector and
+pre-verification atomic activation; (2) scope the current-frame dock check and
+write verification to the selected branch; (3) prove Step 6.0 lists/activates
+the newly verified FDI21 branch while preserving FDI31; (4) save/reopen and
+repeat FDI31→FDI21→FDI31 switching with no stale pointer or visible proxy.
+Each phase stops for focused evidence before the next. The 32×3 registry is
+capacity only. A 96-trajectory one-click runner, batch scheduler, results UI,
+database or automatic simulation loop remains later Studio scope after this
+interactive branch lifecycle is accepted.
+
+**Phase 1 source status (2026-09-22):** Implemented and focused-source verified.
+The UI now selects registry branches rather than raw template models; the new
+pre-verification entrypoint reuses the existing eligibility checks only through
+Step 5B, and activation reuses the existing rollback-safe full-reference swap,
+runtime invalidation and registered-branch visibility isolation. The ordinary
+Step 6 eligibility method remains strict. Normal-window operator acceptance is
+the stop condition before Phase 2.
+
+**Phase 2 source status (2026-09-22):** Implemented and focused-source verified
+after the operator confirmed FDI21 Phase 1 selection. Dock uniqueness now uses
+the selected target, exact ordered trajectory references and planning-pose
+fingerprint instead of total scene dock count. An exact duplicate still fails.
+Normal-window FDI21 verification is the stop condition before Phase 3.
+
+**Per-target ownership correction (2026-09-22):** After FDI31 Step 5C passed,
+the operator confirmed FDI21 had been made stale by the earlier FDI31 rebuild.
+PreparedBranch activation now restores the branch-owned Step 4B draft, Step 5A
+boundary/visible surface and Step 5B insertion/undercut references derived from
+the stored shell provenance. New or unprepared target selection clears active
+builder references before generation. This prevents one target's rebuild from
+mutating another target's retained objects without introducing another store.
+The existing stale FDI21 must be rebuilt once; FDI21 verification followed by
+unchanged FDI31 verification is the acceptance stop before Phase 3.
+
+**Phase 3 operator evidence (2026-09-22):** FDI21 passed Step 5C and its Step 6
+Goal 1 request used the visible FDI21 trajectory. The request stopped before a
+route was created because canonical TCP position-axis IK found no acceptable
+collision-aware PreEntry endpoint; the reported samples had `collisions=()`.
+Opening diagnostics showed the prior FDI31 66/10/22 result explicitly marked
+`Stale` because the target tooth changed. This accepts target handoff and
+runtime-evidence invalidation, not FDI21 planning success. The new
+algorithm/geometry-specific blocker pauses for operator direction. Phase 4
+save/reopen switching remains pending.
+
+**Residual lineage correction (2026-09-22):** Operator repetition proved that
+the prior upstream restoration was incomplete: the active parameter node still
+shared Step 5B research shell/sleeve and Step 5C finalized-shell/trim pointers.
+Every newly generated final guide now records exact MRML references to those
+target-specific intermediates. They participate in PreparedBranch revision and
+display ownership, activation restores them transactionally, and new-target
+selection clears them. Existing guides created before these references require
+one rebuild per target; they are not silently migrated or relabeled current.
+The 6.4 enablement predicate remains strict and now exposes its exact missing
+runtime prerequisites. Alternating two-target GUI acceptance precedes Phase 4.
+
+**Docking-scalar ownership correction (2026-09-22):** The saved two-target
+package proves node storage is already distinct. The remaining false stale
+transition came from active UI/build scalars: selecting FDI21 restored its dock
+node but retained FDI31's radius/yaw/depth/clearance parameter state. Activation
+must therefore treat the stored normalized `DENTOBOT.ParametersJson` as part of
+the PreparedBranch working state, restore every represented Step 4C scalar in
+the same rollback-safe transaction, and include exact normalized equality in
+the idempotency gate. No second store or schema is added. Existing branch
+objects remain the lineage authority; real edits still stale only their active
+branch. Acceptance is FDI31→FDI21→FDI31 selection without regeneration,
+followed by a newly saved/reopened package with both branches still current.
+
+**Headless runtime result (2026-09-22):** The exact supplied package passed the
+bounded GUI-button workflow: FDI21 regeneration from 4B through 5B, alternating
+FDI31→FDI21→FDI31 Step 5C selection/verification with exact scalar-lineage
+assertions, final FDI21 verification, and Step 6A PreparedBranch activation.
+The final imported branch is `guide-fe8080de25e7eb57622d`; no ROS, MoveIt,
+planner or preview was started. This satisfies headless Runtime Verified scope
+only. Phase 4 still requires Tarun's normal-window verdict and a new-package
+save/reopen repetition.
+
+**Phase 4 partial evidence (2026-09-22):** The GUI workflow saved a new
+`FDI21-31-headless-verified-sep22-step6a.dentocase` (SHA-256
+`c16e0406b589de1cb2144628b38a26100157458d48b5edb9c56ad4f8792d1c1d`).
+A fresh headless process reopened it with both target trajectory slots Current
+and the selected FDI21 branch eligible. This satisfies the machine
+save/reopen slice; Tarun's normal-window alternating-selection and Step 6A
+verdict remain open. The subsequent FDI21 planner screenshot retains a stale
+FDI31 diagnostic and is not Phase 4 or fresh FDI21 Step 6.5 acceptance.
+
+**Acceptance evidence:** Pure checks cover branch-state classification,
+cross-target rejection, exact-branch dock uniqueness and rollback. One focused
+Slicer check creates two independent target branches, switches to the unverified
+second branch, verifies it, switches to Step 6, returns to the first branch and
+confirms exact references plus unrelated-branch preservation. Normal-window
+operator evidence must show FDI21 selection, Step 5C PASS/WARNING, explicit
+Step 6 activation and fresh runtime gates. No planner, preview or hardware
+action is implied by Step 5C acceptance.
+
 
 ## Non-negotiable boundary
 
@@ -491,6 +641,11 @@ milestone does not enter the next. `M1-DIAG / HOUSING-OFF PASS` or `FAIL` is a
 diagnostic acceptance state only: it never closes canonical M1, and housing-off
 M2 requires explicit operator authority. The canonical plan owns execution
 mechanics, investigation order, governance, and implementation limits.
+
+**2026-09-22 status:** `M1-DIAG / HOUSING-OFF PASS`. Diagnostic P1 completed
+150 waypoints. The same preflight internally completed P2/P3, but those results
+do not open housing-off M2 or preview. Canonical M1 remains open; next restore
+the complete housing model and review one temporary Home under Experiment B.
 
 ### `S6-LIVE-01` — complete Stage 3 planning
 
@@ -1046,6 +1201,19 @@ shutdown: retained ROS2/MoveIt VTK and class-loader objects remain after the
 functional pass. At Priority 4, finish one idempotent native shutdown path,
 release all robot/parameter/pub-sub/MoveIt wrappers before plugin unload, and
 make the lifecycle harness terminate its complete ROS process group.
+
+**2026-09-22 observed-runtime triage:** The reported desktop stall is presently
+attributable to one still-open, coherent GUI session rather than the former
+orphan-process defect: Slicer was 3.2 GiB RSS, MoveIt 0.86 GiB, the collision
+guard 0.43 GiB, and the container 4.80 GiB total. Two 20-second samples held
+the three RSS values constant while cgroup memory changed by about 1 MiB. The
+host was nevertheless under pressure (10 GiB of 14 GiB resident and 6.1 GiB
+swap used). The existing handoff's local process-group cleanup check passed.
+No memory limit, source change, automatic restart, or kill is approved from
+this evidence: a cap could replace the desktop stall with an unpreserved Slicer
+OOM. Preserve the operator's unsaved scene; after a normal close, remeasure
+memory and require the handoff's stack group to be absent before deciding
+whether native wrapper release is still an independent leak.
 
 ### `S6-U-02` — physical mount-frame truth
 

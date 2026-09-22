@@ -189,7 +189,11 @@ if [[ ${skip_colcon} != true ]] && docker inspect -f '{{.State.Running}}' "${con
     set -u
     cd /workspace/ros2_ws
     colcon build --symlink-install \
-      --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module
+      --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
+      --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
+    rm -f \
+      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
+      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
   '
 else
   printf 'Skipping colcon (container not running or --skip-colcon).\n'

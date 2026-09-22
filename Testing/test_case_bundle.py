@@ -292,3 +292,24 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     assert open_case.index("self._validateHydratedCaseBundle(inspection.workflow)") < open_case.index(
         "self._revalidateImportedStep6ContextAfterLoad()"
     )
+
+
+def test_post_hydration_audit_allows_only_derived_environment_refresh() -> None:
+    logic_source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py"
+    ).read_text(encoding="utf-8")
+    validate_start = logic_source.index("    def validateLoadedCaseBundleWorkflow")
+    validate = logic_source[validate_start:]
+    assert "allowDerivedEnvironmentMismatch: bool = False" in validate
+    assert 'expectedComparableStep6.pop("environment", None)' in validate
+    assert 'actualComparableStep6.pop("environment", None)' in validate
+
+    backend_source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
+    ).read_text(encoding="utf-8")
+    hydrated_start = backend_source.index("    def _validateHydratedCaseBundle")
+    hydrated_end = backend_source.index("\n    @staticmethod", hydrated_start)
+    hydrated = backend_source[hydrated_start:hydrated_end]
+    assert "allowDerivedEnvironmentMismatch=True" in hydrated

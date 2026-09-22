@@ -15,15 +15,19 @@ Tarun's manual trial, interpretation and explicit decision before the next
 milestone. Routine non-visible implementation findings stay with the
 orchestrator and do not interrupt the operator minute by minute.
 
-The sole active case is:
+The operator superseded the original Sep-19 input on 2026-09-22 after creating
+a fresh workflow against the installed diagnostic-URDF package. The sole active
+case is now:
 
-`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep19-step6.dentocase`
+`data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
 
 SHA-256:
-`b0b38bd7679294da0eead0f4d8a3a2877391847c8e984bb137e93575f456d262`
+`eb48a805c81578bafcc8ca72663b6f8a98b1f9721c7f9e680d44b458558e7adb`
 
-The earlier controlled-record spelling `step19` was a filename error. The
-operator reopened and verified the `sep19` package on 2026-09-21.
+The Sep-19 package remains the historical GUI baseline and is not a fallback.
+The first Sep-22 planner screenshot was produced by the canonical housing-on
+launch because the desktop handoff did not forward Experiment A's launch
+option; it is not an M1-DIAG result.
 
 Campaign-1 r4/P3/P4/P5 artifacts remain historical diagnostic evidence. They
 do not establish GUI planner success for this case and are not alternative
@@ -88,6 +92,26 @@ existing owner and return to this sequence.
 | M2 — forward planner | Starting from accepted full-geometry M1, P1, P2 and P3 reach the exact saved Target; the independent phase guard accepts the chain; Goal 2 consumes the accepted Stage-3 plan. | Stop for Tarun's manual planner trial. Housing-off M2 is outside normal acceptance and requires a separate explicit operator decision. |
 | M3 — forward preview | Normal Goal 1 preview reaches Entry and Goal 2 preview reaches Target with ordered guard acknowledgements and monitored endpoint verification. | Stop before withdrawal/Home for a separate operator verdict. |
 | M4 — return and repeat | Guarded withdrawal and Return Home succeed, then a fresh replan/repeat succeeds; save/reopen preserves only intent and requires fresh runtime validation. | Separate operator acceptance closes the applicable loop/playback gates. |
+
+Current result (2026-09-22): **`M1-DIAG / HOUSING-OFF PASS`**. The diagnostic
+preflight completed P1 with 150 waypoints. Its internally computed P2/P3
+completion is retained as diagnostic evidence only; it does not authorize
+housing-off preview or M2. Canonical M1 remains open.
+
+Later altered-geometry evidence is not a canonical milestone: at a displayed
+45.96-mm incisor gap, one Home yielded no tolerance-valid PreEntry IK endpoint
+with empty collision sets, while another Home at the same displayed gap yielded
+31 free-space P1 samples and 12 fixed-axis P2 checkpoints before Stage 3
+blocked. This supports Home/IK-seed or branch dependence at that geometry; it
+does not alone establish a base-placement defect or close M1/M2.
+
+After changing robot-base position and orientation, the operator obtained a
+complete housing-on chain at the same displayed 45.96-mm gap: P1 66 waypoints,
+P2 10 and P3 22, with `CompletedWithWarnings`. This is a successful
+alternate-geometry feasibility result and supports physical placement /
+configuration-space clearance as the leading original blocker. It is not
+canonical M1/M2 acceptance because base, anatomy and Home no longer match the
+Sep-22 baseline; preserve it separately and stop before preview pending review.
 
 Goal 1 already performs a three-stage preflight. Do not add a new stage
 controller merely to stop internal computation after P1. Retain what it

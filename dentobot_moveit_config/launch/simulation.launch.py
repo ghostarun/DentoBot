@@ -4,13 +4,21 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
-def generate_launch_description() -> LaunchDescription:
+def _simulation_nodes(context):
     description_share = Path(get_package_share_directory("dentobot_description"))
-    urdf_path = description_share / "urdf" / "dentobot.urdf"
+    urdf_name = (
+        "dentobot.diagnostic-no-spindle-collision.urdf"
+        if LaunchConfiguration("diagnostic_no_spindle_collision").perform(context).lower()
+        == "true"
+        else "dentobot.urdf"
+    )
+    urdf_path = description_share / "urdf" / urdf_name
 
     moveit_config = (
         MoveItConfigsBuilder("dentobot", package_name="dentobot_moveit_config")
@@ -23,8 +31,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     robot_description = moveit_config.robot_description["robot_description"]
-    return LaunchDescription(
-        [
+    return [
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
@@ -91,5 +98,17 @@ def generate_launch_description() -> LaunchDescription:
                 name="dentobot_simulation_status_publisher",
                 output="screen",
             ),
+    ]
+
+
+def generate_launch_description() -> LaunchDescription:
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "diagnostic_no_spindle_collision",
+                default_value="false",
+                description="Use the Experiment A diagnostic URDF without spindle housing collision.",
+            ),
+            OpaqueFunction(function=_simulation_nodes),
         ]
     )

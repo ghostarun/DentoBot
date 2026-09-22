@@ -302,11 +302,6 @@ class BootstrapWidgetMixin:
             "DENTOBOT.ModelRole",
             "TargetDockingAssembly",
         )
-        self.ui.finalVerificationModelSelector.addAttribute(
-            "vtkMRMLModelNode",
-            "DENTOBOT.ModelRole",
-            "FinalPrintableTemplate",
-        )
         self.ui.trajectorySelector.addAttribute(
             "vtkMRMLMarkupsLineNode",
             "DENTOBOT.TrajectoryRole",
@@ -894,7 +889,7 @@ class BootstrapWidgetMixin:
             self.onExportResearchTemplate,
         )
         self.ui.finalVerificationModelSelector.connect(
-            "currentNodeChanged(vtkMRMLNode*)",
+            "currentIndexChanged(int)",
             self.onFinalVerificationModelSelectionChanged,
         )
         self.ui.verifyFinalTemplateButton.connect(

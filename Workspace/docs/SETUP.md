@@ -1642,6 +1642,15 @@ Workspace/scripts/launch-dentoworkflow.bash
 The launcher builds `dentobot_description` and `dentobot_moveit_config`, starts
 one simulation stack, waits for `/dentobot/simulation_status`, then opens
 SlicerROS2 with DENTO Workflow. The stack stops when that Slicer session exits.
+The default simulation description is the complete canonical `dentobot.urdf`.
+For the bounded Experiment A diagnostic only,
+`Workspace/scripts/launch-dentoworkflow.bash --diagnostic-no-spindle-collision`
+selects the checked-in `dentobot.diagnostic-no-spindle-collision.urdf` before
+MoveIt and the guard load `robot_description`. This switch omits only the
+spindle-housing collision block; it is not normal M1/M2 or preview mode.
+Close the current Slicer session normally and return to the default launcher
+for canonical housing-on work. Do not combine the diagnostic mode with an
+operator's unsaved scene or a second active ROS/MoveIt stack.
 On every normal GUI invocation, it first restarts the dedicated
 `dentobot-slicerros2` container when that container is already running. This
 bounded restart stops stale Slicer, ROS 2, MoveIt, and test descendants while

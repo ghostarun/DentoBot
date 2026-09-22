@@ -283,6 +283,7 @@ class CaseBackendWidgetMixin:
             self.logic.validateLoadedCaseBundleWorkflow(
                 self.logic.getParameterNode(),
                 expectedWorkflow,
+                allowDerivedEnvironmentMismatch=True,
             )
         except CaseBundleError as exc:
             raise CaseBundleError(

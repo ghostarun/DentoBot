@@ -1,5 +1,33 @@
 # Dentobot Technical Decisions
 
+## 2026-09-22 — Reopen mouth-open display separation as Priority 1 cross-module acceptance
+
+**Status:** Operator-promoted investigation; no new implementation or runtime
+claim.
+
+The operator reports that after mouth opening, target-tooth or other anatomy
+masks/models can still appear at their pre-opening positions across the module.
+This reopens `VIEW-U-01` at Priority 1. The 14 September correction that hides
+closed-pose source segments while opened proxies are current remains valid
+source/focused evidence, but it is not complete cross-module acceptance.
+
+Treat the symptom first as display/restore ownership evidence. Authoritative
+closed source anatomy and fixed-upper/moving-lower derived planning displays may
+coexist in data; only the correct current representation may be visible in the
+active planning view. Audit the shared normalization transition and every path
+that can re-enable, recreate or restore visibility. Require node/segment
+identity, parent transforms and aggregate/per-segment visibility before calling
+anything duplicate geometry. Fix the common transition once. Do not delete
+source anatomy, add target-specific/per-screen cleanup, move anatomy, or change
+collision/planner state to hide a display defect.
+
+`VIEW-U-01` owns cross-module visible acceptance;
+`S6-REUSABLE-CASE-SETUP` owns overlapping restore and PreparedBranch activation;
+`VIEW-U-02` continues to own opacity-control UX. Because the current
+`S6-LIVE-01` task-specific model/runtime gate is active and this root task is
+not the required Terra xhigh orchestrator, this turn records and bounds the
+issue only.
+
 ## 2026-09-14 — Four-central-incisor exact-case acceptance campaign
 
 **Status:** Adopted as the current P0 acceptance scope; execution remains
@@ -6034,3 +6062,81 @@ Native MoveIt, existing Cartesian planning and the independent phase guard
 remain responsible for their current layers. Documentation reconciliation does
 not authorize implementation/runtime, hardware motion, another tooth, merge,
 commit, push or external synchronization.
+
+## 2026-09-22 — Experiment A remains part of robot-profile identity
+
+**Decision:** Do not exclude
+`dentobot.diagnostic-no-spindle-collision.urdf` from the portable robot-profile
+fingerprint. The operator rejected the filename-specific compatibility
+workaround and will create a new case for the changed robot configuration.
+Cases saved before the diagnostic URDF was installed may therefore fail closed
+on robot-profile mismatch; they must not be silently treated as equivalent.
+
+## 2026-09-22 — Experiment A must be explicit at the desktop launcher boundary
+
+**Decision:** The operator-provided Sep-22 screenshot is a canonical
+housing-on P1 failure, not `M1-DIAG / HOUSING-OFF FAIL`. The live process was
+started without `diagnostic_no_spindle_collision:=true`; the launch default
+therefore selected `dentobot.urdf`, consistent with the reported
+tooth→`pneumatic_spindle-Copy` collision.
+
+Expose one default-off `--diagnostic-no-spindle-collision` option on the normal
+desktop launcher and forward it through the existing handoff to the already
+defined ROS launch argument. Log the selected boolean and URDF filename before
+stack start. Do not change planner behavior, geometry, collision policy, or the
+canonical default. A future visible housing-off result still stops for the
+operator and requires the exact M1-DIAG PASS/FAIL label.
+
+## 2026-09-22 — M1-DIAG housing-off passes; canonical M1 remains open
+
+**Operator-visible result:** **`M1-DIAG / HOUSING-OFF PASS`** on the Sep-22
+case. The diagnostic preflight reports a complete seeded route and P1
+Home→PreEntry `Passed 100.0%` with 150 waypoints. P2 and P3 also reached 100%
+inside the existing indivisible preflight, but they are diagnostic evidence
+only; they do not authorize housing-off preview, Goal 2, M2, or acceptance of
+the canonical robot.
+
+The route-selection popup states that the selected route identity was saved but
+not activated and that Task Home is not validated in the current ROS/MoveIt
+session. Do not apply/replan or preview it with housing disabled. End the
+diagnostic session, restore canonical housing-on mode, and proceed only after
+the operator selects and reviews one temporary collision-valid Home for
+Experiment B. The result supports the configured spindle-housing collision
+envelope as a contributing Home→PreEntry blocker; it is not permission to
+remove that collision body from the canonical robot.
+
+## 2026-09-22 — Step 5C selects PreparedBranches, not standalone template models
+
+**Decision:** For multiple target teeth in one subject case, Step 5C will expose
+one registry-backed **Target guide** selector. A selection means one complete
+target-specific PreparedBranch: target, exact trajectory one/pair selection,
+4C docking, insertion direction, patient shell, unified template, guide-role
+models and matching verification identity. The raw final-template MRML selector
+is not selection authority because changing one model pointer creates mixed
+cross-target state.
+
+A branch may be atomically activated for Step 5C review after all dependencies
+through the current Step 5B template validate, without claiming Step 6
+eligibility. Step 6 eligibility remains fail-closed on the existing full
+PreparedBranch check and matching PASS/WARNING Step 5C revision. Verification
+will require one current opened-frame docking assembly for the exact selected
+branch identity, not one docking model scene-wide; unrelated target branches
+may coexist but remain inactive/hidden. This decision permits interactive
+FDI31↔FDI21 branch selection only. It does not permit cross-target template
+fusion, automatic planner execution, or the later 96-trajectory Studio runner.
+
+**Lineage completion:** A target guide's explicit ownership includes its Step
+5B research shell and sleeve plus its Step 5C finalized shell and trim/edit
+node, not only the final printable model, patient shell and docking models.
+Those nodes are referenced directly from the final guide so coexistence does
+not depend on scene-name searches or whichever target most recently occupied
+the global parameter pointers. Existing pre-reference guides remain stale until
+rebuilt; no heuristic migration may claim their identity.
+
+**Step 4C working-state completion:** The PreparedBranch also owns the complete
+normalized docking parameter record already stored on its docking assembly.
+Activation restores those scalar values together with the assembly node in one
+rollback-safe transaction and treats a scalar mismatch as work still requiring
+activation. This uses the existing `DENTOBOT.ParametersJson` authority; it does
+not add a second store, copy geometry, or weaken real dimension-change
+invalidation.

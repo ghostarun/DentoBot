@@ -16,7 +16,7 @@ set -euo pipefail
 stub_log=${DENTOBOT_STUB_LOG:?}
 case "${1:-}:${2:-}:${3:-}" in
   launch:dentobot_moveit_config:simulation.launch.py)
-    printf '%s\n' stack_started >>"${stub_log}"
+    printf 'stack_started%s\n' "${4:+ ${4}}" >>"${stub_log}"
     stop_requested=false
     stop_stack() {
       printf 'stack_signal_%s\n' "${1}" >>"${stub_log}"
@@ -131,7 +131,7 @@ def test_ready_status_reaches_slicer_and_cleans_own_stack(tmp_path):
     assert any("readiness_observation" in line and "ready=true" in line for line in lines)
     assert any("cleanup_complete" in line and "reason=diagnostic_exit" in line and "initiating_status=0" in line for line in lines)
     assert (tmp_path / "stub.log").read_text(encoding="utf-8").splitlines() == [
-        "stack_started",
+        "stack_started diagnostic_no_spindle_collision:=false",
         "slicer_requested",
     ]
     stack_pid = int(next(line for line in lines if "stage=stack_started" in line).split("pid=", 1)[1])
@@ -141,6 +141,27 @@ def test_ready_status_reaches_slicer_and_cleans_own_stack(tmp_path):
         pass
     else:
         raise AssertionError(f"handoff left stub process group {stack_pid} alive")
+
+
+def test_housing_off_mode_reaches_simulation_launch(tmp_path):
+    result = _run_handoff(
+        tmp_path,
+        DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION="true",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "stack_started diagnostic_no_spindle_collision:=true"
+        in (tmp_path / "stub.log").read_text(encoding="utf-8").splitlines()
+    )
+    assert "diagnostic_no_spindle_collision=true" in result.stdout
+    assert "robot_description_file=dentobot.diagnostic-no-spindle-collision.urdf" in result.stdout
+
+    launcher = (
+        ROOT / "Workspace/scripts/launch-dentoworkflow.bash"
+    ).read_text(encoding="utf-8")
+    assert "--diagnostic-no-spindle-collision" in launcher
+    assert "DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION=${diagnostic_no_spindle_collision}" in launcher
 
 
 def test_readiness_command_failure_is_observed_and_blocks_slicer(tmp_path):

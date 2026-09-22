@@ -286,6 +286,18 @@ class LogicConstantsMixin:
         "DENTOBOT.FinalGuideSourceTrajectory"
     )
 
+    TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE = (
+        "DENTOBOT.FinalGuideResearchShell"
+    )
+
+    TEMPLATE_FINAL_GUIDE_RESEARCH_SLEEVE_REFERENCE_ROLE = (
+        "DENTOBOT.FinalGuideResearchSleeve"
+    )
+
+    TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE = (
+        "DENTOBOT.FinalGuideFinalizedShell"
+    )
+
     TEMPLATE_GUIDE_SOURCE_MODEL_REFERENCE_ROLE = (
         "DENTOBOT.TemplateGuideSourceModel"
     )
