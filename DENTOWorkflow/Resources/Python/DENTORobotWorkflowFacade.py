@@ -1942,6 +1942,7 @@ class DENTORobotWorkflowFacade:
                 plan = self._bridge.plan_moveit_joint_goal(
                     start_joint_positions_si=monitored_start,
                     goal_joint_positions_si=home_positions,
+                    planner_id=STEP6_JOINT_PLANNER_ID,
                     planner_context="monitored_current_to_task_home",
                 )
                 if not plan.success or not plan.waypoint_joint_vectors_si:
@@ -2309,6 +2310,7 @@ class DENTORobotWorkflowFacade:
                     refresh_planning_scene=not scene_refreshed,
                     planning_attempts=1,
                     allowed_planning_time_sec=2.0,
+                    planner_id=STEP6_JOINT_PLANNER_ID,
                     planner_context="task_home_to_saved_workspace_sample_replay",
                 )
                 scene_refreshed = True
@@ -4778,6 +4780,7 @@ class DENTORobotWorkflowFacade:
                     refresh_planning_scene=(candidate_index == 0),
                     planning_attempts=1,
                     allowed_planning_time_sec=GOAL1_DIRECT_PLANNING_TIME_SEC,
+                    planner_id=STEP6_JOINT_PLANNER_ID,
                     planner_context=(
                         "task_home_to_preentry_"
                         + str(candidate.get("routeType") or "direct")
@@ -4949,6 +4952,7 @@ class DENTORobotWorkflowFacade:
                                 allowed_planning_time_sec=(
                                     GOAL1_CLEARANCE_PLANNING_TIME_SEC
                                 ),
+                                planner_id=STEP6_JOINT_PLANNER_ID,
                                 planner_context=(
                                     "task_home_to_clearance_sample_"
                                     f"{clearance_index}"
@@ -4965,6 +4969,7 @@ class DENTORobotWorkflowFacade:
                             allowed_planning_time_sec=(
                                 GOAL1_CLEARANCE_PLANNING_TIME_SEC
                             ),
+                            planner_id=STEP6_JOINT_PLANNER_ID,
                             planner_context=(
                                 "clearance_sample_"
                                 f"{int(clearance['sampleIndex'])}_to_preentry"
@@ -6883,6 +6888,7 @@ class DENTORobotWorkflowFacade:
                         ),
                         planning_attempts=1,
                         allowed_planning_time_sec=2.0,
+                        planner_id=STEP6_JOINT_PLANNER_ID,
                         planner_context="task_home_to_workspace_sample",
                     )
                     connectivity_scene_refreshed = True

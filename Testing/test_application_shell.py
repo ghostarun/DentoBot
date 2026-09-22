@@ -135,6 +135,7 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "This is endpoint reachability" in panel
     assert '"failure_classification": "preentry_ik_unreachable"' in facade
     assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
+    assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 6
     assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
     assert "Planning policy" in panel
     assert "approximate_ik_enabled" in panel

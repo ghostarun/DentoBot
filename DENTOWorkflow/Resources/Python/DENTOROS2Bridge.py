@@ -149,6 +149,8 @@ class MoveItCartesianResult:
     continuous_joint_wrap_adjustments: Optional[dict[str, float]] = None
     maximum_monitored_start_error: Optional[float] = None
     planner_start_source: str = ""
+    requested_planner_id: str = ""
+    effective_planner_id: str = ""
     native_planner_message: str = ""
     # When MoveIt's Cartesian interpolator stops, the bounded sequential IK
     # fallback records the exact requested pose where continuity was lost.
@@ -4549,6 +4551,7 @@ def plan_moveit_joint_goal(
     refresh_planning_scene: bool = True,
     planning_attempts: Optional[int] = None,
     allowed_planning_time_sec: float = 10.0,
+    planner_id: str = "",
     planner_context: str = "",
 ) -> MoveItCartesianResult:
     """Plan one joint goal with explicit DENTOBOT state ownership.
@@ -4564,6 +4567,7 @@ def plan_moveit_joint_goal(
         else max(1, int(planning_attempts))
     )
     allowed_time = max(0.1, float(allowed_planning_time_sec))
+    requested_planner_id = str(planner_id or "").strip()
     logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
         initialize_goal=False,
         require_goal=False,
@@ -4716,6 +4720,7 @@ def plan_moveit_joint_goal(
                     0.2,
                     0.2,
                     allowed_time,
+                    requested_planner_id,
                 )
             else:
                 trajectory = motion_node.PlanMoveItTrajectory(
@@ -4724,9 +4729,14 @@ def plan_moveit_joint_goal(
                     0.2,
                     0.2,
                     allowed_time,
+                    requested_planner_id,
                 )
             native_plan_message = str(
                 getattr(motion_node, "GetLastJointPlanMessage", lambda: "")()
+                or ""
+            )
+            effective_planner_id = str(
+                getattr(motion_node, "GetLastJointPlannerId", lambda: "")()
                 or ""
             )
             trajectory_result = _moveit_trajectory_result(trajectory)
@@ -4755,6 +4765,8 @@ def plan_moveit_joint_goal(
                 planner_start_source=(
                     explicit_context if explicit_start else "moveit_current_legacy"
                 ),
+                requested_planner_id=requested_planner_id,
+                effective_planner_id=effective_planner_id,
                 native_planner_message=native_plan_message,
             )
             if last_result.success:
@@ -4823,6 +4835,7 @@ def plan_moveit_joint_goal(
             planner_start_source=(
                 explicit_context if explicit_start else "moveit_current_legacy"
             ),
+            requested_planner_id=requested_planner_id,
         )
 
 

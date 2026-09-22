@@ -44,6 +44,14 @@ remains disabled unless a separately reviewed approximate path still fails
 closed at the canonical residual gates. Run one trial at a time and retain only
 the current compact diagnostic and screenshot before adding more knobs.
 
+**Source checkpoint `06b2ffd` plus bridge pass:** the diagnostic-only first
+slice is committed. The following bounded bridge slice now adds an optional
+planner-ID argument and effective-ID getter to both SlicerROS2 joint-plan entry
+points, carries those values through `DENTOROS2Bridge`, and submits the current
+`RRTConnectkConfigDefault` ID from every Step 6 explicit-state joint plan. It
+does not yet add the shared chooser or claim a runtime-effective ID. The
+focused SlicerROS2 package rebuild passes; a visible trial remains required.
+
 The adjacent workflow-completion phase uses user-facing `APPROACH`, `DRILL` and
 `RETURN HOME`; P1/P2/P3 remain internal diagnostic stages. Preserve Goal 1/Goal
 2 internal APIs and saved-state terms for compatibility. No global rename or

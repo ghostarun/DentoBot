@@ -1411,6 +1411,14 @@ seconds, approximate IK disabled and Cartesian Stage 2/3 enabled. This adds no
 chooser and changes no runtime policy. The next slice is the real SlicerROS2
 planner-ID input/output bridge; no cosmetic dropdown is accepted.
 
+**Planner-ID bridge slice (source verified; build/runtime pending):** Both
+SlicerROS2 joint-plan entry points accept an optional planner ID and expose the
+effective ID returned by `MoveGroupInterface`. The Python bridge retains both
+requested and effective IDs in its plan result, and the Step 6 explicit-state
+call sites submit `RRTConnectkConfigDefault`. Focused pure tests pass. The
+focused SlicerROS2 package rebuild passes. The shared editable pop-out,
+configured planner list and visible effective-ID evidence remain open.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`

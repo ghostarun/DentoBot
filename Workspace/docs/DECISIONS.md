@@ -35,6 +35,12 @@ compact diagnostics and screenshots; no benchmarking framework or optimizer is
 introduced. User-facing terminology becomes `APPROACH`, `DRILL`, and `RETURN
 HOME`; internal Goal 1/Goal 2 and P1/P2/P3 identities remain compatible.
 
+The planner-ID bridge is implemented without changing the default planner:
+SlicerROS2 accepts an optional ID, applies it through MoveIt, and reports the
+effective ID; DENTOWorkflow retains requested/effective IDs separately. This is
+the minimum truthful substrate for the chooser. A UI control must not infer
+success from the requested ID when the effective ID is absent or different.
+
 ## 2026-09-22 — Queue professor planner recommendations under S6-LIVE-01
 
 The operator assigned Priority 0 to a professor-recommended planner-policy

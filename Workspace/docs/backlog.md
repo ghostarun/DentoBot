@@ -90,6 +90,10 @@ verify the runtime planner ID before changing configuration and do not invent
 an exact planner name. Define the non-Cartesian replacement for Stage 2/3 before
 source edits. Preserve collision, phase, target-contact, J1-J5/J6, geometry and
 no-hardware boundaries. Do not interrupt the current reusable-case run.
+The fixed-policy diagnostic slice is committed at `06b2ffd`. The planner-ID
+input/output bridge is source-complete and its focused SlicerROS2 build passes;
+paired repository commits and runtime-effective-ID evidence remain before the
+shared chooser can be accepted.
 
 ## Preserved prior pause and return route — 2026-09-17
 

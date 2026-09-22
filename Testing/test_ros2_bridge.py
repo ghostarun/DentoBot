@@ -312,6 +312,10 @@ def test_joint_goal_planning_waits_for_a_stable_scene_and_retries_boundedly():
     assert "ROS2_MOVEIT_PLANNING_SCENE_SETTLE_SEC" in planner
     assert "ROS2_MOVEIT_JOINT_PLAN_ATTEMPTS" in planner
     assert "for attempt in range" in planner
+    assert 'planner_id: str = ""' in planner
+    assert "requested_planner_id" in planner
+    assert 'GetLastJointPlannerId' in planner
+    assert "effective_planner_id=effective_planner_id" in planner
 
 
 def test_exploratory_cartesian_planning_uses_bounded_finer_ik_steps():
