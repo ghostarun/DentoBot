@@ -172,6 +172,22 @@ existing owner and return to this sequence.
 | M3 — forward preview | Normal Goal 1 preview reaches Entry and Goal 2 preview reaches Target with ordered guard acknowledgements and monitored endpoint verification. | Stop before withdrawal/Home for a separate operator verdict. |
 | M4 — return and repeat | Guarded withdrawal and Return Home succeed, then a fresh replan/repeat succeeds; save/reopen preserves only intent and requires fresh runtime validation. | Separate operator acceptance closes the applicable loop/playback gates. |
 
+**M4 source audit — 2026-09-23 (no runtime acceptance):**
+`returnToTaskHome()` reverses every retained accepted waypoint from Target or
+Entry back to captured Home. It sends `retraction` while reversing contact/
+drilling waypoints, then `approach` for the remaining accepted path; each
+reverse waypoint is checked by the phase guard. It then checks monitored joints
+against captured Home and calls `applyTaskHome()`. It does **not** request a new
+free-space OMPL Home path. This is a guarded reverse of the previously planned
+route, not a fresh Home plan. A stopped, incomplete preview retains accepted
+history but `stopGuardedPreview()`/`returnToTaskHome()` refuse return before
+endpoint verification; the visible control cannot recover that partial state.
+Before changing this fail-closed behavior, Tarun must choose whether a partial
+accepted prefix may be reversed under the same guard and monitored-state match,
+or must remain blocked pending a separately specified reset/recovery procedure.
+No direct Target→Home shortcut or guard relaxation is permitted. This audit
+does not authorize M4 runtime or close `S6-LIVE-03`.
+
 Current result (2026-09-22): **`M1-DIAG / HOUSING-OFF PASS`**. The diagnostic
 preflight completed P1 with 150 waypoints. Its internally computed P2/P3
 completion is retained as diagnostic evidence only; it does not authorize

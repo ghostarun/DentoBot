@@ -712,11 +712,15 @@ Validated Task Home
 
 Goal 2 never independently replans Stage 3. Entry and Target completion require
 monitored TCP verification within the existing FK tolerances and no overshoot.
-Return Home uses MoveIt, strict guard checks, sequential waypoint application,
-and monitored-state confirmation; it never teleports. Stopping mid-preview
-consumes the current phase session, marks the robot away from Home, and exposes
-only guarded Return Home. Replanning clears transient plans, paths, goal state,
-and guard sessions while preserving case intent and historical diagnostics.
+Return Home reverses the accepted MoveIt-planned waypoint history under strict
+guard checks, applies it sequentially and confirms monitored Home; it never
+teleports or requests a fresh free-space OMPL Home path. Stopping mid-preview
+consumes the current phase session and marks the robot away from Home. Current
+source blocks guarded Return Home until a phase endpoint was verified, even
+though the control remains visible. Recovery from a partial accepted prefix
+requires a separate operator-reviewed decision; do not imply it is already
+usable. Replanning clears transient plans, paths, goal state and guard sessions
+while preserving case intent and historical diagnostics.
 
 ### `S6-LIVE-04` — preview performance and route visibility
 
