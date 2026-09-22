@@ -271,6 +271,49 @@ def build_robot_profile(
     }
 
 
+def is_additive_rrt_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
+    """Recognize only the checked-in RRT choice added to the OMPL profile."""
+
+    path = "moveit/config/ompl_planning.yaml"
+    old_sha = "10f6f69a2f40f047b64430d1f408ecec0350ee29cafc27a9758d07821b16c355"
+    new_sha = "da568f2f092e61e9cca2a93d448aa1b4e5b4e143d187248767d240081e106011"
+    if (
+        saved.get("schemaVersion") != "1.0"
+        or current.get("schemaVersion") != "1.0"
+        or saved.get("runtimeRestorePolicy") != current.get("runtimeRestorePolicy")
+    ):
+        return False
+    before, after = saved.get("components"), current.get("components")
+    if not isinstance(before, list) or not isinstance(after, list):
+        return False
+    if any(not isinstance(item, dict) for item in before + after):
+        return False
+    paths = [item.get("path") for item in before]
+    if (
+        any(not isinstance(path, str) for path in paths)
+        or any(not isinstance(item.get("path"), str) for item in after)
+        or len(paths) != len(set(paths))
+        or paths != [item.get("path") for item in after]
+    ):
+        return False
+    if (
+        saved.get("identitySha256") != _sha256_bytes(_canonical_json_bytes(before))
+        or current.get("identitySha256") != _sha256_bytes(_canonical_json_bytes(after))
+    ):
+        return False
+    changed = [(left, right) for left, right in zip(before, after) if left != right]
+    return (
+        len(before) == len(after)
+        and len(changed) == 1
+        and changed[0][0].get("path") == path
+        and changed[0][1].get("path") == path
+        and changed[0][0].get("sha256") == old_sha
+        and changed[0][1].get("sha256") == new_sha
+        and changed[0][0].get("sizeBytes") == 748
+        and changed[0][1].get("sizeBytes") == 833
+    )
+
+
 def create_case_bundle(
     destination: str | Path,
     scene_mrb: str | Path,

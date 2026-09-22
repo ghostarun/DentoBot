@@ -1,6 +1,8 @@
 """Ordinary-Python tests for the portable DENTOBOT case-bundle contract."""
 
 from pathlib import Path
+import hashlib
+import json
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -24,6 +26,7 @@ from DENTOCaseBundle import (  # noqa: E402
     build_robot_profile,
     create_case_bundle,
     extract_scene_mrb,
+    is_additive_rrt_profile_upgrade,
     lineage_snapshot_matches,
     lineage_snapshot_mismatch_path,
     validate_case_bundle,
@@ -165,6 +168,41 @@ def test_robot_profile_is_portable_and_deterministic(tmp_path: Path) -> None:
     assert profile["components"]
     assert all(not record["path"].startswith("/") for record in profile["components"])
     assert str(tmp_path) not in str(profile)
+
+
+def test_only_known_additive_rrt_profile_upgrade_is_compatible() -> None:
+    def profile(components):
+        payload = json.dumps(
+            components, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ) + "\n"
+        return {
+            "schemaVersion": "1.0",
+            "runtimeRestorePolicy": "verify-installed-resources-then-explicitly-connect",
+            "identitySha256": hashlib.sha256(payload.encode()).hexdigest(),
+            "components": components,
+        }
+
+    urdf = {"path": "description/urdf/dentobot.urdf", "sha256": "a" * 64, "sizeBytes": 12}
+    old_ompl = {
+        "path": "moveit/config/ompl_planning.yaml",
+        "sha256": "10f6f69a2f40f047b64430d1f408ecec0350ee29cafc27a9758d07821b16c355",
+        "sizeBytes": 748,
+    }
+    new_ompl = {
+        **old_ompl,
+        "sha256": "da568f2f092e61e9cca2a93d448aa1b4e5b4e143d187248767d240081e106011",
+        "sizeBytes": 833,
+    }
+    saved = profile([urdf, old_ompl])
+    current = profile([urdf, new_ompl])
+    assert is_additive_rrt_profile_upgrade(saved, current)
+    assert not is_additive_rrt_profile_upgrade(
+        saved, profile([{**urdf, "sha256": "b" * 64}, new_ompl])
+    )
+    assert not is_additive_rrt_profile_upgrade(
+        saved, profile([urdf, {**new_ompl, "sha256": "c" * 64}])
+    )
+    assert not is_additive_rrt_profile_upgrade(saved, {**current, "identitySha256": "forged"})
 
 
 def test_lineage_snapshot_accepts_append_only_schema_v1_extensions() -> None:

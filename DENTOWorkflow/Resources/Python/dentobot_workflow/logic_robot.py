@@ -8,6 +8,7 @@ from DENTOStep6State import (
     SIMULATION_TOOL_PROVENANCE,
     validate_simulation_target,
 )
+from DENTOCaseBundle import is_additive_rrt_profile_upgrade
 
 from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
 
@@ -444,15 +445,18 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         parameterNode,
         savedRobotProfile,
     ) -> dict[str, object]:
-        """Migrate the one approved URDF coordinate-only profile change.
+        """Reconcile the exact approved robot-profile upgrades.
 
-        The old J2 coordinate placed q=0 at the retracted end.  The current
+        The additive OMPL choice changes no robot geometry or saved joints;
+        base/Home/workspace evidence still needs current-profile review. The
+        old J2 coordinate placed q=0 at the retracted end.  The current
         URDF moves the origin to the former q=0.08 pose and reverses the axis,
         so the same physical state is represented by q_new=0.08-q_old. J5's
         former one-turn finite interval is canonicalized into the continuous
         [-pi, pi] display window without changing its physical pose. This
         migration runs only after package integrity/lineage validation and
-        only for the exact tracked legacy/current URDF hashes.
+        only for the exact tracked legacy/current URDF hashes. Neither branch
+        accepts an arbitrary robot-profile difference.
         """
 
         currentProfile = self.caseBundleRobotProfile()
@@ -465,6 +469,18 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 "compatible": True,
                 "migrated": False,
                 "message": "",
+            }
+
+        if is_additive_rrt_profile_upgrade(savedRobotProfile, currentProfile):
+            return {
+                "compatible": True,
+                "migrated": False,
+                "message": _(
+                    "The only robot-profile change is the added RRT planner choice. "
+                    "The original case remains unchanged; review and lock the "
+                    "base, then revalidate Task Home and workspace evidence "
+                    "against the current profile before planning."
+                ),
             }
 
         savedUrdfSha = self._robotProfileComponentSha256(
