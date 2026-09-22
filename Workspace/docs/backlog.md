@@ -96,6 +96,9 @@ focused build passes. The shared Step 6.5/6.6 dialog now drives planner ID,
 attempts and time. The 2026-09-23 source pass adds `RRTkConfigDefault` as a
 second choice and verifies it in the container's installed YAML. A trial of
 each choice, compact diagnostics, screenshots and Tarun's verdict remain open.
+The Step 6.5/6.6 navigation and primary preview controls have a source-only
+Approach/Drill wording slice; remaining facade messages and visible acceptance
+are pending without changing planner behavior.
 
 ## Preserved prior pause and return route — 2026-09-17
 

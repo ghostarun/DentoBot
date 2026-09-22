@@ -57,6 +57,18 @@ def test_workspace_mapping_preserves_segmentation_and_guide_substeps():
     assert workspace_index_for_stage(999) == 0
 
 
+def test_step6_navigation_and_primary_actions_use_phase_names():
+    assert workspace_for_stage(10).substep_titles[-2:] == (
+        "6.5 Approach",
+        "6.6 Drill Preview",
+    )
+    panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    assert 'QPushButton("Preview Approach"' in panel
+    assert 'QPushButton("Prepare Drill Preview"' in panel
+    assert 'QPushButton("Preview Drill"' in panel
+    assert "Goal 1" not in panel and "Goal 2" not in panel
+
+
 def test_mode_and_theme_preferences_fail_closed_to_legacy_light():
     assert normalize_gui_mode("shell") == GUI_MODE_SHELL
     assert normalize_gui_mode("unexpected") == GUI_MODE_LEGACY

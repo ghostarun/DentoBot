@@ -1433,6 +1433,12 @@ Motion Diagnostics displays requested and reported IDs separately. Focused
 source tests and the installed-config check pass. A visible per-planner trial
 and operator verdict remain open.
 
+**Terminology source slice (2026-09-23):** Step 6.5/6.6 navigation, phase
+titles, primary preview buttons and local readiness wording use Approach/Drill
+names. Public/internal Goal 1/Goal 2 APIs and saved-state vocabulary are
+unchanged. Facade result/error wording and normal-window confirmation remain
+open; the planner comparison trial still precedes further parameter controls.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`

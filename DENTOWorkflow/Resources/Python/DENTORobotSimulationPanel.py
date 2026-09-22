@@ -380,7 +380,7 @@ class DENTORobotSimulationPanel:
         self.collisionStatusLabel.setProperty("dentobotRole", "status")
         collision_layout.addWidget(self.collisionStatusLabel)
 
-        self.approachGroup = qt.QGroupBox("6.5 — Goal 1: Approach", parent)
+        self.approachGroup = qt.QGroupBox("6.5 — Approach", parent)
         self.approachGroup.objectName = "DENTOBOTApproachPhaseGroupBox"
         approach_layout = qt.QVBoxLayout(self.approachGroup)
         approach_description = qt.QLabel(
@@ -398,7 +398,7 @@ class DENTORobotSimulationPanel:
             "the goal robot endpoint alone does not mean "
             "the terminal path has planned successfully. During exploratory "
             "terminal preview, only configured burr-to-task-object collisions "
-            "may be suppressed and every suppression is reported. Goal 1 is "
+            "may be suppressed and every suppression is reported. Approach planning is "
             "enabled only after the complete Entry-to-Target line passes a "
             "bounded reachability preflight. A failed preflight retains "
             "last-valid/first-invalid evidence without assigning its cause.",
@@ -415,7 +415,7 @@ class DENTORobotSimulationPanel:
         spindle_policy.setProperty("dentobotRole", "status")
         approach_layout.addWidget(spindle_policy)
         self.toolInsertionStatusLabel = qt.QLabel(
-            "Tool insertion capacity will be checked before Goal 1 planning.",
+            "Tool insertion capacity will be checked before Approach planning.",
             self.approachGroup,
         )
         self.toolInsertionStatusLabel.wordWrap = True
@@ -496,7 +496,7 @@ class DENTORobotSimulationPanel:
         approach_layout.addWidget(self.anatomyReviewGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
-        self.previewApproachButton = qt.QPushButton("Preview Goal 1", self.approachGroup)
+        self.previewApproachButton = qt.QPushButton("Preview Approach", self.approachGroup)
         self.motionDiagnosticsButton = qt.QPushButton(
             "Inspect Motion Diagnostics", self.approachGroup
         )
@@ -541,7 +541,7 @@ class DENTORobotSimulationPanel:
         preview_settings.addWidget(self.previewSpeedCombo)
         preview_settings.addStretch(1)
         approach_layout.addLayout(preview_settings)
-        self.approachStatusLabel = qt.QLabel("No Goal 1 plan.", self.approachGroup)
+        self.approachStatusLabel = qt.QLabel("No Approach plan.", self.approachGroup)
         self.approachStatusLabel.wordWrap = True
         self.approachStatusLabel.setProperty("dentobotRole", "status")
         approach_layout.addWidget(self.approachStatusLabel)
@@ -558,13 +558,13 @@ class DENTORobotSimulationPanel:
         self.previewProgressLabel.setProperty("dentobotRole", "status")
         approach_layout.addWidget(self.previewProgressLabel)
 
-        self.drillingGroup = qt.QGroupBox("6.6 — Goal 2: Drilling Preview", parent)
+        self.drillingGroup = qt.QGroupBox("6.6 — Drill Preview", parent)
         self.drillingGroup.objectName = "DENTOBOTDrillingPhaseGroupBox"
         drilling_layout = qt.QVBoxLayout(self.drillingGroup)
         drilling_description = qt.QLabel(
-            "Generate Entry-to-Target motion strictly inside the approved corridor. "
-            "Goal 2 continues the same immutable task-guard session and starts "
-            "from Goal 1's accepted Entry state. For exploratory simulation, "
+            "Use the prevalidated Entry-to-Target motion strictly inside the approved corridor. "
+            "Drill preview continues the same immutable task-guard session and starts "
+            "from the Approach preview's accepted Entry state. For exploratory simulation, "
             "configured burr-to-task-anatomy/guide collisions may be suppressed "
             "and reported. All non-tool contacts, overshoot, backward motion, "
             "duplicate commands, and joint violations remain rejected. This is "
@@ -574,8 +574,8 @@ class DENTORobotSimulationPanel:
         drilling_description.wordWrap = True
         drilling_layout.addWidget(drilling_description)
         drilling_buttons = qt.QHBoxLayout()
-        self.planDrillingButton = qt.QPushButton("Plan Guarded Drilling Preview", self.drillingGroup)
-        self.previewDrillingButton = qt.QPushButton("Preview Goal 2", self.drillingGroup)
+        self.planDrillingButton = qt.QPushButton("Prepare Drill Preview", self.drillingGroup)
+        self.previewDrillingButton = qt.QPushButton("Preview Drill", self.drillingGroup)
         drilling_buttons.addWidget(self.planDrillingButton)
         drilling_buttons.addWidget(self.previewDrillingButton)
         drilling_layout.addLayout(drilling_buttons)
@@ -593,7 +593,7 @@ class DENTORobotSimulationPanel:
         drilling_controls.addWidget(self.stopPreviewDrillingButton)
         drilling_controls.addWidget(self.returnHomeDrillingButton)
         drilling_layout.addLayout(drilling_controls)
-        self.drillingStatusLabel = qt.QLabel("No Goal 2 plan.", self.drillingGroup)
+        self.drillingStatusLabel = qt.QLabel("No Drill preview plan.", self.drillingGroup)
         self.drillingStatusLabel.wordWrap = True
         self.drillingStatusLabel.setProperty("dentobotRole", "status")
         drilling_layout.addWidget(self.drillingStatusLabel)

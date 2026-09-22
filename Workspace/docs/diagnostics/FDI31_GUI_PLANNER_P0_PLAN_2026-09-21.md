@@ -73,6 +73,12 @@ The adjacent workflow-completion phase uses user-facing `APPROACH`, `DRILL` and
 2 internal APIs and saved-state terms for compatibility. No global rename or
 new state machine is authorized.
 
+**Terminology source slice, 2026-09-23:** The Step 6.5/6.6 navigator,
+phase panels and primary preview actions now use Approach/Drill names without
+changing their callbacks or planner behavior. Facade result/error text and
+stored Goal 1/Goal 2 compatibility terms remain for a separate bounded
+wording pass; this slice alone is not full terminology or GUI acceptance.
+
 ## Outcome and authority
 
 Recover the saved FDI31 case through the ordinary visible Step 6 workflow by

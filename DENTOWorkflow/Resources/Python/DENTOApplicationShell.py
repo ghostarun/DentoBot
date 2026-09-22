@@ -78,8 +78,8 @@ WORKSPACE_SPECS = (
             "6.2 Validated Task Home",
             "6.3 ROS Workspace and Limits",
             "6.4 Task Confirmation",
-            "6.5 Goal 1: Approach",
-            "6.6 Goal 2: Drilling Preview",
+            "6.5 Approach",
+            "6.6 Drill Preview",
         ),
     ),
 )

@@ -728,7 +728,7 @@ class RobotShellWidgetMixin:
     def _onStep6PreviewApproach(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
-        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Goal 1 preview...")
+        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Approach preview...")
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.APPROACH.value,
             speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),
@@ -754,7 +754,7 @@ class RobotShellWidgetMixin:
     def _onStep6PreviewDrilling(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
-        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Goal 2 preview...")
+        self._robotSimulationPanel.resetPreviewProgress("Starting guarded Drill preview...")
         result = self._robotWorkflowFacade.previewPhase(
             MotionPhase.DRILLING.value,
             speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),

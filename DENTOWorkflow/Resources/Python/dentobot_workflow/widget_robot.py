@@ -629,14 +629,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
             if not drilling_preflight_ready:
                 panel.drillingStatusLabel.text = _(
-                    "Goal 2 is blocked until Goal 1 returns a complete guarded "
+                    "Drill preview is blocked until Approach planning returns a complete guarded "
                     "Stage 3 preflight. Inspect partial Stage 3 evidence and paths "
                     "in the 6.5 diagnostics; partial output cannot unlock drilling."
                 )
             elif not approach_complete:
                 panel.drillingStatusLabel.text = _(
-                    "The complete Stage 3 preflight is retained. Preview Goal 1 "
-                    "through Entry before creating the Goal 2 drilling preview."
+                    "The complete Stage 3 preflight is retained. Preview Approach "
+                    "through Entry before creating the Drill preview."
                 )
 
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
