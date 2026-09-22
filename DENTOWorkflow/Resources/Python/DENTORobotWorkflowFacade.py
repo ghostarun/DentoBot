@@ -375,6 +375,10 @@ class DENTORobotWorkflowFacade:
         self._diagnostic_plan_selection_override: Optional[dict[str, object]] = None
         self._accepted_motion_history: list[dict[str, object]] = []
         self._motion_history_task_fingerprint = ""
+        self._joint_planner_id = STEP6_JOINT_PLANNER_ID
+        self._effective_joint_planner_id = ""
+        self._joint_planning_attempts = STEP6_JOINT_PLANNING_ATTEMPTS
+        self._joint_planning_time_sec = GOAL1_DIRECT_PLANNING_TIME_SEC
 
     def setLogic(self, logic) -> None:
         self._logic = logic
@@ -4353,10 +4357,11 @@ class DENTORobotWorkflowFacade:
                     "stage2ContactPolicy": "phase_guard_evidence_based_contact_warning_v2",
                     "maximumClearanceWaypoints": GOAL1_MAX_CLEARANCE_WAYPOINTS,
                     "maximumIkSeeds": GOAL1_MAX_IK_SEEDS,
-                    "jointPlannerId": STEP6_JOINT_PLANNER_ID,
+                    "jointPlannerId": self._joint_planner_id,
+                    "effectiveJointPlannerId": self._effective_joint_planner_id,
                     "jointPlannerAlgorithm": STEP6_JOINT_PLANNER_ALGORITHM,
-                    "jointPlanningAttempts": STEP6_JOINT_PLANNING_ATTEMPTS,
-                    "jointPlanningTimeSec": GOAL1_DIRECT_PLANNING_TIME_SEC,
+                    "jointPlanningAttempts": self._joint_planning_attempts,
+                    "jointPlanningTimeSec": self._joint_planning_time_sec,
                     "approximateIkEnabled": STEP6_APPROXIMATE_IK_ENABLED,
                     "cartesianPlanningEnabled": STEP6_CARTESIAN_PLANNING_ENABLED,
                 }
@@ -4475,10 +4480,13 @@ class DENTORobotWorkflowFacade:
                     else "AuthoritativeCompleteScene"
                 ),
                 "plan_selection": plan_selection_payload,
-                "joint_planner_id": STEP6_JOINT_PLANNER_ID,
+                "joint_planner_id": (
+                    self._effective_joint_planner_id or self._joint_planner_id
+                ),
+                "requested_joint_planner_id": self._joint_planner_id,
                 "joint_planner_algorithm": STEP6_JOINT_PLANNER_ALGORITHM,
-                "joint_planning_attempts": STEP6_JOINT_PLANNING_ATTEMPTS,
-                "joint_planning_time_sec": GOAL1_DIRECT_PLANNING_TIME_SEC,
+                "joint_planning_attempts": self._joint_planning_attempts,
+                "joint_planning_time_sec": self._joint_planning_time_sec,
                 "approximate_ik_enabled": STEP6_APPROXIMATE_IK_ENABLED,
                 "cartesian_planning_enabled": STEP6_CARTESIAN_PLANNING_ENABLED,
                 **warning_summary,
@@ -4627,10 +4635,24 @@ class DENTORobotWorkflowFacade:
             )
         return result
 
-    def planApproachPhase(self) -> RobotActionResult:
+    def planApproachPhase(
+        self,
+        *,
+        planner_id: str = STEP6_JOINT_PLANNER_ID,
+        planning_attempts: int = STEP6_JOINT_PLANNING_ATTEMPTS,
+        planning_time_sec: float = GOAL1_DIRECT_PLANNING_TIME_SEC,
+    ) -> RobotActionResult:
         """Plan strict current→pre-entry plus independently guarded contact."""
 
         try:
+            if planner_id != STEP6_JOINT_PLANNER_ID:
+                raise ValueError(f"Planner '{planner_id}' is not configured for DENTOBOT.")
+            self._joint_planner_id = planner_id
+            self._effective_joint_planner_id = ""
+            self._joint_planning_attempts = max(1, min(10, int(planning_attempts)))
+            self._joint_planning_time_sec = max(
+                0.5, min(60.0, float(planning_time_sec))
+            )
             parameter_node = self._require_context()
             preferred_plan_selection = self._current_diagnostic_plan_selection(
                 parameter_node
@@ -4778,14 +4800,18 @@ class DENTORobotWorkflowFacade:
                     start_joint_positions_si=home_positions,
                     goal_joint_positions_si=candidate["positions"],
                     refresh_planning_scene=(candidate_index == 0),
-                    planning_attempts=1,
-                    allowed_planning_time_sec=GOAL1_DIRECT_PLANNING_TIME_SEC,
-                    planner_id=STEP6_JOINT_PLANNER_ID,
+                    planning_attempts=self._joint_planning_attempts,
+                    allowed_planning_time_sec=self._joint_planning_time_sec,
+                    planner_id=self._joint_planner_id,
                     planner_context=(
                         "task_home_to_preentry_"
                         + str(candidate.get("routeType") or "direct")
                     ),
                 )
+                if candidate_plan.effective_planner_id:
+                    self._effective_joint_planner_id = (
+                        candidate_plan.effective_planner_id
+                    )
                 segment = None
                 if not candidate_plan.success:
                     diagnose_segment = getattr(
@@ -4948,11 +4974,9 @@ class DENTORobotWorkflowFacade:
                                 start_joint_positions_si=home_positions,
                                 goal_joint_positions_si=clearance["positions"],
                                 refresh_planning_scene=False,
-                                planning_attempts=1,
-                                allowed_planning_time_sec=(
-                                    GOAL1_CLEARANCE_PLANNING_TIME_SEC
-                                ),
-                                planner_id=STEP6_JOINT_PLANNER_ID,
+                                planning_attempts=self._joint_planning_attempts,
+                                allowed_planning_time_sec=self._joint_planning_time_sec,
+                                planner_id=self._joint_planner_id,
                                 planner_context=(
                                     "task_home_to_clearance_sample_"
                                     f"{clearance_index}"
@@ -4965,11 +4989,9 @@ class DENTORobotWorkflowFacade:
                             start_joint_positions_si=clearance["positions"],
                             goal_joint_positions_si=candidate["positions"],
                             refresh_planning_scene=False,
-                            planning_attempts=1,
-                            allowed_planning_time_sec=(
-                                GOAL1_CLEARANCE_PLANNING_TIME_SEC
-                            ),
-                            planner_id=STEP6_JOINT_PLANNER_ID,
+                            planning_attempts=self._joint_planning_attempts,
+                            allowed_planning_time_sec=self._joint_planning_time_sec,
+                            planner_id=self._joint_planner_id,
                             planner_context=(
                                 "clearance_sample_"
                                 f"{int(clearance['sampleIndex'])}_to_preentry"

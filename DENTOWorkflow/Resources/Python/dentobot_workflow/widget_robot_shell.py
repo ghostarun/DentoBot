@@ -572,7 +572,9 @@ class RobotShellWidgetMixin:
     def _onStep6PlanApproach(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
-        result = self._robotWorkflowFacade.planApproachPhase()
+        result = self._robotWorkflowFacade.planApproachPhase(
+            **self._robotSimulationPanel.planningPolicy()
+        )
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
         insertion = result.details.get("toolInsertion")
         if isinstance(insertion, dict):

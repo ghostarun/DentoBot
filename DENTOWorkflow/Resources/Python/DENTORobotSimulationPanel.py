@@ -64,6 +64,14 @@ class DENTORobotSimulationPanel:
         self._activeSubstep = 0
         self._placementSurfaceActive = False
         self._diagnosticDialog = None
+        settings = qt.QSettings()
+        self._plannerId = "RRTConnectkConfigDefault"
+        self._planningAttempts = max(
+            1, min(10, int(settings.value("DENTOBOT/Step6PlanningAttempts", 1)))
+        )
+        self._planningTimeSec = max(
+            0.5, min(60.0, float(settings.value("DENTOBOT/Step6PlanningTimeSec", 5.0)))
+        )
         self.visualizationGroup = qt.QGroupBox("Placement Context", parent)
         self.visualizationGroup.objectName = "DENTOBOTPlacementContextGroupBox"
         visualization_layout = qt.QVBoxLayout(self.visualizationGroup)
@@ -495,6 +503,10 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
+        self.approachPlanningPolicyButton = qt.QPushButton(
+            "Planning Parameters…", self.approachGroup
+        )
+        approach_layout.addWidget(self.approachPlanningPolicyButton)
         preview_controls = qt.QHBoxLayout()
         self.stopPreviewButton = qt.QPushButton("Stop Preview", self.approachGroup)
         self.returnHomeButton = qt.QPushButton("Guarded Return Home", self.approachGroup)
@@ -565,6 +577,10 @@ class DENTORobotSimulationPanel:
         drilling_buttons.addWidget(self.planDrillingButton)
         drilling_buttons.addWidget(self.previewDrillingButton)
         drilling_layout.addLayout(drilling_buttons)
+        self.drillingPlanningPolicyButton = qt.QPushButton(
+            "Planning Parameters…", self.drillingGroup
+        )
+        drilling_layout.addWidget(self.drillingPlanningPolicyButton)
         drilling_controls = qt.QHBoxLayout()
         self.stopPreviewDrillingButton = qt.QPushButton(
             "Stop Preview", self.drillingGroup
@@ -667,6 +683,12 @@ class DENTORobotSimulationPanel:
         )
         self.motionDiagnosticsButton.clicked.connect(
             lambda checked=False: self._invoke("show_motion_diagnostics")
+        )
+        self.approachPlanningPolicyButton.clicked.connect(
+            lambda checked=False: self.showPlanningPolicyDialog()
+        )
+        self.drillingPlanningPolicyButton.clicked.connect(
+            lambda checked=False: self.showPlanningPolicyDialog()
         )
         self.planDrillingButton.clicked.connect(
             lambda checked=False: self._invoke("plan_drilling")
@@ -804,6 +826,51 @@ class DENTORobotSimulationPanel:
 
     def previewSpeedMultiplier(self) -> float:
         return min(8.0, max(0.25, float(self.previewSpeedCombo.currentData or 1.0)))
+
+    def planningPolicy(self) -> dict[str, object]:
+        return {
+            "planner_id": self._plannerId,
+            "planning_attempts": self._planningAttempts,
+            "planning_time_sec": self._planningTimeSec,
+        }
+
+    def showPlanningPolicyDialog(self) -> None:
+        if self._activeSubstep not in (5, 6):
+            return
+        dialog = qt.QDialog(self.approachGroup)
+        dialog.windowTitle = "DENTOBOT Step 6 Planning Parameters"
+        layout = qt.QFormLayout(dialog)
+        planner = qt.QComboBox(dialog)
+        planner.addItem("RRT-Connect — geometric::RRTConnect", "RRTConnectkConfigDefault")
+        attempts = qt.QSpinBox(dialog)
+        attempts.minimum, attempts.maximum, attempts.value = 1, 10, self._planningAttempts
+        planning_time = qt.QDoubleSpinBox(dialog)
+        planning_time.minimum, planning_time.maximum = 0.5, 60.0
+        planning_time.decimals, planning_time.singleStep = 1, 0.5
+        planning_time.value = self._planningTimeSec
+        approximate_ik = qt.QCheckBox("Enabled", dialog)
+        approximate_ik.checked, approximate_ik.enabled = False, False
+        cartesian = qt.QCheckBox("Enabled", dialog)
+        cartesian.checked, cartesian.enabled = True, False
+        layout.addRow("Joint planner:", planner)
+        layout.addRow("Planning attempts:", attempts)
+        layout.addRow("Planning time (s):", planning_time)
+        layout.addRow("Approximate IK:", approximate_ik)
+        layout.addRow("Cartesian Stage 2/3:", cartesian)
+        buttons = qt.QDialogButtonBox(
+            qt.QDialogButtonBox.Ok | qt.QDialogButtonBox.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        if dialog.exec() != qt.QDialog.Accepted:
+            return
+        self._plannerId = str(planner.currentData)
+        self._planningAttempts = int(attempts.value)
+        self._planningTimeSec = float(planning_time.value)
+        settings = qt.QSettings()
+        settings.setValue("DENTOBOT/Step6PlanningAttempts", self._planningAttempts)
+        settings.setValue("DENTOBOT/Step6PlanningTimeSec", self._planningTimeSec)
 
     def previewIntervalMs(self) -> int:
         # Retained for expert/diagnostic preview callers; guarded previews use

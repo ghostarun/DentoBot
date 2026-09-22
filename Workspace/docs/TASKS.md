@@ -1419,6 +1419,12 @@ call sites submit `RRTConnectkConfigDefault`. Focused pure tests pass. The
 focused SlicerROS2 package rebuild passes. The shared editable pop-out,
 configured planner list and visible effective-ID evidence remain open.
 
+**Shared planner-dialog slice (source verified):** The same dialog is reachable
+from Step 6.5 and 6.6. Its configured planner, bounded attempts and bounded time
+are submitted to Goal-1 planning and retained in diagnostics. Approximate IK
+and Cartesian mode are visible but locked at the implemented values. A second
+configured planner and visible runtime acceptance remain open.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`

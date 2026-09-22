@@ -135,11 +135,21 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "This is endpoint reachability" in panel
     assert '"failure_classification": "preentry_ik_unreachable"' in facade
     assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
-    assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 6
+    assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 3
+    assert facade.count("planner_id=self._joint_planner_id") == 3
     assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
     assert "Planning policy" in panel
     assert "approximate_ik_enabled" in panel
     assert "cartesian_planning_enabled" in panel
+    assert panel.count('"Planning Parameters…"') == 2
+    assert "def planningPolicy" in panel
+    assert "RRT-Connect — geometric::RRTConnect" in panel
+    assert "Approximate IK:" in panel
+    assert "Cartesian Stage 2/3:" in panel
+    shell = (
+        HELPERS / "dentobot_workflow" / "widget_robot_shell.py"
+    ).read_text(encoding="utf-8")
+    assert "**self._robotSimulationPanel.planningPolicy()" in shell
 
 
 def test_step6_legacy_and_shell_use_the_same_seven_substep_cards():

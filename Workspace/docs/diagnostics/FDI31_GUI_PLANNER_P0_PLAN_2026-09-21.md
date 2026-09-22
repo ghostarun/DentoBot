@@ -52,6 +52,13 @@ points, carries those values through `DENTOROS2Bridge`, and submits the current
 does not yet add the shared chooser or claim a runtime-effective ID. The
 focused SlicerROS2 package rebuild passes; a visible trial remains required.
 
+**Shared-dialog pass:** Step 6.5 and 6.6 now open the same planning-parameters
+dialog. The configured `RRTConnectkConfigDefault` choice, attempts (`1..10`)
+and planning time (`0.5..60.0 s`) feed Goal-1 joint planning and its diagnostic
+fingerprint. Approximate IK remains visibly disabled, and Cartesian Stage 2/3
+remains visibly enabled but locked pending its separate replacement pass. The
+dialog does not manufacture unconfigured planner IDs.
+
 The adjacent workflow-completion phase uses user-facing `APPROACH`, `DRILL` and
 `RETURN HOME`; P1/P2/P3 remain internal diagnostic stages. Preserve Goal 1/Goal
 2 internal APIs and saved-state terms for compatibility. No global rename or
