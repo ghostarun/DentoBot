@@ -157,7 +157,8 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "def planningPolicy" in panel
     assert "STEP6_JOINT_PLANNER_ALGORITHMS.items()" in panel
     assert "requested joint planner" in panel
-    assert "MoveIt reported" in panel
+    assert "MoveGroup configured ID" in panel
+    assert "execution algorithm unverified" in panel
     assert "Approximate IK:" in panel
     assert "Cartesian Stage 2/3:" in panel
     shell = (

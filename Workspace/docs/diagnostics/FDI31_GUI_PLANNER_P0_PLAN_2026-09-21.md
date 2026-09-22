@@ -85,6 +85,15 @@ preview. The retained Stage-3 preparation docstring/comment was aligned with
 its actual preflight-reuse behavior. Internal Goal 1/Goal 2 symbols and
 diagnostic schema remain unchanged. Visible confirmation is still open.
 
+**Planner-ID attribution correction, 2026-09-23:** SlicerROS2 stores
+`MoveGroupInterface.getPlannerId()` immediately after `setPlannerId()` and
+before `plan()`. This is a configured-ID echo, not proof that the returned
+trajectory used a particular OMPL algorithm. Motion Diagnostics must label it
+as such; `joint_planner_id`/`effective_planner_id` remain compatibility keys.
+The first visible comparison can report selected ID, configured echo, installed
+YAML mapping and plan result, but may claim an executed algorithm only with
+separate planning-server evidence. Do not infer that from matching IDs alone.
+
 ## Outcome and authority
 
 Recover the saved FDI31 case through the ordinary visible Step 6 workflow by

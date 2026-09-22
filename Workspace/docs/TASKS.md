@@ -1446,6 +1446,14 @@ The `planDrillingPhase` description now accurately says it prepares retained
 Stage-3 preflight, without changing its code path. Focused checks pass;
 normal-window terminology acceptance remains open.
 
+**Planner attribution correction (2026-09-23):** The SlicerROS2 planner-ID
+getter is read before `plan()`, so matching selected/reported IDs establish a
+configured MoveGroup setting, not execution-algorithm provenance. The UI now
+says `MoveGroup configured ID` and `execution algorithm unverified`; the
+compatibility diagnostic keys remain. Focused source checks pass. The first
+visible comparison must keep executed-algorithm attribution separate unless
+planning-server evidence is captured.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`

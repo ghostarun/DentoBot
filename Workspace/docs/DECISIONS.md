@@ -12,6 +12,12 @@ successful joint plan can be accepted; an unavailable or different echo fails
 closed. Installed configuration and pure checks do not establish which planner
 performs better for FDI31; that requires separately reviewed visible trials.
 
+The SlicerROS2 getter currently samples `MoveGroupInterface.getPlannerId()`
+before calling `plan()`. Its matching value is a configured planner-ID echo,
+not proof of the algorithm that executed. Keep the compatibility fields, but
+label this evidence truthfully in Motion Diagnostics and require separate
+planning-server evidence for an executed-algorithm claim.
+
 ## 2026-09-22 — Phone-anchor active quota requires the Codex App proxy route
 
 The Codex Switcher phone-anchor contract intentionally keeps the anchored

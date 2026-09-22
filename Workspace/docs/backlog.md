@@ -96,6 +96,10 @@ focused build passes. The shared Step 6.5/6.6 dialog now drives planner ID,
 attempts and time. The 2026-09-23 source pass adds `RRTkConfigDefault` as a
 second choice and verifies it in the container's installed YAML. A trial of
 each choice, compact diagnostics, screenshots and Tarun's verdict remain open.
+The SlicerROS2 ID getter reads MoveGroup configuration before `plan()`, so a
+matching ID does not yet prove which algorithm executed; the diagnostic label
+now states that limit. Capture planning-server evidence if the first trial
+needs an executed-algorithm claim.
 The Step 6.5/6.6 navigation, primary preview controls and facade/bridge
 operator messages have source-only Approach/Drill wording slices without
 changing planner behavior. A normal-window check is still needed before

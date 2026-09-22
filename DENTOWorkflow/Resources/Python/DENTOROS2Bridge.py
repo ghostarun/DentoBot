@@ -150,6 +150,8 @@ class MoveItCartesianResult:
     maximum_monitored_start_error: Optional[float] = None
     planner_start_source: str = ""
     requested_planner_id: str = ""
+    # Compatibility name: SlicerROS2 reads MoveGroupInterface.getPlannerId()
+    # before plan(), so this is configured-ID echo, not execution proof.
     effective_planner_id: str = ""
     native_planner_message: str = ""
     # When MoveIt's Cartesian interpolator stops, the bounded sequential IK
@@ -4749,8 +4751,8 @@ def plan_moveit_joint_goal(
                     trajectory_result,
                     success=False,
                     message=(
-                        "MoveIt planner identity is unavailable or differs from the "
-                        f"requested {requested_planner_id!r}: reported "
+                        "MoveGroup configured planner ID is unavailable or differs from the "
+                        f"requested {requested_planner_id!r}: configured "
                         f"{effective_planner_id or 'nothing'!r}."
                     ),
                 )

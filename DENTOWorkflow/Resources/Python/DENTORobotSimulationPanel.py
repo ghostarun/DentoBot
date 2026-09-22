@@ -1083,7 +1083,7 @@ class DENTORobotSimulationPanel:
         planner_policy_label = qt.QLabel(
             "Planning policy — "
             f"requested joint planner {requested_planner_id} ({planner_algorithm}); "
-            f"MoveIt reported {planner_id}; "
+            f"MoveGroup configured ID {planner_id} (execution algorithm unverified); "
             f"attempts {int(session.full_task_outcome.get('joint_planning_attempts', 1))}; "
             f"time {float(session.full_task_outcome.get('joint_planning_time_sec', 0.0)):.1f} s; "
             "approximate IK "

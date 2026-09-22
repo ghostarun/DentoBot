@@ -677,6 +677,10 @@ the task constraints; housing roll is not a commanded degree of freedom.
 Existing FK, joint-limit, corridor, endpoint and full-path promotion checks
 remain mandatory. Historical x4 fractions and J2 limit diagnoses live in dated
 evidence; the latest FDI11/FDI21 result is summarized once in TASKS.md.
+The shared planner dialog's selected ID and SlicerROS2's pre-plan MoveGroup
+configured-ID echo establish configuration agreement, not which OMPL algorithm
+executed. Comparative runtime attribution requires planning-server evidence;
+otherwise label the execution algorithm unverified.
 
 ### `S6-LIVE-02` — independent full-chain guard
 
