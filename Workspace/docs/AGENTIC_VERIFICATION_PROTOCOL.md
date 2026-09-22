@@ -183,24 +183,25 @@ full-cycle simulation evidence is not hardware/clinical acceptance.
 ## Coordinator and workers
 
 The coordinator is the sole controlled-document editor and owns integration
-and final acceptance. Under the operator's corrected model policy in
-`Workspace/AGENTS.md`, a Luna Max implementation worker may edit only explicitly
-assigned code/test files after the coordinator supplies the complete plan. This
-exception does not apply to verification workers and does not authorize tests
+and final acceptance. Under the operator's current model policy in
+`Workspace/AGENTS.md`, an optional GPT-6 Luna xhigh implementation worker may
+edit only explicitly assigned code/test files after the coordinator supplies
+the complete plan. This exception does not apply to verification workers and
+does not authorize tests
 or runtime execution. Do not overlap writes or check actively changing files.
 
 Verification workers are read-only. A verification worker discovering a defect reports
 it; it does not patch source, change parameters, relax collision rules, or
 silently retry with different inputs.
 
-For Codex model/effort selection, follow `Workspace/AGENTS.md`: Sol at High or
-lower for roughly 90% of Sol work, justified Extra High for up to 10%; Luna Max
-and Terra High remain implementation and verification auxiliary options.
-The active `S6-LIVE-01` override instead requires Terra xhigh orchestration,
-Luna max implementation and at most two active subagents.
-Default to solo, or one justified auxiliary. The three workers below are available responsibilities, not a
-mandatory team. More than one requires an explicit operator request or approved
-verification plan. The matrix limit is a hard maximum, not a target.
+For Codex model/effort selection, follow `Workspace/AGENTS.md`: GPT-6 Sol low
+orchestrates; GPT-6 Luna xhigh is an optional bounded implementation auxiliary.
+No active task requires Terra. `S6-LIVE-01` retains its two-subagent ceiling,
+visible-verdict stop and safety gates, not its superseded model override.
+Default to solo, or one justified auxiliary. The three workers below are
+available responsibilities, not a mandatory team. More than one requires an
+explicit operator request or approved verification plan. The matrix limit is
+a hard maximum, not a target.
 
 Outside a stricter task-specific override, use at most three workers alongside
 the coordinator:

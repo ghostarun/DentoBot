@@ -144,12 +144,14 @@ and ordinary workflow through Step 6.5 remain the current baseline.
 
 ## Required team and escalation
 
-- Orchestrator: **`gpt-5.6-terra` at `xhigh`**. Terra owns reasoning, task
-  boundaries, experiment selection, worker specifications, integration,
-  controlled records and acceptance recommendations.
-- Implementation workers: **`gpt-5.6-luna` at `max`**. Use them only for
-  settled, bounded changes with explicit owned files, interfaces, invariants,
-  forbidden changes and one smallest meaningful check.
+- **2026-09-23 operator supersession:** use **`gpt-6-sol` at `low`** as the
+  orchestrator. Sol owns reasoning, task boundaries, experiment selection,
+  integration, controlled records and acceptance recommendations. The former
+  Terra-xhigh requirement is obsolete.
+- Optional implementation auxiliary: **`gpt-6-luna` at `xhigh`** for a settled,
+  bounded change with explicit owned files, interfaces, invariants, forbidden
+  changes and one smallest meaningful check. Sol may implement locally; no
+  subagent is required, and an explicit no-subagents request remains binding.
 - At most **two subagents may be active**. Zero or one is preferred. Workers
   must not recursively delegate, overlap writes, invent policy, run GUI/ROS
   resources or declare acceptance.
@@ -157,7 +159,7 @@ and ordinary workflow through Step 6.5 remain the current baseline.
   count. If the required preset is unavailable, report it; do not silently
   substitute another model.
 - A trivial internal error, non-visible check result or obvious implementation
-  correction returns to Terra for reasoning and disposition within the
+  correction returns to Sol for reasoning and disposition within the
   approved scope. It does not require a separate operator interruption.
 - A visible milestone result, fatal runtime failure, ambiguous geometry,
   competing safety/design choice or requested scope change stops for Tarun.
@@ -167,7 +169,7 @@ and ordinary workflow through Step 6.5 remain the current baseline.
   bounded evidence packet. Do not spawn a stronger model, rewrite the algorithm
   or enter a retry/model loop without his instruction.
 
-The coordinator remains responsible for inspecting every worker diff and the
+The Sol coordinator remains responsible for inspecting every worker diff and the
 actual evidence. No mandatory reviewer pipeline is introduced.
 
 ## Mandatory GUI workflow

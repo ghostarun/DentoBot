@@ -1342,6 +1342,12 @@ remains an input-data boundary; do not relabel or synthesize it.
 
 ## FDI31 GUI planner P0 reset — active contract (2026-09-21)
 
+**Model routing supersession (2026-09-23):** `gpt-6-sol` at `low` is the
+coordinator for this task; `gpt-6-luna` at `xhigh` is an optional bounded
+implementation auxiliary. The former Terra-xhigh prerequisite no longer blocks
+source work. The canonical plan's manual GUI verdict and runtime/safety gates
+remain in force. See `Workspace/AGENTS.md` and the dated decision.
+
 **Bound task:** `S6-LIVE-01` (Priority 0); `S6-LIVE-02..05` require acceptance
 of their preceding milestone.
 

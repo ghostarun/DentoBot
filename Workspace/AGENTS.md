@@ -152,42 +152,33 @@ and model presets are project policy. See the dated sources in
 `docs/DECISIONS.md` (2026-09-09 verification economy). This update does not
 change model defaults or authorize runtime execution.
 
-## Model selection and delegation — 2026-09-09 (Sol restored)
+## Model selection and delegation — 2026-09-23 (GPT-6)
 
-**Prefer `gpt-5.6-sol` for development, coordination, planning, diagnosis and
-acceptance.** This supersedes the 2026-09-07 instruction to avoid Sol and use
-Astra as coordinator. The operator reports higher token burn with Astra and
-prefers Sol for this workflow; this is operator experience, not a benchmark.
+The operator supersedes the 2026-09-09 Sol 5.6 policy and the 2026-09-21
+`S6-LIVE-01` Terra override. **Use `gpt-6-sol` at `low` ("Sol light") as the
+default orchestrator** for development, diagnosis, planning, integration,
+controlled records and acceptance recommendations. A more intensive effort
+requires a concrete unresolved reasoning need and operator direction; a failed
+test alone is not a model-escalation reason. Do not route current work to Terra.
 
-Target approximately **90% of Sol work at `high` or lower** (`low`/`medium`
-for routine tasks) and **up to 10% at `xhigh` when needed**. Default to `high`.
-These are effort-allocation guidelines, not a measured token quota or a reason
-to manufacture Extra High work. Use `xhigh` only for a specific unresolved
-reasoning/design/correctness risk; state the reason before selecting it. Do
-not select Sol `max`/`ultra`. Repeated failed tests do not by themselves justify
-higher effort or bypass the verification retry ceiling.
+**`gpt-6-luna` at `xhigh` is the optional bounded implementation auxiliary**
+for a settled, fully specified code/test task. The Sol orchestrator may instead
+do local implementation directly when the work is small or inseparable. No
+mandatory worker, reviewer, or multi-model pipeline is created. Default to
+solo; honor an explicit no-subagents request. One auxiliary is the normal
+maximum. More than one needs an explicit operator request or approved
+verification plan within the protocol's worker ceiling. Workers must not
+recursively delegate, choose safety/planner policy, run GUI/ROS resources,
+declare acceptance, or edit controlled documents.
 
-| Task nature | Model / effort | Responsibility |
-|---|---|---|
-| Coordination, design, diagnosis, integration and final acceptance | `gpt-5.6-sol` / `high` or lower | Default coordinator |
-| Exceptional unresolved reasoning or independent high-risk audit | `gpt-5.6-sol` / `xhigh` | Bounded, justified minority of work |
-| Bounded coding with settled interfaces and complete specification | `gpt-5.6-luna` / `max` | Preferred implementation auxiliary when delegation saves work |
-| Approved tests, log triage, read-heavy support | `gpt-5.6-terra` / `high` | Read-only verification/evidence auxiliary |
-| Tiny or inseparable task | Existing coordinator | Work directly; avoid agent overhead |
-
-Sol is permitted wherever the applicable task/skill recommends it, including
-optional review; no mandatory reviewer or fixed multi-model pipeline. Preserve
-Luna Max and Terra High as economical auxiliary options. Astra is no longer the
-default or an automatic escalation route. If explicitly requested later, keep
-Astra at `low` unless the operator separately changes that ceiling.
-
-Default to solo; one auxiliary is the normal maximum. More than one requires
-an explicit operator request or approved verification plan within the matrix's
-three-worker maximum. Workers must not recursively delegate. Before spawning,
-state the task, benefit, exact model/effort and worker count. Use scoped context
-without inherited history where supported and reuse agents for related work.
-If a preset is unavailable, report it; do not silently substitute Astra or a
-higher effort. Markdown cannot switch the already-running task's model.
+Before optional delegation, state the benefit, exact model/effort, worker count,
+owned files, interfaces, invariants, forbidden changes and smallest acceptance
+check. Tell the worker to preserve other worktree edits. Keep verification
+workers read-only and runtime resources serialized. Inspect the actual diff
+and evidence before acceptance. If either preset is unavailable, report it;
+do not silently substitute an older model. Markdown cannot switch a running
+task's model. Historical model decisions remain dated evidence, not active
+routing instructions.
 
 The coordinator owns controlled documents, design decisions and acceptance.
 Implementation workers may edit only explicitly assigned code/test files after
@@ -201,34 +192,20 @@ or safety policy return to the coordinator rather than being invented by workers
 Follow `docs/AGENTIC_VERIFICATION_PROTOCOL.md` for approval, retry limits,
 visual escalation and serialized runtime. A specification failure calls for a
 clearer specification, not a model loop. This policy supersedes conflicting
-Sol Advisor model prerequisites or mandatory-review rules while permitting its
-compatible Sol recommendations. Saved defaults live in `~/.codex/config.toml`;
-the 90/10 guideline is applied through task selection, not a config quota.
+skill model presets or mandatory-review rules while retaining compatible
+verification guidance. Saved app defaults, if any, do not change the model of
+an already-running task.
 
-### Active `S6-LIVE-01` task-specific override — 2026-09-21
+### Active `S6-LIVE-01` safety and verdict gate
 
-While the 2026-09-21 FDI31 GUI planner P0 backlog row remains active, its
-[canonical contract](docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
-supersedes the general Sol routing above for that task only:
-
-- Use `gpt-5.6-terra` at `xhigh` as orchestrator for planning, diagnosis,
-  integration, controlled records and acceptance recommendations.
-- Use only `gpt-5.6-luna` at `max` for bounded implementation work with settled
-  interfaces. No more than two subagents may be active; zero or one is preferred.
-- If an exact preset is unavailable or the current root task is not Terra
-  xhigh, report the mismatch. Documentation preservation/reconciliation may
-  continue with a Terra xhigh analysis agent, but planner implementation and
-  runtime must wait for the required orchestrator or new operator direction.
-- Trivial/non-visible results return to Terra without interrupting the operator.
-  Every demonstrable GUI success or failure stops for Tarun's manual verdict.
-  Fatal or unresolved algorithm-specific failures pause development for his
-  instruction; do not escalate models or enter a retry loop automatically.
-- The two-agent allowance is a ceiling, not a mandatory pipeline. Do not add
-  broad verification suites, duplicate fixtures, repeated review agents,
-  planner abstractions or speculative recovery paths.
-
-Remove this scoped override when `S6-LIVE-01` closes or the operator explicitly
-replaces it; preserve the dated decision and evidence in controlled records.
+The [canonical contract](docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
+still governs planner scope and runtime acceptance; it no longer imposes a
+different model. Every demonstrable GUI success or failure stops for Tarun's
+manual verdict. Fatal or unresolved algorithm-specific failures pause for his
+instruction; do not enter an automatic model/retry loop. Keep the task's
+two-subagent ceiling (zero or one preferred), anti-bloat limits, serialized
+runtime and no-hardware boundary. These gates are not relaxed by the routing
+change.
 
 ## graphify
 

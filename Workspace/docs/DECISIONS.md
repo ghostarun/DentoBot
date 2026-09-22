@@ -1,5 +1,18 @@
 # Dentobot Technical Decisions
 
+## 2026-09-23 — GPT-6 Sol light / Luna xhigh replaces Terra routing
+
+The operator supersedes the 2026-09-09 Sol 5.6 default and the active
+`S6-LIVE-01` Terra-xhigh model override. Use `gpt-6-sol` at `low` as the
+default orchestrator for design, diagnosis, integration, controlled records
+and acceptance recommendations. Use `gpt-6-luna` at `xhigh` only as an optional
+bounded implementation auxiliary after interfaces and safety boundaries are
+settled; the orchestrator may do local work directly. Default to solo and
+honor explicit no-subagents requests. Terra is obsolete for current routing.
+The active P0 plan's manual GUI verdict, serialized-runtime, retry, collision,
+guard and no-hardware gates remain unchanged. Historical model decisions below
+are preserved as dated evidence, not instructions for current execution.
+
 ## 2026-09-23 — Two explicit OMPL choices for the Step 6 planner dialog
 
 The operator's continuing nine-part implementation goal includes interactive
