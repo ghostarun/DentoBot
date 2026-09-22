@@ -1,5 +1,60 @@
 # Dentobot Technical Decisions
 
+## 2026-09-22 — Phone-anchor active quota requires the Codex App proxy route
+
+The Codex Switcher phone-anchor contract intentionally keeps the anchored
+account in `~/.codex/auth.json` while changing `store.current` for proxy
+traffic. Therefore Codex Desktop must enter the local proxy whenever the user
+expects a non-anchor account to supply active quota; direct Desktop mode will
+always observe the anchored disk identity.
+
+The external switcher checkout at `/home/light-tarun/src/codex-switcher` had
+drifted from its own Proxy UI/README contract: `set_proxy_env` had become
+CLI-only and cleared `openai_base_url`, and the Desktop launcher cleared it
+unconditionally. Restore the existing shared “CLI + App” behavior: enable
+writes the shell route, macOS launchctl route and `~/.codex/config.toml` base
+URL; disable removes them. The launcher preserves the base URL only while the
+configured proxy is actually running and otherwise keeps direct mode. No new
+routing abstraction or account-state workaround is introduced.
+
+This decision does not repair a rejected anchor refresh token. That remains a
+separate account-health follow-up. Packaging/installed-app acceptance remains
+open until the required native GTK/WebKit development headers are available and
+the rebuilt binary is installed.
+
+## 2026-09-22 — Step 6 planner controls must be effective and incremental
+
+The operator superseded the earlier plan-only boundary and authorized immediate
+incremental implementation, solo. Step 6.5 and 6.6 will share one planner-policy
+pop-out. The first slice displays and fingerprints the current policy; editable
+planner selection follows only after SlicerROS2 consumes and reports an
+explicit planner ID. Approximate IK remains strict/disabled. Cartesian-off is
+not enabled until bounded sequential exact-pose IK preserves the existing FK,
+residual, collision, corridor and guard gates. Trials are one-at-a-time with
+compact diagnostics and screenshots; no benchmarking framework or optimizer is
+introduced. User-facing terminology becomes `APPROACH`, `DRILL`, and `RETURN
+HOME`; internal Goal 1/Goal 2 and P1/P2/P3 identities remain compatible.
+
+## 2026-09-22 — Queue professor planner recommendations under S6-LIVE-01
+
+The operator assigned Priority 0 to a professor-recommended planner-policy
+change and placed it immediately after the currently running reusable-case
+task. It updates `S6-LIVE-01`; no parallel planner workstream is created.
+
+Motion Diagnostics will expose the effective runtime planner algorithm and
+configuration. The live workflow will be audited and changed to use RRT rather
+than RRT*, disable approximate IK and disable Cartesian-path planning. The
+checked-in MoveIt profile is `RRTConnectkConfigDefault` /
+`geometric::RRTConnect`, already in the RRT family and not RRT*. Runtime identity
+must therefore be observed before configuration is edited, and the generic word
+“RRT” does not authorize inventing a planner ID. The non-Cartesian replacement
+for Stage 2/3 must be specified in the canonical P0 contract before code edits.
+
+The active reusable-case work continues undisturbed. Planner implementation and
+runtime remain subject to the active Terra-xhigh orchestrator, visible-verdict
+stop, serialized-runtime and no-hardware gates. Collision, phase,
+target-contact, J1-J5/J6 and geometry policies remain unchanged.
+
 ## 2026-09-22 — Reopen mouth-open display separation as Priority 1 cross-module acceptance
 
 **Status:** Operator-promoted investigation; no new implementation or runtime

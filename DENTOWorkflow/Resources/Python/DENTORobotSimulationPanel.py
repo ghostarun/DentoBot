@@ -891,7 +891,9 @@ class DENTORobotSimulationPanel:
             f"Planner attempt {index + 1}: {route}, IK seed {seed_text}; "
             f"full chain {chain_status}.",
             (
-                "Stage 1 Home→PreEntry: "
+                "PreEntry IK search: failed (no collision-aware endpoint)."
+                if failure_stage == "preentry_ik"
+                else "Stage 1 Home→PreEntry: "
                 + ("passed" if record.get("success") else "failed")
                 + f" ({int(record.get('waypoint_count', 0))} waypoint(s))."
             ),
@@ -918,7 +920,13 @@ class DENTORobotSimulationPanel:
         if invalid_stage >= 0:
             location += f" (stage-local {invalid_stage})"
         lines.append(f"First block: {location}. Cause: {cause}")
-        if failure_stage == "stage1_free_space":
+        if failure_stage == "preentry_ik":
+            lines.append(
+                "Next: compare this task, trajectory, and robot-base identity with "
+                "a passing run. This is endpoint reachability, not a Home→PreEntry "
+                "connection failure."
+            )
+        elif failure_stage == "stage1_free_space":
             lines.append(
                 "Next: inspect the reported self/world collision pair, then adjust "
                 "Task Home/base placement or use a distinct Home-connected 6.3 route. "
@@ -984,6 +992,43 @@ class DENTORobotSimulationPanel:
         )
         summary.wordWrap = True
         layout.addWidget(summary)
+        identity_label = qt.QLabel(
+            "Evidence identity — "
+            f"task {session.task_fingerprint[:12]}; "
+            f"trajectory {session.trajectory_fingerprint[:12]}; "
+            f"robot base {session.base_fingerprint[:12]}.",
+            dialog,
+        )
+        identity_label.wordWrap = True
+        layout.addWidget(identity_label)
+        planner_id = str(
+            session.full_task_outcome.get("joint_planner_id") or "unreported"
+        )
+        planner_algorithm = str(
+            session.full_task_outcome.get("joint_planner_algorithm") or "unreported"
+        )
+        planner_policy_label = qt.QLabel(
+            "Planning policy — "
+            f"joint planner {planner_id} ({planner_algorithm}); "
+            f"attempts {int(session.full_task_outcome.get('joint_planning_attempts', 1))}; "
+            f"time {float(session.full_task_outcome.get('joint_planning_time_sec', 0.0)):.1f} s; "
+            "approximate IK "
+            + (
+                "enabled"
+                if session.full_task_outcome.get("approximate_ik_enabled")
+                else "disabled"
+            )
+            + "; MoveIt Cartesian Stage 2/3 "
+            + (
+                "enabled"
+                if session.full_task_outcome.get("cartesian_planning_enabled")
+                else "disabled"
+            )
+            + ".",
+            dialog,
+        )
+        planner_policy_label.wordWrap = True
+        layout.addWidget(planner_policy_label)
         full_status = str(session.full_task_outcome.get("status") or "Unknown")
         template_excluded = bool(
             session.full_task_outcome.get("template_collision_exclusion_active")

@@ -125,6 +125,22 @@ def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     assert "self._robotWorkflowFacade.syncPlanningScene()" in workflow
 
 
+def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity():
+    panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    facade = (HELPERS / "DENTORobotWorkflowFacade.py").read_text(encoding="utf-8")
+    assert "Evidence identity" in panel
+    assert "session.task_fingerprint[:12]" in panel
+    assert "session.trajectory_fingerprint[:12]" in panel
+    assert "session.base_fingerprint[:12]" in panel
+    assert "This is endpoint reachability" in panel
+    assert '"failure_classification": "preentry_ik_unreachable"' in facade
+    assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
+    assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
+    assert "Planning policy" in panel
+    assert "approximate_ik_enabled" in panel
+    assert "cartesian_planning_enabled" in panel
+
+
 def test_step6_legacy_and_shell_use_the_same_seven_substep_cards():
     workflow = (
         HELPERS / "dentobot_workflow/widget_robot_shell.py"

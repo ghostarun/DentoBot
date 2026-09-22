@@ -73,6 +73,11 @@ GOAL1_MAX_PLANNED_IK_CANDIDATES = GOAL1_MAX_IK_SEEDS
 GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
 GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
+STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"
+STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"
+STEP6_JOINT_PLANNING_ATTEMPTS = 1
+STEP6_APPROXIMATE_IK_ENABLED = False
+STEP6_CARTESIAN_PLANNING_ENABLED = True
 # The operator-selected simulation burr mesh is approximately 1 mm across. This is a physical
 # fit check only; exploratory guard policy may still suppress burr-to-guide
 # contact so simulation can inspect the arm path independently.
@@ -4346,6 +4351,12 @@ class DENTORobotWorkflowFacade:
                     "stage2ContactPolicy": "phase_guard_evidence_based_contact_warning_v2",
                     "maximumClearanceWaypoints": GOAL1_MAX_CLEARANCE_WAYPOINTS,
                     "maximumIkSeeds": GOAL1_MAX_IK_SEEDS,
+                    "jointPlannerId": STEP6_JOINT_PLANNER_ID,
+                    "jointPlannerAlgorithm": STEP6_JOINT_PLANNER_ALGORITHM,
+                    "jointPlanningAttempts": STEP6_JOINT_PLANNING_ATTEMPTS,
+                    "jointPlanningTimeSec": GOAL1_DIRECT_PLANNING_TIME_SEC,
+                    "approximateIkEnabled": STEP6_APPROXIMATE_IK_ENABLED,
+                    "cartesianPlanningEnabled": STEP6_CARTESIAN_PLANNING_ENABLED,
                 }
             ),
             candidate_records=records,
@@ -4462,6 +4473,12 @@ class DENTORobotWorkflowFacade:
                     else "AuthoritativeCompleteScene"
                 ),
                 "plan_selection": plan_selection_payload,
+                "joint_planner_id": STEP6_JOINT_PLANNER_ID,
+                "joint_planner_algorithm": STEP6_JOINT_PLANNER_ALGORITHM,
+                "joint_planning_attempts": STEP6_JOINT_PLANNING_ATTEMPTS,
+                "joint_planning_time_sec": GOAL1_DIRECT_PLANNING_TIME_SEC,
+                "approximate_ik_enabled": STEP6_APPROXIMATE_IK_ENABLED,
+                "cartesian_planning_enabled": STEP6_CARTESIAN_PLANNING_ENABLED,
                 **warning_summary,
             },
         )
@@ -4702,11 +4719,36 @@ class DENTORobotWorkflowFacade:
                 home_positions,
             )
             if not ik_candidates:
-                raise RuntimeError(
+                failure_message = (
                     "Goal 1 found no collision-aware PreEntry IK endpoint for "
                     "the canonical non-spinning drill TCP. "
                     + "; ".join(ik_failures)
                 )
+                self._persist_goal1_diagnostic(
+                    parameter_node,
+                    snapshot,
+                    (
+                        {
+                            "candidate_index": 0,
+                            "stage": "preentry_ik",
+                            "planner_leg": "preentry_ik",
+                            "route_type": "bounded-ik-search",
+                            "axial_roll_deg": LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG,
+                            "success": False,
+                            "message": _bounded_text(failure_message),
+                            "completion_fraction": 0.0,
+                            "completed_distance_mm": 0.0,
+                            "requested_distance_mm": 0.0,
+                            "waypoint_count": 0,
+                            "failure_classification": "preentry_ik_unreachable",
+                            "full_chain_candidate_status": "Blocked",
+                            "full_chain_failure_stage": "preentry_ik",
+                        },
+                    ),
+                    0,
+                    full_task_reason=failure_message,
+                )
+                raise RuntimeError(failure_message)
             strict_plan = None
             selected_candidate = None
             selected_axis_plan = None

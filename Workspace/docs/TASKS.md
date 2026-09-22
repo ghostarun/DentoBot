@@ -13,6 +13,35 @@ baseline, not a second scheduling authority. Read current state/next action in
 backlog.md before using these contracts; update substantive contract/acceptance
 changes here and keep execution chronology in the dated logbook.
 
+## CS-PHONE-ANCHOR-01 — Codex Switcher active-account routing
+
+- **Owner/source:** External Codex Switcher checkout at
+  `/home/light-tarun/src/codex-switcher`; coordinator owns this contract and
+  acceptance records in this repository.
+- **State:** Source correction complete; packaging/test acceptance pending;
+  **Priority:** Unprioritized.
+- **Operator report:** Keeping the phone anchor on one account while switching
+  to a secondary account no longer changes the account used for active quota;
+  unbinding the phone anchor makes the secondary account work again.
+- **Evidence boundary:** The live switcher log records successful `store.current`
+  changes and intentional non-anchor `auth.json` preservation. The current
+  source's `set_proxy_env` command clears `openai_base_url` and reports that
+  Desktop stays direct, while the proxy and phone-anchor UI still document the
+  CLI + App route. This attributes the primary failure to client bypass, not to
+  the tested account-store anchor rule. Repeated anchor refresh-token rejection
+  is separate evidence and is not silently treated as fixed by this task.
+- **Implementation boundary:** Change only the smallest shared proxy-routing
+  path needed to make Codex App/CLI requests use `store.current` while the
+  phone anchor remains on disk. Do not mutate live account/token data, release
+  the anchor as a workaround, or alter quota/safety policy.
+- **Acceptance:** Focused Rust anchor tests pass; source/config behavior proves
+  the “CLI + App” proxy action writes the proxy base URL when enabled and
+  removes it when disabled; `git diff --check` passes; a rebuilt application is
+  produced or the build blocker is recorded. No robot or patient-facing action
+  is in scope. The source/config assertions, frontend build and diff check pass;
+  the focused Rust test could not compile because this host lacks GTK/WebKit
+  development headers, and the installed binary therefore remains unchanged.
+
 ## Immediate P0 — bore-safe Step 5B dock attachments
 
 - **ID:** `W5-U-04`; **Priority:** 0 (operator-promoted 2026-09-10);
@@ -273,6 +302,14 @@ changes here and keep execution chronology in the dated logbook.
   separately saved adjusted scene and serialized runtime after the operator
   closes the active session. The 96-trajectory Studio ambition and predictive
   base/IK diagnostics remain downstream, not part of this acceptance gate.
+- **2026-09-22 diagnostic-attribution correction (source verified):** The
+  bounded PreEntry search now persists a current `preentry_ik_unreachable`
+  motion-diagnostic record when it finds zero collision-aware endpoints instead
+  of leaving the previous target's diagnostic visible. The inspector displays
+  the retained task, trajectory and robot-base fingerprint prefixes and states
+  that this regime is endpoint reachability rather than Home→PreEntry
+  connectivity. This reuses the current diagnostic schema; it does not predict
+  a new base pose, run a base sweep or establish FDI21 runtime acceptance.
 - **PreparedBranch:** Exact trajectory selection and pairing intent, patient
   shell, unified template, dependent guide references and Step 5C verification
   identity. Step 6 selects this complete branch, not a raw trajectory.
@@ -1351,6 +1388,28 @@ The canonical plan owns all
 milestone procedures and Experiment A/B/C mechanics, including
 the `M1-DIAG / HOUSING-OFF` boundary. Campaign-1 r4/P3/P4/P5 is preserved
 historical evidence, not an execution input or acceptance substitute.
+
+**Professor-recommended planner-policy delta (DENTO-NOTE P0, 2026-09-22):**
+This is the immediate next `S6-LIVE-01` task after the currently running
+`S6-REUSABLE-CASE-SETUP` work hands off. Motion Diagnostics must display the
+effective runtime planner algorithm/configuration. Audit and apply RRT rather
+than RRT*, disable approximate IK, and disable Cartesian-path planning in the
+live workflow. The repository currently configures
+`RRTConnectkConfigDefault` as `geometric::RRTConnect`, already an RRT-family
+planner and not RRT*. Acceptance therefore requires proof of the effective
+runtime planner ID, not a blind YAML rename. The canonical plan must define how
+Stage 2/3 are planned without the current Cartesian path calls before source
+changes. Preserve collision, phase, target-contact, J1-J5/J6, geometry and
+no-hardware invariants. Required evidence is one focused policy/diagnostics
+check and an operator-visible Motion Diagnostics verdict.
+
+**First implementation slice (source verified):** The Goal-1 motion diagnostic
+now fingerprints and displays the current planner ID/algorithm, attempt count,
+planning allowance, approximate-IK state and Cartesian Stage-2/3 state. It
+reports `RRTConnectkConfigDefault` / `geometric::RRTConnect`, one attempt, 5.0
+seconds, approximate IK disabled and Cartesian Stage 2/3 enabled. This adds no
+chooser and changes no runtime policy. The next slice is the real SlicerROS2
+planner-ID input/output bridge; no cosmetic dropdown is accepted.
 
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 

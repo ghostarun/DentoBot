@@ -6,6 +6,49 @@ operator accepts each preceding milestone
 Status: active operator-superseding plan; implementation/runtime not authorized
 merely by this document
 
+## Queued P0 delta after reusable-case handoff — 2026-09-22
+
+The operator queued the professor's recommendations as the immediate next task
+after `S6-REUSABLE-CASE-SETUP`: display the effective runtime planner in Motion
+Diagnostics; use RRT instead of RRT*; disable approximate IK; and disable
+Cartesian-path planning in the live workflow.
+
+This remains part of `S6-LIVE-01` and does not interrupt the current run. The
+checked-in profile is `RRTConnectkConfigDefault` / `geometric::RRTConnect`, so
+first trace and display the effective runtime planner ID. Do not rename it or
+introduce another configuration unless runtime evidence shows RRT* is selected
+or an exact replacement ID is provided. Before disabling Cartesian planning,
+identify its Stage-2/3 callers and specify their bounded non-Cartesian
+replacement. Audit every live IK call site and disable approximate solutions
+without weakening FK/residual validation. Preserve all existing safety and
+collision policies. Source acceptance requires the smallest focused check;
+runtime acceptance requires the visible planner/IK/Cartesian states and then a
+manual-verdict stop. No hardware motion is authorized.
+
+### Operator-superseding execution delta — planner controls and full-cycle UX
+
+The operator now authorizes incremental source implementation in this task,
+solo and without subagents. Step 6.5 and 6.6 will share one pop-out planning
+policy surface. The first iteration is diagnostic-only: retain and display the
+effective checked-in policy (`RRTConnectkConfigDefault` /
+`geometric::RRTConnect`, one attempt, 5.0 seconds, strict/non-approximate
+position-axis IK, MoveIt Cartesian Stage 2/3 enabled). Do not present a control
+as editable until the runtime API consumes and reports it.
+
+Next, extend the existing SlicerROS2 joint-plan call with an explicit planner ID
+and returned effective ID; then expose only configured planner IDs plus bounded
+attempt/time controls. Cartesian-off requires the existing bounded sequential
+exact-pose IK recovery to become an explicit primary Stage-2/3 mode with the
+same FK, residual, collision, corridor and phase-guard gates. Approximate IK
+remains disabled unless a separately reviewed approximate path still fails
+closed at the canonical residual gates. Run one trial at a time and retain only
+the current compact diagnostic and screenshot before adding more knobs.
+
+The adjacent workflow-completion phase uses user-facing `APPROACH`, `DRILL` and
+`RETURN HOME`; P1/P2/P3 remain internal diagnostic stages. Preserve Goal 1/Goal
+2 internal APIs and saved-state terms for compatibility. No global rename or
+new state machine is authorized.
+
 ## Outcome and authority
 
 Recover the saved FDI31 case through the ordinary visible Step 6 workflow by

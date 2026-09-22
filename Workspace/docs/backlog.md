@@ -21,6 +21,24 @@ IDs and provisional status; its old dates, allocations and case diagnostics do
 not override later local decisions. Tracker priorities are source metadata,
 not promotions into the current development sequence.
 
+## External app — Codex Switcher phone-anchor routing
+
+`CS-PHONE-ANCHOR-01` — **Unprioritized, active investigation.** Source is the
+separate checkout at `/home/light-tarun/src/codex-switcher`. The reported
+workflow is: keep Codex.app phone remote bound to one ChatGPT account while
+switching the proxy/current account to another account for active quota. Initial
+inspection found the account-store anchor semantics and disk-preservation tests
+passing, while the current proxy command explicitly keeps Codex Desktop direct
+and clears `~/.codex/config.toml`'s `openai_base_url`; this bypasses the route
+that makes `store.current` effective. Contract: restore the existing CLI + App
+proxy behavior with the smallest safe change, preserve direct-launch behavior
+when proxy routing is explicitly removed, and verify the anchor/non-anchor
+switch path without touching live tokens or hardware. Acceptance remains open
+until the focused source/test result and a rebuilt application are recorded. The
+source correction is now applied and frontend-verified; Rust execution and the
+installed-binary rebuild remain pending the host's missing native development
+packages.
+
 ## Active P0 planner reset — 2026-09-21
 
 `S6-LIVE-01` — **Priority 0, active.** The authoritative contract is
@@ -32,6 +50,9 @@ Home→PreEntry (150 waypoints); its internally computed P2/P3 results are retai
 diagnostic evidence only. Canonical M1 remains open. Next action: stop the
 housing-off session, restore canonical housing-on mode, and obtain operator
 selection/review of one temporary collision-valid Home for Experiment B. A
+2026-09-22 source correction now replaces stale cross-target evidence on a
+zero-endpoint PreEntry IK failure and exposes the task/trajectory/base identity;
+normal-window confirmation remains open and no base-pose predictor is accepted.
 reported closer-Home trial followed by a mouth-gap change to approximately
 45.96 mm first failed before P1 because canonical TCP IK produced no
 tolerance-valid PreEntry endpoint while reporting no collisions. At the same
@@ -50,6 +71,25 @@ before any exact-case automated check; an active operator runtime must close
 normally before another serialized run.
 Campaign-1 r4/P3/P4/P5 remains historical evidence only. Runtime and
 implementation remain separately approval-gated.
+
+**Operator TODO — prior diagnostic-attribution task:** In one normal-window
+FDI21 zero-IK trial, confirm that Motion Diagnostics shows the current FDI21
+task/trajectory/base identity and `preentry_ik_unreachable`, not the retained
+FDI31 66/10/22 result. Separately save the manually adjusted-base scene under a
+new case name before any controlled base-placement comparison. These are
+operator-owned visible evidence steps; they do not authorize another automated
+runtime or overwrite either supplied case.
+
+**Queued immediately after the currently running reusable-case task — DENTO-NOTE
+P0, 2026-09-22:** keep the professor-recommended planner-policy change under
+`S6-LIVE-01`. Motion Diagnostics must display the effective runtime planner
+algorithm/configuration. Audit and apply: RRT instead of RRT*, approximate IK
+disabled, and Cartesian-path planning disabled. The checked-in OMPL profile is
+currently `RRTConnectkConfigDefault` / `geometric::RRTConnect`, not RRT*, so
+verify the runtime planner ID before changing configuration and do not invent
+an exact planner name. Define the non-Cartesian replacement for Stage 2/3 before
+source edits. Preserve collision, phase, target-contact, J1-J5/J6, geometry and
+no-hardware boundaries. Do not interrupt the current reusable-case run.
 
 ## Preserved prior pause and return route — 2026-09-17
 
@@ -548,7 +588,7 @@ from the source change.
 | `S4A-PULP-ENDPOINT` | 0 | Source/focused checks pass; anatomical review pending | Deliberately regenerate legacy FDI31 assisted line; review shared native/displayed pulp contact and non-projecting slice glyphs. `A-035` internal-target subset; crown Entry remains `W4-U-01`. |
 | `W4-U-02` | 0 | Smooth-display correction verified; normal-window and broader representative acceptance pending | Confirm truthful smooth on/off, CBCT/mask changes, oblique exit restoration and backtracking; distinct from missing opacity controls `VIEW-U-02`. |
 | `S6-P0-BASELINE-CLEANUP` | 0 | Cleanup verified; clean-case full-loop acceptance pending | Reuse `S6-LIVE-05` review and full guarded loop; do not repeat source cleanup or revive retired-case exceptions. |
-| `S6-LIVE-01` | 0 | **Active.** `M1-DIAG / HOUSING-OFF PASS`; canonical M1/M2 remain open. An alternate base position/orientation at the altered 45.96-mm mouth gap completed the housing-on chain: P1 66, P2 10 and P3 22 waypoints (`CompletedWithWarnings`). This proves a feasible physical arrangement and identifies placement/configuration-space clearance as the leading cause, but is not baseline acceptance. A later FDI21 screenshot is explicitly stale and not a new planner pass. Detailed execution is in the [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Stop before preview. Save the adjusted base/Home under a separate case name, reconcile the reviewed input, and close the operator runtime normally before any serialized exact-case plan-only check. Do not overwrite the Sep-22 baseline or claim M2. |
+| `S6-LIVE-01` | 0 | **Active; professor-recommended policy delta queued immediately after the currently running reusable-case task.** Existing M1/M2 evidence is unchanged. The queued delta displays the effective planner in Motion Diagnostics, verifies/uses RRT rather than RRT*, disables approximate IK and disables Cartesian-path planning. Checked-in configuration already names `geometric::RRTConnect`, so runtime identity must be proven before a planner edit. | Finish and hand off the reusable-case run first. Then, under the required model/runtime gate, audit the planner/IK/Cartesian call chain, define the non-Cartesian Stage-2/3 replacement, implement the smallest shared policy change and stop on the first visible diagnostic verdict. Do not overwrite the Sep-22 baseline, relax guards, preview, or claim M2. |
 | `S6-LIVE-02` | 0 | Implemented; synthetic phase-guard evidence and r13 forbidden spindle↔target rejection retained. The final native packet records static collision and validate-only guard evidence without changing policy; TaskJointStatus pair/depth fields remain explicitly unknown where not exposed. The additive static/transition/request-correlation correction and burr-transform alias repair are runtime-verified; the correlated 31-object acknowledgement and TCP/spindle/burr FK pass. Configured burr-target authorization and the separately bounded simulation spindle-guide warning remain distinct; neither authorizes spindle-tooth contact. | Preserve independent final guard, full-chain bounds/phase/identity checks, J1–J5 and J6-zero/external-spindle boundary. Any future source correction or native recheck requires operator review and must not change policy; no P3/P4 runtime follows automatically. |
 | `S6-LIVE-03` | 0 | Implemented; repeat-loop acceptance is `NOT_RUN` for FDI31 because Packet E stopped at its first-invalid Stage-3 guard result. | Run Goal 1→Goal 2→guarded Return Home→replan/route choice only after a Complete target route; retain the FDI31 failure and await approval before another tooth. |
 | `S6-LIVE-04` | 0 | Implemented; playback/restore acceptance is `NOT_RUN` for FDI31 because Packet E did not complete. | Confirm speed, ordered acknowledgements, visible stage paths, saved route intent and current re-plan only for an accepted Complete route. |
