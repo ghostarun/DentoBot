@@ -1390,7 +1390,7 @@ def apply_task_phase_joint_positions(
         "task_fingerprint": str(task_fingerprint),
     }
     if not _last_task_config_json:
-        return False, "No simulation task-guard configuration is active. Re-plan Goal 1."
+        return False, "No simulation task-guard configuration is active. Re-plan Approach."
     try:
         active_config = json.loads(_last_task_config_json)
         active_fingerprint = str(active_config.get("task_fingerprint") or "")
@@ -1401,10 +1401,10 @@ def apply_task_phase_joint_positions(
     if active_fingerprint != str(task_fingerprint):
         return (
             False,
-            "The active simulation task guard belongs to another task. Re-plan Goal 1.",
+            "The active simulation task guard belongs to another task. Re-plan Approach.",
         )
     if not active_session_id:
-        return False, "The active simulation task-guard session is invalid. Re-plan Goal 1."
+        return False, "The active simulation task-guard session is invalid. Re-plan Approach."
     if validation_kind == "static_state":
         # Static configuration has no transition handshake.  Give the config
         # topic a bounded head start without publishing an accepted joint state.

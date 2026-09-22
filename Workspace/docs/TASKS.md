@@ -1439,6 +1439,13 @@ names. Public/internal Goal 1/Goal 2 APIs and saved-state vocabulary are
 unchanged. Facade result/error wording and normal-window confirmation remain
 open; the planner comparison trial still precedes further parameter controls.
 
+**Operator-message terminology slice (2026-09-23):** The remaining live
+facade/bridge/logic result and error strings use Approach/Drill preview names;
+internal comments and saved diagnostic keys retain legacy Goal terminology.
+The `planDrillingPhase` description now accurately says it prepares retained
+Stage-3 preflight, without changing its code path. Focused checks pass;
+normal-window terminology acceptance remains open.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`

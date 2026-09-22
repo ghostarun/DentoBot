@@ -2765,7 +2765,7 @@ class DENTORobotWorkflowFacade:
                         "It is locked to this route identity; re-planning remains required "
                         "after restore or any transient runtime reset."
                         if lock
-                        else "Run Goal 1 again to apply this route to the transient guarded plan."
+                        else "Plan Approach again to apply this route to the transient guarded plan."
                     )
                 ),
                 details={"planSelection": selection},
@@ -2926,7 +2926,7 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(
                 True,
                 "motion_diagnostic_plan_unlocked",
-                "Released the saved route lock. Re-plan Goal 1 to choose or apply another route.",
+                "Released the saved route lock. Re-plan Approach to choose or apply another route.",
                 details={"planSelection": self._diagnostic_plan_selection_override},
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
@@ -2979,7 +2979,7 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(
                 False,
                 "diagnostic_path_unavailable",
-                "This saved diagnostic has no live route waypoints; re-plan Goal 1 to inspect its path.",
+                "This saved diagnostic has no live route waypoints; re-plan Approach to inspect its path.",
             )
         parameter_node = self._require_context()
         results = []
@@ -4669,7 +4669,7 @@ class DENTORobotWorkflowFacade:
             if self._robot_away_from_home:
                 raise ValueError(
                     "The robot is away from Task Home. Use guarded Return Home "
-                    "before replanning Goal 1."
+                    "before replanning Approach."
                 )
             issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
             if issues:
@@ -4679,7 +4679,7 @@ class DENTORobotWorkflowFacade:
             if not self.taskHomeRuntimeValidated(parameter_node):
                 raise ValueError(
                     "Task Home is not validated in the current ROS/MoveIt session. "
-                    "Return to 6.2 and apply it before planning Goal 1."
+                    "Return to 6.2 and apply it before planning Approach."
                 )
             if not self.workspaceRuntimeValidated(parameter_node):
                 raise ValueError(
@@ -4715,7 +4715,7 @@ class DENTORobotWorkflowFacade:
             )
             if not monitored_ok:
                 raise RuntimeError(
-                    "Goal 1 requires MoveIt's monitored current state to equal "
+                    "Approach planning requires MoveIt's monitored current state to equal "
                     "the immutable Task Home before planning. "
                     + monitored_message
                     + (
@@ -4740,7 +4740,7 @@ class DENTORobotWorkflowFacade:
             )
             approach_length = sum(value * value for value in approach_vector) ** 0.5
             if approach_length <= 1e-9:
-                raise RuntimeError("Goal 1 pre-entry and Entry points are coincident.")
+                raise RuntimeError("Approach PreEntry and Entry points are coincident.")
             ik_candidates, ik_failures = self._goal1_pre_entry_ik_candidates(
                 parameter_node,
                 pre_entry,
@@ -4750,7 +4750,7 @@ class DENTORobotWorkflowFacade:
             )
             if not ik_candidates:
                 failure_message = (
-                    "Goal 1 found no collision-aware PreEntry IK endpoint for "
+                    "Approach planning found no collision-aware PreEntry IK endpoint for "
                     "the canonical non-spinning drill TCP. "
                     + "; ".join(ik_failures)
                 )
@@ -5209,7 +5209,7 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "approach_start_goal_plan_failed",
-                    "Goal 1 found "
+                    "Approach planning found "
                     f"{len(ik_candidates)} collision-aware PreEntry IK endpoint(s), "
                     "but MoveIt could not connect Task Home to the top-ranked "
                     f"arm branch(es) via {attempted_routes or 'no submitted route'}. "
@@ -5433,11 +5433,11 @@ class DENTORobotWorkflowFacade:
                 preentry_plan = PhasePlan(
                     success=True,
                     message=(
-                        f"Goal 1 PreEntry ready: {len(strict_waypoints)} "
+                        f"Approach PreEntry ready: {len(strict_waypoints)} "
                         "collision-free Task-Home waypoints are available for "
                         "guarded preview. The terminal axis segment toward Entry "
                         f"was rejected at {stage2_failure_fraction * 100.0:.1f}% "
-                        f"({stage2_failure_message}); Entry and Goal 2 remain deferred."
+                        f"({stage2_failure_message}); Entry and Drill preview remain deferred."
                     ),
                     task_fingerprint=snapshot.snapshot_fingerprint,
                     requested_phase="approach",
@@ -5595,7 +5595,7 @@ class DENTORobotWorkflowFacade:
                 )
             if not terminal.waypoint_joint_vectors_si:
                 raise RuntimeError(
-                    "Goal 1 terminal plan did not provide an Entry joint state."
+                    "Approach terminal plan did not provide an Entry joint state."
                 )
             self._persist_goal1_diagnostic(
                 parameter_node,
@@ -5607,10 +5607,10 @@ class DENTORobotWorkflowFacade:
             )
             # Goal 1 is an independently useful approach preview.  Do not let
             # the optional Entry→Target reachability preflight veto a valid
-            # Home→PreEntry→Entry plan: Goal 2 has its own guarded planner
-            # and may legitimately remain blocked while the operator studies
-            # the approach.  Preserve the failure text in the diagnostic and
-            # expose it in the result instead of silently treating it as a
+            # Home→PreEntry→Entry plan: Drill preview requires the retained
+            # complete Stage-3 preflight and may remain blocked while the
+            # operator studies the approach. Preserve the failure text in the
+            # diagnostic and expose it in the result instead of treating it as a
             # successful drilling plan.
             drilling_preflight = (
                 selected_chain_evaluation.get("drillingPlan")
@@ -5732,7 +5732,7 @@ class DENTORobotWorkflowFacade:
             plan = PhasePlan(
                 success=True,
                 message=(
-                    f"Goal 1 ready: {len(strict_waypoints)} free-space, "
+                    f"Approach ready: {len(strict_waypoints)} free-space, "
                     f"{len(terminal_waypoints)} fixed-axis Stage-2 checkpoint(s) "
                     f"from {source_count} MoveIt samples. "
                     "The independent phase guard keeps all non-tool collision "
@@ -5752,7 +5752,7 @@ class DENTORobotWorkflowFacade:
                         if drilling_preflight is not None
                         else (
                             "Full-task status is Blocked at Stage 3; the provisional "
-                            "Goal 1 approach preview remains available as historical "
+                            "Approach preview remains available as historical "
                             "evidence and is not a drilling authorization."
                         )
                     )
@@ -5949,7 +5949,7 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "approach_plan_failed", str(exc))
 
     def planDrillingPhase(self) -> RobotActionResult:
-        """Plan Entry→Target with solver collision-off but guard enforcement on."""
+        """Prepare the retained Entry→Target preflight for guarded preview."""
 
         try:
             parameter_node = self._require_context()
@@ -5961,21 +5961,21 @@ class DENTORobotWorkflowFacade:
                 raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
             if self._completed_phase != "approach":
                 raise ValueError(
-                    "Complete the guarded Goal 1 approach preview before planning Goal 2."
+                    "Complete the guarded Approach preview before preparing Drill preview."
                 )
             snapshot = self._logic.confirmedTaskRecord(parameter_node)
             guide_fit = self._guide_fit_evidence(parameter_node)
             if self._phase_guard_task_fingerprint != snapshot.snapshot_fingerprint:
                 raise ValueError(
-                    "The Goal 1 guard session is missing or belongs to another task. "
-                    "Re-plan and preview Goal 1 before Goal 2."
+                    "The Approach guard session is missing or belongs to another task. "
+                    "Re-plan and preview Approach before Drill preview."
                 )
             start_positions = self._bridge.last_accepted_joint_positions_si()
             if not start_positions or any(
                 name not in start_positions for name in JOINT_NAMES
             ):
                 raise RuntimeError(
-                    "The accepted Goal 1 endpoint is unavailable. Re-preview Goal 1."
+                    "The accepted Approach endpoint is unavailable. Re-preview Approach."
                 )
             if (
                 self._preflight_drilling_plan is not None
@@ -5986,7 +5986,7 @@ class DENTORobotWorkflowFacade:
             else:
                 raise RuntimeError(
                     "The complete Home-to-PreEntry-to-Entry-to-Target preflight "
-                    "is not current. Re-plan Goal 1; Goal 2 cannot independently "
+                    "is not current. Re-plan Approach; Drill preview cannot independently "
                     "replan or promote a partial drilling path."
                 )
             source_waypoints = tuple(result.waypoint_joint_vectors_si)
@@ -5997,7 +5997,7 @@ class DENTORobotWorkflowFacade:
             ):
                 raise RuntimeError(
                     "The Stage-1 drilling-frame commitment is unavailable. "
-                    "Re-plan Goal 1 before Goal 2."
+                    "Re-plan Approach before Drill preview."
                 )
             # Entry-to-Target is short and accuracy-dominant. Preserve every
             # fine MoveIt Cartesian sample so the guard never substitutes a
@@ -6007,7 +6007,7 @@ class DENTORobotWorkflowFacade:
             plan = PhasePlan(
                 success=True,
                 message=(
-                    f"Goal 2 preview ready: {len(waypoints)} guarded Entry-to-Target "
+                    f"Drill preview ready: {len(waypoints)} guarded Entry-to-Target "
                     f"checkpoint(s) from {len(source_waypoints)} MoveIt samples. "
                     "Spindle locked at 0 rad (external pressure/RPM; not planned). "
                     "Solver collision avoidance is disabled for this exploratory "
@@ -6090,12 +6090,12 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "phase_session_consumed",
-                    "Goal 2 has already completed in this guard session. Re-plan Goal 1 to replay the task.",
+                    "Drill preview has already completed in this guard session. Re-plan Approach to replay the task.",
                 )
             return RobotActionResult(
                 False,
                 "approach_required",
-                "Complete the guarded Goal 1 approach preview before Goal 2.",
+                "Complete the guarded Approach preview before Drill preview.",
             )
         try:
             parameter_node = self._require_context()
@@ -6107,7 +6107,7 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "phase_session_required",
-                    "The matching task-guard session is unavailable. Re-plan Goal 1.",
+                    "The matching task-guard session is unavailable. Re-plan Approach.",
                 )
             if str(requested_phase) == "approach" and (
                 self._phase_sequence
@@ -6117,7 +6117,7 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "phase_session_consumed",
-                    "This Goal 1 guard session has already started. Re-plan Goal 1 before replaying it.",
+                    "This Approach guard session has already started. Re-plan Approach before replaying it.",
                 )
             if str(requested_phase) == "approach":
                 home_record = self._logic.taskHomeRecord(parameter_node)
@@ -6151,8 +6151,8 @@ class DENTORobotWorkflowFacade:
                 return RobotActionResult(
                     False,
                     "guarded_motion_history_missing",
-                    "The accepted Goal 1 motion history is unavailable. Re-plan and "
-                    "preview Goal 1 before drilling.",
+                    "The accepted Approach motion history is unavailable. Re-plan and "
+                    "preview Approach before Drill preview.",
                 )
             import qt
         except (RuntimeError, ValueError, ImportError) as exc:
@@ -6284,7 +6284,7 @@ class DENTORobotWorkflowFacade:
                             "task_stale",
                             "Task changed during preview: "
                             + ", ".join(current_issues)
-                            + " Re-plan Goal 1 to start a new guarded session.",
+                            + " Re-plan Approach to start a new guarded session.",
                         )
                     )
                 return
@@ -6307,7 +6307,7 @@ class DENTORobotWorkflowFacade:
                                 False,
                                 "phase_waypoint_rejected",
                                 message
-                                + " Re-plan Goal 1 to start a new guarded session.",
+                                + " Re-plan Approach to start a new guarded session.",
                             )
                         )
                     return

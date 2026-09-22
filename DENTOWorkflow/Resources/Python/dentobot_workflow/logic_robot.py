@@ -894,7 +894,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             issues.append(
                 _(
                     "Motion diagnostic predates the fixed-axis Stage-2 phase-guard "
-                    "policy; re-plan Goal 1."
+                    "policy; re-plan Approach."
                 )
             )
         if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
@@ -917,7 +917,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             issues.append(
                 _(
                     "Motion diagnostic predates the external spindle-lock policy; "
-                    "re-plan Goal 1."
+                    "re-plan Approach."
                 )
             )
         try:

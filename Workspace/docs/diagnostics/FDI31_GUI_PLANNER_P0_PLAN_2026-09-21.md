@@ -79,6 +79,12 @@ changing their callbacks or planner behavior. Facade result/error text and
 stored Goal 1/Goal 2 compatibility terms remain for a separate bounded
 wording pass; this slice alone is not full terminology or GUI acceptance.
 
+**Operator-message source slice, 2026-09-23:** Facade, Step 6 logic and ROS
+bridge result/error strings now direct the operator to Approach or Drill
+preview. The retained Stage-3 preparation docstring/comment was aligned with
+its actual preflight-reuse behavior. Internal Goal 1/Goal 2 symbols and
+diagnostic schema remain unchanged. Visible confirmation is still open.
+
 ## Outcome and authority
 
 Recover the saved FDI31 case through the ordinary visible Step 6 workflow by
