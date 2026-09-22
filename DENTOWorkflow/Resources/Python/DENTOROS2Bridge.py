@@ -4740,6 +4740,20 @@ def plan_moveit_joint_goal(
                 or ""
             )
             trajectory_result = _moveit_trajectory_result(trajectory)
+            if (
+                trajectory_result.success
+                and requested_planner_id
+                and requested_planner_id != effective_planner_id
+            ):
+                trajectory_result = replace(
+                    trajectory_result,
+                    success=False,
+                    message=(
+                        "MoveIt planner identity is unavailable or differs from the "
+                        f"requested {requested_planner_id!r}: reported "
+                        f"{effective_planner_id or 'nothing'!r}."
+                    ),
+                )
             last_result = replace(
                 trajectory_result,
                 message=(

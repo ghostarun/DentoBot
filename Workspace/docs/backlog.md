@@ -92,9 +92,10 @@ source edits. Preserve collision, phase, target-contact, J1-J5/J6, geometry and
 no-hardware boundaries. Do not interrupt the current reusable-case run.
 The fixed-policy diagnostic slice is committed at `06b2ffd`; the planner-ID
 bridge is committed at DentoBot `e4ca5f4` and SlicerROS2 `4cad571`, and its
-focused build passes. The shared Step 6.5/6.6 dialog now drives the configured
-planner ID, attempts and time. A second configured planner and visible
-runtime-effective-ID evidence remain before comparative chooser acceptance.
+focused build passes. The shared Step 6.5/6.6 dialog now drives planner ID,
+attempts and time. The 2026-09-23 source pass adds `RRTkConfigDefault` as a
+second choice and verifies it in the container's installed YAML. A trial of
+each choice, compact diagnostics, screenshots and Tarun's verdict remain open.
 
 ## Preserved prior pause and return route — 2026-09-17
 

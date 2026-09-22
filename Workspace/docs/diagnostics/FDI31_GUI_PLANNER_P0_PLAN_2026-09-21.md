@@ -59,6 +59,15 @@ fingerprint. Approximate IK remains visibly disabled, and Cartesian Stage 2/3
 remains visibly enabled but locked pending its separate replacement pass. The
 dialog does not manufacture unconfigured planner IDs.
 
+**Operator goal continuation, 2026-09-23:** Interactive comparison is now
+explicitly requested. Add `RRTkConfigDefault` / `geometric::RRT` as a second
+configured OMPL choice while retaining RRT-Connect as default. The two IDs are
+the only chooser entries. The planner response is rejected if the selected ID
+is not reported back by SlicerROS2; diagnostics distinguish requested from
+reported identity. This supersedes the earlier restriction against adding a
+second configuration without a named replacement. The installed YAML and
+focused source checks are preparation, not a visible planner-result verdict.
+
 The adjacent workflow-completion phase uses user-facing `APPROACH`, `DRILL` and
 `RETURN HOME`; P1/P2/P3 remain internal diagnostic stages. Preserve Goal 1/Goal
 2 internal APIs and saved-state terms for compatibility. No global rename or

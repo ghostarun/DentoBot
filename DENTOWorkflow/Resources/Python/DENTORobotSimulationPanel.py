@@ -6,6 +6,8 @@ import json
 import os
 import qt
 
+from DENTORobotWorkflowFacade import STEP6_JOINT_PLANNER_ALGORITHMS
+
 
 class DENTORobotSimulationPanel:
     """Build goal/IK and collision cards without calling robot services."""
@@ -841,7 +843,10 @@ class DENTORobotSimulationPanel:
         dialog.windowTitle = "DENTOBOT Step 6 Planning Parameters"
         layout = qt.QFormLayout(dialog)
         planner = qt.QComboBox(dialog)
-        planner.addItem("RRT-Connect — geometric::RRTConnect", "RRTConnectkConfigDefault")
+        for planner_id, algorithm in STEP6_JOINT_PLANNER_ALGORITHMS.items():
+            planner.addItem(f"{planner_id} — {algorithm}", planner_id)
+            if planner_id == self._plannerId:
+                planner.currentIndex = planner.count - 1
         attempts = qt.QSpinBox(dialog)
         attempts.minimum, attempts.maximum, attempts.value = 1, 10, self._planningAttempts
         planning_time = qt.QDoubleSpinBox(dialog)
@@ -1068,15 +1073,17 @@ class DENTORobotSimulationPanel:
         )
         identity_label.wordWrap = True
         layout.addWidget(identity_label)
-        planner_id = str(
-            session.full_task_outcome.get("joint_planner_id") or "unreported"
+        requested_planner_id = str(
+            session.full_task_outcome.get("requested_joint_planner_id") or "unreported"
         )
+        planner_id = str(session.full_task_outcome.get("joint_planner_id") or "unreported")
         planner_algorithm = str(
             session.full_task_outcome.get("joint_planner_algorithm") or "unreported"
         )
         planner_policy_label = qt.QLabel(
             "Planning policy — "
-            f"joint planner {planner_id} ({planner_algorithm}); "
+            f"requested joint planner {requested_planner_id} ({planner_algorithm}); "
+            f"MoveIt reported {planner_id}; "
             f"attempts {int(session.full_task_outcome.get('joint_planning_attempts', 1))}; "
             f"time {float(session.full_task_outcome.get('joint_planning_time_sec', 0.0)):.1f} s; "
             "approximate IK "

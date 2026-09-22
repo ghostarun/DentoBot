@@ -62,6 +62,8 @@ def test_ompl_and_conservative_joint_limits_are_configured():
     )
     assert ompl["planning_plugins"] == ["ompl_interface/OMPLPlanner"]
     assert "RRTConnectkConfigDefault" in ompl["dentobot_arm"]["planner_configs"]
+    assert ompl["planner_configs"]["RRTkConfigDefault"]["type"] == "geometric::RRT"
+    assert "RRTkConfigDefault" in ompl["dentobot_arm"]["planner_configs"]
     limits = yaml.safe_load(
         (ROOT / "dentobot_moveit_config/config/joint_limits.yaml").read_text()
     )["joint_limits"]

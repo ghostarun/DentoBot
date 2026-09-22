@@ -75,6 +75,10 @@ GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
 STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"
 STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"
+STEP6_JOINT_PLANNER_ALGORITHMS = {
+    STEP6_JOINT_PLANNER_ID: STEP6_JOINT_PLANNER_ALGORITHM,
+    "RRTkConfigDefault": "geometric::RRT",
+}
 STEP6_JOINT_PLANNING_ATTEMPTS = 1
 STEP6_APPROXIMATE_IK_ENABLED = False
 STEP6_CARTESIAN_PLANNING_ENABLED = True
@@ -4359,7 +4363,9 @@ class DENTORobotWorkflowFacade:
                     "maximumIkSeeds": GOAL1_MAX_IK_SEEDS,
                     "jointPlannerId": self._joint_planner_id,
                     "effectiveJointPlannerId": self._effective_joint_planner_id,
-                    "jointPlannerAlgorithm": STEP6_JOINT_PLANNER_ALGORITHM,
+                    "jointPlannerAlgorithm": STEP6_JOINT_PLANNER_ALGORITHMS[
+                        self._joint_planner_id
+                    ],
                     "jointPlanningAttempts": self._joint_planning_attempts,
                     "jointPlanningTimeSec": self._joint_planning_time_sec,
                     "approximateIkEnabled": STEP6_APPROXIMATE_IK_ENABLED,
@@ -4480,11 +4486,11 @@ class DENTORobotWorkflowFacade:
                     else "AuthoritativeCompleteScene"
                 ),
                 "plan_selection": plan_selection_payload,
-                "joint_planner_id": (
-                    self._effective_joint_planner_id or self._joint_planner_id
-                ),
+                "joint_planner_id": self._effective_joint_planner_id,
                 "requested_joint_planner_id": self._joint_planner_id,
-                "joint_planner_algorithm": STEP6_JOINT_PLANNER_ALGORITHM,
+                "joint_planner_algorithm": STEP6_JOINT_PLANNER_ALGORITHMS[
+                    self._joint_planner_id
+                ],
                 "joint_planning_attempts": self._joint_planning_attempts,
                 "joint_planning_time_sec": self._joint_planning_time_sec,
                 "approximate_ik_enabled": STEP6_APPROXIMATE_IK_ENABLED,
@@ -4645,7 +4651,7 @@ class DENTORobotWorkflowFacade:
         """Plan strict current→pre-entry plus independently guarded contact."""
 
         try:
-            if planner_id != STEP6_JOINT_PLANNER_ID:
+            if planner_id not in STEP6_JOINT_PLANNER_ALGORITHMS:
                 raise ValueError(f"Planner '{planner_id}' is not configured for DENTOBOT.")
             self._joint_planner_id = planner_id
             self._effective_joint_planner_id = ""
@@ -4808,7 +4814,7 @@ class DENTORobotWorkflowFacade:
                         + str(candidate.get("routeType") or "direct")
                     ),
                 )
-                if candidate_plan.effective_planner_id:
+                if getattr(candidate_plan, "effective_planner_id", ""):
                     self._effective_joint_planner_id = (
                         candidate_plan.effective_planner_id
                     )

@@ -1419,11 +1419,19 @@ call sites submit `RRTConnectkConfigDefault`. Focused pure tests pass. The
 focused SlicerROS2 package rebuild passes. The shared editable pop-out,
 configured planner list and visible effective-ID evidence remain open.
 
-**Shared planner-dialog slice (source verified):** The same dialog is reachable
+**Shared planner-dialog slice (source verified, 2026-09-22):** The same dialog is reachable
 from Step 6.5 and 6.6. Its configured planner, bounded attempts and bounded time
 are submitted to Goal-1 planning and retained in diagnostics. Approximate IK
-and Cartesian mode are visible but locked at the implemented values. A second
-configured planner and visible runtime acceptance remain open.
+and Cartesian mode are visible but locked at the implemented values. At this
+checkpoint, a second planner and visible runtime acceptance remained open.
+
+**Interactive chooser source pass (2026-09-23):** OMPL now configures
+`RRTkConfigDefault` / `geometric::RRT` alongside the existing default. The
+shared dialog lists exactly those configured choices. A plan with a selected
+ID cannot be promoted when the SlicerROS2 reported ID is missing or differs;
+Motion Diagnostics displays requested and reported IDs separately. Focused
+source tests and the installed-config check pass. A visible per-planner trial
+and operator verdict remain open.
 
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 

@@ -143,13 +143,40 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "cartesian_planning_enabled" in panel
     assert panel.count('"Planning Parameters…"') == 2
     assert "def planningPolicy" in panel
-    assert "RRT-Connect — geometric::RRTConnect" in panel
+    assert "STEP6_JOINT_PLANNER_ALGORITHMS.items()" in panel
+    assert "requested joint planner" in panel
+    assert "MoveIt reported" in panel
     assert "Approximate IK:" in panel
     assert "Cartesian Stage 2/3:" in panel
     shell = (
         HELPERS / "dentobot_workflow" / "widget_robot_shell.py"
     ).read_text(encoding="utf-8")
     assert "**self._robotSimulationPanel.planningPolicy()" in shell
+
+
+def test_step6_planner_choices_match_moveit_and_reject_unknown_ids():
+    import yaml
+    from DENTORobotWorkflowFacade import (
+        DENTORobotWorkflowFacade,
+        STEP6_JOINT_PLANNER_ALGORITHMS,
+    )
+
+    ompl = yaml.safe_load(
+        (ROOT / "dentobot_moveit_config/config/ompl_planning.yaml").read_text()
+    )
+    assert STEP6_JOINT_PLANNER_ALGORITHMS == {
+        planner_id: ompl["planner_configs"][planner_id]["type"]
+        for planner_id in ompl["dentobot_arm"]["planner_configs"]
+    }
+    assert set(STEP6_JOINT_PLANNER_ALGORITHMS) == {
+        "RRTConnectkConfigDefault",
+        "RRTkConfigDefault",
+    }
+    rejected = DENTORobotWorkflowFacade(None, lambda: None).planApproachPhase(
+        planner_id="not-configured"
+    )
+    assert not rejected.success
+    assert "not configured" in rejected.message
 
 
 def test_step6_legacy_and_shell_use_the_same_seven_substep_cards():

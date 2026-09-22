@@ -1,5 +1,17 @@
 # Dentobot Technical Decisions
 
+## 2026-09-23 — Two explicit OMPL choices for the Step 6 planner dialog
+
+The operator's continuing nine-part implementation goal includes interactive
+planner choice in DENTOWorkflow/SlicerROS2. Configure `RRTkConfigDefault` as
+`geometric::RRT` beside the existing `RRTConnectkConfigDefault` default. The
+shared Step 6.5/6.6 dialog exposes exactly these two IDs. This specific
+comparison option supersedes the earlier 2026-09-22 instruction to await a
+named second planner. The selected ID must be echoed by SlicerROS2 before a
+successful joint plan can be accepted; an unavailable or different echo fails
+closed. Installed configuration and pure checks do not establish which planner
+performs better for FDI31; that requires separately reviewed visible trials.
+
 ## 2026-09-22 — Phone-anchor active quota requires the Codex App proxy route
 
 The Codex Switcher phone-anchor contract intentionally keeps the anchored
