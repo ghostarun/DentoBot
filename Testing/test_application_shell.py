@@ -167,6 +167,15 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "**self._robotSimulationPanel.planningPolicy()" in shell
 
 
+def test_step6_planning_controls_explain_bounds_and_locked_modes():
+    panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    assert "Start with this workflow's 1-attempt baseline" in panel
+    assert "Start with this workflow's 5.0 s baseline" in panel
+    assert "Locked off: the current PreEntry solver" in panel
+    assert "Locked on: Stage 2/3 still use MoveIt Cartesian planning" in panel
+    assert "layout.labelForField(field).toolTip = field.toolTip" in panel
+
+
 def test_step6_planner_choices_match_moveit_and_reject_unknown_ids():
     import yaml
     from DENTORobotWorkflowFacade import (

@@ -847,21 +847,47 @@ class DENTORobotSimulationPanel:
             planner.addItem(f"{planner_id} — {algorithm}", planner_id)
             if planner_id == self._plannerId:
                 planner.currentIndex = planner.count - 1
+        planner.toolTip = (
+            "Select a configured joint-space planner for Home→PreEntry. "
+            "This does not change Stage 2/3 or relax the independent phase guard."
+        )
         attempts = qt.QSpinBox(dialog)
         attempts.minimum, attempts.maximum, attempts.value = 1, 10, self._planningAttempts
+        attempts.toolTip = (
+            "Number of independent joint-plan computations; MoveIt returns the shortest "
+            "solution found. Start with this workflow's 1-attempt baseline; more attempts "
+            "cost time and do not resolve an invalid goal or collision."
+        )
         planning_time = qt.QDoubleSpinBox(dialog)
         planning_time.minimum, planning_time.maximum = 0.5, 60.0
         planning_time.decimals, planning_time.singleStep = 1, 0.5
         planning_time.value = self._planningTimeSec
+        planning_time.toolTip = (
+            "Maximum joint-planning allowance in seconds, not expected runtime. "
+            "Start with this workflow's 5.0 s baseline; increase only for a reviewed "
+            "time-limited search, changing one control at a time. No value guarantees a path."
+        )
         approximate_ik = qt.QCheckBox("Enabled", dialog)
         approximate_ik.checked, approximate_ik.enabled = False, False
+        approximate_ik.toolTip = (
+            "Locked off: the current PreEntry solver accepts only tolerance-valid "
+            "position-and-axis endpoints. An approximate path has not been reviewed "
+            "against the canonical FK, residual, collision and guard gates."
+        )
         cartesian = qt.QCheckBox("Enabled", dialog)
         cartesian.checked, cartesian.enabled = True, False
+        cartesian.toolTip = (
+            "Locked on: Stage 2/3 still use MoveIt Cartesian planning. Turning it off "
+            "requires a separately verified exact-pose sequential-IK path with the "
+            "same endpoint, collision, corridor and phase-guard checks."
+        )
         layout.addRow("Joint planner:", planner)
         layout.addRow("Planning attempts:", attempts)
         layout.addRow("Planning time (s):", planning_time)
         layout.addRow("Approximate IK:", approximate_ik)
         layout.addRow("Cartesian Stage 2/3:", cartesian)
+        for field in (planner, attempts, planning_time, approximate_ik, cartesian):
+            layout.labelForField(field).toolTip = field.toolTip
         buttons = qt.QDialogButtonBox(
             qt.QDialogButtonBox.Ok | qt.QDialogButtonBox.Cancel, dialog
         )
