@@ -1351,6 +1351,14 @@ remain in force. See `Workspace/AGENTS.md` and the dated decision.
 **Bound task:** `S6-LIVE-01` (Priority 0); `S6-LIVE-02..05` require acceptance
 of their preceding milestone.
 
+**2026-09-23 operator delta/source state:** The full Step 6.5 error-dialog
+message is retained in the fingerprinted Motion Diagnostics session; all five
+parameter controls and labels have hover guidance, including the locked-mode
+reasons; RRT* is an optional third configured joint planner with RRTConnect
+still default. Focused source checks pass. Normal-window review and actual
+planner comparisons remain open; the reported Stage-3 tooth↔spindle rejection
+is unaccepted and collision/phase guards are unchanged.
+
 **Canonical contract:**
 [diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
 

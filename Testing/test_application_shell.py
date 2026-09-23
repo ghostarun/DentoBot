@@ -193,6 +193,7 @@ def test_step6_planner_choices_match_moveit_and_reject_unknown_ids():
     assert set(STEP6_JOINT_PLANNER_ALGORITHMS) == {
         "RRTConnectkConfigDefault",
         "RRTkConfigDefault",
+        "RRTstarkConfigDefault",
     }
     rejected = DENTORobotWorkflowFacade(None, lambda: None).planApproachPhase(
         planner_id="not-configured"

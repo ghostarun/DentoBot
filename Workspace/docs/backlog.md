@@ -43,6 +43,13 @@ packages.
 
 `S6-LIVE-01` — **Priority 0, active.** The authoritative contract is
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+2026-09-23 operator additions under this same ID are source-complete, with
+normal-window acceptance open: optional RRT* third choice, all-control hover
+guidance and reasons for locked modes, and reopenable Step 6.5 error-dialog
+text in Motion Diagnostics. RRTConnect remains default; each configured
+choice still needs a one-at-a-time visible result and Tarun's verdict.
+The latest visible Stage-3 tooth↔spindle guard rejection is evidence, not
+authorization to relax collision policy or a planner-performance verdict.
 Input: `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
 (SHA-256 `eb48a805...e7adb`). `M1-DIAG / HOUSING-OFF PASS`: with only the
 spindle-housing collision block absent, the visible preflight completed P1

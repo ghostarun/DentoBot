@@ -447,7 +447,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
     ) -> dict[str, object]:
         """Reconcile the exact approved robot-profile upgrades.
 
-        The additive OMPL choice changes no robot geometry or saved joints;
+        The additive OMPL choices change no robot geometry or saved joints;
         base/Home/workspace evidence still needs current-profile review. The
         old J2 coordinate placed q=0 at the retracted end.  The current
         URDF moves the origin to the former q=0.08 pose and reverses the axis,
@@ -476,7 +476,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 "compatible": True,
                 "migrated": False,
                 "message": _(
-                    "The only robot-profile change is the added RRT planner choice. "
+                    "The only robot-profile change is the added RRT/RRT* planner choices. "
                     "The original case remains unchanged; review and lock the "
                     "base, then revalidate Task Home and workspace evidence "
                     "against the current profile before planning."

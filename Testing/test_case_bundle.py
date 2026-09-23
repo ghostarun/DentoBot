@@ -188,14 +188,20 @@ def test_only_known_additive_rrt_profile_upgrade_is_compatible() -> None:
         "sha256": "10f6f69a2f40f047b64430d1f408ecec0350ee29cafc27a9758d07821b16c355",
         "sizeBytes": 748,
     }
-    new_ompl = {
+    rrt_ompl = {
         **old_ompl,
         "sha256": "da568f2f092e61e9cca2a93d448aa1b4e5b4e143d187248767d240081e106011",
         "sizeBytes": 833,
     }
+    new_ompl = {
+        **old_ompl,
+        "sha256": "9acb46e12a30dcf198d2fe415f10446b8f340fe57b9051de7a9ad91cbab5e7b3",
+        "sizeBytes": 930,
+    }
     saved = profile([urdf, old_ompl])
     current = profile([urdf, new_ompl])
     assert is_additive_rrt_profile_upgrade(saved, current)
+    assert is_additive_rrt_profile_upgrade(profile([urdf, rrt_ompl]), current)
     assert not is_additive_rrt_profile_upgrade(
         saved, profile([{**urdf, "sha256": "b" * 64}, new_ompl])
     )

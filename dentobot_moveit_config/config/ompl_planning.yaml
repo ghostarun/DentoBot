@@ -18,9 +18,13 @@ planner_configs:
   RRTkConfigDefault:
     type: geometric::RRT
     range: 0.0
+  RRTstarkConfigDefault:
+    type: geometric::RRTstar
+    range: 0.0
 
 dentobot_arm:
   planner_configs:
     - RRTConnectkConfigDefault
     - RRTkConfigDefault
+    - RRTstarkConfigDefault
   longest_valid_segment_fraction: 0.005

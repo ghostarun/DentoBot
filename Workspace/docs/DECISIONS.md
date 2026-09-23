@@ -1,5 +1,27 @@
 # Dentobot Technical Decisions
 
+## 2026-09-23 — RRT* added as an optional third Step 6 joint planner
+
+The operator supersedes the earlier two-choice ceiling: keep RRTConnect as
+default and expose `RRTstarkConfigDefault` / `geometric::RRTstar` beside RRT
+and RRTConnect. The only robot-profile migration accepted for existing Sep-22
+packages is the exact checked-in additive OMPL YAML transition from either
+known previous hash to the new hash; all other resource and case-lineage
+checks remain strict. Saved cases are not rewritten. A configured planner-ID
+echo is not proof of the algorithm executed, and no planner choice bypasses
+the independent Stage-2/3 guard. Visible performance/acceptance is pending.
+
+## 2026-09-23 — Exact additive RRT profile compatibility on case restore
+
+Permit only the recorded `ompl_planning.yaml` transition from SHA-256
+`10f6f69a…b16c355` (748 bytes) to `da568f2f…106011` (833 bytes) when all
+other robot-profile components, inventory, restore policy and identity hashes
+match. This admits the added RRT choice without rewriting the saved package or
+excluding MoveIt configuration from profile identity. The restored base,
+Task Home and workspace evidence remain subject to current-profile review and
+validation; arbitrary URDF, SRDF, mesh or other MoveIt changes still fail closed.
+Normal-window acceptance is pending.
+
 ## 2026-09-23 — GPT-6 Sol light / Luna xhigh replaces Terra routing
 
 The operator supersedes the 2026-09-09 Sol 5.6 default and the active

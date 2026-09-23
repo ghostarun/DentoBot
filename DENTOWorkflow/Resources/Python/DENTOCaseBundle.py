@@ -272,11 +272,17 @@ def build_robot_profile(
 
 
 def is_additive_rrt_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
-    """Recognize only the checked-in RRT choice added to the OMPL profile."""
+    """Recognize only the checked-in additive RRT/RRT* OMPL choices."""
 
     path = "moveit/config/ompl_planning.yaml"
-    old_sha = "10f6f69a2f40f047b64430d1f408ecec0350ee29cafc27a9758d07821b16c355"
-    new_sha = "da568f2f092e61e9cca2a93d448aa1b4e5b4e143d187248767d240081e106011"
+    saved_yaml_versions = {
+        ("10f6f69a2f40f047b64430d1f408ecec0350ee29cafc27a9758d07821b16c355", 748),
+        ("da568f2f092e61e9cca2a93d448aa1b4e5b4e143d187248767d240081e106011", 833),
+    }
+    current_yaml = (
+        "9acb46e12a30dcf198d2fe415f10446b8f340fe57b9051de7a9ad91cbab5e7b3",
+        930,
+    )
     if (
         saved.get("schemaVersion") != "1.0"
         or current.get("schemaVersion") != "1.0"
@@ -307,10 +313,10 @@ def is_additive_rrt_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
         and len(changed) == 1
         and changed[0][0].get("path") == path
         and changed[0][1].get("path") == path
-        and changed[0][0].get("sha256") == old_sha
-        and changed[0][1].get("sha256") == new_sha
-        and changed[0][0].get("sizeBytes") == 748
-        and changed[0][1].get("sizeBytes") == 833
+        and (changed[0][0].get("sha256"), changed[0][0].get("sizeBytes"))
+        in saved_yaml_versions
+        and (changed[0][1].get("sha256"), changed[0][1].get("sizeBytes"))
+        == current_yaml
     )
 
 
