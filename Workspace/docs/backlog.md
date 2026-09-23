@@ -87,26 +87,18 @@ new case name before any controlled base-placement comparison. These are
 operator-owned visible evidence steps; they do not authorize another automated
 runtime or overwrite either supplied case.
 
-**Queued immediately after the currently running reusable-case task — DENTO-NOTE
-P0, 2026-09-22:** keep the professor-recommended planner-policy change under
-`S6-LIVE-01`. Motion Diagnostics must display the effective runtime planner
-algorithm/configuration. Audit and apply: RRT instead of RRT*, approximate IK
-disabled, and Cartesian-path planning disabled. The checked-in OMPL profile is
-currently `RRTConnectkConfigDefault` / `geometric::RRTConnect`, not RRT*, so
-verify the runtime planner ID before changing configuration and do not invent
-an exact planner name. Define the non-Cartesian replacement for Stage 2/3 before
-source edits. Preserve collision, phase, target-contact, J1-J5/J6, geometry and
-no-hardware boundaries. Do not interrupt the current reusable-case run.
-The fixed-policy diagnostic slice is committed at `06b2ffd`; the planner-ID
-bridge is committed at DentoBot `e4ca5f4` and SlicerROS2 `4cad571`, and its
-focused build passes. The shared Step 6.5/6.6 dialog now drives planner ID,
-attempts and time. The 2026-09-23 source pass adds `RRTkConfigDefault` as a
-second choice and verifies it in the container's installed YAML. A trial of
-each choice, compact diagnostics, screenshots and Tarun's verdict remain open.
-The SlicerROS2 ID getter reads MoveGroup configuration before `plan()`, so a
-matching ID does not yet prove which algorithm executed; the diagnostic label
-now states that limit. Capture planning-server evidence if the first trial
-needs an executed-algorithm claim.
+**Planner-policy state (`S6-LIVE-01`):** The 2026-09-22 DENTO-NOTE requested
+effective planner identity, RRT-family comparison, approximate IK disabled and
+Cartesian-path planning disabled. Later explicit operator direction adds RRT*
+as an optional third comparison; RRTConnect remains default. The shared 6.5/6.6
+dialog now exposes those three configured choices, attempts and time. Approximate
+IK remains disabled. Cartesian Stage 2/3 remains enabled and locked until the
+canonical exact-pose sequential-IK replacement is checked, *after* a visible
+planner comparison and Tarun's verdict. The planner-ID bridge/focused build
+passed, but its configured-ID echo before `plan()` does not prove the executed
+algorithm. Each visible trial, screenshots and manual verdict remain open;
+capture planning-server evidence before claiming an executed algorithm. Keep
+collision, phase, target-contact, J1-J5/J6 and no-hardware boundaries intact.
 The Step 6.5/6.6 navigation, primary preview controls and facade/bridge
 operator messages have source-only Approach/Drill wording slices without
 changing planner behavior. A normal-window check is still needed before
