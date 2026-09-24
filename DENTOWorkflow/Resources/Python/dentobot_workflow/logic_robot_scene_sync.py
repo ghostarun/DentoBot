@@ -1133,6 +1133,15 @@ class RobotSceneSyncLogicMixin:
             object_records=object_records,
             runtime_acknowledgement=acknowledgement,
         )
+        if prior_audit is not None:
+            previous = prior_audit.to_dict()
+            current = audit.to_dict()
+            for item in (previous, current):
+                item.pop("generated_at_utc", None)
+                item.pop("audit_fingerprint", None)
+            if previous == current:
+                # A fresh, identical acknowledgement must not stale validated Home.
+                audit = prior_audit
         parameterNode.step6CollisionSceneAuditJson = canonical_json(audit.to_dict())
         if (
             prior_audit is not None

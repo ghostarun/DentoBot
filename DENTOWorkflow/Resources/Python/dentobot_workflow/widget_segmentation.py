@@ -261,6 +261,10 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
             )
             self.ui.segmentationReviewStatusLabel.styleSheet = "color: #b36b00;"
             self._setSegmentationReviewControlsEnabled(False)
+            self.ui.pulpInventorySummaryLabel.text = _("Select a segmentation run to check pulp masks.")
+            self.ui.checkPulpMasksButton.enabled = False
+            self.ui.viewPulpReportButton.enabled = False
+            self.ui.createMissingPulpsButton.enabled = False
             if self._applySceneDisplayPresetButton:
                 self._applySceneDisplayPresetButton.enabled = bool(
                     self._parameterNode
@@ -303,6 +307,10 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         )
         self.ui.isolateSegmentButton.enabled = hasSelectedSegment
         self.ui.editSelectedSegmentButton.enabled = hasSelectedSegment
+        self.ui.prepareSelectedToothPulpButton.enabled = False
+        self.ui.checkPulpMasksButton.enabled = False
+        self.ui.viewPulpReportButton.enabled = False
+        self.ui.createMissingPulpsButton.enabled = False
 
     def _updateSegmentationReview(self) -> None:
         if not self._reviewSegmentationNode or not self.logic:
@@ -389,6 +397,20 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
 
         self._applySegmentFilter(self.ui.segmentSearchLineEdit.text)
         self._updateSegmentationReviewStatus()
+        self._updatePreparePulpButton()
+        self._updatePulpInventoryControls()
+
+    def _updatePreparePulpButton(self) -> None:
+        segmentId = self._selectedReviewSegmentId()
+        record = getattr(self, "_segmentReviewRecordsById", {}).get(segmentId)
+        self.ui.prepareSelectedToothPulpButton.enabled = bool(
+            self._reviewSegmentationNode
+            and self.logic
+            and record
+            and record.get("structureType") == "TOOTH"
+            and self.logic.getSegmentationReviewState(self._reviewSegmentationNode)
+            == "Reviewed"
+        )
 
     def _syncSegmentationDisplayControls(self) -> None:
         if not self._reviewSegmentationNode:
@@ -694,7 +716,7 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         return str(value) if value else None
 
     def onReviewSegmentationSelectionChanged(self, segmentationNode) -> None:
-        if self._updatingFromParameterNode or getattr(self, "_selectingInspection", False):
+        if not self._parameterNode or self._updatingFromParameterNode or getattr(self, "_selectingInspection", False):
             return
         volume = self.logic.getSegmentationSourceVolume(segmentationNode) if segmentationNode else self._parameterNode.inspectedVolume
         self.selectInspectionContext(volume, segmentationNode)
@@ -779,6 +801,7 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         )
         self.ui.isolateSegmentButton.enabled = bool(segmentId)
         self.ui.editSelectedSegmentButton.enabled = bool(segmentId)
+        self._updatePreparePulpButton()
         if not segmentId:
             self._setSelectedSegmentDetailPlaceholders()
             if self._reviewSegmentationNode and self.logic:
@@ -833,6 +856,201 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
                 self._reviewSegmentationNode,
                 segmentId,
             )
+
+    def _updatePulpInventoryControls(self) -> None:
+        node = self._reviewSegmentationNode
+        eligible = bool(node and node.GetAttribute("DENTOBOT.BridgeOperation") == "segment-teeth")
+        report = self.logic.getPulpInventoryReport(node) if eligible and self.logic else None
+        current = bool(report and not report.get("stale"))
+        self.ui.checkPulpMasksButton.enabled = eligible
+        self.ui.viewPulpReportButton.enabled = current
+        self.ui.createMissingPulpsButton.enabled = bool(current and report["counts"]["missing"])
+        if not eligible:
+            summary = _("Select a completed teeth segmentation run to check pulp masks.")
+        elif not report:
+            summary = _("Pulp masks have not been checked for this run. Click Check Pulp Masks.")
+        elif report.get("stale"):
+            summary = _("Pulp mask report is stale after segmentation changes. Click Check Pulp Masks again.")
+        else:
+            counts = report["counts"]
+            summary = _("%1 teeth · %2 associated · %3 missing · %4 candidates · %5 need attention.")
+            for key, value in (("%1", len(report["rows"])), ("%2", counts["associated"]),
+                               ("%3", counts["missing"]), ("%4", counts["candidate"]),
+                               ("%5", counts["ambiguous"] + counts["cannot-evaluate"])):
+                summary = summary.replace(key, str(value))
+        self.ui.pulpInventorySummaryLabel.text = summary
+
+    def onCheckPulpMasks(self, checked=False) -> None:
+        del checked
+        node = self._reviewSegmentationNode
+        if not node or not self.logic or node.GetAttribute("DENTOBOT.BridgeOperation") != "segment-teeth":
+            return
+        total = sum(record.get("structureType") == "TOOTH" for record in self.logic.getSegmentationReviewRecords(node))
+        progressDialog = qt.QProgressDialog(_("Checking pulp masks for this run..."), "", 0, total, slicer.util.mainWindow())
+        progressDialog.setCancelButton(None)
+        progressDialog.setWindowModality(qt.Qt.WindowModal)
+        progressDialog.show()
+        slicer.app.processEvents()
+        def updateProgress(done, _total, fdi):
+            progressDialog.setLabelText(_("Checking FDI%1 (%2 of %3)").replace("%1", fdi or _("unknown"))
+                                        .replace("%2", str(done)).replace("%3", str(total)))
+            progressDialog.setValue(done)
+            slicer.app.processEvents()
+        try:
+            self._updatingSegmentationReviewUI = True
+            report = self.logic.checkPulpInventory(node, progress=updateProgress)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        finally:
+            self._updatingSegmentationReviewUI = False
+            progressDialog.close()
+            self._updatePulpInventoryControls()
+        self._showPulpInventoryDialog(node, report)
+
+    def onCreateMissingPulps(self, checked=False) -> None:
+        del checked
+        node = self._reviewSegmentationNode
+        if not node or not self.logic:
+            return
+        current = self.logic.getPulpInventoryReport(node)
+        total = sum(row["status"] in {"missing", "failed"} for row in current["rows"]) if current else 0
+        progressDialog = qt.QProgressDialog(_("Preparing pulp candidates..."), "", 0, total, slicer.util.mainWindow())
+        progressDialog.setCancelButton(None)
+        progressDialog.setWindowModality(qt.Qt.WindowModal)
+        progressDialog.show()
+        def updateProgress(done, _total, fdi):
+            progressDialog.setLabelText(_("Preparing FDI%1 (%2 of %3)").replace("%1", fdi)
+                                        .replace("%2", str(done)).replace("%3", str(total)))
+            progressDialog.setValue(done)
+            slicer.app.processEvents()
+        try:
+            self._processingSegmentationContentChange = True
+            self._updatingSegmentationReviewUI = True
+            report = self.logic.createMissingPulpCandidates(node, progress=updateProgress)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            slicer.util.errorDisplay(str(exc))
+            return
+        finally:
+            self._processingSegmentationContentChange = False
+            self._updatingSegmentationReviewUI = False
+            progressDialog.close()
+        self._rebuildSegmentTree()
+        self._updatePlanning()
+        self._updateTemplateModeling()
+        if node == self._parameterNode.teethSegmentation and report["createdCount"]:
+            self.logic.invalidateCaseFoundationForSourceChange(
+                self._parameterNode, _("Derived pulp masks changed the source segmentation."),
+            )
+        self._showPulpInventoryDialog(node, report)
+
+    def onViewPulpReport(self, checked=False) -> None:
+        del checked
+        node = self._reviewSegmentationNode
+        report = self.logic.getPulpInventoryReport(node) if node and self.logic else None
+        if report and not report.get("stale"):
+            self._showPulpInventoryDialog(node, report)
+
+    def _showPulpInventoryDialog(self, node, report) -> None:
+        dialog = qt.QDialog(slicer.util.mainWindow())
+        dialog.setWindowTitle(_("Pulp mask report — %1").replace("%1", node.GetName()))
+        layout = qt.QVBoxLayout(dialog)
+        created = int(report.get("createdCount") or 0)
+        failed = int(report.get("failedCount") or 0)
+        summary = qt.QLabel(_("%1 candidates created; %2 attempts failed. Select a row to inspect its masks.")
+                            .replace("%1", str(created)).replace("%2", str(failed)))
+        summary.wordWrap = True
+        layout.addWidget(summary)
+        table = qt.QTableWidget(len(report["rows"]), 7)
+        table.setHorizontalHeaderLabels([_('FDI'), _('Tooth segment'), _('Pulp segment'), _('Outcome'), _('Voxels'), _('Review'), _('Reason')])
+        table.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
+        table.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
+        for rowIndex, row in enumerate(report["rows"]):
+            for column, value in enumerate((row["fdi"], row["toothSegmentId"], row["pulpSegmentId"],
+                                            row["status"], row["voxelCount"], row["reviewState"], row["reason"])):
+                table.setItem(rowIndex, column, qt.QTableWidgetItem(str(value)))
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        absent = qt.QLabel(_("FDI teeth without a detected tooth mask: %1")
+                           .replace("%1", ", ".join(report["absentFdi"]) or _("none")))
+        absent.wordWrap = True
+        layout.addWidget(absent)
+        buttons = qt.QDialogButtonBox(qt.QDialogButtonBox.Close)
+        buttons.connect("rejected()", dialog.reject)
+        layout.addWidget(buttons)
+        def inspect(rowIndex, _column):
+            if rowIndex < 0 or rowIndex >= len(report["rows"]):
+                return
+            row = report["rows"][rowIndex]
+            if self._reviewSegmentationNode != node:
+                return
+            self.logic.setAllSegmentationSegmentsVisibility(node, False)
+            self.logic.setSegmentationSegmentVisibility(node, row["toothSegmentId"], True)
+            if row["pulpSegmentId"]:
+                self.logic.setSegmentationSegmentVisibility(node, row["pulpSegmentId"], True)
+            for groupIndex in range(self.ui.segmentTreeWidget.topLevelItemCount):
+                group = self.ui.segmentTreeWidget.topLevelItem(groupIndex)
+                for childIndex in range(group.childCount()):
+                    item = group.child(childIndex)
+                    if str(item.data(0, qt.Qt.UserRole)) == row["toothSegmentId"]:
+                        self.ui.segmentTreeWidget.setCurrentItem(item)
+                        break
+            try:
+                volume = self.logic.getSegmentationSourceVolume(node)
+                voxels = np.argwhere(slicer.util.arrayFromSegmentBinaryLabelmap(node, row["toothSegmentId"], volume) > 0)
+                if len(voxels):
+                    kji = (voxels.min(axis=0) + voxels.max(axis=0)) / 2.0
+                    ijkToRas = vtk.vtkMatrix4x4()
+                    volume.GetIJKToRASMatrix(ijkToRas)
+                    ras = ijkToRas.MultiplyPoint((float(kji[2]), float(kji[1]), float(kji[0]), 1.0))
+                    slicer.util.jumpSlicesToLocation(*ras[:3], centered=True)
+            except (TypeError, ValueError, RuntimeError):
+                pass
+        table.connect("cellClicked(int,int)", inspect)
+        dialog.resize(1000, 550)
+        dialog.exec()
+
+    def onPrepareSelectedToothPulp(self) -> None:
+        segmentationNode = self._reviewSegmentationNode
+        toothId = self._selectedReviewSegmentId()
+        try:
+            if not segmentationNode or not toothId or not self.logic:
+                raise ValueError(_("Select a whole tooth in Step 2 first."))
+            if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":
+                raise ValueError(_("Review the source segmentation before preparing a pulp mask."))
+            tooth = self.logic.validateTargetTooth(segmentationNode, toothId)
+            result = self.logic.prepareTargetPulpMask(segmentationNode, toothId)
+            pulpId = result["pulpSegmentId"]
+            self.logic.setAllSegmentationSegmentsVisibility(segmentationNode, False)
+            self.logic.setSegmentationSegmentVisibility(segmentationNode, toothId, True)
+            self.logic.setSegmentationSegmentVisibility(segmentationNode, pulpId, True)
+            self.ui.segmentSearchLineEdit.text = ""
+            self._rebuildSegmentTree()
+            tree = self.ui.segmentTreeWidget
+            for groupIndex in range(tree.topLevelItemCount):
+                group = tree.topLevelItem(groupIndex)
+                for childIndex in range(group.childCount()):
+                    item = group.child(childIndex)
+                    if str(item.data(0, qt.Qt.UserRole)) == pulpId:
+                        tree.setCurrentItem(item)
+                        break
+            self._updateSegmentationProvenance()
+            self._updateAssistedTrajectoryControls()
+            fdi = str(tooth.get("canonicalFdiNumber") or tooth.get("fdiNumber"))
+            if result["status"] == "created":
+                message = _(
+                    "Created a %1-voxel pulp candidate for FDI%2. Inspect the selected "
+                    "mask against the tooth, then mark this segmentation Reviewed "
+                    "before continuing to Step 4A."
+                ).replace("%1", str(result["voxelCount"])).replace("%2", fdi)
+                style = "color: #b36b00;"
+            else:
+                message = _("An associated pulp mask is ready for FDI%1.").replace("%1", fdi)
+                style = "color: #207227;"
+            self.ui.segmentationReviewStatusLabel.text = message
+            self.ui.segmentationReviewStatusLabel.styleSheet = style
+        except (RuntimeError, ValueError) as exc:
+            slicer.util.errorDisplay(str(exc))
 
     def onEditSelectedSegment(self) -> None:
         segmentId = self._selectedReviewSegmentId()
@@ -1418,6 +1636,7 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
                 state,
             )
             self._updateSegmentationProvenance()
+            self._updatePreparePulpButton()
             self.ui.segmentationReviewStatusLabel.text = (
                 _("Workflow review state saved as %1.")
                 .replace("%1", state)

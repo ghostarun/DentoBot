@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowCancelled, WorkflowProgress
 
 
 class TemplateBuildWidgetMixin:
@@ -1303,7 +1304,7 @@ class TemplateBuildWidgetMixin:
         self._parameterNode.finalPrintableTemplateModel = modelNode
         self._updateTemplateGuide()
 
-    def _createOrUpdateFinalPrintableTemplate(self):
+    def _createOrUpdateFinalPrintableTemplate(self, progress=None):
         if not self._parameterNode or not self.logic:
             raise RuntimeError(_("DENTOWorkflow is not ready."))
         targetDockingAssembly = self._parameterNode.targetDockingAssemblyModel
@@ -1343,15 +1344,24 @@ class TemplateBuildWidgetMixin:
                 ),
                 channelsModel=(self._parameterNode.templateDockingChannelsModel if reuseCurrent else None),
                 finalModel=currentFinal if reuseCurrent else None,
+                progress=progress,
             )
         )
-        self._parameterNode.templateDockingAssemblyModel = roleModels["docking"]
-        self._parameterNode.templateDockingClearanceModel = roleModels["clearance"]
-        self._parameterNode.templateDockingReinforcementModel = roleModels[
-            "reinforcement"
-        ]
-        self._parameterNode.templateDockingChannelsModel = roleModels["channels"]
-        self._parameterNode.finalPrintableTemplateModel = finalModel
+        if progress:
+            progress("Registering unified template outputs", can_cancel=False)
+        wasModifying = self._parameterNode.StartModify()
+        try:
+            self._parameterNode.templateDockingAssemblyModel = roleModels["docking"]
+            self._parameterNode.templateDockingClearanceModel = roleModels["clearance"]
+            self._parameterNode.templateDockingReinforcementModel = roleModels[
+                "reinforcement"
+            ]
+            self._parameterNode.templateDockingChannelsModel = roleModels["channels"]
+            self._parameterNode.finalPrintableTemplateModel = finalModel
+        finally:
+            self._parameterNode.EndModify(wasModifying)
+        if progress:
+            progress("Recording template lineage", can_cancel=False)
         for role, node in (
             (
                 self.logic.TEMPLATE_FINAL_GUIDE_RESEARCH_SHELL_REFERENCE_ROLE,
@@ -1368,6 +1378,8 @@ class TemplateBuildWidgetMixin:
         ):
             finalModel.SetNodeReferenceID(role, node.GetID() if node else None)
         self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
+        if progress:
+            progress("Refreshing template review", can_cancel=False)
         logging.info(
             "Generated unified template %s from %d trajectories with %d triangles",
             finalModel.GetID(),
@@ -1383,12 +1395,23 @@ class TemplateBuildWidgetMixin:
 
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 5B unified template")
         try:
-            self._createOrUpdateFinalPrintableTemplate()
+            self._createOrUpdateFinalPrintableTemplate(progress=progress.update)
+        except WorkflowCancelled as exc:
+            self.ui.templateDockingFusionStatusLabel.text = str(exc)
+            self.ui.templateDockingFusionStatusLabel.styleSheet = "color: #b36b00;"
         except (RuntimeError, ValueError) as exc:
             self.ui.templateDockingFusionStatusLabel.text = str(exc)
             self.ui.templateDockingFusionStatusLabel.styleSheet = "color: #b00020;"
+            progress.close()
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
 
     def _completeTemplateBuildPreflight(self) -> dict:
         if not self._parameterNode or not self.logic:
@@ -1467,10 +1490,15 @@ class TemplateBuildWidgetMixin:
 
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 5B complete template")
         generatedStages = []
         reusedStages = []
         try:
             # Preflight the inexpensive plan/dock contracts before any voxel work.
+            progress.update("Checking inputs")
             self._completeTemplateBuildPreflight()
             self._updateTemplateGuide()
 
@@ -1486,9 +1514,12 @@ class TemplateBuildWidgetMixin:
             except (RuntimeError, ValueError, json.JSONDecodeError):
                 pass
             if blockoutCurrent:
+                progress.update("Reusing directional blockout", 1, 3)
                 reusedStages.append(_("directional blockout"))
             else:
+                progress.update("Building directional blockout", 0, 3)
                 self._createOrUpdateTemplateUndercuts()
+                progress.update("Directional blockout complete", 1, 3)
                 generatedStages.append(_("directional blockout"))
 
             shellCurrent = False
@@ -1502,9 +1533,12 @@ class TemplateBuildWidgetMixin:
             except (RuntimeError, ValueError, json.JSONDecodeError):
                 pass
             if shellCurrent:
+                progress.update("Reusing patient shell", 2, 3)
                 reusedStages.append(_("patient shell"))
             else:
+                progress.update("Building patient shell", 1, 3)
                 self._createOrUpdatePatientContactShell()
+                progress.update("Patient shell complete", 2, 3)
                 generatedStages.append(_("patient shell"))
 
             self._updateTemplateGuide()
@@ -1519,9 +1553,12 @@ class TemplateBuildWidgetMixin:
             except (RuntimeError, ValueError, json.JSONDecodeError):
                 pass
             if finalCurrent:
+                progress.update("Reusing unified fusion", 3, 3)
                 reusedStages.append(_("unified guide/dock fusion"))
             else:
-                self._createOrUpdateFinalPrintableTemplate()
+                progress.update("Building unified fusion", 2, 3)
+                self._createOrUpdateFinalPrintableTemplate(progress=progress.update)
+                progress.update("Unified fusion complete", 3, 3)
                 generatedStages.append(_("unified guide/dock fusion"))
 
             self.ui.templateDockingFusionGroupBox.collapsed = False
@@ -1535,11 +1572,19 @@ class TemplateBuildWidgetMixin:
                 .replace("%2", reusedText)
             )
             self.ui.templateDockingFusionStatusLabel.styleSheet = "color: #207227;"
+        except WorkflowCancelled as exc:
+            self.ui.templateDockingFusionGroupBox.collapsed = False
+            self.ui.templateDockingFusionStatusLabel.text = str(exc)
+            self.ui.templateDockingFusionStatusLabel.styleSheet = "color: #b36b00;"
         except (RuntimeError, ValueError) as exc:
             self.ui.templateDockingFusionGroupBox.collapsed = False
             self.ui.templateDockingFusionStatusLabel.text = str(exc)
             self.ui.templateDockingFusionStatusLabel.styleSheet = "color: #b00020;"
+            progress.close()
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
 
     def _inspectTemplatePreset(self, presetKey: str) -> None:
         if not self._parameterNode or not self.logic:

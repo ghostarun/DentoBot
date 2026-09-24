@@ -204,10 +204,13 @@ class DockingLogicMixin:
         parameters: dict,
         *,
         visible: bool,
+        progress=None,
     ) -> list[vtkMRMLMarkupsLineNode]:
         """Create referenced, read-only Step 4C dimension annotations."""
 
         self._removeTargetDockingMeasurementNodes(assemblyModel)
+        if progress:
+            progress("Replacing dock measurement annotations")
         origin = np.asarray(frame["originRas"], dtype=float)
         zAxis = np.asarray(frame["zAxisRas"], dtype=float)
         zAxis /= np.linalg.norm(zAxis)
@@ -223,9 +226,11 @@ class DockingLogicMixin:
                 visible,
             )
         ]
+        if progress:
+            progress("Occlusal-normal annotation complete")
         outerDiameter = float(parameters["outerDiameterMm"])
         boreDiameter = float(parameters["boreDiameterMm"])
-        for dock in metrics["docks"]:
+        for dockIndex, dock in enumerate(metrics["docks"], 1):
             dockLabel = str(dock["label"])
             top = np.asarray(dock["topFaceCenterRas"], dtype=float)
             terminal = np.asarray(dock["terminalCenterRas"], dtype=float)
@@ -274,6 +279,8 @@ class DockingLogicMixin:
                     visible,
                 )
             )
+            if progress:
+                progress(f"Updating dock measurements {dockIndex}/4")
         self._setRepeatedNodeReferences(
             assemblyModel,
             self.TARGET_DOCKING_MEASUREMENT_REFERENCE_ROLE,
@@ -293,6 +300,7 @@ class DockingLogicMixin:
         assemblyModel: vtkMRMLModelNode | None = None,
         autoSelectYaw: bool = False,
         measurementsVisible: bool = True,
+        progress=None,
     ) -> tuple[vtkMRMLMarkupsPlaneNode, vtkMRMLModelNode, dict]:
         parameterNode = self.getParameterNode()
         self.requireCaseFoundationPose(parameterNode)
@@ -346,6 +354,8 @@ class DockingLogicMixin:
         parameters = dict(parameters)
         autoYawSearch = None
         if autoSelectYaw:
+            if progress:
+                progress("Screening automatic dock orientation")
             autoYawSearch = find_collision_aware_target_docking_yaw(
                 frame,
                 parameters,
@@ -359,9 +369,17 @@ class DockingLogicMixin:
                 parameters,
                 obstacleSurfaces,
             )
+        if progress:
+            progress("Generating four dock surfaces")
         surfaces, metrics = create_target_frame_docking_geometry(
             frame,
             parameters,
+            progress=(
+                lambda stage, index, done, total: progress(
+                    f"Dock surface {index}/5: {stage}", done, total
+                )
+                if progress else None
+            ),
         )
         metrics = {
             **metrics,
@@ -372,6 +390,9 @@ class DockingLogicMixin:
             "obstacleSegmentIds": list(obstacleSegmentIds),
             "omittedObstacleSegmentIds": list(omittedObstacleSegmentIds),
         }
+
+        if progress:
+            progress("Applying dock geometry to scene", can_cancel=False)
 
         if planeNode and not self.isTargetDockingReferencePlaneNode(planeNode):
             raise ValueError(_("Select the DENTOBOT Step 4C target reference plane."))
@@ -549,12 +570,15 @@ class DockingLogicMixin:
             targetRecord["segmentId"],
             targetRecord.get("fdiNumber") or "",
         )
+        if progress:
+            progress("Updating dock measurement annotations")
         measurementNodes = self.createTargetDockingMeasurementNodes(
             assemblyModel,
             frame,
             metrics,
             parameters,
             visible=bool(measurementsVisible),
+            progress=progress,
         )
         return planeNode, assemblyModel, {
             "frame": frame,

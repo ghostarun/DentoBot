@@ -133,6 +133,7 @@ def test_assisted_entry_placement_is_one_point_per_button_click():
         def __init__(self):
             self.create_calls = 0
             self.start_calls = []
+            self.pulp_checks = 0
 
         def validateTargetTooth(self, _segmentation, _segment_id):
             return {"segmentId": "seg1"}
@@ -142,6 +143,10 @@ def test_assisted_entry_placement_is_one_point_per_button_click():
 
         def dentobotTrajectoriesForTarget(self, _segmentation, _segment_id):
             return []
+
+        def getTargetPulpAssociation(self, _segmentation, _segment_id):
+            self.pulp_checks += 1
+            return {"validationState": "VALID"}
 
         def isAssistedTrajectoryEntryNode(self, node):
             return node is entry_set
@@ -207,12 +212,14 @@ def test_assisted_entry_placement_is_one_point_per_button_click():
     )
     place()
     assert logic.create_calls == 1
+    assert logic.pulp_checks == 1
     assert logic.start_calls == [entry_set]
     assert parameter_node.assistedTrajectoryEntries is entry_set
 
     entry_set.defined = 1
     place()
     assert logic.create_calls == 1
+    assert logic.pulp_checks == 1
     assert logic.start_calls == [entry_set, entry_set]
     assert confirm_calls == []
     assert errors == []

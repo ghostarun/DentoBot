@@ -371,6 +371,13 @@ class ViewControlsWidgetMixin:
                     restrictions.append(restriction)
         finally:
             self._updatingWorkflowViewUI = False
+        if any(
+            entry["kind"] == "segments"
+            and (entry.get("segmentationNode") or self._parameterNode.teethSegmentation)
+            is self._parameterNode.teethSegmentation
+            for entry in entriesToChange
+        ):
+            self._enforceStep6OpenedJawDisplaySeparation()
         self._workflowViewVisibleKeys = {
             entryKey
             for entryKey, entry in self._workflowViewEntriesByKey.items()
@@ -378,9 +385,7 @@ class ViewControlsWidgetMixin:
         }
         self._workflowViewActivePresetKey = "custom"
         self._workflowViewComposition = None
-        # Tree toggles are explicit custom presentation.  Recommended Step 6
-        # composition avoids duplicate source/derived anatomy, but must not
-        # override an operator's subsequent visibility choice.
+        # Custom choices still pass through opened-jaw source/proxy separation.
         if restrictions:
             self.ui.workflowViewStatusLabel.text = " ".join(restrictions)
             self.ui.workflowViewStatusLabel.styleSheet = "color: #b06a00;"

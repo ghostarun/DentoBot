@@ -1,5 +1,57 @@
 # Dentobot Technical Decisions
 
+## 2026-09-24 — Headless workflow gate before Studio; defer broad GUI revamp
+
+Tarun wants every step of the current workflow headlessly automatable and
+verified before starting the Robotics Simulation Studio implementation. Add
+that gate to `DCP-00` and retain the independent reviewed clean-case
+`S6-LIVE-05` gate. Record exact per-step evidence and repair gaps under their
+existing owners; do not infer full coverage from partial headless passes or
+substitute headless evidence for required GUI/operator verdicts.
+
+Defer the broad `UI-P3-01` GUI/UX redesign until the functions it wraps have
+settled and Studio functional acceptance exists. Current GUI fixes needed for
+operation, verification, accessibility or honest state remain eligible under
+their existing task contracts. This decision changes sequencing, not priorities,
+the `S6-LIVE-01` pause, safety policy, or runtime authorization.
+
+## 2026-09-24 — Unknown existing mask inside selected tooth
+
+The operator extends Case B to detected masks whose source type is unknown.
+For the selected tooth, an existing `OTHER` mask may receive canonical pulp
+identity only after the current unique HIGH-confidence spatial association and
+full sampled-component enclosure in that tooth. Keep its source name, label ID
+and mask unchanged. No geometry or missing mask is created; ambiguous or
+partially enclosed masks fail closed. Step 4A still validates the native and
+displayed endpoint before creating either requested assisted line.
+
+## 2026-09-24 — Temporary operator halt of S6-LIVE-01
+
+Tarun has paused the Priority-0 Step 6 planner recovery while he decides how
+to proceed after reviewing the 23 September evidence report. Keep
+`S6-LIVE-01` and its unaccepted planner/GUI milestones in the existing backlog
+and canonical contract. This is a sequencing decision, not a downgrade,
+completion, change to collision/IK/guard policy, or approval of the incomplete
+FDI21 comparison. Independent backlog items retain their recorded priorities,
+dependencies and acceptance gates. Resume this planner lane only when Tarun
+provides a new direction; reconcile it with the canonical contract first.
+
+## 2026-09-24 — Make generic-identity pulp eligible by spatial association
+
+The operator clarified that detected pulp masks/components inside the selected
+tooth should support one or two assisted trajectories even when source labels
+have no FDI identity. Existing semantic acceptance case B already describes
+generic/absent raw identity resolved by spatial evidence, but this behavior was
+not visible in the backlog summary and the 2026-09-09 decision deferred
+operator-reviewed unlabelled-pulp handling. This supersedes that deferral for
+detected components that pass the existing calibrated spatial association
+gate. If none is associated inside the selected tooth, do not generate a
+pulp-based line. Preserve raw names/labels; do not synthesize, rename or edit
+masks. Ambiguous, malformed, duplicate and cross-tooth evidence remains
+blocked. `S3-P0-DENTAL-SEMANTICS` owns classification/association and
+`S4A-PULP-ENDPOINT` owns endpoint geometry and one/two-line construction. The
+feature extension is Unprioritized; no priority was assigned.
+
 ## 2026-09-23 — RRT* added as an optional third Step 6 joint planner
 
 The operator supersedes the earlier two-choice ceiling: keep RRTConnect as
@@ -53,28 +105,6 @@ not proof of the algorithm that executed. Keep the compatibility fields, but
 label this evidence truthfully in Motion Diagnostics and require separate
 planning-server evidence for an executed-algorithm claim.
 
-## 2026-09-22 — Phone-anchor active quota requires the Codex App proxy route
-
-The Codex Switcher phone-anchor contract intentionally keeps the anchored
-account in `~/.codex/auth.json` while changing `store.current` for proxy
-traffic. Therefore Codex Desktop must enter the local proxy whenever the user
-expects a non-anchor account to supply active quota; direct Desktop mode will
-always observe the anchored disk identity.
-
-The external switcher checkout at `/home/light-tarun/src/codex-switcher` had
-drifted from its own Proxy UI/README contract: `set_proxy_env` had become
-CLI-only and cleared `openai_base_url`, and the Desktop launcher cleared it
-unconditionally. Restore the existing shared “CLI + App” behavior: enable
-writes the shell route, macOS launchctl route and `~/.codex/config.toml` base
-URL; disable removes them. The launcher preserves the base URL only while the
-configured proxy is actually running and otherwise keeps direct mode. No new
-routing abstraction or account-state workaround is introduced.
-
-This decision does not repair a rejected anchor refresh token. That remains a
-separate account-health follow-up. Packaging/installed-app acceptance remains
-open until the required native GTK/WebKit development headers are available and
-the rebuilt binary is installed.
-
 ## 2026-09-22 — Step 6 planner controls must be effective and incremental
 
 The operator superseded the earlier plan-only boundary and authorized immediate
@@ -95,6 +125,15 @@ the minimum truthful substrate for the chooser. A UI control must not infer
 success from the requested ID when the effective ID is absent or different.
 
 ## 2026-09-22 — Queue professor planner recommendations under S6-LIVE-01
+
+**Superseded comparison cadence, 2026-09-23:** Tarun requested one Step 6.5
+action to run the three configured planners sequentially under frozen inputs,
+store per-PreparedBranch diagnostic/path evidence in DentoCase, and allow only
+offline display-only replay after reopen. Ordinary failures continue; fatal,
+identity change and between-trial cancellation stop with `NotRun` rows. No
+planner is automatically preferred, saved paths cannot authorize guarded
+preview, and configured IDs are not execution proof. This replaces the prior
+one-at-a-time runtime-comparison cadence, not the collision/phase safety gates.
 
 The operator assigned Priority 0 to a professor-recommended planner-policy
 change and placed it immediately after the currently running reusable-case
@@ -6254,3 +6293,99 @@ rollback-safe transaction and treats a scalar mismatch as work still requiring
 activation. This uses the existing `DENTOBOT.ParametersJson` authority; it does
 not add a second store, copy geometry, or weaken real dimension-change
 invalidation.
+
+## 2026-09-23 — Checkpoint Step 6 planner automation evidence per trial
+
+**Decision:** For `S6-LIVE-01`, Step 6 GUI comparison scripts follow the
+[automation SOP](diagnostics/STEP6_GUI_AUTOMATION_SOP_2026-09-23.md). A test
+runner must retain base/Task Home setup and each completed planner row as soon
+as it is available, so a later timeout does not erase earlier diagnostic
+evidence. Base-mount and Task Home changes are assessed as hypotheses from the
+first blocker, never applied automatically within a comparison. The FDI21 r5
+20-minute timeout produced planning-server algorithm-configuration logs but no
+complete comparison record; it cannot feed FDI31 or acceptance. Production
+planner/guard policy and the operator verdict gate are unchanged.
+
+**Follow-up operator choice:** The proposed total per-planner trial budget
+(option B) is rejected. Use flushed timing/checkpoint instrumentation (option
+A) without changing search or guard semantics; consider optimization (option
+C) only after the measured dominant phase is known. This does not cancel the
+separate Task Home Experiment B in the planner contract. Every failure report
+assesses base-mount and Task Home as distinct, unproven causal hypotheses from
+the first failed stage and exact scene/tool frame; neither placement changes
+automatically.
+
+## 2026-09-24 — Finish VIEW-U-01 before W4-U-02
+
+The operator explicitly places `VIEW-U-01` before the `W4-U-02` smooth-display default and persistent Views-dialog change, with runtime approval for both display investigations. Partial W4 source edits were reversed before VIEW diagnosis. `VIEW-U-01` remains open: offline Sep-22 MRML proves closed-source/opened-proxy 3D overlap, but three serialized runtime attempts ended before a first-transition capture on restore/reconstruction failures. Under the verification protocol, no further autonomous runtime retry is allowed without operator guidance on a current loadable case or the overlapping restore blocker. This decision does not resume paused `S6-LIVE-01` or authorize geometry/planner changes.
+
+## 2026-09-24 — Opened-jaw display owns source visibility in 2D and 3D
+
+`VIEW-U-01` reproduced a closed-source ghost in the operator-supplied FDI21/31 case at the Step 4A all-teeth 2D/3D preset. The source segmentation is untransformed while the moving-lower display is parented to the jaw transform. The existing `_enforceStep6OpenedJawDisplaySeparation` is the display owner for a current opened Case Foundation. It now suppresses aggregate source visibility in both dimensions and presents selected copied source IDs through the opened upper/lower representations. Direct source visibility changes from target highlighting and source Views-tree selection pass through that owner. Explicit derived-object hide/show remains available. This is a display-only choice: no source anatomy, geometry, registration, collision or planner policy changes. Focused Slicer evidence passed the first failure, target switch, Legacy/New paths and a temporary save/reopen on the preceding revision; the final revision still needs save/reopen and operator-visible acceptance.
+
+## 2026-09-24 — W4-U-02 all-step smooth display default
+
+Tarun explicitly deferred the `VIEW-U-01` normal-window verdict and directed work to `W4-U-02`, superseding the earlier same-day finish-first sequence without accepting `VIEW-U-01`. Smooth CBCT and 2D mask display is the new review default. A permanent Views-palette checkbox operates on source and Case Foundation fixed/moving display nodes across steps without a trajectory prerequisite. Saved explicit modes remain. Native display of a surface-only opened proxy must first create its derived binary labelmap; the displayed mode is read from Slicer's actual representation. This affects display representations only, not source voxels, authoritative masks, geometry, trajectory or planner policy. Normal-window acceptance remains open.
+
+## 2026-09-24 — S6-P2-03 current workflow responsiveness
+
+Tarun explicitly advanced the existing Priority-2 busy/progress task for Step 4A assisted trajectories, Step 4C docks, Step 5B unified templates and general container performance, superseding its former wait-for-P0 entry condition for this scope. Do not change numeric priority without an assigned operator priority. The container has no hard CPU/memory cap or observed throttling/OOM. Current-case profiling measured approximately 20 seconds each for Step 4C and Step 5B, dominated by repeated VTK sampling and scene annotation/commit on Slicer's main thread. Use a shared modal phase/elapsed/cancel display with checkpoints after completed samples and before scene commit. Counts describe completed work only; no speculative percentage or ETA. Cancellation is honored before mutation or between completed stages, then disabled during scene commit. No worker thread moves MRML or Dynamic Modeler calls off the main thread. Reconsider container tuning only if measured pressure demonstrates a limit.
+
+## 2026-09-24 — Derive a reviewable pulp candidate from an enclosed tooth void
+
+Tarun corrected the earlier FDI11 conclusion: a visible 3D interior object is
+present inside the target tooth even though no separate pulp segment label is
+listed. Voxel inspection of the usual 13Sept case found two enclosed label-0
+components in FDI11 (52 and 3 voxels). The earlier name-only inventory missed
+this geometry. This direction supersedes the `S3-P0-DENTAL-SEMANTICS` rule
+against creating a mask when a labeled pulp is missing.
+
+The Step 2 preparation action may create a separate candidate from the unique dominant
+6-connected enclosed background component when the source layer confirms all
+candidate voxels are unassigned. It preserves the source tooth mask, records
+derivation and parent tooth, invalidates a prior Step 2 review, and stops
+assisted generation until the derived mask is reviewed. Smaller disconnected
+voids are excluded. Open, occupied or non-dominant interiors fail closed.
+`S4A-PULP-ENDPOINT` still owns the native/displayed endpoint gate. This is a
+software candidate for operator anatomy review, not clinical acceptance.
+The imported pulp path keeps its existing spatial association. A reviewed
+derived candidate instead requires an exact voxel match to the selected
+tooth's enclosed void in a common source-volume geometry; this topology is
+its HIGH association evidence. The source layer is cropped in Slicer, so the
+candidate must be translated to the reference-volume extent when written.
+
+## 2026-09-24 — Prepare pulp explicitly during Step 2 review
+
+Tarun flagged hidden candidate creation during Step 4A generation as poor UX.
+The active flow is an explicit “Prepare Pulp Mask for Selected Tooth” action
+in Step 2. It either selects an associated pulp mask or derives the dominant
+enclosed-void candidate and selects it beside the tooth for visual review.
+Derivation invalidates segmentation review. Step 4A checks for an associated
+reviewed pulp before placing an assisted entry and reports the Step 2 action
+when missing; Generate does not create segmentation data. This supersedes any
+implicit-creation wording above. No TotalSegmentator rerun is required.
+
+## 2026-09-24 — Per-run pulp inventory and bulk candidate preparation
+
+Tarun approved automatic read-only pulp checking after newly completed
+segmentation runs, with a Step 2 manual Check Pulp Masks action for older
+loaded MRB/dentocase runs. Step 2 remains Segmentation and Review; Step 3
+remains Case Foundation. Check detected canonical tooth masks in the selected
+run, report missing adult FDI tooth masks separately, and retain per-tooth
+reasons. Bulk candidate creation is a separate operator click, reuses the
+enclosed-void algorithm, and resets review. Store the versioned report on the
+segmentation MRML node in the existing scene/package. Legacy source names
+and label IDs stored in run metrics may establish identity only when segment
+IDs and label values match the loaded masks; a display name alone cannot.
+Failed bulk attempts remain retryable without duplicating created candidates.
+
+## 2026-09-24 — Hydrate the workflow-state schema recorded in MRML
+
+The `.dentocase` archive envelope remains schema 2.0 while the saved typed
+workflow state is schema 3.0. Passing the envelope version to workflow-state
+hydration wrongly applied legacy migration to a new state and rewrote the
+saved Case Foundation `DENTOBOT.StaleReason`, causing package validation to
+fail after hydration. Hydration now uses the saved parameter-node
+`dentoCaseSchemaVersion`, falling back to the envelope version only when the
+state field is empty. This keeps legacy migration tied to the actual saved
+state without changing the package archive format.

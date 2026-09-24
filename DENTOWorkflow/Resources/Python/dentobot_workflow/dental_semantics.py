@@ -393,6 +393,37 @@ def occupied_components(points: Sequence[Sequence[int]]) -> list[list[tuple[int,
     return components
 
 
+def enclosed_tooth_void(points: Sequence[Sequence[int]]) -> list[tuple[int, int, int]]:
+    """Find a dominant 6-connected background pocket enclosed by a tooth mask."""
+
+    tooth = {tuple(int(value) for value in point) for point in points}
+    if not tooth:
+        raise ValueError("The target tooth mask is empty.")
+    limits = [(min(p[a] for p in tooth) - 1, max(p[a] for p in tooth) + 1)
+              for a in range(3)]
+    # ponytail: scans the tooth box; use image morphology if much larger targets are added.
+    background = (
+        (x, y, z)
+        for x in range(limits[0][0], limits[0][1] + 1)
+        for y in range(limits[1][0], limits[1][1] + 1)
+        for z in range(limits[2][0], limits[2][1] + 1)
+        if (x, y, z) not in tooth
+    )
+    enclosed = [
+        component for component in occupied_components(background)
+        if all(all(low < point[a] < high for a, (low, high) in enumerate(limits))
+               for point in component)
+    ]
+    if not enclosed:
+        raise ValueError("Expected a closed tooth void; found 0.")
+    enclosed.sort(key=len, reverse=True)
+    if len(enclosed) > 1 and len(enclosed[0]) <= len(enclosed[1]):
+        raise ValueError("Enclosed tooth voids have no unique largest component.")
+    if len(enclosed[0]) < 0.75 * sum(map(len, enclosed)):
+        raise ValueError("No enclosed tooth void dominates the interior geometry.")
+    return enclosed[0]
+
+
 def _association_score(candidate: Mapping[str, Any]) -> float:
     inside = _finite_fraction(candidate.get("insideFraction"), "insideFraction")
     nearest = _finite_fraction(
@@ -703,10 +734,11 @@ def apply_pulp_association(
     for record in result:
         if str(record.get("segmentId") or "") != source_ids[0]:
             continue
-        if str(record.get("structureType") or "") != "PULP":
-            raise ValueError("Only PULP records can receive a pulp association.")
+        if str(record.get("structureType") or "") not in {"PULP", "OTHER"}:
+            raise ValueError("Only PULP or unknown records can receive a pulp association.")
         record.update(
             {
+                "structureType": "PULP",
                 "canonicalName": f"Pulp_FDI{target_fdi}",
                 "fdiNumber": target_fdi,
                 "parentToothSegmentIds": target_ids,

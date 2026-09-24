@@ -418,6 +418,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             panel.motionDiagnosticsButton.enabled = bool(
                 str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
             )
+            panel.showPlannerComparisonButton.enabled = bool(
+                str(self._parameterNode.step6PlannerComparisonJson or "").strip()
+            )
             panel.applyTaskHomeButton.enabled = bool(
                 scene_prepared and ros2_active and home_ready
             )
@@ -532,7 +535,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and home_runtime_validated
                 and workspace_runtime_validated
                 and not away_from_home
+                and not getattr(self, "_plannerComparisonState", None)
             )
+            panel.comparePlannersButton.enabled = panel.planApproachButton.enabled
             override_active = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.templateCollisionExclusionActive

@@ -35,6 +35,9 @@ class DENTORobotSimulationPanel:
         "review_limits": 3,
         "confirm_task": 4,
         "plan_approach": 5,
+        "compare_planners": 5,
+        "cancel_planner_comparison": 5,
+        "show_planner_comparison": 5,
         "template_collision_override": 5,
         "begin_anatomy_review": 5,
         "edit_anatomy_review": 5,
@@ -505,6 +508,19 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
+        comparison_actions = qt.QHBoxLayout()
+        self.comparePlannersButton = qt.QPushButton("Compare Three Planners", self.approachGroup)
+        self.comparePlannersButton.objectName = "DENTOBOTCompareThreePlannersButton"
+        self.cancelPlannerComparisonButton = qt.QPushButton("Cancel Comparison", self.approachGroup)
+        self.cancelPlannerComparisonButton.enabled = False
+        self.showPlannerComparisonButton = qt.QPushButton("View Planner Comparison", self.approachGroup)
+        self.showPlannerComparisonButton.enabled = False
+        for button in (self.comparePlannersButton, self.cancelPlannerComparisonButton,
+                       self.showPlannerComparisonButton):
+            comparison_actions.addWidget(button)
+        approach_layout.addLayout(comparison_actions)
+        self.plannerComparisonProgressLabel = qt.QLabel("No comparison running.", self.approachGroup)
+        approach_layout.addWidget(self.plannerComparisonProgressLabel)
         self.approachPlanningPolicyButton = qt.QPushButton(
             "Planning Parameters…", self.approachGroup
         )
@@ -664,6 +680,15 @@ class DENTORobotSimulationPanel:
         )
         self.planApproachButton.clicked.connect(
             lambda checked=False: self._invoke("plan_approach")
+        )
+        self.comparePlannersButton.clicked.connect(
+            lambda checked=False: self._invoke("compare_planners")
+        )
+        self.cancelPlannerComparisonButton.clicked.connect(
+            lambda checked=False: self._invoke("cancel_planner_comparison")
+        )
+        self.showPlannerComparisonButton.clicked.connect(
+            lambda checked=False: self._invoke("show_planner_comparison")
         )
         self.templateCollisionOverrideCheckBox.toggled.connect(
             lambda checked=False: self._invoke("template_collision_override")
@@ -902,6 +927,82 @@ class DENTORobotSimulationPanel:
         settings = qt.QSettings()
         settings.setValue("DENTOBOT/Step6PlanningAttempts", self._planningAttempts)
         settings.setValue("DENTOBOT/Step6PlanningTimeSec", self._planningTimeSec)
+
+    def showPlannerComparison(self, entry, *, current: bool, on_replay) -> None:
+        """Inspect three saved outcomes; replay never applies a guarded plan."""
+
+        dialog = qt.QDialog(self.approachGroup)
+        dialog.windowTitle = "DENTOBOT Three-Planner Comparison"
+        dialog.resize(980, 560)
+        layout = qt.QVBoxLayout(dialog)
+        notice = qt.QLabel(
+            ("Current case identity. " if current else "STALE case identity — replay disabled. ")
+            + "Saved paths are display-only evidence, not ROS/MoveIt or guard-valid plans. "
+            "Use a fresh single-planner replan before guarded preview.", dialog
+        )
+        notice.wordWrap = True
+        layout.addWidget(notice)
+        attempts = entry["attempts"]
+        table = qt.QTableWidget(3, 5, dialog)
+        table.setHorizontalHeaderLabels(
+            ["Planner", "Result", "Full task", "First blocker", "Waypoints"]
+        )
+        for row, attempt in enumerate(attempts):
+            session = attempt.get("session") or {}
+            outcome = session.get("full_task_outcome") or {}
+            stages = session.get("stage_outcomes") or []
+            first = next((stage for stage in stages if stage.get("status") == "Failed"), {})
+            cells = (
+                attempt["planner_id"], attempt["status"],
+                str(outcome.get("status") or "NotRun"),
+                str(first.get("reason") or attempt.get("message") or "")[:160],
+                str(sum(len(values) for values in attempt.get("paths", {}).values())),
+            )
+            for column, value in enumerate(cells):
+                table.setItem(row, column, qt.QTableWidgetItem(value))
+        layout.addWidget(table)
+        details = qt.QPlainTextEdit(dialog)
+        details.readOnly = True
+        layout.addWidget(details)
+        actions = qt.QHBoxLayout()
+        replay = qt.QPushButton("Replay Saved Path (display only)", dialog)
+        choose = qt.QPushButton("Use Planner for Next Fresh Replan", dialog)
+        close = qt.QPushButton("Close", dialog)
+        for button in (replay, choose, close):
+            actions.addWidget(button)
+        layout.addLayout(actions)
+
+        def selected(row):
+            if row < 0:
+                return
+            attempt = attempts[row]
+            details.plainText = json.dumps(attempt, indent=2, sort_keys=True)
+            replay.enabled = bool(current and any(attempt["paths"].values()))
+            choose.enabled = attempt["status"] != "NotRun"
+
+        def replay_selected():
+            row = int(table.currentRow())
+            if row >= 0 and current:
+                details.appendPlainText("\n\nReplay: " + str(on_replay(attempts[row])))
+
+        def choose_selected():
+            row = int(table.currentRow())
+            if row >= 0:
+                self._plannerId = attempts[row]["planner_id"]
+                details.appendPlainText(
+                    "\n\nPlanner selected for a NEW live plan; saved paths remain non-authorizing."
+                )
+
+        table.currentCellChanged.connect(
+            lambda row, _column, _old_row, _old_column: selected(row)
+        )
+        replay.clicked.connect(lambda checked=False: replay_selected())
+        choose.clicked.connect(lambda checked=False: choose_selected())
+        close.clicked.connect(dialog.close)
+        table.selectRow(0)
+        selected(0)
+        dialog.show()
+        self._plannerComparisonDialog = dialog
 
     def previewIntervalMs(self) -> int:
         # Retained for expert/diagnostic preview callers; guarded previews use

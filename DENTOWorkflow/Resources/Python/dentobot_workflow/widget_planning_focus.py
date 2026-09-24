@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowCancelled, WorkflowProgress
 
 
 class PlanningFocusWidgetMixin:
@@ -713,6 +714,7 @@ class PlanningFocusWidgetMixin:
             if continueCurrentNode:
                 entryNode = currentNode
             else:
+                self.logic.getTargetPulpAssociation(segmentationNode, segmentId)
                 entryNode, _summary = self.logic.createOrResetAssistedTrajectoryEntries(
                     segmentationNode,
                     segmentId,
@@ -730,6 +732,10 @@ class PlanningFocusWidgetMixin:
     def onGenerateAssistedTrajectories(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 4A assisted trajectories")
         try:
             self.logic.stopTrajectoryPlacement()
             trajectories, analysis = self.logic.generateAssistedTrajectories(
@@ -738,6 +744,7 @@ class PlanningFocusWidgetMixin:
                 self._parameterNode.targetToothSegmentId,
                 self._parameterNode.assistedTrajectoryCount,
                 self._parameterNode.targetToothBoundsRoi,
+                progress=progress.update,
             )
             self._parameterNode.trajectoryLine = trajectories[0]
             self._bindPlanningTrajectoryNode(trajectories[0])
@@ -756,6 +763,7 @@ class PlanningFocusWidgetMixin:
                     " Maximum display-surface offset from the native mask boundary: "
                     "%1 mm."
                 ).replace("%1", f"{max(float(value) for value in offsets):.2f}")
+            progress.close()
             slicer.util.infoDisplay(
                 _(
                     "Created %1 unlocked assisted trajectory node(s).%2 These "
@@ -769,5 +777,12 @@ class PlanningFocusWidgetMixin:
             self._updatePlanning()
             self._updateTemplateModeling()
             self._updateTemplateGuide()
+        except WorkflowCancelled as exc:
+            self.ui.assistedTrajectoryStatusLabel.text = str(exc)
+            self.ui.assistedTrajectoryStatusLabel.styleSheet = "color: #b36b00;"
         except (RuntimeError, ValueError) as exc:
+            progress.close()
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
+            self._workflowActionBusy = False

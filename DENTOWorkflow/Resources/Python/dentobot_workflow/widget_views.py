@@ -60,6 +60,7 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         if not self._viewControlsPalette:
             return
         self._updateWorkflowViewControls()
+        self._syncViewSmoothDisplayControl()
         if self._viewControlsTabWidget:
             self._viewControlsTabWidget.currentIndex = (
                 self._viewControlsElementsTabIndex
@@ -72,6 +73,62 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         self._viewControlsPalette.show()
         self._viewControlsPalette.raise_()
         self._viewControlsPalette.activateWindow()
+
+    def _viewSmoothDisplayNodes(self):
+        if not self._parameterNode:
+            return (), ()
+        state = self._parameterNode
+        volumes = tuple(node for node in (
+            state.inputVolume,
+            state.caseFoundationFixedUpperVolume,
+            state.caseFoundationMovingLowerVolume,
+        ) if node)
+        segmentations = tuple(node for node in (
+            state.teethSegmentation,
+            state.step6FixedUpperAnatomy,
+            state.step6MovingLowerAnatomy,
+        ) if node)
+        return volumes, segmentations
+
+    def _syncViewSmoothDisplayControl(self) -> None:
+        control = getattr(self, "_viewSmoothDisplayCheckBox", None)
+        if not control or not self.logic:
+            return
+        volumes, segmentations = self._viewSmoothDisplayNodes()
+        control.enabled = bool(volumes and segmentations)
+        smooth = bool(volumes and segmentations)
+        smooth = smooth and all(
+            self.logic.getScalarVolumeInterpolation(node) for node in volumes
+        ) and all(
+            self.logic.getSegmentation2DRenderingMode(node)
+            == self.logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
+            for node in segmentations
+        )
+        blocked = control.blockSignals(True)
+        try:
+            control.checked = smooth
+        finally:
+            control.blockSignals(blocked)
+
+    def onViewSmoothDisplayToggled(self, enabled: bool) -> None:
+        if not self.logic:
+            return
+        volumes, segmentations = self._viewSmoothDisplayNodes()
+        if not volumes or not segmentations:
+            self._syncViewSmoothDisplayControl()
+            return
+        mode = (self.logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
+                if enabled else self.logic.SEGMENTATION_2D_RENDERING_MODE_NATIVE)
+        with slicer.util.tryWithErrorDisplay(
+            _("Could not change CBCT and mask smoothing.")
+        ):
+            for node in segmentations:
+                self.logic.setSegmentation2DRenderingMode(node, mode)
+            for node in volumes:
+                self.logic.setScalarVolumeInterpolation(node, enabled)
+        if self._reviewSegmentationNode:
+            self._syncSegmentationDisplayControls()
+        self._syncViewSmoothDisplayControl()
 
     def onViewControlsPaletteFinished(self, result: int = 0) -> None:
         del result
@@ -313,6 +370,12 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             ).values():
                 self.logic.restoreWorkflowDisplayState(segmentationState)
             self.logic.restoreWorkflowDisplayState(state)
+            source = self._parameterNode.teethSegmentation if self._parameterNode else None
+            sourceDisplay = source.GetDisplayNode() if source else None
+            if sourceDisplay and sourceDisplay.GetVisibility() and (
+                sourceDisplay.GetVisibility2D() or sourceDisplay.GetVisibility3D()
+            ):
+                self._enforceStep6OpenedJawDisplaySeparation()
         if updateUi and hasattr(self, "ui"):
             self.ui.restorePlanningViewButton.enabled = False
             self.ui.workflowViewStatusLabel.text = _(
@@ -323,7 +386,7 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             self._updateTemplateGuideVisibilityControls()
 
     def _enforceStep6OpenedJawDisplaySeparation(self) -> None:
-        """Keep closed-pose lower masks out of 3D while the opened proxy is current."""
+        """Keep closed-pose source masks out of opened-jaw views."""
         if (
             not self._parameterNode
             or not self.logic
@@ -346,6 +409,16 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
             segmentId: bool(display.GetSegmentVisibility3D(segmentId))
             for segmentId in allSourceIds
         }
+        source2D = {
+            segmentId
+            for segmentId in allSourceIds
+            if display.GetVisibility() and display.GetVisibility2D()
+            and display.GetSegmentVisibility(segmentId)
+            and (
+                display.GetSegmentVisibility2DFill(segmentId)
+                or display.GetSegmentVisibility2DOutline(segmentId)
+            )
+        }
         fixedUpper = self._parameterNode.step6FixedUpperAnatomy
         movingLower = self._parameterNode.step6MovingLowerAnatomy
         if fixedUpper and movingLower:
@@ -361,6 +434,13 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
         else:
             for segmentId in allSourceIds:
                 display.SetSegmentVisibility3D(segmentId, False)
+        # A teeth/mask preset may select the untransformed source in 2D.
+        # Route copied segments to the opened displays before hiding that source.
+        # ponytail: source-only masks lack an opened proxy; keep them hidden until
+        # a jaw-owned display representation is available.
+        display.SetVisibility2D(False)
+        display.SetVisibility3D(False)
+        display.SetVisibility(False)
         for derived in (
             fixedUpper,
             movingLower,
@@ -381,6 +461,10 @@ class ViewerWidgetMixin(WorkflowNavigationWidgetMixin, ViewCompositionWidgetMixi
                     derivedSegmentation.GetSegmentIDs(segmentIds)
                     for index in range(segmentIds.GetNumberOfValues()):
                         segmentId = segmentIds.GetValue(index)
+                        if segmentId in source2D:
+                            derivedDisplay.SetVisibility2D(True)
+                            derivedDisplay.SetSegmentVisibility2DFill(segmentId, True)
+                            derivedDisplay.SetSegmentVisibility2DOutline(segmentId, True)
                         # Slicer keeps a generic per-segment visibility flag
                         # alongside the 3D override.  Target-focused presets
                         # clear the generic flag on derived segmentations;

@@ -665,6 +665,7 @@ def _voxel_boolean_components(
     *,
     spacing_mm: float,
     scalar_name: str,
+    progress=None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Resolve overlapping closed primitives in one cropped binary domain."""
 
@@ -732,13 +733,21 @@ def _voxel_boolean_components(
         (dimensions[2], dimensions[1], dimensions[0]),
         dtype=bool,
     )
+    total_surfaces = len(additive) + len(subtractive)
+    completed_surfaces = 0
     for surface in additive:
         result_mask |= mask_for(surface)
+        completed_surfaces += 1
+        if progress:
+            progress(completed_surfaces, total_surfaces)
     additive_count = int(np.count_nonzero(result_mask))
     subtract_count = 0
     excluded_occupied_count = 0
     for surface in subtractive:
         subtract_mask = mask_for(surface)
+        completed_surfaces += 1
+        if progress:
+            progress(completed_surfaces, total_surfaces)
         subtract_count += int(np.count_nonzero(subtract_mask))
         excluded_occupied_count += int(np.count_nonzero(result_mask & subtract_mask))
         result_mask &= ~subtract_mask
@@ -802,6 +811,8 @@ def _voxel_boolean_components(
 def create_target_frame_docking_geometry(
     frame: dict,
     parameters: dict,
+    *,
+    progress=None,
 ) -> tuple[dict[str, vtk.vtkPolyData], dict]:
     """Create four independent hollow docks in the target-crown frame.
 
@@ -906,31 +917,41 @@ def create_target_frame_docking_geometry(
             }
         )
 
+    def stage_progress(stage, index):
+        if not progress:
+            return None
+        return lambda done, total: progress(stage, index, done, total)
+
     docking, docking_topology = _voxel_boolean_components(
         docking_parts,
         spacing_mm=spacing,
         scalar_name="DENTOBOT.TargetDockingSolidMask",
+        progress=stage_progress("dock solid", 1),
     )
     clearance_surface, clearance_topology = _voxel_boolean_components(
         clearance_parts,
         spacing_mm=spacing,
         scalar_name="DENTOBOT.TargetDockingClearanceMask",
+        progress=stage_progress("clearance", 2),
     )
     reinforcement_surface, reinforcement_topology = _voxel_boolean_components(
         reinforcement_parts,
         spacing_mm=spacing,
         scalar_name="DENTOBOT.TargetDockingReinforcementMask",
+        progress=stage_progress("reinforcement", 3),
     )
     channels, channel_topology = _voxel_boolean_components(
         channel_parts,
         spacing_mm=spacing,
         scalar_name="DENTOBOT.TargetDockingChannelsMask",
+        progress=stage_progress("channels", 4),
     )
     preview, preview_topology = _voxel_boolean_components(
         docking_parts,
         channel_parts,
         spacing_mm=spacing,
         scalar_name="DENTOBOT.TargetDockingPreviewMask",
+        progress=stage_progress("preview", 5),
     )
     surfaces = {
         "preview": preview,
@@ -1399,6 +1420,7 @@ def fuse_shell_and_docking_voxel(
     channels_world: vtk.vtkPolyData,
     *,
     sampling_spacing_mm: float,
+    progress=None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Fuse shell and guide assembly in a cropped binary domain."""
 
@@ -1447,7 +1469,7 @@ def fuse_shell_and_docking_voxel(
 
     sampled_images = {}
     distance_arrays = {}
-    for name, surface in surfaces.items():
+    for index, (name, surface) in enumerate(surfaces.items(), 1):
         implicit = vtk.vtkImplicitPolyDataDistance()
         implicit.SetInput(surface)
         sample = vtk.vtkSampleFunction()
@@ -1460,6 +1482,8 @@ def fuse_shell_and_docking_voxel(
         distance_arrays[name] = vtk_to_numpy(
             sample.GetOutput().GetPointData().GetScalars()
         ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        if progress:
+            progress(name, index, len(surfaces))
 
     shell_mask = distance_arrays["shell"] <= 0.0
     docking_mask = distance_arrays["docking"] <= 0.0

@@ -31,6 +31,8 @@ from DENTOStep6State import (
     fingerprint,
     motion_diagnostic_plan_selection,
     parse_motion_diagnostic_session,
+    PLANNER_COMPARISON_IDS,
+    planner_comparison_scene_fingerprint,
     update_motion_diagnostic_plan_selection,
 )
 
@@ -486,6 +488,60 @@ class DENTORobotWorkflowFacade:
 
         self.stopPreview()
         self._clear_phase_session()
+
+    def plannerComparisonIdentity(self) -> dict[str, str]:
+        """Freeze the exact branch and live planning inputs for one comparison."""
+
+        parameter_node = self._require_context()
+        registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+        branch_id = str(registry.get("selected_branch_id") or "")
+        snapshot = self._logic.confirmedTaskRecord(parameter_node)
+        collision = self._logic.collisionSceneAuditRecord(parameter_node)
+        if not branch_id or snapshot is None or collision is None:
+            raise ValueError("Select a verified branch and confirm the current Step 6 task first.")
+        return {
+            "branch_id": branch_id,
+            "task": snapshot.snapshot_fingerprint,
+            "base": self._logic.robotBaseFingerprint(parameter_node),
+            "home": snapshot.home_fingerprint,
+            "trajectory": self._logic.step6TrajectoryRevision(parameter_node),
+            "robot_profile": self._logic.robotProfileFingerprint(),
+            "collision_audit": planner_comparison_scene_fingerprint(collision),
+        }
+
+    def capturePlannerComparisonAttempt(self, planner_id: str, result) -> dict[str, object]:
+        """Copy one trial's diagnostic and representative path before the next trial."""
+
+        if planner_id not in PLANNER_COMPARISON_IDS:
+            raise ValueError("The comparison planner is not configured.")
+        session = None
+        paths = {}
+        expected = result.details.get("motionDiagnosticSessionFingerprint")
+        if expected:
+            record = self._logic.motionDiagnosticRecord(self._require_context())
+            if record is None or record.session_fingerprint != expected:
+                raise ValueError("The trial diagnostic changed before capture.")
+            audit = self._logic.collisionSceneAuditRecord(self._require_context())
+            if audit is None or record.collision_audit_fingerprint != audit.audit_fingerprint:
+                raise ValueError("The trial diagnostic belongs to another collision audit.")
+            session = record.to_dict()
+            paths = {
+                stage: list(self._diagnostic_candidate_paths.get(
+                    record.selected_candidate_index, {}
+                ).get(stage, ()))
+                for stage in ("stage1", "stage2", "stage3")
+            }
+        outcome = (session or {}).get("full_task_outcome", {})
+        return {
+            "planner_id": planner_id,
+            "status": (
+                "Pass" if result.success and outcome.get("status") in
+                {"Complete", "CompletedWithWarnings"} else "Fail"
+            ),
+            "message": str(result.message),
+            "session": session,
+            "paths": paths,
+        }
 
     def invalidateWorkspaceRuntimeValidation(self) -> None:
         """Invalidate live workspace evidence while preserving ROS/scene state."""

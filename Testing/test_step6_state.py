@@ -2,12 +2,55 @@
 
 import ast
 from dataclasses import replace
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
+
+
+def test_step65_runner_timeline_and_placement_hypothesis(tmp_path):
+    source = Path(__file__).with_name("run_dentobot_step65_three_planner_gui.py")
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name in {"trace_event", "trace_method", "placement_review", "collision_record", "bounds_overlap"}]
+    scope = {"OUTPUT": tmp_path, "TRACE_START_NS": time.monotonic_ns(),
+             "TRACE_SEQUENCE": 0, "CURRENT": {"planner_id": "RRT"},
+             "time": time, "datetime": datetime, "timezone": timezone,
+             "json": json, "os": os}
+    exec(compile(ast.Module(functions, type_ignores=[]), str(source), "exec"), scope)
+    scope["trace_event"]("phase_start", phase="joint_plan", call_id="joint-1")
+    record = json.loads((tmp_path / "timeline.jsonl").read_text())
+    assert record["planner_id"] == "RRT" and record["elapsed_s"] >= 0
+    assert record["utc"].endswith("+00:00")
+    probe = SimpleNamespace(plan=lambda **_kwargs: SimpleNamespace(success=True))
+    scope["trace_method"](probe, "plan", "joint_plan")
+    assert probe.plan(planner_context="Home→PreEntry").success
+    events = [json.loads(line) for line in (tmp_path / "timeline.jsonl").read_text().splitlines()]
+    assert [event["event"] for event in events[-2:]] == ["phase_start", "phase_end"]
+    assert events[-1]["duration_s"] >= 0
+    review = scope["placement_review"]({"session": {"stage_outcomes": [
+        {"stage": "stage3_drilling", "status": "Failed",
+         "reason": "target tooth ↔ spindle collision"}]}})
+    assert review["first_failed_stage"] == "stage3_drilling"
+    assert "neither directly fixes" in review["assessment"]
+    assert review["verdict"].startswith("hypothesis only")
+    selected = {"session": {"selected_candidate_index": 6, "candidate_records": [
+        {"candidate_index": 0, "guard_first_body": "tooth", "guard_second_body": "spindle",
+         "first_invalid_joint_positions_si": {"J1": 0.1}},
+        {"candidate_index": 6, "guard_first_body": "tooth", "guard_second_body": "spindle",
+         "first_invalid_joint_positions_si": {"J1": 0.2}},
+    ]}}
+    assert scope["collision_record"](selected)["first_invalid_joint_positions_si"] == {"J1": 0.2}
+    assert scope["collision_record"]({"session": {"candidate_records": []}}) is None
+    assert not scope["bounds_overlap"](
+        [-99.511, -91.399, -65.894, -54.356, 18.623, 41.046],
+        [-106.345, -85.794, -40.817, 22.878, 38.431, 75.941])
+    assert scope["bounds_overlap"]([0, 2, 0, 2, 0, 2], [1, 3, 1, 3, 1, 3])
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +72,7 @@ from DENTOStep6State import (  # noqa: E402
     build_assisted_limit_proposal,
     build_attempt_context,
     build_motion_diagnostic_session,
+    build_planner_comparison,
     build_phase_guard_configuration,
     build_phase_joint_command,
     build_task_home,
@@ -45,6 +89,9 @@ from DENTOStep6State import (  # noqa: E402
     parse_task_home,
     parse_task_snapshot,
     parse_motion_diagnostic_session,
+    parse_planner_comparison,
+    planner_comparison_scene_fingerprint,
+    PLANNER_COMPARISON_IDS,
     retain_motion_diagnostic_error_message,
     motion_diagnostic_plan_selection,
     update_motion_diagnostic_plan_selection,
@@ -813,6 +860,66 @@ def test_motion_diagnostic_v20_remains_readable_after_stage2_policy_upgrade():
         stage_name="stage2_strict_axis",
     )
     assert parse_motion_diagnostic_session(record.to_dict()) == record
+
+
+def test_three_planner_comparison_round_trips_two_branches_without_authority():
+    session = _motion_diagnostic(
+        schema_version="2.1", stage_name="stage2_fixed_axis_terminal"
+    ).to_dict()
+    stage3 = build_motion_diagnostic_session(
+        state="Current", task_fingerprint="task-a", base_fingerprint="base-a",
+        trajectory_fingerprint="trajectory-a", robot_profile_fingerprint="robot-a",
+        collision_audit_fingerprint="collision-a", planning_parameters_fingerprint="planner-a",
+        candidate_records=(_motion_candidate(),), selected_candidate_index=0,
+        failure_classification="stage3_guard", stage_outcomes=(
+            {"stage": "stage1_free_space", "status": "Passed"},
+            {"stage": "stage2_fixed_axis_terminal", "status": "Passed"},
+            {"stage": "stage3_drilling", "status": "Failed", "reason": "tooth ↔ spindle"},
+        ), full_task_outcome={"status": "Blocked"},
+    ).to_dict()
+    identity = dict(task="task-a", base="base-a", home="home-a",
+                    trajectory="trajectory-a", robot_profile="robot-a",
+                    collision_audit="collision-a")
+    paths = {"stage1": [joints(0.123456789012345)], "stage2": [], "stage3": []}
+    attempts = [
+        {"planner_id": PLANNER_COMPARISON_IDS[0], "status": "Fail", "message": "guard", "session": stage3, "paths": paths},
+        {"planner_id": PLANNER_COMPARISON_IDS[1], "status": "Pass", "message": "done", "session": session, "paths": paths},
+        {"planner_id": PLANNER_COMPARISON_IDS[2], "status": "NotRun", "message": "cancelled", "session": None, "paths": {}},
+    ]
+    saved = build_planner_comparison({
+        "FDI31": {"identity": identity, "attempts": attempts},
+        "FDI21": {"identity": {**identity, "trajectory": "trajectory-b"},
+                  "attempts": [
+                      {"planner_id": planner_id, "status": "NotRun", "message": "", "session": None, "paths": {}}
+                      for planner_id in PLANNER_COMPARISON_IDS
+                  ]},
+    })
+    restored = parse_planner_comparison(canonical_json(saved))
+    assert restored["branches"]["FDI31"]["attempts"][0]["session"]["stage_outcomes"][2]["status"] == "Failed"
+    assert restored["branches"]["FDI31"]["attempts"][1]["paths"]["stage1"][0] == joints(0.123456789012345)
+    assert restored["branches"]["FDI21"]["identity"]["trajectory"] == "trajectory-b"
+    assert "motion_plan" not in restored and "guard_state" not in restored
+    damaged = json.loads(canonical_json(saved))
+    damaged["branches"]["FDI31"]["attempts"][1]["paths"]["stage1"][0][JOINT_NAMES[0]] += 1
+    with pytest.raises(ValueError, match="fingerprint"):
+        parse_planner_comparison(damaged)
+
+
+def test_planner_comparison_scene_identity_ignores_audit_time_only():
+    audit = SimpleNamespace(
+        status="Acknowledged", base_fingerprint="base",
+        jaw_preparation_fingerprint="jaw", world_to_base_fingerprint="world-base",
+        object_records=({"id": "tooth", "fingerprint": "mesh-a"},),
+        runtime_acknowledgement={"status": "Acknowledged", "expected_policy_fingerprint": "policy"},
+        generated_at_utc="first", audit_fingerprint="first-audit",
+    )
+    stable = planner_comparison_scene_fingerprint(audit)
+    assert planner_comparison_scene_fingerprint(
+        SimpleNamespace(**{**vars(audit), "generated_at_utc": "second", "audit_fingerprint": "second-audit"})
+    ) == stable
+    assert planner_comparison_scene_fingerprint(
+        SimpleNamespace(**{**vars(audit), "object_records": ({"id": "tooth", "fingerprint": "mesh-b"},)})
+    ) != stable
 
 
 def test_motion_diagnostic_plan_selection_round_trip_and_lock_gate():

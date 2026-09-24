@@ -1,29 +1,88 @@
 # FDI31 GUI planner P0 recovery contract
 
 Date: 2026-09-21  
-Owner: `S6-LIVE-01`, continuing through `S6-LIVE-02..05` only after the
+Owner: `S6-LIVE-01`, continuing through pending `S6-LIVE-03..05` only after the
 operator accepts each preceding milestone  
-Status: active operator-superseding plan; implementation/runtime not authorized
-merely by this document
+Status: operator-paused 2026-09-24; this remains the sole detailed contract.
+Implementation/runtime is not authorized merely by this document.
 
-## Queued P0 delta after reusable-case handoff — 2026-09-22
+**2026-09-24 operator stop:** Tarun is taking time to decide how to proceed and
+will work on independent backlog items meanwhile. Preserve source and runtime
+evidence, including the incomplete FDI21 three-planner comparison and invalid
+offline collision images. Do not advance this planner task, repair the recapture
+script, run another trial, optimize the guard, or treat an earlier “next”
+paragraph as permission to resume. Reconcile Tarun's next direction with this
+contract before selecting a bounded action; all unaccepted milestones stay open.
 
-The operator queued the professor's recommendations as the immediate next task
-after `S6-REUSABLE-CASE-SETUP`: display the effective runtime planner in Motion
-Diagnostics; use RRT instead of RRT*; disable approximate IK; and disable
-Cartesian-path planning in the live workflow.
+## P0 planner-policy implementation state — reconciled 2026-09-23
 
-This remains part of `S6-LIVE-01` and does not interrupt the current run. The
-checked-in profile is `RRTConnectkConfigDefault` / `geometric::RRTConnect`, so
-first trace and display the effective runtime planner ID. Do not rename it or
-introduce another configuration unless runtime evidence shows RRT* is selected
-or an exact replacement ID is provided. Before disabling Cartesian planning,
-identify its Stage-2/3 callers and specify their bounded non-Cartesian
-replacement. Audit every live IK call site and disable approximate solutions
-without weakening FK/residual validation. Preserve all existing safety and
-collision policies. Source acceptance requires the smallest focused check;
-runtime acceptance requires the visible planner/IK/Cartesian states and then a
-manual-verdict stop. No hardware motion is authorized.
+**Operator-superseding batch decision, 2026-09-23:** Step 6.5 now requires a
+single Compare Three Planners action. Run configured RRTConnect, RRT and RRT*
+in that order against one frozen PreparedBranch/task/base/Home/collision scene
+and common planning settings (default one attempt, 5.0 s each). Ordinary
+planning or phase-guard failures are retained and the next trial runs;
+cancel between trials or stop on fatal/identity failure, marking remaining
+trials `NotRun`. Retain each full diagnostic, exact message and full-precision
+J1–J5 stage paths in one fingerprinted per-branch DentoCase record. Saved
+records remain inspectable when stale and saved paths may be replayed only as
+transient, display-only ghosts after identity/integrity checks; they never
+restore ROS validity or a guarded plan. Choosing a planner requires a new live
+plan through all normal gates. One approved save/reopen check and normal-window
+comparison with Tarun's screenshot/verdict are still required. Configured IDs
+do not prove the executed OMPL algorithm without planning-server evidence.
+This supersedes the earlier one-at-a-time comparison instruction; no 96-slot
+Studio scheduler or hardware motion is included.
+
+**2026-09-23 runtime/evidence delta:** Tarun approved a corrected FDI21 retry
+after an identical scene re-acknowledgement invalidated Task Home between
+trials. The run must follow the
+[Step 6 GUI automation SOP](STEP6_GUI_AUTOMATION_SOP_2026-09-23.md): retain a
+base/Task Home context view and a selected-row screenshot for each planner,
+and assess base-mount versus Task Home as hypotheses from the first blocker.
+No script may change either placement during a comparison. FDI31 and offline
+reopen follow only a complete, identity-current FDI21 record.
+
+**Timing recovery decision:** The operator rejected the proposed total
+per-planner trial budget (option B) for this comparison; this does not cancel
+the distinct Task Home *Experiment B* below. First implement option A as
+test-runner-only, flushed UTC/monotonic events for setup, each planner trial,
+IK/candidate generation, joint planning, Cartesian preflight, phase guard,
+checkpoint, screenshot and stop. Keep the same three planners and search
+policy. Per-trial evidence must include the frozen base/world matrix, Task Home
+joints and a stage-specific, explicitly unproven assessment of whether base or
+Home could change the first blocker. A timeout remains incomplete evidence.
+After one approved A run identifies the dominant cost, option C may optimize
+only that measured repeated work; do not cache a collision/guard verdict,
+change the task frame, shorten candidate search, or claim an equivalent trial
+without a source check and operator review. No increased timeout is itself a
+fix or approved runtime action.
+
+**2026-09-23 collision-visibility correction:** The approved A run completed
+only RRTConnect before its 20-minute cap, and the retained table screenshot did
+not show the offending geometry. Any headless comparison that reports a
+collision must capture the selected first-invalid state and named pair from
+inferior, apical, and oblique camera views, with exact joints and image
+availability recorded per planner. Treat these as display-only reconstructions,
+not native contact-depth proof. Missing collision images stop the remaining
+trials for Tarun's geometry verdict. Do not propose base/Home, planner, or
+collision-policy fixes from a text-only collision report. The SOP carries the
+detailed automation rule; this contract remains the sole execution owner.
+
+The professor-recommended policy remains under `S6-LIVE-01`: display planner
+identity in Motion Diagnostics, compare RRT-family choices, keep approximate IK
+disabled, and replace Cartesian-path planning in the live workflow.
+
+The shared dialog and installed OMPL profile now provide RRTConnect, RRT and
+optional RRT*. Approximate IK is disabled. Planner guidance, Approach/Drill
+wording and reopenable exact failure text are source-verified. Tarun's visible
+RRTConnect trial recorded its configured ID, disabled approximate IK, Stage
+1/2 PASS and a Stage-3 tooth↔spindle guard rejection while Cartesian Stage 2/3
+remained enabled. The configured-ID getter runs before `plan()` and therefore
+does not prove which algorithm executed. Same-scene RRT and RRT* visible results
+and Tarun's verdict remain next. After that verdict, promote the already-audited
+sequential exact-pose IK helper to the primary Cartesian-off Stage-2/3 path,
+retaining FK/residual, collision, corridor and phase guards. No hardware motion
+is authorized.
 
 ### Operator-superseding execution delta — planner controls and full-cycle UX
 

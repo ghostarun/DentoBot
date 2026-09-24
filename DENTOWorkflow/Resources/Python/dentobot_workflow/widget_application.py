@@ -305,6 +305,18 @@ class ApplicationWidgetMixin:
         paletteLayout = qt.QVBoxLayout(palette)
         paletteLayout.setContentsMargins(6, 6, 6, 6)
         paletteLayout.setSpacing(4)
+        self._viewSmoothDisplayCheckBox = qt.QCheckBox(
+            _("Smooth CBCT and masks"), palette
+        )
+        self._viewSmoothDisplayCheckBox.objectName = "viewSmoothDisplayCheckBox"
+        self._viewSmoothDisplayCheckBox.toolTip = _(
+            "Use interpolated CBCT and smooth 2D mask surfaces throughout the workflow. "
+            "Turn off for native voxel and mask display."
+        )
+        self._viewSmoothDisplayCheckBox.connect(
+            "toggled(bool)", self.onViewSmoothDisplayToggled
+        )
+        paletteLayout.addWidget(self._viewSmoothDisplayCheckBox)
         tabs = qt.QTabWidget(palette)
         tabs.objectName = "viewControlsTabWidget"
         paletteLayout.addWidget(tabs)

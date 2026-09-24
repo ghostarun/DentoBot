@@ -405,7 +405,7 @@ class CaseBackendWidgetMixin:
                     try:
                         self.logic.hydrateDentoCaseStateAfterLoad(
                             self._parameterNode,
-                            str(inspection.manifest.get("schemaVersion") or ""),
+                            str(self._parameterNode.dentoCaseSchemaVersion or inspection.manifest.get("schemaVersion") or ""),
                         )
                         wasUpdating = self._updatingFromParameterNode
                         self._updatingFromParameterNode = True
@@ -1328,6 +1328,23 @@ class CaseBackendWidgetMixin:
             if reviewMetadataWarning:
                 logging.warning(reviewMetadataWarning)
 
+            # A new run gets a read-only inventory; loaded older runs wait for
+            # the operator's Step 2 Check Pulp Masks action.
+            self._setBackendStatus(_("Checking pulp masks for detected teeth..."), "working")
+            slicer.app.processEvents()
+            def updatePulpCheck(done, total, fdi):
+                self._setBackendStatus(
+                    _("Checking pulp masks: FDI%1 (%2 of %3)...")
+                    .replace("%1", fdi or _("unknown"))
+                    .replace("%2", str(done)).replace("%3", str(total)), "working",
+                )
+                slicer.app.processEvents()
+            try:
+                pulpReport = self.logic.checkPulpInventory(segmentationNode, progress=updatePulpCheck)
+            except (TypeError, ValueError, RuntimeError) as exc:
+                logging.warning("Automatic pulp inventory failed for run %s: %s", runContext["runId"], exc)
+                pulpReport = None
+
             parameterNode = self.logic.getParameterNode()
             sourceWasInspected = parameterNode.inspectedVolume == sourceVolume
             sourceVolume.SetNodeReferenceID("DENTOBOT.InspectedRun", segmentationNode.GetID())
@@ -1356,7 +1373,17 @@ class CaseBackendWidgetMixin:
         )
         if not sourceWasInspected:
             completion += _(" Current inspection was preserved; select this scan to review it.")
+        if pulpReport:
+            pulpCounts = pulpReport["counts"]
+            completion += _(" Pulp check: %1 associated, %2 missing, %3 need attention. Open Step 2 for details.")\
+                .replace("%1", str(pulpCounts["associated"]))\
+                .replace("%2", str(pulpCounts["missing"]))\
+                .replace("%3", str(pulpCounts["ambiguous"] + pulpCounts["cannot-evaluate"]))
+        else:
+            completion += _(" Pulp check could not finish; use Check Pulp Masks in Step 2.")
         self._setBackendStatus(completion, "success")
+        if sourceWasInspected:
+            self._updatePulpInventoryControls()
 
     def _completeRoundTrip(self, runContext: dict, returnCode: int) -> None:
         runPaths = runContext["paths"]

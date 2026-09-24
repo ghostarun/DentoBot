@@ -836,12 +836,12 @@ class DENTOWorkflowTestMixin:
         )
         self.assertEqual(
             logic.ensureSegmentationDisplayQualityDefaults(displayQualityNode),
-            logic.SEGMENTATION_2D_RENDERING_MODE_NATIVE,
+            logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH,
         )
         displayQualityDisplayNode = displayQualityNode.GetDisplayNode()
         self.assertEqual(
             displayQualityDisplayNode.GetPreferredDisplayRepresentationName2D(),
-            logic.SEGMENTATION_BINARY_LABELMAP_REPRESENTATION,
+            logic.SEGMENTATION_CLOSED_SURFACE_REPRESENTATION,
         )
         logic.setSegmentation2DRenderingMode(
             displayQualityNode,
@@ -1047,11 +1047,8 @@ class DENTOWorkflowTestMixin:
                 "missing",
             )
         correctionTimestamp = "2026-07-24T09:15:00+00:00"
-        displayNode.SetPreferredDisplayRepresentationName2D(
-            logic.SEGMENTATION_CLOSED_SURFACE_REPRESENTATION
-        )
-        segmentationNode.SetAttribute(
-            logic.SEGMENTATION_2D_RENDERING_MODE_ATTRIBUTE,
+        logic.setSegmentation2DRenderingMode(
+            segmentationNode,
             logic.SEGMENTATION_2D_RENDERING_MODE_SMOOTH,
         )
         handoff = logic.beginSegmentationCorrection(
@@ -2491,7 +2488,7 @@ class DENTOWorkflowTestMixin:
             widget._createOrUpdatePatientContactShell = lambda: generated.append(
                 "shell"
             )
-            widget._createOrUpdateFinalPrintableTemplate = lambda: generated.append(
+            widget._createOrUpdateFinalPrintableTemplate = lambda **kwargs: generated.append(
                 "final"
             )
             widget._applyWorkflowViewPreset = lambda key, **kwargs: inspected.append(

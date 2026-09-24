@@ -1007,6 +1007,30 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       </item>
       <item>
        <layout class="QGridLayout" name="segmentVisibilityButtonGridLayout">
+        <item row="3" column="0" colspan="3">
+         <widget class="QLabel" name="pulpInventorySummaryLabel">
+          <property name="text"><string>Select a segmentation run to check pulp masks.</string></property>
+          <property name="wordWrap"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QPushButton" name="checkPulpMasksButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="text"><string>Check Pulp Masks</string></property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QPushButton" name="viewPulpReportButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="text"><string>View Pulp Report</string></property>
+         </widget>
+        </item>
+        <item row="4" column="2">
+         <widget class="QPushButton" name="createMissingPulpsButton">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="text"><string>Create Missing Pulp Candidates</string></property>
+         </widget>
+        </item>
         <item row="0" column="0">
          <widget class="QPushButton" name="showAllSegmentsButton">
           <property name="enabled">
@@ -1050,6 +1074,19 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
           </property>
           <property name="text">
            <string>Edit Selected Label in Segment Editor</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="3">
+         <widget class="QPushButton" name="prepareSelectedToothPulpButton">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="toolTip">
+           <string>For the selected reviewed tooth, check for an existing pulp mask or create a separate candidate from a dominant enclosed empty region. A new candidate must be visually reviewed before trajectory planning.</string>
+          </property>
+          <property name="text">
+           <string>Prepare Pulp Mask for Selected Tooth</string>
           </property>
          </widget>
         </item>
@@ -2243,7 +2280,7 @@ QLabel#workflowStageStatusLabel { color: #6b6b6b; }</string>
       <item>
        <widget class="QLabel" name="assistedTrajectoryDescriptionLabel">
         <property name="text">
-         <string>Alternative creation mode within Step 4A for one- or two-root teeth. Place only the crown Entry point(s); DENTOBOT estimates rootward Target point(s) from the selected complete tooth surface and creates the same normal Step 4A trajectory line nodes used by manual planning. The estimate is not a canal centreline and must be corrected in the trajectory MPR.</string>
+         <string>Prepare and review the selected tooth's pulp mask in Step 2 before placing crown Entry point(s). DENTOBOT then estimates one or two rootward Target point(s) and creates the normal Step 4A trajectory lines. The estimate is not a canal centreline and must be corrected in the trajectory MPR.</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>

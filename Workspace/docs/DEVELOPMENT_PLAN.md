@@ -1,13 +1,23 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-21.
+Last reconciled: 2026-09-24.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
-this file owns milestone and acceptance design. The current P0 is the GUI-first
-FDI31 planner recovery under `S6-LIVE-01`, using the 2026-09-21 milestone
-amendment below. PreparedBranch/workflow integrity remains a prerequisite, not
-a competing active campaign.
+this file owns milestone and acceptance design. The Priority-0 GUI-first FDI31
+planner recovery under `S6-LIVE-01` is temporarily paused at Tarun's request
+on 2026-09-24. Its 2026-09-21 milestone amendment remains the execution
+contract; the pause closes no planner acceptance gate. Independent backlog
+items may advance under their existing entry conditions.
+
+The current source exposes RRTConnect, RRT and optional RRT* through one shared
+Step 6.5/6.6 dialog, keeps approximate IK disabled, and retains exact failure
+text in Motion Diagnostics. One operator-visible RRTConnect trial passed
+Stages 1/2 and stopped at the Stage-3 tooth↔spindle guard. The later one-run
+three-planner contract supersedes the older one-at-a-time sequence; its FDI21
+r6 run is incomplete and remains paused for Tarun's direction. The specified
+exact-pose sequential-IK replacement for Cartesian Stage 2/3 remains open.
+Planner choice does not alter collision or phase policy.
 
 The main workflow has one target tooth and one trajectory, or an explicitly
 paired two. The optional 32 × 3 testing foundation is an alternative workflow,
@@ -649,6 +659,13 @@ the complete housing model and review one temporary Home under Experiment B.
 
 ### `S6-LIVE-01` — complete Stage 3 planning
 
+The 2026-09-23 operator supersession makes a one-click, sequential
+RRTConnect/RRT/RRT* comparison with branch-isolated persisted evidence the
+next source milestone. Offline replay is display-only; no saved path restores
+runtime validity or motion authority. Source checks precede an approved
+save/reopen integration and Tarun's normal-window verdict. The later exact-pose
+Cartesian-off slice remains separate and downstream of this comparison.
+
 Retain the current planner architecture:
 
 1. strict MoveIt Task Home to PreEntry;
@@ -993,6 +1010,18 @@ Track B reorganizes ownership and evidence only after Track A is accepted. It
 preserves the accepted ROS/MoveIt, FK, collision, Home, workspace, guard,
 preview, and Return Home implementation.
 
+**2026-09-24 sequencing gate:** Keep the Studio implementation on hold after
+Track-A acceptance until the current workflow has a step-by-step evidence map:
+each step, its transition and save/reopen handoff can be driven headlessly
+through the production behavior and has a recorded input, command, outcome and
+first failure. `DCP-00` owns the inventory; gaps stay under the existing step
+task IDs. A focused headless result does not prove the whole workflow, and
+headless coverage does not replace required normal-window/operator acceptance.
+This adds an entry gate; it does not change `S6-LIVE-05` or authorize runtime.
+Defer broad GUI/UX redesign (`UI-P3-01`) until Studio functions and P1–2
+behavior settle. Fix current GUI defects that obstruct safe operation,
+verification, accessibility or truthful feedback under their existing owners.
+
 ### Architecture
 
 `DENTORobotWorkflowFacade` remains the only robot-workflow façade. It gains
@@ -1112,7 +1141,7 @@ accepted Track-A backend intact rather than rebuilding it.
 
 | Order | ID | Priority | Complete feature |
 |---:|---|---:|---|
-| 1 | `DCP-00` | 1 | Freeze Track A and publish its backend handoff |
+| 1 | `DCP-00` | 1 | Freeze Track A, publish its backend handoff and complete per-step headless verification inventory |
 | 2 | `DCP-01` | 1 | Controlled roadmap/documentation supersession |
 | 3 | `DCP-02..08` | 1 | Remaining domain/session work and cross-session proof; reuse the accepted P0 registry/environment/persistence subset |
 | 4 | `DCP-09..10` | 1 | SQLite DentoLibrary backend and case browser |
@@ -1254,6 +1283,10 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   only through **Lock / Accept Opening**.
 - `S6-P2-03`: use one shared long-running-action contract for truthful busy,
   progress, completion, error, cancel, and cleanup state.
+  Tarun explicitly advanced this scope on 2026-09-24 for current Step 4A,
+  Step 4C and Step 5B freezes. Current-case watchdog evidence attributes the
+  observed stalls to synchronous Slicer UI-thread VTK/scene work; headless
+  phase/cancel implementation is under verification before normal-window review.
 
 ## Immediate Step 4A P0 correction — displayed pulp contact and smooth masks
 
@@ -1264,6 +1297,10 @@ within Step 4A presentation and assisted creation:
 **Automated status:** Final static/pure checks and focused Slicer display plus
 single/dual assisted-generation integration passed 2026-09-10. Exact FDI31 and
 smooth/native normal-window observations remain operator acceptance.
+On 2026-09-24 Tarun added the all-step Views-dialog smooth on/off and smooth
+default to `W4-U-02`; the supplied-case display toggle and Step 4A display
+portion pass headlessly, while normal-window acceptance remains open. The
+combined assisted-endpoint matrix run stopped at an independent review gate.
 
 - keep the existing selected-tooth, reviewed-segmentation and one/two-entry
   gates;
@@ -1324,7 +1361,31 @@ TotalSegmentator report/class map
   supporting evidence only; nearest centroid is never the sole decision.
 - A raw pulp hint can corroborate a spatial result but cannot override it.
   Missing, ambiguous, malformed, duplicate or cross-tooth evidence blocks
-  pulp-dependent generation. No source mask is synthesized or relabelled.
+  pulp-dependent generation. Original source masks are preserved.
+- Case B's generic/absent-identity pulp is an explicit operator-required
+  behavior: if existing spatial evidence validates a detected pulp component
+  inside the selected tooth, it may feed the requested one or two assisted
+  trajectories. Only absence of an associated component means no pulp-based
+  line. Preserve raw provenance; ambiguity and invalid associations still fail
+  closed. Classification remains under `S3-P0-DENTAL-SEMANTICS`; endpoint and
+  line construction remain under `S4A-PULP-ENDPOINT`.
+- Existing unknown-type masks may receive canonical pulp identity when every
+  sampled component is inside the selected tooth and the existing spatial
+  gate uniquely returns HIGH/VALID. Source masks and labels stay intact.
+- If no labeled pulp matches, a dominant closed label-0 component inside the
+  selected tooth may become a separate pulp candidate. The saved FDI11 case
+  contains one 52-voxel dominant component and a separate 3-voxel pocket.
+  The explicit Step 2 “Prepare Pulp Mask for Selected Tooth” action creates
+  and displays that candidate for inspection; it invalidates segmentation
+  review. Step 4A generation never creates a mask. Assisted endpoints still
+  need HIGH/VALID association after review and native/displayed contact checks.
+- On a newly completed run, Step 2 audits detected teeth without creating
+  masks. An older loaded run offers manual Check Pulp Masks. The per-run
+  report shows counts and tooth-specific reasons, and Step 2 offers one-click
+  bulk candidate creation with progress. The report and new masks travel in
+  the existing MRML scene through MRB/dentocase save and reload. Edited masks
+  make the report stale; adult FDI positions without detected tooth masks are
+  listed separately from teeth missing pulp.
 
 ### Acceptance gates
 

@@ -33,6 +33,9 @@ class RobotShellWidgetMixin:
                 "confirm_task": self._onStep6ConfirmTask,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
+                "compare_planners": self._onStep6ComparePlanners,
+                "cancel_planner_comparison": self._onStep6CancelPlannerComparison,
+                "show_planner_comparison": self._onStep6ShowPlannerComparison,
                 "template_collision_override": (
                     self._onStep6TemplateCollisionOverride
                 ),
@@ -614,6 +617,217 @@ class RobotShellWidgetMixin:
             and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
         ):
             qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
+
+    def _onStep6ComparePlanners(self) -> None:
+        if getattr(self, "_plannerComparisonState", None):
+            return
+        if not self._robotWorkflowFacade or not self._parameterNode:
+            return
+        panel = self._robotSimulationPanel
+        if not panel or not panel.planApproachButton.enabled:
+            slicer.util.errorDisplay("Complete the current Step 6.5 prerequisites first.")
+            return
+        try:
+            identity = self._robotWorkflowFacade.plannerComparisonIdentity()
+            attempts = [
+                {"planner_id": planner_id, "status": "NotRun", "message": "", "session": None, "paths": {}}
+                for planner_id in PLANNER_COMPARISON_IDS
+            ]
+            self._plannerComparisonState = {
+                "identity": identity,
+                "parameter_node": self._parameterNode,
+                "attempts": attempts,
+                "policy": panel.planningPolicy(),
+                "index": 0,
+                "cancel": False,
+            }
+            panel.cancelPlannerComparisonButton.enabled = True
+            panel.comparePlannersButton.enabled = False
+            panel.planApproachButton.enabled = False
+            self._savePlannerComparisonProgress()
+            qt.QTimer.singleShot(0, self._runNextPlannerComparisonTrial)
+        except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            self._plannerComparisonState = None
+            panel.cancelPlannerComparisonButton.enabled = False
+            self._updateStep6PlanningUi()
+            slicer.util.errorDisplay(str(exc))
+
+    def _savePlannerComparisonProgress(self) -> None:
+        state = self._plannerComparisonState
+        if self._parameterNode is not state["parameter_node"]:
+            raise RuntimeError("The case changed; comparison evidence was not written to another case.")
+        payload = str(self._parameterNode.step6PlannerComparisonJson or "").strip()
+        existing = parse_planner_comparison(payload) if payload else build_planner_comparison({})
+        branches = dict(existing["branches"])
+        branches[state["identity"]["branch_id"]] = {
+            "identity": state["identity"],
+            "attempts": state["attempts"],
+        }
+        self._parameterNode.step6PlannerComparisonJson = canonical_json(
+            build_planner_comparison(branches)
+        )
+
+    def _onStep6CancelPlannerComparison(self) -> None:
+        state = getattr(self, "_plannerComparisonState", None)
+        if state:
+            state["cancel"] = True
+            self._robotSimulationPanel.plannerComparisonProgressLabel.text = (
+                "Cancellation requested; the current planner call must finish first."
+            )
+
+    def _runNextPlannerComparisonTrial(self) -> None:
+        state = getattr(self, "_plannerComparisonState", None)
+        if not state:
+            return
+        panel = self._robotSimulationPanel
+        index = state["index"]
+        if state["cancel"] or index >= len(PLANNER_COMPARISON_IDS):
+            identity_changed = self._parameterNode is not state["parameter_node"]
+            panel.plannerComparisonProgressLabel.text = (
+                "Three-planner comparison cancelled; remaining rows are NotRun."
+                if state["cancel"] else "Three-planner comparison complete; review all three rows."
+            )
+            self._robotWorkflowFacade.invalidateMotionPlan()
+            self._plannerComparisonState = None
+            panel.cancelPlannerComparisonButton.enabled = False
+            self._updateStep6PlanningUi()
+            if identity_changed:
+                slicer.util.errorDisplay("Comparison stopped because the case changed; no result was written to the new case.")
+            else:
+                self._onStep6ShowPlannerComparison()
+            return
+        planner_id = PLANNER_COMPARISON_IDS[index]
+        try:
+            if self._robotWorkflowFacade.plannerComparisonIdentity() != state["identity"]:
+                raise RuntimeError("The case/task identity changed during comparison.")
+            panel.plannerComparisonProgressLabel.text = (
+                f"Comparing planner {index + 1}/3: {planner_id}."
+            )
+            self._robotWorkflowFacade.invalidateMotionPlan()
+            policy = dict(state["policy"])
+            policy["planner_id"] = planner_id
+            result = self._robotWorkflowFacade.planApproachPhase(**policy)
+            if self._robotWorkflowFacade.plannerComparisonIdentity() != state["identity"]:
+                raise RuntimeError("The case/task identity changed during planner execution.")
+            state["attempts"][index] = (
+                self._robotWorkflowFacade.capturePlannerComparisonAttempt(planner_id, result)
+            )
+            self._robotWorkflowFacade.invalidateMotionPlan()
+            self._savePlannerComparisonProgress()
+            state["index"] += 1
+            qt.QTimer.singleShot(0, self._runNextPlannerComparisonTrial)
+        except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
+            state["attempts"][index]["message"] = "Fatal comparison stop: " + str(exc)
+            state["cancel"] = True
+            self._robotWorkflowFacade.invalidateMotionPlan()
+            try:
+                self._savePlannerComparisonProgress()
+            except (ValueError, RuntimeError, json.JSONDecodeError):
+                pass
+            qt.QTimer.singleShot(0, self._runNextPlannerComparisonTrial)
+
+    def _onStep6ShowPlannerComparison(self) -> None:
+        if not self._parameterNode or not self._robotSimulationPanel:
+            return
+        try:
+            payload = str(self._parameterNode.step6PlannerComparisonJson or "").strip()
+            comparison = parse_planner_comparison(payload)
+            registry = json.loads(str(self._parameterNode.step6TrajectoryRegistryJson or "{}"))
+            branch_id = str(registry.get("selected_branch_id") or "")
+            entry = comparison["branches"].get(branch_id)
+            if not entry:
+                raise ValueError("No saved planner comparison belongs to this PreparedBranch.")
+            try:
+                current = entry["identity"] == self._robotWorkflowFacade.plannerComparisonIdentity()
+            except (ValueError, RuntimeError):
+                current = False
+            self._plannerComparisonReplayIdentity = entry["identity"]
+            self._robotSimulationPanel.showPlannerComparison(
+                entry, current=current, on_replay=self._replaySavedPlannerComparisonPath
+            )
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            slicer.util.errorDisplay(str(exc))
+
+    def _clearPlannerComparisonReplay(self) -> None:
+        timer = getattr(self, "_plannerComparisonReplayTimer", None)
+        if timer:
+            timer.stop()
+            self._plannerComparisonReplayTimer = None
+        for node in getattr(self, "_plannerComparisonReplayNodes", ()):
+            if slicer.mrmlScene.IsNodePresent(node):
+                slicer.mrmlScene.RemoveNode(node)
+        self._plannerComparisonReplayNodes = []
+
+    def _replaySavedPlannerComparisonPath(self, attempt) -> str:
+        """Offline, display-only ghost animation; never touches robot/guard state."""
+
+        self._clearPlannerComparisonReplay()
+        try:
+            if self._robotWorkflowFacade.plannerComparisonIdentity() != self._plannerComparisonReplayIdentity:
+                return "Replay blocked: case/task identity is stale."
+            base = self._parameterNode.robotBaseTransform
+            if not base:
+                return "Replay blocked: saved robot base is unavailable."
+            waypoints = [
+                point for stage in ("stage1", "stage2", "stage3")
+                for point in attempt["paths"].get(stage, ())
+            ]
+            if not waypoints:
+                return "This planner has no saved path waypoints."
+            urdf_path, package_root = self.logic.robotDescriptionPaths()
+            poses = robot_link_mesh_poses_mm(urdf_path, package_root, waypoints[0])
+            transforms = {}
+            nodes = []
+            for pose in poses:
+                model = slicer.modules.models.logic().AddModel(
+                    str(pose.mesh_path), slicer.vtkMRMLStorageNode.CoordinateSystemRAS
+                )
+                transform = slicer.mrmlScene.AddNewNodeByClass(
+                    "vtkMRMLLinearTransformNode", "[Diagnostic] Planner Replay Pose"
+                )
+                transform.SetAndObserveTransformNodeID(base.GetID())
+                model.SetAndObserveTransformNodeID(transform.GetID())
+                model.SetName("[Diagnostic] Planner Replay " + pose.link_name)
+                model.SetAttribute("DENTOBOT.PlannerComparisonReplay", "display-only")
+                model.SetSaveWithScene(False)
+                transform.SetSaveWithScene(False)
+                model.CreateDefaultDisplayNodes()
+                model.GetDisplayNode().SetOpacity(0.35)
+                model.GetDisplayNode().SetSaveWithScene(False)
+                if model.GetStorageNode():
+                    model.GetStorageNode().SetSaveWithScene(False)
+                nodes.extend((model, transform))
+                self._plannerComparisonReplayNodes = nodes
+                transforms[pose.link_name] = transform
+            timer = qt.QTimer()
+            timer.setInterval(self._robotSimulationPanel.previewIntervalMs())
+            position = 0
+
+            def advance():
+                nonlocal position
+                try:
+                    if (position >= len(waypoints) or
+                            self._robotWorkflowFacade.plannerComparisonIdentity()
+                            != self._plannerComparisonReplayIdentity):
+                        self._clearPlannerComparisonReplay()
+                        return
+                    for pose in robot_link_mesh_poses_mm(
+                        urdf_path, package_root, waypoints[position]
+                    ):
+                        transforms[pose.link_name].SetMatrixTransformToParent(
+                            self.logic._vtkFromNumpyMatrix(pose.matrix_base_from_mesh_mm)
+                        )
+                    position += 1
+                except (ValueError, RuntimeError, OSError, KeyError):
+                    self._clearPlannerComparisonReplay()
+
+            timer.timeout.connect(advance)
+            self._plannerComparisonReplayTimer = timer
+            timer.start()
+            return f"Display-only replay started for {len(waypoints)} exact saved joint waypoints."
+        except (ValueError, RuntimeError, OSError, KeyError) as exc:
+            self._clearPlannerComparisonReplay()
+            return "Replay unavailable: " + str(exc)
 
     def _onStep6TemplateCollisionOverride(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:

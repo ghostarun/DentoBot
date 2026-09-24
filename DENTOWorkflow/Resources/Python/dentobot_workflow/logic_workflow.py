@@ -288,6 +288,7 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         segmentId: str,
         rootCount: int,
         targetBoundsRoi: vtkMRMLMarkupsROINode | None = None,
+        progress=None,
     ) -> tuple[list[vtkMRMLMarkupsLineNode], dict]:
         self.requireCaseFoundationPose(self.getParameterNode())
         rootCount = int(rootCount)
@@ -353,10 +354,14 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             raise ValueError(
                 _("Every assisted crown entry point must lie inside the target-tooth bounds.")
             )
+        if progress:
+            progress("Reading target tooth surface", 0, 4)
         surface = self._getClosedSurfaceCopy(segmentationNode, segmentId)
         pointData = surface.GetPoints().GetData() if surface.GetPoints() else None
         if not pointData:
             raise ValueError(_("The target tooth has no usable surface points."))
+        if progress:
+            progress("Inferring root directions", 1, 4)
         analysis = infer_root_targets(
             vtk_to_numpy(pointData),
             sourceEntryPoints,
@@ -366,6 +371,8 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
             [float(value) for value in point] for point in sourceEntryPoints
         ]
 
+        if progress:
+            progress("Checking matched pulp mask", 2, 4)
         pulpAssociation = self.getTargetPulpAssociation(
             segmentationNode,
             inputs["targetRecord"]["segmentId"],
@@ -416,6 +423,8 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         surfaceTargets = []
         surfaceOffsetsMm = []
         for index, (entry, target) in enumerate(zip(sourceEntryPoints, analysis["rootTargetsRas"]), 1):
+            if progress:
+                progress(f"Intersecting pulp for Entry {index}/{rootCount}", index - 1, rootCount)
             entryIjk = worldToImage.MultiplyPoint((*entry, 1.0))[:3]
             targetIjk = worldToImage.MultiplyPoint((*target, 1.0))[:3]
             try:
@@ -490,6 +499,8 @@ class WorkflowLogicMixin(PlanningDependencyLogicMixin, LineageLogicMixin):
         analysis["planningCoordinateSystem"] = "OpenedCaseFoundationWorldRAS"
         analysis["endpointMethod"] = "FirstSharedPulpIntersectionV2"
         analysis["pulpSegmentId"] = pulpId
+        if progress:
+            progress("Creating trajectory nodes", 3, 4, can_cancel=False)
 
         created = []
         try:

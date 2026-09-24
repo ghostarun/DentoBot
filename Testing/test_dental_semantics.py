@@ -19,6 +19,7 @@ from dentobot_workflow.dental_semantics import (  # noqa: E402
     apply_pulp_association,
     associate_pulp_components,
     build_segment_record,
+    enclosed_tooth_void,
     normalize_source_label,
     occupied_components,
     pulp_record_is_planning_ready,
@@ -26,6 +27,23 @@ from dentobot_workflow.dental_semantics import (  # noqa: E402
     semantic_document,
     semantic_fingerprint,
 )
+
+
+def test_enclosed_tooth_void_requires_one_closed_pocket():
+    shell = {(x, y, z) for x in range(5) for y in range(5) for z in range(5)
+             if x in (0, 4) or y in (0, 4) or z in (0, 4)}
+    assert len(enclosed_tooth_void(shell)) == 27
+    shell.remove((0, 2, 2))
+    with pytest.raises(ValueError, match="found 0"):
+        enclosed_tooth_void(shell)
+
+
+def test_enclosed_tooth_void_uses_dominant_pocket():
+    shell = {(x, y, z) for x in range(5) for y in range(5) for z in range(5)
+             if x in (0, 4) or y in (0, 4) or z in (0, 4)}
+    shell.update((x + 8, y, z) for x in range(3) for y in range(3) for z in range(3)
+                 if x in (0, 2) or y in (0, 2) or z in (0, 2))
+    assert len(enclosed_tooth_void(shell)) == 27
 
 
 def _record(
@@ -114,6 +132,19 @@ def test_b_generic_pulp_name_uses_geometry_selected_parent():
     paired = next(record for record in result if record["segmentId"] == "p11")
     assert paired["canonicalName"] == "Pulp_FDI11"
     assert paired["associationMethod"] == "spatial"
+
+
+def test_b_unknown_mask_gets_canonical_pulp_label_without_changing_source():
+    tooth = _record("t11", "tooth_primary", structure_type_hint="TOOTH", fdi_hint="11")
+    unknown = _record("p11", "internal_structure_alpha")
+    assert unknown["structureType"] == "OTHER"
+    association = _association("p11", "t11", [_candidate("t11", "11")])
+
+    paired = apply_pulp_association([tooth, unknown], association)[1]
+    assert paired["structureType"] == "PULP"
+    assert paired["canonicalName"] == "Pulp_FDI11"
+    assert paired["sourceName"] == "internal_structure_alpha"
+    assert pulp_record_is_planning_ready(paired, "t11")
 
 
 def test_c_geometry_disagreement_is_preserved_and_not_overridden_by_hint():

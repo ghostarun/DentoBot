@@ -632,6 +632,11 @@ class DisplayLogicMixin:
         _segmentation, displayNode = self._segmentationAndDisplayNode(
             segmentationNode
         )
+        actualRepresentation = displayNode.GetDisplayRepresentationName2D() or ""
+        if actualRepresentation == self.SEGMENTATION_CLOSED_SURFACE_REPRESENTATION:
+            return self.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
+        if actualRepresentation == self.SEGMENTATION_BINARY_LABELMAP_REPRESENTATION:
+            return self.SEGMENTATION_2D_RENDERING_MODE_NATIVE
         storedMode = segmentationNode.GetAttribute(
             self.SEGMENTATION_2D_RENDERING_MODE_ATTRIBUTE
         )
@@ -643,7 +648,6 @@ class DisplayLogicMixin:
         preferredRepresentation = (
             displayNode.GetPreferredDisplayRepresentationName2D() or ""
         )
-        actualRepresentation = displayNode.GetDisplayRepresentationName2D() or ""
         if self.SEGMENTATION_CLOSED_SURFACE_REPRESENTATION in (
             preferredRepresentation,
             actualRepresentation,
@@ -676,6 +680,13 @@ class DisplayLogicMixin:
                 self.SEGMENTATION_CLOSED_SURFACE_REPRESENTATION
             )
         elif mode == self.SEGMENTATION_2D_RENDERING_MODE_NATIVE:
+            if not segmentation.ContainsRepresentation(
+                self.SEGMENTATION_BINARY_LABELMAP_REPRESENTATION
+            ):
+                if not segmentationNode.CreateBinaryLabelmapRepresentation():
+                    raise RuntimeError(
+                        _("Slicer could not generate the derived binary labelmap needed for native 2D display.")
+                    )
             representationName = (
                 self.SEGMENTATION_BINARY_LABELMAP_REPRESENTATION
             )
@@ -698,7 +709,7 @@ class DisplayLogicMixin:
         self,
         segmentationNode: vtkMRMLSegmentationNode,
     ) -> str:
-        """Migrate older scenes to the authoritative native-mask display."""
+        """Default new review displays to smooth while preserving saved choices."""
 
         _segmentation, _displayNode = self._segmentationAndDisplayNode(
             segmentationNode
@@ -713,7 +724,7 @@ class DisplayLogicMixin:
             self.setSegmentation2DRenderingMode(segmentationNode, storedMode)
             return storedMode
 
-        defaultMode = self.SEGMENTATION_2D_RENDERING_MODE_NATIVE
+        defaultMode = self.SEGMENTATION_2D_RENDERING_MODE_SMOOTH
         self.setSegmentation2DRenderingMode(segmentationNode, defaultMode)
         return defaultMode
 

@@ -203,6 +203,7 @@ class GuideLogicMixin(DockingLogicMixin):
         reinforcementModel: vtkMRMLModelNode | None = None,
         channelsModel: vtkMRMLModelNode | None = None,
         finalModel: vtkMRMLModelNode | None = None,
+        progress=None,
     ) -> tuple[vtkMRMLModelNode, dict[str, vtkMRMLModelNode], dict]:
         foundation = self.requireCaseFoundationPose(self.getParameterNode())
         parameters = normalize_docking_parameters(
@@ -234,10 +235,17 @@ class GuideLogicMixin(DockingLogicMixin):
         targetDockingParameters = json.loads(
             inputs["targetDockingSummary"]["parametersJson"]
         )
+        if progress:
+            progress("Building Step 4C dock geometry for fusion")
         targetDockingSurfaces, targetDockingMetrics = (
             create_target_frame_docking_geometry(
                 inputs["targetDockingSummary"]["frame"],
                 targetDockingParameters,
+                progress=(
+                    lambda stage, index, done, total: progress(
+                        f"Dock surface {index}/5: {stage}", done, total
+                    ) if progress else None
+                ),
             )
         )
         shellContactBranches, shellContactMetrics = (
@@ -318,6 +326,8 @@ class GuideLogicMixin(DockingLogicMixin):
             "trajectoryCount": len(trajectoryGeometry),
             "dockCount": int(targetDockingMetrics.get("dockCount", 0)),
         }
+        if progress:
+            progress("Sampling shell and guide fusion")
         finalPolyData, fusionMetrics = fuse_shell_and_docking_voxel(
             model_polydata_in_world(patientShell),
             surfaces["docking"],
@@ -325,7 +335,14 @@ class GuideLogicMixin(DockingLogicMixin):
             surfaces["reinforcement"],
             surfaces["channels"],
             sampling_spacing_mm=parameters["processingResolutionMm"],
+            progress=(
+                lambda name, index, total: progress(
+                    f"Fusion sample {index}/{total}: {name}"
+                ) if progress else None
+            ),
         )
+        if progress:
+            progress("Applying unified template to scene", can_cancel=False)
         roleModels = {
             "docking": self._createOrReuseRoleModel(
                 dockingModel,
@@ -367,7 +384,7 @@ class GuideLogicMixin(DockingLogicMixin):
             "reinforcement": "TemplateDockingReinforcement",
             "channels": "TemplateDockingChannels",
         }
-        for key, modelNode in roleModels.items():
+        for index, (key, modelNode) in enumerate(roleModels.items(), 1):
             wasModifying = modelNode.StartModify()
             try:
                 modelNode.SetAndObservePolyData(surfaces[key])
@@ -406,6 +423,8 @@ class GuideLogicMixin(DockingLogicMixin):
                 displayNode.SetVisibility2D(False)
                 displayNode.SetVisibility3D(True)
                 displayNode.SetBackfaceCulling(False)
+            if progress:
+                progress(f"Updating scene model {index}/5: {key}")
         displayColors = {
             "docking": (0.10, 0.72, 0.92),
             "clearance": (0.90, 0.25, 0.22),
@@ -493,6 +512,8 @@ class GuideLogicMixin(DockingLogicMixin):
             )
         finally:
             finalModel.EndModify(wasModifying)
+        if progress:
+            progress("Updating scene model 5/5: unified template")
         finalModel.CreateDefaultDisplayNodes()
         finalDisplay = finalModel.GetDisplayNode()
         if finalDisplay:

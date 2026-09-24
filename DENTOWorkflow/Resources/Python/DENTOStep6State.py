@@ -36,6 +36,11 @@ COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
 MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
 SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
 MOTION_DIAGNOSTIC_PLAN_SELECTION_STATES = ("auto", "selected", "locked")
+PLANNER_COMPARISON_IDS = (
+    "RRTConnectkConfigDefault",
+    "RRTkConfigDefault",
+    "RRTstarkConfigDefault",
+)
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
 """Commandable robot joints used by MoveIt and the Step 6 guard.
@@ -82,6 +87,91 @@ def canonicalize_planning_joint_positions(
     if not all(isfinite(value) for value in result.values()):
         raise ValueError("planning joint vector must contain five finite values")
     return result
+
+
+def build_planner_comparison(
+    branches: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    """Persist bounded, non-authorizing planner evidence by PreparedBranch."""
+
+    checked = {}
+    for branch_id, raw in branches.items():
+        if not str(branch_id).strip() or not isinstance(raw, Mapping):
+            raise ValueError("planner comparison requires a PreparedBranch ID")
+        identity = dict(raw.get("identity") or {})
+        required = (
+            "task", "base", "home", "trajectory", "robot_profile", "collision_audit"
+        )
+        if any(not str(identity.get(key) or "") for key in required):
+            raise ValueError("planner comparison identity is incomplete")
+        attempts = list(raw.get("attempts") or [])
+        if len(attempts) != len(PLANNER_COMPARISON_IDS):
+            raise ValueError("planner comparison requires exactly three ordered trials")
+        checked_attempts = []
+        for planner_id, attempt in zip(PLANNER_COMPARISON_IDS, attempts):
+            if not isinstance(attempt, Mapping) or attempt.get("planner_id") != planner_id:
+                raise ValueError("planner comparison planner order changed")
+            status = str(attempt.get("status") or "")
+            if status not in {"Pass", "Fail", "NotRun"}:
+                raise ValueError("planner comparison has an invalid status")
+            session = attempt.get("session")
+            if session is not None:
+                parsed = parse_motion_diagnostic_session(session)
+                for name, actual in (
+                    ("task", parsed.task_fingerprint),
+                    ("base", parsed.base_fingerprint),
+                    ("trajectory", parsed.trajectory_fingerprint),
+                    ("robot_profile", parsed.robot_profile_fingerprint),
+                ):
+                    if actual != identity[name]:
+                        raise ValueError("planner comparison session belongs to another " + name)
+            paths = attempt.get("paths") or {}
+            if not isinstance(paths, Mapping) or set(paths) - {"stage1", "stage2", "stage3"}:
+                raise ValueError("planner comparison contains an unknown path stage")
+            clean_paths = {}
+            for stage in ("stage1", "stage2", "stage3"):
+                waypoints = list(paths.get(stage) or ())
+                if len(waypoints) > 8192:
+                    raise ValueError("planner comparison path exceeds its evidence bound")
+                clean_paths[stage] = [
+                    canonicalize_planning_joint_positions(point) for point in waypoints
+                ]
+            if status == "NotRun" and (session is not None or any(clean_paths.values())):
+                raise ValueError("an unrun planner cannot have motion evidence")
+            checked_attempts.append({
+                "planner_id": planner_id,
+                "status": status,
+                "message": str(attempt.get("message") or ""),
+                "session": session,
+                "paths": clean_paths,
+            })
+        checked[str(branch_id)] = {"identity": identity, "attempts": checked_attempts}
+    body = {"schema_version": "1.0", "branches": checked}
+    return {**body, "fingerprint": fingerprint(body)}
+
+
+def parse_planner_comparison(payload: str | Mapping[str, object]) -> dict[str, object]:
+    data = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    if data.get("schema_version") != "1.0" or not isinstance(data.get("branches"), Mapping):
+        raise ValueError("unsupported planner-comparison record")
+    rebuilt = build_planner_comparison(data["branches"])
+    if rebuilt["fingerprint"] != data.get("fingerprint"):
+        raise ValueError("planner-comparison fingerprint does not match its contents")
+    return rebuilt
+
+
+def planner_comparison_scene_fingerprint(audit: "CollisionSceneAudit") -> str:
+    """Identify collision content, not the timestamp of a fresh acknowledgement."""
+
+    if audit.status != "Acknowledged" or audit.runtime_acknowledgement.get("status") != "Acknowledged":
+        raise ValueError("planner comparison requires an acknowledged collision scene")
+    return fingerprint({
+        "base": audit.base_fingerprint,
+        "jaw": audit.jaw_preparation_fingerprint,
+        "world_to_base": audit.world_to_base_fingerprint,
+        "objects": audit.object_records,
+        "policy": audit.runtime_acknowledgement.get("expected_policy_fingerprint"),
+    })
 
 
 def spindle_is_locked(joint_positions_si: Mapping[str, float]) -> bool:

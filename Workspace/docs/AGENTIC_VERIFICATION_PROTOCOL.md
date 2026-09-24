@@ -25,6 +25,9 @@ For `S6-LIVE-01`, follow
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
 GUI-visible results require Tarun's verdict; headless/backend results remain
 diagnostic evidence. Runtime resources remain serialized.
+Step 6 GUI automation scripts must follow the
+[diagnostic-run SOP](diagnostics/STEP6_GUI_AUTOMATION_SOP_2026-09-23.md), including
+per-planner screenshots and explicit base-mount/Task Home hypothesis labels.
 
 For Experiment A, the one source check proves that the canonical URDF
 contains `pneumatic_spindle-Copy_collision`, the diagnostic URDF omits it, and

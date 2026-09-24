@@ -13,35 +13,6 @@ baseline, not a second scheduling authority. Read current state/next action in
 backlog.md before using these contracts; update substantive contract/acceptance
 changes here and keep execution chronology in the dated logbook.
 
-## CS-PHONE-ANCHOR-01 — Codex Switcher active-account routing
-
-- **Owner/source:** External Codex Switcher checkout at
-  `/home/light-tarun/src/codex-switcher`; coordinator owns this contract and
-  acceptance records in this repository.
-- **State:** Source correction complete; packaging/test acceptance pending;
-  **Priority:** Unprioritized.
-- **Operator report:** Keeping the phone anchor on one account while switching
-  to a secondary account no longer changes the account used for active quota;
-  unbinding the phone anchor makes the secondary account work again.
-- **Evidence boundary:** The live switcher log records successful `store.current`
-  changes and intentional non-anchor `auth.json` preservation. The current
-  source's `set_proxy_env` command clears `openai_base_url` and reports that
-  Desktop stays direct, while the proxy and phone-anchor UI still document the
-  CLI + App route. This attributes the primary failure to client bypass, not to
-  the tested account-store anchor rule. Repeated anchor refresh-token rejection
-  is separate evidence and is not silently treated as fixed by this task.
-- **Implementation boundary:** Change only the smallest shared proxy-routing
-  path needed to make Codex App/CLI requests use `store.current` while the
-  phone anchor remains on disk. Do not mutate live account/token data, release
-  the anchor as a workaround, or alter quota/safety policy.
-- **Acceptance:** Focused Rust anchor tests pass; source/config behavior proves
-  the “CLI + App” proxy action writes the proxy base URL when enabled and
-  removes it when disabled; `git diff --check` passes; a rebuilt application is
-  produced or the build blocker is recorded. No robot or patient-facing action
-  is in scope. The source/config assertions, frontend build and diff check pass;
-  the focused Rust test could not compile because this host lacks GTK/WebKit
-  development headers, and the installed binary therefore remains unchanged.
-
 ## Immediate P0 — bore-safe Step 5B dock attachments
 
 - **ID:** `W5-U-04`; **Priority:** 0 (operator-promoted 2026-09-10);
@@ -1281,34 +1252,84 @@ canonical validation gate. Step 6 remains downstream and unchanged.
 | A | Native FDI11 tooth plus raw FDI111 pulp hint: canonical `Tooth_FDI11` and `Pulp_FDI11`, unique spatial match, `HIGH`/`VALID`. |
 | B | Pulp geometry is inside/consistent with FDI11 but raw identity is generic or absent: canonical FDI11 comes from spatial evidence, not the name. |
 | C | Raw pulp hint says FDI11 while geometry favors FDI21: preserve disagreement, never let the hint override geometry; resolve only with a clear validated margin or block/review. |
-| D | No FDI11 pulp component: `MISSING`, clear diagnostic, pulp-dependent generation blocked; no fabricated segment or endpoint. |
+| D | No labeled FDI11 pulp component: inspect the selected tooth for a dominant enclosed label-0 void. Create a separate reviewable pulp candidate only when one dominates and its voxels are unassigned; otherwise `MISSING`/review required. No endpoint before review. |
 | E | Adjacent FDI11/FDI21 candidates are close or metrics conflict: `AMBIGUOUS`, no automatic planning. |
 | F | One pulp is fragmented: same-tooth components may be grouped with component evidence; cross-tooth or duplicate assignments are `AMBIGUOUS`/`INVALID`. |
 | G | Save, close, reopen and re-import a `.dentocase`: canonical records, relations, states and fingerprint remain identical; legacy recovery is migration-pending until explicit save. |
 | H | Backend raw names/terminology change while source facts remain adaptable: target/pulp queries use canonical records and continue; an unadaptable source fails review rather than guessing. |
 
+**Operator clarification (2026-09-24):** Acceptance case B is a required
+feature, not merely a migration/parser example. If one or more detected pulp
+masks/components have generic or absent FDI labels but the existing spatial
+association validates them inside the selected tooth, assisted generation
+must allow the requested one or two trajectories. If no pulp component is
+detected/associated inside that tooth, do not generate a pulp-based line.
+The later operator clarification includes existing masks of unknown source
+type: an `OTHER` mask is promoted to canonical PULP only with unique HIGH
+spatial association and full sampled-component enclosure in the selected
+tooth. The 2026-09-24 correction additionally authorizes a derived mask from
+a dominant closed label-0 void inside the target tooth. Read-only voxel
+inspection of the usual 13Sept FDI11 case found 52 connected interior voxels
+and a separate 3-voxel pocket; FDI21 has a dominant 52-voxel pocket and smaller
+ones. The original source masks remain unchanged. A derived segment records
+its tooth parent and method, invalidates prior review, and cannot feed assisted
+generation until Step 2 is marked Reviewed. Occupied, open or ambiguous voids
+fail closed. `S3-P0-DENTAL-SEMANTICS` owns candidate creation and association;
+`S4A-PULP-ENDPOINT` owns native/displayed endpoint validation and line
+construction. The parent semantic work item retains Priority 0.
+
 ### Boundaries and completion evidence
 
-Non-goals are TotalSegmentator retraining/fine-tuning, synthetic missing pulp,
-unnecessary mask edits, FDI11-only heuristics, and a broad Step 6 rewrite.
+Non-goals are TotalSegmentator retraining/fine-tuning, edits to source masks,
+FDI11-only heuristics, and a broad Step 6 rewrite.
 Completion requires the source-map comparison, focused pure/static checks, A–F
 semantic fixtures, G save/reload evidence, H naming-independence evidence, and
 one explicit pulp-dependent planning gate check. A code change is not accepted
 until its verification command/result is recorded in the dated logbook.
 
-**Next bounded action:** run one explicitly approved serialized Slicer import
-and target-association check against the current source revision, then run the
-focused save/reopen evidence. The current FDI11/FDI21 missing-pulp package
-remains an input-data boundary; do not relabel or synthesize it.
+**UX correction (2026-09-24):** Candidate creation is an explicit Step 2
+"Prepare Pulp Mask for Selected Tooth" action on a selected reviewed tooth.
+It checks existing pulp first, creates a separate candidate only if missing,
+shows the tooth and candidate together, and resets review for a new mask.
+Step 4A placement checks pulp association before placing crown Entry points;
+Generate creates trajectories only. The earlier create-then-error Generate
+behavior and mistaken Step 3 review instruction are superseded.
+
+**Per-run bulk extension (2026-09-24):** New segmentation runs receive an
+automatic read-only audit; older loaded MRB/dentocase runs offer a manual
+Step 2 Check Pulp Masks button. The selected run owns a versioned MRML report
+with per-tooth outcomes, absent FDI positions, stale detection and a table
+dialog. Bulk creation is one explicit action, preserving source masks and
+requiring review before planning. Trusted legacy run metrics require matching
+loaded segment IDs and label values. Runtime save/reopen and anatomical
+acceptance remain open until verified.
+
+**Next bounded action:** MRB and dentocase save/reopen now pass for the focused
+FDI11 candidate. Inspect the Step 2 mask and report in a normal window for
+Tarun's anatomical/UI verdict. Full all-tooth batch performance and
+representative source-mask Case B remain open.
+
+**Approved verification continuation (2026-09-24):** Tarun approved the
+bounded save/reload check. Slicer re-audited the saved 28-row FDI11 run,
+verified the 52-voxel candidate, and passed MRB save/reopen with a current
+report. A first dentocase open failed post-hydration on the unrelated
+`step6CaseJawTransform` stale-reason lineage because the loader passed
+archive schema 2.0 to workflow-state schema 3.0 hydration. After using the
+saved workflow-state version, a narrow fresh Slicer open passed and restored
+all 28 rows, a current report, the 52-voxel FDI11 candidate and Needs
+Correction review state. Full-batch runtime, ordinary-window anatomy/table
+verdict and representative source-mask Case B remain open.
 
 ## Immediate P0 — restore truthful Step 4A smooth masks
 
-- **ID:** `W4-U-02`; **Priority:** 0; **State:** Root-cause correction and focused automated verification passed (2026-09-10); normal-window visual acceptance remains pending.
+- **ID:** `W4-U-02`; **Priority:** 0; **State:** Root-cause correction and focused automated verification passed (2026-09-10). The 2026-09-24 all-step default/control correction passes the supplied-case off/on probe; normal-window visual acceptance remains pending.
 - **Operator observation:** Smooth masks do not work and must be restored now as Priority 0.
 - **Finding:** The checked control returned without applying anything outside the special oblique-verification state and did not synchronize itself from the actual CBCT and segmentation display modes. It could therefore present a checked no-op in ordinary Step 4A.
 - **Corrected contract:** With a complete selected trajectory, the same switch operates in ordinary Step 4A and oblique verification, using Slicer's existing scalar interpolation and closed-surface 2D representation without modifying source voxels or masks. Outside oblique verification it reflects the actual joint CBCT/mask state; oblique exit restores the captured prior modes.
 - **Verification:** Focused Slicer target exercised the ordinary Step 4A handler, actual CBCT interpolation, smooth/native mask representations and endpoint persistence; it emitted `DENTOBOT_STEP4A_DISPLAY_PASS` and `DENTOBOT_STEP4A_P0_PASS` and exited 0. Evidence: `/tmp/dentobot-verification/step4a-p0-20260910/result.json`.
-- **Next:** Confirm in a normal Slicer window that on/off visibly changes both CBCT and masks, the checked state is truthful, and oblique disable/exit restores the prior modes. The broader representative Step 4/backtracking acceptance remains part of this task after the P0 regression check.
+- **2026-09-24 operator delta and implementation:** Tarun requested smooth as the default and a permanent on/off option in the Views dialog across all steps; he deferred the `VIEW-U-01` visible verdict and advanced this task. The Views palette now shows “Smooth CBCT and masks” above its tabs, operating on source and both Case Foundation jaw displays without a trajectory prerequisite. New segmentation review defaults to smooth while saved choices remain. Native mode materializes a derived binary labelmap when an opened display contains only a closed surface, so off changes actual rendering. The reported mode follows Slicer's actual representation. Source voxels, authoritative masks, trajectory and planner policy are unchanged.
+- **2026-09-24 evidence:** The supplied FDI21/31 case initially had surface-only fixed/moving displays; the old off control reported native while Slicer still rendered `Closed surface`. `/tmp/w4-u02-probe-after.log` then showed `W4_MOVING_OFF ... Binary labelmap` and exit 0. `/tmp/w4-u02-toggle.log` reported `W4_ALL_STEPS_TOGGLE_PASS` and exit 0 after source/fixed/moving mask and CBCT off/on assertions. Static compile and diff checks passed. The first matrix Step 4A run found a synthetic fixture marking smooth without creating a surface; after correcting the fixture, the second run emitted `DENTOBOT_STEP4A_DISPLAY_PASS`, then failed in assisted-endpoint Case Foundation review setup (`Review the segmentation before creating the Case Foundation`). The combined matrix run is not claimed passed; that downstream gate is outside this display correction and requires separate triage under its owning task.
+- **Next:** Confirm in a normal Slicer window that the default and permanent Views control visibly change both CBCT and masks, the checked state is truthful, and oblique disable/exit restores the prior modes. The broader representative Step 4/backtracking acceptance remains part of this task.
 
 ## Immediate P0 — terminal coverage disconnects shell collar
 
@@ -1323,7 +1344,7 @@ remains an input-data boundary; do not relabel or synthesize it.
 
 ## Immediate P0 baseline cleanup — retired pre-surgery workarounds
 
-- **ID:** `S6-P0-BASELINE-CLEANUP`; **Priority:** 0; **State:** Source cleanup, 63 focused Python tests, native guard build, and 14-check synthetic ROS phase-guard test passed. Clean-case full-loop acceptance remains pending.
+- **ID:** `S6-P0-BASELINE-CLEANUP`; **Priority:** 0; **State:** Completed source/guard scope. Source cleanup, 63 focused Python tests, native guard build, and 14-check synthetic ROS phase-guard test passed. The clean-case full-loop acceptance is owned only by `S6-LIVE-05`; this ID was removed from the pending backlog on 2026-09-23 to avoid a duplicate queue entry.
 - **Reason:** The retired pre-surgery/x4 fixture exposed collision and guide-fit problems. It must not drive production exceptions or planner tuning. New baseline cases must use reviewed post-surgery/clean anatomy and a finalized Step 5C guide/tool model.
 - **Implemented:** The production burr-proximity helper now returns only the selected target-tooth object. Adjacent teeth, jaw anatomy, and guide/template objects remain authoritative for collision and the research clearance margin. The façade no longer sends guide/template IDs as clearance exemptions, and the ROS bridge rejects non-empty guide-clearance exemptions.
 - **Quarantined:** The historical Step 5C template-collision bypass is unavailable by default and requires the explicit process variable `DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE=1`. Session anatomy-review proxies are ignored by collision publication unless `DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW=1`. Neither override is saved into a case or treated as baseline evidence.
@@ -1348,8 +1369,16 @@ implementation auxiliary. The former Terra-xhigh prerequisite no longer blocks
 source work. The canonical plan's manual GUI verdict and runtime/safety gates
 remain in force. See `Workspace/AGENTS.md` and the dated decision.
 
-**Bound task:** `S6-LIVE-01` (Priority 0); `S6-LIVE-02..05` require acceptance
+**Bound task:** `S6-LIVE-01` (Priority 0); pending `S6-LIVE-03..05` require acceptance
 of their preceding milestone.
+
+**2026-09-23 batch-comparison supersession:** The operator requested one
+Step 6.5 action running RRTConnect, RRT and RRT* sequentially with identical
+inputs, preserving ordinary failures and per-PreparedBranch fingerprinted
+reports/waypoints across save/reopen. Saved paths are display-only and cannot
+authorize preview; a chosen planner must be freshly replanned. Source checks,
+one approved save/reopen integration, then one normal-window comparison and
+Tarun's explicit verdict are the acceptance sequence. See the canonical plan.
 
 **2026-09-23 operator delta/source state:** The full Step 6.5 error-dialog
 message is retained in the fingerprinted Motion Diagnostics session; all five
@@ -1468,6 +1497,20 @@ compatibility diagnostic keys remain. Focused source checks pass. The first
 visible comparison must keep executed-algorithm attribution separate unless
 planning-server evidence is captured.
 
+**Latest implementation and visible evidence (2026-09-23):** The existing
+chooser now includes optional `RRTstarkConfigDefault` / `geometric::RRTstar`
+without changing the RRTConnect default. Hover guidance covers all planner
+controls and explains the locked approximate-IK/Cartesian states. Exact Step
+6.5 failure text is retained and reopenable in Motion Diagnostics. Focused
+source checks and the installed OMPL configuration pass. Tarun's visible
+RRTConnect trial reported the requested/configured RRTConnect ID, one 5-second
+attempt, approximate IK disabled, Stage 1 and Stage 2 PASS, and Stage 3 blocked
+by selected-tooth ↔ spindle collision. Cartesian Stage 2/3 was still enabled.
+This is not an executed-algorithm attribution or a complete route. Remaining:
+same-scene visible RRT and RRT* results with Tarun's verdict, followed by the
+already-designed exact-pose sequential-IK Cartesian-off implementation and its
+own visible stop.
+
 ## Step 6 planner manual diagnosis — preserved evidence context (2026-09-20)
 
 **Bound task:** `S6-LIVE-01`
@@ -1522,8 +1565,8 @@ each experiment. The diagnosis and ruled-out hypotheses above remain valid.
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **Active:** `M1-DIAG / HOUSING-OFF PASS`; diagnostic P1 completed 150 waypoints. Canonical M1 remains open. See the active contract above and [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Restore canonical housing-on mode and review one temporary collision-valid Home for Experiment B; do not preview or replan the housing-off route. |
-| 3 | `S6-LIVE-02` | 0 | Implemented: independent guard remains authoritative for J1–J5; legacy six-value spindle motion is rejected; final native packet records phase-aware invalid static validity separately from the Home-to-endpoint transition rejection; correlated 31-object acknowledgement and TCP/spindle/burr FK all pass; contact fields remain unknown where not exposed | Preserve the strict result, scene/policy identity and unknown-contact boundary. Any future geometry correction must be verified across every Stage 1/2/3 waypoint, narrow burr exception, external-spindle boundary and failed locked-route preservation |
+| 2 | `S6-LIVE-01` | 0 | **Operator-paused 2026-09-24:** `M1-DIAG / HOUSING-OFF PASS` remains diagnostic only; the later FDI21 r6 three-planner comparison is incomplete and its offline contact images invalid. Canonical M1/M2 remain open. See the [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md). | Await Tarun's direction. Reconcile it with the preserved evidence before any source repair, planner/runtime check or milestone claim; independent backlog work may proceed. |
+| 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, J1–J5 planning, J6 external-spindle boundary, narrow contact policy and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Completed-phase reverse-history Return Home is implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result. Source audit on 2026-09-23 found partial-preview stop retains history but blocks Return Home, and no new free-space OMPL Home plan is requested. | Tarun decides whether guarded reversal of a partial accepted prefix is permitted or specifies another recovery procedure. For a Complete route only, trial Approach→Drill preview→guarded Return Home→replan/route choice; retain FDI31 failure and await approval before another tooth. |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
 | 6 | `S6-LIVE-05` | 0 | Historical x4 Goal-1 evidence is retained only as a negative diagnostic; clean-case acceptance is not yet run | Select a reviewed post-surgery/clean case with finalized guide/tool geometry, then complete the full guarded loop |
@@ -1639,11 +1682,30 @@ dated 2026-09-14 logbook. No further blind whole-flow retry is authorized
 until the guide/tool/base geometry owner explains or corrects this contact
 without weakening the guard.
 
-## P1 Case Platform / Simulation Studio — blocked by `S6-LIVE-05`
+## P1 Case Platform / Simulation Studio — blocked by `S6-LIVE-05` and headless step coverage
+
+2026-09-24 operator sequencing update: `DCP-00` also inventories the current
+operator workflow step by step, including preparation, Step 6 and save/reopen,
+and records a production-path headless automation command, input identity,
+result and first failure for each step. Existing focused checks count only for
+the exact behavior they exercise. Close gaps under the existing step owners and
+keep Studio implementation on hold until every step is headlessly automatable
+and verified, in addition to `S6-LIVE-05` acceptance. Headless evidence does
+not replace Tarun's required normal-window verdict or authorize runtime runs.
+`UI-P3-01` remains the later cohesive functional GUI/UX wrapper. Continue
+bounded usability, accessibility, visibility and truthful-feedback repairs in
+the current GUI under their existing task IDs when needed to operate or verify
+the workflow; defer speculative layout/polish that depends on unsettled Studio
+functions. No priority or planner-pause change follows from this update.
+
+The read-only existing-script reuse index is
+[TESTING_VERIFICATION_SCRIPT_INDEX_2026-09-24.md](diagnostics/TESTING_VERIFICATION_SCRIPT_INDEX_2026-09-24.md).
+It inventories current code and matrix coverage before `DCP-00` acceptance;
+it does not satisfy the per-step evidence gate or authorize execution.
 
 | Order | ID | Priority | State | Entry condition |
 |---:|---|---:|---|---|
-| 1 | `DCP-00` | 1 | Planned | Track A full loop accepted; freeze façade/backend handoff |
+| 1 | `DCP-00` | 1 | Planned | Track A full loop accepted; freeze façade/backend handoff and verify headless coverage of every current workflow step before Studio implementation |
 | 2 | `DCP-01` | 1 | Complete as planning record | This 2026-09-05 supersession; no implementation work beyond controlled docs |
 | 3 | `DCP-02..08` | 1 | Remaining work deferred; promoted P0 subset is under correction | `DCP-00`; reuse accepted registry/environment/persistence rather than implementing them again |
 | 4 | `DCP-09..10` | 1 | Planned | Case/platform foundations accepted |
@@ -1670,9 +1732,9 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P1-01` | 1 | Partially implemented; anatomical safeguards pending | Current P0 correction accepted | Add bilateral condylar/crown regions, exact-source snapping, MPR review and representative anatomy acceptance |
 | `S6-P2-01` | 2 | Planned | `S6-P0-02` checkpoint matrix understood | Implement one post-load visual integrity panel for Steps 1–6 with Current, Needs attention, Stale, Blocked upstream, and Rejected states |
 | `S6-P2-02` | 2 | Planned | `S6-P1-01` accepted | Add smooth display-only incisor-gap preview and one explicit commit action |
-| `S6-P2-03` | 2 | Planned | Priority-0 correctness accepted | Add shared truthful busy/progress/result/cancel behavior to long-running actions without fake percentages |
+| `S6-P2-03` | 2 | Source and headless Step 4C/5B real-handler progress checks passed; Step 4A full run and normal-window acceptance open | Operator request supersedes the former P0-completion entry order for this scoped responsiveness work | Verify Step 4A with reviewed associated pulp, then Tarun's normal-window Step 4A/4C/5B responsiveness, phase/count/elapsed/cancel; no fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
-| `UI-P3-01` | 3 | Planned | Studio functional acceptance and Priority 1–2 correctness | Refine the New GUI while proving Legacy parity, incorporating the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and adding no new MRML/ROS side effects |
+| `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
 | `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. | Priority 0–3 work or an observed runtime regression no longer blocks it | Preserve the open scene and close it normally when the operator is ready; then verify that the owned Slicer/ROS/MoveIt tree is gone and host memory recovers. Only if retained memory/processes remain, centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct lifecycle cleanup, and require a zero-exit lifecycle run with no SlicerROS2 leaks. |
 
 ## Unprioritized task contracts — migration baseline
@@ -1690,7 +1752,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `W5-U-02` | Representative and physical acceptance pending | Validate the read-only Step 4B support pack in Step 5A, editable margin, undercut/removability, shell contact, seating, and terminal support on governed anatomy/phantom |
 | `W5-U-03` | Representative acceptance pending. **DENTO-NOTE 2026-09-07:** Step 5B unified-template creation needs detailed operator testing beyond smoke. During 2026-09-10 Step 4A verification, the combined runner passed Step 4A display, assisted pulp and FDI11 shell stages, then failed independently at unified fusion with 10 occupied volumes `[60677, 9, 4, 3, 1, 1, 1, 1, 1, 1]`. Read-only diagnosis traces the regression boundary to the current `W5-U-04` extended through-bore subtraction: the same case passed on 2026-09-08 before dock channels grew from 5.6 mm to 9.6 mm; FDI11's 2.2 mm bore leaves 9- and 4-voxel slivers above the conservative 0.1 mm³ cleanup ceiling. The supplied FDI31 run-2 Step6x5 package is a successful comparison case (saved raw regions `[45846, 1]`, cleaned to one), not the failed artifact | Localize the FDI11 slivers and correct the shared bore/attachment construction under `W5-U-04` without relaxing the one-solid gate or blindly raising the artifact threshold; then run current Step 5B fusion and Step 5C PASS/WARNING/FAIL on both FDI11 and FDI31, reopen, stale-lineage, channel-preservation, and one-STL flow; include dock/rail visibility and printability review |
 | `W5-U-05` | **DENTO-NOTE 2026-09-07 (UX / workflow).** Primary unified-template dimensions are in expanded section 2. 2026-09-19: section-2 spinboxes are force-enabled; live sub-floor holes lift to 2.1 mm. A clear owned Reset, interactive view while sizing/fusing, and full upstream dimension/lineage coupling still need representative UX work | Confirm section-2 editability in the live scene after Reload/restart; remaining Reset and interactive 3D inspection stay open. Do not relax the 2.0 mm builder floor. |
-| `VIEW-U-01` | **Priority 1 (operator-promoted 2026-09-22). DENTO-NOTE:** Cross-module closed-mouth ghost anatomy remains after mouth opening: target-tooth and other concerned masks/models may appear at pre-opening positions. The 2026-09-14 source-mask suppression is implemented and focused-tested but cross-module normal-window acceptance is reopened. The earlier opacity-controls observation remains owned by `VIEW-U-02`. | After active edits stabilize, audit the shared source/opened display transition and every re-entry path: navigation, target/view changes, presets, restore/load, save/reopen, reset and branch activation. Capture exact MRML node/segment IDs, parent transforms and aggregate/per-segment 2D/3D visibility at the first failure. Correct one shared ownership/normalization path; preserve source anatomy and avoid per-screen deletion, geometry, collision or planner changes. Require ordinary-workflow/save-reopen proof with no stale-position anatomy and Legacy/New parity. Coordinate restore/branch causes with `S6-REUSABLE-CASE-SETUP`. |
+| `VIEW-U-01` | **Priority 1; source correction and focused Slicer evidence complete, operator-visible acceptance pending.** On the operator-supplied FDI21/31 headless-verified case (SHA `c16e0406…d1c1d`), the first reproduced ghost appeared when the Step 4A all-teeth 2D/3D preset exposed 28 closed-source segments in 2D; source node `vtkMRMLSegmentationNode1` has no parent transform, while moving-lower proxy `vtkMRMLSegmentationNode3` uses `vtkMRMLLinearTransformNode4`. The shared opened-jaw normalizer now suppresses source aggregate 2D/3D visibility and presents selected copied segments through derived displays. Target-priority highlighting and source Views-tree toggles call the same normalizer, while derived hide/show remains operator-controlled. Source anatomy, geometry, planner and collision state are unchanged. Final focused temporary save/reopen emitted `VIEW_U01_REOPEN_PASS` on the resulting revision. Opacity controls remain `VIEW-U-02`. | Tarun's normal-window visual verdict is needed before closure. Preserve source data and Legacy/New parity; coordinate any branch/restore issue with `S6-REUSABLE-CASE-SETUP`. Operator 2026-09-24: finish this before `W4-U-02`. |
 | `VIEW-U-02` | **DENTO-NOTE 2026-09-07.** Viewer no longer exposes **2D / 3D opacity sliders for masks**. Legacy still wires `segmentation2DOpacitySlider` / `segmentation3DOpacitySlider` in segmentation UI; operator path (likely New GUI / View Controls) lost them. Needs a **deeper UI/UX plan**, not a one-off restore | Map Legacy vs New GUI vs View Composition ownership of mask opacity; design always-available 2D fill/outline + 3D surface opacity controls (stage-safe, display-only, scene-persistent); plan parity with CBCT opacity and group visibility; implement after written UX plan acceptance, then close with normal-window trial |
 | `S6-U-03` | Experimental design; not planning authority | Derive only confidence-labelled observed oral-air surfaces when suitable open-mouth/phantom data exists; keep unobserved space occupied/unknown |
 | `CASE-U-01` | Backlog | Define and implement an offline no-ROS migrator for contaminated historical MRML/MRB scenes; never load them into a live ROS process |
@@ -1749,6 +1811,8 @@ reproducibility record, changelog, and dated logbook.
 
 | Item | Disposition |
 |---|---|
+| `S6-LIVE-02` | Completed and removed from backlog 2026-09-23. Independent full-chain guard, request correlation, scene acknowledgement and TCP/spindle/burr FK evidence remain authoritative. |
+| `S6-P0-BASELINE-CLEANUP` | Completed source/guard scope and removed from backlog 2026-09-23. Its remaining clean-case full-loop proof is owned by `S6-LIVE-05`. |
 | Cross-tool agentic verification protocol | V1 source/pure-contract complete 2026-09-02: one canonical protocol and resource-aware matrix serve Codex, Cursor, and Claude; runtime execution remains approval-gated and serialized |
 | GitHub default / overlay / Windows-lab conversion docs | `main` is authoritative; the pinned lab release and private Linux/amd64 GHCR image are published. First Windows WSLg/CUDA functional startup passed on 2026-09-07; repeatability on the next clean lab PC remains `PLAT-U-04` |
 | Overlay Drive/MCP temps and nested `DentoBot/graphify-out/` | Deleted 2026-09-02; live graph stays at overlay `graphify-out/`. Launch scripts kept |

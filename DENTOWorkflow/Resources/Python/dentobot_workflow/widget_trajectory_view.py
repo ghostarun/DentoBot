@@ -1099,3 +1099,4 @@ class TrajectoryViewWidgetMixin:
                 segmentationNode,
                 selectedId,
             )
+        self._enforceStep6OpenedJawDisplaySeparation()

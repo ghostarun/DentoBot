@@ -5,11 +5,315 @@ from __future__ import annotations
 from .runtime import *
 from .dental_semantics import (
     associate_pulp_components,
+    enclosed_tooth_void,
     occupied_components,
+    semantic_document,
 )
 
 
+class MissingTargetPulpError(ValueError):
+    """The selected tooth has no associated pulp mask yet."""
+
+
 class LineageLogicMixin:
+    PULP_REPORT_ATTRIBUTE = "DENTOBOT.PulpInventoryJson"
+
+    def _pulpInventoryFingerprint(self, segmentationNode, records):
+        """Fingerprint segment identity and binary geometry without report state."""
+        digest = hashlib.sha256()
+        segmentation = segmentationNode.GetSegmentation()
+        for record in sorted(records, key=lambda item: item["segmentId"]):
+            segmentId = record["segmentId"]
+            segment = segmentation.GetSegment(segmentId)
+            digest.update(json.dumps([
+                segmentId, record.get("structureType"),
+                record.get("canonicalFdiNumber"),
+            ], separators=(",", ":")).encode())
+            image = slicer.vtkOrientedImageData()
+            if not segmentationNode.GetBinaryLabelmapRepresentation(segmentId, image):
+                digest.update(b"no-labelmap")
+                continue
+            matrix = vtk.vtkMatrix4x4()
+            image.GetImageToWorldMatrix(matrix)
+            source = slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentationNode, segmentId)
+            points = np.argwhere(source == int(segment.GetLabelValue()))
+            if len(points):
+                ijk = points[:, ::-1] + np.asarray(image.GetExtent()[::2], dtype=np.int64)
+                affine = np.asarray([[matrix.GetElement(i, j) for j in range(4)] for i in range(3)])
+                world = ijk @ affine[:, :3].T + affine[:, 3]
+                digest.update(np.ascontiguousarray(np.rint(world * 1000).astype("<i8")).tobytes())
+        return digest.hexdigest()
+
+    def getPulpInventoryReport(self, segmentationNode):
+        raw = segmentationNode.GetAttribute(self.PULP_REPORT_ATTRIBUTE) if segmentationNode else None
+        if not raw:
+            return None
+        try:
+            report = json.loads(raw)
+            if report.get("schemaVersion") != 1:
+                return None
+            records = self.getSegmentationReviewRecords(segmentationNode)
+            report["stale"] = report.get("fingerprint") != self._pulpInventoryFingerprint(segmentationNode, records)
+            return report
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+            return None
+
+    def checkPulpInventory(self, segmentationNode, progress=None):
+        """Audit one run; only the report attribute is written."""
+        records = self.getSegmentationReviewRecords(segmentationNode)
+        metadata = segmentationNode.GetAttribute("DENTOBOT.SegmentMetricsJson") or ""
+        try:
+            document = json.loads(metadata)
+            sourceMetrics = {
+                str(item.get("segmentId")): item
+                for item in document.get("segments", [])
+                if isinstance(item, dict) and item.get("segmentId")
+            }
+            segmentation = segmentationNode.GetSegmentation()
+            sourceBacked = bool(sourceMetrics) and all(
+                record["segmentId"] in sourceMetrics
+                and sourceMetrics[record["segmentId"]].get("sourceName")
+                and int(sourceMetrics[record["segmentId"]].get("labelId") or -1)
+                == int(segmentation.GetSegment(record["segmentId"]).GetLabelValue())
+                for record in records if record.get("structureType") == "TOOTH"
+            )
+            trusted = (isinstance(document.get("semantic"), dict) or sourceBacked) and not self._semanticPersistenceIssues(segmentationNode, records)
+            trusted = trusted and segmentationNode.GetAttribute(self.SEMANTIC_PERSISTENCE_ATTRIBUTE) != "stale"
+        except (TypeError, ValueError, json.JSONDecodeError):
+            trusted = False
+        try:
+            self.getSegmentationSourceVolume(segmentationNode)
+            hasSource = True
+        except (TypeError, ValueError, RuntimeError):
+            hasSource = False
+        teeth = [record for record in records if record.get("structureType") == "TOOTH"]
+        knownFdi = {str(record.get("canonicalFdiNumber")) for record in teeth if record.get("canonicalFdiNumber")}
+        counts = {"associated": 0, "missing": 0, "candidate": 0, "cannot-evaluate": 0, "ambiguous": 0}
+        rows = []
+        for index, tooth in enumerate(sorted(teeth, key=lambda item: (str(item.get("canonicalFdiNumber") or "99"), item["segmentId"])), 1):
+            toothId = tooth["segmentId"]
+            fdi = str(tooth.get("canonicalFdiNumber") or "")
+            row = {"fdi": fdi, "toothSegmentId": toothId, "pulpSegmentId": "", "status": "", "reason": "", "voxelCount": 0,
+                   "reviewState": self.getSegmentationReviewState(segmentationNode)}
+            if not trusted or not hasSource or tooth.get("validationState") not in {"VALID", "MANUALLY_CONFIRMED"} or not fdi:
+                row.update(status="cannot-evaluate", reason="Trusted tooth identity, semantic metadata, or source volume is unavailable")
+            elif sum(str(item.get("canonicalFdiNumber") or "") == fdi for item in teeth) != 1:
+                row.update(status="ambiguous", reason="Multiple tooth masks claim this FDI identity")
+            else:
+                try:
+                    association = self.getTargetPulpAssociation(segmentationNode, toothId, persist=False, requireReview=False)
+                    pulpId = association["pulpSegmentId"]
+                    segment = segmentationNode.GetSegmentation().GetSegment(pulpId)
+                    derivation = vtk.mutable("")
+                    isCandidate = segment.GetTag("DENTOBOT.Derivation", derivation) and str(derivation) == "enclosed-tooth-void-v1"
+                    row.update(status="candidate" if isCandidate else "associated", pulpSegmentId=pulpId)
+                    if isCandidate:
+                        row["voxelCount"] = int(np.count_nonzero(slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentationNode, pulpId) == int(segment.GetLabelValue())))
+                except MissingTargetPulpError:
+                    row.update(status="missing", reason="No associated pulp mask; enclosed-void preparation may be attempted")
+                except (TypeError, ValueError, RuntimeError) as exc:
+                    row.update(status="ambiguous", reason=str(exc))
+            counts[row["status"]] += 1
+            rows.append(row)
+            if progress:
+                progress(index, len(teeth), fdi)
+        absent = [f"{quadrant}{number}" for quadrant in range(1, 5) for number in range(1, 9) if f"{quadrant}{number}" not in knownFdi]
+        report = {"schemaVersion": 1, "fingerprint": self._pulpInventoryFingerprint(segmentationNode, records),
+                  "counts": counts, "rows": rows, "absentFdi": absent, "runId": segmentationNode.GetAttribute("DENTOBOT.RunId") or ""}
+        segmentationNode.SetAttribute(self.PULP_REPORT_ATTRIBUTE, json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return report
+
+    def createMissingPulpCandidates(self, segmentationNode, progress=None):
+        report = self.getPulpInventoryReport(segmentationNode)
+        if not report or report.get("stale"):
+            raise ValueError(_("Check Pulp Masks for this run before creating candidates."))
+        outcomes = {}
+        pending = [row for row in report["rows"] if row["status"] in {"missing", "failed"}]
+        for index, row in enumerate(pending, 1):
+            if progress:
+                progress(index - 1, len(pending), row["fdi"])
+            if row["status"] not in {"missing", "failed"}:
+                continue
+            try:
+                toothId = row["toothSegmentId"]
+                fdi = row["fdi"]
+                candidateId, count = self._createEnclosedPulpCandidate(segmentationNode, toothId, fdi, invalidateReview=False)
+                outcomes[toothId] = ("created", candidateId, count, "Review this derived mask before planning")
+            except (TypeError, ValueError, RuntimeError) as exc:
+                outcomes[row["toothSegmentId"]] = ("failed", "", 0, str(exc))
+            if progress:
+                progress(index, len(pending), row["fdi"])
+        if any(outcome[0] == "created" for outcome in outcomes.values()):
+            self.invalidateSegmentationReviewAfterEdit(segmentationNode)
+            if self.getSegmentationReviewState(segmentationNode) != "Needs Correction":
+                self.setSegmentationReviewState(segmentationNode, "Needs Correction")
+            segmentationNode.SetAttribute("DENTOBOT.ReviewInvalidationReason", "Derived pulp candidates require Step 2 review")
+        final = {key: value for key, value in report.items() if key != "stale"}
+        for row in final["rows"]:
+            outcome = outcomes.get(row["toothSegmentId"])
+            if outcome:
+                row.update(status=outcome[0], pulpSegmentId=outcome[1], voxelCount=outcome[2], reason=outcome[3])
+                row["reviewState"] = self.getSegmentationReviewState(segmentationNode)
+        final["counts"] = {
+            key: sum(row["status"] == key or (key == "candidate" and row["status"] == "created")
+                     or (key == "missing" and row["status"] == "failed") for row in final["rows"])
+            for key in ("associated", "missing", "candidate", "cannot-evaluate", "ambiguous")
+        }
+        final["fingerprint"] = self._pulpInventoryFingerprint(
+            segmentationNode, self.getSegmentationReviewRecords(segmentationNode)
+        )
+        final["createdCount"] = sum(outcome[0] == "created" for outcome in outcomes.values())
+        final["failedCount"] = sum(outcome[0] == "failed" for outcome in outcomes.values())
+        segmentationNode.SetAttribute(self.PULP_REPORT_ATTRIBUTE, json.dumps(final, sort_keys=True, separators=(",", ":")))
+        return final
+
+    def _derivedPulpAssociation(self, segmentationNode, records, toothId, fdi, requireReview=True):
+        """Validate a reviewed derived mask against its source tooth envelope."""
+
+        segmentation = segmentationNode.GetSegmentation()
+        matches = []
+        for record in records:
+            segmentId = record["segmentId"]
+            segment = segmentation.GetSegment(segmentId)
+            derivation, parent = vtk.mutable(""), vtk.mutable("")
+            if not segment.GetTag("DENTOBOT.Derivation", derivation):
+                continue
+            if str(derivation) != "enclosed-tooth-void-v1":
+                continue
+            if segment.GetTag("DENTOBOT.SourceToothSegmentID", parent) and str(parent) == toothId:
+                matches.append(record)
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise ValueError(_("Multiple derived pulp masks claim the selected tooth."))
+        if requireReview and self.getSegmentationReviewState(segmentationNode) != "Reviewed":
+            raise ValueError(_("Review the derived pulp mask in Step 2 before assisted generation."))
+        record = matches[0]
+        reference = self.getSegmentationSourceVolume(segmentationNode)
+        tooth = slicer.util.arrayFromSegmentBinaryLabelmap(segmentationNode, toothId, reference)
+        expected = set(enclosed_tooth_void([tuple(point) for point in np.argwhere(tooth > 0)]))
+        mask = slicer.util.arrayFromSegmentBinaryLabelmap(segmentationNode, record["segmentId"], reference)
+        actual = {tuple(point) for point in np.argwhere(mask > 0)}
+        if mask.shape != tooth.shape or actual != expected:
+            raise ValueError(_("The reviewed derived pulp mask no longer matches the tooth's enclosed void."))
+        componentId = f"{record['segmentId']}#component-1"
+        association = {
+            "validationState": "VALID",
+            "associationConfidence": "HIGH",
+            "parentToothSegmentIds": [toothId],
+            "sourceSegmentIds": [record["segmentId"]],
+            "associationMethod": "enclosed-tooth-void-v1",
+            "components": [{
+                "componentId": componentId,
+                "sourceSegmentId": record["segmentId"],
+                "selected": {"toothSegmentId": toothId, "toothFdiNumber": fdi},
+            }],
+        }
+        return record, association
+
+    def _createEnclosedPulpCandidate(self, segmentationNode, toothId, fdi, *, invalidateReview=True):
+        """Make a reviewable pulp segment from one empty closed tooth pocket."""
+
+        segmentation = segmentationNode.GetSegmentation()
+        toothSegment = segmentation.GetSegment(toothId)
+        source = slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentationNode, toothId)
+        tooth = source == int(toothSegment.GetLabelValue())
+        occupied = np.argwhere(tooth)
+        if len(occupied) == 0:
+            raise ValueError(_("The selected tooth mask is empty."))
+        low, high = occupied.min(axis=0), occupied.max(axis=0)
+        if np.any(low == 0) or np.any(high == np.asarray(tooth.shape) - 1):
+            raise ValueError(_("The tooth touches the image boundary; its interior cannot be confirmed."))
+        cavity = enclosed_tooth_void([tuple(point) for point in occupied])
+        if any(source[point] != 0 for point in cavity):
+            raise ValueError(_("The enclosed tooth region is occupied by another source label."))
+        image = slicer.vtkOrientedImageData()
+        if not segmentationNode.GetBinaryLabelmapRepresentation(toothId, image):
+            raise ValueError(_("The tooth image geometry is unavailable."))
+        offset = np.asarray(image.GetExtent()[::2][::-1], dtype=int)
+        reference = self.getSegmentationSourceVolume(segmentationNode)
+        alignedTooth = slicer.util.arrayFromSegmentBinaryLabelmap(
+            segmentationNode, toothId, reference
+        )
+        alignedOccupied = occupied + offset
+        if (
+            np.any(alignedOccupied < 0)
+            or np.any(alignedOccupied >= np.asarray(alignedTooth.shape))
+            or int(np.count_nonzero(alignedTooth)) != len(occupied)
+            or not np.all(alignedTooth[tuple(alignedOccupied.T)] > 0)
+        ):
+            raise ValueError(_("The tooth labelmap and source volume geometry do not align."))
+        alignedCavity = np.asarray(cavity, dtype=int) + offset
+        mask = np.zeros(alignedTooth.shape, dtype=np.uint8)
+        mask[tuple(alignedCavity.T)] = 1
+        attributes = (
+            "DENTOBOT.SegmentMetricsJson",
+            self.SEMANTIC_STATUS_ATTRIBUTE,
+            self.SEMANTIC_FINGERPRINT_ATTRIBUTE,
+            self.SEMANTIC_PERSISTENCE_ATTRIBUTE,
+            "DENTOBOT.ReviewState",
+            "DENTOBOT.ReviewUpdatedUtc",
+            "DENTOBOT.LastSegmentationEditUtc",
+            "DENTOBOT.SegmentMetricsValidity",
+            "DENTOBOT.ReviewInvalidationReason",
+        )
+        previous = {key: segmentationNode.GetAttribute(key) for key in attributes}
+        candidateId = segmentation.AddEmptySegment(
+            f"dentobot-derived-pulp-fdi{fdi}", f"derived_pulp_fdi1{fdi}", (1.0, 0.6, 0.1)
+        )
+        try:
+            slicer.util.updateSegmentBinaryLabelmapFromArray(
+                mask, segmentationNode, candidateId, reference
+            )
+            candidate = segmentation.GetSegment(candidateId)
+            candidate.SetTag("DENTOBOT.Derivation", "enclosed-tooth-void-v1")
+            candidate.SetTag("DENTOBOT.SourceToothSegmentID", toothId)
+            metrics = json.loads(segmentationNode.GetAttribute("DENTOBOT.SegmentMetricsJson") or "{}")
+            volume = float(abs(np.prod(image.GetSpacing())) * len(cavity))
+            metrics.setdefault("segments", []).append({
+                "segmentId": candidateId,
+                "labelId": int(candidate.GetLabelValue()),
+                "sourceName": candidate.GetName(),
+                "voxelCount": len(cavity),
+                "volumeMm3": volume,
+            })
+            records = self._semanticRecordsFromMetrics(segmentationNode)
+            metrics["semantic"] = semantic_document(records)
+            wasModifying = segmentationNode.StartModify()
+            try:
+                segmentationNode.SetAttribute("DENTOBOT.SegmentMetricsJson", json.dumps(metrics, sort_keys=True, separators=(",", ":")))
+                self._setSemanticMetadataAttributes(segmentationNode, metrics["semantic"], persistenceState="current")
+            finally:
+                segmentationNode.EndModify(wasModifying)
+            if invalidateReview:
+                self.invalidateSegmentationReviewAfterEdit(segmentationNode)
+                if self.getSegmentationReviewState(segmentationNode) != "Needs Correction":
+                    self.setSegmentationReviewState(segmentationNode, "Needs Correction")
+                segmentationNode.SetAttribute(
+                    "DENTOBOT.ReviewInvalidationReason",
+                    f"Derived pulp candidate for FDI{fdi} requires Step 2 review",
+                )
+        except Exception:
+            segmentation.RemoveSegment(candidateId)
+            for key, value in previous.items():
+                segmentationNode.SetAttribute(key, value)
+            raise
+        return candidateId, len(cavity)
+
+    def prepareTargetPulpMask(self, segmentationNode, toothId):
+        """Check existing pulp or create one reviewable enclosed-void candidate."""
+
+        try:
+            association = self.getTargetPulpAssociation(segmentationNode, toothId)
+        except MissingTargetPulpError:
+            tooth = self.validateTargetTooth(segmentationNode, toothId)
+            fdi = str(tooth.get("canonicalFdiNumber") or tooth.get("fdiNumber"))
+            candidateId, count = self._createEnclosedPulpCandidate(
+                segmentationNode, toothId, fdi
+            )
+            return {"status": "created", "pulpSegmentId": candidateId, "voxelCount": count}
+        return {"status": "ready", "pulpSegmentId": association["pulpSegmentId"]}
+
     def getScalarVolumeNodes(self) -> list[vtkMRMLScalarVolumeNode]:
         return list(slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode"))
 
@@ -248,8 +552,11 @@ class LineageLogicMixin:
         self,
         segmentationNode: vtkMRMLSegmentationNode,
         segmentId: str,
+        *,
+        persist: bool = True,
+        requireReview: bool = True,
     ) -> dict:
-        """Resolve one target's pulp by native geometry, then persist the relation."""
+        """Resolve one target's pulp from reviewed geometry and persist its relation."""
 
         targetRecord = self.validateTargetTooth(segmentationNode, segmentId)
         if (
@@ -272,6 +579,22 @@ class LineageLogicMixin:
         targetId = targetRecord["segmentId"]
         targetFdi = str(targetRecord.get("canonicalFdiNumber") or targetRecord.get("fdiNumber") or "")
         records = self.getSegmentationReviewRecords(segmentationNode)
+        derived = self._derivedPulpAssociation(segmentationNode, records, targetId, targetFdi, requireReview)
+        if derived:
+            pulpRecord, association = derived
+            updatedRecords, semantic = (
+                self.persistSemanticPulpAssociation(segmentationNode, association)
+                if persist else (records, None)
+            )
+            return {
+                **association,
+                "pulpSegmentId": pulpRecord["segmentId"],
+                "componentIds": [association["components"][0]["componentId"]],
+                "targetSegmentId": targetId,
+                "targetFdiNumber": targetFdi,
+                "semantic": semantic,
+                "semanticRecords": updatedRecords,
+            }
         toothRecords = [
             record
             for record in records
@@ -294,15 +617,9 @@ class LineageLogicMixin:
             raise ValueError(_("The selected target tooth has no usable surface."))
 
         pulpRecords = [
-            record for record in records if record.get("structureType") == "PULP"
+            record for record in records
+            if record.get("structureType") in {"PULP", "OTHER"}
         ]
-        if not pulpRecords:
-            raise ValueError(
-                _(
-                    "Assisted generation is blocked: no pulp segment is present "
-                    "for the selected tooth."
-                )
-            )
 
         accepted = []
         relevantFailures = []
@@ -357,8 +674,24 @@ class LineageLogicMixin:
             if (
                 association.get("validationState") == "VALID"
                 and association.get("parentToothSegmentIds") == [targetId]
+                and (
+                    pulpRecord.get("structureType") == "PULP"
+                    or all(
+                        float(component["selected"]["insideFraction"]) == 1.0
+                        for component in association["components"]
+                    )
+                )
             ):
                 accepted.append((pulpRecord, association))
+            elif (
+                pulpRecord.get("structureType") == "OTHER"
+                and association.get("validationState") == "VALID"
+                and association.get("parentToothSegmentIds") == [targetId]
+            ):
+                relevantFailures.append({
+                    "validationState": "INVALID",
+                    "reason": "unknown mask is not fully inside the selected tooth",
+                })
             elif targetGateSeen or targetId in association.get(
                 "parentToothSegmentIds", []
             ):
@@ -381,12 +714,10 @@ class LineageLogicMixin:
                     ).replace("%1", str(failure.get("validationState") or "INVALID"))
                     .replace("%2", str(failure.get("reason") or "review required"))
                 )
-            raise ValueError(
-                _(
-                    "Assisted generation is blocked: no non-empty pulp mask has "
-                    "a valid spatial association with the selected tooth."
-                )
-            )
+            raise MissingTargetPulpError(_(
+                "No associated pulp mask is ready for this tooth. In Step 2, "
+                "select the tooth and click Prepare Pulp Mask before placing crown entries."
+            ))
 
         pulpRecord, association = accepted[0]
         if association.get("associationConfidence") != "HIGH":
@@ -396,10 +727,17 @@ class LineageLogicMixin:
                     "association; review the spatial disagreement manually."
                 )
             )
-        updatedRecords, semantic = self.persistSemanticPulpAssociation(
-            segmentationNode,
-            association,
+        updatedRecords, semantic = (
+            self.persistSemanticPulpAssociation(segmentationNode, association)
+            if persist else (records, None)
         )
+        if not persist:
+            return {
+                **association,
+                "pulpSegmentId": pulpRecord["segmentId"],
+                "targetSegmentId": targetId,
+                "targetFdiNumber": targetFdi,
+            }
         selected = next(
             (
                 record

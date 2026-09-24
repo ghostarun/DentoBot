@@ -429,6 +429,12 @@ class BootstrapWidgetMixin:
             "clicked(bool)",
             self.onEditSelectedSegment,
         )
+        self.ui.prepareSelectedToothPulpButton.connect(
+            "clicked(bool)", self.onPrepareSelectedToothPulp,
+        )
+        self.ui.checkPulpMasksButton.connect("clicked(bool)", self.onCheckPulpMasks)
+        self.ui.viewPulpReportButton.connect("clicked(bool)", self.onViewPulpReport)
+        self.ui.createMissingPulpsButton.connect("clicked(bool)", self.onCreateMissingPulps)
         self.ui.segmentation2DCheckBox.connect(
             "toggled(bool)",
             self.onSegmentation2DVisibilityToggled,

@@ -710,7 +710,7 @@
           "returns": "tuple[vtkMRMLModelNode, dict]"
         },
         "createOrUpdateFinalPrintableTemplate": {
-          "arguments": "self, patientShell: vtkMRMLModelNode, targetDockingAssembly: vtkMRMLModelNode, trajectories: list[vtkMRMLMarkupsLineNode], *, outerDiameterMm: float, innerDiameterMm: float, heightMm: float, dockingClearanceMm: float, reinforcementRadialMm: float, reinforcementDepthMm: float, samplingSpacingMm: float, dockingModel: vtkMRMLModelNode | None=None, clearanceModel: vtkMRMLModelNode | None=None, reinforcementModel: vtkMRMLModelNode | None=None, channelsModel: vtkMRMLModelNode | None=None, finalModel: vtkMRMLModelNode | None=None",
+          "arguments": "self, patientShell: vtkMRMLModelNode, targetDockingAssembly: vtkMRMLModelNode, trajectories: list[vtkMRMLMarkupsLineNode], *, outerDiameterMm: float, innerDiameterMm: float, heightMm: float, dockingClearanceMm: float, reinforcementRadialMm: float, reinforcementDepthMm: float, samplingSpacingMm: float, dockingModel: vtkMRMLModelNode | None=None, clearanceModel: vtkMRMLModelNode | None=None, reinforcementModel: vtkMRMLModelNode | None=None, channelsModel: vtkMRMLModelNode | None=None, finalModel: vtkMRMLModelNode | None=None, progress=None",
           "decorators": [],
           "returns": "tuple[vtkMRMLModelNode, dict[str, vtkMRMLModelNode], dict]"
         },
@@ -755,7 +755,7 @@
           "returns": "tuple[vtkMRMLMarkupsROINode, tuple[float, ...]]"
         },
         "createOrUpdateTargetDockingAssembly": {
-          "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, targetSegmentId: str, trajectories: list[vtkMRMLMarkupsLineNode], parameters: dict, *, supportModel: vtkMRMLModelNode | None=None, planeNode: vtkMRMLMarkupsPlaneNode | None=None, assemblyModel: vtkMRMLModelNode | None=None, autoSelectYaw: bool=False, measurementsVisible: bool=True",
+          "arguments": "self, segmentationNode: vtkMRMLSegmentationNode, targetSegmentId: str, trajectories: list[vtkMRMLMarkupsLineNode], parameters: dict, *, supportModel: vtkMRMLModelNode | None=None, planeNode: vtkMRMLMarkupsPlaneNode | None=None, assemblyModel: vtkMRMLModelNode | None=None, autoSelectYaw: bool=False, measurementsVisible: bool=True, progress=None",
           "decorators": [],
           "returns": "tuple[vtkMRMLMarkupsPlaneNode, vtkMRMLModelNode, dict]"
         },
@@ -790,7 +790,7 @@
           "returns": "dict[str, Path]"
         },
         "createTargetDockingMeasurementNodes": {
-          "arguments": "self, assemblyModel: vtkMRMLModelNode, frame: dict, metrics: dict, parameters: dict, *, visible: bool",
+          "arguments": "self, assemblyModel: vtkMRMLModelNode, frame: dict, metrics: dict, parameters: dict, *, visible: bool, progress=None",
           "decorators": [],
           "returns": "list[vtkMRMLMarkupsLineNode]"
         },
@@ -1035,7 +1035,7 @@
           "returns": "str"
         },
         "generateAssistedTrajectories": {
-          "arguments": "self, entryNode: vtkMRMLMarkupsFiducialNode, segmentationNode: vtkMRMLSegmentationNode, segmentId: str, rootCount: int, targetBoundsRoi: vtkMRMLMarkupsROINode | None=None",
+          "arguments": "self, entryNode: vtkMRMLMarkupsFiducialNode, segmentationNode: vtkMRMLSegmentationNode, segmentId: str, rootCount: int, targetBoundsRoi: vtkMRMLMarkupsROINode | None=None, progress=None",
           "decorators": [],
           "returns": "tuple[list[vtkMRMLMarkupsLineNode], dict]"
         },
@@ -2965,7 +2965,7 @@
           "returns": ""
         },
         "_createOrUpdateFinalPrintableTemplate": {
-          "arguments": "self",
+          "arguments": "self, progress=None",
           "decorators": [],
           "returns": ""
         },
@@ -3563,7 +3563,7 @@
           "returns": "None"
         },
         "_regenerateTargetDocking": {
-          "arguments": "self, *, autoSelectYaw: bool",
+          "arguments": "self, *, autoSelectYaw: bool, progress=None",
           "decorators": [],
           "returns": "None"
         },

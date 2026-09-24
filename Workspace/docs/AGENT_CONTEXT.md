@@ -1,8 +1,13 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-22. The active P0 is `S6-LIVE-01` GUI-first FDI31
-planner recovery. Its sole detailed contract is
+Last reconciled: 2026-09-24. `S6-LIVE-01` GUI-first FDI31 planner recovery
+remains Priority 0 but is temporarily paused by Tarun while he chooses the
+next approach. Independent backlog work may proceed under its own entry
+conditions. Its sole detailed contract is
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+The 23 September [decision report](diagnostics/DENTOBOT_Step6_Decision_Report_2026-09-23.pdf)
+is review evidence, not a parallel plan. Do not resume planner source or
+runtime work until Tarun gives direction.
 The Sep-22 FDI31 baseline is `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
 (SHA-256 `eb48a805...e7adb`). `M1-DIAG / HOUSING-OFF PASS` completed diagnostic
 P1 with 150 waypoints. An operator-repositioned base at an altered 45.96-mm
@@ -13,6 +18,14 @@ obtain a separately named adjusted-state package and serialize runtime first.
 Pending order is in [backlog.md](backlog.md);
 task state and acceptance evidence are in [TASKS.md](TASKS.md). Campaign-1
 r4/P3/P4/P5 is historical diagnostic evidence, not current instruction.
+
+The Step 6 planner chooser now exposes RRTConnect, RRT and optional RRT*;
+approximate IK is disabled, planner guidance and reopenable failure text are
+source-verified, and the installed OMPL configuration passes. Tarun's visible
+RRTConnect trial passed Stages 1/2 and stopped at the existing Stage-3
+tooth↔spindle guard. Same-scene RRT/RRT* trials and the subsequent exact-pose
+sequential-IK Cartesian-off implementation remain open. A configured MoveGroup
+ID is not proof of the executed algorithm.
 
 The Step 5B target-switch repair under `S6-REUSABLE-CASE-SETUP` / `W5-U-03`
 was operator-confirmed in `FDI21-and-32-working#1-dentobot-case-sep22-step6.dentocase`.
@@ -209,7 +222,9 @@ evidence or implement the 96-trajectory batch proposal.
   Record tooth-specific first-invalid results and propose the next tooth only
   after operator approval; stop on shared
   source/package/fingerprint/runtime failures. The source has all four tooth
-  masks, pulp for FDI31/41 and no FDI11/21 pulp; never synthesize missing pulp.
+  masks, pulp for FDI31/41 and no labeled FDI11/21 pulp. The later
+  `S3-P0-DENTAL-SEMANTICS` decision permits a separate reviewable candidate
+  from a dominant enclosed void; it is not an automatic planning endpoint.
 - Existing FDI31 has one current eligible PreparedBranch, current STL and
   save/reopen evidence. The approved current-source exact check reached the
   requested target endpoint but stopped at the first native Stage-3 guard
@@ -232,13 +247,17 @@ evidence or implement the 96-trajectory batch proposal.
   and reopens in-process; it lacks STL export and fresh-process verification.
   Reuse the exact-case Stage 6 runner separately. Six-target matrix, optional
   32 × 3, Studio, database and platform migration stay downstream.
-- `S3-P0-DENTAL-SEMANTICS` owns the source-only semantic-bridge plan. The
-  current parser derives category/FDI from display names and assisted
-  planning matches pulp by that derived FDI; the reviewed source package has
-  no FDI11/FDI21 pulp. Do not make a new pulp-dependent planning claim until
-  target tooth, pulp geometry and spatial association are canonically
-  validated. Keep `S4A-PULP-ENDPOINT` as the endpoint-geometry owner and
-  `S6-REUSABLE-CASE-SETUP` as the package/campaign owner.
+- `S3-P0-DENTAL-SEMANTICS` owns pulp identity, automatic per-run inventory on
+  new segmentation completion, manual checking of older loaded runs, and
+  explicit Step 2 single/bulk candidate preparation. The usual FDI11 package
+  lacks a pulp label but has a dominant enclosed 52-voxel void. Focused
+  Slicer verified its creation through bulk. After Tarun's approved bounded
+  continuation, the corrected report and candidate passed MRB and dentocase
+  save/reopen; archive schema 2.0 and workflow-state schema 3.0 are hydrated
+  separately. Full-batch throughput and operator anatomy acceptance remain
+  open. Step 4A generation
+  does not create masks. Keep `S4A-PULP-ENDPOINT` as endpoint owner and
+  `S6-REUSABLE-CASE-SETUP` as package/campaign owner.
 
 ## Durable Step-4A–5B testing baseline (operator-supplied, 2026-09-15)
 

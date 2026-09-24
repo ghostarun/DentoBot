@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowCancelled, WorkflowProgress
 
 
 class DockingWidgetMixin:
@@ -389,7 +390,7 @@ class DockingWidgetMixin:
                 )
         qt.QTimer.singleShot(0, self._updateTargetDocking)
 
-    def _regenerateTargetDocking(self, *, autoSelectYaw: bool) -> None:
+    def _regenerateTargetDocking(self, *, autoSelectYaw: bool, progress=None) -> None:
         trajectories = self.logic.targetDockingTrajectoriesForTarget(
             self._parameterNode.teethSegmentation,
             self._parameterNode.targetToothSegmentId,
@@ -407,6 +408,7 @@ class DockingWidgetMixin:
                 measurementsVisible=(
                     self._parameterNode.targetDockingMeasurementsVisible
                 ),
+                progress=progress,
             )
         )
         wasModifying = self._parameterNode.StartModify()
@@ -439,14 +441,7 @@ class DockingWidgetMixin:
         self._updateTemplateGuide()
 
     def onApplyTargetDockingYaw(self) -> None:
-        if not self._parameterNode or not self.logic:
-            return
-        try:
-            self._regenerateTargetDocking(autoSelectYaw=False)
-        except (RuntimeError, ValueError) as exc:
-            self.ui.targetDockingStatusLabel.text = str(exc)
-            self.ui.targetDockingStatusLabel.styleSheet = "color: #b00020;"
-            slicer.util.errorDisplay(str(exc))
+        self._runTargetDockingAction(autoSelectYaw=False)
 
     def onConfirmTargetDockingYaw(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -523,14 +518,30 @@ class DockingWidgetMixin:
         self._updateTargetDocking()
 
     def onGenerateTargetDockingAssembly(self) -> None:
+        self._runTargetDockingAction(autoSelectYaw=True)
+
+    def _runTargetDockingAction(self, *, autoSelectYaw: bool) -> None:
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 4C dock generation")
         try:
-            self._regenerateTargetDocking(autoSelectYaw=True)
+            self._regenerateTargetDocking(
+                autoSelectYaw=autoSelectYaw, progress=progress.update
+            )
+        except WorkflowCancelled as exc:
+            self.ui.targetDockingStatusLabel.text = str(exc)
+            self.ui.targetDockingStatusLabel.styleSheet = "color: #b36b00;"
         except (RuntimeError, ValueError) as exc:
             self.ui.targetDockingStatusLabel.text = str(exc)
             self.ui.targetDockingStatusLabel.styleSheet = "color: #b00020;"
+            progress.close()
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
 
     def onDeleteTargetDockingAssembly(self) -> None:
         if not self._parameterNode or not self.logic:

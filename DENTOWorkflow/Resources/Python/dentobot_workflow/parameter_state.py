@@ -129,6 +129,7 @@ class DENTOWorkflowParameterNode:
     step6ConfirmedTaskJson: str = ""
     step6CollisionSceneAuditJson: str = ""
     step6MotionDiagnosticJson: str = ""
+    step6PlannerComparisonJson: str = ""
     dentoCaseSchemaVersion: str = "1.0"
     step6EnvironmentJson: str = ""
     step6TrajectoryRegistryJson: str = ""
