@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from .runtime import *
 
 
@@ -190,7 +192,12 @@ class CaseFoundationLogicMixin:
         if key not in cache:
             if len(cache) >= 8:
                 cache.clear()
+            started = time.monotonic()
             cache[key] = builder()
+            elapsed = time.monotonic() - started
+            if elapsed >= 1.0:
+                logging.info("DENTOBOT fingerprint %s rebuilt in %.3fs", key[0], elapsed)
+                print("DENTOBOT_FINGERPRINT_BUILD", key[0], f"{elapsed:.3f}", flush=True)
         return cache[key]
 
     @staticmethod
@@ -234,6 +241,49 @@ class CaseFoundationLogicMixin:
             build,
         )
 
+    @staticmethod
+    def _caseFoundationSegmentBinaryArray(segmentationNode, segmentId):
+        reference = segmentationNode.GetNodeReference(
+            slicer.vtkMRMLSegmentationNode.GetReferenceImageGeometryReferenceRole()
+        )
+        referenceImage = reference.GetImageData() if reference else None
+        if (
+            referenceImage
+            and referenceImage.GetPointData().GetScalars()
+            and not segmentationNode.GetParentTransformNode()
+            and not reference.GetParentTransformNode()
+        ):
+            internal = segmentationNode.GetBinaryLabelmapInternalRepresentation(segmentId)
+            scalars = internal.GetPointData().GetScalars() if internal else None
+            if scalars:
+                referenceMatrix = vtk.vtkMatrix4x4()
+                reference.GetIJKToRASMatrix(referenceMatrix)
+                matrix = vtk.vtkMatrix4x4()
+                internal.GetImageToWorldMatrix(matrix)
+                extent = internal.GetExtent()
+                referenceExtent = referenceImage.GetExtent()
+                if all(
+                    abs(matrix.GetElement(row, column) - referenceMatrix.GetElement(row, column)) <= 1e-8
+                    for row in range(4) for column in range(4)
+                ) and all(
+                    referenceExtent[index] <= extent[index]
+                    and extent[index + 1] <= referenceExtent[index + 1]
+                    for index in (0, 2, 4)
+                ):
+                    internalArray = vtk_to_numpy(scalars).reshape(tuple(reversed(internal.GetDimensions())))
+                    # Slicer's single-segment labelmap export emits VTK_SHORT with foreground 1.
+                    array = np.zeros(tuple(reversed(referenceImage.GetDimensions())), dtype=np.int16)
+                    slices = tuple(
+                        slice(extent[index] - referenceExtent[index], extent[index + 1] - referenceExtent[index] + 1)
+                        for index in (4, 2, 0)
+                    )
+                    label = segmentationNode.GetSegmentation().GetSegment(segmentId).GetLabelValue()
+                    array[slices] = internalArray == label
+                    return array
+        return np.ascontiguousarray(
+            slicer.util.arrayFromSegmentBinaryLabelmap(segmentationNode, segmentId)
+        )
+
     def caseFoundationSourceSegmentationFingerprint(self, segmentationNode) -> str:
         if not segmentationNode or not segmentationNode.GetSegmentation():
             return ""
@@ -252,11 +302,7 @@ class CaseFoundationLogicMixin:
                 if not segmentId:
                     continue
                 try:
-                    array = np.ascontiguousarray(
-                        slicer.util.arrayFromSegmentBinaryLabelmap(
-                            segmentationNode, segmentId
-                        )
-                    )
+                    array = self._caseFoundationSegmentBinaryArray(segmentationNode, segmentId)
                 except RuntimeError:
                     return ""
                 records.append(
@@ -287,7 +333,17 @@ class CaseFoundationLogicMixin:
                 }
             ) if records else ""
 
-        return self._cachedCaseFoundationFingerprint(key, build)
+        value = self._cachedCaseFoundationFingerprint(key, build)
+        after = (
+            "segmentation",
+            segmentationNode.GetID(),
+            segmentation.GetMTime(),
+            segmentationNode.GetMTime(),
+        )
+        if after != key:
+            logging.info("DENTOBOT source fingerprint input MTime changed during export: %s -> %s", key[2:], after[2:])
+            print("DENTOBOT_FINGERPRINT_MTIME_CHANGED", key[2:], after[2:], flush=True)
+        return value
 
     def buildCaseFoundationSnapshot(self, parameterNode):
         volume = parameterNode.inputVolume
@@ -925,9 +981,7 @@ class CaseFoundationLogicMixin:
         sourceArray = np.asarray(slicer.util.arrayFromVolume(source))
         lowerMask = np.zeros(sourceArray.shape, dtype=bool)
         for segmentId in lowerIds:
-            mask = np.asarray(
-                slicer.util.arrayFromSegmentBinaryLabelmap(segmentation, segmentId)
-            )
+            mask = self._caseFoundationSegmentBinaryArray(segmentation, segmentId)
             if mask.shape != sourceArray.shape:
                 raise ValueError(_("The reviewed segmentation does not share the source CBCT grid."))
             lowerMask |= mask.astype(bool)

@@ -2777,7 +2777,7 @@
           "returns": "int"
         },
         "_bindAndValidateRestoredCase": {
-          "arguments": "self, expectedWorkflow: dict[str, object]",
+          "arguments": "self, expectedWorkflow: dict[str, object], phase=None",
           "decorators": [],
           "returns": "None"
         },
@@ -3486,7 +3486,7 @@
           "returns": "None"
         },
         "_openCaseBundle": {
-          "arguments": "self, bundlePath: str | Path",
+          "arguments": "self, bundlePath: str | Path, progress=None",
           "decorators": [],
           "returns": ""
         },

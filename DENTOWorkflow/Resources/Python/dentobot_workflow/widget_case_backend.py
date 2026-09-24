@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from .runtime import *
 
 
@@ -240,6 +242,7 @@ class CaseBackendWidgetMixin:
     def _bindAndValidateRestoredCase(
         self,
         expectedWorkflow: dict[str, object],
+        phase=None,
     ) -> None:
         """Validate restored MRML before normal GUI hydration can mutate it."""
 
@@ -255,12 +258,16 @@ class CaseBackendWidgetMixin:
                     "%1", str(exc)
                 )
             ) from exc
+        if phase:
+            phase("Restoring markup and jaw display state", can_cancel=False)
         self._restoreCaseBundleMarkupInteractionState(
             parameterNode,
             expectedWorkflow,
         )
         if str(parameterNode.step6CaseJawPreparationMode) == "CaseFoundationCurrent":
             self.logic.rebuildCaseFoundationDisplayVolumes(parameterNode)
+        if phase:
+            phase("Checking restored jaw display", can_cancel=False)
         try:
             self.logic.validateLoadedCaseBundleWorkflow(
                 parameterNode,
@@ -323,10 +330,23 @@ class CaseBackendWidgetMixin:
             else:
                 node.SetSelectable(True)
 
-    def _openCaseBundle(self, bundlePath: str | Path):
+    def _openCaseBundle(self, bundlePath: str | Path, progress=None):
         if not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow logic is unavailable."))
+        started = time.monotonic()
+        lastPhase = started
+
+        def phase(message, *, can_cancel=True):
+            nonlocal lastPhase
+            now = time.monotonic()
+            logging.info("DENTOBOT case load phase %.3fs total %.3fs: %s", now - lastPhase, now - started, message)
+            print("DENTOBOT_CASE_LOAD_PHASE", f"{now - lastPhase:.3f}", f"{now - started:.3f}", message, flush=True)
+            lastPhase = now
+            if progress:
+                progress.update(message, can_cancel=can_cancel)
+
         self._caseBundleRobotProfileMigrationMessage = ""
+        phase("Checking package integrity")
         inspection = validate_case_bundle(bundlePath)
         profileMigration = {
             "compatible": False,
@@ -346,22 +366,26 @@ class CaseBackendWidgetMixin:
                     inspection.path,
                     temporaryRoot / "incoming",
                 )
+                phase("Saving recovery snapshot", can_cancel=False)
                 recoveryPath = temporaryRoot / "recovery.mrb"
                 self._saveSceneSnapshotToMrb(recoveryPath)
                 try:
+                    phase("Importing Slicer scene", can_cancel=False)
                     if not slicer.util.loadScene(
                         str(scenePath), {"clear": True}
                     ):
                         raise CaseBundleError(
                             _("Slicer could not replace the scene from the package.")
                         )
-                    self._bindAndValidateRestoredCase(inspection.workflow)
+                    phase("Validating imported scene", can_cancel=False)
+                    self._bindAndValidateRestoredCase(inspection.workflow, phase=phase)
                     profileMigration = (
                         self.logic._migrateLegacyJ2ZeroRobotProfile(
                             self._parameterNode,
                             inspection.robot_profile,
                         )
                     )
+                    phase("Binding restored workflow", can_cancel=False)
                 except Exception as loadError:
                     logging.exception(
                         "DENTOBOT case-package load failed; restoring recovery scene"
@@ -403,10 +427,12 @@ class CaseBackendWidgetMixin:
                     slicer.app.processEvents()
                     hydrationGeneration = self._beginCaseBundleRestore()
                     try:
+                        phase("Hydrating saved workflow", can_cancel=False)
                         self.logic.hydrateDentoCaseStateAfterLoad(
                             self._parameterNode,
                             str(self._parameterNode.dentoCaseSchemaVersion or inspection.manifest.get("schemaVersion") or ""),
                         )
+                        phase("Updating restored workflow controls", can_cancel=False)
                         wasUpdating = self._updatingFromParameterNode
                         self._updatingFromParameterNode = True
                         try:
@@ -416,7 +442,9 @@ class CaseBackendWidgetMixin:
                             self._updateFromParameterNodeOnce()
                         finally:
                             self._updatingFromParameterNode = wasUpdating
+                        phase("Delivering restored scene events", can_cancel=False)
                         slicer.app.processEvents()
+                        phase("Validating hydrated case", can_cancel=False)
                         self._validateHydratedCaseBundle(inspection.workflow)
                     finally:
                         self._endCaseBundleRestore(hydrationGeneration)
@@ -481,6 +509,7 @@ class CaseBackendWidgetMixin:
             profileMigration.get("message") or ""
         )
         self._loadedCaseBundlePath = str(inspection.path)
+        phase("Case loaded", can_cancel=False)
         return inspection
 
     def onOpenCaseBundle(self, checked: bool = False) -> None:
@@ -496,11 +525,20 @@ class CaseBackendWidgetMixin:
         if not bundlePath:
             return
         inspection = None
-        with slicer.util.tryWithErrorDisplay(
-            _("Could not open the selected DENTOBOT case package."),
-            waitCursor=True,
-        ):
-            inspection = self._openCaseBundle(bundlePath)
+        from .workflow_progress import WorkflowProgress, WorkflowCancelled
+
+        progress = WorkflowProgress("Opening DENTOBOT case")
+        try:
+            with slicer.util.tryWithErrorDisplay(
+                _("Could not open the selected DENTOBOT case package."),
+                waitCursor=True,
+            ):
+                try:
+                    inspection = self._openCaseBundle(bundlePath, progress=progress)
+                except WorkflowCancelled:
+                    return
+        finally:
+            progress.close()
         if inspection is None:
             return
         foundation = self.logic.evaluateCaseFoundationEligibility(

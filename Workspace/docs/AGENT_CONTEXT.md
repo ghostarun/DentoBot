@@ -38,6 +38,8 @@ The subsequent FDI21 screenshot shows a stale FDI31 motion-diagnostic session,
 not independent proof of a fresh FDI21 planner pass. Do not weaken stale
 evidence or implement the 96-trajectory batch proposal.
 
+**2026-09-24 FDI11 continuation:** `SEPT24/pulp-testing-fdi11.dentocase` now opens in Tarun's normal window after the stale-pose UI refresh repair; the same screenshot shows one generated Step 4A FDI11 assisted line. The 52-voxel derived candidate still needs normal-window anatomy review, and the line needs trajectory-aligned MPR review. The separate automated crown-cap Entry missed the smoothed candidate surface; do not infer that it matches Tarun's successful Entry or change the endpoint gate from this comparison. Details remain under `S3-P0-DENTAL-SEMANTICS`, `S4A-PULP-ENDPOINT`, `S6-REUSABLE-CASE-SETUP`, and today's logbook.
+
 ## Start here
 
 1. Read repository AGENTS.md. Read/search all of backlog.md for the request,
@@ -258,6 +260,10 @@ evidence or implement the 96-trajectory batch proposal.
   open. Step 4A generation
   does not create masks. Keep `S4A-PULP-ENDPOINT` as endpoint owner and
   `S6-REUSABLE-CASE-SETUP` as package/campaign owner.
+  A later operator-saved `SEPT24/pulp-testing-fdi11.dentocase` exposed a
+  Step 4A parent-FDI persistence lookup bug for the reviewed FDI11 derived
+  candidate; the one-line pure correction passes, while exact-case Slicer
+  verification waits for the active operator GUI to release the runtime.
 
 ## Durable Step-4A–5B testing baseline (operator-supplied, 2026-09-15)
 

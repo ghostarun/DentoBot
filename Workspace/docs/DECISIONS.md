@@ -1,5 +1,9 @@
 # Dentobot Technical Decisions
 
+## 2026-09-24 — Stale Case Foundation remains loadable for repair
+
+A saved `.dentocase` with a stale committed Case Foundation pose must open so the operator can repair Step 3A. UI hydration restores the saved robot-base lock's interaction state without invoking the explicit base-lock command or promoting stale pose/base evidence. Planning and any new base lock retain their existing Case Foundation eligibility checks. Tarun confirmed the FDI11 package reopened in the normal window and subsequently generated one Step 4A trajectory; the screenshot does not validate Step 6 readiness or anatomy. This decision belongs to `S6-REUSABLE-CASE-SETUP`, overlapping the pulp candidate's Step 3A invalidation.
+
 ## 2026-09-24 — Headless workflow gate before Studio; defer broad GUI revamp
 
 Tarun wants every step of the current workflow headlessly automatable and
@@ -6331,6 +6335,10 @@ Tarun explicitly deferred the `VIEW-U-01` normal-window verdict and directed wor
 
 Tarun explicitly advanced the existing Priority-2 busy/progress task for Step 4A assisted trajectories, Step 4C docks, Step 5B unified templates and general container performance, superseding its former wait-for-P0 entry condition for this scope. Do not change numeric priority without an assigned operator priority. The container has no hard CPU/memory cap or observed throttling/OOM. Current-case profiling measured approximately 20 seconds each for Step 4C and Step 5B, dominated by repeated VTK sampling and scene annotation/commit on Slicer's main thread. Use a shared modal phase/elapsed/cancel display with checkpoints after completed samples and before scene commit. Counts describe completed work only; no speculative percentage or ETA. Cancellation is honored before mutation or between completed stages, then disabled during scene commit. No worker thread moves MRML or Dynamic Modeler calls off the main thread. Reconsider container tuning only if measured pressure demonstrates a limit.
 
+The later operator screenshot and report expand `S6-P2-03` to dentocase loading and routine workflow transitions. A headless 55-second saved-case load had an approximately 43-second UI heartbeat gap. Add phase timing and a load busy display first; preserve the transactional recovery MRB and fail-closed lineage checks. These checkpoints do not prove native scene import stays responsive. Do not move MRML import onto a Python worker thread without verified Slicer thread ownership; choose the next correction from the measured load phase and operator-window evidence.
+
+The refined load check found native import took only 2.48 seconds; reviewed source-mask fingerprinting consumed 31.91 seconds and two later opened-CBCT reconstructions consumed about 8–9 seconds each. For aligned, untransformed internal labelmaps, build the identical full-reference `int16` binary array directly from the segment's cropped label extent and label value; fall back to Slicer's original export for any transform/geometry mismatch. All 54 reviewed masks in the supplied case matched the old output byte-for-byte in a Slicer comparison, and post-change package lineage checks passed. This avoids temporary MRML labelmap nodes without changing fingerprint or display semantics. Headless load improved from 55.44 to 13.49 seconds and the maximum Qt heartbeat gap from 40.19 to 3.82 seconds. Normal-window and Step 4A acceptance remain separate.
+
 ## 2026-09-24 — Derive a reviewable pulp candidate from an enclosed tooth void
 
 Tarun corrected the earlier FDI11 conclusion: a visible 3D interior object is
@@ -6389,3 +6397,17 @@ fail after hydration. Hydration now uses the saved parameter-node
 `dentoCaseSchemaVersion`, falling back to the envelope version only when the
 state field is empty. This keeps legacy migration tied to the actual saved
 state without changing the package archive format.
+
+## 2026-09-24 — Read derived-pulp parent FDI from the selected association
+
+Tarun's `SEPT24/pulp-testing-fdi11.dentocase` contains a reviewed FDI11
+derived pulp candidate, but Step 4A stopped with `A persisted pulp association
+has no valid parent FDI.` The derived association stores the tooth FDI under
+each component's `selected` record. The shared persistence helper instead
+read the enclosing component, so it lost a valid FDI before writing semantic
+metadata. Read the selected child's FDI for all accepted pulp associations.
+This corrects the persistence contract without changing source masks,
+trajectory geometry or the conservative Case Foundation invalidation policy.
+Adding a derived segment changes the Case Foundation source-segmentation
+fingerprint, so an already current Step 3A opening becomes stale and requires
+reconfirmation under the existing safety rule.

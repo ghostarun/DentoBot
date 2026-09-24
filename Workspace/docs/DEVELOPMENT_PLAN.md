@@ -1287,6 +1287,16 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   Step 4C and Step 5B freezes. Current-case watchdog evidence attributes the
   observed stalls to synchronous Slicer UI-thread VTK/scene work; headless
   phase/cancel implementation is under verification before normal-window review.
+  Tarun's later normal-window screenshot and report extend this same contract
+  to dentocase load and routine Step 4A entry setup. The earlier headless
+  action checks do not establish GUI-wide responsiveness. Phase-time the
+  transactional load and preserve its recovery/lineage checks before choosing
+  an import or UI scheduling change.
+  The supplied-case phase check identified repeated source-mask export during
+  validation and opened-CBCT reconstruction as the dominant load work. A
+  byte-equivalent aligned-labelmap path reduced headless load to 13.49 seconds
+  with a 3.82-second maximum Qt gap; normal-window and Step 4A verdicts remain
+  open before this broader responsiveness contract can close.
 
 ## Immediate Step 4A P0 correction — displayed pulp contact and smooth masks
 

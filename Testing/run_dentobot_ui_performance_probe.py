@@ -10,9 +10,11 @@ import time
 import traceback
 import pstats
 
+import numpy as np
 import qt
 import slicer
 import vtk
+from vtk.util.numpy_support import vtk_to_numpy
 
 sys.path.insert(0, "/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/Resources/Python")
 
@@ -38,10 +40,99 @@ def run():
     try:
         slicer.util.selectModule("DENTOWorkflow")
         widget = slicer.util.getModuleWidget("DENTOWorkflow")
+        load_only = os.environ.get("DENTOBOT_PERF_LOAD_ONLY") == "1"
+        if load_only:
+            from dentobot_workflow.workflow_progress import WorkflowProgress
+            progress = WorkflowProgress("Opening DENTOBOT case")
+        else:
+            progress = None
         start = time.monotonic()
         print("PERF_BEGIN load", start, flush=True)
-        widget._openCaseBundle(CASE)
+        try:
+            if os.environ.get("DENTOBOT_PERF_SCENE_ONLY") == "1":
+                from pathlib import Path
+                from DENTOCaseBundle import extract_scene_mrb
+                scene, _ = extract_scene_mrb(CASE, Path(slicer.app.temporaryPath) / "perf-scene-only")
+                assert slicer.util.loadScene(str(scene), {"clear": True})
+                assert widget._parameterNode is not None
+            else:
+                widget._openCaseBundle(CASE, progress=progress)
+        finally:
+            if progress:
+                progress.close()
         print("PERF_END load", time.monotonic() - start, flush=True)
+        if os.environ.get("DENTOBOT_PERF_COMPARE_MASKS") == "1":
+            segmentation = widget._parameterNode.teethSegmentation
+            reference = segmentation.GetNodeReference(
+                slicer.vtkMRMLSegmentationNode.GetReferenceImageGeometryReferenceRole()
+            )
+            reference_matrix = vtk.vtkMatrix4x4()
+            reference.GetIJKToRASMatrix(reference_matrix)
+            reference_extent = reference.GetImageData().GetExtent()
+            for review in widget.logic.getSegmentationReviewRecords(segmentation):
+                segment_id = str(review.get("segmentId") or "")
+                if not segment_id:
+                    continue
+                internal = segmentation.GetBinaryLabelmapInternalRepresentation(segment_id)
+                matrix = vtk.vtkMatrix4x4()
+                internal.GetImageToWorldMatrix(matrix)
+                extent = internal.GetExtent()
+                aligned = all(
+                    abs(matrix.GetElement(row, column) - reference_matrix.GetElement(row, column)) < 1e-8
+                    for row in range(4) for column in range(4)
+                ) and all(reference_extent[index] <= extent[index] and extent[index + 1] <= reference_extent[index + 1]
+                          for index in (0, 2, 4))
+                if not aligned:
+                    print("PERF_MASK_UNALIGNED", segment_id, extent, reference_extent,
+                          tuple(matrix.GetElement(i, j) - reference_matrix.GetElement(i, j)
+                                for i in range(4) for j in range(4)), flush=True)
+                    continue
+                internal_array = vtk_to_numpy(internal.GetPointData().GetScalars()).reshape(
+                    tuple(reversed(internal.GetDimensions()))
+                )
+                label = segmentation.GetSegmentation().GetSegment(segment_id).GetLabelValue()
+                reference_dtype = vtk_to_numpy(reference.GetImageData().GetPointData().GetScalars()).dtype
+                candidate = np.zeros(tuple(reversed(reference.GetImageData().GetDimensions())), dtype=reference_dtype)
+                slices = tuple(slice(extent[index] - reference_extent[index], extent[index + 1] - reference_extent[index] + 1)
+                               for index in (4, 2, 0))
+                candidate[slices] = internal_array == label
+                original = slicer.util.arrayFromSegmentBinaryLabelmap(segmentation, segment_id)
+                equal = candidate.dtype == original.dtype and np.array_equal(candidate, original)
+                print("PERF_MASK_COMPARE", segment_id, label, equal, candidate.shape, original.shape,
+                      str(candidate.dtype), str(original.dtype), int(np.count_nonzero(candidate)),
+                      int(np.count_nonzero(original)),
+                      int(np.count_nonzero(candidate != original)),
+                      np.unique(original).tolist(), flush=True)
+                assert equal
+            print("PERF_MASK_COMPARE_PASS", flush=True)
+            print("PERF_PROBE_COMPLETE", flush=True)
+            return
+        if load_only:
+            action_heartbeats = [value for value in heartbeats if value >= start]
+            maximum_gap = max((right - left for left, right in zip(action_heartbeats, action_heartbeats[1:])), default=0)
+            print("PERF_LOAD_MAX_HEARTBEAT_GAP", maximum_gap, flush=True)
+            print("PERF_PROBE_COMPLETE", flush=True)
+            return
+        if os.environ.get("DENTOBOT_PERF_ENTRY_SETUP") == "1":
+            parameter = widget._parameterNode
+            segmentation = parameter.teethSegmentation
+            segment_id = segmentation.GetSegmentation().GetSegmentIdBySegmentName(
+                "upper_right_central_incisor_fdi11"
+            )
+            assert segment_id
+            parameter.targetToothSegmentId = segment_id
+            parameter.assistedTrajectoryCount = 1
+            assert not widget.logic.dentobotTrajectoriesForTarget(segmentation, segment_id)
+            action_started = time.monotonic()
+            print("PERF_BEGIN step4a_entry_setup", action_started, flush=True)
+            widget.onPlaceAssistedTrajectoryEntries()
+            print("PERF_END step4a_entry_setup", time.monotonic() - action_started, flush=True)
+            assert widget.logic.isAssistedTrajectoryEntryNode(parameter.assistedTrajectoryEntries)
+            action_heartbeats = [value for value in heartbeats if value >= action_started]
+            maximum_gap = max((right - left for left, right in zip(action_heartbeats, action_heartbeats[1:])), default=0)
+            print("PERF_ACTION_MAX_HEARTBEAT_GAP", maximum_gap, flush=True)
+            print("PERF_PROBE_COMPLETE", flush=True)
+            return
         if os.environ.get("DENTOBOT_PERF_STEP4A") == "1":
             from dentobot_workflow.workflow_progress import WorkflowProgress
             progress_events = []

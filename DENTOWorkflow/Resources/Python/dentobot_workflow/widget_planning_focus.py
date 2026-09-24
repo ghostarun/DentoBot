@@ -661,7 +661,12 @@ class PlanningFocusWidgetMixin:
     def onPlaceAssistedTrajectoryEntries(self) -> None:
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 4A crown entries")
         try:
+            progress.update("Checking target tooth")
             segmentationNode = self._parameterNode.teethSegmentation
             segmentId = self._parameterNode.targetToothSegmentId
             targetRecord = self.logic.validateTargetTooth(
@@ -714,7 +719,9 @@ class PlanningFocusWidgetMixin:
             if continueCurrentNode:
                 entryNode = currentNode
             else:
+                progress.update("Checking associated pulp mask")
                 self.logic.getTargetPulpAssociation(segmentationNode, segmentId)
+                progress.update("Creating crown entry set", can_cancel=False)
                 entryNode, _summary = self.logic.createOrResetAssistedTrajectoryEntries(
                     segmentationNode,
                     segmentId,
@@ -723,11 +730,17 @@ class PlanningFocusWidgetMixin:
                 )
             self._parameterNode.assistedTrajectoryEntries = entryNode
             self._bindAssistedTrajectoryEntryNode(entryNode)
+            progress.update("Focusing target tooth", can_cancel=False)
             self._startAssistedTrajectoryFocus()
             self.logic.startAssistedTrajectoryEntryPlacement(entryNode)
             self._updateAssistedTrajectoryControls()
+        except WorkflowCancelled:
+            pass
         except (RuntimeError, ValueError) as exc:
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
 
     def onGenerateAssistedTrajectories(self) -> None:
         if not self._parameterNode or not self.logic:

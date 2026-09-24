@@ -197,7 +197,24 @@ def test_assisted_entry_placement_is_one_point_per_button_click():
         def _updateAssistedTrajectoryControls(self):
             return None
 
-    widget_namespace = {"slicer": slicer_stub, "_": lambda message: message}
+    progress_updates = []
+
+    class ProgressStub:
+        def __init__(self, title):
+            self.title = title
+
+        def update(self, message, **_kwargs):
+            progress_updates.append(message)
+
+        def close(self):
+            pass
+
+    widget_namespace = {
+        "slicer": slicer_stub,
+        "_": lambda message: message,
+        "WorkflowProgress": ProgressStub,
+        "WorkflowCancelled": RuntimeError,
+    }
     widget_method.decorator_list = []
     exec(
         compile(
@@ -223,6 +240,7 @@ def test_assisted_entry_placement_is_one_point_per_button_click():
     assert logic.start_calls == [entry_set, entry_set]
     assert confirm_calls == []
     assert errors == []
+    assert progress_updates
 
 
 def test_first_pulp_boundary_single_dual_and_misses():

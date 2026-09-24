@@ -295,8 +295,10 @@ class RobotPlacementWidgetMixin:
         self._updateRos2MotionControlStatus()
         self._updateRobotKeyboardShortcutState()
         if self._parameterNode and self.logic:
-            if self._parameterNode.robotBaseMountLocked:
-                self.logic.setRobotBaseMountLocked(self._parameterNode, True)
+            self.logic._applyRobotBaseMountInteractionState(
+                self._parameterNode,
+                bool(self._parameterNode.robotBaseMountLocked),
+            )
             try:
                 self._applyTaskJointLimitsToJointSpinboxes()
             except ValueError:

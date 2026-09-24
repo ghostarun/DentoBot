@@ -710,7 +710,7 @@ def apply_pulp_association(
         raise ValueError("A persisted pulp association must have one source and one parent.")
     target_fdi = next(
         (
-            str(component.get("toothFdiNumber") or "")
+            str(child.get("toothFdiNumber") or "")
             for component in components
             for child in [component.get("selected") or {}]
             if str(child.get("toothSegmentId") or "") == target_ids[0]

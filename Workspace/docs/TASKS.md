@@ -1043,6 +1043,13 @@ USER_REVIEW_REQUIRED; P3/P4 paused.
   propose the smallest applicable Stage-3 check. Do not automatically rerun,
   relocate the base or relax collision rules from this entry.
 
+## Stale Case Foundation package reopen — 2026-09-24
+
+- **Owner:** `S6-REUSABLE-CASE-SETUP`, overlapping `S3-P0-DENTAL-SEMANTICS` candidate-induced Step 3A invalidation.
+- **Operator observation:** Reopening `SEPT24/pulp-testing-fdi11.dentocase` failed in `_openCaseBundle` because UI hydration called `setRobotBaseMountLocked(..., True)` and raised `The committed Case Foundation pose is stale.`
+- **Correction:** Robot-placement UI refresh only synchronizes saved lock interaction state; explicit base-lock action and downstream pose/planning gates retain their validation. A stale case should load for Step 3A repair, without promoting its pose or base.
+- **Acceptance:** Source compile/diff check passed. Tarun then reported “works” with a normal-window screenshot after reopening the same case; the subsequent FDI11 Step 4A trajectory is visible, so the prior load rollback is resolved in that session. The screenshot does not audit every saved base/Step 6 gate or establish anatomical trajectory acceptance.
+
 ## Assisted access endpoint — 2026-09-07
 
 - **ID:** `S4A-PULP-ENDPOINT`; **Priority:** 0; **State:** Source and focused automated verification passed (2026-09-10); exact FDI31 normal-window anatomical review remains pending.
@@ -1051,6 +1058,8 @@ USER_REVIEW_REQUIRED; P3/P4 paused.
 - **Corrected contract:** New single/dual assisted generation must prove a shared interval between the selected tooth's FDI-matched binary pulp mask and its displayed 3D surface, preserve Entry and direction, and atomically set Target to the first point contained by both (the farther entry boundary). Record both boundary points and their offset. Reject a native/display miss or non-overlap. Off-slice trajectory projection is disabled. Existing/manual trajectories and Step 6 policy remain unchanged.
 - **Verification:** Final diff check and scoped pycompile passed; pure endpoint test passed 1/1; focused Slicer target emitted `DENTOBOT_ASSISTED_PULP_PASS` and `DENTOBOT_STEP4A_P0_PASS`, exited 0, and left no Slicer process. Evidence: `/tmp/dentobot-verification/step4a-p0-20260910/result.json`.
 - **Next:** Reload the module, deliberately delete the legacy FDI31 set, generate one current assisted line, and record normal-window 3D surface contact plus non-projecting 2D slice behavior before anatomical approval.
+- **2026-09-24 FDI11 headless diagnosis:** The existing automated crown-cap Entry method reproduced the voxel/surface miss on `SEPT24/pulp-testing-fdi11.dentocase`: Entry `[-87.644, -33.814, 56.004]` RAS, 52 candidate voxels, native first hit `[-88.091, -37.750, 62.412]`, 0.392 mm outside the displayed default-smoothed surface, zero line hits. Regenerating the same candidate surface in memory with smoothing factor 0 produced eight line hits. The input archive predates the operator’s Step 3A rerun, so a full production generation from it stops at stale Case Foundation before geometry. A persisted candidate-specific representation correction and exact production rerun remain open; do not relax the shared-contact gate or claim anatomical approval.
+- **2026-09-24 normal-window continuation:** Tarun reports the case now opens and screenshot shows one created FDI11 assisted trajectory (9.74 mm; success dialog reports maximum display-surface offset 1.14 mm). This demonstrates generation for his current Entry but does not explain why that Entry succeeded while the earlier automated crown-cap line missed, nor verify contact in trajectory-aligned MPR. Anatomical review remains open.
 
 ## P0 dental semantic normalization and pulp-to-tooth association — 2026-09-14
 
@@ -1319,6 +1328,18 @@ saved workflow-state version, a narrow fresh Slicer open passed and restored
 all 28 rows, a current report, the 52-voxel FDI11 candidate and Needs
 Correction review state. Full-batch runtime, ordinary-window anatomy/table
 verdict and representative source-mask Case B remain open.
+
+**FDI11 Step 4A parent-FDI failure (2026-09-24):** In the operator-saved
+`SEPT24/pulp-testing-fdi11.dentocase`, a reviewed 52-voxel derived FDI11 pulp
+candidate and FDI11 tooth are present. Step 4A displayed `A persisted pulp
+association has no valid parent FDI.` The shared pure persistence helper
+looked for `toothFdiNumber` on a component wrapper instead of its `selected`
+child. The one-line correction and focused derived-association regression
+pass. Tarun's later normal-window screenshot shows successful FDI11 assisted
+trajectory generation after the correction; the independent scripted
+exact-case runner was not executed while his GUI owned Slicer. The observed Step 3A re-performance
+follows the existing segmentation-content fingerprint invalidation; changing
+that safety policy is outside this one-line correction.
 
 ## Immediate P0 — restore truthful Step 4A smooth masks
 
@@ -1732,7 +1753,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P1-01` | 1 | Partially implemented; anatomical safeguards pending | Current P0 correction accepted | Add bilateral condylar/crown regions, exact-source snapping, MPR review and representative anatomy acceptance |
 | `S6-P2-01` | 2 | Planned | `S6-P0-02` checkpoint matrix understood | Implement one post-load visual integrity panel for Steps 1–6 with Current, Needs attention, Stale, Blocked upstream, and Rejected states |
 | `S6-P2-02` | 2 | Planned | `S6-P1-01` accepted | Add smooth display-only incisor-gap preview and one explicit commit action |
-| `S6-P2-03` | 2 | Source and headless Step 4C/5B real-handler progress checks passed; Step 4A full run and normal-window acceptance open | Operator request supersedes the former P0-completion entry order for this scoped responsiveness work | Verify Step 4A with reviewed associated pulp, then Tarun's normal-window Step 4A/4C/5B responsiveness, phase/count/elapsed/cancel; no fake percentage or ETA |
+| `S6-P2-03` | 2 | Headless dentocase load and Step 4C/5B progress checks passed; normal-window and Step 4A acceptance open | Tarun's normal-window screenshot/report expanded this task to dentocase load and routine transitions; no numeric reprioritization | Load measured 55.44→13.49 s and maximum Qt gap 40.19→3.82 s with byte-equivalent source masks and intact package lineage. Verify normal-window load/transition behavior, then Step 4A setup/generation using a clean reviewed-pulp input; stop automatic retries on the FDI11 fixture's stale-foundation/modal setup path. No fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
 | `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. | Priority 0–3 work or an observed runtime regression no longer blocks it | Preserve the open scene and close it normally when the operator is ready; then verify that the owned Slicer/ROS/MoveIt tree is gone and host memory recovers. Only if retained memory/processes remain, centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct lifecycle cleanup, and require a zero-exit lifecycle run with no SlicerROS2 leaks. |

@@ -134,6 +134,26 @@ def test_b_generic_pulp_name_uses_geometry_selected_parent():
     assert paired["associationMethod"] == "spatial"
 
 
+def test_derived_fdi11_pulp_persists_selected_parent_fdi():
+    tooth = _record("t11", "upper_right_central_incisor_fdi11")
+    pulp = _record("derived11", "derived_pulp_fdi111", structure_type_hint="PULP")
+    association = {
+        "validationState": "VALID",
+        "associationConfidence": "HIGH",
+        "associationMethod": "enclosed-tooth-void-v1",
+        "parentToothSegmentIds": ["t11"],
+        "components": [{
+            "componentId": "derived11#component-1",
+            "sourceSegmentId": "derived11",
+            "selected": {"toothSegmentId": "t11", "toothFdiNumber": "11"},
+        }],
+    }
+    paired = apply_pulp_association([tooth, pulp], association)[1]
+    assert paired["canonicalName"] == "Pulp_FDI11"
+    assert paired["parentToothSegmentIds"] == ["t11"]
+    assert pulp_record_is_planning_ready(paired, "t11")
+
+
 def test_b_unknown_mask_gets_canonical_pulp_label_without_changing_source():
     tooth = _record("t11", "tooth_primary", structure_type_hint="TOOTH", fdi_hint="11")
     unknown = _record("p11", "internal_structure_alpha")
