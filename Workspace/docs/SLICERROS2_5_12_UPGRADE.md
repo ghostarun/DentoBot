@@ -94,6 +94,17 @@ destroys tracked ROS nodes before `ROSShutdown` and makes repeated `Destroy()`
 a quiet no-op; the isolated native build passed. One newly approved case-free
 five-reload/zero-exit check is needed before accepting shutdown.
 
+Tarun approved that check. All five reload assertions passed and the native
+SIGSEGV was no longer observed, but Slicer exited 1 with `vtkDebugLeaks`: 56
+retained objects across 12 classes, mostly generated ROS message wrappers and
+their nested VTK fields. Source inspection found their generator assigned raw
+`vtk...::New()` results into `vtkSmartPointer` fields. Fork commit `856e927`
+uses smart-pointer `New()` and regenerates wrappers when the generator changes.
+An isolated native rebuild passed; inspection of 134 generated `.cxx` files
+found 53 smart-pointer nested initializations and zero raw nested assignments.
+The generated ownership fix still needs one approved case-free five-reload
+zero-exit gate. Saved-case and performance acceptance remain open.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
