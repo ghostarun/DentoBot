@@ -990,107 +990,117 @@ class RobotSceneSyncLogicMixin:
         object_records: list[dict[str, object]] = []
         if progress:
             progress("Publishing collision scene", 0, len(sources))
-        for sourceIndex, source in enumerate(sources, start=1):
-            source_id = str(source["sourceId"])
-            source_name = str(source["sourceName"])
-            source_world = source["sourceWorld"]
-            world_surface = source["preparedWorld"]
-            base_surface = self._polydataWorldToRobotBase(
-                world_surface,
-                base_transform,
-            )
-            source_evidence = self._collisionAuditPolydataEvidence(source_world)
-            prepared_evidence = self._collisionAuditPolydataEvidence(world_surface)
-            outgoing_evidence = self._collisionAuditPolydataEvidence(base_surface)
-            record = {
-                "source_id": source_id,
-                "source_name": source_name,
-                "source_role": str(source["sourceRole"]),
-                "classification": str(source["classification"]),
-                "source_revision": fingerprint(
-                    {
-                        "sourceId": source_id,
-                        "sourceFingerprint": source_evidence["fingerprint"],
-                    }
-                ),
-                "source_fingerprint": source_evidence["fingerprint"],
-                "prepared_world_fingerprint": prepared_evidence["fingerprint"],
-                "outgoing_fingerprint": outgoing_evidence["fingerprint"],
-                "source_point_count": source_evidence["point_count"],
-                "source_cell_count": source_evidence["cell_count"],
-                "outgoing_point_count": outgoing_evidence["point_count"],
-                "outgoing_cell_count": outgoing_evidence["cell_count"],
-                "source_bounds_world_ras_mm": source_evidence["bounds"],
-                "prepared_bounds_world_ras_mm": prepared_evidence["bounds"],
-                "outgoing_bounds_base_link_mm": outgoing_evidence["bounds"],
-                "connected_component_count": outgoing_evidence[
-                    "connected_component_count"
-                ],
-                "boundary_or_nonmanifold_edge_count": outgoing_evidence[
-                    "boundary_or_nonmanifold_edge_count"
-                ],
-                "jaw_transform_application_count": int(
-                    source["jawTransformApplicationCount"]
-                ),
-                "jaw_transform_fingerprint": (
-                    jaw_preparation_fingerprint
-                    if int(source["jawTransformApplicationCount"])
-                    else ""
-                ),
-                "world_to_base_fingerprint": world_to_base_fingerprint,
-                "world_to_base_application_count": 1,
-                "source_coordinate_frame": "SlicerWorldRAS",
-                "source_linear_unit": "mm",
-                "outgoing_coordinate_frame": "base_link",
-                "outgoing_linear_unit_before_publish": "mm",
-                "publisher_linear_scale_m_per_mm": 0.001,
-                "collision_padding_mm": 0.0,
-                # The published mesh vertices are already expressed in
-                # base_link, so the CollisionObject pose must be identity.
-                # Keep this explicit for the runtime readback contract.
-                "outgoing_pose_base_link_m_xyzw": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                "outgoing_pose_source": "vertices_already_in_base_link_frame",
-                "outgoing_collision_object_id": source_name,
-                "publish_status": "Pending",
-                "runtime_acknowledgement_status": "NotQueried",
-            }
-            self._syncCollisionAuditDisplayCopy(
-                source_id=source_id,
-                outgoing_id=source_name,
-                outgoing_base_mm=outgoing_evidence["surface"],
-                base_transform=base_transform,
-                outgoing_fingerprint=str(outgoing_evidence["fingerprint"]),
-                opacity=float(parameterNode.step6CollisionAuditOpacity),
-            )
-            ok, message = sync_moveit_obstacle_polydata(
-                source_id=source_id,
-                source_name=source_name,
-                polydata_base_mm=outgoing_evidence["surface"],
-            )
-            if not ok:
-                record["publish_status"] = "Failed"
-                record["publish_error"] = str(message)
+        pause_render = getattr(slicer.app, "pauseRender", None)
+        resume_render = getattr(slicer.app, "resumeRender", None)
+        rendering_paused = False
+        try:
+            if callable(pause_render) and callable(resume_render):
+                pause_render()
+                rendering_paused = True
+            for sourceIndex, source in enumerate(sources, start=1):
+                source_id = str(source["sourceId"])
+                source_name = str(source["sourceName"])
+                source_world = source["sourceWorld"]
+                world_surface = source["preparedWorld"]
+                base_surface = self._polydataWorldToRobotBase(
+                    world_surface,
+                    base_transform,
+                )
+                source_evidence = self._collisionAuditPolydataEvidence(source_world)
+                prepared_evidence = self._collisionAuditPolydataEvidence(world_surface)
+                outgoing_evidence = self._collisionAuditPolydataEvidence(base_surface)
+                record = {
+                    "source_id": source_id,
+                    "source_name": source_name,
+                    "source_role": str(source["sourceRole"]),
+                    "classification": str(source["classification"]),
+                    "source_revision": fingerprint(
+                        {
+                            "sourceId": source_id,
+                            "sourceFingerprint": source_evidence["fingerprint"],
+                        }
+                    ),
+                    "source_fingerprint": source_evidence["fingerprint"],
+                    "prepared_world_fingerprint": prepared_evidence["fingerprint"],
+                    "outgoing_fingerprint": outgoing_evidence["fingerprint"],
+                    "source_point_count": source_evidence["point_count"],
+                    "source_cell_count": source_evidence["cell_count"],
+                    "outgoing_point_count": outgoing_evidence["point_count"],
+                    "outgoing_cell_count": outgoing_evidence["cell_count"],
+                    "source_bounds_world_ras_mm": source_evidence["bounds"],
+                    "prepared_bounds_world_ras_mm": prepared_evidence["bounds"],
+                    "outgoing_bounds_base_link_mm": outgoing_evidence["bounds"],
+                    "connected_component_count": outgoing_evidence[
+                        "connected_component_count"
+                    ],
+                    "boundary_or_nonmanifold_edge_count": outgoing_evidence[
+                        "boundary_or_nonmanifold_edge_count"
+                    ],
+                    "jaw_transform_application_count": int(
+                        source["jawTransformApplicationCount"]
+                    ),
+                    "jaw_transform_fingerprint": (
+                        jaw_preparation_fingerprint
+                        if int(source["jawTransformApplicationCount"])
+                        else ""
+                    ),
+                    "world_to_base_fingerprint": world_to_base_fingerprint,
+                    "world_to_base_application_count": 1,
+                    "source_coordinate_frame": "SlicerWorldRAS",
+                    "source_linear_unit": "mm",
+                    "outgoing_coordinate_frame": "base_link",
+                    "outgoing_linear_unit_before_publish": "mm",
+                    "publisher_linear_scale_m_per_mm": 0.001,
+                    "collision_padding_mm": 0.0,
+                    # The published mesh vertices are already expressed in
+                    # base_link, so the CollisionObject pose must be identity.
+                    # Keep this explicit for the runtime readback contract.
+                    "outgoing_pose_base_link_m_xyzw": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                    "outgoing_pose_source": "vertices_already_in_base_link_frame",
+                    "outgoing_collision_object_id": source_name,
+                    "publish_status": "Pending",
+                    "runtime_acknowledgement_status": "NotQueried",
+                }
+                self._syncCollisionAuditDisplayCopy(
+                    source_id=source_id,
+                    outgoing_id=source_name,
+                    outgoing_base_mm=outgoing_evidence["surface"],
+                    base_transform=base_transform,
+                    outgoing_fingerprint=str(outgoing_evidence["fingerprint"]),
+                    opacity=float(parameterNode.step6CollisionAuditOpacity),
+                )
+                ok, message = sync_moveit_obstacle_polydata(
+                    source_id=source_id,
+                    source_name=source_name,
+                    polydata_base_mm=outgoing_evidence["surface"],
+                )
+                if not ok:
+                    record["publish_status"] = "Failed"
+                    record["publish_error"] = str(message)
+                    object_records.append(record)
+                    audit = build_collision_scene_audit(
+                        status="PublishFailed",
+                        base_fingerprint=self.robotBaseFingerprint(parameterNode),
+                        jaw_preparation_fingerprint=jaw_preparation_fingerprint,
+                        world_to_base_fingerprint=world_to_base_fingerprint,
+                        object_records=object_records,
+                        runtime_acknowledgement={
+                            "status": "NotAcknowledged",
+                            "reason": "Collision-object publication failed.",
+                            "acknowledged_object_ids": [],
+                        },
+                    )
+                    parameterNode.step6CollisionSceneAuditJson = canonical_json(
+                        audit.to_dict()
+                    )
+                    raise RuntimeError(message)
+                record["publish_status"] = "PublishReturnedSuccess"
                 object_records.append(record)
-                audit = build_collision_scene_audit(
-                    status="PublishFailed",
-                    base_fingerprint=self.robotBaseFingerprint(parameterNode),
-                    jaw_preparation_fingerprint=jaw_preparation_fingerprint,
-                    world_to_base_fingerprint=world_to_base_fingerprint,
-                    object_records=object_records,
-                    runtime_acknowledgement={
-                        "status": "NotAcknowledged",
-                        "reason": "Collision-object publication failed.",
-                        "acknowledged_object_ids": [],
-                    },
-                )
-                parameterNode.step6CollisionSceneAuditJson = canonical_json(
-                    audit.to_dict()
-                )
-                raise RuntimeError(message)
-            record["publish_status"] = "PublishReturnedSuccess"
-            object_records.append(record)
-            if progress:
-                progress("Publishing collision scene", sourceIndex, len(sources))
+                if progress:
+                    progress("Publishing collision scene", sourceIndex, len(sources))
+        finally:
+            if rendering_paused:
+                resume_render()
         if progress:
             progress("Checking MoveIt collision-scene readback", None, None)
         current_joint_positions_si = monitored_joint_positions_si()

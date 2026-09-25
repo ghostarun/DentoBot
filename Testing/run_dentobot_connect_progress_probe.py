@@ -13,7 +13,12 @@ import qt
 import slicer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"))
-from DENTOROS2Bridge import ROS2_ROBOT_NAME, find_ros2_robot_by_name, shutdown_slicer_adapter
+from DENTOROS2Bridge import (
+    ROS2_OBSTACLE_PROXY_ATTRIBUTE,
+    ROS2_ROBOT_NAME,
+    find_ros2_robot_by_name,
+    shutdown_slicer_adapter,
+)
 
 CASE = "/workspace/data/Slicer_Saved/SampleStudy1/FDI21-31-headless-verified-sep22-step6a.dentocase"
 
@@ -101,6 +106,16 @@ def run():
     assert audit and audit.status == "Acknowledged", audit
     assert len(audit.object_records) == 31, len(audit.object_records)
     assert widget._robotWorkflowFacade.capabilities().planning_scene_synchronized
+    proxies = [
+        model for model in slicer.util.getNodesByClass("vtkMRMLModelNode")
+        if model.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) == "true"
+    ]
+    assert len(proxies) == 31, len(proxies)
+    visible_or_missing = [
+        model.GetName() for model in proxies
+        if not model.GetDisplayNode() or model.GetDisplayNode().GetVisibility()
+    ]
+    assert not visible_or_missing, visible_or_missing
     copies = [
         model for model in slicer.util.getNodesByClass("vtkMRMLModelNode")
         if model.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true"

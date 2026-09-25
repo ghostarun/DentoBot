@@ -6612,3 +6612,15 @@ Connect initialization fell from 4.877 to 2.312 seconds, maximum Connect Qt
 gap from 4.066 to 1.557 seconds, and Connect wall time from 32.903 to 30.320
 seconds. These are single-run diagnostic comparisons. Collision-scene sync
 remains the larger Connect cost; native shutdown still exits 1 with leaks.
+
+The next `S6-P2-03` gate pauses Slicer rendering only while publishing the 31
+collision objects, including the audit display copies and hidden outgoing
+MoveIt proxies. Keep per-object progress and the MoveIt readback outside the
+render pause; release it in `finally` on publication failure. One same-case
+profiled headless run retained 31 acknowledged objects, audit copies and hidden
+proxies. Connect fell from 30.320 to 12.135 seconds, scene sync from 25.785 to
+7.645 seconds, and 62 display-node creations from 13.226 to 0.928 seconds;
+maximum Qt gap stayed about 1.6 seconds. Progress-update aggregate fell from
+9.029 to 3.002 seconds without changing its callbacks, so its residual cost
+needs separate measurement before modifying the shared updater. This remains
+headless diagnostic evidence, not normal-window or GPU 60 FPS acceptance.
