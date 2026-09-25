@@ -188,6 +188,20 @@ probe/scene contact fixture; then apply the existing seven-nonempty-visual,
 positive static MoveIt contact and clean-teardown gate. Do not resume full
 Slicer rebuilding or advance to a representative case on URI spelling alone.
 
+Tarun approved the narrower correction gate. The isolated ROS Jazzy
+`resource_retriever` 3.4.4 overlay built without a Slicer rebuild; its local
+`file://`/`%20` test passed and `ldd` selected the overlay library. A single
+case-free focused geometry smoke found seven nonempty Slicer visual models and
+no unsupported-FILE log, but failed the required MoveIt static contact with
+`pairs=[]`. On removal, the probe was absent from the MoveIt world scene;
+Slicer exited 1 and `move_group` signalled 11 during cleanup. This does not
+prove MoveIt link collision geometry or clean teardown. With two prior saved
+preload failures, the three-failure contact retry ceiling is reached. Stop
+autonomous runtime trials. The next proposed discriminator is a MoveIt scene
+snapshot asserting probe ID, nonempty shape and `base_link` pose, followed by
+an independent link collision-shape check. It requires a revised operator
+runtime plan before another geometry smoke. Keep 5.10 and release unchanged.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,

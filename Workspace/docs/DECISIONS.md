@@ -6644,3 +6644,18 @@ markups without that eligibility. Keep the policy; set eligibility only around
 the synthetic owner-stage assertion. The focused smoke then exited 0 with
 `DENTOBOT_COMPOSABLE_VIEWS_PASS`. This is test evidence, not a normal-window
 Views verdict or GPU performance result.
+
+### 2026-09-26 — PLAT-U-06 narrow local-file overlay remains diagnostic
+
+Keep the accepted 5.10 image and lab release unchanged and stop full Slicer
+rebuilds under Tarun's last-attempt limit. The isolated 5.12 candidate uses
+ROS Jazzy `resource_retriever` 3.4.4. Preserve its public ABI, URDF and STL
+bytes; bypass curl only for local `file://` reads in a package-only overlay.
+The overlay build and local-file unit test pass, and the isolated image
+resolves the replacement DSO. The focused Slicer smoke has no FILE error and
+seven nonempty visual models but fails positive MoveIt contact; its world
+probe is absent at removal, and native teardown fails. A successful file read
+or visual STL display cannot substitute for collision-shape and planning-scene
+evidence. With three saved contact failures, stop autonomous retries. Require
+a revised operator-approved scene-snapshot/link-shape diagnostic before any
+additional runtime or promotion.

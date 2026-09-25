@@ -1942,3 +1942,16 @@ After a source edit use **Reload Module (Dev)**. The external stack and case
 scene remain, while the Slicer-side robot and GUI are rebuilt; reconnect before
 continuing Robot Simulation. Repeated reload must leave exactly one navigation
 dock, one task dock, and no duplicate callbacks.
+
+### Isolated 5.12 resource retrieval diagnostic overlay
+
+`PLAT-U-06` has a ROS Jazzy `resource_retriever` 3.4.4 overlay at
+`Infrastructure/resource_retriever_overlay/`. From this isolated checkout,
+`bash Infrastructure/scripts/build-resource-retriever-overlay.bash` builds
+only that package on the pinned local 5.12 candidate into a uniquely tagged
+diagnostic image. The build runs one local-file unit test and does not alter
+the accepted 5.10 Compose image, Slicer SuperBuild or lab release. The overlay
+library precedes `/opt/ros/jazzy/lib` in the diagnostic image loader path.
+Its focused MoveIt geometry smoke has **not** passed; do not promote this image
+or use it for representative planning. Further runtime trials are paused at
+the project's three-failure contact gate.

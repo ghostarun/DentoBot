@@ -1,0 +1,22 @@
+ARG SLICERROS2_BASE_IMAGE=dentobot/slicerros2:platu06-slicer512-00bb35055611@sha256:8a0eb790fb748d8eed3cb8f9e3749995db200026da97ec5f9de796faf1a01dc6
+FROM ${SLICERROS2_BASE_IMAGE}
+
+ARG COLCON_BUILD_JOBS=2
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY Infrastructure/resource_retriever_overlay/ /tmp/resource_retriever_overlay/src/
+
+RUN source /opt/ros/jazzy/setup.bash \
+    && CMAKE_BUILD_PARALLEL_LEVEL="${COLCON_BUILD_JOBS}" colcon \
+        --log-base /tmp/resource_retriever_overlay/log build \
+        --base-paths /tmp/resource_retriever_overlay/src \
+        --packages-select resource_retriever \
+        --merge-install \
+        --install-base /opt/dentobot/resource-retriever-overlay \
+        --build-base /tmp/resource_retriever_overlay/build \
+        --parallel-workers "${COLCON_BUILD_JOBS}" \
+    && /tmp/resource_retriever_overlay/build/resource_retriever/resource_retriever_test \
+        --gtest_filter=Retriever.localFileUrlWithEscapedSpace \
+    && rm -rf /tmp/resource_retriever_overlay
+
+ENV LD_LIBRARY_PATH="/opt/dentobot/resource-retriever-overlay/lib:/opt/ros/jazzy/lib"
