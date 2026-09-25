@@ -16,8 +16,11 @@ The candidate Dockerfile accepts a pinned 5.12 image digest through the
 `SLICERROS2_BASE_IMAGE` build argument; omitting it retains the accepted 5.10 base. The
 `update-lab-release.bash` and `launch-dentoworkflow.bash` scripts accept
 `DENTOBOT_SLICER_VERSION=5.12` for the matching installed-module cleanup path,
-and default to `5.10`. This is source preparation only: no 5.12 image has been
-built, installed, selected by `LAB_RELEASE`, or launched.
+and default to `5.10`. An isolated 5.12 candidate image was built under
+`dentobot/slicerros2:platu06-slicer512-00bb35055611`, and its three ROS
+packages were compiled into separate scratch output. It has not been selected
+by `LAB_RELEASE` or launched for Slicer/ROS compatibility. The running 5.10
+container and rollback image remain unchanged.
 
 ## 2026-09-08 provisional simulation verification restart
 
