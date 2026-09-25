@@ -13,7 +13,7 @@ import qt
 import slicer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"))
-from DENTOROS2Bridge import shutdown_slicer_adapter
+from DENTOROS2Bridge import ROS2_ROBOT_NAME, find_ros2_robot_by_name, shutdown_slicer_adapter
 
 CASE = "/workspace/data/Slicer_Saved/SampleStudy1/FDI21-31-headless-verified-sep22-step6a.dentocase"
 
@@ -76,10 +76,27 @@ def run():
     ticks.clear()
     timer.start()
     started = time.monotonic()
-    widget._onShellConnectRobot()
+    if os.environ.get("DENTOBOT_PERF_CPROFILE_CONNECT") == "1":
+        profiler = cProfile.Profile()
+        try:
+            profiler.runcall(widget._onShellConnectRobot)
+        finally:
+            report = io.StringIO()
+            pstats.Stats(profiler, stream=report).sort_stats("cumulative").print_stats(35)
+            print("CONNECT_ACTION_PROFILE", report.getvalue(), flush=True)
+    else:
+        widget._onShellConnectRobot()
     elapsed = time.monotonic() - started
     profile_refresh[0] = False
     timer.stop()
+    ros_robot = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    goal_models = [
+        ros_robot.GetNthNodeReference("goal_model", index)
+        for index in range(ros_robot.GetNumberOfNodeReferences("goal_model"))
+    ] if ros_robot is not None else []
+    assert goal_models and all(model and model.GetDisplayNode() for model in goal_models), (
+        "ROS robot goal models or their display nodes are missing"
+    )
     audit = logic.collisionSceneAuditRecord(node)
     assert audit and audit.status == "Acknowledged", audit
     assert len(audit.object_records) == 31, len(audit.object_records)

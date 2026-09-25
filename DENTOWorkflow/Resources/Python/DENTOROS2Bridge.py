@@ -2689,17 +2689,27 @@ def connect_dentobot_motion_control(
     if not align_ros2_robot_to_base_transform(robot_node, base_transform):
         return None, "Could not align base_link with the Step 6 base transform."
 
-    parameter_node = motion_logic.getParameterNode()
-    parameter_node.robotNodeID = robot_node.GetID()
-    parameter_node.jointStateTopic = ROS2_JOINT_STATES_TOPIC
-    parameter_node.moveGroupExists = True
-    parameter_node.planningGroup = ROS2_PLANNING_GROUP
-    if not motion_logic.SetupRobotForMotionControl(parameter_node):
-        return None, "SetupRobotForMotionControl failed."
-    if not align_ros2_goal_to_base_transform(robot_node, base_transform):
-        return None, "Could not align the goal robot with the Step 6 base transform."
-    if not motion_logic.SetupMoveItPlanningGroup(robot_node, ROS2_PLANNING_GROUP):
-        return None, "MoveIt planning group dentobot_arm could not be initialized."
+    pause_render = getattr(slicer.app, "pauseRender", None)
+    resume_render = getattr(slicer.app, "resumeRender", None)
+    rendering_paused = False
+    try:
+        if callable(pause_render) and callable(resume_render):
+            pause_render()
+            rendering_paused = True
+        parameter_node = motion_logic.getParameterNode()
+        parameter_node.robotNodeID = robot_node.GetID()
+        parameter_node.jointStateTopic = ROS2_JOINT_STATES_TOPIC
+        parameter_node.moveGroupExists = True
+        parameter_node.planningGroup = ROS2_PLANNING_GROUP
+        if not motion_logic.SetupRobotForMotionControl(parameter_node):
+            return None, "SetupRobotForMotionControl failed."
+        if not align_ros2_goal_to_base_transform(robot_node, base_transform):
+            return None, "Could not align the goal robot with the Step 6 base transform."
+        if not motion_logic.SetupMoveItPlanningGroup(robot_node, ROS2_PLANNING_GROUP):
+            return None, "MoveIt planning group dentobot_arm could not be initialized."
+    finally:
+        if rendering_paused:
+            resume_render()
 
     if initial_joint_positions_si is not None:
         try:

@@ -6596,3 +6596,19 @@ confirmed zero full refresh calls, 31 acknowledged collision objects and
 copies, and Connect/Disconnect functional markers. Its 4.085-second remaining
 Connect Qt gap is during ROS robot initialization; native shutdown still exits
 1 with leak warnings. This is not ordinary-window or 60 FPS acceptance.
+## 2026-09-26 — Pause rendering during goal-robot scene creation
+
+The `S6-P2-03` Connect profile localized the remaining approximately four-second
+Qt gap to SlicerROS2 robot initialization. Native `CreateGoalStateRobot` alone
+took 2.732 seconds while adding goal transforms, models and display nodes on
+Slicer's UI thread; resource samples showed no cgroup throttling or OOM
+pressure. Use the existing optional `slicer.app.pauseRender`/`resumeRender`
+pattern around motion parameter assignments and robot/MoveIt setup, starting
+before `robotNodeID` because the ROS2MotionControl widget can initialize the
+goal robot from that observer. Resume in `finally`, with no MRML/ROS thread
+change and no skipped goal model. One same-case profiled headless run passed
+goal-model displays and 31 acknowledged collision objects/copies; native
+Connect initialization fell from 4.877 to 2.312 seconds, maximum Connect Qt
+gap from 4.066 to 1.557 seconds, and Connect wall time from 32.903 to 30.320
+seconds. These are single-run diagnostic comparisons. Collision-scene sync
+remains the larger Connect cost; native shutdown still exits 1 with leaks.
