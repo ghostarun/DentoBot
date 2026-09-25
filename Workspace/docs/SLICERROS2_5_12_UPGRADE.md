@@ -45,13 +45,16 @@ ROS2/MRML objects. Treat reload behavior and shutdown hygiene separately;
 `S6-U-01` owns the latter. Saved-case correctness, lifecycle, ROS/MoveIt API,
 and comparative performance gates have not run on the 5.12 candidate.
 
-Source follow-up under `S6-U-01`: fork commit `676a91c` corrects five
-raw-`New()` assignments to `vtkSmartPointer`, including the default ROS node
-reported once in the shutdown leak list. The isolated incremental SlicerROS2
-build passed. The candidate image still carries its original source labels;
-its separately mounted scratch native install now contains the correction.
-Repeat the same headless reload/shutdown check before attributing any lifecycle
-improvement. No post-fix runtime result exists yet.
+Source follow-up under `S6-U-01`: fork commit `676a91c` corrected five
+raw-`New()` assignments to `vtkSmartPointer`. The approved post-fix repeat
+passed all five reload cycles but still exited 1: retained objects fell from
+139 across 21 classes to 120 across 20, and the default ROS node disappeared.
+Fork commit `a922233` then adopted the raw `CreateNodeByClass` references in
+three factories and corrected a matrix construction; its isolated incremental
+SlicerROS2 build passed. The candidate image retains its original source
+labels; its separately mounted scratch native install contains both fixes.
+Shutdown after `a922233` has not been runtime checked. Saved-case correctness,
+lifecycle, ROS/MoveIt API and comparative performance remain open.
 
 ## Decision
 
