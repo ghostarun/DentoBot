@@ -59,6 +59,14 @@ exit (code 1) without a diagnostic in the captured output. Native shutdown
 remains open; saved-case correctness, lifecycle, ROS/MoveIt API and comparative
 performance remain open.
 
+An approved isolated exit diagnostic reproduced SIGSEGV after the five-cycle
+pass. The fault instruction address was unmapped; the captured stack returned
+into `rcl_subscription_fini` immediately after `rmw_destroy_subscription`.
+This points to ROS subscription teardown or unloaded code during shutdown,
+without identifying the owning object or a safe correction. The three-run
+diagnostic ceiling is reached; obtain a symbolic backtrace in a newly approved
+bounded scope before changing teardown order.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
