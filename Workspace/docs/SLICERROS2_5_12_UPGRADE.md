@@ -2,6 +2,13 @@
 
 Assessment date: 2026-09-09
 
+Implementation branch: `upgrade/slicerros2-5.12-performance` (created
+2026-09-25 from DentoBot `10fca25`). This branch is the DentoBot planning and
+integration lane; the SlicerROS2 fork needs its own isolated branch/worktree.
+The DentoBot checkout already contains uncommitted workflow, test, and controlled
+document work. Preserve those edits; this plan commit does not claim they are
+part of a clean upgrade baseline.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
@@ -13,9 +20,12 @@ the old image, or switch lab releases before the 5.12 candidate passes the
 approved compatibility and workflow gates.
 
 Use Slicer `v5.12.0` for the first candidate. It is the version explicitly
-tested by SlicerROS2 1.2 and used by the upstream container. Slicer 5.12.3 is
-the latest Slicer patch release observed during this assessment, but it should
-be evaluated only after the supported 5.12.0 migration is accepted.
+tested by SlicerROS2 1.2 and used by the upstream container. At the 2026-09-25
+research refresh, Slicer 5.12.4 is the latest published 5.12 patch. It should
+be evaluated only after the supported 5.12.0 migration is accepted; its faster
+large-surface picking has a reported picked-point offset regression relevant
+to dental markup placement. Check that issue's disposition and test picked
+point accuracy before considering 5.12.4 for this workflow.
 
 ## What DentoBot changed
 
@@ -109,6 +119,22 @@ more API changes.
 
 ## Upgrade plan
 
+### Scope and order
+
+The purpose is a reproducible candidate and measured workflow improvement, not
+an automatic cure for the current stalls. Complete the measured `S6-P2-03`
+native `RemoveRobot`, case-load and shutdown investigation independently. Before
+changing an image, record the current 5.10 case and Connect/Disconnect timing,
+Qt heartbeat gaps, peak process/container memory, CPU, GPU and exit status.
+Use the same case bytes, hardware, renderer, DentoBot source revision and
+workflow actions for the 5.12 comparison. Run one Slicer/ROS session at a time.
+
+Gate the candidate in this order: capture the fork's uncommitted native work;
+pin upstream source and image digest; build in isolation; pass native/API and
+saved-case correctness checks; measure performance; then consider a lab release.
+The existing 5.10 runtime and `LAB_RELEASE` remain the rollback until the last
+gate. Do not execute planner motion or hardware actions as part of this upgrade.
+
 ### Phase 1 — preserve and reconstruct source
 
 1. Keep the existing Slicer 5.10 image/tag/digest unchanged as rollback.
@@ -131,6 +157,10 @@ more API changes.
 3. Rebuild SlicerROS2 and DentoBot ROS packages from clean `build/`, `install/`,
    and `log/` products because compiled Slicer extensions cannot cross the
    Slicer/VTK/ITK ABI boundary.
+   Parameterize the hardcoded Slicer-5.10 paths in
+   `Workspace/scripts/update-lab-release.bash` and
+   `Workspace/scripts/launch-dentoworkflow.bash` for the candidate, while
+   retaining the existing 5.10 launch path.
 4. Do not copy selected Slicer 5.12 libraries into the 5.10 image. Slicer is a
    source-built superbuild with coupled C++ dependencies, so such a hybrid is
    neither supported nor reproducible.
@@ -161,6 +191,15 @@ surface update under transforms, 2D/3D interaction, guide regeneration, memory,
 and GPU usage. External TotalSegmentator inference is a separate process, so a
 Slicer upgrade should not be credited for backend inference changes.
 
+Use the existing UI/resource watchdog and phase timers for Step 2 pulp-mask
+preparation, Step 3A/3B open-mouth and robot placement, Step 4A assisted
+trajectories, Step 4C docks, Step 5B template, and Step 6 Connect, workspace
+generation and simulation-only planning diagnostics. For each, retain elapsed
+time, longest Qt event-loop gap, completed/total progress counts, peak RSS,
+container CPU/memory pressure and failure/exit signature. Compare repeated
+representative runs where the result varies. Attribute any gain to the measured
+phase; do not substitute whole-run time for UI responsiveness.
+
 Correctness parity and no material workflow regression are mandatory. A speed
 claim requires repeatable measured improvement; release-note relevance alone is
 not performance evidence.
@@ -172,6 +211,16 @@ digest, update the SlicerROS2 SHA and Slicer version in the lab manifest, advanc
 the planned `stable/lab` pointer, and cut a new `lab/YYYY-MM-DD` tag. If any
 correctness, lifecycle, rendering, or planning gate fails, retain 5.10 as the
 lab release while fixing the isolated 5.12 branch.
+
+For later upstream updates, keep the derivative Dockerfile small, pin the
+upstream source commit and base-image digest, and build/publish a new immutable
+candidate only when the Slicer, ROS, native module, or system dependency layer
+changes. Lab machines pull the published image and matching source manifest;
+they do not rebuild it. The bind-mounted Python workflow can be iterated without
+rebuilding the base image when its installed package/launcher contract permits.
+Every promoted image records its source SHAs, base digest, dependency pins,
+build commands, and comparison result. A mutable upstream tag alone is never
+the lab release identity.
 
 ## Sources
 
