@@ -17,6 +17,27 @@ collision check now fails closed when the planning scene is unavailable. The
 local upstream `4ef3d5b` is already an ancestor. A fresh GitHub fetch failed
 on DNS, so newer upstream state remains unverified and no merge has occurred.
 
+Continuation: an approved network fetch resolved upstream `origin/main` to
+`4f52f10`; its three intervening commits touched CI/Docker/docs, and the fork
+upgrade branch merged them as `6454b1b` without changing DentoBot native APIs.
+The candidate base resolved to digest
+`sha256:5724ea6fdfffb25cb502ecd09cc540ca5eeb4c46196677ec22bef30b99c8aed2`.
+An isolated image build first failed because two June MoveIt apt build versions
+were no longer indexed; a base-image package query found current September
+builds of the same `2.12.4` release. A second build passed with explicit
+`MOVEIT_VERSION=2.12.4-1noble.20260903.075820` and
+`MOVEIT_OMPL_VERSION=2.12.4-1noble.20260903.093406`; the Dockerfile's 5.10
+defaults were retained. The resulting local candidate is
+`dentobot/slicerros2:platu06-slicer512-00bb35055611` at image ID
+`sha256:8a0eb790fb748d8eed3cb8f9e3749995db200026da97ec5f9de796faf1a01dc6`.
+The 5.10 rollback image ID stayed
+`sha256:544c5b759ccef7ce6c41157bbd7bd8b602657de367f1f6b71352de054c81b019`.
+An isolated sequential colcon build, with read-only source mounts and separate
+build/install/log output, passed `dentobot_description`, `slicer_ros2_module`
+and `dentobot_moveit_config` in 6 min 58 s. Native modules installed under
+`Slicer-5.12`; this is build evidence, not runtime compatibility or performance
+acceptance.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
