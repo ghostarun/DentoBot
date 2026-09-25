@@ -45,6 +45,14 @@ ROS2/MRML objects. Treat reload behavior and shutdown hygiene separately;
 `S6-U-01` owns the latter. Saved-case correctness, lifecycle, ROS/MoveIt API,
 and comparative performance gates have not run on the 5.12 candidate.
 
+Source follow-up under `S6-U-01`: fork commit `676a91c` corrects five
+raw-`New()` assignments to `vtkSmartPointer`, including the default ROS node
+reported once in the shutdown leak list. The isolated incremental SlicerROS2
+build passed. The candidate image still carries its original source labels;
+its separately mounted scratch native install now contains the correction.
+Repeat the same headless reload/shutdown check before attributing any lifecycle
+improvement. No post-fix runtime result exists yet.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
