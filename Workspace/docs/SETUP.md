@@ -12,6 +12,13 @@ change the current image, generated ROS products, or lab manifest in place.
 The candidate must use a clean rebuild against the new Slicer superbuild and
 pass the approved compatibility and workflow gates before promotion.
 
+The candidate Dockerfile accepts a pinned 5.12 image digest through the
+`SLICERROS2_BASE_IMAGE` build argument; omitting it retains the accepted 5.10 base. The
+`update-lab-release.bash` and `launch-dentoworkflow.bash` scripts accept
+`DENTOBOT_SLICER_VERSION=5.12` for the matching installed-module cleanup path,
+and default to `5.10`. This is source preparation only: no 5.12 image has been
+built, installed, selected by `LAB_RELEASE`, or launched.
+
 ## 2026-09-08 provisional simulation verification restart
 
 The existing `dentobot-slicerros2` container was restarted for operator-approved

@@ -10,6 +10,13 @@ SlicerROS2 fork needs its own isolated branch/worktree. The preceding workflow,
 test, and controlled-document work was committed on the prior DentoBot branch
 before upgrade implementation began.
 
+2026-09-25 source checkpoint: the fork's five dirty files were audited and
+committed on `dentobot/slicer-ros2-step6-20260903` as `abb39e5`; its
+`upgrade/slicer-5.12` branch begins at that same commit. A requested
+collision check now fails closed when the planning scene is unavailable. The
+local upstream `4ef3d5b` is already an ancestor. A fresh GitHub fetch failed
+on DNS, so newer upstream state remains unverified and no merge has occurred.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
@@ -165,6 +172,13 @@ gate. Do not execute planner motion or hardware actions as part of this upgrade.
 4. Do not copy selected Slicer 5.12 libraries into the 5.10 image. Slicer is a
    source-built superbuild with coupled C++ dependencies, so such a hybrid is
    neither supported nor reproducible.
+
+The DentoBot derivative Dockerfile now accepts `SLICERROS2_BASE_IMAGE`, with
+the existing 5.10 image as its default. An isolated build must pass a freshly
+resolved 5.12 image **digest** through that argument. The two launcher scripts
+accept `DENTOBOT_SLICER_VERSION=5.12` for versioned install cleanup paths;
+their default remains `5.10`. These source changes have passed shell syntax
+and whitespace checks only. No candidate image has been built or launched.
 
 ### Phase 3 — approved compatibility gates
 
