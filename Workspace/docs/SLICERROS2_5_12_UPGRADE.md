@@ -86,6 +86,14 @@ source candidate. The next bounded diagnostic is a GDB breakpoint on the
 cleanup method and module/logic destructors, plus the crash stack, under new
 runtime approval; do not repeat an uninstrumented reload.
 
+The approved breakpoint gate confirmed `DisconnectSubscriptions` executes in
+the ROS logic destructor. The remaining SIGSEGV is a different owner: late
+MRML scene cleanup destroys a `vtkMRMLROS2NodeNode` whose `rclcpp::Node`
+still owns an internal `NodeTimeSource` subscription. Fork commit `0fc13ec`
+destroys tracked ROS nodes before `ROSShutdown` and makes repeated `Destroy()`
+a quiet no-op; the isolated native build passed. One newly approved case-free
+five-reload/zero-exit check is needed before accepting shutdown.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
