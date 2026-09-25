@@ -12,6 +12,13 @@ change the current image, generated ROS products, or lab manifest in place.
 The candidate must use a clean rebuild against the new Slicer superbuild and
 pass the approved compatibility and workflow gates before promotion.
 
+The fork's isolated 5.12 source-image build now patches Slicer's pinned
+`SuperBuild/External_curl.cmake` to enable curl `file://` support, with an
+exact-match guard. `SLICER_BUILD_JOBS` defaults to 3 for the full SuperBuild.
+A distinct corrected image tag is building; the 5.10 release remains selected.
+Robot mesh loading and collision geometry require the focused runtime gate
+before this candidate can be used for representative planning.
+
 The candidate Dockerfile accepts a pinned 5.12 image digest through the
 `SLICERROS2_BASE_IMAGE` build argument; omitting it retains the accepted 5.10 base. The
 `update-lab-release.bash` and `launch-dentoworkflow.bash` scripts accept

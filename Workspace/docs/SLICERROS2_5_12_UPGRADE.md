@@ -139,6 +139,17 @@ that before any representative collision/planning acceptance. Fork APIs,
 saved-case compatibility, normal-window behavior and same-case performance
 remain open.
 
+The next mesh gate traced the seven `file://` robot-resource errors to
+Slicer's pinned SuperBuild curl setting `CURL_DISABLE_FILE=ON`. The fork's
+Dockerfile now guards and switches this setting to OFF and caps full compilation
+at three jobs. A first fresh build was interrupted at VTK object 236/11013;
+a detached replacement build is in progress under the distinct
+`dentobot/slicerros2:platu06-file-curl-base` tag. The focused static
+robot-geometry smoke requires seven nonempty visual meshes and positive
+MoveIt contact with a temporary static obstacle. Source/syntax checks have
+passed; the image, native rebuild, runtime collision check, representative
+case and performance comparison remain pending.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
