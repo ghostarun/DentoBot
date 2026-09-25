@@ -102,8 +102,16 @@ their nested VTK fields. Source inspection found their generator assigned raw
 uses smart-pointer `New()` and regenerates wrappers when the generator changes.
 An isolated native rebuild passed; inspection of 134 generated `.cxx` files
 found 53 smart-pointer nested initializations and zero raw nested assignments.
-The generated ownership fix still needs one approved case-free five-reload
-zero-exit gate. Saved-case and performance acceptance remain open.
+At that source/build checkpoint, the generated ownership fix still needed an
+approved case-free five-reload zero-exit gate.
+
+Tarun authorized that gate. The isolated 5.12 run against the rebuilt
+`856e927` install emitted `DENTOBOT_FIVE_RELOAD_CYCLES_PASS`, preserved the
+scene through all five reloads, and exited 0 with no VTK leak, traceback or
+abnormal-exit line. This accepts the synthetic module reload/shutdown gate.
+Broader scene lifecycle, ROS/MoveIt APIs, a representative saved case, normal
+window behavior and same-case performance comparison remain open; the 5.10
+rollback and `LAB_RELEASE` are unchanged.
 
 ## Decision
 
@@ -261,12 +269,12 @@ gate. Do not execute planner motion or hardware actions as part of this upgrade.
    source-built superbuild with coupled C++ dependencies, so such a hybrid is
    neither supported nor reproducible.
 
-The DentoBot derivative Dockerfile now accepts `SLICERROS2_BASE_IMAGE`, with
-the existing 5.10 image as its default. An isolated build must pass a freshly
-resolved 5.12 image **digest** through that argument. The two launcher scripts
-accept `DENTOBOT_SLICER_VERSION=5.12` for versioned install cleanup paths;
-their default remains `5.10`. These source changes have passed shell syntax
-and whitespace checks only. No candidate image has been built or launched.
+The DentoBot derivative Dockerfile accepts `SLICERROS2_BASE_IMAGE`, with the
+existing 5.10 image as its default. The isolated 5.12 candidate was built from
+the pinned digest above. The two launcher scripts accept
+`DENTOBOT_SLICER_VERSION=5.12` for versioned install cleanup paths; their
+default remains `5.10`. The accepted 5.10 image and release manifest have not
+been replaced.
 
 ### Phase 3 — approved compatibility gates
 
