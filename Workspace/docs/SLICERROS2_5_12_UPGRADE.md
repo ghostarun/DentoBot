@@ -160,6 +160,19 @@ options and smaller integration-layer fixes read-only. A `package://` rewrite
 is not accepted without tracing retrieval. On unrelated SuperBuild or
 dependency failure, stop this platform rebuild path and report the blocker.
 
+The final host-network full-build attempt passed the curl dependency fetch/build,
+then stopped in VTK compilation around object 236/11013. The detached shell
+wrote no exit status; Docker reported a fatal BuildKit session healthcheck and
+cancelled solve at 17:03 IST. The host journal recorded memory pressure, but
+no OOM-kill record was found. No corrected image or geometry smoke result
+exists. Under Tarun's limit, stop full Slicer rebuilding. The read-only path
+review confirms the URDF already uses `package://`; SlicerROS2 resolves
+visual mesh paths itself, while its in-process MoveIt RobotModelLoader and
+PlanningSceneMonitor use the ROS description, and the prior MoveIt error
+contained `file://` URLs. A URI spelling change alone is not proven to fix
+the retrieval path. A smaller integration correction needs a separately
+bounded proposal and positive collision check before representative cases.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
