@@ -38,6 +38,13 @@ and `dentobot_moveit_config` in 6 min 58 s. Native modules installed under
 `Slicer-5.12`; this is build evidence, not runtime compatibility or performance
 acceptance.
 
+The first approved, network-isolated headless module-reload gate emitted
+`DENTOBOT_FIVE_RELOAD_CYCLES_PASS` with all five widget/helper reloads and scene
+preservation valid. Slicer exited 1 on shutdown and logged retained native
+ROS2/MRML objects. Treat reload behavior and shutdown hygiene separately;
+`S6-U-01` owns the latter. Saved-case correctness, lifecycle, ROS/MoveIt API,
+and comparative performance gates have not run on the 5.12 candidate.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
