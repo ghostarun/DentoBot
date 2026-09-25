@@ -53,8 +53,11 @@ Fork commit `a922233` then adopted the raw `CreateNodeByClass` references in
 three factories and corrected a matrix construction; its isolated incremental
 SlicerROS2 build passed. The candidate image retains its original source
 labels; its separately mounted scratch native install contains both fixes.
-Shutdown after `a922233` has not been runtime checked. Saved-case correctness,
-lifecycle, ROS/MoveIt API and comparative performance remain open.
+The approved post-`a922233` repeat passed all five reload cycles and printed
+no `vtkDebugLeaks` objects, but Slicer's launcher still reported an abnormal
+exit (code 1) without a diagnostic in the captured output. Native shutdown
+remains open; saved-case correctness, lifecycle, ROS/MoveIt API and comparative
+performance remain open.
 
 ## Decision
 
