@@ -5466,29 +5466,39 @@ def disconnect_dentobot_motion_control(
         ]
         if progress:
             progress("Removing collision objects", 0, len(proxies))
-        for index, node in enumerate(proxies, 1):
-            # Publish the removal synchronously.  RemoveMoveItObstacle queues a
-            # second callback holding native wrappers, which is unsafe across
-            # scene clear or scripted-module replacement.
-            try:
-                publisher = motion_logic._getCollisionObjectPublisher(
-                    robot_node, create=False
-                )
-                if publisher is not None:
-                    publisher.SetFrameId(
-                        node.GetAttribute(
-                            ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE
-                        )
-                        or ROS2_FIXED_FRAME
+        pause_render = getattr(slicer.app, "pauseRender", None)
+        resume_render = getattr(slicer.app, "resumeRender", None)
+        rendering_paused = False
+        try:
+            if callable(pause_render) and callable(resume_render):
+                pause_render()
+                rendering_paused = True
+            for index, node in enumerate(proxies, 1):
+                # Publish the removal synchronously.  RemoveMoveItObstacle queues a
+                # second callback holding native wrappers, which is unsafe across
+                # scene clear or scripted-module replacement.
+                try:
+                    publisher = motion_logic._getCollisionObjectPublisher(
+                        robot_node, create=False
                     )
-                    publisher.PublishRemove(node)
-            except Exception:
-                pass
-            node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE)
-            node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE)
-            slicer.mrmlScene.RemoveNode(node)
-            if progress:
-                progress("Removing collision objects", index, len(proxies))
+                    if publisher is not None:
+                        publisher.SetFrameId(
+                            node.GetAttribute(
+                                ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE
+                            )
+                            or ROS2_FIXED_FRAME
+                        )
+                        publisher.PublishRemove(node)
+                except Exception:
+                    pass
+                node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE)
+                node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE)
+                slicer.mrmlScene.RemoveNode(node)
+                if progress:
+                    progress("Removing collision objects", index, len(proxies))
+        finally:
+            if rendering_paused:
+                resume_render()
     if motion_logic is not None:
         if progress:
             progress("Releasing ROS 2 subscriptions")

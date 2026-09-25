@@ -6624,3 +6624,15 @@ maximum Qt gap stayed about 1.6 seconds. Progress-update aggregate fell from
 9.029 to 3.002 seconds without changing its callbacks, so its residual cost
 needs separate measurement before modifying the shared updater. This remains
 headless diagnostic evidence, not normal-window or GPU 60 FPS acceptance.
+
+The subsequent `S6-P2-03` attribution gate measured `WorkflowProgress.update`
+without changing callback cadence. In Connect/Disconnect respectively,
+`processEvents()` accounted for 3.023/6.163 seconds; label/watchdog, logging
+and stdout together were below 0.03 seconds in each action. Keep the shared
+truthful progress and cancellation checkpoints. Instead pause Slicer rendering
+only across the 31 outgoing-proxy removals in the bridge, with each completed
+removal callback still inside the loop and `resumeRender()` in `finally`.
+One same-case headless check left no proxy nodes and reduced Disconnect from
+8.421 to 2.757 seconds and its event-processing aggregate from 6.163 to
+0.333 seconds. The temporary timing hooks were removed. Native shutdown,
+normal-window responsiveness and hardware 60 FPS remain open separately.

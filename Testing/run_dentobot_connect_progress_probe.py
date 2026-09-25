@@ -137,6 +137,10 @@ def run():
     disconnect_elapsed = time.monotonic() - disconnect_started
     timer.stop()
     assert not widget._robotWorkflowFacade.capabilities().connected
+    assert not [
+        model for model in slicer.util.getNodesByClass("vtkMRMLModelNode")
+        if model.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) == "true"
+    ], "ROS obstacle proxy models remain after disconnect"
     disconnect_gap = max((b - a for a, b in zip([disconnect_started, *ticks], [*ticks, disconnect_started + disconnect_elapsed])), default=0.0)
     print("CONNECT_DISCONNECT_PASS", {"seconds": round(disconnect_elapsed, 3), "max_qt_gap": round(disconnect_gap, 3)}, flush=True)
 
