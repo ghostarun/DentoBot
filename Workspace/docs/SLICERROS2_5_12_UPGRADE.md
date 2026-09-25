@@ -173,6 +173,21 @@ contained `file://` URLs. A URI spelling change alone is not proven to fix
 the retrieval path. A smaller integration correction needs a separately
 bounded proposal and positive collision check before representative cases.
 
+The subsequent read-only binding trace found that `libresource_retriever.so`
+curl relocations bind Slicer's `libRemoteIO.so` in the failing process; a
+separate diagnostic binding used system `libcurl.so.4`. Historical system-curl
+preload trials no longer logged the `file://` protocol error, but two saved
+focused geometry runs failed the positive MoveIt probe contact (`pairs=[]`),
+and teardown was not clean. A preload is therefore not an accepted fix.
+The smallest next candidate is a narrowly rebuilt ROS `resource_retriever`
+that reads resolved local `file://` resources without curl (or an equivalently
+isolated retrieval path), leaving the seven URDF mesh references and bytes
+unchanged. This is a proposal, not a geometry verdict or build approval.
+Before another runtime, separate actual retrieved mesh content from the
+probe/scene contact fixture; then apply the existing seven-nonempty-visual,
+positive static MoveIt contact and clean-teardown gate. Do not resume full
+Slicer rebuilding or advance to a representative case on URI spelling alone.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
