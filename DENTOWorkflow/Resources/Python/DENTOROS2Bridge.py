@@ -8,6 +8,7 @@ joint positions, and requests plans. It never starts, kills, or shells into ROS.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -5522,7 +5523,25 @@ def disconnect_dentobot_motion_control(
     if robot_node is not None:
         if progress:
             progress("Removing ROS 2 robot")
-        ros_logic.RemoveRobot(ROS2_ROBOT_NAME)
+        pause_render = getattr(slicer.app, "pauseRender", None)
+        resume_render = getattr(slicer.app, "resumeRender", None)
+        render_pause_available = callable(pause_render) and callable(resume_render)
+        rendering_paused = False
+        remove_started = None
+        try:
+            if render_pause_available:
+                pause_render()
+                rendering_paused = True
+            remove_started = time.perf_counter()
+            ros_logic.RemoveRobot(ROS2_ROBOT_NAME)
+        finally:
+            if remove_started is not None:
+                logging.info(
+                    "DENTOBOT RemoveRobot took %.3f wall seconds",
+                    time.perf_counter() - remove_started,
+                )
+            if rendering_paused:
+                resume_render()
     for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
         if node.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) == "true":
             node.RemoveAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE)

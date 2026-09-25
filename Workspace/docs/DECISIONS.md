@@ -6515,6 +6515,8 @@ Tarun later stated he cannot launch Slicer manually and approved a revised headl
 
 On Tarun's immediate `S6-P2-03` continuation, keep disconnect object removal synchronous but report each completed removal through the shared progress callback and both UI routes. A headless run showed 31/31 removals and a successful disconnect. The remaining 8.293-second UI gap is in pinned SlicerROS2 native `RemoveRobot`; splitting that MRML/ROS call onto a Python thread is not authorized or safe. Leave native teardown, intermittent load crash and shutdown exit as measured open work; progress does not constitute full responsiveness acceptance.
 
+The 2026-09-25 performance continuation pauses Slicer rendering only while the native `RemoveRobot` call removes its MRML visualization, then resumes it in `finally`. One serialized headless same-case Connect/Disconnect run passed 31-object acknowledgement and disconnect, with disconnect 9.530 s and maximum Qt gap 1.475 s versus the prior 15.488 s/7.828 s. This supports avoiding intermediate redraws during native teardown but does not prove repeatability or ordinary-window behavior. The Slicer process still exited 1 with native leak warnings; keep that lifecycle issue open. A bounded frame probe measures forced VTK render completion and Qt heartbeats, not monitor-presented FPS. Its Xvfb/llvmpipe result is diagnostic only; hardware 60 FPS remains unverified.
+
 ### 2026-09-25 — PLAT-U-06 source checkpoint and candidate isolation
 
 The later approved simulation lifecycle reached its functional PASS marker but

@@ -3,11 +3,12 @@
 import sys
 import time
 import traceback
+from pathlib import Path
 
 import qt
 import slicer
 
-sys.path.insert(0, "/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/Resources/Python")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"))
 from DENTOROS2Bridge import shutdown_slicer_adapter
 
 CASE = "/workspace/data/Slicer_Saved/SampleStudy1/FDI21-31-headless-verified-sep22-step6a.dentocase"
