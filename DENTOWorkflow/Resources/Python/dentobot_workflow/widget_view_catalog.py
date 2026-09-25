@@ -82,7 +82,7 @@ class ViewCatalogWidgetMixin:
             hideFromEditors = getattr(node, "GetHideFromEditors", None)
             if hideFromEditors and hideFromEditors() and not dentobotOwned:
                 continue
-            if not node.GetDisplayNode():
+            if not node.GetDisplayNode() and dentobotOwned:
                 try:
                     node.CreateDefaultDisplayNodes()
                 except Exception:

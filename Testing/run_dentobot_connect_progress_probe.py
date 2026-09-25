@@ -4,6 +4,10 @@ import sys
 import time
 import traceback
 from pathlib import Path
+import os
+import cProfile
+import io
+import pstats
 
 import qt
 import slicer
@@ -21,6 +25,25 @@ def run():
     timer.connect("timeout()", lambda: ticks.append(time.monotonic()))
     slicer.util.selectModule("DENTOWorkflow")
     widget = slicer.util.getModuleWidget("DENTOWorkflow")
+    refresh_times = []
+    profile_refresh = [False]
+    if os.environ.get("DENTOBOT_PERF_PROFILE_CONNECT_REFRESH") == "1":
+        original_refresh = widget._updateFromParameterNodeOnce
+        def timed_refresh():
+            begun = time.perf_counter()
+            try:
+                if profile_refresh[0] and os.environ.get("DENTOBOT_PERF_CPROFILE_CONNECT_REFRESH") == "1":
+                    profiler = cProfile.Profile()
+                    try:
+                        return profiler.runcall(original_refresh)
+                    finally:
+                        report = io.StringIO()
+                        pstats.Stats(profiler, stream=report).sort_stats("cumulative").print_stats(25)
+                        print("CONNECT_REFRESH_PROFILE", report.getvalue(), flush=True)
+                return original_refresh()
+            finally:
+                refresh_times.append(round(time.perf_counter() - begun, 3))
+        widget._updateFromParameterNodeOnce = timed_refresh
     widget._openCaseBundle(CASE)
     widget._setWorkflowStage(10, ensureVisible=False)
     node = widget._parameterNode
@@ -48,23 +71,30 @@ def run():
     slicer.util.warningDisplay = lambda message, *args, **kwargs: print(
         "CONNECT_WARNING", message, flush=True
     )
+    refresh_times.clear()
+    profile_refresh[0] = True
     ticks.clear()
     timer.start()
     started = time.monotonic()
     widget._onShellConnectRobot()
     elapsed = time.monotonic() - started
+    profile_refresh[0] = False
     timer.stop()
     audit = logic.collisionSceneAuditRecord(node)
     assert audit and audit.status == "Acknowledged", audit
+    assert len(audit.object_records) == 31, len(audit.object_records)
     assert widget._robotWorkflowFacade.capabilities().planning_scene_synchronized
     copies = [
         model for model in slicer.util.getNodesByClass("vtkMRMLModelNode")
         if model.GetAttribute("DENTOBOT.CollisionAuditCopy") == "true"
     ]
+    assert len(copies) == 31, len(copies)
     assert len(copies) == len(audit.object_records), (len(copies), len(audit.object_records))
     assert all(model.GetParentTransformNode() == node.robotBaseTransform for model in copies)
     max_gap = max((b - a for a, b in zip([started, *ticks], [*ticks, started + elapsed])), default=0.0)
     print("CONNECT_PROGRESS_PASS", {"seconds": round(elapsed, 3), "max_qt_gap": round(max_gap, 3), "objects": len(copies)}, flush=True)
+    if refresh_times:
+        print("CONNECT_REFRESH_TIMES", refresh_times, flush=True)
     print("CONNECT_DISCONNECT_START", flush=True)
     ticks.clear()
     timer.start()
