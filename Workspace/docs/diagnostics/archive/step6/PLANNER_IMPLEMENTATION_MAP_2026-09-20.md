@@ -182,6 +182,6 @@ Source: `Workspace/docs/diagnostics/S6-FINAL-VALIDATION-2026-09-13.md`
 ## Source records
 
 - [FDI31 Planner Recovery Report](FDI31_PLANNER_RECOVERY_REPORT.md)
-- [S6 Final Validation 2026-09-13](S6-FINAL-VALIDATION-2026-09-13.md)
-- [2026-09-19 logbook](../logbook/2026-09-19.md)
-- [backlog](../backlog.md)
+- [S6 Final Validation 2026-09-13](../../S6-FINAL-VALIDATION-2026-09-13.md)
+- [2026-09-19 logbook](../../../logbook/2026-09-19.md)
+- [backlog](../../../backlog.md)

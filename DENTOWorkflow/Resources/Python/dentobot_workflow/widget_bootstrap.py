@@ -197,6 +197,9 @@ class BootstrapWidgetMixin:
 
     def setup(self) -> None:
         super().setup()
+        from .ui_stall_watchdog import install_ui_stall_watchdog
+
+        install_ui_stall_watchdog()
 
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/DENTOWorkflow.ui"))
         self.layout.addWidget(uiWidget)

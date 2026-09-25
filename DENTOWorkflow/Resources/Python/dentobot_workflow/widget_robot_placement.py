@@ -430,11 +430,25 @@ class RobotPlacementWidgetMixin:
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.connect(open_motion_module=False)
-        if not result.success:
-            if result.details.get("runtimeConnected", False):
+        from .workflow_progress import WorkflowProgress
+
+        progress = WorkflowProgress("Step 6.1 connect ROS 2")
+        try:
+            progress.update("Connecting ROS 2 motion control", can_cancel=False)
+            result = self._robotWorkflowFacade.connect(
+                open_motion_module=False,
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+            if result.success or result.details.get("runtimeConnected", False):
+                progress.update("Refreshing connected workflow", can_cancel=False)
                 self._updateRobotPlacement()
                 self._applyStep6RecommendedView()
+        finally:
+            progress.close()
+        if not result.success:
+            if result.details.get("runtimeConnected", False):
                 self._updateRos2MotionControlStatus(
                     _("ROS 2 connected for Task Home remediation: %1").replace(
                         "%1", result.message
@@ -447,20 +461,30 @@ class RobotPlacementWidgetMixin:
             )
             slicer.util.errorDisplay(result.message)
             return
-        self._updateRobotPlacement()
-        self._applyStep6RecommendedView()
         self._updateRos2MotionControlStatus(result.message)
 
     def onDisconnectRos2MotionControl(self, checked: bool = False) -> None:
         del checked
         if not self.logic or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.disconnect()
+        from .workflow_progress import WorkflowProgress
+
+        progress = WorkflowProgress("Step 6.1 disconnect ROS 2")
+        try:
+            result = self._robotWorkflowFacade.disconnect(
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                )
+            )
+            if result.success:
+                progress.update("Refreshing disconnected workflow", can_cancel=False)
+                self._updateRobotPlacement()
+        finally:
+            progress.close()
         if not result.success:
             self._updateRos2MotionControlStatus(
                 _("ROS 2 disconnect failed: %1").replace("%1", result.message)
             )
             slicer.util.errorDisplay(result.message)
             return
-        self._updateRobotPlacement()
         self._updateRos2MotionControlStatus(result.message)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowProgress
 
 
 from dentobot_workflow.widget_robot_shell import RobotShellWidgetMixin
@@ -141,8 +142,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         if not last_stage:
             return
-        if self._step6SceneKind() == "case":
-            self._showStep6CaseVolumeInSliceViewers()
         self._applyWorkflowViewPreset("recommended", updateStatus=False)
         self._updateWorkflowViewControls()
 
@@ -537,6 +536,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
+            panel.checkPreEntryIKButton.enabled = bool(
+                planning_anatomy_ready
+                and task_ready
+                and ros2_active
+                and home_runtime_validated
+                and facade_capabilities
+                and facade_capabilities.planning_scene_synchronized
+                and not preview_active
+                and not away_from_home
+                and not getattr(self, "_plannerComparisonState", None)
+            )
             panel.comparePlannersButton.enabled = panel.planApproachButton.enabled
             override_active = bool(
                 self._robotWorkflowFacade
@@ -821,9 +831,18 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
         try:
-            qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
-            result = self._robotWorkflowFacade.generateWorkspaceCloud()
+            progress = WorkflowProgress("Step 6.3 TCP workspace")
+            progress.update("Checking prerequisites", can_cancel=False)
+            result = self._robotWorkflowFacade.generateWorkspaceCloud(
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                )
+            )
             if not result.success:
                 raise RuntimeError(result.message)
             self.ui.robotWorkspaceStatusLabel.text = result.message + " " + _(
@@ -840,7 +859,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             self._updateStep6PlanningUi(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
         finally:
-            qt.QApplication.restoreOverrideCursor()
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
 
     def onClearRobotWorkspace(self, checked: bool = False) -> None:
         del checked

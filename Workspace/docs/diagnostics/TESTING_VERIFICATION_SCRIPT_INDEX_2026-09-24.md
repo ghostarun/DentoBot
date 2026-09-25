@@ -3,7 +3,7 @@
 **Owner:** `DCP-00` foundations review. **Scope:** current development checkout
 at `/home/light-tarun/dentobot/ros2_ws/src/DentoBot`. This is a reuse index,
 not a test execution or acceptance record. Read the canonical
-[`verification_matrix.json`](../../Testing/verification_matrix.json) and
+[`verification_matrix.json`](../../../Testing/verification_matrix.json) and
 [`AGENTIC_VERIFICATION_PROTOCOL.md`](../AGENTIC_VERIFICATION_PROTOCOL.md)
 before invoking a check. The matrix owns commands, resources, approval,
 dependencies and pass conditions. Its entries do not record latest results.

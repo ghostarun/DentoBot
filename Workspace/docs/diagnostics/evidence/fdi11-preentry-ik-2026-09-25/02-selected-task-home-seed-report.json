@@ -1,0 +1,310 @@
+{
+  "full_task_outcome": {
+    "base_identity_fingerprint": "afa4cf3bfcec3b44b687dd5a4dd490b767e8e54f1748e97ff18970222569c58a",
+    "branch_id": "guide-bcf408698ea0018191ff",
+    "candidate_count": 13,
+    "collision_audit_fingerprint": "cac00595052d2fc9bb3e784cc6191fa37b2351b49169bf9a7e23fa50e4afefb1",
+    "collision_scene_acknowledged": true,
+    "collision_scene_identity_fingerprint": "ffefac2387ddc349b907e9e52b96f3b68fb434a7123071d3d6c51639eb8bb59c",
+    "diagnostic_kind": "preentry_ik",
+    "diagnostic_status": "EndpointChecksPassed",
+    "executable": false,
+    "failure_stage": "PreEntry IK endpoint diagnostic (before P1)",
+    "guard_status": "NotRun",
+    "historical_workspace_case_identity_evidence": "Associated with the active case parameter node; the saved workspace evidence contains no independent case ID.",
+    "historical_workspace_hint_count": 12,
+    "historical_workspace_hint_identity": {
+      "active_case_parameter_node": true,
+      "base_fingerprint_matches_via_home": true,
+      "collision_audit_fingerprint_matches": true,
+      "evidence_schema_matches": true,
+      "robot_profile_fingerprint_matches_via_home": true,
+      "runtime_validation_status_matches": true,
+      "task_home_fingerprint_matches": true,
+      "workspace_policy_matches": true
+    },
+    "historical_workspace_hints_are_current_home_connected": false,
+    "home_identity_fingerprint": "59c7ee1d81f38ec2de4760d60855279b3d362151b9a40a68843fdee8ef862d5c",
+    "maximum_monitored_home_error": 0.0,
+    "monitored_home_message": "MoveIt monitored /joint_states matches the requested joint state.",
+    "monitored_home_positions_si": {
+      "link-1_Revolute-1": 0.0,
+      "link-2_Slider-2": 0.027440000000000003,
+      "link-3_Revolute-3": 3.141592653589793,
+      "link-4_Slider-4": 0.032,
+      "link-5_Revolute-5": 0.24434609527920614
+    },
+    "motion_application_status": "NotRun",
+    "plan_authority": false,
+    "preentry_ik_diagnostic_schema_version": "1.0",
+    "preview_status": "NotRun",
+    "robot_profile_identity_fingerprint": "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682",
+    "route_selection_allowed": false,
+    "route_status": "NotRun",
+    "solver_failure_messages": [
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 12.0536 mm and 4.62674 deg. (best position=12.053602274837322 mm, axis=4.6267402248165395 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 150.037 mm and 94.0019 deg. (best position=150.03737689825672 mm, axis=94.00186536572478 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 64.0387 mm and 8.64302 deg. (best position=64.03870511041136 mm, axis=8.643021402798746 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 14.1859 mm and 0.00124524 deg. (best position=14.18585720574527 mm, axis=0.0012452399120410306 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 126.491 mm and 20.8851 deg. (best position=126.49054448771096 mm, axis=20.885147694552188 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 61.7985 mm and 2.08327 deg. (best position=61.79847819164507 mm, axis=2.0832740491012385 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 14.1858 mm and 8.87268e-06 deg. (best position=14.18584536776281 mm, axis=8.872676000826597e-06 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 119.434 mm and 117.485 deg. (best position=119.43448001570935 mm, axis=117.48537825331279 deg, collisions=())",
+      "canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 32.8979 mm and 8.70865 deg. (best position=32.89792580730164 mm, axis=8.708649215106592 deg, collisions=())"
+    ],
+    "spindle_locked_value_rad": 0.0,
+    "spindle_planning_policy": "external-pressure-spindle-nonplanning-v2",
+    "stage1_p1_status": "NotRun",
+    "stage2_status": "NotRun",
+    "stage3_status": "NotRun",
+    "status": "NotRun",
+    "target_conditioning": {
+      "approach_axis_world_unit": [
+        -0.031316155530788606,
+        -0.46271988981502,
+        0.8859512413063979
+      ],
+      "approach_length_world_mm": 1.9999999999999991,
+      "base_frame": "robot_base_m",
+      "drilling_axis_base_unit": [
+        -0.33639355940745086,
+        -0.010308780449908964,
+        -0.9416650690318832
+      ],
+      "drilling_axis_world_unit": [
+        -0.03131615553078604,
+        -0.4627198898150194,
+        0.8859512413063982
+      ],
+      "drilling_length_base_mm": 9.74068562400754,
+      "drilling_length_world_mm": 9.740685624007542,
+      "entry_base_m": [
+        -0.0807764006169085,
+        0.0035763296273447053,
+        0.12368608846101865
+      ],
+      "entry_world_ras_mm": [
+        -88.06932067871094,
+        -34.368526458740234,
+        54.6343994140625
+      ],
+      "pre_entry_base_m": [
+        -0.0801036134980936,
+        0.0035969471882445277,
+        0.12556941859908244
+      ],
+      "pre_entry_world_ras_mm": [
+        -88.00668836764936,
+        -33.443086679110195,
+        52.862496931449705
+      ],
+      "target_base_m": [
+        -0.08405310452503738,
+        0.003475915037815227,
+        0.11451362506046972
+      ],
+      "target_world_ras_mm": [
+        -88.37436150468885,
+        -38.87573543740375,
+        63.26417193382737
+      ],
+      "world_frame": "RAS_mm"
+    },
+    "task_home_fingerprint": "59c7ee1d81f38ec2de4760d60855279b3d362151b9a40a68843fdee8ef862d5c",
+    "task_identity_fingerprint": "2fcbe8d71951448b2f5f45777abb307c7bbafd7e88425964d37b6866e8b4b846",
+    "trajectory_identity_fingerprint": "5c6f19e2afac036cb23aad9f2ebe936ec9f4d923648faffbda6a188dac5bfa35",
+    "waypoint_count": 0
+  },
+  "seed": {
+    "authoritative_drilling_axis_residual_deg": null,
+    "authoritative_fk_status": "not_attempted",
+    "authoritative_position_residual_mm": null,
+    "axial_roll_deg": 0.0,
+    "best_joint_positions_display": {
+      "link-1_Revolute-1": {
+        "unit": "deg",
+        "value": 0.0
+      },
+      "link-2_Slider-2": {
+        "unit": "mm",
+        "value": 27.44
+      },
+      "link-3_Revolute-3": {
+        "unit": "deg",
+        "value": 180.0
+      },
+      "link-4_Slider-4": {
+        "unit": "mm",
+        "value": 32.0
+      },
+      "link-5_Revolute-5": {
+        "unit": "deg",
+        "value": 14.0
+      }
+    },
+    "best_joint_positions_si": {
+      "link-1_Revolute-1": 0.0,
+      "link-2_Slider-2": 0.027440000000000003,
+      "link-3_Revolute-3": 3.141592653589793,
+      "link-4_Slider-4": 0.032,
+      "link-5_Revolute-5": 0.24434609527920614
+    },
+    "candidate_index": 0,
+    "collision_check_status": "not_reached",
+    "collision_pairs": [],
+    "completed_distance_mm": 0.0,
+    "completion_fraction": 0.0,
+    "current_home_connectivity_status": "NotRequiredForIKOnlyDiagnostic",
+    "drilling_axis_residual_deg": 4.6267402248165395,
+    "endpoint_check_status": "NotRun",
+    "endpoint_collision_clear": false,
+    "failure_classification": "position_axis_ik_failed",
+    "iteration_count": 1,
+    "mechanical_joint_limit_margins": {
+      "link-1_Revolute-1": {
+        "mechanical_lower_margin": 25.38,
+        "mechanical_minimum_margin": 25.38,
+        "mechanical_upper_margin": 334.6199823999061,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 25.38,
+        "reviewed_task_minimum_margin": 25.38,
+        "reviewed_task_upper_margin": 334.6199823999061,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 0.0
+      },
+      "link-2_Slider-2": {
+        "mechanical_lower_margin": 27.44,
+        "mechanical_minimum_margin": 27.44,
+        "mechanical_upper_margin": 52.56,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 26.07230635546835,
+        "reviewed_task_minimum_margin": 26.07230635546835,
+        "reviewed_task_upper_margin": 52.56,
+        "reviewed_task_within_limits": true,
+        "unit": "mm",
+        "value_display": 27.44
+      },
+      "link-3_Revolute-3": {
+        "mechanical_lower_margin": 242.46,
+        "mechanical_minimum_margin": 117.53998239990614,
+        "mechanical_upper_margin": 117.53998239990614,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 242.46,
+        "reviewed_task_minimum_margin": 117.53998239990614,
+        "reviewed_task_upper_margin": 117.53998239990614,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 180.0
+      },
+      "link-4_Slider-4": {
+        "mechanical_lower_margin": 32.0,
+        "mechanical_minimum_margin": 32.0,
+        "mechanical_upper_margin": 43.0,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 32.0,
+        "reviewed_task_minimum_margin": 32.0,
+        "reviewed_task_upper_margin": 43.0,
+        "reviewed_task_within_limits": true,
+        "unit": "mm",
+        "value_display": 32.0
+      },
+      "link-5_Revolute-5": {
+        "mechanical_lower_margin": 194.0,
+        "mechanical_minimum_margin": 166.0,
+        "mechanical_upper_margin": 166.0,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 162.73932673781476,
+        "reviewed_task_minimum_margin": 159.90357827902048,
+        "reviewed_task_upper_margin": 159.90357827902048,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 14.0
+      }
+    },
+    "plan_authority": false,
+    "position_residual_mm": 12.053602274837322,
+    "requested_distance_mm": 0.0,
+    "reviewed_task_joint_limit_margins": {
+      "link-1_Revolute-1": {
+        "mechanical_lower_margin": 25.38,
+        "mechanical_minimum_margin": 25.38,
+        "mechanical_upper_margin": 334.6199823999061,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 25.38,
+        "reviewed_task_minimum_margin": 25.38,
+        "reviewed_task_upper_margin": 334.6199823999061,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 0.0
+      },
+      "link-2_Slider-2": {
+        "mechanical_lower_margin": 27.44,
+        "mechanical_minimum_margin": 27.44,
+        "mechanical_upper_margin": 52.56,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 26.07230635546835,
+        "reviewed_task_minimum_margin": 26.07230635546835,
+        "reviewed_task_upper_margin": 52.56,
+        "reviewed_task_within_limits": true,
+        "unit": "mm",
+        "value_display": 27.44
+      },
+      "link-3_Revolute-3": {
+        "mechanical_lower_margin": 242.46,
+        "mechanical_minimum_margin": 117.53998239990614,
+        "mechanical_upper_margin": 117.53998239990614,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 242.46,
+        "reviewed_task_minimum_margin": 117.53998239990614,
+        "reviewed_task_upper_margin": 117.53998239990614,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 180.0
+      },
+      "link-4_Slider-4": {
+        "mechanical_lower_margin": 32.0,
+        "mechanical_minimum_margin": 32.0,
+        "mechanical_upper_margin": 43.0,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 32.0,
+        "reviewed_task_minimum_margin": 32.0,
+        "reviewed_task_upper_margin": 43.0,
+        "reviewed_task_within_limits": true,
+        "unit": "mm",
+        "value_display": 32.0
+      },
+      "link-5_Revolute-5": {
+        "mechanical_lower_margin": 194.0,
+        "mechanical_minimum_margin": 166.0,
+        "mechanical_upper_margin": 166.0,
+        "mechanical_within_limits": true,
+        "reviewed_task_lower_margin": 162.73932673781476,
+        "reviewed_task_minimum_margin": 159.90357827902048,
+        "reviewed_task_upper_margin": 159.90357827902048,
+        "reviewed_task_within_limits": true,
+        "unit": "deg",
+        "value_display": 14.0
+      }
+    },
+    "route_authority": "none",
+    "route_type": "direct",
+    "sample_index": null,
+    "seed_joint_positions_si": {
+      "link-1_Revolute-1": 0.0,
+      "link-2_Slider-2": 0.027440000000000003,
+      "link-3_Revolute-3": 3.141592653589793,
+      "link-4_Slider-4": 0.032,
+      "link-5_Revolute-5": 0.24434609527920614
+    },
+    "seed_provenance": "task_home",
+    "solver_message": "Position-axis IK did not reach tolerance; best residuals were 12.0536 mm and 4.62674 deg.",
+    "solver_success": false,
+    "static_state_validity_message": "",
+    "static_state_validity_status": "not_attempted",
+    "success": false,
+    "task_jacobian_condition_ratio": 0.026677555510369873,
+    "termination_reason": "timeout",
+    "waypoint_count": 0
+  }
+}

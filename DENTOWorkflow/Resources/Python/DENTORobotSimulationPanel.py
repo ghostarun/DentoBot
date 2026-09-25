@@ -35,6 +35,7 @@ class DENTORobotSimulationPanel:
         "review_limits": 3,
         "confirm_task": 4,
         "plan_approach": 5,
+        "check_preentry_ik": 5,
         "compare_planners": 5,
         "cancel_planner_comparison": 5,
         "show_planner_comparison": 5,
@@ -499,12 +500,16 @@ class DENTORobotSimulationPanel:
         approach_layout.addWidget(self.anatomyReviewGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
+        self.checkPreEntryIKButton = qt.QPushButton(
+            "Check PreEntry IK", self.approachGroup
+        )
         self.previewApproachButton = qt.QPushButton("Preview Approach", self.approachGroup)
         self.motionDiagnosticsButton = qt.QPushButton(
             "Inspect Motion Diagnostics", self.approachGroup
         )
         self.motionDiagnosticsButton.enabled = False
         approach_buttons.addWidget(self.planApproachButton)
+        approach_buttons.addWidget(self.checkPreEntryIKButton)
         approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
@@ -680,6 +685,9 @@ class DENTORobotSimulationPanel:
         )
         self.planApproachButton.clicked.connect(
             lambda checked=False: self._invoke("plan_approach")
+        )
+        self.checkPreEntryIKButton.clicked.connect(
+            lambda checked=False: self._invoke("check_preentry_ik")
         )
         self.comparePlannersButton.clicked.connect(
             lambda checked=False: self._invoke("compare_planners")
@@ -1200,6 +1208,155 @@ class DENTORobotSimulationPanel:
         )
         identity_label.wordWrap = True
         layout.addWidget(identity_label)
+        if str(session.full_task_outcome.get("diagnostic_kind") or "") == "preentry_ik":
+            outcome = session.full_task_outcome
+            summary.text = (
+                "PreEntry IK endpoint diagnostic only. P1/Stage 1, Stage 2, Stage 3, "
+                "route planning, guard, preview, and motion application were not run. "
+                "It is display-only and can never be route authority; a saved/reopened "
+                "report requires fresh live checks before any later planning. "
+                f"Endpoint status: {outcome.get('diagnostic_status', 'Unknown')}."
+            )
+            summary.setProperty("dentobotRole", "warning")
+            layout.addWidget(qt.QLabel(
+                "Endpoint conditioning: task-Jacobian singular-value ratio is "
+                "tolerance-scaled (0≈singular; 1 better conditioned). Unknown values "
+                "are shown as — and are not a feasibility verdict. For collision "
+                "checks, only status 'clear' means the endpoint scene check ran and "
+                "accepted; every other status is unverified.",
+                dialog,
+            ))
+            identity_notes = qt.QLabel(
+                "Historical workspace seeds are labelled hints only. The record "
+                "shows its Task Home/base/profile/scene/policy match fields below; "
+                "its saved Home connectivity is historical and current connectivity "
+                "was not evaluated. Existing workspace evidence has no independent "
+                "case ID; any case match is based on its association with the active "
+                "case parameter node.",
+                dialog,
+            )
+            identity_notes.wordWrap = True
+            layout.addWidget(identity_notes)
+            records = tuple(session.candidate_records)
+            headers = (
+                "Seed",
+                "Provenance",
+                "Solver",
+                "Termination / iterations / condition",
+                "Position / axis residual",
+                "Collision check",
+                "Static / FK",
+                "Best J1–J5",
+                "Mechanical / task worst margin by unit",
+            )
+            table = qt.QTableWidget(dialog)
+            table.setColumnCount(len(headers))
+            table.setRowCount(len(records))
+            table.setHorizontalHeaderLabels(list(headers))
+
+            def format_margin(record, field):
+                margins = record.get(field)
+                if not isinstance(margins, dict):
+                    return "—"
+                key = (
+                    "mechanical_minimum_margin"
+                    if field == "mechanical_joint_limit_margins"
+                    else "reviewed_task_minimum_margin"
+                )
+                by_unit = {"deg": [], "mm": []}
+                for joint in margins.values():
+                    if isinstance(joint, dict) and joint.get(key) is not None:
+                        unit = str(joint.get("unit") or "")
+                        if unit in by_unit:
+                            by_unit[unit].append(float(joint[key]))
+                return ", ".join(
+                    f"{min(values):.4g} {unit}"
+                    for unit, values in by_unit.items()
+                    if values
+                ) or "—"
+
+            def format_best_joints(record):
+                values = record.get("best_joint_positions_display")
+                if not isinstance(values, dict):
+                    return "—"
+                return ", ".join(
+                    f"{joint}: {float(value['value']):.4g} {value['unit']}"
+                    for joint, value in values.items()
+                    if isinstance(value, dict)
+                    and value.get("value") is not None
+                    and value.get("unit")
+                ) or "—"
+
+            for row, record in enumerate(records):
+                ratio = record.get("task_jacobian_condition_ratio")
+                ratio_text = "—" if ratio is None else f"{float(ratio):.4g}"
+                iterations = record.get("iteration_count")
+                diagnostics = (
+                    f"{record.get('termination_reason') or 'unknown'} / "
+                    f"{iterations if iterations is not None else '—'} / {ratio_text}"
+                )
+                position = record.get("position_residual_mm")
+                axis = record.get("drilling_axis_residual_deg")
+                residuals = (
+                    f"{float(position):.4g} mm / {float(axis):.4g}°"
+                    if position is not None and axis is not None
+                    else f"{position if position is not None else '—'} / "
+                    f"{axis if axis is not None else '—'}"
+                )
+                values = (
+                    str(record.get("candidate_index", row) + 1),
+                    str(record.get("seed_provenance") or "unknown"),
+                    "solver success" if record.get("solver_success") else "failed",
+                    diagnostics,
+                    residuals,
+                    str(record.get("collision_check_status") or "unknown"),
+                    (
+                        f"{record.get('static_state_validity_status', 'unknown')} / "
+                        f"{record.get('authoritative_fk_status', 'unknown')}"
+                    ),
+                    format_best_joints(record),
+                    (
+                        f"{format_margin(record, 'mechanical_joint_limit_margins')} / "
+                        f"{format_margin(record, 'reviewed_task_joint_limit_margins')}"
+                    ),
+                )
+                for column, value in enumerate(values):
+                    table.setItem(row, column, qt.QTableWidgetItem(value))
+            table.resizeColumnsToContents()
+            layout.addWidget(table)
+            details = qt.QPlainTextEdit(dialog)
+            details.readOnly = True
+            details.plainText = json.dumps(
+                {
+                    "full_task_outcome": outcome,
+                    "seed": records[0] if records else {},
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            layout.addWidget(details)
+
+            def show_seed(row: int, *_args) -> None:
+                if 0 <= int(row) < len(records):
+                    details.plainText = json.dumps(
+                        {
+                            "full_task_outcome": outcome,
+                            "seed": records[int(row)],
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+
+            table.currentCellChanged.connect(show_seed)
+            close_button = qt.QPushButton("Close", dialog)
+            close_button.clicked.connect(lambda checked=False: dialog.accept())
+            close_row = qt.QHBoxLayout()
+            close_row.addStretch(1)
+            close_row.addWidget(close_button)
+            layout.addLayout(close_row)
+            self._diagnosticDialog = dialog
+            dialog.show()
+            return
         requested_planner_id = str(
             session.full_task_outcome.get("requested_joint_planner_id") or "unreported"
         )

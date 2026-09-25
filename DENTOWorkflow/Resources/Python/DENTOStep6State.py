@@ -33,8 +33,8 @@ DENTAL_FDI_TOOTH_IDS = tuple(
     for tooth in range(1, 9)
 )
 COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
-MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.1"
-SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1")
+MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.2"
+SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1", "2.2")
 MOTION_DIAGNOSTIC_PLAN_SELECTION_STATES = ("auto", "selected", "locked")
 PLANNER_COMPARISON_IDS = (
     "RRTConnectkConfigDefault",
@@ -1575,7 +1575,7 @@ def build_motion_diagnostic_session(
             "stage1_free_space",
             (
                 "stage2_fixed_axis_terminal"
-                if schema == MOTION_DIAGNOSTIC_SCHEMA_VERSION
+                if schema in ("2.1", "2.2")
                 else "stage2_strict_axis"
             ),
             "stage3_drilling",

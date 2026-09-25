@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import DENTOROS2Bridge as _default_bridge
 from DENTORobotPlacement import joint_positions_si_from_display
+from DENTOStep6Planning import default_task_joint_limits_from_urdf
 from DENTOStep6State import (
     DRILL_TOOL_FRAME_POLICY,
     SIMULATION_TARGET_DEPTH_POLICY,
@@ -1352,8 +1353,12 @@ class DENTORobotWorkflowFacade:
             return_home_required=self._robot_away_from_home,
         )
 
-    def connect(self, *, open_motion_module: bool = False) -> RobotActionResult:
+    def connect(
+        self, *, open_motion_module: bool = False, progress=None
+    ) -> RobotActionResult:
         try:
+            if progress:
+                progress("Checking Case Foundation and prepared branch")
             parameter_node = self._require_context()
             scene_kind = self._scene_kind(parameter_node)
             if scene_kind != "case":
@@ -1441,6 +1446,8 @@ class DENTORobotWorkflowFacade:
                     "Could not seed the local simulation candidate: "
                     + seeded_candidate.message,
                 )
+            if progress:
+                progress("Creating ROS 2 robot and initializing MoveIt")
             robot_node, error = self._bridge.connect_dentobot_motion_control(
                 base,
                 hide_mrml_robot=bool(mrml_models),
@@ -1458,8 +1465,11 @@ class DENTORobotWorkflowFacade:
             obstacle_count = 0
             if scene_kind == "case":
                 try:
+                    if progress:
+                        progress("Preparing collision-scene audit")
                     obstacle_count = self._logic.syncStep6MoveItPlanningScene(
-                        parameter_node
+                        parameter_node,
+                        **({"progress": progress} if progress else {}),
                     )
                 except (RuntimeError, ValueError, TypeError, OSError) as exc:
                     self._bridge.disconnect_dentobot_motion_control(mrml_models)
@@ -1475,6 +1485,8 @@ class DENTORobotWorkflowFacade:
                     )
                 self._planning_scene_object_count = obstacle_count
                 self._planning_scene_synchronized = True
+                if progress:
+                    progress("Waiting for collision guard acknowledgement")
                 scene_ready, scene_message = self._bridge.wait_for_collision_guard_world(
                     obstacle_count
                 )
@@ -1494,6 +1506,8 @@ class DENTORobotWorkflowFacade:
             self._runtime_validated_task_home_key = ""
             self._runtime_task_home_evidence = {}
             self._runtime_validated_workspace_key = ""
+            if progress:
+                progress("Checking connected robot candidate")
             candidate_result = self._apply_positions_si(bootstrap_positions_si)
             candidate_status = self.checkStateValidity()
             bootstrap_message = (
@@ -1532,11 +1546,18 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
             return RobotActionResult(False, "connect_failed", str(exc))
 
-    def disconnect(self) -> RobotActionResult:
+    def disconnect(self, progress=None) -> RobotActionResult:
         try:
+            if progress:
+                progress("Stopping simulation preview")
             self.stopPreview()
             mrml_models = self._logic.robotModelNodes() if self._logic else []
-            ok, message = self._bridge.disconnect_dentobot_motion_control(mrml_models)
+            if progress:
+                ok, message = self._bridge.disconnect_dentobot_motion_control(
+                    mrml_models, progress=progress
+                )
+            else:
+                ok, message = self._bridge.disconnect_dentobot_motion_control(mrml_models)
             if not ok:
                 return RobotActionResult(False, "disconnect_failed", message)
             self._planning_scene_synchronized = False
@@ -2756,6 +2777,8 @@ class DENTORobotWorkflowFacade:
             return None
         try:
             session = parse_motion_diagnostic_session(payload)
+            if session.full_task_outcome.get("diagnostic_kind") == "preentry_ik":
+                return None
             if self._logic.motionDiagnosticFreshnessIssues(parameter_node):
                 return None
         except (RuntimeError, ValueError, OSError, KeyError):
@@ -2783,6 +2806,10 @@ class DENTORobotWorkflowFacade:
             session = self._logic.motionDiagnosticRecord(parameter_node)
             if session is None:
                 raise ValueError("No current Step 6 motion diagnostic is available.")
+            if session.full_task_outcome.get("diagnostic_kind") == "preentry_ik":
+                raise ValueError(
+                    "PreEntry IK endpoint diagnostics cannot be selected as planner routes."
+                )
             index = int(candidate_index)
             if index < 0 or index >= len(session.candidate_records):
                 raise ValueError("Diagnostic candidate index is out of range.")
@@ -2961,6 +2988,10 @@ class DENTORobotWorkflowFacade:
             session = self._logic.motionDiagnosticRecord(parameter_node)
             if session is None:
                 raise ValueError("No current Step 6 motion diagnostic is available.")
+            if session.full_task_outcome.get("diagnostic_kind") == "preentry_ik":
+                raise ValueError(
+                    "PreEntry IK endpoint diagnostics contain no saved route lock."
+                )
             selection = motion_diagnostic_plan_selection(session)
             if selection["state"] != "locked":
                 return RobotActionResult(
@@ -3073,6 +3104,21 @@ class DENTORobotWorkflowFacade:
                 "guarded_preview_active",
                 "Stop or finish the guarded live preview before starting a diagnostic leg preview.",
             )
+        parameter_node = self._parameter_node()
+        if parameter_node is not None:
+            try:
+                session = self._logic.motionDiagnosticRecord(parameter_node)
+            except (ValueError, json.JSONDecodeError):
+                session = None
+            if (
+                session is not None
+                and session.full_task_outcome.get("diagnostic_kind") == "preentry_ik"
+            ):
+                return RobotActionResult(
+                    False,
+                    "diagnostic_preview_unavailable",
+                    "PreEntry IK endpoint diagnostics contain no previewable route.",
+                )
         paths = self._diagnostic_candidate_paths.get(int(candidate_index), {})
         waypoints = tuple(
             waypoint
@@ -3889,6 +3935,388 @@ class DENTORobotWorkflowFacade:
             ),
         }
 
+    def checkPreEntryIK(self, *, progress=None) -> RobotActionResult:
+        """Persist endpoint-only PreEntry IK evidence; this creates no plan."""
+
+        try:
+            parameter_node = self._require_context()
+            if self._scene_kind(parameter_node) != "case":
+                raise ValueError("Open the current case before checking PreEntry IK.")
+            if self.previewActive or self._robot_away_from_home:
+                raise ValueError(
+                    "Stop preview and return to Task Home before checking PreEntry IK."
+                )
+            if not self._logic.isRos2MotionControlActive(
+                parameter_node.robotBaseTransform
+            ):
+                raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
+            issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
+            if issues:
+                raise ValueError(
+                    "Task confirmation is missing or stale: "
+                    + ", ".join(str(issue) for issue in issues)
+                )
+            snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            home = self._logic.taskHomeRecord(parameter_node)
+            audit = self._logic.collisionSceneAuditRecord(parameter_node)
+            if snapshot is None or home is None or audit is None:
+                raise ValueError(
+                    "A current confirmed task, Task Home, and collision scene are required."
+                )
+            identity = self.plannerComparisonIdentity()
+            scene_fingerprint = planner_comparison_scene_fingerprint(audit)
+            expected = {
+                "task": snapshot.snapshot_fingerprint,
+                "base": snapshot.base_fingerprint,
+                "home": snapshot.home_fingerprint,
+                "trajectory": snapshot.trajectory_revision,
+                "robot_profile": snapshot.robot_profile_fingerprint,
+                "collision_audit": scene_fingerprint,
+            }
+            if any(identity.get(key) != value for key, value in expected.items()):
+                raise ValueError(
+                    "The confirmed task, base, Home, profile, trajectory, or "
+                    "acknowledged collision scene changed. Reconfirm before checking IK."
+                )
+            if (
+                home.base_fingerprint != identity["base"]
+                or home.robot_profile_fingerprint != identity["robot_profile"]
+                or fingerprint(home.to_dict()) != identity["home"]
+            ):
+                raise ValueError(
+                    "Task Home does not match the current base, profile, and task."
+                )
+            if not self._planning_scene_synchronized:
+                raise ValueError(
+                    "The acknowledged collision scene is not synchronized in this runtime."
+                )
+            if not self.taskHomeRuntimeValidated(parameter_node):
+                raise ValueError(
+                    "Task Home is not validated in the current ROS/MoveIt session. "
+                    "Return to 6.2 and apply/validate it before checking IK."
+                )
+            home_positions = dict(zip(home.joint_names, home.joint_positions_si))
+            monitored_ok, monitored_message, monitored_positions, monitored_error = (
+                self._bridge.wait_for_monitored_joint_positions_si(
+                    home_positions, timeout_sec=1.0
+                )
+            )
+            if not monitored_ok:
+                raise ValueError(
+                    "Live monitored joints do not match Task Home. "
+                    + str(monitored_message)
+                )
+            if progress:
+                progress("Checking confirmed task, scene, and live Task Home")
+
+            pre_entry, entry = self._logic.step6ApproachPoints(parameter_node, snapshot)
+            target = snapshot.target_ras_mm
+            approach = tuple(float(entry[i]) - float(pre_entry[i]) for i in range(3))
+            drill = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+            approach_length = sqrt(sum(value * value for value in approach))
+            drill_length = sqrt(sum(value * value for value in drill))
+            if approach_length <= 1.0e-9 or drill_length <= 1.0e-9:
+                raise ValueError("PreEntry, Entry, and Target must define non-zero axes.")
+            world_to_base = getattr(
+                self._bridge,
+                "world_ras_mm_to_base_m",
+                _default_bridge.world_ras_mm_to_base_m,
+            )
+            base_points = {
+                name: tuple(world_to_base(point, parameter_node.robotBaseTransform))
+                for name, point in (
+                    ("pre_entry", pre_entry), ("entry", entry), ("target", target)
+                )
+            }
+            base_drill = tuple(
+                base_points["target"][i] - base_points["entry"][i]
+                for i in range(3)
+            )
+            base_drill_length = sqrt(sum(value * value for value in base_drill))
+            if base_drill_length <= 1.0e-12:
+                raise ValueError("Base-frame Entry-to-Target axis is degenerate.")
+
+            proposal = {}
+            try:
+                proposal = json.loads(
+                    str(parameter_node.step6AssistedLimitProposalJson or "{}")
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+            workspace_identity = {
+                "active_case_parameter_node": self._scene_kind(parameter_node) == "case",
+                "task_home_fingerprint_matches": (
+                    proposal.get("task_home_fingerprint") == fingerprint(home.to_dict())
+                ),
+                "base_fingerprint_matches_via_home": (
+                    home.base_fingerprint == identity["base"]
+                ),
+                "robot_profile_fingerprint_matches_via_home": (
+                    home.robot_profile_fingerprint == identity["robot_profile"]
+                ),
+                "collision_audit_fingerprint_matches": (
+                    proposal.get("collision_audit_fingerprint") == audit.audit_fingerprint
+                ),
+                "workspace_policy_matches": (
+                    proposal.get("workspace_validation_policy_fingerprint")
+                    == self._workspace_validation_policy_fingerprint()
+                ),
+                "evidence_schema_matches": (
+                    proposal.get("runtime_evidence_schema_version")
+                    == WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION
+                ),
+                "runtime_validation_status_matches": (
+                    proposal.get("runtime_validation_status")
+                    == WORKSPACE_RUNTIME_VALIDATION_STATUS
+                ),
+            }
+            historical_hints: list[dict[str, object]] = []
+            if all(workspace_identity.values()):
+                for evidence in proposal.get("accepted_sample_evidence", ()):
+                    if len(historical_hints) >= GOAL1_MAX_IK_SEEDS - 1:
+                        break
+                    if not isinstance(evidence, dict):
+                        continue
+                    names = tuple(evidence.get("joint_names", ()))
+                    values = tuple(evidence.get("joint_positions_si", ()))
+                    static = evidence.get("static_state_validity", {})
+                    historical_home = evidence.get("home_connectivity", {})
+                    if (
+                        names == JOINT_NAMES
+                        and len(values) == len(JOINT_NAMES)
+                        and isinstance(static, dict)
+                        and static.get("status") == "Valid"
+                        and isinstance(historical_home, dict)
+                        and historical_home.get("status") == "HomeConnected"
+                    ):
+                        historical_hints.append(
+                            {
+                                "joint_names": names,
+                                "joint_positions_si": values,
+                                "sample_index": int(
+                                    evidence.get("sample_index", len(historical_hints))
+                                ),
+                                "historical_evidence_identity_match": True,
+                                "historical_home_connectivity_status": "HomeConnected",
+                            }
+                        )
+
+            task_limits = self._logic.getTaskJointLimits(parameter_node)
+            mechanical_limits = default_task_joint_limits_from_urdf(
+                self._logic.robotDescriptionPaths()[0]
+            )
+
+            def limit_margins(positions):
+                if not isinstance(positions, Mapping) or any(
+                    name not in positions for name in JOINT_NAMES
+                ):
+                    return None
+                display = self._display_values_from_si(positions)
+                result = {}
+                for index, name in enumerate(JOINT_NAMES):
+                    mechanical = getattr(mechanical_limits, JOINT_LIMIT_FIELDS[index])
+                    task = getattr(task_limits, JOINT_LIMIT_FIELDS[index])
+                    value = float(display[index])
+                    mech_lo = value - float(mechanical.minimum)
+                    mech_hi = float(mechanical.maximum) - value
+                    task_lo = value - float(task.minimum)
+                    task_hi = float(task.maximum) - value
+                    result[name] = {
+                        "value_display": value,
+                        "unit": JOINT_DISPLAY_UNITS[index],
+                        "mechanical_lower_margin": mech_lo,
+                        "mechanical_upper_margin": mech_hi,
+                        "mechanical_minimum_margin": min(mech_lo, mech_hi),
+                        "mechanical_within_limits": min(mech_lo, mech_hi) >= -1.0e-8,
+                        "reviewed_task_lower_margin": task_lo,
+                        "reviewed_task_upper_margin": task_hi,
+                        "reviewed_task_minimum_margin": min(task_lo, task_hi),
+                        "reviewed_task_within_limits": min(task_lo, task_hi) >= -1.0e-8,
+                    }
+                return result
+
+            seed_records: list[dict[str, object]] = []
+            if progress:
+                progress("Solving position-axis IK and checking endpoints")
+            _ik_candidates, failures = self._goal1_pre_entry_ik_candidates(
+                parameter_node,
+                pre_entry,
+                entry,
+                target,
+                home_positions,
+                include_workspace_seeds=False,
+                avoid_collisions=True,
+                require_generic_static=True,
+                progress=progress,
+                workspace_seed_evidence=historical_hints,
+                seed_collector=seed_records.append,
+            )
+            for record in seed_records:
+                positions = record.get("best_joint_positions_si") or record.get(
+                    "returned_joint_positions_si"
+                )
+                record["mechanical_joint_limit_margins"] = limit_margins(positions)
+                record["reviewed_task_joint_limit_margins"] = limit_margins(positions)
+                if isinstance(positions, Mapping) and all(
+                    name in positions for name in JOINT_NAMES
+                ):
+                    display_values = self._display_values_from_si(positions)
+                    record["best_joint_positions_display"] = {
+                        name: {
+                            "value": float(display_values[index]),
+                            "unit": JOINT_DISPLAY_UNITS[index],
+                        }
+                        for index, name in enumerate(JOINT_NAMES)
+                    }
+                else:
+                    record["best_joint_positions_display"] = None
+                record["route_authority"] = "none"
+                if record.get("seed_provenance") == "historical_workspace_hint":
+                    record["current_home_connectivity_status"] = "NotEvaluated"
+                    record["historical_evidence_identity_match"] = dict(
+                        workspace_identity
+                    )
+                else:
+                    record["current_home_connectivity_status"] = (
+                        "NotRequiredForIKOnlyDiagnostic"
+                    )
+            if not seed_records:
+                raise RuntimeError("No seed result was produced; no report was saved.")
+
+            target_conditioning = {
+                "world_frame": "RAS_mm",
+                "base_frame": "robot_base_m",
+                "pre_entry_world_ras_mm": tuple(float(v) for v in pre_entry),
+                "entry_world_ras_mm": tuple(float(v) for v in entry),
+                "target_world_ras_mm": tuple(float(v) for v in target),
+                "pre_entry_base_m": base_points["pre_entry"],
+                "entry_base_m": base_points["entry"],
+                "target_base_m": base_points["target"],
+                "approach_axis_world_unit": tuple(v / approach_length for v in approach),
+                "drilling_axis_world_unit": tuple(v / drill_length for v in drill),
+                "drilling_axis_base_unit": tuple(v / base_drill_length for v in base_drill),
+                "approach_length_world_mm": approach_length,
+                "drilling_length_world_mm": drill_length,
+                "drilling_length_base_mm": base_drill_length * 1000.0,
+            }
+            session_candidates = [
+                {
+                    "candidate_index": int(record["candidate_index"]),
+                    "axial_roll_deg": float(LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG),
+                    # Keep the shared route-success bit false: no route was planned.
+                    "success": False,
+                    "completion_fraction": 0.0,
+                    "completed_distance_mm": 0.0,
+                    "requested_distance_mm": 0.0,
+                    "waypoint_count": 0,
+                    "failure_classification": str(
+                        record.get("failure_classification") or "unknown"
+                    ),
+                    **record,
+                }
+                for record in seed_records
+            ]
+            report_status = (
+                "EndpointChecksPassed"
+                if any(r.get("endpoint_check_status") == "Passed" for r in seed_records)
+                else "EndpointChecksUnverified"
+                if any(r.get("endpoint_check_status") == "Unverified" for r in seed_records)
+                else "NoEndpointPassed"
+            )
+            planning_fingerprint = fingerprint(
+                {
+                    "diagnostic_kind": "preentry_ik",
+                    "method": "canonical_position_axis_ik_static_fk",
+                    "avoid_collisions": True,
+                    "require_generic_static": True,
+                    "historical_workspace_hint_identity": workspace_identity,
+                }
+            )
+            outcome = {
+                "diagnostic_kind": "preentry_ik",
+                "preentry_ik_diagnostic_schema_version": "1.0",
+                "diagnostic_status": report_status,
+                "status": "NotRun",
+                "failure_stage": "PreEntry IK endpoint diagnostic (before P1)",
+                "spindle_planning_policy": SPINDLE_PLANNING_POLICY,
+                "spindle_locked_value_rad": SPINDLE_LOCKED_VALUE_RAD,
+                "stage1_p1_status": "NotRun",
+                "stage2_status": "NotRun",
+                "stage3_status": "NotRun",
+                "guard_status": "NotRun",
+                "route_status": "NotRun",
+                "preview_status": "NotRun",
+                "motion_application_status": "NotRun",
+                "waypoint_count": 0,
+                "plan_authority": False,
+                "executable": False,
+                "route_selection_allowed": False,
+                "task_identity_fingerprint": identity["task"],
+                "base_identity_fingerprint": identity["base"],
+                "home_identity_fingerprint": identity["home"],
+                "robot_profile_identity_fingerprint": identity["robot_profile"],
+                "trajectory_identity_fingerprint": identity["trajectory"],
+                "collision_scene_identity_fingerprint": scene_fingerprint,
+                "collision_audit_fingerprint": audit.audit_fingerprint,
+                "collision_scene_acknowledged": True,
+                "branch_id": identity["branch_id"],
+                "task_home_fingerprint": fingerprint(home.to_dict()),
+                "monitored_home_positions_si": dict(monitored_positions),
+                "maximum_monitored_home_error": float(monitored_error),
+                "monitored_home_message": str(monitored_message),
+                "target_conditioning": target_conditioning,
+                "historical_workspace_hint_identity": workspace_identity,
+                "historical_workspace_case_identity_evidence": (
+                    "Associated with the active case parameter node; the saved "
+                    "workspace evidence contains no independent case ID."
+                ),
+                "historical_workspace_hint_count": len(historical_hints),
+                "historical_workspace_hints_are_current_home_connected": False,
+                "solver_failure_messages": list(failures),
+                "candidate_count": len(seed_records),
+            }
+            session = build_motion_diagnostic_session(
+                state="Current",
+                stale_reason="",
+                task_fingerprint=snapshot.snapshot_fingerprint,
+                base_fingerprint=identity["base"],
+                trajectory_fingerprint=identity["trajectory"],
+                robot_profile_fingerprint=identity["robot_profile"],
+                collision_audit_fingerprint=audit.audit_fingerprint,
+                planning_parameters_fingerprint=planning_fingerprint,
+                candidate_records=session_candidates,
+                selected_candidate_index=0,
+                failure_classification="preentry_ik_endpoint_diagnostic_only",
+                operator_review_state="Unreviewed",
+                stage_outcomes=(),
+                full_task_outcome=outcome,
+            )
+            parameter_node.step6MotionDiagnosticJson = canonical_json(
+                session.to_dict()
+            )
+            return RobotActionResult(
+                True,
+                "preentry_ik_diagnostic_complete",
+                f"Saved read-only PreEntry IK evidence for {len(seed_records)} seed(s). "
+                f"Outcome: {report_status}; no P1 route or motion authority was created.",
+                details={
+                    "diagnosticStatus": report_status,
+                    "candidateCount": len(seed_records),
+                    "historicalHintCount": len(historical_hints),
+                    "motionDiagnosticSessionFingerprint": session.session_fingerprint,
+                },
+                payload=session,
+            )
+        except (
+            RuntimeError,
+            ValueError,
+            OSError,
+            TypeError,
+            KeyError,
+            AttributeError,
+        ) as exc:
+            return RobotActionResult(False, "preentry_ik_diagnostic_failed", str(exc))
+
     def _goal1_pre_entry_ik_candidates(
         self,
         parameter_node,
@@ -3901,12 +4329,16 @@ class DENTORobotWorkflowFacade:
         avoid_collisions: bool = True,
         require_generic_static: bool = True,
         fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
+        progress=None,
+        workspace_seed_evidence: Optional[Sequence[Mapping[str, object]]] = None,
+        seed_collector: Optional[Callable[[dict[str, object]], None]] = None,
     ) -> tuple[list[dict[str, object]], list[str]]:
         """Return bounded PreEntry endpoints for the five-DOF drill task.
 
         Routine Goal 1 retains its collision-aware direct-plus-workspace search.
-        A read-only diagnostic may instead retain one supplied seed and defer
-        every contact decision to the authoritative phase guard.
+        Optional historical hints and the collector are used only by the
+        standalone endpoint diagnostic; the ordinary planning defaults and
+        seed search are unchanged.
         """
 
         candidates: list[dict[str, object]] = []
@@ -3916,10 +4348,40 @@ class DENTORobotWorkflowFacade:
             "moveit_joint_goal_diagnostics",
             _default_bridge.moveit_joint_goal_diagnostics,
         )
-        seeds: list[tuple[str, Mapping[str, float], Optional[int]]] = [
-            ("direct", home_positions, None)
+        seeds: list[
+            tuple[str, Mapping[str, float], Optional[int], str, Mapping[str, object]]
+        ] = [
+            ("direct", home_positions, None, "task_home", {})
         ]
-        if include_workspace_seeds:
+        if workspace_seed_evidence is not None:
+            for evidence in workspace_seed_evidence:
+                if len(seeds) >= GOAL1_MAX_IK_SEEDS:
+                    break
+                names = tuple(evidence.get("joint_names", ()))
+                values = tuple(evidence.get("joint_positions_si", ()))
+                if names != JOINT_NAMES or len(values) != len(JOINT_NAMES):
+                    continue
+                seeds.append(
+                    (
+                        "historical_workspace_hint",
+                        canonicalize_planning_joint_positions(
+                            dict(zip(names, values))
+                        ),
+                        int(evidence.get("sample_index", len(seeds))),
+                        "historical_workspace_hint",
+                        {
+                            "historical_evidence_identity_match": bool(
+                                evidence.get("historical_evidence_identity_match")
+                            ),
+                            "historical_home_connectivity_status": str(
+                                evidence.get("historical_home_connectivity_status")
+                                or "unknown"
+                            ),
+                            "current_home_connectivity_status": "NotEvaluated",
+                        },
+                    )
+                )
+        elif include_workspace_seeds:
             try:
                 proposal = json.loads(
                     str(parameter_node.step6AssistedLimitProposalJson or "")
@@ -3944,10 +4406,57 @@ class DENTORobotWorkflowFacade:
                         "seeded",
                         canonicalize_planning_joint_positions(dict(zip(names, values))),
                         int(evidence.get("sample_index", len(seeds))),
+                        "workspace_seed",
+                        {},
                     )
                 )
         seen_solutions: set[tuple[float, ...]] = set()
-        for route_type, seed_positions, seed_sample_index in seeds:
+        for seed_index, (
+            route_type,
+            seed_positions,
+            seed_sample_index,
+            seed_provenance,
+            seed_metadata,
+        ) in enumerate(seeds):
+            if progress:
+                progress("Searching collision-aware PreEntry IK", seed_index, len(seeds))
+            seed_record: dict[str, object] = {
+                "candidate_index": int(seed_index),
+                "seed_provenance": str(seed_provenance),
+                "route_type": str(route_type),
+                "sample_index": seed_sample_index,
+                "seed_joint_positions_si": {
+                    name: float(seed_positions[name]) for name in JOINT_NAMES
+                },
+                **dict(seed_metadata),
+                "solver_success": False,
+                "solver_message": "",
+                "termination_reason": "not_attempted",
+                "iteration_count": None,
+                "collision_check_status": "not_attempted",
+                "task_jacobian_condition_ratio": None,
+                "position_residual_mm": None,
+                "drilling_axis_residual_deg": None,
+                "collision_pairs": [],
+                "best_joint_positions_si": None,
+                "static_state_validity_status": "not_attempted",
+                "static_state_validity_message": "",
+                "authoritative_fk_status": "not_attempted",
+                "authoritative_position_residual_mm": None,
+                "authoritative_drilling_axis_residual_deg": None,
+                "mechanical_joint_limit_margins": None,
+                "reviewed_task_joint_limit_margins": None,
+                "endpoint_collision_clear": False,
+                "endpoint_check_status": "NotRun",
+                "plan_authority": False,
+                "waypoint_count": 0,
+            }
+
+            def finish_seed(classification: str) -> None:
+                seed_record["failure_classification"] = str(classification)
+                if seed_collector is not None:
+                    seed_collector(seed_record)
+
             axial_roll_deg = LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG
             pose = self._bridge.tool_pose_matrices_world_mm(
                 entry,
@@ -3962,6 +4471,8 @@ class DENTORobotWorkflowFacade:
             ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(pose)
             if not ok:
                 failures.append(f"canonical TCP goal: {message}")
+                seed_record["solver_message"] = str(message)
+                finish_seed("canonical_tcp_goal_rejected")
                 continue
             solve_position_axis = getattr(
                 self._bridge,
@@ -3972,6 +4483,41 @@ class DENTORobotWorkflowFacade:
                 seed_joint_positions_si=seed_positions,
                 avoid_collisions=bool(avoid_collisions),
             )
+            if not isinstance(ik_diagnostic, Mapping):
+                ik_diagnostic = {}
+            seed_record.update(
+                {
+                    "solver_success": bool(ok),
+                    "solver_message": str(message or ""),
+                    "termination_reason": str(
+                        ik_diagnostic.get("termination_reason") or "unknown"
+                    ),
+                    "iteration_count": ik_diagnostic.get("iteration_count"),
+                    "collision_check_status": str(
+                        ik_diagnostic.get("collision_check_status") or "unknown"
+                    ),
+                    "task_jacobian_condition_ratio": ik_diagnostic.get(
+                        "task_jacobian_condition_ratio"
+                    ),
+                    "position_residual_mm": ik_diagnostic.get(
+                        "position_residual_mm"
+                    ),
+                    "drilling_axis_residual_deg": ik_diagnostic.get(
+                        "drilling_axis_residual_deg"
+                    ),
+                    "collision_pairs": [
+                        list(pair)
+                        for pair in ik_diagnostic.get("collision_pairs", ())
+                    ],
+                    "best_joint_positions_si": (
+                        dict(ik_diagnostic["best_joint_positions_si"])
+                        if isinstance(
+                            ik_diagnostic.get("best_joint_positions_si"), Mapping
+                        )
+                        else None
+                    ),
+                }
+            )
             if not ok:
                 residual = ""
                 if ik_diagnostic:
@@ -3981,6 +4527,7 @@ class DENTORobotWorkflowFacade:
                         f"collisions={ik_diagnostic.get('collision_pairs') or ()})"
                     )
                 failures.append(f"canonical TCP position-axis IK: {message}{residual}")
+                finish_seed("position_axis_ik_failed")
                 continue
             if require_generic_static:
                 valid, validity_message, authoritative = (
@@ -3991,13 +4538,30 @@ class DENTORobotWorkflowFacade:
                         "canonical TCP IK state could not be audited: "
                         + validity_message
                     )
+                    seed_record["static_state_validity_status"] = "Unavailable"
+                    seed_record["static_state_validity_message"] = str(
+                        validity_message
+                    )
+                    finish_seed("static_state_validity_unavailable")
                     continue
                 if not valid:
                     failures.append(
                         "canonical TCP IK state is invalid: "
                         + validity_message
                     )
+                    seed_record["static_state_validity_status"] = "Invalid"
+                    seed_record["static_state_validity_message"] = str(
+                        validity_message
+                    )
+                    finish_seed("static_state_invalid")
                     continue
+                seed_record["static_state_validity_status"] = "Valid"
+                seed_record["static_state_validity_message"] = str(
+                    validity_message
+                )
+            else:
+                seed_record["static_state_validity_status"] = "NotRequested"
+            seed_record["returned_joint_positions_si"] = dict(positions)
             fk_ok, fk_message, authoritative_pose = (
                 self._bridge.compute_tcp_pose_world_ras_mm(
                     positions,
@@ -4008,7 +4572,12 @@ class DENTORobotWorkflowFacade:
                 failures.append(
                     "canonical TCP IK authoritative FK failed: " + fk_message
                 )
+                seed_record["authoritative_fk_status"] = "Failed"
+                seed_record["authoritative_fk_message"] = str(fk_message)
+                finish_seed("authoritative_fk_failed")
                 continue
+            seed_record["authoritative_fk_status"] = "Passed"
+            seed_record["authoritative_fk_message"] = str(fk_message or "")
             direction = tuple(
                 float(target[index]) - float(entry[index])
                 for index in range(3)
@@ -4033,6 +4602,8 @@ class DENTORobotWorkflowFacade:
             actual_axis_length = sqrt(sum(value * value for value in actual_axis))
             if actual_axis_length <= 1.0e-12:
                 failures.append("canonical TCP IK authoritative FK has no tool axis.")
+                seed_record["authoritative_fk_status"] = "InvalidToolAxis"
+                finish_seed("authoritative_fk_invalid_tool_axis")
                 continue
             axis_cosine = max(
                 -1.0,
@@ -4046,6 +4617,12 @@ class DENTORobotWorkflowFacade:
                 ),
             )
             axis_residual_deg = degrees(acos(axis_cosine))
+            seed_record["authoritative_position_residual_mm"] = float(
+                position_residual_mm
+            )
+            seed_record["authoritative_drilling_axis_residual_deg"] = float(
+                axis_residual_deg
+            )
             if (
                 position_residual_mm
                 > _default_bridge.CARTESIAN_START_POSITION_TOLERANCE_MM
@@ -4057,6 +4634,8 @@ class DENTORobotWorkflowFacade:
                     f"position={position_residual_mm:.6g} mm, "
                     f"axis={axis_residual_deg:.6g} deg."
                 )
+                seed_record["authoritative_fk_status"] = "OutsideTolerance"
+                finish_seed("authoritative_fk_outside_tolerance")
                 continue
             ik_diagnostic = {
                 **dict(ik_diagnostic),
@@ -4078,6 +4657,8 @@ class DENTORobotWorkflowFacade:
                 round(canonical_solution[name], 9) for name in JOINT_NAMES
             )
             if solution_identity in seen_solutions:
+                seed_record["endpoint_check_status"] = "DuplicateSolution"
+                finish_seed("duplicate_solution")
                 continue
             seen_solutions.add(solution_identity)
             deltas = dict(joint_diagnostic["effective_deltas"])
@@ -4113,6 +4694,26 @@ class DENTORobotWorkflowFacade:
                     ),
                 }
             )
+            seed_record["endpoint_collision_clear"] = bool(
+                seed_record["collision_check_status"] == "clear"
+            )
+            seed_record["endpoint_check_status"] = (
+                "Passed"
+                if seed_record["static_state_validity_status"] == "Valid"
+                and seed_record["endpoint_collision_clear"]
+                else "Unverified"
+                if seed_record["static_state_validity_status"] == "Valid"
+                else "StaticCheckNotRequested"
+            )
+            seed_record["failure_classification"] = (
+                "preentry_ik_endpoint_checks_pass_route_not_run"
+                if seed_record["endpoint_check_status"] == "Passed"
+                else "preentry_ik_endpoint_collision_check_unverified"
+                if seed_record["endpoint_check_status"] == "Unverified"
+                else "preentry_ik_static_check_not_requested"
+            )
+            if seed_collector is not None:
+                seed_collector(seed_record)
         candidates.sort(key=lambda candidate: candidate["score"])
         return candidates, failures
 
@@ -4704,10 +5305,13 @@ class DENTORobotWorkflowFacade:
         planner_id: str = STEP6_JOINT_PLANNER_ID,
         planning_attempts: int = STEP6_JOINT_PLANNING_ATTEMPTS,
         planning_time_sec: float = GOAL1_DIRECT_PLANNING_TIME_SEC,
+        progress=None,
     ) -> RobotActionResult:
         """Plan strict current→pre-entry plus independently guarded contact."""
 
         try:
+            if progress:
+                progress("Checking confirmed task and runtime")
             if planner_id not in STEP6_JOINT_PLANNER_ALGORITHMS:
                 raise ValueError(f"Planner '{planner_id}' is not configured for DENTOBOT.")
             self._joint_planner_id = planner_id
@@ -4782,6 +5386,8 @@ class DENTORobotWorkflowFacade:
                     )
                     + " Return to 6.2 and apply/validate Task Home."
                 )
+            if progress:
+                progress("Preparing collision and phase guard")
             guard_ok, guard_message = self._prepare_phase_guard(parameter_node, snapshot)
             if not guard_ok:
                 raise RuntimeError(guard_message)
@@ -4798,12 +5404,15 @@ class DENTORobotWorkflowFacade:
             approach_length = sum(value * value for value in approach_vector) ** 0.5
             if approach_length <= 1e-9:
                 raise RuntimeError("Approach PreEntry and Entry points are coincident.")
+            if progress:
+                progress("Searching collision-aware PreEntry IK")
             ik_candidates, ik_failures = self._goal1_pre_entry_ik_candidates(
                 parameter_node,
                 pre_entry,
                 entry,
                 snapshot.target_ras_mm,
                 home_positions,
+                progress=progress,
             )
             if not ik_candidates:
                 failure_message = (
@@ -4848,6 +5457,8 @@ class DENTORobotWorkflowFacade:
             for candidate_index, candidate in enumerate(
                 ik_candidates[:GOAL1_MAX_PLANNED_IK_CANDIDATES]
             ):
+                if progress:
+                    progress("Planning and guarding PreEntry routes", candidate_index, min(len(ik_candidates), GOAL1_MAX_PLANNED_IK_CANDIDATES))
                 ok, message, _goal = self._bridge.set_moveit_tcp_goal_matrix(
                     candidate["pose"]
                 )
@@ -6773,8 +7384,10 @@ class DENTORobotWorkflowFacade:
             payload=result.payload,
         )
 
-    def generateWorkspaceCloud(self) -> RobotActionResult:
+    def generateWorkspaceCloud(self, progress=None) -> RobotActionResult:
         try:
+            if progress:
+                progress("Checking Task Home and MoveIt")
             parameter_node = self._require_context()
             self._runtime_validated_workspace_key = ""
             if not self._logic.isRos2MotionControlActive(
@@ -6811,7 +7424,10 @@ class DENTORobotWorkflowFacade:
                         "maximumJointError": monitored_error,
                     },
                 )
-            model, report = self._logic.createOrUpdateRobotWorkspace(parameter_node)
+            model, report = self._logic.createOrUpdateRobotWorkspace(
+                parameter_node,
+                progress=(lambda done, total: progress("Sampling local TCP workspace", done, total)) if progress else None,
+            )
             local_requested_count = report.requested_count
             locally_accepted_count = report.accepted_count
             local_self_rejections = report.self_collision_rejections
@@ -6830,6 +7446,8 @@ class DENTORobotWorkflowFacade:
             runtime_rejections: list[str] = []
             maximum_local_moveit_fk_difference_mm = 0.0
             for sample_index, (source_index, sample) in enumerate(candidate_samples):
+                if progress:
+                    progress("Checking MoveIt static states", sample_index, len(candidate_samples))
                 sample_positions = canonicalize_planning_joint_positions(
                     sample.joint_positions_si_dict()
                 )
@@ -6945,6 +7563,8 @@ class DENTORobotWorkflowFacade:
             for connectivity_order, accepted_index in enumerate(
                 connectivity_indices
             ):
+                if progress:
+                    progress("Checking Task Home connectivity", connectivity_order, len(connectivity_indices))
                 sample = runtime_accepted[accepted_index]
                 sample_positions = sample.joint_positions_si_dict()
                 matches_home, maximum_delta, mismatched = (

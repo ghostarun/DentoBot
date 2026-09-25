@@ -1,13 +1,22 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-24.
+Last reconciled: 2026-09-25.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
-this file owns milestone and acceptance design. The Priority-0 GUI-first FDI31
-planner recovery under `S6-LIVE-01` is temporarily paused at Tarun's request
-on 2026-09-24. Its 2026-09-21 milestone amendment remains the execution
-contract; the pause closes no planner acceptance gate. Independent backlog
+this file owns milestone and acceptance design. Tarun's 2026-09-25
+[Step 6 renovation direction](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+now puts workflow renovation before case-specific planner solving. Its current
+gates are optional bounded workspace/manual diagnostics, responsiveness,
+separated stages, two-area UI and interrupted-preview evidence; the
+[later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
+links case-specific and adjacent work under the existing backlog owners.
+The FDI11 PreEntry IK source gate is already implemented.
+The first visible IK-only report now shows passed collision-checked endpoints
+for a changed base/Home/scene; the original saved baseline and Tarun's verdict
+remain open. P1/P2/P3 and guard were NotRun in that report.
+The 2026-09-24 blanket source pause is historical; agent-run planner/GUI
+runtime and milestone verdicts remain separately gated. Independent backlog
 items may advance under their existing entry conditions.
 
 The current source exposes RRTConnect, RRT and optional RRT* through one shared
@@ -23,8 +32,10 @@ The main workflow has one target tooth and one trajectory, or an explicitly
 paired two. The optional 32 × 3 testing foundation is an alternative workflow,
 not a replacement for or expansion of routine case preparation.
 
-The earlier proposed four-central-incisor comparison remains downstream. Do not
-start FDI41, FDI11 or FDI21 while the saved FDI31 GUI milestones are active.
+The earlier proposed four-central-incisor comparison remains downstream. The
+current bounded FDI11 IK-only diagnostic and subsequent FDI21 exact-state
+testcase are exceptions explicitly ordered by Tarun; neither establishes a
+four-incisor planner comparison or closes the saved FDI31 GUI milestones.
 
 Stage 3 / Track A remains incomplete and follows this integrity correction.
 The remaining P1 Case Platform/Studio roadmap stays behind Track-A acceptance.
@@ -41,7 +52,7 @@ current input or fallback.
 
 The operator has authorized the revised bounded Campaign 1, not a blind full
 recovery run. The architectural specification is
-[FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
+[FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md](diagnostics/archive/step6/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
 It reuses the existing reusable-case/Track-A IDs, supersedes the former
 Astra/design-only/P4 stop, and preserves the historical r7/r13 evidence.
 The campaign first binds the approximately 5.2394 mm saved FDI31 trajectory to
@@ -1196,6 +1207,43 @@ No parallel queue or automatic checkpoint-reconnect sequence remains active.
 
 ## Step 6 ownership contract
 
+**2026-09-24 operator supersession — two planning areas.** The table below
+describes the currently implemented seven-card UI until migration. It no longer
+defines the desired operator navigation after 6.2. Preserve 6.0 case/branch,
+6.1 base/ROS/scene and 6.2 validated Task Home as prerequisites. Then show:
+
+**2026-09-25 implementation order:** Tarun authorized the bounded
+[renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+Number these areas **6.3 Planning & Diagnostics** and **6.4 Preview &
+Control**. Build and visibly review FDI11 PreEntry IK alone before optional
+workspace migration or separate P1/P2/P3 exposure; the first trial runs no
+OMPL. Correct FDI21 fixed-upper exact-state attribution before another
+Stage-3 review; then use an exact saved FDI31 full-chain reference. An
+interrupted phase blocks further preview/normal Return Home while retaining
+the exact accepted/rejected evidence; partial-prefix reversal is a later
+separate acceptance gate. This ordering supersedes the migration order below
+where they differ, without changing its full-chain/guard or runtime gates.
+
+| Desired area | Owned action and acceptance boundary |
+|---|---|
+| Planning & Diagnostics (`S6-WORKSPACE-PURPOSE`, `S6-LIVE-01`) | Confirm one current task identity; optionally inspect/revalidate workspace evidence and reviewed task limits; run PreEntry IK, P1, P2, P3 and planner comparison as ordered plan-only diagnostics; promote only a complete, current, independent-guard-valid chain. The workspace cloud is exploration/seed evidence, not a mandatory proof of one trajectory's feasibility. Preserve exact first failure and partial paths as display-only evidence. |
+| Preview & Control (`S6-LIVE-03/04`) | Consume only that fresh complete plan, show and run real-time **simulation** Approach and Drill previews with monitored acknowledgements, reverse the accepted route under the guard, verify Home, then return to Planning for a new plan/repeat. Show expert ROS diagnostics without converting them into a hardware command. Physical hardware requires a separate safety, registration, calibration and authorization milestone. |
+
+**Migration order and checks:** (1) classify the current 6.3 filters and all
+consumers; the saved FDI11 Home rejected by its 5 mm draft AABB filter is a
+regression fixture; (2) make task-limit review and exact task confirmation
+coherent with an optional workspace cloud, preserving mechanical limits and
+full scene/guard gates; (3) combine the existing UI cards without duplicating
+ROS/MoveIt state owners; (4) expose ordered plan-only IK/P1/P2/P3 diagnostics
+that reuse the preceding exact endpoint and invalidate on identity changes;
+(5) keep simulation preview/return/repeat in the second area. Focused pure
+checks precede a separately authorized normal-window result and Tarun's
+verdict. No source-only pass closes runtime acceptance or hardware safety.
+
+The old seven-card ownership table is retained below as the implementation
+map and migration checklist; its separate 6.3/6.4/6.5/6.6 presentation is
+superseded by this operator direction.
+
 | Substep | Sole routine owner | Required result |
 |---|---|---|
 | 6.0 / 6.0A | Case/task selection and non-destructive jaw preparation | One current planning case or governed fallback; no ROS creation |
@@ -1283,6 +1331,10 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   only through **Lock / Accept Opening**.
 - `S6-P2-03`: use one shared long-running-action contract for truthful busy,
   progress, completion, error, cancel, and cleanup state.
+  A per-session Slicer event-loop watchdog now writes local stack and
+  phase/recovery evidence after a five-second UI heartbeat gap. Tarun reports
+  improved fluidity with the progress dialogs; keep root-cause acceptance open
+  until ordinary-session evidence identifies or excludes the remaining stalls.
   Tarun explicitly advanced this scope on 2026-09-24 for current Step 4A,
   Step 4C and Step 5B freezes. Current-case watchdog evidence attributes the
   observed stalls to synchronous Slicer UI-thread VTK/scene work; headless

@@ -815,6 +815,19 @@ execution, or hardware action was part of this gate.
 
 ## Planned Step 6 collision/motion diagnostic evidence contract — 2026-08-28
 
+**2026-09-25 incremental diagnostic contract:** Current
+`MotionDiagnosticSession` schema is 2.2; prior 1.0/2.0/2.1 records remain
+parseable but cannot satisfy current freshness. The standalone FDI11 PreEntry
+IK result records each seed and failed best state, residuals, native
+termination/iterations, collision-check status, reviewed/mechanical limit
+margins and tolerance-scaled task-Jacobian condition ratio, plus target
+position/axis in world and base frames. `unknown` or `unavailable` is not a
+collision-free verdict. This record is display-only, with P1/P2/P3 and
+full-chain planning `NotRun`, zero waypoints and no preview authority.
+Reopening a package never restores live Home, scene or guard validity. The
+[25 September implementation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+defines the ordered first visible trial and later stage/preview gates.
+
 Status: initial source implementation completed 2026-08-29; no build/live
 verification claim
 

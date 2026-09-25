@@ -1071,10 +1071,20 @@ class RobotSceneWidgetMixin:
         del checked
         if not self._parameterNode or not self.logic:
             return
+        from .workflow_progress import WorkflowProgress
+
+        progress = WorkflowProgress("Step 3A open mouth")
         try:
-            _transform, _model, _gapLine, summary = (
-                self.logic.createOrUpdateStep6CaseJawOpening(self._parameterNode)
-            )
+            progress.update("Building opened anatomy", can_cancel=False)
+            wasUpdating = self._updatingFromParameterNode
+            self._updatingFromParameterNode = True
+            try:
+                _transform, _model, _gapLine, summary = (
+                    self.logic.createOrUpdateStep6CaseJawOpening(self._parameterNode)
+                )
+            finally:
+                self._updatingFromParameterNode = wasUpdating
+            progress.update("Refreshing workflow", can_cancel=False)
             if self._robotWorkflowFacade:
                 self._robotWorkflowFacade.clearTransientState()
             self._updateStep6CaseJawOpeningControls()
@@ -1152,6 +1162,8 @@ class RobotSceneWidgetMixin:
         except Exception as exc:
             self._updateStep6CaseJawOpeningControls()
             self._reportCaseFoundationActionFailure(exc)
+        finally:
+            progress.close()
 
     def onResetStep6CaseJawOpening(self, checked: bool = False) -> None:
         del checked
@@ -1303,7 +1315,14 @@ class RobotSceneWidgetMixin:
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.loadRobot()
+        from .workflow_progress import WorkflowProgress
+
+        progress = WorkflowProgress("Step 3B / 6.1 load robot")
+        try:
+            progress.update("Loading robot geometry", can_cancel=False)
+            result = self._robotWorkflowFacade.loadRobot()
+        finally:
+            progress.close()
         if not result.success:
             slicer.util.errorDisplay(result.message)
             return

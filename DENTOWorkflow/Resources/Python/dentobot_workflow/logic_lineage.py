@@ -211,7 +211,7 @@ class LineageLogicMixin:
         }
         return record, association
 
-    def _createEnclosedPulpCandidate(self, segmentationNode, toothId, fdi, *, invalidateReview=True):
+    def _createEnclosedPulpCandidate(self, segmentationNode, toothId, fdi, *, invalidateReview=True, progress=None):
         """Make a reviewable pulp segment from one empty closed tooth pocket."""
 
         segmentation = segmentationNode.GetSegmentation()
@@ -224,6 +224,8 @@ class LineageLogicMixin:
         low, high = occupied.min(axis=0), occupied.max(axis=0)
         if np.any(low == 0) or np.any(high == np.asarray(tooth.shape) - 1):
             raise ValueError(_("The tooth touches the image boundary; its interior cannot be confirmed."))
+        if progress:
+            progress("Finding enclosed tooth cavity")
         cavity = enclosed_tooth_void([tuple(point) for point in occupied])
         if any(source[point] != 0 for point in cavity):
             raise ValueError(_("The enclosed tooth region is occupied by another source label."))
@@ -246,6 +248,8 @@ class LineageLogicMixin:
         alignedCavity = np.asarray(cavity, dtype=int) + offset
         mask = np.zeros(alignedTooth.shape, dtype=np.uint8)
         mask[tuple(alignedCavity.T)] = 1
+        if progress:
+            progress("Committing reviewable pulp mask", can_cancel=False)
         attributes = (
             "DENTOBOT.SegmentMetricsJson",
             self.SEMANTIC_STATUS_ATTRIBUTE,
@@ -300,16 +304,20 @@ class LineageLogicMixin:
             raise
         return candidateId, len(cavity)
 
-    def prepareTargetPulpMask(self, segmentationNode, toothId):
+    def prepareTargetPulpMask(self, segmentationNode, toothId, progress=None):
         """Check existing pulp or create one reviewable enclosed-void candidate."""
 
         try:
-            association = self.getTargetPulpAssociation(segmentationNode, toothId)
+            if progress:
+                progress("Checking existing pulp associations")
+            association = self.getTargetPulpAssociation(segmentationNode, toothId, progress=progress)
         except MissingTargetPulpError:
+            if progress:
+                progress("Reading selected tooth mask")
             tooth = self.validateTargetTooth(segmentationNode, toothId)
             fdi = str(tooth.get("canonicalFdiNumber") or tooth.get("fdiNumber"))
             candidateId, count = self._createEnclosedPulpCandidate(
-                segmentationNode, toothId, fdi
+                segmentationNode, toothId, fdi, progress=progress
             )
             return {"status": "created", "pulpSegmentId": candidateId, "voxelCount": count}
         return {"status": "ready", "pulpSegmentId": association["pulpSegmentId"]}
@@ -555,6 +563,7 @@ class LineageLogicMixin:
         *,
         persist: bool = True,
         requireReview: bool = True,
+        progress=None,
     ) -> dict:
         """Resolve one target's pulp from reviewed geometry and persist its relation."""
 
@@ -602,7 +611,9 @@ class LineageLogicMixin:
             and record.get("canonicalFdiNumber")
         ]
         toothSurfaces = {}
-        for record in toothRecords:
+        for index, record in enumerate(toothRecords, 1):
+            if progress:
+                progress("Checking tooth surfaces", index - 1, len(toothRecords))
             try:
                 toothSurfaces[record["segmentId"]] = {
                     "record": record,
@@ -623,7 +634,9 @@ class LineageLogicMixin:
 
         accepted = []
         relevantFailures = []
-        for pulpRecord in pulpRecords:
+        for index, pulpRecord in enumerate(pulpRecords, 1):
+            if progress:
+                progress("Checking candidate pulp masks", index - 1, len(pulpRecords))
             try:
                 components = self._semanticPulpComponents(
                     segmentationNode,

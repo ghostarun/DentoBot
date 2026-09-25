@@ -377,6 +377,184 @@ def make_facade():
     return facade, parameter_node, logic, bridge
 
 
+def test_disconnect_forwards_progress_without_changing_bridge_result():
+    facade, _parameter_node, _logic, bridge = make_facade()
+    phases = []
+
+    def disconnect(_models, *, progress):
+        progress("Removing collision objects", 1, 1)
+        return True, "disconnected"
+
+    bridge.disconnect_dentobot_motion_control = disconnect
+    result = facade.disconnect(progress=lambda *args: phases.append(args))
+    assert result.success
+    assert phases == [
+        ("Stopping simulation preview",),
+        ("Removing collision objects", 1, 1),
+    ]
+
+
+def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch):
+    import DENTORobotWorkflowFacade as facade_module
+    from DENTOStep6State import (
+        build_task_home,
+        build_task_snapshot,
+        fingerprint,
+        parse_motion_diagnostic_session,
+        planner_comparison_scene_fingerprint,
+    )
+
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    parameter_node.step6AssistedLimitProposalJson = ""
+    parameter_node.step6MotionDiagnosticJson = ""
+    home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    home = build_task_home(
+        home_positions,
+        base_fingerprint="base-fingerprint",
+        robot_profile_fingerprint="profile-fingerprint",
+        runtime_validation_status="Validated",
+        collision_audit_fingerprint="audit-fingerprint",
+        guard_policy_fingerprint="guard-policy",
+    )
+    snapshot = build_task_snapshot(
+        target_segment_id="target-segment",
+        trajectory_revision="trajectory-fingerprint",
+        entry_ras_mm=(0.0, 0.0, 10.0),
+        target_ras_mm=(0.0, 0.0, 0.0),
+        base_fingerprint="base-fingerprint",
+        home_fingerprint=fingerprint(home.to_dict()),
+        limits_fingerprint="limits-fingerprint",
+        robot_profile_fingerprint="profile-fingerprint",
+    )
+    audit = SimpleNamespace(
+        status="Acknowledged",
+        runtime_acknowledgement={
+            "status": "Acknowledged",
+            "expected_policy_fingerprint": "collision-policy",
+        },
+        audit_fingerprint="audit-fingerprint",
+        base_fingerprint="base-fingerprint",
+        jaw_preparation_fingerprint="jaw-fingerprint",
+        world_to_base_fingerprint="world-base-fingerprint",
+        object_records=(),
+    )
+    scene_fingerprint = planner_comparison_scene_fingerprint(audit)
+    identity = {
+        "branch_id": "prepared-branch",
+        "task": snapshot.snapshot_fingerprint,
+        "base": snapshot.base_fingerprint,
+        "home": snapshot.home_fingerprint,
+        "trajectory": snapshot.trajectory_revision,
+        "robot_profile": snapshot.robot_profile_fingerprint,
+        "collision_audit": scene_fingerprint,
+    }
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: snapshot
+    logic.taskHomeRecord = lambda _node: home
+    logic.collisionSceneAuditRecord = lambda _node: audit
+    logic.step6ApproachPoints = lambda _node, _snapshot: (
+        (0.0, 0.0, 15.0),
+        (0.0, 0.0, 10.0),
+    )
+    logic.robotDescriptionPaths = lambda: ("fixture.urdf", None)
+    facade.plannerComparisonIdentity = lambda: dict(identity)
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    facade._planning_scene_synchronized = True
+    monkeypatch.setattr(
+        facade_module,
+        "default_task_joint_limits_from_urdf",
+        lambda _path: logic.getTaskJointLimits(parameter_node),
+    )
+    bridge.world_ras_mm_to_base_m = lambda point, _base: [
+        float(value) / 1000.0 for value in point
+    ]
+    bridge.tool_pose_matrices_world_mm = lambda *_args, **_kwargs: [
+        FakePoseMatrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0)))
+    ]
+    bridge.set_moveit_tcp_goal_matrix = lambda _pose: (True, "goal set", object())
+    best = {
+        ROS2_JOINT_SI_ORDER[0]: 0.1,
+        ROS2_JOINT_SI_ORDER[1]: 0.025,
+        ROS2_JOINT_SI_ORDER[2]: -0.2,
+        ROS2_JOINT_SI_ORDER[3]: 0.03,
+        ROS2_JOINT_SI_ORDER[4]: 0.3,
+    }
+    bridge.solve_moveit_tcp_position_axis_goal = lambda **_kwargs: (
+        False,
+        "iteration limit",
+        {},
+        {
+            "termination_reason": "max_iterations",
+            "iteration_count": 64,
+            "collision_check_status": "unavailable",
+            "task_jacobian_condition_ratio": 0.02,
+            "position_residual_mm": 0.8,
+            "drilling_axis_residual_deg": 1.4,
+            "best_joint_positions_si": dict(best),
+            "collision_pairs": (),
+        },
+    )
+    effects = []
+
+    def forbidden(name):
+        def call(*_args, **_kwargs):
+            effects.append(name)
+            raise AssertionError(f"diagnostic called forbidden operation: {name}")
+        return call
+
+    for name in (
+        "plan_moveit_joint_goal",
+        "plan_moveit_joint_path",
+        "plan_moveit_cartesian_path",
+        "configure_task_phase_guard",
+        "validate_task_phase_joint_sequence",
+        "check_moveit_static_joint_state",
+        "compute_tcp_pose_world_ras_mm",
+    ):
+        setattr(bridge, name, forbidden(name))
+    facade._prepare_phase_guard = forbidden("phase_guard")
+    facade.planApproachPhase = forbidden("approach_plan")
+    facade.generateWorkspaceCloud = forbidden("workspace_generation")
+    facade.applyTaskHome = forbidden("apply_task_home")
+
+    result = facade.checkPreEntryIK()
+
+    assert result.success
+    assert result.code == "preentry_ik_diagnostic_complete"
+    session = parse_motion_diagnostic_session(
+        parameter_node.step6MotionDiagnosticJson
+    )
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    logic.motionDiagnosticRecord = lambda _node: parse_motion_diagnostic_session(
+        parameter_node.step6MotionDiagnosticJson
+    )
+    record = session.candidate_records[0]
+    assert session.state == "Current"
+    assert session.full_task_outcome["diagnostic_kind"] == "preentry_ik"
+    assert session.full_task_outcome["stage1_p1_status"] == "NotRun"
+    assert session.full_task_outcome["stage2_status"] == "NotRun"
+    assert session.full_task_outcome["stage3_status"] == "NotRun"
+    assert record["success"] is False
+    assert record["waypoint_count"] == 0
+    assert record["solver_success"] is False
+    assert record["seed_provenance"] == "task_home"
+    assert record["seed_joint_positions_si"] == home_positions
+    assert record["best_joint_positions_si"] == best
+    assert record["collision_check_status"] == "unavailable"
+    assert record["endpoint_collision_clear"] is False
+    assert record["position_residual_mm"] == 0.8
+    assert record["drilling_axis_residual_deg"] == 1.4
+    assert record["task_jacobian_condition_ratio"] == 0.02
+    assert record["mechanical_joint_limit_margins"]
+    assert record["reviewed_task_joint_limit_margins"]
+    assert not facade.selectDiagnosticCandidate(0).success
+    assert not facade.applyDiagnosticCandidate(0).success
+    assert effects == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
 def test_capabilities_expose_fixed_moveit_contract_without_saved_ui_state():
     facade, parameter_node, _logic, _bridge = make_facade()
     parameter_node.robotBaseTransform.active = True

@@ -1,13 +1,28 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-24. `S6-LIVE-01` GUI-first FDI31 planner recovery
-remains Priority 0 but is temporarily paused by Tarun while he chooses the
-next approach. Independent backlog work may proceed under its own entry
-conditions. Its sole detailed contract is
+Last reconciled: 2026-09-25. `S6-LIVE-01` remains Priority 0. Tarun's
+25 September direction resumes bounded Step 6 source implementation.
+The standalone FDI11 PreEntry IK source gate passed pure checks and a native
+package build. Tarun's first visible IK-only report shows collision-checked
+endpoints for a changed base/Home/scene, with P1/P2/P3/guard NotRun; its
+original saved-case identity differs and his verdict is pending. Tarun now
+places the Step 6 **workflow renovation before case-specific planner solving**.
+Agent-run planner runtime and manual acceptance remain separately gated. The
+[renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+records the current order under existing IDs; the
+[later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
+routes deferred case and adjacent ideas. The sole canonical milestone contract is
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
+Tarun's later 2026-09-24 direction supersedes the seven-card Step 6 planner
+presentation: merge 6.3 workspace diagnostics, 6.4 confirmation and 6.5
+planning under Planning & Diagnostics; put simulation preview/return/repeat
+under Preview & Control. `S6-WORKSPACE-PURPOSE` is the prerequisite for the
+workspace-gate change. The FDI11 IK-only verdict remains open while
+source-level workflow renovation proceeds; agent runtime and milestone verdicts
+remain gated. See the latest TASKS, DEVELOPMENT_PLAN, DECISIONS and logbook entries.
 The 23 September [decision report](diagnostics/DENTOBOT_Step6_Decision_Report_2026-09-23.pdf)
-is review evidence, not a parallel plan. Do not resume planner source or
-runtime work until Tarun gives direction.
+is review evidence, not a parallel plan. Tarun has supplied source direction;
+do not infer runtime or hardware authorization from the report.
 The Sep-22 FDI31 baseline is `data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase`
 (SHA-256 `eb48a805...e7adb`). `M1-DIAG / HOUSING-OFF PASS` completed diagnostic
 P1 with 150 waypoints. An operator-repositioned base at an altered 45.96-mm
@@ -59,24 +74,20 @@ evidence or implement the 96-trajectory batch proposal.
   and alternate-base housing-on full chain are separate, non-canonical
   observations. Canonical M1/M2 and a fresh FDI21 planner result remain open;
   follow the canonical plan and today's logbook before another runtime action.
-- **Before planner source work:** read the preserved manual diagnosis context
-  below and its linked implementation/query records, then follow the canonical
-  P0 plan. AGENTS.md supplies enforceable model, stop, and anti-bloat rules.
+- **Before Step 6 source work:** read the [working renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md),
+  then the matching backlog/TASKS contract and the [FDI31 P0 milestone
+  contract](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) if its gate is
+  involved. The [archived September 20 diagnosis](diagnostics/archive/step6/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md)
+  is optional dated context, not a mandatory current restart instruction.
 
 ## Preserved routing context and evidence
 
-- **2026-09-20 — Step 6 planner manual diagnosis context (read before fixes):**
-  Operator saved the consolidated manual-intervention diagnosis, mental model,
-  and next-step plan in
-  [STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md](diagnostics/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md).
-  **Agents working on `S6-LIVE-01` or any Step 6 planner change must read this
-  file first**, then its §22 linked records
-  (`PLANNER_IMPLEMENTATION_MAP_2026-09-20.md`,
-  `preentry-ik-moveit-queries-2026-09-20.md`,
-  `joint-goal-planning-queries-2026-09-20.md`). Contract and restart statement
-  are in [TASKS.md](TASKS.md) under **Step 6 planner manual diagnosis — agent
-  context (2026-09-20)**. Active failure is **Home→PreEntry OMPL connection**,
-  not PreEntry IK reachability.
+- **2026-09-20 — archived Step 6 manual diagnosis:** The
+  [diagnosis](diagnostics/archive/step6/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md)
+  and [implementation map](diagnostics/archive/step6/PLANNER_IMPLEMENTATION_MAP_2026-09-20.md)
+  explain the September 19 FDI31 P1 session. Their experiment order and
+  “current failure” claim are superseded by later case-specific evidence and
+  the working renovation plan. Consult them only for historical attribution.
 
 - **2026-09-19 — Ordinary GUI path reaches Step 6.5; planner stalls at PreEntry:**
   The operator confirmed the Cursor debug-branch workflow through Step 6.5 on
@@ -204,7 +215,7 @@ evidence or implement the 96-trajectory batch proposal.
   logbook and recovery report Sections AU–AV.
 - **Preserved FDI31 override (2026-09-14; historical):** The operator accepted the causal review
   and requested Astra architecture / Luna Max implementation orchestration.
-  Read [Campaign 1](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and its
+  Read [Campaign 1](diagnostics/archive/step6/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) and its
   TASKS/DECISIONS supersession before following older geometry-only/one-packet
   next-action text below. Design issued; execution not authorized. P0 baseline,
   P1 scene/operator review with P2 diagnostics, P3 endpoint, conditional P4

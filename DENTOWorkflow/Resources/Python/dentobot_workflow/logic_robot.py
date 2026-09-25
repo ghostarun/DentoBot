@@ -909,8 +909,8 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         if record.schema_version != MOTION_DIAGNOSTIC_SCHEMA_VERSION:
             issues.append(
                 _(
-                    "Motion diagnostic predates the fixed-axis Stage-2 phase-guard "
-                    "policy; re-plan Approach."
+                    "Motion diagnostic uses an older evidence schema; run a fresh "
+                    "diagnostic or re-plan Approach."
                 )
             )
         if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
@@ -1048,6 +1048,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
     def createOrUpdateRobotWorkspace(
         self,
         parameterNode,
+        progress=None,
     ) -> tuple[vtkMRMLModelNode, WorkspaceSampleResult]:
         """Create a base-parented, deterministic provisional-TCP reach cloud."""
         base_transform = parameterNode.robotBaseTransform
@@ -1080,6 +1081,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             ),
             environment_points_mm=self.step6EnvironmentObstaclePointsMm(parameterNode),
             environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
+            progress=progress,
         )
         if not result.accepted_tcp_base_mm:
             raise RuntimeError(

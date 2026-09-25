@@ -4468,9 +4468,38 @@ def solve_moveit_tcp_position_axis_goal(
             float(value)
             for value in robot_node.GetLastMoveItPositionAxisIKBestJointValues()
         ]
+
+        def optional_diagnostic(getter_name, convert):
+            getter = getattr(robot_node, getter_name, None)
+            if not callable(getter):
+                return None
+            try:
+                value = getter()
+                return convert(value) if value is not None else None
+            except Exception:
+                return None
+
+        termination_reason = optional_diagnostic(
+            "GetLastMoveItPositionAxisIKTerminationReason", str
+        ) or "unknown"
+        iteration_count = optional_diagnostic(
+            "GetLastMoveItPositionAxisIKIterationCount", int
+        )
+        collision_check_status = optional_diagnostic(
+            "GetLastMoveItPositionAxisIKCollisionCheckStatus", str
+        ) or "unknown"
+        condition_ratio = optional_diagnostic(
+            "GetLastMoveItPositionAxisIKConditionRatio", float
+        )
+        if condition_ratio is not None and not 0.0 <= condition_ratio <= 1.0:
+            condition_ratio = None
     except Exception as exc:
         return False, f"MoveIt position-axis IK request failed: {exc}", {}, {}
     diagnostic = {
+        "termination_reason": termination_reason,
+        "iteration_count": iteration_count,
+        "collision_check_status": collision_check_status,
+        "task_jacobian_condition_ratio": condition_ratio,
         "position_residual_mm": (
             position_residual if position_residual >= 0.0 else None
         ),
@@ -5397,6 +5426,7 @@ def remove_stale_moveit_obstacle_proxies(active_source_ids: set[str]) -> None:
 
 def disconnect_dentobot_motion_control(
     mrml_robot_models: Optional[list] = None,
+    progress=None,
 ) -> Tuple[bool, str]:
     global _native_goal_transform
     try:
@@ -5406,6 +5436,7 @@ def disconnect_dentobot_motion_control(
     ros_logic = get_ros2_logic()
     if ros_logic is None:
         return False, ROS2_UNAVAILABLE_MESSAGE
+    ros_node = ros_logic.GetDefaultROS2Node()
     # The SlicerROS2 robot owns teardown of its associated publisher reference.
     # Stop our timer and release the Python handle, then let RemoveRobot delete it.
     stop_slicer_joint_command_stream(delete_publisher=False)
@@ -5418,9 +5449,13 @@ def disconnect_dentobot_motion_control(
             pass
         _native_goal_transform = None
     if motion_logic is not None and robot_node is not None:
-        for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
-            if node.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) != "true":
-                continue
+        proxies = [
+            node for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+            if node.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) == "true"
+        ]
+        if progress:
+            progress("Removing collision objects", 0, len(proxies))
+        for index, node in enumerate(proxies, 1):
             # Publish the removal synchronously.  RemoveMoveItObstacle queues a
             # second callback holding native wrappers, which is unsafe across
             # scene clear or scripted-module replacement.
@@ -5441,7 +5476,11 @@ def disconnect_dentobot_motion_control(
             node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE)
             node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE)
             slicer.mrmlScene.RemoveNode(node)
+            if progress:
+                progress("Removing collision objects", index, len(proxies))
     if motion_logic is not None:
+        if progress:
+            progress("Releasing ROS 2 subscriptions")
         # Quiesce the scripted Motion Control widget before emitting the robot
         # NodeAboutToBeRemoved event.  Its callback otherwise performs a
         # second teardown re-entrantly from inside native RemoveRobot.
@@ -5481,6 +5520,8 @@ def disconnect_dentobot_motion_control(
         except Exception:
             pass
     if robot_node is not None:
+        if progress:
+            progress("Removing ROS 2 robot")
         ros_logic.RemoveRobot(ROS2_ROBOT_NAME)
     for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
         if node.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) == "true":

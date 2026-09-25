@@ -31,8 +31,12 @@ def run():
     tooth_id = segmentation.GetSegmentation().GetSegmentIdBySegmentName('upper_right_central_incisor_fdi11')
     tooth_label = int(segmentation.GetSegmentation().GetSegment(tooth_id).GetLabelValue())
     before = (slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentation, tooth_id) == tooth_label).copy()
-    result = logic.prepareTargetPulpMask(segmentation, tooth_id)
+    phases = []
+    result = logic.prepareTargetPulpMask(
+        segmentation, tooth_id, progress=lambda phase, *args, **kwargs: phases.append(phase)
+    )
     assert result['status'] == 'created'
+    assert 'Checking tooth surfaces' in phases and 'Committing reviewable pulp mask' in phases, phases
     candidate_id, count = result['pulpSegmentId'], result['voxelCount']
     after = slicer.util.arrayFromSegmentInternalBinaryLabelmap(segmentation, tooth_id) == tooth_label
     assert np.array_equal(before, after), 'source tooth/shared labelmap changed'

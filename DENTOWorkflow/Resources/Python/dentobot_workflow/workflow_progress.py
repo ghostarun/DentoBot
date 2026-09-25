@@ -6,6 +6,8 @@ import time
 import qt
 import slicer
 
+from .ui_stall_watchdog import note_ui_phase
+
 
 class WorkflowCancelled(RuntimeError):
     """Operator cancelled between completed computation checkpoints."""
@@ -29,6 +31,7 @@ class WorkflowProgress:
         elapsed = int(time.monotonic() - self.started)
         count = f" ({done}/{total})" if done is not None and total else ""
         message = f"{self.title}: {phase}{count} · {elapsed}s elapsed"
+        note_ui_phase(f"{self.title}: {phase}", done, total)
         self.dialog.setLabelText(message)
         logging.info("Workflow progress: %s", message)
         print("DENTOBOT_WORKFLOW_PROGRESS", message, flush=True)

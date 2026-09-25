@@ -151,7 +151,7 @@ class ViewCompositionWidgetMixin:
                 composition = ViewComposition(
                     anatomy_scope="none",
                     anatomy_dimension="3d",
-                    cbct_mode="slices",
+                    cbct_mode="off",
                     overlay_groups=frozenset({"jaw_opening"}),
                     anatomy_opacity=1.0,
                 )
@@ -184,7 +184,7 @@ class ViewCompositionWidgetMixin:
                 composition = ViewComposition(
                     anatomy_scope="none",
                     anatomy_dimension="3d",
-                    cbct_mode="slices",
+                    cbct_mode="off",
                     overlay_groups=frozenset(
                         {
                             "target_bounds",

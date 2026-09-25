@@ -1,5 +1,21 @@
 # Dentobot Technical Decisions
 
+Current Step 6 source order and interrupted-preview policy are recorded in
+[the 2026-09-25 decision below](#2026-09-25--step-6-renovation-order-diagnostics-and-interrupted-preview-policy);
+the 2026-09-24 pause remains historical evidence.
+
+**2026-09-25 documentation consolidation:** The
+[Step 6 renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+is the working workflow-first sequence. The
+[later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
+points to case-specific and adjacent work without creating another pending
+queue. Superseded September 20/Campaign 1 prose and the base-pose proposal
+are mapped in the [archive index](diagnostics/archive/step6/README.md);
+their evidence is preserved, while the FDI31 P0 contract and GUI automation
+SOP remain active at their original paths. The Sol Medium coordinator and
+maximum two Luna Max subagents are a hard Step 6 orchestration rule unless
+Tarun overrides it.
+
 ## 2026-09-24 — Stale Case Foundation remains loadable for repair
 
 A saved `.dentocase` with a stale committed Case Foundation pose must open so the operator can repair Step 3A. UI hydration restores the saved robot-base lock's interaction state without invoking the explicit base-lock command or promoting stale pose/base evidence. Planning and any new base lock retain their existing Case Foundation eligibility checks. Tarun confirmed the FDI11 package reopened in the normal window and subsequently generated one Step 4A trajectory; the screenshot does not validate Step 6 readiness or anatomy. This decision belongs to `S6-REUSABLE-CASE-SETUP`, overlapping the pulp candidate's Step 3A invalidation.
@@ -5085,7 +5101,7 @@ The operator accepts the prior causal review as architectural guidance and
 requests Campaign 1 design only. Existing r13/r14 collisions do not prove scene
 correctness, exhaustive IK coverage, insertion impossibility, planner culpability
 or a mandatory mechanical change. The previous geometry-only continuation
-requirement is superseded by the [Campaign 1 diagnostic hierarchy](diagnostics/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
+requirement is superseded by the [Campaign 1 diagnostic hierarchy](diagnostics/archive/step6/FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md).
 Historical results and full-flow retry counts remain intact.
 
 Use one Luna Max for essentially all scoped implementation, diagnostics, approved
@@ -6333,6 +6349,12 @@ Tarun explicitly deferred the `VIEW-U-01` normal-window verdict and directed wor
 
 ## 2026-09-24 — S6-P2-03 current workflow responsiveness
 
+Operator feedback confirms the progress displays improve fluidity and the prior dialog has not recurred in the updated steps. Keep a session-wide Slicer event-loop watchdog for causal evidence: reset a five-second native `faulthandler` timer on each one-second Qt heartbeat, log a stack on a gap, then record elapsed recovery and latest workflow phase in the bind-mounted run-artifact directory. This is passive diagnostics, not a substitute for a corrected blocking call or an acceptance verdict. It does not change geometry, planner policy, ROS or container resources.
+
+The later operator request expands passive observability to crash and resource pressure. Start a separate standard-library sampler under the normal simulation handoff so it can sample the dedicated container while Slicer's UI thread is blocked; collect process CPU/RSS/threads/FDs, cgroup counters/pressure, host memory/load/pressure and log-disk free space every five seconds. Record Slicer disappearance, monitor lifecycle and long sampler gaps. Keep samples local and read-only; do not automatically kill/restart Slicer or alter resource limits on threshold crossings. A full host power loss cannot be measured by an in-container process, so the last persisted sample is the evidence boundary.
+
+The later Step 6.3/6.4 report adds TCP workspace and planner actions to this same responsiveness scope. Show elapsed time and completed local/MoveIt samples or planner seeds/routes through the shared synchronous progress dialog. Disable cancellation where MoveIt, guard or workspace evidence may already have changed. Keep candidate and planner policies unchanged. A progress checkpoint does not establish responsiveness during one blocking native call; time that call before considering thread ownership or container changes. The separate `S6-LIVE-01` planner-runtime pause remains effective.
+
 Tarun explicitly advanced the existing Priority-2 busy/progress task for Step 4A assisted trajectories, Step 4C docks, Step 5B unified templates and general container performance, superseding its former wait-for-P0 entry condition for this scope. Do not change numeric priority without an assigned operator priority. The container has no hard CPU/memory cap or observed throttling/OOM. Current-case profiling measured approximately 20 seconds each for Step 4C and Step 5B, dominated by repeated VTK sampling and scene annotation/commit on Slicer's main thread. Use a shared modal phase/elapsed/cancel display with checkpoints after completed samples and before scene commit. Counts describe completed work only; no speculative percentage or ETA. Cancellation is honored before mutation or between completed stages, then disabled during scene commit. No worker thread moves MRML or Dynamic Modeler calls off the main thread. Reconsider container tuning only if measured pressure demonstrates a limit.
 
 The later operator screenshot and report expand `S6-P2-03` to dentocase loading and routine workflow transitions. A headless 55-second saved-case load had an approximately 43-second UI heartbeat gap. Add phase timing and a load busy display first; preserve the transactional recovery MRB and fail-closed lineage checks. These checkpoints do not prove native scene import stays responsive. Do not move MRML import onto a Python worker thread without verified Slicer thread ownership; choose the next correction from the measured load phase and operator-window evidence.
@@ -6411,3 +6433,84 @@ trajectory geometry or the conservative Case Foundation invalidation policy.
 Adding a derived segment changes the Case Foundation source-segmentation
 fingerprint, so an already current Step 3A opening becomes stale and requires
 reconfirmation under the existing safety rule.
+## 2026-09-24 — Fold workspace exploration into planning diagnostics; keep preview separate
+
+Tarun directed a two-area Step 6 planner experience: **Planning & Diagnostics** followed by **Preview & Control**. This supersedes the separate operator-facing 6.3 Workspace, 6.4 Task Confirmation, 6.5 Approach and 6.6 Drill Preview presentation contract. The change is presentation and sequencing direction, not authorization for robot hardware motion or a change to collision, joint, anatomy, endpoint or phase policy. `S6-WORKSPACE-PURPOSE` owns the workspace-purpose correction; `S6-LIVE-01` owns planning and diagnostic integration; `S6-LIVE-03/04` retain preview, return and repeat acceptance. The prior `S6-LIVE-01` pause remains on agent runtime trials; this operator direction authorizes source/design analysis and a scoped migration plan, not an automatic GUI trial.
+
+Step 6.3's current 5 mm threshold is a draft non-adjacent-link AABB self-clearance filter, while its separate burr-origin environment threshold defaults to 2 mm. The coarse prefilter can reject robot states that the live MoveIt/guard system accepts. The current FDI11 all-zero Task Home is a demonstrated example: pure evaluation with the tracked URDF rejects it at 5 mm on `link-1`↔`link-3` overlapping AABBs, while the saved authoritative Home record is `Validated`. The resulting reviewed sample envelope sets J2 minimum to about 1.4377 mm even though saved Home is J2=0. A sampled min/max box is therefore neither the robot's mechanical bound nor a certificate for a specific PreEntry/Entry/Target path. Do not silently make that box authoritative for either planning or execution.
+
+The retained 6.3 functions still have value as optional exploration: deterministic FK reach samples, MoveIt static validity, bounded Home connectivity, and diverse already-connected IK seeds. Keep each claim distinct and preserve its provenance. For a single trajectory, exact TCP IK, native endpoint/static checks, Home→PreEntry planning, fixed-axis Entry/Target planning and the independent guard determine feasibility. Planning should be able to report a first PreEntry failure without forcing a broad workspace cloud or treating a cloud failure as proof that the task is impossible. Task limits must remain explicitly reviewed and include the validated Home; mechanical URDF limits and the independent guard stay authoritative. Any change to the current mandatory workspace/assisted-limit gate needs a focused source check and operator-visible verdict, with old packages and live revalidation handled fail-closed.
+
+Planning & Diagnostics owns task confirmation, ordered PreEntry IK/P1/P2/P3 read-only diagnostics, planner comparison and complete-chain promotion. Every stage uses the same task/base/Home/scene/tool/limits identity and the preceding stage's exact endpoint/orientation; a partial result is display-only. Preview & Control consumes only a fresh complete guard-valid plan, performs simulation Approach→Drill→guarded Return Home and returns to Planning for a fresh replan/repeat. Expert ROS controls may be presented there but the runtime connection/scene audit remains available before planning. Hardware control is a later separately authorized mode with its own physical safety and calibration contract; there is no current hardware command path to expose. Saved paths remain display-only evidence.
+
+## 2026-09-25 — Step 6 renovation order, diagnostics and interrupted-preview policy
+
+**Later 25 September operator change:** Tarun puts the Step 6 workflow
+renovation ahead of case-specific planner solving and proposes an optional
+ROS-connected manual simulation solver within that renovation. He requests a
+GUI-editable 200 mm cubic TCP sampling region initially centered between the
+upper and lower central incisors; viewport/base/Home manipulation, joint and
+keyboard controls, responsive simulation, recording and live validity
+diagnostics; and reviewable evidence for subsequent automated planning. The
+[supplemental plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+records this scope and links the supplied base-pose diagnostic proposal.
+Detailed ROI/route semantics, metric availability, manual-control authority
+and saved-evidence promotion are still discussion items. The proposal's
+mechanical decision thresholds and batch sweep are not accepted by this
+request. The existing ROS/MoveIt and independent guard authority, Block
+return, serialized runtime and no-hardware boundaries remain in force.
+**Follow-up confirmation:** The 200 mm cube is a hard TCP sampling-domain
+boundary for reducing computation, not a route/robot-link/guard constraint.
+Manual adjustments move a diagnostic ghost; committing Base or Task Home is
+explicit through the existing owner/invalidation path, and a recording cannot
+authorize preview without a fresh complete guard. Investigate SlicerROS2
+upstream work and measured local responsiveness before choosing a lag fix.
+
+Tarun explicitly authorized source implementation of the
+[supplemental Step 6 renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+under existing `S6-WORKSPACE-PURPOSE`, `S6-LIVE-01`, and `S6-LIVE-03/04` IDs.
+The 2026-09-23 decision report is evidence and a proposal, not an instruction
+to run geometry or planner trials. The active order is FDI11 standalone
+PreEntry IK diagnosis first; then optional workspace/task-limit review and
+separated P1/P2/P3; then corrected FDI21 fixed-upper exact-state collision
+reconstruction before new Stage-3 review; and exact-state FDI31 full-chain
+reference afterward. A PreEntry failure before OMPL cannot rank RRT variants.
+The first FDI11 visible check retains failed best joints, residuals, limit
+margins, termination, collision-check and task-conditioning evidence; it does
+not run OMPL, workspace generation, change base/Home/tolerances or move a robot.
+
+The operator chose **Block return** if a preview phase ends after an accepted
+waypoint but before its endpoint. Retain the exact accepted prefix, last
+accepted/monitored state, first rejected requested/evaluated state where one
+exists and failure evidence; latch Incomplete/AwayFromHome and block further
+preview and normal Return Home. Manual Stop records no rejected state and its
+operator-stop reason. No teleport, reset or invented recovery motion qualifies
+as Return Home. Guarded reversal of the exact accepted prefix is a future
+separately scoped feature and acceptance gate; it will require monitored-state
+identity, unchanged/revalidated scene, exact reverse history, fresh guarding
+and explicit handling if reversal fails.
+
+For this Step 6 work Tarun chose GPT-6 Sol Medium coordinator and at most two
+GPT-6 Luna Max bounded implementation auxiliaries with disjoint file
+ownership. This supersedes the older Sol Low/default-one-worker routing for
+this task. The coordinator retains design, controlled records, diff/test
+review, serialized runtime, manual verdict and acceptance responsibility.
+Bounded source implementation is active; agent-run GUI/ROS trials and hardware
+remain separately gated. The first visible FDI11 result stops for Tarun's
+interpretation rather than triggering automatic planner retries.
+
+### 2026-09-25 — Preserve exact Case Foundation pose across MRML reopen
+
+The integrity-checked `.dentocase` environment is the precision authority for a saved jaw transform when MRML has serialized the same matrix at six significant digits. On restore, recover exact values only if the saved pose fingerprint matches the transform and all loaded matrix entries equal the saved matrix rounded to MRML precision. Other mismatches remain stale. Persist the selected workflow stage for new packages; old packages with a saved Step 6 motion diagnostic reopen at Step 6. This repairs navigation and serialization without weakening pose, base, target, planner or ROS freshness gates. Normal-window acceptance remains open.
+
+Tarun's same-case normal-window screenshot later showed opened anatomy with closed-source CBCT. For a current opened Case Foundation, the Step 3A and Step 6 recommended views therefore omit source CBCT slices by default; source CBCT remains available by explicit inspection choice. This display rule does not alter the saved source volume, opened transforms or collision geometry. Visual acceptance of the revised view remains open.
+
+### 2026-09-25 — Connect progress and exact collision-audit display overlay
+
+The Step 6 shell Connect action reports progress from its existing façade and collision-scene synchronization path, including counted anatomy/object work. The transient collision-audit overlay displays each exact outgoing base-frame mesh under the already locked base transform. This removes a redundant mesh transformation observed in a 17.830-second Qt stall while preserving the published collision objects, audit fingerprints and guard acknowledgement. The overlay remains display-only and transient. Native Slicer/ROS placement and responsiveness require serialized verification after the operator closes the active session.
+
+After Tarun closed Slicer, a serialized simulation-only probe completed Connect with 31 acknowledged objects and 31 correctly base-parented overlays in 38.157 seconds. A 5.106-second Qt gap remains near guard acknowledgement; case load and disconnect have separate longer gaps, and native shutdown exited 1 after the Connect pass marker. Keep progress open through the final connected workflow refresh in both Connect UI routes. Do not treat this headless result as a normal-window responsiveness verdict or as resolution of the broader `S6-P2-03` task.
+
+Tarun later stated he cannot launch Slicer manually and approved a revised headless check. A Connect-only heartbeat probe passed with 31 objects in 39.637 seconds and a 5.395-second maximum Qt gap. The longer watchdog gap after its pass marker belonged to synchronous disconnect obstacle removals; package-load gaps were earlier. The native process still exited 1 after adapter shutdown. Treat the Connect functional path as headless verified while keeping disconnect, load, shutdown, and desktop responsiveness open under `S6-P2-03`.
+
+On Tarun's immediate `S6-P2-03` continuation, keep disconnect object removal synchronous but report each completed removal through the shared progress callback and both UI routes. A headless run showed 31/31 removals and a successful disconnect. The remaining 8.293-second UI gap is in pinned SlicerROS2 native `RemoveRobot`; splitting that MRML/ROS call onto a Python thread is not authorized or safe. Leave native teardown, intermittent load crash and shutdown exit as measured open work; progress does not constitute full responsiveness acceptance.

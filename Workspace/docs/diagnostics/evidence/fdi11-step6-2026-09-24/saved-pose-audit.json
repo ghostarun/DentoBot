@@ -1,0 +1,336 @@
+{
+  "scope": "Read-only saved-package/source inspection and existing pure FK; no IK search, ROS, Slicer, collision or motion execution. Saved state is not live validity.",
+  "case": "data/Slicer_Saved/SampleStudy1/SEPT24/fdi11_step6.dentocase",
+  "case_sha256": "1adf7c30bbb8a12ab4869e1b4329924ca80506e25759317cd7544f4fd48b1696",
+  "urdf_sha256": "c70c12e38dc12dd4798f6332426eea82a430dc882836ef31cf0ce293c1e3f3d5",
+  "urdf_matches_saved_profile": true,
+  "base_matrix_world_ras_mm": [
+    [
+      -0.0330574649102486,
+      0.9989464180111487,
+      0.031831713061081235,
+      -97.87032867483632
+    ],
+    [
+      0.9816188440529583,
+      0.026461242330670442,
+      0.1890085914831658,
+      27.661632974147793
+    ],
+    [
+      0.187967148762331,
+      0.037494754259934336,
+      -0.9814593697087752,
+      176.59698359363375
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "base_status": {
+    "fingerprint": "be4ccb96caaaa1250458ca8ea177843e9e9c9f6565c9cc3fc2bcd06876c7103b",
+    "source": "manual-simulation-base",
+    "sourceRevision": 32,
+    "status": "ProvisionalLocked"
+  },
+  "task_home": {
+    "base_fingerprint": "be4ccb96caaaa1250458ca8ea177843e9e9c9f6565c9cc3fc2bcd06876c7103b",
+    "collision_audit_fingerprint": "0ef327ef6237279bdecffecf6b051462343bbf97b1c9d8b58f2afa71f3ac9b3c",
+    "guard_policy_fingerprint": "cea05c9351a654e6ef9f65a1653ef767558065cccc6b1f84c768b004b8afe4dc",
+    "joint_names": [
+      "link-1_Revolute-1",
+      "link-2_Slider-2",
+      "link-3_Revolute-3",
+      "link-4_Slider-4",
+      "link-5_Revolute-5"
+    ],
+    "joint_positions_si": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "minimum_clearance_mm": 1.0,
+    "revision": 13,
+    "robot_profile_fingerprint": "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682",
+    "runtime_validation_status": "Validated",
+    "schema_version": "1.0",
+    "spindle_locked_value_rad": 0.0,
+    "spindle_planning_policy": "external-pressure-spindle-nonplanning-v2",
+    "validated_at_utc": "2026-09-24T13:01:29.187757+00:00",
+    "world_object_count": 31
+  },
+  "confirmed_task": {
+    "base_fingerprint": "be4ccb96caaaa1250458ca8ea177843e9e9c9f6565c9cc3fc2bcd06876c7103b",
+    "corridor_radius_mm": 0.75,
+    "entry_ras_mm": [
+      -88.06932067871094,
+      -34.368526458740234,
+      54.6343994140625
+    ],
+    "home_fingerprint": "13fa6dcf48dc237e83a721bb4dfb102fe811c870d73914bb5bd25d61f4bfa1b3",
+    "limits_fingerprint": "8c8fd6118259aa17a82be7106b03a29b52299e700834a15465811d0f2576fcba",
+    "robot_profile_fingerprint": "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682",
+    "schema_version": "1.0",
+    "snapshot_fingerprint": "ff6f85d000876544aa6b926e9db52bf0afbf5cfebefe4c79ecbf08148a334492",
+    "target_ras_mm": [
+      -88.37436150468885,
+      -38.87573543740375,
+      63.26417193382737
+    ],
+    "target_segment_id": "2.25.295747131114371335249908164658761923371",
+    "tool_frame": "dentobot_drill_tcp",
+    "tool_provenance": "CAD-derived/provisional/un-calibrated; simulation-target-depth-preserve-request-v2",
+    "trajectory_revision": "5c6f19e2afac036cb23aad9f2ebe936ec9f4d923648faffbda6a188dac5bfa35"
+  },
+  "standoff_mm": 2.0,
+  "preentry_world_ras_mm": [
+    -88.00668836764936,
+    -33.443086679110195,
+    52.862496931449705
+  ],
+  "preentry_base_mm": [
+    -83.5656298770149,
+    3.596947188244556,
+    110.20503086406615
+  ],
+  "drill_axis_world": [
+    -0.03131615553078604,
+    -0.4627198898150194,
+    0.8859512413063982
+  ],
+  "drill_axis_base": [
+    -0.2866496018771372,
+    -0.0103087804499079,
+    -0.9579800283874993
+  ],
+  "home_tcp_world_ras_mm": [
+    -90.65389336789315,
+    2.4900588998504247,
+    44.9583691617872
+  ],
+  "home_tcp_base_mm": [
+    -49.69118352451968,
+    1.6070035800153284,
+    124.67001928643401
+  ],
+  "home_axis_world": [
+    0.0662561299490387,
+    0.17200643590252887,
+    -0.9828651541550778
+  ],
+  "home_tcp_distance_to_preentry_mm": 36.88731328399024,
+  "home_axis_error_deg": 162.25761122506833,
+  "workspace_evidence_counts": {
+    "accepted_sample_count": 349,
+    "home_connected_sample_count": 10,
+    "home_connectivity_evaluated_sample_count": 13,
+    "home_connectivity_rejected_sample_count": 3
+  },
+  "ik_seed_sample_indices": [
+    0,
+    16,
+    24,
+    29,
+    70,
+    154,
+    202,
+    283,
+    289,
+    299
+  ],
+  "saved_display_j2_mm": 1.44,
+  "saved_task_j2_min_mm": 1.4377422968047324,
+  "freshness_issues_at_save": [
+    "Step 4C is stale or does not match this PreparedBranch."
+  ],
+  "saved_motion_diagnostic": {
+    "base_fingerprint": "be4ccb96caaaa1250458ca8ea177843e9e9c9f6565c9cc3fc2bcd06876c7103b",
+    "candidate_records": [
+      {
+        "axial_roll_deg": 0.0,
+        "candidate_index": 0,
+        "completed_distance_mm": 0.0,
+        "completion_fraction": 0.0,
+        "failure_classification": "preentry_ik_unreachable",
+        "full_chain_candidate_status": "Blocked",
+        "full_chain_failure_stage": "preentry_ik",
+        "message": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residua...",
+        "planner_leg": "preentry_ik",
+        "requested_distance_mm": 0.0,
+        "route_type": "bounded-ik-search",
+        "stage": "preentry_ik",
+        "success": false,
+        "waypoint_count": 0
+      }
+    ],
+    "collision_audit_fingerprint": "0ef327ef6237279bdecffecf6b051462343bbf97b1c9d8b58f2afa71f3ac9b3c",
+    "failure_classification": "preentry_ik_unreachable",
+    "full_task_outcome": {
+      "approximate_ik_enabled": false,
+      "axial_frame_roll_deg": 0.0,
+      "blocked_stage": "preentry_ik",
+      "cartesian_planning_enabled": true,
+      "collision_evidence_scope": "AuthoritativeCompleteScene",
+      "drill_tool_frame_policy": "stage1-position-axis-authoritative-fk-v3",
+      "first_invalid_cause": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residua...",
+      "first_invalid_composed_waypoint": -1,
+      "first_invalid_stage_waypoint": -1,
+      "guideClearanceWarningContactCount": 0,
+      "guideClearanceWarningContactPenetrationMm": [],
+      "guideClearanceWarningCount": 0,
+      "guideClearanceWarningKinds": [],
+      "guideClearanceWarningPairs": [],
+      "guideClearanceWarnings": [],
+      "joint_planner_algorithm": "geometric::RRTstar",
+      "joint_planner_id": "",
+      "joint_planning_attempts": 1,
+      "joint_planning_time_sec": 5.0,
+      "minimumGuideClearanceWarningM": null,
+      "plan_selection": {
+        "candidate_index": 0,
+        "route_key": {
+          "axial_roll_deg": 0.0,
+          "clearance_sample_index": null,
+          "ik_seed_sample_index": null,
+          "route_type": "bounded-ik-search"
+        },
+        "state": "auto"
+      },
+      "requested_joint_planner_id": "RRTstarkConfigDefault",
+      "selected_candidate_index": 0,
+      "session_anatomy_review_override": {
+        "active": false,
+        "effectiveActive": false,
+        "exists": false,
+        "historicalOverrideEnabled": false
+      },
+      "spindle_locked_value_rad": 0.0,
+      "spindle_planning_policy": "external-pressure-spindle-nonplanning-v2",
+      "stage1_waypoint_count": 0,
+      "stage2_waypoint_count": 0,
+      "stage3_waypoint_count": 0,
+      "status": "Failed",
+      "template_collision_excluded_object_ids": [],
+      "template_collision_exclusion_active": false,
+      "tool_axis_ras": [],
+      "tool_orientation_fingerprint": ""
+    },
+    "generated_at_utc": "2026-09-24T13:05:21.051864+00:00",
+    "operator_review_state": "Unreviewed",
+    "planning_parameters_fingerprint": "9fb77db524967240f97e82dbdf0deefdd38db60cd7bb6d692a11d5bad6d67ffa",
+    "robot_profile_fingerprint": "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682",
+    "schema_version": "2.1",
+    "selected_candidate_index": 0,
+    "session_fingerprint": "833b644b0e409aaf3192d8745d356de52fe059daad8b56f0ce51ffdc914b5abb",
+    "stage_outcomes": [
+      {
+        "completion_fraction": 0.0,
+        "failure_classification": "preentry_ik_unreachable",
+        "first_invalid_waypoint": -1,
+        "guideClearanceWarningContactCount": 0,
+        "guideClearanceWarningContactPenetrationMm": [],
+        "guideClearanceWarningCount": 0,
+        "guideClearanceWarningKinds": [],
+        "guideClearanceWarningPairs": [],
+        "guideClearanceWarnings": [],
+        "minimumGuideClearanceWarningM": null,
+        "reason": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residua...",
+        "selected_candidate_index": 0,
+        "stage": "stage1_free_space",
+        "status": "Failed",
+        "waypoint_count": 0
+      },
+      {
+        "completion_fraction": 0.0,
+        "first_invalid_waypoint": -1,
+        "guideClearanceWarningContactCount": 0,
+        "guideClearanceWarningContactPenetrationMm": [],
+        "guideClearanceWarningCount": 0,
+        "guideClearanceWarningKinds": [],
+        "guideClearanceWarningPairs": [],
+        "guideClearanceWarnings": [],
+        "minimumGuideClearanceWarningM": null,
+        "reason": "",
+        "stage": "stage2_fixed_axis_terminal",
+        "status": "NotRun",
+        "waypoint_count": 0
+      },
+      {
+        "completion_fraction": 0.0,
+        "first_invalid_waypoint": -1,
+        "guideClearanceWarningContactCount": 0,
+        "guideClearanceWarningContactPenetrationMm": [],
+        "guideClearanceWarningCount": 0,
+        "guideClearanceWarningKinds": [],
+        "guideClearanceWarningPairs": [],
+        "guideClearanceWarnings": [],
+        "minimumGuideClearanceWarningM": null,
+        "reason": "",
+        "stage": "stage3_drilling",
+        "status": "NotRun",
+        "waypoint_count": 0
+      }
+    ],
+    "stale_reason": "",
+    "state": "Current",
+    "task_fingerprint": "ff6f85d000876544aa6b926e9db52bf0afbf5cfebefe4c79ecbf08148a334492",
+    "trajectory_fingerprint": "5c6f19e2afac036cb23aad9f2ebe936ec9f4d923648faffbda6a188dac5bfa35"
+  },
+  "saved_planner_comparison": {
+    "branches": {
+      "guide-bcf408698ea0018191ff": {
+        "attempts": [
+          {
+            "message": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 52.0547 mm and 99.1255 deg. (best position=52.05467987591302 mm, axis=99.12545768491374 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.918436 mm and 0.00132404 deg. (best position=0.9184356532254792 mm, axis=0.001324037499829277 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919855 mm and 0 deg. (best position=0.919854952672064 mm, axis=0.0 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 69.8527 mm and 10.8774 deg. (best position=69.85266342244874 mm, axis=10.877436362092014 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.8327 mm and 62.2269 deg. (best position=17.832686428633014 mm, axis=62.226945590126675 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919632 mm and 0.000201366 deg. (best position=0.919632426013583 mm, axis=0.00020136573170520273 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.5296 mm and 0.000354307 deg. (best position=17.529584788911528 mm, axis=0.00035430680528750067 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 121.797 mm and 116.558 deg. (best position=121.79733306222964 mm, axis=116.55785094960859 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.91979 mm and 6.54461e-05 deg. (best position=0.9197896274653216 mm, axis=6.544607997246842e-05 deg, collisions=())",
+            "paths": {
+              "stage1": [],
+              "stage2": [],
+              "stage3": []
+            },
+            "planner_id": "RRTConnectkConfigDefault",
+            "session": null,
+            "status": "Fail"
+          },
+          {
+            "message": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 52.0547 mm and 99.1255 deg. (best position=52.05467987591302 mm, axis=99.12545768491374 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.918436 mm and 0.00132404 deg. (best position=0.9184356532254792 mm, axis=0.001324037499829277 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919855 mm and 0 deg. (best position=0.919854952672064 mm, axis=0.0 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 69.8527 mm and 10.8774 deg. (best position=69.85266342244874 mm, axis=10.877436362092014 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.8327 mm and 62.2269 deg. (best position=17.832686428633014 mm, axis=62.226945590126675 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919632 mm and 0.000201366 deg. (best position=0.919632426013583 mm, axis=0.00020136573170520273 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.5296 mm and 0.000354307 deg. (best position=17.529584788911528 mm, axis=0.00035430680528750067 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 121.797 mm and 116.558 deg. (best position=121.79733306222964 mm, axis=116.55785094960859 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.91979 mm and 6.54461e-05 deg. (best position=0.9197896274653216 mm, axis=6.544607997246842e-05 deg, collisions=())",
+            "paths": {
+              "stage1": [],
+              "stage2": [],
+              "stage3": []
+            },
+            "planner_id": "RRTkConfigDefault",
+            "session": null,
+            "status": "Fail"
+          },
+          {
+            "message": "Approach planning found no collision-aware PreEntry IK endpoint for the canonical non-spinning drill TCP. canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 13.9867 mm and 59.8331 deg. (best position=13.986662936514 mm, axis=59.83307006600973 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.268215 mm and 1.54224 deg. (best position=0.2682149642843847 mm, axis=1.54224352777377 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 52.0547 mm and 99.1255 deg. (best position=52.05467987591302 mm, axis=99.12545768491374 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.918436 mm and 0.00132404 deg. (best position=0.9184356532254792 mm, axis=0.001324037499829277 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919855 mm and 0 deg. (best position=0.919854952672064 mm, axis=0.0 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 69.8527 mm and 10.8774 deg. (best position=69.85266342244874 mm, axis=10.877436362092014 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.8327 mm and 62.2269 deg. (best position=17.832686428633014 mm, axis=62.226945590126675 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.919632 mm and 0.000201366 deg. (best position=0.919632426013583 mm, axis=0.00020136573170520273 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 17.5296 mm and 0.000354307 deg. (best position=17.529584788911528 mm, axis=0.00035430680528750067 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 121.797 mm and 116.558 deg. (best position=121.79733306222964 mm, axis=116.55785094960859 deg, collisions=()); canonical TCP position-axis IK: Position-axis IK did not reach tolerance; best residuals were 0.91979 mm and 6.54461e-05 deg. (best position=0.9197896274653216 mm, axis=6.544607997246842e-05 deg, collisions=())",
+            "paths": {
+              "stage1": [],
+              "stage2": [],
+              "stage3": []
+            },
+            "planner_id": "RRTstarkConfigDefault",
+            "session": null,
+            "status": "Fail"
+          }
+        ],
+        "identity": {
+          "base": "be4ccb96caaaa1250458ca8ea177843e9e9c9f6565c9cc3fc2bcd06876c7103b",
+          "branch_id": "guide-bcf408698ea0018191ff",
+          "collision_audit": "e1caaef9ae382471998db5a13c7dcd138b442d1e59222e587285230c9d04aed7",
+          "home": "13fa6dcf48dc237e83a721bb4dfb102fe811c870d73914bb5bd25d61f4bfa1b3",
+          "robot_profile": "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682",
+          "task": "ff6f85d000876544aa6b926e9db52bf0afbf5cfebefe4c79ecbf08148a334492",
+          "trajectory": "5c6f19e2afac036cb23aad9f2ebe936ec9f4d923648faffbda6a188dac5bfa35"
+        }
+      }
+    },
+    "fingerprint": "0b6780497d4dfc3d88cfb12277938a7e523b334bb9590a8de8abeb896665cdd7",
+    "schema_version": "1.0"
+  }
+}

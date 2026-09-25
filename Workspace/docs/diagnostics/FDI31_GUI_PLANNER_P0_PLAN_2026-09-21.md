@@ -1,18 +1,42 @@
 # FDI31 GUI planner P0 recovery contract
 
+**2026-09-25 source restart and order:** Tarun authorized bounded source
+renovation in the [supplemental Step 6 plan](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+The IK-only FDI11 diagnostic is source-implemented and checked without OMPL
+or motion. Tarun supplied the first visible report for a changed base/Home/scene;
+his interpretation and the exact saved changed-setup identity remain pending.
+Workspace/P1/P2/P3, FDI21 exact-state and FDI31
+reference gates retain this contract's safety and manual acceptance rules.
+The 24 September source halt below is historical; agent-run planner runtime
+remains separately gated. No hardware authorization follows.
+
+**2026-09-24 presentation supersession:** Tarun directs one Planning &
+Diagnostics area after base/ROS/Task Home setup and one Preview & Control area.
+The former separate 6.3 workspace, 6.4 confirmation, 6.5 Approach and 6.6
+Drill cards remain the implemented source map until migrated under
+`S6-WORKSPACE-PURPOSE` → `S6-LIVE-01` → `S6-LIVE-03/04` ownership. This changes
+where an operator sees and requests evidence; M0–M4 milestones, one-at-a-time
+manual verdicts, collision/IK/phase gates and the current agent-runtime pause
+remain effective. Preview still requires a fresh complete guard-valid plan.
+“Control” currently means monitored simulation preview and ROS expert
+diagnostics; hardware operation requires a separate approved procedure and
+implementation. The detailed migration contract is in DEVELOPMENT_PLAN.md.
+
 Date: 2026-09-21  
 Owner: `S6-LIVE-01`, continuing through pending `S6-LIVE-03..05` only after the
 operator accepts each preceding milestone  
-Status: operator-paused 2026-09-24; this remains the sole detailed contract.
-Implementation/runtime is not authorized merely by this document.
+Status: bounded source renovation authorized 2026-09-25; agent runtime and
+milestone acceptance remain gated. This remains the sole canonical milestone
+contract; its supplemental plan defines the current implementation order.
 
-**2026-09-24 operator stop:** Tarun is taking time to decide how to proceed and
+**Historical 2026-09-24 operator stop:** Tarun was taking time to decide how to proceed and
 will work on independent backlog items meanwhile. Preserve source and runtime
 evidence, including the incomplete FDI21 three-planner comparison and invalid
 offline collision images. Do not advance this planner task, repair the recapture
 script, run another trial, optimize the guard, or treat an earlier “next”
-paragraph as permission to resume. Reconcile Tarun's next direction with this
-contract before selecting a bounded action; all unaccepted milestones stay open.
+paragraph as permission to resume. His 25 September direction supersedes
+that source halt for the bounded order linked above; all unaccepted milestones
+and runtime stops stay open.
 
 ## P0 planner-policy implementation state — reconciled 2026-09-23
 

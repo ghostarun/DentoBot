@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowCancelled, WorkflowProgress
 from .widget_scan_context import ScanContextWidgetMixin
 
 
@@ -1011,16 +1012,23 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         dialog.exec()
 
     def onPrepareSelectedToothPulp(self) -> None:
-        segmentationNode = self._reviewSegmentationNode
-        toothId = self._selectedReviewSegmentId()
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
         try:
+            progress = WorkflowProgress("Step 2 pulp mask")
+            segmentationNode = self._reviewSegmentationNode
+            toothId = self._selectedReviewSegmentId()
+            progress.update("Checking selected tooth")
             if not segmentationNode or not toothId or not self.logic:
                 raise ValueError(_("Select a whole tooth in Step 2 first."))
             if self.logic.getSegmentationReviewState(segmentationNode) != "Reviewed":
                 raise ValueError(_("Review the source segmentation before preparing a pulp mask."))
             tooth = self.logic.validateTargetTooth(segmentationNode, toothId)
-            result = self.logic.prepareTargetPulpMask(segmentationNode, toothId)
+            result = self.logic.prepareTargetPulpMask(segmentationNode, toothId, progress=progress.update)
             pulpId = result["pulpSegmentId"]
+            progress.update("Displaying tooth and pulp", can_cancel=False)
             self.logic.setAllSegmentationSegmentsVisibility(segmentationNode, False)
             self.logic.setSegmentationSegmentVisibility(segmentationNode, toothId, True)
             self.logic.setSegmentationSegmentVisibility(segmentationNode, pulpId, True)
@@ -1049,8 +1057,14 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
                 style = "color: #207227;"
             self.ui.segmentationReviewStatusLabel.text = message
             self.ui.segmentationReviewStatusLabel.styleSheet = style
+        except WorkflowCancelled:
+            self.ui.segmentationReviewStatusLabel.text = _("Pulp preparation cancelled before mask creation.")
         except (RuntimeError, ValueError) as exc:
             slicer.util.errorDisplay(str(exc))
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
 
     def onEditSelectedSegment(self) -> None:
         segmentId = self._selectedReviewSegmentId()

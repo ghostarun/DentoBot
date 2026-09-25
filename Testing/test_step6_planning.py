@@ -1300,6 +1300,7 @@ def test_halton_workspace_sampling_is_deterministic_and_bounded() -> None:
 
 def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
+    completed = []
     result = sample_filtered_tcp_workspace(
         limits=limits,
         sample_count=10,
@@ -1310,7 +1311,9 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
         coarse_self_clearance_mm=0.0,
         environment_points_mm=np.zeros((0, 3), dtype=float),
         environment_clearance_mm=2.0,
+        progress=lambda done, total: completed.append((done, total)),
     )
+    assert completed == [(10, 10)]
     assert result.requested_count == 10
     assert result.accepted_count == 10
     assert result.self_collision_rejections == 0

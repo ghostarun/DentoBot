@@ -110,6 +110,7 @@ class CaseBackendWidgetMixin:
         self._enforceStep6OpenedJawDisplaySeparation()
         self._restoreStageExclusiveInteractionLocks()
         try:
+            self._parameterNode.workflowStageIndex = int(self.ui.workflowStageComboBox.currentIndex)
             self.logic.prepareDentoCaseSchema2ForSave(self._parameterNode)
             # Capture lineage while Markups carry the same intrinsic
             # interaction state that will be serialized into the MRB.
@@ -446,9 +447,45 @@ class CaseBackendWidgetMixin:
                         slicer.app.processEvents()
                         phase("Validating hydrated case", can_cancel=False)
                         self._validateHydratedCaseBundle(inspection.workflow)
+                        # MRML rounds matrices to six significant digits. Only
+                        # after all strict package audits may the validated
+                        # environment restore the exact saved pose matrix.
+                        transform = self._parameterNode.step6CaseJawTransform
+                        environment = inspection.workflow.get("step6", {}).get("environment") or {}
+                        values = environment.get("jaw_transform_matrix", [])
+                        if (
+                            transform
+                            and self._parameterNode.step6CaseJawPreparationMode == "CaseFoundationCurrent"
+                            and transform.GetAttribute("DENTOBOT.GeometryState") == "Current"
+                            and len(values) == 16
+                            and environment.get("planning_pose_fingerprint")
+                            == transform.GetAttribute("DENTOBOT.PlanningPoseFingerprint")
+                        ):
+                            matrix = vtk.vtkMatrix4x4()
+                            transform.GetMatrixTransformToParent(matrix)
+                            if all(
+                                abs(matrix.GetElement(row, col) - float(f"{float(values[row * 4 + col]):.6g}")) < 1e-8
+                                for row in range(4) for col in range(4)
+                            ):
+                                for row in range(4):
+                                    for col in range(4):
+                                        matrix.SetElement(row, col, float(values[row * 4 + col]))
+                                transform.SetMatrixTransformToParent(matrix)
                     finally:
                         self._endCaseBundleRestore(hydrationGeneration)
                     self._revalidateImportedStep6ContextAfterLoad()
+                    savedStage = int(self._parameterNode.workflowStageIndex)
+                    if savedStage < 0 and self._parameterNode.step6MotionDiagnosticJson:
+                        # Older packages did not persist navigation; a saved
+                        # motion diagnostic proves the operator reached Step 6.
+                        savedStage = len(self._workflowStageEntries()) - 1
+                    if savedStage >= 0:
+                        self._setWorkflowStage(savedStage, ensureVisible=False)
+                        if (
+                            savedStage in {3, len(self._workflowStageEntries()) - 1}
+                            and not self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
+                        ):
+                            self._applyWorkflowViewPreset("recommended", updateStatus=False)
                     self._enforceStep6OpenedJawDisplaySeparation()
                 except Exception as hydrationError:
                     logging.exception(

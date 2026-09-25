@@ -704,11 +704,11 @@ class RobotSceneSyncLogicMixin:
         source_id: str,
         outgoing_id: str,
         outgoing_base_mm: vtk.vtkPolyData,
-        base_world: vtk.vtkMatrix4x4,
+        base_transform: vtkMRMLLinearTransformNode,
         outgoing_fingerprint: str,
         opacity: float,
     ) -> vtkMRMLModelNode:
-        """Create one transient world-RAS display copy of the exact payload."""
+        """Display the exact base-frame payload under its locked base transform."""
         existing = [
             node
             for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
@@ -720,20 +720,16 @@ class RobotSceneSyncLogicMixin:
         )
         for duplicate in existing[1:]:
             slicer.mrmlScene.RemoveNode(duplicate)
-        world_copy = self._transformPolydataWithMatrix(
-            outgoing_base_mm,
-            base_world,
-        )
         node.SetName(f"[Step 6 Audit] {outgoing_id}")
-        node.SetAndObserveTransformNodeID(None)
-        node.SetAndObservePolyData(world_copy)
+        node.SetAndObserveTransformNodeID(base_transform.GetID())
+        node.SetAndObservePolyData(outgoing_base_mm)
         node.SetAttribute("DENTOBOT.CollisionAuditCopy", "true")
         node.SetAttribute("DENTOBOT.MoveItObstacleSource", source_id)
         node.SetAttribute("DENTOBOT.OutgoingCollisionObjectId", outgoing_id)
         node.SetAttribute(
             "DENTOBOT.OutgoingCollisionFingerprint", outgoing_fingerprint
         )
-        node.SetAttribute("DENTOBOT.CoordinateFrame", "SlicerWorldRAS")
+        node.SetAttribute("DENTOBOT.CoordinateFrame", "base_link")
         node.SetAttribute("DENTOBOT.IntendedUse", "DisplayOnlyAuditOverlay")
         node.SaveWithSceneOff()
         node.CreateDefaultDisplayNodes()
@@ -753,6 +749,7 @@ class RobotSceneSyncLogicMixin:
         expected_policy_fingerprint: str = "",
         require_correlated_readback: bool = False,
         defer_runtime_acknowledgement: bool = False,
+        progress=None,
     ) -> int:
         """Publish Step 6 anatomy/guide surfaces in the base_link frame."""
         try:
@@ -872,7 +869,9 @@ class RobotSceneSyncLogicMixin:
         anatomyIds = tuple(
             dict.fromkeys((*jawGroups.get("upper", ()), *jawGroups.get("lower", ())))
         )
-        for segmentId in anatomyIds:
+        if progress:
+            progress("Preparing collision anatomy", 0, len(anatomyIds))
+        for segmentIndex, segmentId in enumerate(anatomyIds, start=1):
             sourceWorld = self._segmentationSegmentsSurfaceWorld(
                 segmentation,
                 {segmentId},
@@ -960,6 +959,8 @@ class RobotSceneSyncLogicMixin:
                 prepared_world=collisionSurface,
                 jaw_transform_applied=isMoving,
             )
+            if progress:
+                progress("Preparing collision anatomy", segmentIndex, len(anatomyIds))
 
         active_ids = {str(source["sourceId"]) for source in sources}
         remove_stale_moveit_obstacle_proxies(active_ids)
@@ -987,7 +988,9 @@ class RobotSceneSyncLogicMixin:
             }
         )
         object_records: list[dict[str, object]] = []
-        for source in sources:
+        if progress:
+            progress("Publishing collision scene", 0, len(sources))
+        for sourceIndex, source in enumerate(sources, start=1):
             source_id = str(source["sourceId"])
             source_name = str(source["sourceName"])
             source_world = source["sourceWorld"]
@@ -1055,7 +1058,7 @@ class RobotSceneSyncLogicMixin:
                 source_id=source_id,
                 outgoing_id=source_name,
                 outgoing_base_mm=outgoing_evidence["surface"],
-                base_world=base_world,
+                base_transform=base_transform,
                 outgoing_fingerprint=str(outgoing_evidence["fingerprint"]),
                 opacity=float(parameterNode.step6CollisionAuditOpacity),
             )
@@ -1086,6 +1089,10 @@ class RobotSceneSyncLogicMixin:
                 raise RuntimeError(message)
             record["publish_status"] = "PublishReturnedSuccess"
             object_records.append(record)
+            if progress:
+                progress("Publishing collision scene", sourceIndex, len(sources))
+        if progress:
+            progress("Checking MoveIt collision-scene readback", None, None)
         current_joint_positions_si = monitored_joint_positions_si()
         if any(
             name not in current_joint_positions_si for name in JOINT_NAMES

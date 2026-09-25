@@ -843,6 +843,18 @@ def test_motion_diagnostic_v21_names_fixed_axis_terminal_stage():
     assert parse_motion_diagnostic_session(record.to_dict()) == record
 
 
+def test_motion_diagnostic_v22_keeps_old_reports_readable():
+    current = _motion_diagnostic(
+        schema_version="2.2", stage_name="stage2_fixed_axis_terminal"
+    )
+    previous = _motion_diagnostic(
+        schema_version="2.1", stage_name="stage2_fixed_axis_terminal"
+    )
+    assert parse_motion_diagnostic_session(current.to_dict()) == current
+    assert parse_motion_diagnostic_session(previous.to_dict()) == previous
+    assert current.schema_version != previous.schema_version
+
+
 def test_motion_diagnostic_retains_exact_error_dialog_text():
     record = _motion_diagnostic(
         schema_version="2.1", stage_name="stage2_fixed_axis_terminal"

@@ -1,0 +1,13 @@
+# Archived Step 6 working records
+
+These are preserved historical analyses and proposals, **not** the current work order. The active [renovation plan](../../STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md), [later-reference index](../../STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md), [FDI31 P0 milestone contract](../../FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md), [backlog](../../../backlog.md), and [TASKS.md](../../../TASKS.md) determine current scope and acceptance. Dated PDFs, screenshots, JSON evidence and logbooks remain at their original locations.
+
+| Original path under `docs/diagnostics/` | Archived file | Historical status and existing owner of open work |
+|---|---|---|
+| `STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md` | [Manual diagnosis](STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md) | Its §21 restart order and “current” P1 conclusion describe the September 19 FDI31 session and are superseded. FDI11/FDI21 and planner follow-ups remain `S6-LIVE-01` in the backlog. |
+| `PLANNER_IMPLEMENTATION_MAP_2026-09-20.md` | [Implementation map](PLANNER_IMPLEMENTATION_MAP_2026-09-20.md) | Dated code map and diagnostic history. Current Step 6 source and task state require fresh inspection; `S6-LIVE-01/05`, `S6-REUSABLE-CASE-SETUP` and Step 5 owners retain open gates. |
+| `FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md` | [Campaign 1 plan](FDI31_PLANNER_RECOVERY_CAMPAIGN_1.md) | Bounded historical r4 experiment contract and hashes. `S6-REUSABLE-CASE-SETUP` and `S6-LIVE-01/03` retain case/route review; no P6/P7 authorization follows. |
+| `FDI31_PLANNER_RECOVERY_REPORT.md` | [Campaign 1 report](FDI31_PLANNER_RECOVERY_REPORT.md) | Later §§AU–AW supersede the front-matter P4-not-run statement: P3 phase-static accepted 21 candidates, P4 retained six sampled insertion witnesses, and P5 was a sampled approach pass. None is a full GUI route, physical fit or clinical acceptance. P1 input/scene review and P5 operator verification remain open under the existing Step 6 owners; adjacent Step 4/5 evidence retains its own owners. |
+| `DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md` | [Base-pose proposal](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) | Metric catalogue and proposed forehead sweep/design analysis. `S6-WORKSPACE-PURPOSE` owns only the confirmed cube sampling ROI and workspace-purpose correction; broader sweep, thresholds, ROS action and robot redesign remain unaccepted ideas in the later-reference index. |
+
+Historical literal paths, manifests and hashes inside these records are retained as provenance, not active links. The [GUI automation SOP](../../STEP6_GUI_AUTOMATION_SOP_2026-09-23.md) stays in place because it still governs future diagnostic runtime.

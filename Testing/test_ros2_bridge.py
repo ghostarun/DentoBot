@@ -303,6 +303,65 @@ def test_moveit_frame_contract_constants():
     assert CARTESIAN_START_ORIENTATION_TOLERANCE_DEG == 0.5
 
 
+def test_position_axis_ik_diagnostics_map_and_support_older_nodes(monkeypatch):
+    def node(extra=()):
+        getters = {
+            "ComputeMoveItPositionAxisIK": lambda *_args, **_kwargs: None,
+            "GetLastMoveItPositionAxisIKMessage": lambda: "IK diagnostic",
+            "GetLastMoveItPositionAxisIKPositionResidualMm": lambda: 0.2,
+            "GetLastMoveItPositionAxisIKAxisResidualDeg": lambda: 0.3,
+            "GetLastMoveItPositionAxisIKBestJointValues": lambda: [0.1] * 5,
+            "GetMoveItCollidingBodyPairs": lambda *_args: (),
+        }
+        getters.update(dict(extra))
+        return SimpleNamespace(**getters)
+
+    robot_node = node(
+        (
+            ("GetLastMoveItPositionAxisIKTerminationReason", lambda: "converged"),
+            ("GetLastMoveItPositionAxisIKIterationCount", lambda: 7),
+            ("GetLastMoveItPositionAxisIKCollisionCheckStatus", lambda: "not_requested"),
+            ("GetLastMoveItPositionAxisIKConditionRatio", lambda: 0.25),
+        )
+    )
+    logic = SimpleNamespace(computeIKWithMoveIt=lambda **_kwargs: [0.1] * 5)
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, robot_node, None, None),
+    )
+    ok, _message, _positions, diagnostic = bridge_module.solve_moveit_tcp_position_axis_goal(
+        avoid_collisions=False
+    )
+    assert ok
+    assert diagnostic["termination_reason"] == "converged"
+    assert diagnostic["iteration_count"] == 7
+    assert diagnostic["collision_check_status"] == "not_requested"
+    assert diagnostic["task_jacobian_condition_ratio"] == 0.25
+    assert diagnostic["collision_pairs"] == ()
+
+    robot_node.GetLastMoveItPositionAxisIKConditionRatio = lambda: -1.0
+    _ok, _message, _positions, diagnostic = bridge_module.solve_moveit_tcp_position_axis_goal(
+        avoid_collisions=False
+    )
+    assert diagnostic["task_jacobian_condition_ratio"] is None
+
+    old_logic = SimpleNamespace(computeIKWithMoveIt=lambda **_kwargs: [])
+    old_node = node()
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (old_logic, old_node, None, None),
+    )
+    ok, _message, _positions, diagnostic = bridge_module.solve_moveit_tcp_position_axis_goal()
+    assert not ok
+    assert diagnostic["termination_reason"] == "unknown"
+    assert diagnostic["iteration_count"] is None
+    assert diagnostic["collision_check_status"] == "unknown"
+    assert diagnostic["task_jacobian_condition_ratio"] is None
+    assert diagnostic["collision_pairs"] == ()
+
+
 def test_joint_goal_planning_waits_for_a_stable_scene_and_retries_boundedly():
     source = (HELPERS / "DENTOROS2Bridge.py").read_text(encoding="utf-8")
     planner = source.split("def plan_moveit_joint_goal", 1)[1].split(

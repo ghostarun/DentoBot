@@ -1,5 +1,9 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## Slicer UI stall watchdog — 2026-09-24
+
+The DENTO Workflow module starts a low-overhead event-loop watchdog on setup. While Slicer is open, a one-second Qt heartbeat rearms a five-second `faulthandler` stack timer. It records two-second UI latency, minute heartbeat summaries, five-second Python thread stacks, recovery gaps, workflow phase and normal session end. Python fatal-signal tracebacks use the same log. The normal `launch-dentoworkflow.bash` simulation handoff also starts a separate read-only five-second sampler. It records Slicer/ROS process CPU, RSS, threads, file descriptors and exits; container cgroup memory/CPU/PID/IO limits, counters and pressure; host memory/load/pressure; run-log disk space; and sampler gaps. It has no MRML or ROS calls and stops with the handoff. Logs persist in the existing bind mount at `/home/light-tarun/dentobot/data/dentobot-runs/ui-watchdog/` (container path `${DENTOBOT_RUN_ARTIFACT_ROOT}/ui-watchdog/`), as `slicer-ui-*.log` and `resources-*.jsonl`. A directly launched Slicer without the normal handoff gets the UI watchdog only. The next Slicer launch loads this source; an already open module needs a restart. The diagnostic probe that owns a separate `faulthandler` timer sets `DENTOBOT_UI_WATCHDOG_DISABLE=1`. No image rebuild, ROS setting or container limit change is required. Review logs for case-sensitive paths before external sharing; stack dumps do not include Python local-variable values. These local logs grow with session time and are retained for diagnosis; archive or remove old reviewed sessions when no longer needed.
+
 ## 2026-09-09 Slicer 5.12 migration status
 
 The accepted runtime remains Slicer 5.10.0. A controlled Slicer 5.12.0

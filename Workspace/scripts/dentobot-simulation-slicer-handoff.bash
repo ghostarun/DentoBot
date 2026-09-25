@@ -80,6 +80,9 @@ fi
 
 handoff_reason=not_started
 stack_pid=
+watchdog_pid=
+watchdog_log_dir="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}/ui-watchdog"
+watchdog_log_path="${watchdog_log_dir}/resources-$(date -u +%Y%m%d-%H%M%S)-$$.jsonl"
 
 handoff_log() {
   local stage=$1
@@ -129,6 +132,15 @@ cleanup_stack() {
     wait "${stack_pid}" >/dev/null 2>&1 || true
   fi
 
+  if [[ -n ${watchdog_pid} ]]; then
+    kill -TERM "${watchdog_pid}" >/dev/null 2>&1 || true
+    wait "${watchdog_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -d ${watchdog_log_dir} ]]; then
+    printf '{"event":"HANDOFF_EXIT","status":%s,"reason":"%s"}\n' \
+      "${initiating_status}" "${cleanup_reason}" >>"${watchdog_log_path}" || true
+  fi
+
   handoff_log cleanup_complete \
     "reason=${cleanup_reason}" \
     "initiating_status=${initiating_status}"
@@ -148,6 +160,16 @@ handle_signal() {
 trap 'cleanup_stack "$?"' EXIT
 trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
+
+if mkdir -p "${watchdog_log_dir}"; then
+  python3 /workspace/ros2_ws/src/DentoBot/Workspace/scripts/dentobot-resource-watchdog.py \
+    --parent-pid "$$" --output-path "${watchdog_log_path}" \
+    >"${watchdog_log_dir}/monitor-stderr-$$.log" 2>&1 &
+  watchdog_pid=$!
+  handoff_log resource_watchdog_started pid="${watchdog_pid}" log="${watchdog_log_path}"
+else
+  handoff_log resource_watchdog_unavailable reason=log_directory
+fi
 
 if ! : >"${stack_log}"; then
   handoff_reason=stack_log_open_failed

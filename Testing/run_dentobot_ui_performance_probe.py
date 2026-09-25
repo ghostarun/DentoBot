@@ -25,6 +25,7 @@ CASE = os.environ.get(
 
 
 def run():
+    os.environ["DENTOBOT_UI_WATCHDOG_DISABLE"] = "1"  # This probe owns faulthandler's one global timer.
     stack_log = open("/tmp/dentobot-ui-performance-stacks.log", "w")
     faulthandler.dump_traceback_later(30, repeat=True, file=stack_log)
     heartbeats = []

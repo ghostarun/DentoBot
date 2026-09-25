@@ -462,6 +462,7 @@ def sample_filtered_tcp_workspace(
     coarse_self_clearance_mm: float,
     environment_points_mm: np.ndarray | None,
     environment_clearance_mm: float,
+    progress: Callable[[int, int], None] | None = None,
 ) -> WorkspaceSampleResult:
     """Return deterministic joint-space FK samples that pass draft guards.
 
@@ -483,11 +484,11 @@ def sample_filtered_tcp_workspace(
     accepted: list[WorkspaceAcceptedSample] = []
     self_rejections = 0
     environment_rejections = 0
-    for display in deterministic_joint_workspace_samples_display(
+    for index, display in enumerate(deterministic_joint_workspace_samples_display(
         limits,
         sample_count,
         current_display_joints,
-    ):
+    ), 1):
         joints_si = _display_to_si_vector(display)
         ok, reason, tcp_world = evaluate_motion_configuration(
             joints_si,
@@ -504,6 +505,8 @@ def sample_filtered_tcp_workspace(
                 self_rejections += 1
             else:
                 environment_rejections += 1
+            if progress and index % 10 == 0:
+                progress(index, sample_count)
             continue
         tcp_base = inverse_base_world @ np.asarray([*tcp_world, 1.0], dtype=float)
         accepted.append(
@@ -515,6 +518,8 @@ def sample_filtered_tcp_workspace(
                 ),
             )
         )
+        if progress and index % 10 == 0:
+            progress(index, sample_count)
     return WorkspaceSampleResult(
         requested_count=int(sample_count),
         accepted_samples=tuple(accepted),

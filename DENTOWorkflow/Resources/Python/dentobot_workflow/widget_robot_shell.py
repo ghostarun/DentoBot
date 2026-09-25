@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowProgress
 
 
 class RobotShellWidgetMixin:
@@ -33,6 +34,7 @@ class RobotShellWidgetMixin:
                 "confirm_task": self._onStep6ConfirmTask,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
+                "check_preentry_ik": self._onStep6CheckPreEntryIK,
                 "compare_planners": self._onStep6ComparePlanners,
                 "cancel_planner_comparison": self._onStep6CancelPlannerComparison,
                 "show_planner_comparison": self._onStep6ShowPlannerComparison,
@@ -193,32 +195,57 @@ class RobotShellWidgetMixin:
     def _onShellConnectRobot(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.connect(open_motion_module=False)
-        remediationConnected = bool(result.details.get("runtimeConnected", False))
-        if result.success or remediationConnected:
-            self._updateRobotPlacement()
-            self._applyStep6RecommendedView()
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 6.1 connect ROS + MoveIt")
+        try:
+            result = self._robotWorkflowFacade.connect(
+                open_motion_module=False,
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+            progress.update("Refreshing connected workflow", can_cancel=False)
+            remediationConnected = bool(result.details.get("runtimeConnected", False))
+            if result.success or remediationConnected:
+                self._updateRobotPlacement()
+                self._applyStep6RecommendedView()
+            self._refreshShellRobotCapabilities()
+            # Capability refresh writes a generic runtime summary. Restore the
+            # action-specific result after it.
+            self._robotSimulationPanel.showRuntimeResult(result)
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
         if remediationConnected:
             slicer.util.warningDisplay(result.message)
-        else:
-            if not result.success:
-                slicer.util.errorDisplay(result.message)
-        self._refreshShellRobotCapabilities()
-        # Capability refresh writes a generic runtime summary.  Restore the
-        # action-specific result afterwards so Task Home/base remediation is
-        # not immediately hidden from the operator.
-        self._robotSimulationPanel.showRuntimeResult(result)
+        elif not result.success:
+            slicer.util.errorDisplay(result.message)
 
     def _onShellDisconnectRobot(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.disconnect()
-        self._robotSimulationPanel.showRuntimeResult(result)
-        if result.success:
-            self._updateRobotPlacement()
-        else:
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = WorkflowProgress("Step 6.1 disconnect ROS + MoveIt")
+        try:
+            result = self._robotWorkflowFacade.disconnect(
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                )
+            )
+            progress.update("Refreshing disconnected workflow", can_cancel=False)
+            if result.success:
+                self._updateRobotPlacement()
+            self._refreshShellRobotCapabilities()
+            self._robotSimulationPanel.showRuntimeResult(result)
+        finally:
+            progress.close()
+            self._workflowActionBusy = False
+        if not result.success:
             slicer.util.errorDisplay(result.message)
-        self._refreshShellRobotCapabilities()
 
     def _onShellLoadFallbackRobot(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
@@ -326,8 +353,11 @@ class RobotShellWidgetMixin:
     def _onStep6CreateForeheadProxy(self) -> None:
         if not self._parameterNode or not self.logic or not self._robotSimulationPanel:
             return
+        progress = WorkflowProgress("Step 3B / 6.1 forehead and base")
         try:
+            progress.update("Proposing virtual forehead and base", can_cancel=False)
             summary = self.logic.proposeVirtualForeheadAndBase(self._parameterNode)
+            progress.update("Refreshing robot placement", can_cancel=False)
             error_mm = summary.get("tcpErrorMm")
             error_text = (
                 f"{float(error_mm):.1f} mm"
@@ -356,6 +386,8 @@ class RobotShellWidgetMixin:
         except (RuntimeError, ValueError) as exc:
             self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
             slicer.util.errorDisplay(str(exc))
+        finally:
+            progress.close()
 
     def _onStep6PlacementReview(self) -> None:
         if not self._robotSimulationPanel:
@@ -575,9 +607,23 @@ class RobotShellWidgetMixin:
     def _onStep6PlanApproach(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
             return
-        result = self._robotWorkflowFacade.planApproachPhase(
-            **self._robotSimulationPanel.planningPolicy()
-        )
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
+        try:
+            progress = WorkflowProgress("Step 6.4 guarded approach")
+            progress.update("Starting planner", can_cancel=False)
+            result = self._robotWorkflowFacade.planApproachPhase(
+                **self._robotSimulationPanel.planningPolicy(),
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
         insertion = result.details.get("toolInsertion")
         if isinstance(insertion, dict):
@@ -617,6 +663,32 @@ class RobotShellWidgetMixin:
             and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
         ):
             qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
+
+    def _onStep6CheckPreEntryIK(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
+        try:
+            progress = WorkflowProgress("Step 6.5 PreEntry IK diagnostic")
+            progress.update("Starting endpoint diagnostic", can_cancel=False)
+            result = self._robotWorkflowFacade.checkPreEntryIK(
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.approachStatusLabel, result
+        )
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if result.success and result.details.get("motionDiagnosticSessionFingerprint"):
+            self._onStep6ShowMotionDiagnostics()
 
     def _onStep6ComparePlanners(self) -> None:
         if getattr(self, "_plannerComparisonState", None):
@@ -706,7 +778,17 @@ class RobotShellWidgetMixin:
             self._robotWorkflowFacade.invalidateMotionPlan()
             policy = dict(state["policy"])
             policy["planner_id"] = planner_id
-            result = self._robotWorkflowFacade.planApproachPhase(**policy)
+            progress = WorkflowProgress(f"Step 6.4 planner {index + 1}/3: {planner_id}")
+            try:
+                progress.update("Starting planner", can_cancel=False)
+                result = self._robotWorkflowFacade.planApproachPhase(
+                    **policy,
+                    progress=lambda phase, done=None, total=None: progress.update(
+                        phase, done, total, can_cancel=False
+                    ),
+                )
+            finally:
+                progress.close()
             if self._robotWorkflowFacade.plannerComparisonIdentity() != state["identity"]:
                 raise RuntimeError("The case/task identity changed during planner execution.")
             state["attempts"][index] = (
