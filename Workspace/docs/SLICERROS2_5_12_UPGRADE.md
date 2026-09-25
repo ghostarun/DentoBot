@@ -150,6 +150,16 @@ MoveIt contact with a temporary static obstacle. Source/syntax checks have
 passed; the image, native rebuild, runtime collision check, representative
 case and performance comparison remain pending.
 
+Tarun limited the running host-network build to the last full Slicer rebuild
+without new approval. Use it only to test the curl FILE/symbol-interaction
+hypothesis. On success, require the existing focused smoke to show nonempty
+robot meshes, known positive static MoveIt contact and clean teardown; do
+not promote the image or modify upstream further. Then inspect mesh URI
+resolution, resource_retriever's real curl path, symbol isolation, bypass
+options and smaller integration-layer fixes read-only. A `package://` rewrite
+is not accepted without tracing retrieval. On unrelated SuperBuild or
+dependency failure, stop this platform rebuild path and report the blocker.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,

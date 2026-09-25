@@ -6554,3 +6554,7 @@ Tarun directed continuation of the pending gate. The isolated post-`856e927` 5.1
 ### 2026-09-25 — Isolated 5.12 robot mesh gate
 
 The synthetic lifecycle passed but cannot establish robot collision geometry: seven `file://` meshes failed to load. The pinned Slicer SuperBuild disables FILE support in its bundled curl, which can preempt the system curl used by ROS resource retrieval. Enable FILE in that pinned source with an exact-match guard, retain three-job compilation for workstation memory, and require a positive visual-mesh/static MoveIt collision check before representative planning. A full replacement image build is in progress; this is a causal hypothesis and source change, not runtime acceptance. Preserve the 5.10 release and the `S6-LIVE-01` planner pause.
+
+### 2026-09-25 — Limit PLAT-U-06 full Slicer rebuild to one final diagnostic attempt
+
+Tarun limited the active host-network Slicer 5.12 build to the last full rebuild without further approval. Treat the result as a causal test of the FILE-disabled bundled curl/MoveIt mesh hypothesis. On success, run only the focused static robot-geometry smoke with positive mesh/contact and clean teardown, then review smaller integration-layer corrections read-only before considering any promotion. On unrelated SuperBuild/dependency failure, stop platform rebuilding. Do not assume `package://` resolves the issue without tracing resource_retriever's actual path. Keep accepted 5.10 and Step 6 safety gates unchanged.
