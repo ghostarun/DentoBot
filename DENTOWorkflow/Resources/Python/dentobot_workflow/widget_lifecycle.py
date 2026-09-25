@@ -333,10 +333,11 @@ class LifecycleWidgetMixin:
             logging.warning(quarantineMessage)
         foundation = self.logic.evaluateCaseFoundationEligibility(self._parameterNode)
         if foundation["base"]["code"] == "ROBOT_PROFILE_MISMATCH":
-            self.logic.invalidateCaseFoundationBase(
-                self._parameterNode,
-                _("The installed robot profile changed after base review."),
-            )
+            with slicer.util.NodeModify(self._parameterNode):
+                self.logic.invalidateCaseFoundationBase(
+                    self._parameterNode,
+                    _("The installed robot profile changed after base review."),
+                )
         if not self._parameterNode.step6PlanningContextImported:
             return
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(

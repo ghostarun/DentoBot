@@ -9,6 +9,7 @@ import sys
 import time
 import traceback
 import pstats
+from pathlib import Path
 
 import numpy as np
 import qt
@@ -16,7 +17,7 @@ import slicer
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 
-sys.path.insert(0, "/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/Resources/Python")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"))
 
 CASE = os.environ.get(
     "DENTOBOT_PERF_CASE",
@@ -42,6 +43,17 @@ def run():
         slicer.util.selectModule("DENTOWorkflow")
         widget = slicer.util.getModuleWidget("DENTOWorkflow")
         load_only = os.environ.get("DENTOBOT_PERF_LOAD_ONLY") == "1"
+        if os.environ.get("DENTOBOT_PERF_PROFILE_REVALIDATE") == "1":
+            original_revalidate = widget._revalidateImportedStep6ContextAfterLoad
+            def profile_revalidate():
+                profiler = cProfile.Profile()
+                try:
+                    return profiler.runcall(original_revalidate)
+                finally:
+                    report = io.StringIO()
+                    pstats.Stats(profiler, stream=report).sort_stats("cumulative").print_stats(20)
+                    print("PERF_REVALIDATE_PROFILE", report.getvalue(), flush=True)
+            widget._revalidateImportedStep6ContextAfterLoad = profile_revalidate
         if load_only:
             from dentobot_workflow.workflow_progress import WorkflowProgress
             progress = WorkflowProgress("Opening DENTOBOT case")
@@ -109,6 +121,15 @@ def run():
             print("PERF_PROBE_COMPLETE", flush=True)
             return
         if load_only:
+            if (not widget._caseBundleRobotProfileCompatible or
+                    os.environ.get("DENTOBOT_PERF_EXPECT_STALE_BASE") == "1"):
+                assert not widget._parameterNode.robotBaseMountLocked
+                assert str(widget._parameterNode.step6BasePlacementStatus) == "Stale"
+            print("PERF_LOAD_BASE_STATE", {
+                "profile_compatible": bool(widget._caseBundleRobotProfileCompatible),
+                "base_locked": bool(widget._parameterNode.robotBaseMountLocked),
+                "base_status": str(widget._parameterNode.step6BasePlacementStatus),
+            }, flush=True)
             action_heartbeats = [value for value in heartbeats if value >= start]
             maximum_gap = max((right - left for left, right in zip(action_heartbeats, action_heartbeats[1:])), default=0)
             print("PERF_LOAD_MAX_HEARTBEAT_GAP", maximum_gap, flush=True)

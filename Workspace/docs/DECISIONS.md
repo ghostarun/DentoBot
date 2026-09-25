@@ -6517,6 +6517,8 @@ On Tarun's immediate `S6-P2-03` continuation, keep disconnect object removal syn
 
 The 2026-09-25 performance continuation pauses Slicer rendering only while the native `RemoveRobot` call removes its MRML visualization, then resumes it in `finally`. One serialized headless same-case Connect/Disconnect run passed 31-object acknowledgement and disconnect, with disconnect 9.530 s and maximum Qt gap 1.475 s versus the prior 15.488 s/7.828 s. This supports avoiding intermediate redraws during native teardown but does not prove repeatability or ordinary-window behavior. The Slicer process still exited 1 with native leak warnings; keep that lifecycle issue open. A bounded frame probe measures forced VTK render completion and Qt heartbeats, not monitor-presented FPS. Its Xvfb/llvmpipe result is diagnostic only; hardware 60 FPS remains unverified.
 
+The next `S6-P2-03` gate found the current GNOME `:0` display also reports llvmpipe, so it cannot supply the hardware 60 FPS verdict. On the accepted 5.10 runtime, a repeatable post-load gap was traced by phase timing and cProfile to `invalidateCaseFoundationBase` issuing several parameter modifications and triggering three full widget refreshes. Batch only that restored-profile invalidation under `NodeModify`; retain the Stale/unlocked base outcome and package audits. A same-case headless check reduced post-load revalidation from 5.685 s to 2.204 s, then 1.970 s, and maximum load Qt gap from 5.694 s to 3.855 s. This is a source/runtime responsiveness improvement, not hardware FPS acceptance; Connect and shutdown remain separate.
+
 ### 2026-09-25 — PLAT-U-06 source checkpoint and candidate isolation
 
 The later approved simulation lifecycle reached its functional PASS marker but

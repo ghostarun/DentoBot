@@ -474,6 +474,7 @@ class CaseBackendWidgetMixin:
                     finally:
                         self._endCaseBundleRestore(hydrationGeneration)
                     self._revalidateImportedStep6ContextAfterLoad()
+                    phase("Revalidating restored planning context", can_cancel=False)
                     savedStage = int(self._parameterNode.workflowStageIndex)
                     if savedStage < 0 and self._parameterNode.step6MotionDiagnosticJson:
                         # Older packages did not persist navigation; a saved
@@ -481,12 +482,15 @@ class CaseBackendWidgetMixin:
                         savedStage = len(self._workflowStageEntries()) - 1
                     if savedStage >= 0:
                         self._setWorkflowStage(savedStage, ensureVisible=False)
+                        phase("Restoring workflow stage", can_cancel=False)
                         if (
                             savedStage in {3, len(self._workflowStageEntries()) - 1}
                             and not self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
                         ):
                             self._applyWorkflowViewPreset("recommended", updateStatus=False)
+                            phase("Restoring recommended view", can_cancel=False)
                     self._enforceStep6OpenedJawDisplaySeparation()
+                    phase("Finalizing jaw display", can_cancel=False)
                 except Exception as hydrationError:
                     logging.exception(
                         "DENTOBOT post-hydration package audit failed; "
