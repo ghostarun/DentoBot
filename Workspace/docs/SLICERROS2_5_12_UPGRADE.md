@@ -67,6 +67,16 @@ without identifying the owning object or a safe correction. The three-run
 diagnostic ceiling is reached; obtain a symbolic backtrace in a newly approved
 bounded scope before changing teardown order.
 
+Tarun authorized that next gate. A temporary debug image derived from the
+unchanged candidate captured a GDB stack: a live String subscription is
+destroyed by Slicer's late MRML scene clear, after ROS module teardown, and
+faults in `rcl_subscription_fini` through `rmw_destroy_subscription` at an
+unmapped instruction address. Fork commit `379d130` releases active
+subscriptions on application quit and before ROS logic shutdown, and fixes
+subscriber reference removal to use the matching index. Its isolated native
+build passed. This source/build result still needs one approved case-free
+five-reload zero-exit check; no saved-case or performance acceptance follows.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
