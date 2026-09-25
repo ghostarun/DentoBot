@@ -383,6 +383,16 @@ Follow `AGENTIC_VERIFICATION_PROTOCOL.md` and
 6. run the simulation-only ROS/MoveIt readiness and bounded Step 6 workflow
    gates. No hardware motion or drilling is part of this migration.
 
+**26 September diagnostic result:** The isolated local-file overlay and native
+scene snapshot establish seven nonempty visual meshes, seven MoveIt link
+collision shapes, a shaped static probe and whole-robot probe contact against
+fixed `link-1`. The earlier empty result used the `dentobot_arm` group filter,
+which excluded that fixed link. The focused smoke printed
+`DENTOBOT_ROBOT_GEOMETRY_PASS`, but Slicer exited 1 and `move_group` segfaulted
+during shutdown. Geometry is verified in this case-free diagnostic; clean
+teardown is still a hard gate. Keep the 5.10 release and stop runtime retries
+until one bounded lifecycle discriminator is specified from the saved logs.
+
 ### Phase 4 — measure before claiming performance
 
 Run 5.10 and 5.12 on the same machine, renderer, case, scene state, and DentoBot

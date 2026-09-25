@@ -6669,3 +6669,18 @@ the accepted Slicer 5.10 image. This avoids a silent switch to the older
 package preparation at three compiler jobs and sequential colcon packages on
 the current memory-limited workstation; this does not constrain rendering or
 future GPU-host frame-rate acceptance.
+
+### 2026-09-26 — PLAT-U-06 geometry verified; shutdown gate remains
+
+Tarun approved the revised isolated 5.12 scene-snapshot diagnostic. The native
+MoveIt scene contained the static probe with one shape and seven robot-link
+collision shapes. A whole-robot collision request returned the expected probe
+contact with fixed `link-1`; the earlier arm-group request excluded that link
+and returned no pair. The focused case-free smoke emitted
+`DENTOBOT_ROBOT_GEOMETRY_PASS` with seven nonempty Slicer visual meshes. This
+establishes the local-file overlay's mesh-loading correctness for this fixture,
+not clean lifecycle: Slicer exited 1 and the separately launched `move_group`
+segfaulted during cleanup. Keep 5.10 and `LAB_RELEASE` unchanged. Stop runtime
+retries at the bounded ceiling and diagnose shutdown from saved evidence before
+representative-case or same-case performance acceptance. No full Slicer rebuild,
+planner, geometry/policy adjustment or hardware action is authorized here.
