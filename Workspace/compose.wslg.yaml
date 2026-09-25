@@ -1,6 +1,6 @@
-# WSLg override: no Intel DRM render node.
+# WSLg override: use the Windows GPU interface through /dev/dxg.
 # Merged by launch-dentoworkflow.bash when graphics mode is wslg.
-# Uses Mesa D3D12 against the host NVIDIA adapter when available.
+# Mesa selects the adapter unless DENTOBOT_WSLG_ADAPTER_NAME is set.
 
 services:
   slicerros2:
@@ -10,7 +10,7 @@ services:
       XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir
       PULSE_SERVER: unix:/mnt/wslg/PulseServer
       LD_LIBRARY_PATH: /usr/lib/wsl/lib
-      MESA_D3D12_DEFAULT_ADAPTER_NAME: NVIDIA
+      MESA_D3D12_DEFAULT_ADAPTER_NAME: ${DENTOBOT_WSLG_ADAPTER_NAME:-}
       GALLIUM_DRIVER: d3d12
       LIBGL_ALWAYS_SOFTWARE: "0"
       QT_X11_NO_MITSHM: "1"

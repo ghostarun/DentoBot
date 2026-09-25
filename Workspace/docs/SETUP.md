@@ -277,8 +277,11 @@ wsl -d "$DENTOBOT_WSL_DISTRIBUTION" --exec bash -lc '
    - **CPU:** Python 3.12 + `torch+cpu`/OpenVINO pin from
      `Inference/requirements/ubuntu-cpu*.txt`, set
      `DENTOBOT_BACKEND_DEVICE=cpu`.
-   - Set `DENTOBOT_GRAPHICS_MODE=wslg` (or `auto` on WSLg). There is no
-     `/dev/dri/renderD128`; `compose.wslg.yaml` clears DRM devices.
+   - Set `DENTOBOT_GRAPHICS_MODE=wslg` (or `auto` on WSLg). The launcher
+     selects WSLg before a DRM node when both interfaces are present.
+     `compose.wslg.yaml` uses `/dev/dxg` and Mesa D3D12. Leave
+     `DENTOBOT_WSLG_ADAPTER_NAME` empty for Mesa's default adapter, or set it
+     to a substring such as `NVIDIA` to select that Windows GPU.
    - Install TotalSegmentator tasks **298, 115, 113** with the idempotent
      helper (required for Bridge C segmentation; not optional if you will
      run AI):
@@ -290,8 +293,10 @@ wsl -d "$DENTOBOT_WSL_DISTRIBUTION" --exec bash -lc '
    `slicer_ros2_module` under the bind-mounted `ros2_ws` (required because the
    mount hides the image install). Then:
    `Workspace\scripts\launch-lab-workflow.bat` or
-   `~/dentobot/scripts/launch-dentoworkflow.bash`. Treat WSLg rendering like
-   CRD/`llvmpipe`: functional checks, not FPS acceptance. `xhost` is optional
+   `~/dentobot/scripts/launch-dentoworkflow.bash`. Check the actual Slicer
+   renderer on this host: WSLg can use hardware OpenGL through Mesa D3D12,
+   but a D3D12 label alone does not establish acceleration or 60 FPS.
+   `xhost` is optional
    on WSLg; Docker Desktop needs `docker restart -t` (not `--timeout`).
 6. Later updates: `Workspace\scripts\update-lab-release.bat` (pinned tag only).
 
@@ -644,6 +649,12 @@ AMD Mesa systems follow the same DRM-render-node pattern but require a
 compatible `radeonsi` userspace driver. Proprietary NVIDIA systems normally
 use NVIDIA Container Toolkit and its Compose GPU reservation/device contract;
 the Intel `/dev/dri` recipe must not be copied blindly to NVIDIA hardware.
+Set `DENTOBOT_GRAPHICS_MODE=nvidia` for that native Ubuntu profile after the
+host driver and NVIDIA Container Toolkit are installed. The launcher then
+uses the NVIDIA Compose GPU reservation and graphics/display driver
+capabilities independently of whether segmentation inference uses `cpu` or
+`cuda:0`. The `auto` mode never guesses NVIDIA from `nvidia-smi`; choose the
+adapter explicitly and verify it inside Slicer.
 
 After saving and closing any open Slicer scene, use the launcher so its full
 runtime contract is supplied and Compose recreates the service when needed:
@@ -665,6 +676,30 @@ print(renderWindow.ReportCapabilities())
 
 Reject `llvmpipe` and `swrast` for the interactive workflow unless software
 rendering is an explicitly accepted diagnostic mode.
+
+### Cross-workstation simulation frame-rate gate
+
+The target is at least 60 **presented** frames per second during normal
+simulation interaction on capable Ubuntu and Windows 11/WSLg GPU hosts,
+including NVIDIA systems with at least 8 GB VRAM. CPU/software rendering on
+an extreme hardware-limited host is a diagnostic exception, not the default
+container profile. Use the same representative saved scene, visible objects,
+view layout, display settings, viewport pixel size, camera action and
+measurement duration on each host. Record OS/WSLg version, GPU and VRAM,
+driver/Mesa version, host and in-Slicer renderer strings, display refresh
+rate, sustained presented-frame rate/frame pacing, and Qt input latency.
+Repeat the same scene after changing only a host-specific graphics setting.
+
+`Testing/run_dentobot_render_frame_probe.py` records renderer identity,
+render-window dimensions, forced VTK render-completion intervals and Qt
+heartbeats. Its `EndEvent` rate is **not** the presented-frame rate or a
+60 FPS acceptance verdict. A hardware-backed ordinary window and a
+presentation-aware capture or compositor measurement are required for the
+final frame-rate verdict. `glxinfo -B` showing `direct rendering: Yes` alone
+is insufficient; inspect `Accelerated` and the renderer string, especially
+on WSLg. The launcher `--check-only` can modify Docker state, so use direct
+read-only renderer checks when preparing a comparison without restarting a
+user's running Slicer session.
 
 ### Chrome Remote Desktop virtual display
 

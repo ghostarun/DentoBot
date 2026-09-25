@@ -6568,3 +6568,18 @@ Tarun limited the active host-network Slicer 5.12 build to the last full rebuild
 ### 2026-09-25 — Stop full Slicer rebuilding after final diagnostic failure
 
 The final host-network SuperBuild passed curl source retrieval and curl build but terminated in VTK compilation. The host journal recorded memory pressure and Docker reported a fatal BuildKit session healthcheck with cancelled solve; no OOM-kill record or corrected image was recovered. Treat the curl-symbol hypothesis as unproven. Per Tarun's last-attempt limit, stop full Slicer rebuilding and do not debug upstream dependencies. Preserve the accepted 5.10 release. Review smaller DentoBot/SlicerROS2 integration corrections read-only before proposing a new bounded check; the URDF already uses `package://` and MoveIt emitted `file://` retrieval failures, so URI spelling alone is insufficient evidence.
+
+## 2026-09-25 — Cross-workstation rendering acceptance
+
+Tarun set at least 60 FPS as the interactive simulation minimum on capable
+machines, including Ubuntu and Windows 11/WSLg workstations with NVIDIA GPUs
+and at least 8 GB VRAM; extreme hardware limitations may be recorded as an
+exception. The current llvmpipe display is a diagnostic host, not the product
+performance ceiling. Keep one functional SlicerROS2/workflow stack with small
+host-specific graphics selection: Mesa render node for suitable native Ubuntu
+adapters, NVIDIA Container Toolkit when a native NVIDIA graphics/compute
+profile requires it, and Mesa D3D12 through WSLg with an optional adapter
+filter. Never infer GPU acceleration from the presence of a window, CUDA, or a
+D3D12 label alone. Verify the Slicer renderer and actual frame presentation
+and input latency on each host before a 60 FPS verdict. The existing forced
+VTK EndEvent probe only measures diagnostic render completion throughput.

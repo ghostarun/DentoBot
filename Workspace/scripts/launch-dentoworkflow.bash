@@ -33,6 +33,7 @@ usage() {
     "" \
     "Machine configuration: ${workspace_config}" \
     "Template: ${repository_root}/Workspace/.dentobot.env.example" \
+    "Graphics: DENTOBOT_GRAPHICS_MODE=auto|mesa|wslg|nvidia" \
     "" \
     "--check-only  Verify Compose, the backend, and module files without" \
     "              opening a GUI." \
@@ -83,6 +84,7 @@ backend_execution_mode="${DENTOBOT_BACKEND_EXECUTION_MODE:-local}"
 backend_device="${DENTOBOT_BACKEND_DEVICE:-cpu}"
 render_device="${DENTOBOT_RENDER_DEVICE:-/dev/dri/renderD128}"
 graphics_mode="${DENTOBOT_GRAPHICS_MODE:-auto}"
+wslg_adapter_name="${DENTOBOT_WSLG_ADAPTER_NAME:-}"
 run_artifact_root="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}"
 totalseg_home_dir="${DENTOBOT_TOTALSEG_HOME_DIR:-/workspace/data/model-cache/totalsegmentator}"
 host_uid="$(id -u)"
@@ -91,21 +93,23 @@ host_x11_user="$(id -un)"
 slicer_home_dir="${workspace_root}/slicer-home"
 legacy_slicer_user_dir="${workspace_root}/slicer-user"
 compose_wslg_file="${repository_root}/Workspace/compose.wslg.yaml"
+compose_nvidia_file="${repository_root}/Workspace/compose.nvidia.yaml"
 compose_cuda_file="${repository_root}/Workspace/compose.cuda.yaml"
 
 if [[ ${graphics_mode} == "auto" ]]; then
-  if [[ -c ${render_device} ]]; then
-    graphics_mode="mesa"
-  elif [[ -e /dev/dxg || -d /mnt/wslg ]]; then
+  if [[ -e /dev/dxg || -d /mnt/wslg ]]; then
     graphics_mode="wslg"
+  elif [[ -c ${render_device} ]]; then
+    graphics_mode="mesa"
   else
     graphics_mode="missing"
   fi
 fi
-if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" ]]; then
+if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" && \
+      ${graphics_mode} != "nvidia" ]]; then
   printf '%s\n' \
     "Unsupported DENTOBOT_GRAPHICS_MODE=${graphics_mode}." \
-    'Use mesa (Intel/AMD /dev/dri render node), wslg (Windows lab), or auto.' >&2
+    'Use mesa, wslg, nvidia (explicit native Ubuntu NVIDIA), or auto.' >&2
   exit 2
 fi
 if [[ -z ${backend_python} ]]; then
@@ -378,8 +382,18 @@ if [[ ${graphics_mode} == "wslg" ]]; then
     exit 2
   fi
   printf '%s\n' \
-    'Graphics mode: wslg (no /dev/dri render node).' \
-    'GUI is for functional checks only; treat rendering like CRD/llvmpipe.'
+    'Graphics mode: wslg (Windows GPU interface via /dev/dxg).' \
+    'Verify the active renderer and frame timing on this host.'
+fi
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  if [[ ! -f ${compose_nvidia_file} ]]; then
+    printf 'NVIDIA graphics Compose override is missing: %s\n' \
+      "${compose_nvidia_file}" >&2
+    exit 2
+  fi
+  printf '%s\n' \
+    'Graphics mode: nvidia (explicit native Ubuntu NVIDIA OpenGL).' \
+    'Verify the active renderer and frame timing on this host.'
 fi
 
 if ! "${backend_python}" -c "${backend_dependency_probe}" \
@@ -391,7 +405,8 @@ if ! "${backend_python}" -c "${backend_dependency_probe}" \
   exit 2
 fi
 
-if [[ ${backend_device} == "cuda:0" && ! -f ${compose_cuda_file} ]]; then
+if [[ ( ${backend_device} == "cuda:0" || ${graphics_mode} == "nvidia" ) && \
+      ! -f ${compose_cuda_file} ]]; then
   printf 'CUDA Compose override is missing: %s\n' "${compose_cuda_file}" >&2
   exit 2
 fi
@@ -404,8 +419,12 @@ compose_command=(
 if [[ ${graphics_mode} == "wslg" ]]; then
   compose_command+=(-f "${compose_wslg_file}")
 fi
-if [[ ${backend_device} == "cuda:0" ]]; then
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  compose_command+=(-f "${compose_nvidia_file}" -f "${compose_cuda_file}")
+elif [[ ${backend_device} == "cuda:0" ]]; then
   compose_command+=(-f "${compose_cuda_file}")
+fi
+if [[ ${backend_device} == "cuda:0" ]]; then
   printf '%s\n' \
     'Backend device: cuda:0 (NVIDIA GPU requested for container inference).'
 fi
@@ -416,6 +435,7 @@ fi
 # !reset clears devices; keep a concrete placeholder when the node is absent.
 export DENTOBOT_RENDER_DEVICE="${render_device}"
 export DENTOBOT_GRAPHICS_MODE="${graphics_mode}"
+export DENTOBOT_WSLG_ADAPTER_NAME="${wslg_adapter_name}"
 "${compose_command[@]}" config -q
 prepare_host_uid_runtime
 

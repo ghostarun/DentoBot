@@ -178,6 +178,10 @@ For the current integration design:
 - CUDA uses the pinned Python 3.10 `cu130` profile and matching
   `torch`/`torchvision` builds.
 - `DENTOBOT_GRAPHICS_MODE=wslg` selects the WSLg Compose overlay.
+- `DENTOBOT_WSLG_ADAPTER_NAME` is optional. Leave it empty for Mesa's default
+  adapter, or set a Windows GPU name substring such as `NVIDIA` to select it.
+  Confirm the actual renderer inside Slicer; WSLg can be GPU accelerated or
+  software rendered depending on the host and driver.
 - `DENTOBOT_BACKEND_DEVICE=cpu` or `cuda:0` selects the inference profile.
 
 Install TotalSegmentator tasks 298, 115, and 113 with the release's

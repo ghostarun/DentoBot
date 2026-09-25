@@ -1338,6 +1338,12 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   only through **Lock / Accept Opening**.
 - `S6-P2-03`: use one shared long-running-action contract for truthful busy,
   progress, completion, error, cancel, and cleanup state.
+  The interactive simulation target is at least 60 presented frames/s on
+  capable Ubuntu and Windows 11/WSLg GPU workstations, with responsive input;
+  verify each host's actual renderer and sustained frame pacing on the same
+  representative scene and viewport. The current llvmpipe host and forced
+  VTK render-completion rates are diagnostic only. GPU/OS-specific setup may
+  select an adapter or container device without changing workflow behavior.
   A per-session Slicer event-loop watchdog now writes local stack and
   phase/recovery evidence after a five-second UI heartbeat gap. Tarun reports
   improved fluidity with the progress dialogs; keep root-cause acceptance open

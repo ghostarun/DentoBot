@@ -14,6 +14,15 @@ MAX_RENDER_SAMPLES = 600
 HEARTBEAT_INTERVAL_MS = 100
 FRAME_BUDGET_NS = 16_700_000
 CAMERA_ROTATION_DEGREES_PER_SECOND = 12.0
+SOFTWARE_RENDERER_MARKERS = ("llvmpipe", "softpipe", "swrast", "swiftshader", "software rasterizer")
+
+
+def _renderer_flags(renderer_string):
+    renderer = (renderer_string or "").lower()
+    return {
+        "software_renderer_detected": any(marker in renderer for marker in SOFTWARE_RENDERER_MARKERS),
+        "d3d12_backend_detected": "d3d12" in renderer or "direct3d 12" in renderer,
+    }
 
 
 def _nearest_rank(values, fraction):
@@ -43,6 +52,14 @@ def _self_check():
     assert summary["p95_interval_ms"] == 30.0
     assert summary["event_rate_hz"] == 50.0
     assert _summarize_timestamps([1])["event_rate_hz"] is None
+    assert _renderer_flags("OpenGL renderer string: swrast") == {
+        "software_renderer_detected": True,
+        "d3d12_backend_detected": False,
+    }
+    assert _renderer_flags("D3D12 (NVIDIA)") == {
+        "software_renderer_detected": False,
+        "d3d12_backend_detected": True,
+    }
     print("DENTOBOT_RENDER_FRAME_PROBE_SELF_CHECK_PASS", flush=True)
 
 
@@ -103,6 +120,7 @@ def run(qt, slicer, vtk):
         "observer_tag": None,
         "camera": None,
         "original_camera": None,
+        "render_window_size_pixels": None,
         "timers": [],
         "case_load_started_ns": None,
         "case_load_ended_ns": None,
@@ -165,15 +183,12 @@ def run(qt, slicer, vtk):
         }
         qpa = (context["qt_platform"] or "").lower().split(":", 1)[0]
         renderer_text = (state["renderer"] or {}).get("renderer_string") or ""
-        software_renderer = any(
-            token in renderer_text.lower()
-            for token in ("llvmpipe", "softpipe", "swiftshader", "software rasterizer")
-        )
+        renderer_flags = _renderer_flags(renderer_text)
         context["headless_detected"] = (
             not context["display_available"] or qpa in ("offscreen", "minimal")
             or context["xvfb_detected"] is True
         )
-        context["software_renderer_detected"] = software_renderer
+        context.update(renderer_flags)
         enough_frames = len(frames) >= 2
 
         start_ns = state["started_ns"]
@@ -193,6 +208,7 @@ def run(qt, slicer, vtk):
             "max_duration_seconds": MAX_DURATION_NS / 1_000_000_000.0,
             "max_render_samples": MAX_RENDER_SAMPLES,
             "render": frame_stats,
+            "render_window_size_pixels": state["render_window_size_pixels"],
             "render_measurement": "forced VTK RenderWindow EndEvent throughput, not presented or VSync FPS",
             "qt_heartbeat": heartbeat_stats,
             "renderer": state["renderer"],
@@ -201,7 +217,8 @@ def run(qt, slicer, vtk):
             "headless_or_xvfb_acceptance": "DIAGNOSTIC_ONLY",
             "acceptance_note": (
                 "Headless, Xvfb, or software-rendered results are diagnostic only "
-                "and do not establish hardware 60 FPS."
+                "and do not establish hardware 60 FPS. D3D12 backend identity alone "
+                "does not establish hardware acceleration or presented 60 FPS."
             ),
             "cleanup_errors": cleanup_errors,
         }
@@ -243,6 +260,8 @@ def run(qt, slicer, vtk):
         state["original_camera"] = vtk.vtkCamera()
         state["original_camera"].DeepCopy(camera)
         window.Render()
+        size = window.GetSize()
+        state["render_window_size_pixels"] = [int(size[0]), int(size[1])]
         state["renderer"] = _renderer_identity(window)
 
         frame_times = state["frames"]

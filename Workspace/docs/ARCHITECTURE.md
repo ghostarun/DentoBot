@@ -39,6 +39,14 @@ launcher, paths, and release manifest; product code must not branch on provider
 name. Provider setup and capability checks live in
 `Workspace/docs/WINDOWS_SETUP.md`.
 
+Rendering follows the host graphics interface while workflow code and the
+SlicerROS2 container package stay shared. Native Ubuntu Mesa uses a selected
+DRM render node; native NVIDIA uses the NVIDIA container graphics capability
+when that profile is selected; WSLg uses Mesa D3D12 through the WSL GPU
+interface and may select a Windows adapter by name. The renderer is verified
+inside Slicer on each host. CPU rendering is a diagnostic exception to the
+60 FPS interactive simulation target, not a global container constraint.
+
 ## 2026-09-08 bounded guide-shell contact warning
 
 The phased simulation guard may admit contact only between the stationary

@@ -1,0 +1,7 @@
+# Native Ubuntu NVIDIA OpenGL: use the NVIDIA device reservation/runtime path
+# from compose.cuda.yaml and remove the base Mesa DRM-node mapping.
+# Merged only when DENTOBOT_GRAPHICS_MODE=nvidia is explicitly selected.
+
+services:
+  slicerros2:
+    devices: !reset []
