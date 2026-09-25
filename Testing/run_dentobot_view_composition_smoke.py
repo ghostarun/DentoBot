@@ -340,9 +340,20 @@ def main() -> None:
         "dentobot-robot-workspace-view.png"
     )
     assert widget._viewControlsPalette.grab().save(robot_screenshot)
-    widget._setWorkflowStage(7, ensureVisible=False)
-    assert not boundary.GetLocked()
-    assert boundary.GetSelectable()
+    # This display fixture has no committed Case Foundation pose. Isolate the
+    # owner-stage lock check from that separate eligibility gate.
+    original_eligibility = logic.evaluateCaseFoundationEligibility
+    def eligible_pose(node):
+        eligibility = original_eligibility(node)
+        eligibility["pose"] = {**eligibility["pose"], "eligible": True}
+        return eligibility
+    logic.evaluateCaseFoundationEligibility = eligible_pose
+    try:
+        widget._setWorkflowStage(7, ensureVisible=False)
+        assert not boundary.GetLocked()
+        assert boundary.GetSelectable()
+    finally:
+        logic.evaluateCaseFoundationEligibility = original_eligibility
 
     widget.onRestoreWorkflowView()
     assert rendering_logic.GetFirstVolumeRenderingDisplayNode(volume) is None

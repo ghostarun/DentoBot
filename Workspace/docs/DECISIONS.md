@@ -6636,3 +6636,11 @@ One same-case headless check left no proxy nodes and reduced Disconnect from
 8.421 to 2.757 seconds and its event-processing aggregate from 6.163 to
 0.333 seconds. The temporary timing hooks were removed. Native shutdown,
 normal-window responsiveness and hardware 60 FPS remain open separately.
+
+The broad synthetic Views smoke's stage-lock assertion was a fixture mismatch:
+it expected the Step 5A boundary to unlock at its owner stage while the fixture
+had no eligible Case Foundation pose. Production correctly locks Step 4–5
+markups without that eligibility. Keep the policy; set eligibility only around
+the synthetic owner-stage assertion. The focused smoke then exited 0 with
+`DENTOBOT_COMPOSABLE_VIEWS_PASS`. This is test evidence, not a normal-window
+Views verdict or GPU performance result.
