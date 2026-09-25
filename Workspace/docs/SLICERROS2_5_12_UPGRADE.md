@@ -3,11 +3,12 @@
 Assessment date: 2026-09-09
 
 Implementation branch: `upgrade/slicerros2-5.12-performance` (created
-2026-09-25 from DentoBot `10fca25`). This branch is the DentoBot planning and
-integration lane; the SlicerROS2 fork needs its own isolated branch/worktree.
-The DentoBot checkout already contains uncommitted workflow, test, and controlled
-document work. Preserve those edits; this plan commit does not claim they are
-part of a clean upgrade baseline.
+2026-09-25 and reset onto the completed
+`cursor-agent/dentoworkflow-debug-20260918` checkpoint, with no branch-only
+commits at kickoff). This branch is the DentoBot integration lane; the
+SlicerROS2 fork needs its own isolated branch/worktree. The preceding workflow,
+test, and controlled-document work was committed on the prior DentoBot branch
+before upgrade implementation began.
 
 ## Decision
 
