@@ -1955,3 +1955,10 @@ library precedes `/opt/ros/jazzy/lib` in the diagnostic image loader path.
 Its focused MoveIt geometry smoke has **not** passed; do not promote this image
 or use it for representative planning. Further runtime trials are paused at
 the project's three-failure contact gate.
+
+When launched from a checkout under `ros2_ws/src/`,
+`Workspace/scripts/launch-dentoworkflow.bash` selects that checkout's
+DENTOWorkflow module, Inference source and simulation handoff script inside
+the mounted workspace. Its native SlicerROS2 preparation uses at most three
+compiler jobs and builds the selected packages sequentially. The accepted
+container image remains Slicer 5.10 by default.

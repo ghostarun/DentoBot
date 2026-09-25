@@ -6659,3 +6659,13 @@ or visual STL display cannot substitute for collision-shape and planning-scene
 evidence. With three saved contact failures, stop autonomous retries. Require
 a revised operator-approved scene-snapshot/link-shape diagnostic before any
 additional runtime or promotion.
+
+### 2026-09-26 — Current-checkout GUI launch and bounded native build
+
+For manual performance verification, the launcher must load the DENTOWorkflow
+module and handoff from the checkout whose script was invoked, while retaining
+the accepted Slicer 5.10 image. This avoids a silent switch to the older
+`DentoBot` source mounted beside the performance checkout. Cap its native
+package preparation at three compiler jobs and sequential colcon packages on
+the current memory-limited workstation; this does not constrain rendering or
+future GPU-host frame-rate acceptance.

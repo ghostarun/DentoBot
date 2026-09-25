@@ -11,9 +11,10 @@ workspace_config="${DENTOBOT_WORKSPACE_CONFIG:-${workspace_root}/.dentobot.env}"
 compose_file="${repository_root}/Workspace/compose.yaml"
 compose_override_file="${workspace_root}/compose.override.yaml"
 container_name="dentobot-slicerros2"
+source_checkout="/workspace/ros2_ws/src/$(basename -- "${repository_root}")"
 
-backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
-module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
+backend_source="${source_checkout}/Inference/src"
+module_path="${source_checkout}/DENTOWorkflow"
 endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
 slicer_module_paths="${module_path}"
 # Selected after DENTOBOT_BACKEND_DEVICE is resolved.
@@ -564,7 +565,8 @@ docker exec -e "DENTOBOT_SLICER_VERSION=${slicer_version}" "${container_name}" b
   python3 -c "import moveit_configs_utils"
   command -v xacro >/dev/null
   cd /workspace/ros2_ws
-  colcon build --symlink-install \
+  CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3 colcon build \
+    --executor sequential --symlink-install \
     --base-paths \
       /workspace/ros2_ws/src/DentoBot/dentobot_description \
       /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
@@ -698,6 +700,7 @@ if [[ -t 0 && -t 1 ]]; then
 fi
 docker_exec_env=(
   -e "DISPLAY=${DISPLAY}"
+  -e "DENTOBOT_SOURCE_CHECKOUT=${source_checkout}"
   -e "DENTOBOT_SLICER_MODULE_PATHS=${slicer_module_paths}"
   -e "DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION=${diagnostic_no_spindle_collision}"
   -e "PYTHONNOUSERSITE=1"
@@ -725,7 +728,7 @@ docker exec "${docker_exec_options[@]}" \
     source /opt/ros/jazzy/setup.bash
     source /workspace/ros2_ws/install/setup.bash
     set -u
-    export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
+    export PYTHONPATH=${DENTOBOT_SOURCE_CHECKOUT}/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
     # Merge DENTO Workflow into the SlicerROS2 launch path list. A second
     # --additional-module-paths in slicer_args can leave ROS2 undiscovered
     # while DENTOWorkflow still loads.
@@ -737,7 +740,7 @@ docker exec "${docker_exec_options[@]}" \
       export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
     fi
 
-    exec bash /workspace/ros2_ws/src/DentoBot/Workspace/scripts/dentobot-simulation-slicer-handoff.bash \
+    exec bash "${DENTOBOT_SOURCE_CHECKOUT}/Workspace/scripts/dentobot-simulation-slicer-handoff.bash" \
       --stack-log /tmp/dentobot-simulation-stack.log \
       -- \
       ros2 launch slicer_ros2_module slicer.launch.py \
