@@ -1,4 +1,9 @@
-FROM ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0
+# Keep the accepted rollback image as the default for Compose builds.
+# Build an isolated 5.12 candidate with:
+# --build-arg SLICERROS2_BASE_IMAGE=ghcr.io/rosmed/slicer_ros2_module/ci@sha256:5724ea6fdfffb25cb502ecd09cc540ca5eeb4c46196677ec22bef30b99c8aed2
+# Re-resolve the upstream tag when freezing the candidate build.
+ARG SLICERROS2_BASE_IMAGE=ghcr.io/rosmed/slicer_ros2_module/ci:jazzy-slicer-v5.10.0
+FROM ${SLICERROS2_BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG MOVEIT_VERSION=2.12.4-1noble.20260615.174305

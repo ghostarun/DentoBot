@@ -149,6 +149,12 @@ if [[ -f ${workspace_config} ]]; then
   source "${workspace_config}"
   set +a
 fi
+slicer_version="${DENTOBOT_SLICER_VERSION:-5.10}"
+if [[ ${slicer_version} != 5.10 && ${slicer_version} != 5.12 ]]; then
+  printf 'DENTOBOT_SLICER_VERSION must be 5.10 or 5.12 (got: %s).\n' \
+    "${slicer_version}" >&2
+  exit 2
+fi
 export DENTOBOT_WORKSPACE_ROOT="${workspace_root}"
 if [[ -n ${DENTOBOT_BACKEND_PYTHON:-} ]]; then
   export DENTOBOT_BACKEND_ENV_DIR
@@ -182,7 +188,7 @@ fi
 
 if [[ ${skip_colcon} != true ]] && docker inspect -f '{{.State.Running}}' "${container_name}" 2>/dev/null | grep -qx true; then
   printf 'Building DentoBot ROS packages inside %s\n' "${container_name}"
-  docker exec "${container_name}" bash -lc '
+  docker exec -e "DENTOBOT_SLICER_VERSION=${slicer_version}" "${container_name}" bash -lc '
     set -euo pipefail
     set +u
     source /opt/ros/jazzy/setup.bash
@@ -192,8 +198,8 @@ if [[ ${skip_colcon} != true ]] && docker inspect -f '{{.State.Running}}' "${con
       --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
       --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
     rm -f \
-      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
-      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
+      "/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-${DENTOBOT_SLICER_VERSION}/qt-scripted-modules/ROS2Tests.py" \
+      "/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-${DENTOBOT_SLICER_VERSION}/qt-scripted-modules/ROS2Tests.pyc"
   '
 else
   printf 'Skipping colcon (container not running or --skip-colcon).\n'

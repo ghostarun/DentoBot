@@ -71,6 +71,12 @@ if [[ -f ${workspace_config} ]]; then
   source "${workspace_config}"
   set +a
 fi
+slicer_version="${DENTOBOT_SLICER_VERSION:-5.10}"
+if [[ ${slicer_version} != 5.10 && ${slicer_version} != 5.12 ]]; then
+  printf 'DENTOBOT_SLICER_VERSION must be 5.10 or 5.12 (got: %s).\n' \
+    "${slicer_version}" >&2
+  exit 2
+fi
 
 backend_python="${DENTOBOT_BACKEND_PYTHON:-}"
 backend_execution_mode="${DENTOBOT_BACKEND_EXECUTION_MODE:-local}"
@@ -531,7 +537,7 @@ fi
 if [[ ${graphics_mode} == "mesa" ]]; then
   docker exec "${container_name}" test -c "${render_device}"
 fi
-docker exec "${container_name}" bash -lc '
+docker exec -e "DENTOBOT_SLICER_VERSION=${slicer_version}" "${container_name}" bash -lc '
   set +u
   source /opt/ros/jazzy/setup.bash
   set -u
@@ -548,8 +554,8 @@ docker exec "${container_name}" bash -lc '
   test -d /workspace/ros2_ws/install/slicer_ros2_module
   # Symlink installs do not remove modules omitted by a later configure.
   rm -f \
-    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
-    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
+    "/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-${DENTOBOT_SLICER_VERSION}/qt-scripted-modules/ROS2Tests.py" \
+    "/workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-${DENTOBOT_SLICER_VERSION}/qt-scripted-modules/ROS2Tests.pyc"
 '
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
@@ -570,6 +576,7 @@ printf '%s\n' \
   "Workspace configuration: ${workspace_config}" \
   "Run artifacts: ${run_artifact_root}" \
   "TotalSegmentator cache: ${totalseg_home_dir}" \
+  "Slicer version: ${slicer_version}" \
   "DENTO Workflow: ${module_path}" \
   "Slicer module paths: ${slicer_module_paths}" \
   "Graphics mode: ${graphics_mode}" \
