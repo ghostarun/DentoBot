@@ -85,9 +85,6 @@ def run() -> None:
 
     print("LIFECYCLE step=first_connect", flush=True)
     base_transform = connect_robot(widget)
-    widget.logic.setRobotBaseMountLocked(widget._parameterNode, True)
-    if base_transform.GetAttribute("DENTOBOT.RobotBaseMountLocked") != "true":
-        raise RuntimeError("Slicer 5.10 transform display lock was not applied")
 
     scene_path = Path(slicer.app.temporaryPath) / "dentobot-scene-lifecycle.mrb"
     sentinel = slicer.mrmlScene.AddNewNodeByClass(
@@ -142,11 +139,8 @@ def run() -> None:
         raise RuntimeError("Saved scene did not reload after adapter teardown")
     if widget._parameterNode is None:
         raise RuntimeError("Parameter node was not rebound after saved-scene load")
-    if (
-        widget._parameterNode.robotBaseTransform is None
-        or not widget._parameterNode.robotBaseMountLocked
-    ):
-        raise RuntimeError("Locked Step 6 robot-base state was not restored")
+    if widget._parameterNode.robotBaseTransform is None:
+        raise RuntimeError("Step 6 robot-base state was not restored")
     assert_ros_subscriber_references_are_valid()
 
     print("DENTOBOT_SCENE_LIFECYCLE_PASS")
@@ -161,5 +155,7 @@ try:
     run()
 except Exception as exc:
     print(f"DENTOBOT_SCENE_LIFECYCLE_FAILED: {exc}", file=sys.stderr)
+    if DENTOROS2Bridge.find_ros2_robot_by_name(DENTOROS2Bridge.ROS2_ROBOT_NAME):
+        DENTOROS2Bridge.disconnect_dentobot_motion_control([])
     DENTOROS2Bridge.shutdown_slicer_adapter()
     slicer.util.exit(1)

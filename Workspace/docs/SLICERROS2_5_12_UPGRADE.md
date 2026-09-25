@@ -113,6 +113,19 @@ Broader scene lifecycle, ROS/MoveIt APIs, a representative saved case, normal
 window behavior and same-case performance comparison remain open; the 5.10
 rollback and `LAB_RELEASE` are unchanged.
 
+The approved isolated simulation lifecycle then completed first connect,
+module reload, reconnect, New Empty Case, reconnect, disconnect and saved-scene
+reload, emitting `DENTOBOT_SCENE_LIFECYCLE_PASS`. Native shutdown exited 1
+with three retained `vtkMRMLROS2ParameterNode` objects, matching the three
+robot connections. The first attempt stopped at an unrelated Case Foundation
+lock on an empty synthetic scene; the fixture now checks the restored base
+without that lock. The fork's robot description parameter allocation used raw
+`New()` into a smart pointer; changing it to smart-pointer `New()` passed an
+isolated native rebuild. This is a source/build correction only. One isolated
+zero-exit lifecycle rerun remains the next gate; fork APIs, a representative
+saved case and same-case performance remain open. The accepted 5.10 runtime
+was untouched.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,

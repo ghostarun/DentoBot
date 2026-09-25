@@ -1275,6 +1275,10 @@ automatic ROS reconnect/task reconfirmation sequence is superseded.
 The former reconnect/`mrmlScene.Clear(0)` abort no longer reproduces: warm New
 Case, module reload, reconnect, and save/reopen reach the functional lifecycle
 PASS marker. This item therefore no longer blocks Priority-0 workflow work.
+The isolated 5.12 simulation lifecycle also reaches its functional PASS marker,
+but native shutdown exits 1 with three retained ROS2 parameter nodes. The
+fork ownership correction builds and requires a separately gated zero-exit
+rerun before lifecycle acceptance.
 The current native source repair replaces the ROS host's raw parameter-node
 list with MRML references, makes delayed parameter callbacks weak-node safe,
 removes redundant `Delete()` calls after scene-owned nodes are removed, handles
