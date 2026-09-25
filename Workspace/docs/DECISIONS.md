@@ -6583,3 +6583,16 @@ filter. Never infer GPU acceleration from the presence of a window, CUDA, or a
 D3D12 label alone. Verify the Slicer renderer and actual frame presentation
 and input latency on each host before a 60 FPS verdict. The existing forced
 VTK EndEvent probe only measures diagnostic render completion throughput.
+## 2026-09-26 — Suppress Connect's intermediate full widget refresh
+
+The completed Step 6.1 collision audit writes authoritative parameter-node
+state. During Connect, that write caused a measured 3.426-second whole-widget
+refresh before the Connect handler's explicit robot placement, view and
+capability updates. Suppress only parameter-triggered full refreshes during
+the façade Connect call, restore the observer gate in `finally`, and retain
+one full refresh on a returned failure. Keep the existing targeted success
+updates and all audit/guard semantics. A corrected-checkout headless run
+confirmed zero full refresh calls, 31 acknowledged collision objects and
+copies, and Connect/Disconnect functional markers. Its 4.085-second remaining
+Connect Qt gap is during ROS robot initialization; native shutdown still exits
+1 with leak warnings. This is not ordinary-window or 60 FPS acceptance.

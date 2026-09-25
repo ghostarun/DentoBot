@@ -200,17 +200,28 @@ class RobotShellWidgetMixin:
         self._workflowActionBusy = True
         progress = WorkflowProgress("Step 6.1 connect ROS + MoveIt")
         try:
-            result = self._robotWorkflowFacade.connect(
-                open_motion_module=False,
-                progress=lambda phase, done=None, total=None: progress.update(
-                    phase, done, total, can_cancel=False
-                ),
+            wasSuppressingParameterRefresh = getattr(
+                self, "_suppressParameterRefreshDuringRobotConnect", False
             )
+            self._suppressParameterRefreshDuringRobotConnect = True
+            try:
+                result = self._robotWorkflowFacade.connect(
+                    open_motion_module=False,
+                    progress=lambda phase, done=None, total=None: progress.update(
+                        phase, done, total, can_cancel=False
+                    ),
+                )
+            finally:
+                self._suppressParameterRefreshDuringRobotConnect = (
+                    wasSuppressingParameterRefresh
+                )
             progress.update("Refreshing connected workflow", can_cancel=False)
             remediationConnected = bool(result.details.get("runtimeConnected", False))
             if result.success or remediationConnected:
                 self._updateRobotPlacement()
                 self._applyStep6RecommendedView()
+            else:
+                self._updateFromParameterNode()
             self._refreshShellRobotCapabilities()
             # Capability refresh writes a generic runtime summary. Restore the
             # action-specific result after it.

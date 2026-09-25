@@ -92,9 +92,11 @@ def run():
     assert len(copies) == len(audit.object_records), (len(copies), len(audit.object_records))
     assert all(model.GetParentTransformNode() == node.robotBaseTransform for model in copies)
     max_gap = max((b - a for a, b in zip([started, *ticks], [*ticks, started + elapsed])), default=0.0)
-    print("CONNECT_PROGRESS_PASS", {"seconds": round(elapsed, 3), "max_qt_gap": round(max_gap, 3), "objects": len(copies)}, flush=True)
     if refresh_times:
         print("CONNECT_REFRESH_TIMES", refresh_times, flush=True)
+    if os.environ.get("DENTOBOT_PERF_PROFILE_CONNECT_REFRESH") == "1":
+        assert not refresh_times, f"full parameter-node widget refreshes during connect: {refresh_times}"
+    print("CONNECT_PROGRESS_PASS", {"seconds": round(elapsed, 3), "max_qt_gap": round(max_gap, 3), "objects": len(copies)}, flush=True)
     print("CONNECT_DISCONNECT_START", flush=True)
     ticks.clear()
     timer.start()

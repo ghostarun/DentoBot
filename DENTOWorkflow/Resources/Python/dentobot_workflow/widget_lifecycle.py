@@ -748,6 +748,7 @@ class LifecycleWidgetMixin:
         if (
             self._updatingFromParameterNode
             or self._restoringTrajectoryAssociation
+            or getattr(self, "_suppressParameterRefreshDuringRobotConnect", False)
             or self._caseBundleRestoreDepth > 0
             or not self._parameterNode
             or not self.logic
