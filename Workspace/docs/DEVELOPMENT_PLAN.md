@@ -1277,8 +1277,11 @@ Case, module reload, reconnect, and save/reopen reach the functional lifecycle
 PASS marker. This item therefore no longer blocks Priority-0 workflow work.
 The isolated 5.12 simulation lifecycle also reaches its functional PASS marker,
 but native shutdown exits 1 with three retained ROS2 parameter nodes. The
-fork ownership correction builds and requires a separately gated zero-exit
-rerun before lifecycle acceptance.
+fork ownership correction builds. The separately gated rerun passed after
+fork `1a91963`: the synthetic simulation lifecycle
+emitted its PASS marker and Slicer exited 0 without a leak report. Keep
+representative saved-case and normal-window acceptance open; isolated MoveIt
+still reported unavailable robot meshes/no link geometry.
 The current native source repair replaces the ROS host's raw parameter-node
 list with MRML references, makes delayed parameter callbacks weak-node safe,
 removes redundant `Delete()` calls after scene-owned nodes are removed, handles

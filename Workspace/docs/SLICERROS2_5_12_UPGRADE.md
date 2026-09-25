@@ -126,6 +126,19 @@ zero-exit lifecycle rerun remains the next gate; fork APIs, a representative
 saved case and same-case performance remain open. The accepted 5.10 runtime
 was untouched.
 
+Tarun approved one isolated rerun against rebuilt fork `1a91963`. It emitted
+`DENTOBOT_SCENE_LIFECYCLE_PASS` after every connect/reload/clear/save-reopen
+step and exited 0. No VTK leak, traceback or abnormal-exit line appeared.
+The watchdog saw no alert or OOM kill; Slicer peaked at 961.2 MiB RSS,
+106 threads and 47 file descriptors. The simulation stack was cleaned up and
+the accepted 5.10 container remained idle. This accepts the synthetic
+simulation scene-lifecycle and native shutdown gate. MoveIt still reported
+that it could not retrieve `file://` robot meshes and had no link geometry;
+the lifecycle test does not validate collision geometry. Resolve and verify
+that before any representative collision/planning acceptance. Fork APIs,
+saved-case compatibility, normal-window behavior and same-case performance
+remain open.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,

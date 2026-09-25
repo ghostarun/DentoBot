@@ -6521,7 +6521,10 @@ The later approved simulation lifecycle reached its functional PASS marker but
 exited 1 with three retained ROS2 parameter nodes after three robot connects.
 Keep functional and native-shutdown verdicts separate. Correct the fork's raw
 robot-description parameter allocation with smart-pointer `New()`; the isolated
-rebuild passed, while a zero-exit lifecycle rerun remains an explicit gate.
+rebuild passed. The separately approved rerun after fork `1a91963` reached the
+same PASS marker and exited 0 without VTK leaks; accept this synthetic
+simulation lifecycle/shutdown gate. MoveIt mesh loading and representative
+collision geometry remain separate open gates.
 Do not promote the 5.12 candidate or alter the accepted 5.10 rollback.
 
 Tarun directed that the previous DentoBot checkout be committed first, then the performance-upgrade branch start at that checkpoint with no branch-only commits. The previous branch now contains workflow checkpoint `fba15d8` and the plan; `upgrade/slicerros2-5.12-performance` started at the same `1f072d6` tip. The SlicerROS2 fork's five-file position-axis IK work was committed as `abb39e5` on its existing branch before `upgrade/slicer-5.12` was created at the same tip. The fork's requested collision check rejects an IK solution when its planning scene is unavailable; this preserves fail-closed semantics. Keep the 5.10 Dockerfile base and launcher path as defaults, use an explicit pinned 5.12 base argument and versioned path for the candidate, and leave `LAB_RELEASE` unchanged until correctness and performance gates pass. Current upstream head was not verified because the fork fetch failed on DNS. The source-only checks do not establish a working 5.12 native build or improved responsiveness.
