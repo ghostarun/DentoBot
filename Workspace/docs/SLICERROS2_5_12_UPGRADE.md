@@ -77,6 +77,15 @@ subscriber reference removal to use the matching index. Its isolated native
 build passed. This source/build result still needs one approved case-free
 five-reload zero-exit check; no saved-case or performance acceptance follows.
 
+Tarun approved that one check. The five reload assertions passed again, with
+no VTK leak report, but the Slicer launcher still exited 1 abnormally. Its
+captured log is byte-identical to the pre-`379d130` failed run. The installed
+native library contains `DisconnectSubscriptions`; the result does not show
+whether its quit/destructor paths executed. Keep `379d130` as an unaccepted
+source candidate. The next bounded diagnostic is a GDB breakpoint on the
+cleanup method and module/logic destructors, plus the crash stack, under new
+runtime approval; do not repeat an uninstrumented reload.
+
 ## Decision
 
 Start a controlled Slicer 5.12 migration now on an isolated upgrade branch,
