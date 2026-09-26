@@ -90,6 +90,7 @@ class LineageLogicMixin:
         knownFdi = {str(record.get("canonicalFdiNumber")) for record in teeth if record.get("canonicalFdiNumber")}
         counts = {"associated": 0, "missing": 0, "candidate": 0, "cannot-evaluate": 0, "ambiguous": 0}
         rows = []
+        inventoryContext = {"progress": progress}
         for index, tooth in enumerate(sorted(teeth, key=lambda item: (str(item.get("canonicalFdiNumber") or "99"), item["segmentId"])), 1):
             toothId = tooth["segmentId"]
             fdi = str(tooth.get("canonicalFdiNumber") or "")
@@ -101,7 +102,10 @@ class LineageLogicMixin:
                 row.update(status="ambiguous", reason="Multiple tooth masks claim this FDI identity")
             else:
                 try:
-                    association = self.getTargetPulpAssociation(segmentationNode, toothId, persist=False, requireReview=False)
+                    association = self.getTargetPulpAssociation(
+                        segmentationNode, toothId, persist=False,
+                        requireReview=False, _inventory_context=inventoryContext,
+                    )
                     pulpId = association["pulpSegmentId"]
                     segment = segmentationNode.GetSegmentation().GetSegment(pulpId)
                     derivation = vtk.mutable("")
@@ -116,7 +120,7 @@ class LineageLogicMixin:
             counts[row["status"]] += 1
             rows.append(row)
             if progress:
-                progress(index, len(teeth), fdi)
+                progress(index, len(teeth), fdi, "Checking target rows")
         absent = [f"{quadrant}{number}" for quadrant in range(1, 5) for number in range(1, 9) if f"{quadrant}{number}" not in knownFdi]
         report = {"schemaVersion": 1, "fingerprint": self._pulpInventoryFingerprint(segmentationNode, records),
                   "counts": counts, "rows": rows, "absentFdi": absent, "runId": segmentationNode.GetAttribute("DENTOBOT.RunId") or ""}
@@ -505,6 +509,7 @@ class LineageLogicMixin:
         pulpRecord: dict,
         component: dict,
         toothSurfaces: dict[str, dict],
+        progress=None,
     ) -> list[dict]:
         points = component["pointsWorld"]
         if len(points) == 0:
@@ -530,6 +535,8 @@ class LineageLogicMixin:
                 tooth["surface"],
                 points,
             )
+            if progress:
+                progress(toothId)
         toothIds = list(toothSurfaces)
         distanceMatrix = np.vstack([distances[toothId] for toothId in toothIds])
         nearestIndices = np.argmin(distanceMatrix, axis=0)
@@ -556,6 +563,68 @@ class LineageLogicMixin:
             )
         return candidates
 
+    def _prepareInventoryPulpEvidence(
+        self,
+        segmentationNode: vtkMRMLSegmentationNode,
+        pulpRecords: list[dict],
+        toothSurfaces: dict[str, dict],
+        progress=None,
+    ) -> dict[str, dict]:
+        """Build component masks and all-tooth scores once for one inventory."""
+
+        evidence = {}
+        for index, pulpRecord in enumerate(pulpRecords, 1):
+            segmentId = pulpRecord["segmentId"]
+            sourceFdi = str(pulpRecord.get("sourceFdiHint") or "")
+            if progress:
+                progress(
+                    index - 1, len(pulpRecords), sourceFdi,
+                    "Preparing pulp components",
+                )
+            try:
+                components = self._semanticPulpComponents(
+                    segmentationNode,
+                    pulpRecord,
+                )
+            except (TypeError, ValueError, RuntimeError) as exc:
+                evidence[segmentId] = {"error": str(exc)}
+            else:
+                item = {"componentCount": len(components), "payloads": []}
+                for component in components:
+                    completedScores = 0
+
+                    def scoreCompleted(toothId):
+                        nonlocal completedScores
+                        completedScores += 1
+                        if progress:
+                            tooth = toothSurfaces[toothId]["record"]
+                            progress(
+                                completedScores, len(toothSurfaces),
+                                str(tooth.get("canonicalFdiNumber") or tooth.get("fdiNumber") or ""),
+                                "Scoring pulp candidates",
+                            )
+
+                    item["payloads"].append(
+                        {
+                            "componentId": component["componentId"],
+                            "sourceSegmentId": component["sourceSegmentId"],
+                            "candidates": self._semanticPulpCandidates(
+                                pulpRecord,
+                                component,
+                                toothSurfaces,
+                                progress=scoreCompleted if progress else None,
+                            ),
+                        }
+                    )
+                evidence[segmentId] = item
+            if progress:
+                progress(
+                    index, len(pulpRecords),
+                    sourceFdi,
+                    "Processed pulp masks",
+                )
+        return evidence
+
     def getTargetPulpAssociation(
         self,
         segmentationNode: vtkMRMLSegmentationNode,
@@ -564,6 +633,7 @@ class LineageLogicMixin:
         persist: bool = True,
         requireReview: bool = True,
         progress=None,
+        _inventory_context=None,
     ) -> dict:
         """Resolve one target's pulp from reviewed geometry and persist its relation."""
 
@@ -611,48 +681,110 @@ class LineageLogicMixin:
             and record.get("canonicalFdiNumber")
         ]
         toothSurfaces = {}
-        for index, record in enumerate(toothRecords, 1):
-            if progress:
-                progress("Checking tooth surfaces", index - 1, len(toothRecords))
-            try:
-                toothSurfaces[record["segmentId"]] = {
-                    "record": record,
-                    "surface": self._getClosedSurfaceWorldCopy(
-                        segmentationNode,
-                        record["segmentId"],
-                    ),
-                }
-            except (TypeError, ValueError, RuntimeError):
-                continue
-        if targetId not in toothSurfaces:
+        if _inventory_context is not None and "toothSurfaceIds" in _inventory_context:
+            toothSurfaces = {}
+            toothSurfaceIds = _inventory_context["toothSurfaceIds"]
+        elif _inventory_context is not None and "toothSurfaces" in _inventory_context:
+            toothSurfaces = _inventory_context["toothSurfaces"]
+            toothSurfaceIds = set(toothSurfaces)
+        else:
+            for index, record in enumerate(toothRecords, 1):
+                if progress:
+                    progress("Checking tooth surfaces", index - 1, len(toothRecords))
+                try:
+                    toothSurfaces[record["segmentId"]] = {
+                        "record": record,
+                        "surface": self._getClosedSurfaceWorldCopy(
+                            segmentationNode,
+                            record["segmentId"],
+                        ),
+                    }
+                except (TypeError, ValueError, RuntimeError):
+                    pass
+                if _inventory_context is not None and _inventory_context.get("progress"):
+                    _inventory_context["progress"](
+                        index, len(toothRecords),
+                        str(record.get("canonicalFdiNumber") or record.get("fdiNumber") or ""),
+                        "Preparing tooth surfaces",
+                    )
+            if _inventory_context is not None:
+                _inventory_context["toothSurfaces"] = toothSurfaces
+                toothSurfaceIds = set(toothSurfaces)
+            else:
+                toothSurfaceIds = set(toothSurfaces)
+        if targetId not in toothSurfaceIds:
             raise ValueError(_("The selected target tooth has no usable surface."))
 
         pulpRecords = [
             record for record in records
             if record.get("structureType") in {"PULP", "OTHER"}
         ]
+        pulpEvidence = None
+        if _inventory_context is not None:
+            if "pulpPreparationError" in _inventory_context:
+                errorType, errorMessage = _inventory_context["pulpPreparationError"]
+                raise errorType(errorMessage)
+            if "pulpEvidence" not in _inventory_context:
+                try:
+                    _inventory_context["pulpEvidence"] = self._prepareInventoryPulpEvidence(
+                        segmentationNode,
+                        pulpRecords,
+                        toothSurfaces,
+                        progress=_inventory_context.get("progress"),
+                    )
+                except (TypeError, ValueError, RuntimeError) as exc:
+                    _inventory_context["pulpPreparationError"] = (type(exc), str(exc))
+                    _inventory_context["toothSurfaceIds"] = toothSurfaceIds
+                    _inventory_context.pop("toothSurfaces", None)
+                    toothSurfaces = {}
+                    raise
+                _inventory_context["toothSurfaceIds"] = toothSurfaceIds
+                _inventory_context.pop("toothSurfaces", None)
+                toothSurfaces = {}
+            pulpEvidence = _inventory_context["pulpEvidence"]
 
         accepted = []
         relevantFailures = []
         for index, pulpRecord in enumerate(pulpRecords, 1):
             if progress:
                 progress("Checking candidate pulp masks", index - 1, len(pulpRecords))
-            try:
-                components = self._semanticPulpComponents(
-                    segmentationNode,
-                    pulpRecord,
-                )
-            except (TypeError, ValueError, RuntimeError) as exc:
+            cachedEvidence = (
+                pulpEvidence.get(pulpRecord["segmentId"])
+                if pulpEvidence is not None else None
+            )
+            if cachedEvidence is not None and "error" in cachedEvidence:
                 if str(pulpRecord.get("sourceFdiHint") or "") == targetFdi:
                     relevantFailures.append(
                         {
                             "validationState": "INVALID",
-                            "reason": str(exc),
+                            "reason": cachedEvidence["error"],
                             "sourceSegmentId": pulpRecord["segmentId"],
                         }
                     )
                 continue
-            if not components:
+            if cachedEvidence is None:
+                try:
+                    components = self._semanticPulpComponents(
+                        segmentationNode,
+                        pulpRecord,
+                    )
+                except (TypeError, ValueError, RuntimeError) as exc:
+                    if str(pulpRecord.get("sourceFdiHint") or "") == targetFdi:
+                        relevantFailures.append(
+                            {
+                                "validationState": "INVALID",
+                                "reason": str(exc),
+                                "sourceSegmentId": pulpRecord["segmentId"],
+                            }
+                        )
+                    continue
+            else:
+                components = None
+            hasComponents = (
+                cachedEvidence.get("componentCount", 0) > 0
+                if cachedEvidence is not None else bool(components)
+            )
+            if not hasComponents:
                 if str(pulpRecord.get("sourceFdiHint") or "") == targetFdi:
                     relevantFailures.append(
                         {
@@ -662,19 +794,22 @@ class LineageLogicMixin:
                         }
                     )
                 continue
-            componentPayloads = []
-            for component in components:
-                componentPayloads.append(
-                    {
-                        "componentId": component["componentId"],
-                        "sourceSegmentId": component["sourceSegmentId"],
-                        "candidates": self._semanticPulpCandidates(
-                            pulpRecord,
-                            component,
-                            toothSurfaces,
-                        ),
-                    }
-                )
+            if cachedEvidence is not None:
+                componentPayloads = cachedEvidence["payloads"]
+            else:
+                componentPayloads = []
+                for component in components:
+                    componentPayloads.append(
+                        {
+                            "componentId": component["componentId"],
+                            "sourceSegmentId": component["sourceSegmentId"],
+                            "candidates": self._semanticPulpCandidates(
+                                pulpRecord,
+                                component,
+                                toothSurfaces,
+                            ),
+                        }
+                    )
             association = associate_pulp_components(componentPayloads, targetId)
             targetGateSeen = any(
                 any(

@@ -890,12 +890,18 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         progressDialog = qt.QProgressDialog(_("Checking pulp masks for this run..."), "", 0, total, slicer.util.mainWindow())
         progressDialog.setCancelButton(None)
         progressDialog.setWindowModality(qt.Qt.WindowModal)
+        progressDialog.setAutoClose(False)
+        progressDialog.setAutoReset(False)
         progressDialog.show()
         slicer.app.processEvents()
-        def updateProgress(done, _total, fdi):
-            progressDialog.setLabelText(_("Checking FDI%1 (%2 of %3)").replace("%1", fdi or _("unknown"))
-                                        .replace("%2", str(done)).replace("%3", str(total)))
-            progressDialog.setValue(done)
+        def updateProgress(done, phaseTotal, fdi, phase):
+            phaseName = phase or _("Checking inventory")
+            if fdi:
+                phaseName = _("%1 for FDI%2").replace("%1", phaseName).replace("%2", str(fdi))
+            progressDialog.setLabelText(_("%1 (%2 of %3)").replace("%1", phaseName)
+                                        .replace("%2", str(done)).replace("%3", str(phaseTotal)))
+            progressDialog.setRange(0, max(1, int(phaseTotal)))
+            progressDialog.setValue(min(max(0, int(done)), max(1, int(phaseTotal))))
             slicer.app.processEvents()
         try:
             self._updatingSegmentationReviewUI = True

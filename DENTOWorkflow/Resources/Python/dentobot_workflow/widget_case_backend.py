@@ -1411,10 +1411,13 @@ class CaseBackendWidgetMixin:
             # the operator's Step 2 Check Pulp Masks action.
             self._setBackendStatus(_("Checking pulp masks for detected teeth..."), "working")
             slicer.app.processEvents()
-            def updatePulpCheck(done, total, fdi):
+            def updatePulpCheck(done, total, fdi, phase):
+                phaseName = phase or _("Checking inventory")
+                if fdi:
+                    phaseName = _("%1 for FDI%2").replace("%1", phaseName).replace("%2", str(fdi))
                 self._setBackendStatus(
-                    _("Checking pulp masks: FDI%1 (%2 of %3)...")
-                    .replace("%1", fdi or _("unknown"))
+                    _("Checking pulp masks: %1 (%2 of %3)...")
+                    .replace("%1", phaseName)
                     .replace("%2", str(done)).replace("%3", str(total)), "working",
                 )
                 slicer.app.processEvents()

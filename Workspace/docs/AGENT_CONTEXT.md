@@ -1,6 +1,6 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-25. `S6-LIVE-01` remains Priority 0. Tarun's
+Last reconciled: 2026-09-26. `S6-LIVE-01` remains Priority 0. Tarun's
 25 September direction resumes bounded Step 6 source implementation.
 The standalone FDI11 PreEntry IK source gate passed pure checks and a native
 package build. Tarun's first visible IK-only report shows collision-checked
@@ -275,6 +275,10 @@ evidence or implement the 96-trajectory batch proposal.
   Step 4A parent-FDI persistence lookup bug for the reviewed FDI11 derived
   candidate; the one-line pure correction passes, while exact-case Slicer
   verification waits for the active operator GUI to release the runtime.
+  The 2026-09-26 UI-watchdog evidence found repeated per-target surface and
+  pulp-component rescoring during Step 2 all-tooth inventory. A per-inventory
+  cache and named progress phases now pass focused pure tests; normal-window
+  watchdog/resource acceptance remains open.
 
 ## Durable Step-4A–5B testing baseline (operator-supplied, 2026-09-15)
 

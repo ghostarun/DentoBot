@@ -1318,10 +1318,27 @@ requiring review before planning. Trusted legacy run metrics require matching
 loaded segment IDs and label values. Runtime save/reopen and anatomical
 acceptance remain open until verified.
 
-**Next bounded action:** MRB and dentocase save/reopen now pass for the focused
-FDI11 candidate. Inspect the Step 2 mask and report in a normal window for
-Tarun's anatomical/UI verdict. Full all-tooth batch performance and
-representative source-mask Case B remain open.
+**Watchdog-driven inventory performance correction (2026-09-26):** Normal
+Slicer watchdog captures repeatedly recovered 5.26–5.47 s stalls in
+`onCheckPulpMasks` → `checkPulpInventory` → target association →
+`_semanticPulpCandidates` / `_semanticInsideFraction`. Resource samples showed
+CPU up to about 223%, Slicer RSS stable near 2.54–2.55 GiB, and no cgroup
+OOM/kill event or watchdog alert. The all-tooth report had been rebuilding
+tooth surfaces and rescoring the same pulp components once per target. The inventory now shares
+one invocation-local geometry/score cache, keeps `associate_pulp_components`
+and all target-specific acceptance/error gates per row, releases surfaces and
+voxel-point arrays after scoring, and exposes tooth-surface, component,
+candidate-scoring and target-row progress to both Step 2 UI entry paths. A
+focused pure inventory/semantic regression passes 19 tests. No Slicer runtime,
+saved-case mutation or operator anatomy verdict is claimed. Next acceptance is
+one approved normal-window Check Pulp Masks run with watchdog/resource capture.
+
+**Next bounded action:** Run one approved normal-window Step 2 Check Pulp Masks
+with watchdog/resource capture to verify the invocation-local cache, per-tooth
+outcomes, live phase counters, stall intervals and memory trend. Inspect the
+focused FDI11 candidate/report for Tarun's anatomy/UI verdict when that case is
+loaded. Full all-tooth runtime throughput and representative source-mask Case
+B remain open.
 
 **Approved verification continuation (2026-09-24):** Tarun approved the
 bounded save/reload check. Slicer re-audited the saved 28-row FDI11 run,
@@ -1724,7 +1741,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P1-01` | 1 | Partially implemented; anatomical safeguards pending | Current P0 correction accepted | Add bilateral condylar/crown regions, exact-source snapping, MPR review and representative anatomy acceptance |
 | `S6-P2-01` | 2 | Planned | `S6-P0-02` checkpoint matrix understood | Implement one post-load visual integrity panel for Steps 1–6 with Current, Needs attention, Stale, Blocked upstream, and Rejected states |
 | `S6-P2-02` | 2 | Planned | `S6-P1-01` accepted | Add smooth display-only incisor-gap preview and one explicit commit action |
-| `S6-P2-03` | 2 | Headless load, Step 4C/5B and Step 2 progress passed; Step 6.3/6.4 source checks passed; broad root-cause acceptance open | Existing Connect/Disconnect render-pause result remains 8.421→2.757 s and `processEvents()` 6.163→0.333 s with 31 outgoing proxies cleared. On 2026-09-26, one same-case 5.10 `cProfile` run attributed 6.016/6.639 s to patient-shell regularization; 34 VTK `Update()` calls took 5.836 s and four distance-field samples 5.708 s. The fallback computed an unused hollow-candidate distance field. Source now skips it, reuses anatomy image metadata, reports completed fields, and gives the standalone shell action the existing cancellable progress UI. Focused VTK suite: 3 passed; no post-fix Slicer runtime yet. Same-case CPU/llvmpipe medians: 5B 67.79 s (5.10) vs 52.48 s (5.12), 4C 41.28 vs 33.02 s, while 5.10 had far greater CPU throttling; do not attribute gains to Slicer version. Every measured action completed, with each probe exiting 1 only on the max-Qt-gap assertion. No OOM/watchdog alert. | Run one approval-gated, read-only post-fix Step 5B check on accepted 5.10; record callbacks, geometry/lineage, longest Qt gap and resource counters. No case save, ROS, MoveIt, planner or hardware. Preserve truthful progress/cancel semantics. Keep normal-window Views and shutdown acceptance separate; verify >=60 presented FPS and responsive input on capable Ubuntu and Windows 11/WSLg GPU hosts (including >=8 GB VRAM), recording renderer, GPU/VRAM, scene, viewport and frame pacing. llvmpipe/Xvfb is diagnostic only. Step 6.4 planner stays paused under `S6-LIVE-01`; no fake percentage or ETA |
+| `S6-P2-03` | 2 | Headless load, Step 4C/5B and Step 2 progress passed; Step 2 inventory cache and focused tests now pass under `S3-P0-DENTAL-SEMANTICS` (normal-window verification pending); Step 6.3/6.4 source checks passed; broad root-cause acceptance open | Existing Connect/Disconnect render-pause result remains 8.421→2.757 s and `processEvents()` 6.163→0.333 s with 31 outgoing proxies cleared. On 2026-09-26, one same-case 5.10 `cProfile` run attributed 6.016/6.639 s to patient-shell regularization; 34 VTK `Update()` calls took 5.836 s and four distance-field samples 5.708 s. The fallback computed an unused hollow-candidate distance field. Source now skips it, reuses anatomy image metadata, reports completed fields, and gives the standalone shell action the existing cancellable progress UI. Focused VTK suite: 3 passed; no post-fix Slicer runtime yet. Same-case CPU/llvmpipe medians: 5B 67.79 s (5.10) vs 52.48 s (5.12), 4C 41.28 vs 33.02 s, while 5.10 had far greater CPU throttling; do not attribute gains to Slicer version. Every measured action completed, with each probe exiting 1 only on the max-Qt-gap assertion. No OOM/watchdog alert. | Run one approval-gated, read-only post-fix Step 5B check on accepted 5.10; record callbacks, geometry/lineage, longest Qt gap and resource counters. No case save, ROS, MoveIt, planner or hardware. Preserve truthful progress/cancel semantics. Keep normal-window Views and shutdown acceptance separate; verify >=60 presented FPS and responsive input on capable Ubuntu and Windows 11/WSLg GPU hosts (including >=8 GB VRAM), recording renderer, GPU/VRAM, scene, viewport and frame pacing. llvmpipe/Xvfb is diagnostic only. Step 6.4 planner stays paused under `S6-LIVE-01`; no fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
 | `S6-U-01` | 4 | Isolated 5.12 simulation lifecycle reaches its functional PASS marker and exits 0 without a VTK leak report after fork `1a91963`. Representative saved-case and normal-window teardown remain unverified. Accepted 5.10 runtime was unchanged. | Preserve P0–3 order except this dependency of active `PLAT-U-06` | Monitor representative runtime teardown before broad closure; preserve operator scene and 5.10 rollback. |

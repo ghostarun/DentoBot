@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import runpy
 from types import MethodType, SimpleNamespace
 
 import numpy as np
@@ -15,6 +16,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "DENTOWorkflow" / "Resources" / "Python"
+ASSOCIATE_PULP_COMPONENTS = runpy.run_path(
+    str(PYTHON / "dentobot_workflow" / "dental_semantics.py")
+)["associate_pulp_components"]
 
 
 class MissingTargetPulpError(ValueError):
@@ -139,6 +143,8 @@ def _lineage_methods():
             "getPulpInventoryReport",
             "checkPulpInventory",
             "createMissingPulpCandidates",
+            "getTargetPulpAssociation",
+            "_prepareInventoryPulpEvidence",
         },
         {
             "hashlib": hashlib,
@@ -151,6 +157,8 @@ def _lineage_methods():
                 ),
             ),
             "vtk": SimpleNamespace(vtkMatrix4x4=Matrix, mutable=MutableString),
+            "vtkMRMLSegmentationNode": object,
+            "associate_pulp_components": ASSOCIATE_PULP_COMPONENTS,
             "_": lambda message: message,
             "MissingTargetPulpError": MissingTargetPulpError,
         },
@@ -257,6 +265,112 @@ def test_inventory_counts_association_states_and_absent_adult_fdi_read_only():
     assert len(node.segmentation.segments) == 7
 
 
+def test_inventory_reuses_geometry_evidence_per_run_and_keeps_associations_target_specific():
+    records = _records(("t11", "11", "VALID"), ("t21", "21", "VALID"))
+    records.extend([
+        {
+            "segmentId": "p11",
+            "structureType": "PULP",
+            "canonicalFdiNumber": "11",
+            "sourceFdiHint": "11",
+            "validationState": "VALID",
+        },
+        {
+            "segmentId": "p21",
+            "structureType": "PULP",
+            "canonicalFdiNumber": "21",
+            "sourceFdiHint": "21",
+            "validationState": "VALID",
+        },
+    ])
+    node = _trusted_node(records)
+    logic = _lineage_methods()()
+    logic.PULP_REPORT_ATTRIBUTE = "DENTOBOT.PulpInventoryJson"
+    logic.SEMANTIC_PERSISTENCE_ATTRIBUTE = "DENTOBOT.SemanticPersistence"
+    logic.getSegmentationReviewRecords = lambda _node: records
+    logic._semanticPersistenceIssues = lambda *_args: []
+    logic.getSegmentationSourceVolume = lambda _node: object()
+    logic.getSegmentationReviewState = lambda _node: "Reviewed"
+    logic.validateTargetTooth = lambda _node, tooth_id: next(
+        record for record in records if record["segmentId"] == tooth_id
+    )
+    logic._derivedPulpAssociation = lambda *_args: None
+
+    surface_calls = []
+    component_calls = []
+    candidate_calls = []
+    logic._getClosedSurfaceWorldCopy = lambda _node, segment_id: (
+        surface_calls.append(segment_id) or SimpleNamespace(segment_id=segment_id)
+    )
+
+    def pulp_components(_node, pulp_record):
+        segment_id = pulp_record["segmentId"]
+        component_calls.append(segment_id)
+        return [{
+            "componentId": f"{segment_id}:component-1",
+            "sourceSegmentId": segment_id,
+            "pointsWorld": [(0.0, 0.0, 0.0)],
+        }]
+
+    def pulp_candidates(pulp_record, component, tooth_surfaces, progress=None):
+        candidate_calls.append(component["sourceSegmentId"])
+        if progress:
+            for tooth_id in tooth_surfaces:
+                progress(tooth_id)
+        target_fdi = pulp_record["sourceFdiHint"]
+        return [
+            {
+                "toothSegmentId": tooth_id,
+                "toothFdiNumber": tooth["record"]["canonicalFdiNumber"],
+                "sourceFdiHint": target_fdi,
+                "insideFraction": 1.0 if tooth["record"]["canonicalFdiNumber"] == target_fdi else 0.0,
+                "nearestToothFraction": 1.0 if tooth["record"]["canonicalFdiNumber"] == target_fdi else 0.0,
+                "robustSurfaceDistanceMm": 0.1 if tooth["record"]["canonicalFdiNumber"] == target_fdi else 99.0,
+            }
+            for tooth_id, tooth in tooth_surfaces.items()
+        ]
+
+    logic._semanticPulpComponents = pulp_components
+    logic._semanticPulpCandidates = pulp_candidates
+    progress_events = []
+
+    def progress(*event):
+        progress_events.append(event)
+
+    first = logic.checkPulpInventory(node, progress=progress)
+    assert {row["toothSegmentId"]: (row["status"], row["pulpSegmentId"]) for row in first["rows"]} == {
+        "t11": ("associated", "p11"),
+        "t21": ("associated", "p21"),
+    }
+    phases = {event[3] for event in progress_events if len(event) == 4}
+    assert phases >= {
+        "Preparing tooth surfaces",
+        "Preparing pulp components",
+        "Scoring pulp candidates",
+        "Checking target rows",
+    }
+    assert surface_calls == ["t11", "t21"]
+    assert component_calls == ["p11", "p21"]
+    assert candidate_calls == ["p11", "p21"]
+
+    second = logic.checkPulpInventory(node, progress=progress)
+    assert {row["toothSegmentId"]: (row["status"], row["pulpSegmentId"]) for row in second["rows"]} == {
+        "t11": ("associated", "p11"),
+        "t21": ("associated", "p21"),
+    }
+    assert surface_calls == ["t11", "t21", "t11", "t21"]
+    assert component_calls == ["p11", "p21", "p11", "p21"]
+    assert candidate_calls == ["p11", "p21", "p11", "p21"]
+
+    association = logic.getTargetPulpAssociation(
+        node, "t11", persist=False, requireReview=False
+    )
+    assert association["pulpSegmentId"] == "p11"
+    assert surface_calls == ["t11", "t21"] * 3
+    assert component_calls == ["p11", "p21"] * 3
+    assert candidate_calls == ["p11", "p21"] * 3
+
+
 def test_legacy_untrusted_run_is_unevaluable_and_step2_offers_manual_check():
     records = [{
         "segmentId": "legacy-tooth",
@@ -278,7 +392,7 @@ def test_legacy_untrusted_run_is_unevaluable_and_step2_offers_manual_check():
         "SegmentationWidgetMixin",
         {"_updatePulpInventoryControls", "onCheckPulpMasks"},
         {"_": lambda message: message,
-         "qt": SimpleNamespace(QProgressDialog=lambda *_args: SimpleNamespace(setCancelButton=lambda _value: None, setWindowModality=lambda _value: None, show=lambda: None, close=lambda: None, setLabelText=lambda _value: None, setValue=lambda _value: None), Qt=SimpleNamespace(WindowModal=1)),
+         "qt": SimpleNamespace(QProgressDialog=lambda *_args: SimpleNamespace(setCancelButton=lambda _value: None, setWindowModality=lambda _value: None, setAutoClose=lambda _value: None, setAutoReset=lambda _value: None, setRange=lambda *_values: None, show=lambda: None, close=lambda: None, setLabelText=lambda _value: None, setValue=lambda _value: None), Qt=SimpleNamespace(WindowModal=1)),
          "slicer": SimpleNamespace(util=SimpleNamespace(errorDisplay=lambda _message: None, mainWindow=lambda: None), app=SimpleNamespace(processEvents=lambda: None))},
     )
     widget = widget_methods()

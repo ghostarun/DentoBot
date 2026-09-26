@@ -1469,6 +1469,12 @@ TotalSegmentator report/class map
   the existing MRML scene through MRB/dentocase save and reload. Edited masks
   make the report stale; adult FDI positions without detected tooth masks are
   listed separately from teeth missing pulp.
+- The all-tooth Step 2 inventory shares tooth surfaces, pulp components and
+  spatial candidate scores within one invocation, then releases those
+  temporary geometry objects. It still resolves each target separately with
+  the existing association helper and failure gates. Report preparation and
+  scoring phases use live progress callbacks; this source/pure correction
+  still needs normal-window watchdog/resource acceptance.
 
 ### Acceptance gates
 

@@ -6409,6 +6409,23 @@ and label IDs stored in run metrics may establish identity only when segment
 IDs and label values match the loaded masks; a display name alone cannot.
 Failed bulk attempts remain retryable without duplicating created candidates.
 
+## 2026-09-26 — Reuse spatial evidence during Step 2 inventory
+
+The normal-window watchdog captured repeated CPU-bound stalls while Step 2
+audited all teeth. The shared target query rebuilt every tooth surface and
+recomputed every pulp-component score for each row. Keep geometry and
+association semantics unchanged, but share those expensive spatial results in
+an invocation-local cache during `checkPulpInventory`; keep target-specific
+association ranking and failure handling per row. Do not persist geometry or
+candidate caches across calls. Publish surface-preparation, component,
+candidate-scoring and row progress through the existing UI paths, and release
+temporary surfaces/voxel points after scoring to bound retained memory.
+
+This is a source/pure correction only. A normal-window watchdog/resource run
+must confirm correct row results, live progress, reduced stalls and stable
+memory before runtime acceptance; it does not close the existing anatomy or
+source-mask Case B verdicts.
+
 ## 2026-09-24 — Hydrate the workflow-state schema recorded in MRML
 
 The `.dentocase` archive envelope remains schema 2.0 while the saved typed
