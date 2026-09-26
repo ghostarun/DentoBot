@@ -6791,5 +6791,11 @@ correction in the owning 5.10 widget callbacks: return from their refreshes
 once cleanup starts, and do not run the template input refresh without a
 parameter node. This avoids changing MRML state or disconnecting ordinary
 operator signals. Queued callback ordering is a source-backed hypothesis, not
-yet runtime-proven; normal-window teardown remains the acceptance gate.
+yet runtime-proven; operator review and representative lifecycle remain gates.
 `PLAT-U-06` Slicer 5.12 work stays indefinitely deferred.
+
+The approved r4 automated visible-window 5.10 Step 2 repeat used committed
+source `9632cc7`, preserved the case archive, emitted `RUN_COMPLETE`, exited 0,
+and logged no PythonQt traceback. Accept this focused teardown regression only.
+The report was dismissed by the harness, so it supplies no operator visual
+verdict and does not close representative saved-case lifecycle acceptance.

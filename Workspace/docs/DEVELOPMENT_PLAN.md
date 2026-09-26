@@ -1274,9 +1274,12 @@ automatic ROS reconnect/task reconfirmation sequence is superseded.
 but logged two PythonQt updates against destroyed docking/template widgets after
 the completion marker. Source guards now stop both update paths during cleanup
 and stop a template input refresh without a parameter node. Python compilation
-and diff check pass. The exact queued callback sequence is still an inference;
-require separately approved normal-window teardown and representative lifecycle
-evidence before closing this item. The 5.12 upgrade is indefinitely deferred.
+and diff check pass. The approved r4 automated visible-window Slicer 5.10 repeat
+on the unchanged case and committed guards emitted `RUN_COMPLETE`, exited 0 and
+logged zero tracebacks after a harness-timed report dismissal. The exact r3
+queued callback sequence is still an inference; require Tarun's normal-window
+verdict and representative saved-case lifecycle evidence before closing this
+item. The 5.12 upgrade is indefinitely deferred.
 
 The former reconnect/`mrmlScene.Clear(0)` abort no longer reproduces: warm New
 Case, module reload, reconnect, and save/reopen reach the functional lifecycle
