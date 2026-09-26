@@ -277,8 +277,14 @@ evidence or implement the 96-trajectory batch proposal.
   verification waits for the active operator GUI to release the runtime.
   The 2026-09-26 UI-watchdog evidence found repeated per-target surface and
   pulp-component rescoring during Step 2 all-tooth inventory. A per-inventory
-  cache and named progress phases now pass focused pure tests; normal-window
-  watchdog/resource acceptance remains open.
+  cache and named progress phases pass focused pure tests. The corrected
+  Slicer 5.10 r3 normal-window run produced the 28-row report in 7.68 s, with
+  no recovered >=5 s stall, max 4.862 s UI gap, unchanged case hash and no
+  save; its observer captured no live inventory progress events, so counter
+  visibility remains unverified in r3. The unsaved report's anatomy/UI
+  verdict is pending. Slicer exited 0 after two destroyed-widget PythonQt
+  teardown tracebacks, tracked under `S6-U-01`. The approval for r3 is
+  consumed; no further runtime is authorized by it.
 
 ## Durable Step-4A–5B testing baseline (operator-supplied, 2026-09-15)
 

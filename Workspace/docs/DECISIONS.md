@@ -6734,3 +6734,17 @@ introduce a worker thread, parameter change, fake percentage or ETA. The pure
 VTK regression and syntax checks pass. Require one explicitly approved
 post-fix Slicer verification before recording runtime acceptance; keep the
 accepted 5.10 image as lab default and the 5.12 candidate isolated.
+
+### 2026-09-26 — S3 corrected runtime scope and teardown boundary
+
+Tarun's approval after the r2 harness teardown failure superseded the earlier
+one-run stop for exactly one corrected Step 2 normal-window check (r3). That
+single authorization is now consumed and does not authorize a further agent
+runtime. Record the functional report result as one-case evidence only; keep
+the anatomy/UI verdict pending because the transient report was not saved and
+Tarun did not provide a visual verdict. The r3 progress observer captured no
+inventory progress events, so it does not independently confirm live counter
+visibility. Slicer exited 0 after two destroyed-widget PythonQt tracebacks
+during teardown; route that distinct lifecycle evidence through `S6-U-01` and
+do not conflate it with the Step 2 inventory computation or the isolated 5.12
+native ROS shutdown result.

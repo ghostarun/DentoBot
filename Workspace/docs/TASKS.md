@@ -1365,8 +1365,9 @@ closed case-load progress dialog. It generated duplicate observation records
 and made watchdog phase attribution chatter between that stale label and the
 active inventory label. The actual Step 2 dialog showed the named phases and
 counters; do not use the observer-record count or exact phase frequencies as
-performance measurements. No code was changed for this harness issue, and no
-runtime retry is authorized by this one-run check.
+performance measurements. No code was changed for this harness issue. At the
+time of r2, its approval did not authorize a retry; the operator later
+approved exactly one corrected continuation, documented below.
 
 **Teardown limitation:** The report table was displayed in the normal window.
 Closing its X11 window removed the dialog, but the temporary Python callback did
@@ -1376,11 +1377,57 @@ Slicer processes were sent SIGTERM to stop the observer. No `RUN_COMPLETE` or
 clean Slicer shutdown is claimed. The container remains idle; the input case
 remains byte-identical. Because the report existed only in the unsaved MRML
 scene, Tarun's visible anatomy/UI verdict is still pending and the report table
-is no longer open. **Next:** Tarun reviews the existing candidate/report in a
-normal window; do not start another agent runtime under this one-run approval.
+is no longer open. That run's no-retry scope was later superseded only by the
+operator-approved corrected continuation documented below.
 Representative source-mask Case B and historical all-tooth candidate-creation
 throughput remain separate acceptance work; Step 4A trajectory-aligned MPR
 review remains under `S4A-PULP-ENDPOINT`.
+
+**Operator scope delta and corrected runtime r3 (2026-09-26):** After r2's
+modal teardown limitation, Tarun explicitly approved one corrected normal-
+window rerun, superseding the earlier one-run stop for this single attempt.
+The approval is consumed; it authorizes no further agent runtime. The case
+archive SHA-256 before and after remained
+`f7137e03c5ead939171d13bd5480024214493d3a5def41405c4c268650efab2d`.
+Slicer `5.10.0-2025-11-10` opened Step 2, enabled and clicked **Check Pulp
+Masks** once. The fresh report had 28 rows: 5 associated, 1 candidate, 13
+missing, 9 ambiguous, 0 unevaluable; FDI11 remained a 52-voxel candidate and
+segment count remained 55. The button-ready timestamp was 07:54:01.818 UTC;
+the result timestamp was 07:54:09.497 UTC (7.679 s). The report dialog's
+`exec()` returned at 07:54:26.818 UTC, and the harness recorded `RUN_COMPLETE`
+at 07:54:27.104 UTC with no saved report. The `REPORT_CLOSED_BY_OPERATOR`
+event name is stronger than its evidence: it records only that dialog `exec()`
+returned and does not identify who or how it was closed. The report was shown
+for about 17 seconds, but no operator anatomy/UI verdict was received. The
+report disappeared with the unsaved scene when Slicer exited.
+
+The corrected progress observer captured zero `VISIBLE_PROGRESS` events in
+r3. Therefore r3 confirms the report computation and UI return, but does not
+independently verify that live inventory counters were visible; r2's counter
+observation remains the only such runtime evidence and its teardown was not
+clean. The UI watchdog recorded zero recovered stalls at the 5 s threshold
+and UI event-loop gaps of 2.718, 3.938 and 4.862 s. Thirty-two resource
+samples showed peak Slicer RSS 2,383.4 MiB, CPU 210.9%, 80 threads, 39 file
+descriptors, and minimum host available memory 6.29 GiB. There were no
+resource alerts, cgroup OOM/kill events or CPU throttling. This shows no
+recovered >=5 s stall for this single action, not zero latency or universal
+responsiveness.
+
+The run reached `RUN_COMPLETE` and exited with status 0. Its console then
+logged two PythonQt exceptions during application/scene teardown: docking's
+`_updateTargetDocking` set `enabled` on a destroyed `QPushButton`, and
+template-guide cleanup called `setCurrentNode` on a destroyed
+`qMRMLNodeComboBox`. These were after the functional result and did not change
+the segment count or process exit code. Exact callback ordering/root cause is
+not proven; track this residual lifecycle issue under `S6-U-01`, separately
+from the inventory performance correction. The container returned to idle,
+the scoped X11 grant was revoked, and no save or ROS/MoveIt/planner/hardware
+action occurred.
+
+**r3 evidence directory:** `/home/light-tarun/dentobot/data/dentobot-runs/ui-watchdog/step2-pulp-inventory-approved-20260926-r3/` (`workflow.jsonl`, `resources.jsonl`, `slicer-ui-20260926-075349-19.log`, `slicer-console.log`). Case SHA before and after is recorded above. The remaining S3 visual anatomy/UI verdict,
+representative source-mask Case B, broader candidate-creation throughput and
+Step 3A invalidation policy remain open; trajectory-aligned MPR review stays
+under `S4A-PULP-ENDPOINT`.
 
 **Approved verification continuation (2026-09-24):** Tarun approved the
 bounded save/reload check. Slicer re-audited the saved 28-row FDI11 run,
@@ -1786,7 +1833,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P2-03` | 2 | Headless load, Step 4C/5B and Step 2 progress passed; Step 2 inventory cache and focused tests now pass under `S3-P0-DENTAL-SEMANTICS` (normal-window verification pending); Step 6.3/6.4 source checks passed; broad root-cause acceptance open | Existing Connect/Disconnect render-pause result remains 8.421→2.757 s and `processEvents()` 6.163→0.333 s with 31 outgoing proxies cleared. On 2026-09-26, one same-case 5.10 `cProfile` run attributed 6.016/6.639 s to patient-shell regularization; 34 VTK `Update()` calls took 5.836 s and four distance-field samples 5.708 s. The fallback computed an unused hollow-candidate distance field. Source now skips it, reuses anatomy image metadata, reports completed fields, and gives the standalone shell action the existing cancellable progress UI. Focused VTK suite: 3 passed; no post-fix Slicer runtime yet. Same-case CPU/llvmpipe medians: 5B 67.79 s (5.10) vs 52.48 s (5.12), 4C 41.28 vs 33.02 s, while 5.10 had far greater CPU throttling; do not attribute gains to Slicer version. Every measured action completed, with each probe exiting 1 only on the max-Qt-gap assertion. No OOM/watchdog alert. | Run one approval-gated, read-only post-fix Step 5B check on accepted 5.10; record callbacks, geometry/lineage, longest Qt gap and resource counters. No case save, ROS, MoveIt, planner or hardware. Preserve truthful progress/cancel semantics. Keep normal-window Views and shutdown acceptance separate; verify >=60 presented FPS and responsive input on capable Ubuntu and Windows 11/WSLg GPU hosts (including >=8 GB VRAM), recording renderer, GPU/VRAM, scene, viewport and frame pacing. llvmpipe/Xvfb is diagnostic only. Step 6.4 planner stays paused under `S6-LIVE-01`; no fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
-| `S6-U-01` | 4 | Isolated 5.12 simulation lifecycle reaches its functional PASS marker and exits 0 without a VTK leak report after fork `1a91963`. Representative saved-case and normal-window teardown remain unverified. Accepted 5.10 runtime was unchanged. | Preserve P0–3 order except this dependency of active `PLAT-U-06` | Monitor representative runtime teardown before broad closure; preserve operator scene and 5.10 rollback. |
+| `S6-U-01` | 4 | Isolated 5.12 simulation lifecycle reaches its functional PASS marker and exits 0 without a VTK leak report after fork `1a91963`. A separate 2026-09-26 Slicer 5.10 Step 2 run exited 0 after `RUN_COMPLETE` but logged docking/template-guide PythonQt callbacks touching destroyed widgets during teardown. Exact ordering/root cause is not established; representative saved-case and normal-window teardown remain open. | Preserve P0–3 order except this dependency of active `PLAT-U-06` | Triage callback lifetime/scene teardown in the owning widgets and verify through an approved normal-window lifecycle run; preserve operator scene and 5.10 rollback. |
 
 ## Unprioritized task contracts — migration baseline
 

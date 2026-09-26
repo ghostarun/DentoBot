@@ -1307,6 +1307,16 @@ OOM. Preserve the operator's unsaved scene; after a normal close, remeasure
 memory and require the handoff's stack group to be absent before deciding
 whether native wrapper release is still an independent leak.
 
+**2026-09-26 separate workflow teardown evidence:** After a normal-window
+Step 2 inventory reached `RUN_COMPLETE`, Slicer 5.10 exited 0 but logged two
+PythonQt exceptions as docking/template-guide callbacks touched destroyed
+widgets during scene/application teardown. They occurred after the inventory
+result and did not change the segment count. The exact callback ordering and
+root cause are unproven, and this is not evidence of the isolated 5.12 native
+ROS lifecycle failing. Keep widget callback cleanup in this existing
+lifecycle item and verify it in a separately approved normal-window run; see
+the evidence and boundary in today's logbook.
+
 ### `S6-U-02` — physical mount-frame truth
 
 **Accepted 2026-09-19 at simulation scope (operator closure).** The lab
@@ -1475,19 +1485,23 @@ TotalSegmentator report/class map
   the existing association helper and failure gates. Report preparation and
   scoring phases use live progress callbacks.
 
-**2026-09-26 runtime checkpoint:** One visible Slicer 5.10 run on the named
-FDI11 case opened Step 2 and invoked the actual Check Pulp Masks button once.
-The fresh 28-row report completed in 7.413 s with live progress counters;
-the UI watchdog recorded no recovered stall at its 5 s threshold and a
-maximum 4.105 s event-loop gap. Resource samples showed 2,221 MiB peak
-Slicer RSS, no cgroup OOM/kill or CPU throttling, and no watchdog alert. The
-case archive remained byte-identical and was not saved. The report was
-captured, but the test harness did not complete a clean GUI teardown after its
-modal-window cleanup; do not treat this as a clean-run or operator-acceptance
-pass. It verifies the inventory result for one case only. The visible
-report/anatomy verdict, representative source-mask Case B, and historical
-all-tooth candidate-creation throughput remain open; see the scoped evidence
-and measurement caveat in `TASKS.md`.
+**2026-09-26 runtime checkpoint:** The first visible Slicer 5.10 attempt (r2)
+produced the 28-row FDI11 report and exposed a harness teardown limitation;
+its progress-counter observation remains historical and is not a clean-run
+acceptance. Tarun then approved exactly one corrected rerun (r3), now
+consumed. Slicer `5.10.0-2025-11-10` completed the actual Step 2 button action
+in 7.679 s by ready/result timestamps, displayed the report and reached
+`RUN_COMPLETE`; the 55-segment count and source archive SHA were unchanged,
+and the case was not saved. The r3 observer captured no live inventory
+progress events, so counter visibility is not independently verified by that
+run. There were zero recovered stalls at the 5 s threshold, with a maximum
+4.862 s UI event-loop gap. Resource samples showed 2,383 MiB peak Slicer RSS
+and no cgroup OOM/kill, CPU throttling or watchdog alert. Slicer exited 0 but
+logged two destroyed-widget PythonQt tracebacks during teardown; track them
+under `S6-U-01`. The unsaved report is no longer visible and Tarun's
+anatomy/UI verdict remains pending. This is one-case runtime evidence, not a
+zero-latency or universal responsiveness claim. Full metrics, harness limits
+and evidence paths are in `TASKS.md` and today's logbook.
 
 ### Acceptance gates
 
