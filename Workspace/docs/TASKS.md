@@ -1389,11 +1389,44 @@ that safety policy is outside this one-line correction.
 
 ## FDI31 GUI planner P0 reset — active contract (2026-09-21)
 
-**Model routing supersession (2026-09-23):** `gpt-6-sol` at `low` is the
+**Historical model routing (2026-09-23; superseded by 25 September overlay AGENTS.md/operator instruction):** `gpt-6-sol` at `low` is the
 coordinator for this task; `gpt-6-luna` at `xhigh` is an optional bounded
 implementation auxiliary. The former Terra-xhigh prerequisite no longer blocks
 source work. The canonical plan's manual GUI verdict and runtime/safety gates
 remain in force. See `Workspace/AGENTS.md` and the dated decision.
+
+**2026-09-26 engineering-outcome review (supersedes intermediate status summaries):**
+Baseline `40ad290` contains ROI-first sampling, shared endpoint evaluation,
+separate diagnostic P1/P2/P3, draft/guarded J1–J5 controls and schema-1.0 JSON
+recording. Prior host pure checks passed 193 tests. The full engineering solver
+is partial: detached Base/Home candidates, arbitrary invalid-draft evaluation,
+complete motion evidence/path/replay, final two-area integration and full-chain
+promotion remain open. Native/runtime behavior and measured responsiveness are
+unverified; the last headless fixture failed before any jog (scenarios NOT_RUN).
+Tarun is remote: user simulation trial and visible verdict remain PENDING.
+The [revised existing plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+prioritizes engineer-led state/motion exploration before case-specific planner
+solving. It specifies finite closure slices and reuse of indexed automation.
+Headless and scripted headed Slicer checks are technically available, subject to
+runtime authorization, provenance and the current fresh-case deferral. The
+parallel performance/5.12 checkout is outside this task.
+
+**2026-09-27 uncertainty source gate:** A post-submission unknown/stale manual
+jog now latches its facade session and prevents a second publish. The panel
+retains the draft, states that the simulation may have advanced, and exposes
+available body-pair and measured-distance evidence. Host focused pure checks
+passed (6 facade and 5 UI); no native runtime or operator verdict occurred.
+Raw request/policy correlation and authoritative reconciliation remain open
+before trusting live acceptance. Details are in the 27 September logbook and
+the active renovation plan.
+
+**2026-09-27 draft-state source gate:** Explicit Check Draft State uses the
+existing shared static/endpoint evaluator on captured J1–J5 without motion or
+accepted-state mutation. Identity and UI draft changes yield stale/unknown
+evidence; static validity remains separate from task-target residuals. Focused
+host pure checks passed (6 facade, 4 UI). Current draft controls still use the
+reviewed-limit range; native static failures lack structured collision-pair
+evidence. Runtime and Tarun's verdict remain pending.
 
 **Bound task:** `S6-LIVE-01` (Priority 0); pending `S6-LIVE-03..05` require acceptance
 of their preceding milestone.
@@ -1566,7 +1599,7 @@ own visible stop.
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **FDI11 IK-only visible result received; case-specific verdict and agent runtime paused, workflow-renovation source work active.** Historical hints reached collision-clear/static-valid/FK-passed PreEntry endpoints for an intentionally changed base/Home/task/scene; direct Home timed out after one iteration with collision `not_reached`. Tarun will save this setup separately. ROI-first generation passed source checks. Goal-1, standalone PreEntry and explicit Check Current State use the shared versioned exact-TCP evaluator. Separate P1/P2/P3 source actions now require same-instance PreEntry evidence, hand off exact preceding endpoints and retain endpoint/guard/identity evidence as diagnostic-only. The combined Step 6 host pure suite passed 181 tests. Full manual workbench/recording, final two-area UI, complete-chain promotion, numeric forbidden clearance and exact-state conditioning remain open. Original all-zero-Home FDI11, canonical M1/M2, and FDI21 r6 remain separate open evidence. See the [canonical P0 plan](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md), [renovation order](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md), and [26 September evidence](logbook/2026-09-26.md). | Continue with the guarded interactive workbench, including responsive review controls, accepted/rejected J1–J5 jog handling, explicit Base/Home acceptance and versioned recording design. Keep the current P1/P2/P3 checks diagnostic-only until full-chain promotion and UI gates are implemented. Discuss FDI11 seed dependence and timeout and obtain the separately saved exact setup before case-specific solving. ROI live yield, scene validity, workbench interaction and UI need separately gated operator-visible checks; no OMPL result, base/Home/tolerance change, runtime milestone or route claim follows from source checks. |
+| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. The 27 September source gates add an uncertainty latch and read-only Check Draft State; combined current host pure checks passed 73 tests. Earlier broader host coverage passed 193 tests. The latest legacy-case runtime stopped before jog; scenarios NOT_RUN. User simulation trial and visible verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain the corrected unknown-state display and finish request/policy correlation; complete detached Base/Home review and expand the read-only draft check beyond reviewed-limit controls; deliver visible ordered manual exploration and complete motion records; finish two-area/full-chain integration; then focused current-case automation, measurements and operator acceptance. Preserve fresh-case deferral, guard boundaries and diagnostic-only partial paths. See the [27 September logbook](logbook/2026-09-27.md) and [26 September review](logbook/2026-09-26.md) for evidence. |
 | 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, J1–J5 planning, J6 external-spindle boundary, narrow contact policy and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Completed-phase reverse-history Return Home is implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result. Tarun chose **Block return** for an interrupted phase after accepted motion. | Preserve the exact accepted prefix, last accepted/monitored state and rejected requested/evaluated state with native reason when applicable; latch Incomplete/AwayFromHome and block further preview and normal Return Home. Exact-prefix guarded reversal is a separate future feature/acceptance gate. For a Complete route only, trial Approach→Drill preview→guarded Return Home→replan/route choice after the preceding planner verdict. |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |

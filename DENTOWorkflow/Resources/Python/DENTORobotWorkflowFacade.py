@@ -15,6 +15,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from math import acos, atan2, degrees, isfinite, pi, sqrt
+from numbers import Real
 from time import monotonic, monotonic_ns
 from typing import Any, Callable, Mapping, Optional, Sequence
 from uuid import uuid4
@@ -404,6 +405,7 @@ class DENTORobotWorkflowFacade:
         self._accepted_motion_history: list[dict[str, object]] = []
         self._motion_history_task_fingerprint = ""
         self._manual_jog_in_progress = False
+        self._manual_jog_reconciliation_required = False
         self._manual_simulation_identity: Optional[dict[str, str]] = None
         self._manual_simulation_events: list[dict[str, object]] = []
         # ponytail: snapshots live for this façade session; cap/archive only if long sessions show memory growth.
@@ -2436,12 +2438,19 @@ class DENTORobotWorkflowFacade:
             "identityBefore": None,
             "identityAfter": None,
             "acceptedStateMayHaveAdvanced": False,
+            "manualJogReconciliationRequired": self._manual_jog_reconciliation_required,
             "simulationOnly": True,
             "routeAuthority": "none",
         }
         recording = {"active": False, "outcomeRecorded": False}
+        command_submitted = {"value": False}
 
         def outcome(code, message, success=False):
+            if command_submitted["value"] and code.endswith(("_unknown", "_stale")):
+                self._manual_jog_reconciliation_required = True
+            details["manualJogReconciliationRequired"] = (
+                self._manual_jog_reconciliation_required
+            )
             details["message"] = _bounded_text(message)
             if recording["active"] and not recording["outcomeRecorded"]:
                 try:
@@ -2452,6 +2461,12 @@ class DENTORobotWorkflowFacade:
                 recording["outcomeRecorded"] = True
             return RobotActionResult(success, code, message, details=dict(details))
 
+        if self._manual_jog_reconciliation_required:
+            details["manualJogStatus"] = "unknown"
+            return outcome(
+                "manual_jog_reconciliation_required",
+                "A prior submitted manual jog has unresolved state; reconcile the accepted state in a genuinely fresh simulation session before jogging again.",
+            )
         if self._manual_jog_in_progress:
             return outcome(
                 "manual_jog_reentrant",
@@ -2533,6 +2548,7 @@ class DENTORobotWorkflowFacade:
             apply_guard = getattr(self._bridge, "apply_joint_positions_si_to_motion_control", None)
             if not callable(apply_guard):
                 return outcome("manual_jog_guard_unavailable", "The simulation raw guard is unavailable.")
+            command_submitted["value"] = True
             try:
                 response = apply_guard(requested)
                 apply_ok = response[0] if isinstance(response, (tuple, list)) and len(response) >= 2 and isinstance(response[0], bool) else None
@@ -2654,7 +2670,7 @@ class DENTORobotWorkflowFacade:
                 acceptedJointPositionsSi=dict(zip(JOINT_NAMES, native_accepted)),
             )
             return outcome("manual_jog_accepted", "The simulation-only raw collision guard acknowledged the exact J1–J5 jog.", success=True)
-        except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError, OverflowError) as exc:
+        except Exception as exc:
             details["identityStatus"] = "unknown"
             details["manualJogStatus"] = "unknown"
             return outcome("manual_jog_unknown", str(exc))
@@ -2989,6 +3005,110 @@ class DENTORobotWorkflowFacade:
         details["manual_state_evaluation"] = manual_evaluation
         return replace(result, message=f"{result.message} {summary}", details=details)
 
+    def checkManualRobotDraftState(
+        self, joint_positions_si: Mapping[str, float]
+    ) -> RobotActionResult:
+        """Evaluate one captured J1–J5 review pose without accepting it."""
+
+        reason = ""
+        requested = {}
+        if not isinstance(joint_positions_si, Mapping):
+            reason = "A manual draft must be a joint-position mapping."
+        elif set(joint_positions_si) != set(JOINT_NAMES):
+            reason = "A manual draft must contain exactly J1–J5; J6 is excluded."
+        else:
+            try:
+                for name in JOINT_NAMES:
+                    value = joint_positions_si[name]
+                    if isinstance(value, bool) or not isinstance(value, Real):
+                        raise ValueError(f"{name} must be a finite numeric SI value.")
+                    numeric = float(value)
+                    if not isfinite(numeric):
+                        raise ValueError(f"{name} must be a finite numeric SI value.")
+                    requested[name] = numeric
+            except (TypeError, ValueError, OverflowError) as exc:
+                reason = str(exc)
+
+        if reason:
+            evaluation = self._manualStateEndpointEvaluation(
+                None, review_positions_si={}
+            )
+            evaluation.update(
+                input_status="invalid",
+                input_joint_positions_si=None,
+                requestedJointPositionsSi=None,
+                reason=reason,
+            )
+            evaluation["endpoint_evaluation"]["static_state_validity"]["message"] = reason
+            evaluation["endpoint_evaluation"]["fk"]["message"] = reason
+            return RobotActionResult(
+                False,
+                "manual_draft_invalid_request",
+                reason,
+                details={
+                    "authoritative": False,
+                    "routeAuthority": "none",
+                    "simulationOnly": True,
+                    "manual_state_evaluation": evaluation,
+                },
+            )
+
+        try:
+            state = self.currentRobotState()
+        except Exception:
+            state = None
+        evaluation = self._manualStateEndpointEvaluation(
+            state, review_positions_si=requested
+        )
+        evaluation.update(
+            requestedJointPositionsSi=dict(requested),
+            routeAuthority="none",
+            simulationOnly=True,
+        )
+        static = evaluation["endpoint_evaluation"].get("static_state_validity") or {}
+        static_status = str(static.get("status") or "unknown")
+        static_authoritative = static.get("authoritative") is True
+        identity_current = evaluation["identity_status"] == "current"
+        safe_static_pass = (
+            evaluation["status"] == "passed"
+            and static_status == "passed"
+            and static_authoritative
+            and identity_current
+        )
+        static_rejection = (
+            evaluation["status"] == "failed"
+            and static_status == "failed"
+            and static_authoritative
+            and identity_current
+        )
+        result_message = (
+            "Read-only authoritative static evaluation passed; the candidate remains a review state and was not accepted."
+            if safe_static_pass else
+            "The captured draft failed authoritative static validity: "
+            + str(static.get("message") or "MoveIt rejected the static state.")
+            + ". FK was not reached; the draft was not accepted."
+            if static_rejection else
+            "Manual draft evaluation is "
+            + str(evaluation.get("status") or "unknown")
+            + ": "
+            + str(evaluation.get("reason") or "Required evidence is unavailable.")
+        )
+        return RobotActionResult(
+            safe_static_pass,
+            "manual_draft_evaluated"
+            if safe_static_pass
+            else "manual_draft_state_invalid"
+            if static_rejection
+            else "manual_draft_evaluation_incomplete",
+            result_message,
+            details={
+                "authoritative": bool(static.get("authoritative")),
+                "routeAuthority": "none",
+                "simulationOnly": True,
+                "manual_state_evaluation": evaluation,
+            },
+        )
+
     def _step6_read_only_freshness_issues(self, parameter_node) -> tuple[str, ...]:
         """Check anatomy, jaw opening, base, and Home without registry sync."""
 
@@ -3007,18 +3127,41 @@ class DENTORobotWorkflowFacade:
             issues.extend(str(issue) for issue in (found or ()))
         return tuple(dict.fromkeys(issue for issue in issues if issue))
 
-    def _manualStateEndpointEvaluation(self, state) -> dict[str, object]:
-        """Return read-only endpoint evidence for one captured review vector."""
+    def _manualStateEndpointEvaluation(
+        self, state, *, review_positions_si: Optional[Mapping[str, float]] = None
+    ) -> dict[str, object]:
+        """Return read-only endpoint evidence for current or captured review joints."""
 
-        input_positions = dict(state.joint_positions_si) if state is not None else None
-        unavailable = {"status": "not_reached", "reason": "Prerequisite unavailable."}
+        review_mode = review_positions_si is not None
+        input_positions = (
+            dict(review_positions_si)
+            if review_mode
+            else dict(state.joint_positions_si) if state is not None else None
+        )
+        unavailable = {
+            "status": "not_reached",
+            "static_state_validity": {
+                "status": "not_reached",
+                "authoritative": False,
+                "message": "Prerequisite unavailable.",
+            },
+            "collision": {"status": "not_reached", "pairs": None},
+            "fk": {
+                "status": "not_reached",
+                "message": "Prerequisite unavailable.",
+                "pose_world_ras_mm": None,
+            },
+            "position_residual_mm": None,
+            "drilling_axis_residual_deg": None,
+        }
         evaluation = {
             "status": "not_reached",
             "target_endpoint_status": "not_reached",
             "scope": "single_state_endpoint_only",
             "stale": None,
             "identity_status": "unknown",
-            "input_status": "not_reached",
+            "input_status": "captured_review" if review_mode else "not_reached",
+            **({"input_source": "captured_review"} if review_mode else {}),
             "input_joint_positions_si": input_positions,
             "input_joint_positions_si_after": None,
             "target_ras_mm": None,
@@ -3026,8 +3169,12 @@ class DENTORobotWorkflowFacade:
             "identity_before": None,
             "identity_after": None,
             "endpoint_evaluation": unavailable,
+            "routeAuthority": "none",
+            "simulationOnly": True,
             "reason": "A current confirmed task, PreparedBranch, and synchronized scene are required.",
         }
+        if review_mode:
+            evaluation["requestedJointPositionsSi"] = dict(input_positions)
         if state is None:
             evaluation["reason"] = "The displayed joint state is unavailable."
             return evaluation
@@ -3142,7 +3289,19 @@ class DENTORobotWorkflowFacade:
                                 endpoint_error = str(exc)
                                 evaluation["endpoint_evaluation"] = {
                                     "status": "unknown",
-                                    "reason": endpoint_error,
+                                    "static_state_validity": {
+                                        "status": "unknown",
+                                        "authoritative": False,
+                                        "message": endpoint_error,
+                                    },
+                                    "collision": {"status": "unknown", "pairs": None},
+                                    "fk": {
+                                        "status": "unknown",
+                                        "message": endpoint_error,
+                                        "pose_world_ras_mm": None,
+                                    },
+                                    "position_residual_mm": None,
+                                    "drilling_axis_residual_deg": None,
                                 }
                             else:
                                 endpoint_error = ""
@@ -3151,11 +3310,12 @@ class DENTORobotWorkflowFacade:
                                     evaluation["identity_after"] = dict(self.plannerComparisonIdentity())
                                 except Exception as exc:
                                     evaluation["identity_after_error"] = str(exc)
-                            try:
-                                positions_after = dict(self.currentRobotState().joint_positions_si)
-                                evaluation["input_joint_positions_si_after"] = positions_after
-                            except Exception as exc:
-                                evaluation["input_after_error"] = str(exc)
+                            if not review_mode:
+                                try:
+                                    positions_after = dict(self.currentRobotState().joint_positions_si)
+                                    evaluation["input_joint_positions_si_after"] = positions_after
+                                except Exception as exc:
+                                    evaluation["input_after_error"] = str(exc)
 
                             identity_after = evaluation.get("identity_after")
                             evaluation["identity_status"] = (
@@ -3163,14 +3323,19 @@ class DENTORobotWorkflowFacade:
                                 else "current" if identity_before == identity_after
                                 else "stale"
                             )
-                            positions_after = evaluation.get("input_joint_positions_si_after")
-                            evaluation["input_status"] = (
-                                "unknown" if not isinstance(positions_after, Mapping)
-                                else "current" if input_positions == positions_after
-                                else "stale"
-                            )
-                            stale = "stale" in (evaluation["identity_status"], evaluation["input_status"])
-                            current = evaluation["identity_status"] == evaluation["input_status"] == "current"
+                            if review_mode:
+                                evaluation["input_status"] = "captured_review"
+                                stale = evaluation["identity_status"] == "stale"
+                                current = evaluation["identity_status"] == "current"
+                            else:
+                                positions_after = evaluation.get("input_joint_positions_si_after")
+                                evaluation["input_status"] = (
+                                    "unknown" if not isinstance(positions_after, Mapping)
+                                    else "current" if input_positions == positions_after
+                                    else "stale"
+                                )
+                                stale = "stale" in (evaluation["identity_status"], evaluation["input_status"])
+                                current = evaluation["identity_status"] == evaluation["input_status"] == "current"
                             evaluation["stale"] = True if stale else False if current else None
                             endpoint = evaluation["endpoint_evaluation"]
                             endpoint_status = str(endpoint.get("status") or "unknown")
@@ -3186,12 +3351,19 @@ class DENTORobotWorkflowFacade:
                                 "unknown" if stale or not current else endpoint_status
                             )
                             evaluation["reason"] = (
+                                "The planner identity changed during the query; captured measurements are retained as stale."
+                                if stale and review_mode else
                                 "The joint vector or planner identity changed during the query; captured measurements are retained as stale."
                                 if stale else
                                 "The joint vector or planner identity could not be confirmed after the query."
                                 if not current else
                                 "The read-only endpoint evaluation failed: " + endpoint_error
                                 if endpoint_error else
+                                "Static evaluation failed; FK was not reached: "
+                                + str((endpoint.get("static_state_validity") or {}).get("message") or "static state invalid.")
+                                if static_status == "failed" else
+                                "Read-only static endpoint and FK evaluation completed for the captured review input."
+                                if review_mode else
                                 "Read-only static endpoint and FK evaluation completed for the current input."
                             )
         except Exception as exc:

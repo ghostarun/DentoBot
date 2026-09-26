@@ -43,6 +43,7 @@ class RobotShellWidgetMixin:
                 "confirm_task": self._onStep6ConfirmTask,
                 "reset_manual_draft": self._onShellResetManualJogDraft,
                 "manual_draft_changed": self._onShellManualJogDraftChanged,
+                "check_manual_draft_state": self._onShellCheckManualRobotDraftState,
                 "guarded_manual_jog": self._onShellGuardedManualJog,
                 "export_manual_record": self._onStep6ExportManualRecord,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
@@ -315,6 +316,62 @@ class RobotShellWidgetMixin:
         ok, message = show_goal_robot_joint_positions(joint_positions_si)
         self._robotSimulationPanel.setManualJogDraftDisplayResult(ok, message)
 
+    def _onShellCheckManualRobotDraftState(
+        self, joint_positions_si: Mapping[str, float]
+    ) -> None:
+        panel = self._robotSimulationPanel
+        if not panel:
+            return
+        facade = self._robotWorkflowFacade
+        if not facade or getattr(self, "_workflowActionBusy", False):
+            panel.setManualDraftStateCheckResult(
+                None,
+                requested=joint_positions_si,
+                error=(
+                    "The façade is unavailable."
+                    if not facade
+                    else "Another Step 6 action is active."
+                ),
+            )
+            return
+        try:
+            if not isinstance(joint_positions_si, Mapping) or set(
+                joint_positions_si
+            ) != set(JOINT_NAMES):
+                raise ValueError("A draft state check must contain exactly J1–J5.")
+            requested = {
+                name: float(joint_positions_si[name]) for name in JOINT_NAMES
+            }
+            if not all(isfinite(value) for value in requested.values()):
+                raise ValueError("Draft joint values must be finite.")
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            panel.setManualDraftStateCheckResult(
+                None, requested=joint_positions_si, error=str(exc)
+            )
+            return
+
+        self._workflowActionBusy = True
+        try:
+            result = facade.checkManualRobotDraftState(requested)
+            try:
+                current = panel.manualJogJointPositionsSi()
+                stale = not isinstance(current, Mapping) or set(current) != set(
+                    JOINT_NAMES
+                ) or any(
+                    float(current[name]) != requested[name] for name in JOINT_NAMES
+                )
+            except (KeyError, TypeError, ValueError, OverflowError):
+                stale = True
+            panel.setManualDraftStateCheckResult(
+                result, requested=requested, stale=stale
+            )
+        except Exception as exc:
+            panel.setManualDraftStateCheckResult(
+                None, requested=requested, error=str(exc)
+            )
+        finally:
+            self._workflowActionBusy = False
+
     def _onShellGuardedManualJog(
         self, joint_positions_si: Mapping[str, float]
     ) -> None:
@@ -323,9 +380,18 @@ class RobotShellWidgetMixin:
         if not panel or not facade or getattr(self, "_workflowActionBusy", False):
             if panel:
                 panel.setManualJogStatus(
-                    "unknown",
-                    "Guard status: unknown — another Step 6 action is active or the façade is unavailable.",
+                    "blocked",
+                    "Guard status: unavailable — no jog was submitted; the draft is retained because another Step 6 action is active or the façade is unavailable.",
                 )
+            return
+        if getattr(panel, "manualJogReconciliationRequired", False):
+            panel.setManualJogStatus(
+                "blocked",
+                "Guard status: blocked — manual jog reconciliation is required. "
+                "Last confirmed accepted state shown; simulated robot may have "
+                "advanced; stop jogging until reconciled.",
+                getattr(panel, "_manualJogEvidence", None),
+            )
             return
         try:
             if set(joint_positions_si) != set(JOINT_NAMES):
@@ -338,9 +404,9 @@ class RobotShellWidgetMixin:
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             panel.setManualJogStatus(
                 "blocked",
-                "Guard status: unknown — the draft request is invalid and was retained. "
+                "Guard status: invalid local request — no jog was submitted; "
+                "the draft is retained. "
                 + str(exc),
-                {"identityStatus": "unknown", "guardAccepted": None},
             )
             return
         panel.setManualJogRequestPending()
@@ -348,6 +414,17 @@ class RobotShellWidgetMixin:
         try:
             result = facade.guardManualRobotJog(requested)
             details = result.details if isinstance(result.details, Mapping) else {}
+            result_code = str(getattr(result, "code", "") or "")
+            reconciliation_required = bool(
+                details.get("manualJogReconciliationRequired") is True
+                or result_code == "manual_jog_reconciliation_required"
+            )
+            status_details = details
+            if reconciliation_required and details.get(
+                "manualJogReconciliationRequired"
+            ) is not True:
+                status_details = dict(details)
+                status_details["manualJogReconciliationRequired"] = True
             guard_accepted = details.get("guardAccepted")
             identity_status = details.get("identityStatus", "unknown")
             monitored_status = str(
@@ -377,7 +454,18 @@ class RobotShellWidgetMixin:
                 and guard_accepted is True
                 and accepted is not None
             )
-            if acknowledged:
+            if reconciliation_required:
+                panel.setManualJogStatus(
+                    "blocked",
+                    "Guard status: blocked — reconciliation is required. Last "
+                    "confirmed accepted state shown; simulated robot may have "
+                    "advanced; stop jogging until reconciled. "
+                    + monitoring
+                    + " "
+                    + result.message,
+                    status_details,
+                )
+            elif acknowledged:
                 ok, mirror_message = self._setRobotJointsFromSi(
                     accepted, publish_to_ros=False
                 )
@@ -408,21 +496,41 @@ class RobotShellWidgetMixin:
                     + result.message,
                     details,
                 )
+            elif (
+                details.get("rawGuardOutcome") == "not_submitted"
+                and not reconciliation_required
+            ):
+                panel.setManualJogStatus(
+                    "blocked",
+                    "Guard status: unknown — no jog was submitted; the accepted "
+                    "state was not changed by this request. The draft is retained; "
+                    "retry is available.",
+                    status_details,
+                )
             else:
                 panel.setManualJogStatus(
                     "blocked",
-                    "Guard status: unknown — the accepted robot is unchanged and the draft is retained. "
+                    "Guard status: unknown — last confirmed accepted state "
+                    "shown; simulated robot may have advanced; stop jogging "
+                    "until reconciled. The draft is retained. "
                     + monitoring
                     + " "
                     + result.message,
-                    details,
+                    status_details,
                 )
         except Exception as exc:
             panel.setManualJogStatus(
                 "blocked",
-                "Guard status: unknown — the accepted robot is unchanged and the draft is retained. "
+                "Guard status: unknown — last confirmed accepted state shown; "
+                "simulated robot may have advanced; stop jogging until "
+                "reconciled. The draft is retained. "
                 + str(exc),
-                {"identityStatus": "unknown", "guardAccepted": None, "error": str(exc)},
+                {
+                    "identityStatus": "unknown",
+                    "guardAccepted": None,
+                    "manualJogReconciliationRequired": True,
+                    "error": str(exc),
+                },
             )
         finally:
             panel.setManualJogRequestComplete()

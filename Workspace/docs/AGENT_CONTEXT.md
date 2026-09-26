@@ -1,42 +1,41 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-26. `S6-LIVE-01` remains Priority 0. Tarun's
-25 September direction resumes bounded Step 6 source implementation. The
-guarded manual J1–J5 jog source gate passed 187 host pure tests. Tarun then
-approved one narrow headless simulation check with screenshot evidence, but
-three launcher preflight failures stopped before ROS/Slicer; no jog, native
-guard result or screenshot was produced. The corrected launcher remains
-source-only, and the verification retry ceiling is reached. See today's
-logbook and backlog before any further runtime; Tarun's simulation trial and
-visible verdict remain pending. The
-resumed 26 September gate reached ROS readiness and Slicer case import but
-stopped at package-lineage validation before any jog or screenshot; three new
-attempts exhausted the renewed retry ceiling. The renovation Python source
-was mounted, while the shared ROS install points to the parallel `DentoBot`
-checkout. See the logbook and `S6-LIVE-01` backlog state before more runtime. The
-attempted fixture was the September 22 FDI31 saved package. Tarun then
-deferred further case-based runtime testing until a newly saved case reflects
-substantial renovation progress and a heavier user session is appropriate;
-its lineage failure is older-case compatibility evidence, not a jog verdict. The
-subsequent Base/Home and recording source gate added explicit candidate/Accept
-labels through existing owners and schema-1.0 historical export of exact
-manual jog outcomes. Combined host pure checks passed 109 tests; direct Base
-nudges before a complete task identity remain explicitly unrecorded. Path
-display/replay and fresh-case acceptance remain open. The
-26 September source slices share a versioned exact-TCP endpoint evaluator
-between Goal-1, standalone PreEntry and the explicit current-state diagnostic;
-the manual result is tied to captured joint/task/branch/scene identities and
-separates current static validity from Target endpoint match. The combined
-host pure suite passed 144 tests. Separate P1/P2/P3 callers and the full manual
-workbench remain open. See today's logbook for commands and the commit
-checkpoint.
+Last reconciled: 2026-09-27. `S6-LIVE-01` remains Priority 0.
+
+**27 September source continuation:** Unknown/stale submitted manual jogs now
+latch the facade and block later publishes; UI wording shows possible native
+advancement and displays attributed guard distances with correct threshold vs
+measurement labels. Focused host pure checks passed (6 facade, 5 UI). Request
+and policy correlation, authoritative reconciliation and runtime/operator
+acceptance remain open. See the 27 September logbook and active renovation plan.
+The same date's read-only Check Draft State source gate passed focused checks
+(6 facade, 4 UI): it evaluates a captured J1–J5 candidate without jogging,
+and labels static validity separately from task-target match. Arbitrary
+out-of-range review, named collision evidence and runtime usability remain open.
+
+**2026-09-26 engineering-outcome review (supersedes intermediate status summaries):**
+Baseline `40ad290` contains ROI-first sampling, shared endpoint evaluation,
+separate diagnostic P1/P2/P3, draft/guarded J1–J5 controls and schema-1.0 JSON
+recording. Prior host pure checks passed 193 tests. The full engineering solver
+is partial: detached Base/Home candidates, arbitrary invalid-draft evaluation,
+complete motion evidence/path/replay, final two-area integration and full-chain
+promotion remain open. Native/runtime behavior and measured responsiveness are
+unverified; the last headless fixture failed before any jog (scenarios NOT_RUN).
+Tarun is remote: user simulation trial and visible verdict remain PENDING.
+The [revised existing plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+prioritizes engineer-led state/motion exploration before case-specific planner
+solving. It specifies finite closure slices and reuse of indexed automation.
+Headless and scripted headed Slicer checks are technically available, subject to
+runtime authorization, provenance and the current fresh-case deferral. The
+parallel performance/5.12 checkout is outside this task.
+
 The standalone FDI11 PreEntry IK source gate passed pure checks and a native
 package build. Tarun's first visible IK-only report shows collision-checked
 endpoints for a changed base/Home/scene, with P1/P2/P3/guard NotRun; its
 original saved-case identity differs and his verdict is pending. Source now
 shares a versioned exact-TCP evaluator across Goal-1, PreEntry and explicit
 Check Current State, and exposes separate P1/P2/P3 diagnostics through the
-existing planning panel. The combined Step 6 host pure suite passed 181 tests.
+existing planning panel. The later combined Step 6 host pure checkpoint passed 193 tests.
 These are plan-only source checks, not full workbench, route, runtime or case
 acceptance. Tarun places the Step 6 **workflow renovation before case-specific
 planner solving**.

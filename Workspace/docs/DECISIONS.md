@@ -1,5 +1,53 @@
 # Dentobot Technical Decisions
 
+## 2026-09-27 — uncertain manual-jog state
+
+An unresolved submitted simulation jog must block subsequent jogs in its
+facade session. The UI retains the draft and last *confirmed* accepted state,
+and states that the simulated robot may have advanced. Local failures before
+submission and conclusive unchanged-state guard rejection remain retryable.
+Do not clear uncertainty from an uncorrelated raw status or issue a guessed
+rollback; authoritative request/policy attribution and monitored reconciliation
+are the next source gate. The native `minimum_clearance_m` is the required
+threshold, while self/world distance fields are measured values, and the UI
+labels them accordingly. This is source behavior only, with no runtime verdict.
+See the 27 September logbook and active renovation plan.
+
+The manual draft diagnostic reuses the shared static/endpoint evaluator on a
+captured J1–J5 review vector. It compares task and scene identity but does not
+require the accepted robot to equal that draft, send a jog, create a route or
+clear the uncertain-jog latch. Static validity and Target match are shown
+separately. This retains one collision authority while enabling direct
+engineer inspection; source checks do not constitute native runtime acceptance.
+
+## 2026-09-26 — engineer-led exploration and automation clarification
+
+Tarun states that planner failures may arise from robot design, base placement
+and configuration constraints as well as algorithms. The required workbench lets
+him inspect valid/invalid states and guide intuitive simulated motion to apply
+robotics expertise. This clarifies the existing renovation contract; it does not
+relax guards or authorize hardware. A passing exact simulated motion is a bounded
+feasibility witness; unsuccessful search is not proof of mechanical impossibility.
+
+Coordinator review finds substantial infrastructure but incomplete engineering
+interaction. The existing plan now prioritizes detached candidates, explicit draft
+evaluation and guard attribution, visible manual motion, durable evidence, final
+integration, then runtime/measurement/operator closure. Reuse current goal/path,
+evaluator, record schema and automation; no new planner or physics framework.
+Automatic traversal of saved manual sequences requires a separate specified guard
+gate; individual guarded jogs and display-only historical replay retain their
+existing boundaries. Base/Home acceptance remains explicit.
+
+Headless testing and scripted headed Slicer are technically available to Codex.
+Role/approval restrictions must not be described as model incapability. Preserve
+Tarun's Luna test-execution preference and standing no-runtime worker rule unless
+an explicit bounded runtime assignment overrides it. The stale verification
+protocol model paragraph is aligned to the 25 September AGENTS.md policy. This
+review authorizes no new runtime. Current-case and normal-window acceptance remain
+pending while Tarun is remote; the Sep-22 legacy fixture is not the development
+focus. See the revised plan and dated logbook for inspected gaps and evidence.
+
+
 Current Step 6 source order and interrupted-preview policy are recorded in
 [the 2026-09-25 decision below](#2026-09-25--step-6-renovation-order-diagnostics-and-interrupted-preview-policy);
 the 2026-09-24 pause remains historical evidence.

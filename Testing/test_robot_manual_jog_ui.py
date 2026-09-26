@@ -135,6 +135,7 @@ def test_manual_jog_controls_use_reviewed_mechanical_intersection_and_keep_j6_fi
     panel._manualJogDisplayValues = (0.0,) * 5
     panel._manualJogEvidence = None
     panel.resetManualJogDraftButton = _Control()
+    panel.checkManualDraftStateButton = _Control()
     panel.guardedManualJogButton = _Control()
     panel.manualJogDraftStateLabel = _Control()
     panel.manualJogStatusLabel = _Control()
@@ -218,11 +219,14 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
             self.evidence = None
             self.accepted = []
             self.pending = False
+            self.manualJogReconciliationRequired = False
 
         def setManualJogStatus(self, state, message, evidence=None):
             self.status = (state, message)
             if evidence is not None:
                 self.evidence = dict(evidence)
+                if evidence.get("manualJogReconciliationRequired") is True:
+                    self.manualJogReconciliationRequired = True
 
         def setManualJogRequestPending(self):
             self.pending = True
@@ -234,24 +238,35 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
             self.accepted.append(dict(positions))
 
     class Facade:
-        def __init__(self, result):
+        def __init__(self, result, exception):
             self.result = result
+            self.exception = exception
             self.calls = []
 
         def guardManualRobotJog(self, positions):
             self.calls.append(dict(positions))
+            if self.exception:
+                raise self.exception
             return self.result
 
-    def invoke(details, *, success=True, request=None):
+    def invoke(
+        details,
+        *,
+        success=True,
+        request=None,
+        code="manual_jog_guard_unknown",
+        exception=None,
+        repeat=False,
+    ):
         result = SimpleNamespace(
-            success=success, message="guard evidence", details=details
+            success=success, message="guard evidence", details=details, code=code
         )
-        request = request or {
+        request = request if request is not None else {
             name: float(index) for index, name in enumerate(JOINT_NAMES)
         }
         panel = Panel()
         panel.draft = dict(request)
-        facade = Facade(result)
+        facade = Facade(result, exception)
         mirrors = []
         host = type("ShellProbe", (), {"_onShellGuardedManualJog": method})()
         host._robotSimulationPanel = panel
@@ -261,6 +276,8 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
             mirrors.append((dict(positions), publish_to_ros)) or (True, "")
         )
         host._onShellGuardedManualJog(request)
+        if repeat:
+            host._onShellGuardedManualJog(request)
         return panel, facade, mirrors
 
     requested = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
@@ -296,6 +313,306 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
         assert panel.draft == requested
         assert panel.status[0] in {"error", "blocked"}
         assert panel.evidence == details
+
+    unknown_details = {
+        "identityStatus": "unknown",
+        "guardAccepted": None,
+        "monitoredStateStatus": "not_converged",
+    }
+    panel, _facade, mirrors = invoke(unknown_details, success=False)
+    assert mirrors == []
+    assert panel.accepted == []
+    assert panel.draft == requested
+    assert "confirmed accepted state shown" in panel.status[1]
+    assert "simulated robot may have advanced" in panel.status[1]
+    assert "stop jogging until reconciled" in panel.status[1]
+    assert "accepted robot is unchanged" not in panel.status[1]
+
+    pre_submit_details = {
+        "identityStatus": "unknown",
+        "guardAccepted": None,
+        "rawGuardOutcome": "not_submitted",
+        "manualJogReconciliationRequired": False,
+    }
+    panel, facade, mirrors = invoke(
+        pre_submit_details, success=False, repeat=True
+    )
+    assert facade.calls == [requested, requested]
+    assert mirrors == []
+    assert "no jog was submitted" in panel.status[1]
+    assert "state was not changed by this request" in panel.status[1]
+    assert "simulated robot may have advanced" not in panel.status[1]
+    assert not panel.manualJogReconciliationRequired
+
+    panel, _facade, mirrors = invoke(
+        {},
+        success=False,
+        exception=RuntimeError("reply was lost"),
+        repeat=True,
+    )
+    assert mirrors == []
+    assert panel.accepted == []
+    assert panel.draft == requested
+    assert "confirmed accepted state shown" in panel.status[1]
+    assert "simulated robot may have advanced" in panel.status[1]
+    assert "stop jogging until reconciled" in panel.status[1]
+    assert panel.manualJogReconciliationRequired
+    assert _facade.calls == [requested]
+
+    flagged = {**unknown_details, "manualJogReconciliationRequired": True}
+    panel, _facade, mirrors = invoke(flagged, success=False)
+    assert mirrors == []
+    assert panel.accepted == []
+    assert panel.draft == requested
+    assert panel.status[0] == "blocked"
+    assert "reconciliation is required" in panel.status[1]
+
+    panel, _facade, mirrors = invoke(
+        unknown_details,
+        success=False,
+        code="manual_jog_reconciliation_required",
+    )
+    assert mirrors == []
+    assert panel.accepted == []
+    assert panel.draft == requested
+    assert panel.status[0] == "blocked"
+    assert panel.evidence["manualJogReconciliationRequired"] is True
+
+    invalid_request = {**requested, "J6": 0.0}
+    panel, facade, mirrors = invoke({}, request=invalid_request)
+    assert facade.calls == []
+    assert mirrors == []
+    assert panel.accepted == []
+    assert "no jog was submitted" in panel.status[1]
+
+
+def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {
+            "setManualJogAvailability",
+            "setManualJogStatus",
+            "_formatManualJogNativeEvidence",
+            "_setManualJogStatus",
+        },
+        {"Mapping": Mapping, "isfinite": math.isfinite},
+    )
+    panel_type = type("PanelProbe", (), methods)
+    panel = panel_type()
+    panel._manualJogLimits = {"valid": True}
+    panel._manualJogLimitsValid = True
+    panel._manualJogAvailable = True
+    panel._manualJogGuardAvailable = True
+    panel._manualJogBusy = False
+    panel._manualJogAcceptedJointPositionsSi = {JOINT_NAMES[0]: 0.0}
+    panel.manualJogReconciliationRequired = False
+    panel.manualJogJointControls = {}
+    panel.resetManualJogDraftButton = _Control()
+    panel.checkManualDraftStateButton = _Control()
+    panel.guardedManualJogButton = _Control()
+    panel.manualJogStatusLabel = _Control()
+    panel._manualJogEvidence = None
+
+    evidence = {
+        "manualJogReconciliationRequired": True,
+        "monitoredStateStatus": "not_converged",
+        "nativeGuardEvidence": {
+            "firstBody": "arm_link_4",
+            "secondBody": "case_surface",
+            "minimumClearanceM": 0.00125,
+            "minimumSelfDistanceM": 0.0025,
+            "minimumWorldDistanceM": 0.00475,
+        },
+    }
+    panel.setManualJogStatus("blocked", "Reconciliation required.", evidence)
+    assert "first body: arm_link_4" in panel.manualJogStatusLabel.text
+    assert "second body: case_surface" in panel.manualJogStatusLabel.text
+    assert "required clearance: 0.00125 m" in panel.manualJogStatusLabel.text
+    assert "measured self distance: 0.0025 m" in panel.manualJogStatusLabel.text
+    assert "measured world distance: 0.00475 m" in panel.manualJogStatusLabel.text
+    assert "monitored state: not_converged" in panel.manualJogStatusLabel.text
+    assert panel.manualJogReconciliationRequired
+
+    panel.setManualJogAvailability(True, True)
+    assert not panel.guardedManualJogButton.enabled
+    assert panel.checkManualDraftStateButton.enabled
+
+    unavailable = panel._formatManualJogNativeEvidence(
+        {
+            "monitoredStateStatus": "",
+            "nativeGuardEvidence": {
+                "firstBody": "",
+                "secondBody": None,
+                "minimumClearanceM": math.nan,
+                "minimumSelfDistanceM": math.inf,
+            },
+        }
+    )
+    assert "first body: unavailable" in unavailable
+    assert "second body: unavailable" in unavailable
+    assert "required clearance: unavailable" in unavailable
+    assert "measured self distance: unavailable" in unavailable
+    assert "measured world distance: unavailable" in unavailable
+    assert "monitored state: unavailable" in unavailable
+    assert panel._formatManualJogNativeEvidence(
+        {"manualJogReconciliationRequired": True}
+    ) == ""
+    assert panel._formatManualJogNativeEvidence(
+        {
+            "nativeGuardEvidence": None,
+            "monitoredStateStatus": "unavailable/unknown",
+        }
+    ) == ""
+
+
+def test_manual_draft_state_check_is_read_only_and_marks_stale_results():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    check_method = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_onShellCheckManualRobotDraftState"},
+        {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
+    )["_onShellCheckManualRobotDraftState"]
+    panel_methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"setManualDraftStateCheckResult"},
+        {"Mapping": Mapping, "isfinite": isfinite},
+    )
+    panel_source = panel_path.read_text(encoding="utf-8")
+    shell_source = shell_path.read_text(encoding="utf-8")
+    assert '"check_manual_draft_state": 5' in panel_source
+    assert "self.checkManualDraftStateButton.clicked.connect(" in panel_source
+    assert '"check_manual_draft_state", self.manualJogJointPositionsSi()' in panel_source
+    assert '"check_manual_draft_state": self._onShellCheckManualRobotDraftState' in shell_source
+
+    requested = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    changed_draft = {**requested, JOINT_NAMES[0]: requested[JOINT_NAMES[0]] + 1.0}
+
+    def invoke(details, *, changed=None):
+        panel_type = type("PanelProbe", (), panel_methods)
+        panel = panel_type()
+        panel.currentDraft = dict(requested)
+        panel.manualJogReconciliationRequired = True
+        panel.manualJogDraftStateLabel = _Control()
+        panel.manualJogDraftStateLabel.text = "Draft state: current ghost"
+        panel.manualJogAcceptedStateLabel = _Control()
+        panel.manualJogAcceptedStateLabel.text = "Accepted state: preserved"
+        panel.manualDraftStateCheckStatusLabel = _Control()
+        panel.manualJogJointPositionsSi = lambda: dict(panel.currentDraft)
+        accepted_updates = []
+        panel.setManualJogAcceptedState = lambda positions: accepted_updates.append(
+            dict(positions)
+        )
+
+        result = SimpleNamespace(
+            success=False,
+            message="static evaluation returned",
+            details=details,
+        )
+
+        class Facade:
+            def __init__(self):
+                self.check_calls = []
+                self.jog_calls = []
+
+            def checkManualRobotDraftState(self, positions):
+                self.check_calls.append(dict(positions))
+                if changed is not None:
+                    panel.currentDraft = dict(changed)
+                return result
+
+            def guardManualRobotJog(self, positions):
+                self.jog_calls.append(dict(positions))
+                raise AssertionError("draft evaluation must never jog")
+
+        facade = Facade()
+        mirrors = []
+        host = type("ShellProbe", (), {"_onShellCheckManualRobotDraftState": check_method})()
+        host._robotSimulationPanel = panel
+        host._robotWorkflowFacade = facade
+        host._workflowActionBusy = False
+        host._setRobotJointsFromSi = lambda *args, **kwargs: mirrors.append(
+            (args, kwargs)
+        )
+        host._onShellCheckManualRobotDraftState(requested)
+        return panel, facade, mirrors, accepted_updates
+
+    failed = {
+        "manual_state_evaluation": {
+            "status": "failed",
+            "identity_status": "current",
+            "target_endpoint_status": "off_target",
+            "reason": "Static evaluator rejected the draft.",
+            "endpoint_evaluation": {
+                "static_state_validity": {
+                    "status": "failed",
+                    "message": "native collision",
+                    "authoritative": True,
+                },
+                "position_residual_mm": 2.75,
+                "drilling_axis_residual_deg": 8.0,
+            },
+        },
+        "nativeGuardEvidence": {"reason": "raw guard returned collision."},
+        "requestedJointPositionsSi": dict(requested),
+        "simulationOnly": True,
+        "routeAuthority": "none",
+    }
+    panel, facade, mirrors, accepted_updates = invoke(failed, changed=changed_draft)
+    assert facade.check_calls == [requested]
+    assert facade.jog_calls == []
+    assert mirrors == []
+    assert accepted_updates == []
+    assert panel.manualJogAcceptedStateLabel.text == "Accepted state: preserved"
+    assert panel.manualJogDraftStateLabel.text == "Draft state: current ghost"
+    assert panel._manualDraftStateCheckEvidence == failed
+    assert panel._manualDraftStateCheckRequested == requested
+    assert "Draft-state check: stale" in panel.manualDraftStateCheckStatusLabel.text
+    assert "Static verdict: failed" in panel.manualDraftStateCheckStatusLabel.text
+    assert "identity status: current" in panel.manualDraftStateCheckStatusLabel.text
+    assert "endpoint status off_target" in panel.manualDraftStateCheckStatusLabel.text
+    assert "position residual 2.75 mm" in panel.manualDraftStateCheckStatusLabel.text
+    assert "drilling-axis residual 8 deg" in panel.manualDraftStateCheckStatusLabel.text
+    assert "Evaluator: Static evaluator rejected the draft." in panel.manualDraftStateCheckStatusLabel.text
+    assert "Static validity: native collision" in panel.manualDraftStateCheckStatusLabel.text
+    assert "Native: raw guard returned collision." in panel.manualDraftStateCheckStatusLabel.text
+
+    off_target = {
+        "manual_state_evaluation": {
+            "status": "passed",
+            "identity_status": "current",
+            "target_endpoint_status": "failed",
+            "endpoint_evaluation": {
+                "static_state_validity": {
+                    "status": "passed",
+                    "message": "static state clear",
+                },
+                "position_residual_mm": 5.0,
+                "drilling_axis_residual_deg": 12.0,
+            },
+        }
+    }
+    off_target_panel, _facade, mirrors, _accepted_updates = invoke(off_target)
+    assert mirrors == []
+    assert "Static verdict: passed" in off_target_panel.manualDraftStateCheckStatusLabel.text
+    assert "endpoint status failed" in off_target_panel.manualDraftStateCheckStatusLabel.text
+    assert "position residual 5 mm" in off_target_panel.manualDraftStateCheckStatusLabel.text
+
+    unknown, facade, mirrors, accepted_updates = invoke(
+        {"manual_state_evaluation": {}}
+    )
+    assert facade.check_calls == [requested]
+    assert facade.jog_calls == []
+    assert mirrors == []
+    assert accepted_updates == []
+    assert "Static verdict: unknown" in unknown.manualDraftStateCheckStatusLabel.text
+    assert "identity status: unknown" in unknown.manualDraftStateCheckStatusLabel.text
+    assert "endpoint status unknown" in unknown.manualDraftStateCheckStatusLabel.text
+    assert "position residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
+    assert "drilling-axis residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
 
 
 def test_explicit_base_and_home_acceptance_use_the_existing_facade_owners():

@@ -2124,6 +2124,154 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
     return facade, parameter_node, logic, bridge, checked_positions, fk_positions
 
 
+def test_manual_draft_state_evaluates_supplied_vector_read_only(monkeypatch):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.6, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+    state_reads = []
+    original_current_state = facade.currentRobotState
+
+    def capture_current_state():
+        state_reads.append(True)
+        return original_current_state()
+
+    facade.currentRobotState = capture_current_state
+    events_before = list(facade._manual_simulation_events)
+    history_before = list(facade._accepted_motion_history)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    endpoint = evaluation["endpoint_evaluation"]
+    assert result.success
+    assert result.code == "manual_draft_evaluated"
+    assert "not accepted" in result.message
+    assert evaluation["input_status"] == "captured_review"
+    assert evaluation["input_source"] == "captured_review"
+    assert evaluation["input_joint_positions_si"] == request
+    assert evaluation["input_joint_positions_si_after"] is None
+    assert evaluation["requestedJointPositionsSi"] == request
+    assert evaluation["status"] == "passed"
+    assert evaluation["target_endpoint_status"] == "failed"
+    assert evaluation["identity_status"] == "current"
+    assert endpoint["static_state_validity"] == {
+        "status": "passed",
+        "authoritative": True,
+        "message": "static state clear",
+    }
+    assert endpoint["position_residual_mm"] == 2.0
+    assert endpoint["drilling_axis_residual_deg"] == 0.0
+    assert evaluation["routeAuthority"] == "none"
+    assert evaluation["simulationOnly"] is True
+    assert result.details["routeAuthority"] == "none"
+    assert result.details["simulationOnly"] is True
+    assert result.details["authoritative"] is True
+    assert checked == [request]
+    assert fk[0][0] == request
+    assert state_reads == [True]
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert logic.updated == []
+    assert facade._manual_simulation_events == events_before
+    assert facade._accepted_motion_history == history_before
+
+
+def test_manual_draft_state_suppresses_evidence_when_identity_becomes_stale(
+    monkeypatch,
+):
+    facade, _node, _logic, bridge, checked, fk = _manual_endpoint_probe(
+        monkeypatch, identity_changes=True
+    )
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success
+    assert evaluation["stale"] is True
+    assert evaluation["identity_status"] == "stale"
+    assert evaluation["input_status"] == "captured_review"
+    assert evaluation["status"] == "unknown"
+    assert evaluation["target_endpoint_status"] == "unknown"
+    assert evaluation["endpoint_evaluation"]["static_state_validity"]["status"] == "passed"
+    assert len(checked) == len(fk) == 1
+    assert checked[0] == fk[0][0] == request
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_manual_draft_static_rejection_is_not_reported_as_success(monkeypatch):
+    facade, _node, _logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    bridge.check_moveit_static_joint_state = lambda positions: (
+        checked.append(dict(positions)) or (False, "static collision", True)
+    )
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    static = evaluation["endpoint_evaluation"]["static_state_validity"]
+    assert not result.success
+    assert result.code == "manual_draft_state_invalid"
+    assert "static collision" in result.message
+    assert "FK was not reached" in result.message
+    assert evaluation["status"] == "failed"
+    assert evaluation["target_endpoint_status"] == "failed"
+    assert static == {
+        "status": "failed",
+        "authoritative": True,
+        "message": "static collision",
+    }
+    assert checked == [request]
+    assert fk == []
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_manual_draft_state_rejects_invalid_vectors_without_authority(monkeypatch):
+    facade, _node, _logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    invalid_vectors = (
+        {**request, SPINDLE_JOINT_NAME: 0.0},
+        {name: value for name, value in request.items() if name != ROS2_JOINT_SI_ORDER[0]},
+        {**request, ROS2_JOINT_SI_ORDER[0]: True},
+        {**request, ROS2_JOINT_SI_ORDER[0]: float("nan")},
+        {**request, ROS2_JOINT_SI_ORDER[0]: "0.01"},
+    )
+
+    for invalid in invalid_vectors:
+        result = facade.checkManualRobotDraftState(invalid)
+        evaluation = result.details["manual_state_evaluation"]
+        assert not result.success
+        assert result.code == "manual_draft_invalid_request"
+        assert result.details["authoritative"] is False
+        assert evaluation["status"] == "not_reached"
+        assert evaluation["input_status"] == "invalid"
+        assert evaluation["endpoint_evaluation"]["static_state_validity"][
+            "authoritative"
+        ] is False
+        assert evaluation["routeAuthority"] == "none"
+        assert evaluation["simulationOnly"] is True
+
+    assert checked == []
+    assert fk == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
 def test_manual_endpoint_check_separates_current_validity_from_target_residual(
     monkeypatch,
 ):
@@ -2410,6 +2558,7 @@ def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection
     assert accepted.details["guardAccepted"] is True
     assert accepted.details["identityStatus"] == "current"
     assert accepted.details["acceptedJointPositionsSi"] == request
+    assert accepted.details["manualJogReconciliationRequired"] is False
     assert set(accepted.details["acceptedJointPositionsSi"]) == set(ROS2_JOINT_SI_ORDER)
     assert accepted.details["nativeGuardEvidence"]["requestedPositionsSi"] == tuple(
         request[name] for name in ROS2_JOINT_SI_ORDER
@@ -2425,6 +2574,13 @@ def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection
         "collisionScenePolicyIdentityStatus"
     ] == "unavailable_in_raw_status_contract"
     assert bridge.phase_calls == []
+    facade.currentRobotState = lambda: SimpleNamespace(
+        joint_positions_si=dict(bridge.accepted)
+    )
+    accepted_again = facade.guardManualRobotJog(request)
+    assert accepted_again.success
+    assert accepted_again.details["manualJogReconciliationRequired"] is False
+    assert len(bridge.raw_requests) == 2
 
     facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
         _manual_jog_probe(monkeypatch)
@@ -2440,12 +2596,19 @@ def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection
     assert rejected.details["requestedJointPositionsSi"] == request
     assert rejected.details["acceptedJointPositionsSi"] is None
     assert not rejected.details["acceptedStateMayHaveAdvanced"]
+    assert rejected.details["manualJogReconciliationRequired"] is False
+    bridge.raw_reject = False
+    accepted_after_rejection = facade.guardManualRobotJog(request)
+    assert accepted_after_rejection.success
+    assert accepted_after_rejection.details["manualJogReconciliationRequired"] is False
+    assert len(bridge.raw_requests) == 2
 
 
 def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
     facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
         _manual_jog_probe(monkeypatch)
     )
+    accepted_before = dict(bridge.accepted)
     bridge.raw_silent = True
 
     unknown = facade.guardManualRobotJog(request)
@@ -2456,8 +2619,20 @@ def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
     assert unknown.details["nativeGuardEvidence"]["freshResponse"] is False
     assert unknown.details["requestedJointPositionsSi"] == request
     assert unknown.details["acceptedJointPositionsSi"] is None
+    assert unknown.details["manualJogReconciliationRequired"] is True
+    assert bridge.accepted == accepted_before
 
-    bridge.raw_silent = False
+    submitted_count = len(bridge.raw_requests)
+    blocked = facade.guardManualRobotJog(request)
+    assert not blocked.success
+    assert blocked.code == "manual_jog_reconciliation_required"
+    assert blocked.details["manualJogReconciliationRequired"] is True
+    assert len(bridge.raw_requests) == submitted_count
+    assert bridge.accepted == accepted_before
+
+    facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
+        _manual_jog_probe(monkeypatch)
+    )
     original_identity = facade.plannerComparisonIdentity
     identity_reads = 0
 
@@ -2476,6 +2651,68 @@ def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
     assert stale.details["nativeGuardEvidence"]["accepted"] is True
     assert stale.details["acceptedStateMayHaveAdvanced"]
     assert stale.details["acceptedJointPositionsSi"] is None
+    assert stale.details["manualJogReconciliationRequired"] is True
+
+    accepted_after_stale = dict(bridge.accepted)
+    submitted_count = len(bridge.raw_requests)
+    blocked = facade.guardManualRobotJog(request)
+    assert not blocked.success
+    assert blocked.code == "manual_jog_reconciliation_required"
+    assert blocked.details["manualJogReconciliationRequired"] is True
+    assert len(bridge.raw_requests) == submitted_count
+    assert bridge.accepted == accepted_after_stale
+
+
+def test_manual_jog_latches_when_submitted_guard_call_raises(monkeypatch):
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    accepted_before = dict(bridge.accepted)
+    attempted = []
+
+    def raise_after_submission(positions):
+        attempted.append(dict(positions))
+        raise RuntimeError("guard response lost")
+
+    bridge.apply_joint_positions_si_to_motion_control = raise_after_submission
+
+    result = facade.guardManualRobotJog(request)
+
+    assert not result.success
+    assert result.code == "manual_jog_guard_unknown"
+    assert result.details["manualJogReconciliationRequired"] is True
+    assert attempted == [request]
+    assert bridge.accepted == accepted_before
+
+    blocked = facade.guardManualRobotJog(request)
+    assert blocked.code == "manual_jog_reconciliation_required"
+    assert attempted == [request]
+    assert bridge.accepted == accepted_before
+
+
+def test_manual_jog_latches_when_post_submit_state_read_raises(monkeypatch):
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    accepted_reads = 0
+    original_accepted_reader = bridge.last_accepted_joint_positions_si
+
+    def unexpected_post_submit_failure():
+        nonlocal accepted_reads
+        accepted_reads += 1
+        if accepted_reads == 1:
+            return original_accepted_reader()
+        raise AssertionError("unexpected accepted-state reader failure")
+
+    bridge.last_accepted_joint_positions_si = unexpected_post_submit_failure
+
+    result = facade.guardManualRobotJog(request)
+
+    assert not result.success
+    assert result.code == "manual_jog_unknown"
+    assert result.details["manualJogReconciliationRequired"] is True
+    assert len(bridge.raw_requests) == 1
+    accepted_after_failure = dict(bridge.accepted)
+    blocked = facade.guardManualRobotJog(request)
+    assert blocked.code == "manual_jog_reconciliation_required"
+    assert len(bridge.raw_requests) == 1
+    assert bridge.accepted == accepted_after_failure
 
 
 def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch):
@@ -2487,6 +2724,7 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
     rejected_j6 = facade.guardManualRobotJog(with_j6)
     assert rejected_j6.details["rawGuardOutcome"] == "not_submitted"
     assert rejected_j6.details["manualJogStatus"] == "rejected"
+    assert rejected_j6.details["manualJogReconciliationRequired"] is False
 
     narrowed = limits(-1.0, 1.0)
     task.joint_1 = narrowed.joint_1
@@ -2494,6 +2732,7 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
         {**request, ROS2_JOINT_SI_ORDER[0]: 0.1}
     )
     assert reviewed_limit.details["manualJogStatus"] == "rejected"
+    assert reviewed_limit.details["manualJogReconciliationRequired"] is False
     assert not reviewed_limit.details["limitMargins"][ROS2_JOINT_SI_ORDER[0]][
         "reviewed_task_within_limits"
     ]
@@ -2509,6 +2748,7 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
         {**request, ROS2_JOINT_SI_ORDER[0]: 0.6}
     )
     assert mechanical_limit.details["manualJogStatus"] == "rejected"
+    assert mechanical_limit.details["manualJogReconciliationRequired"] is False
     assert not mechanical_limit.details["limitMargins"][ROS2_JOINT_SI_ORDER[0]][
         "mechanical_within_limits"
     ]

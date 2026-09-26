@@ -8,6 +8,20 @@ not a test execution or acceptance record. Read the canonical
 before invoking a check. The matrix owns commands, resources, approval,
 dependencies and pass conditions. Its entries do not record latest results.
 
+## 26 September renovation-checkout addendum
+
+The inventory counts below are the 24 September snapshot. The current renovation
+matrix includes `runtime.manual_jog_headless` (36 total checks): reuse
+`Testing/run_dentobot_manual_jog_headless.bash` and `.py` for the bounded
+simulation-only manual-jog check. It uses Xvfb-rendered Slicer and can capture
+screenshots; without a reviewed rejection vector its result is at most PARTIAL.
+It is not a planner/full-workbench or operator usability check. The launcher pins
+`45a38d9`, now older than renovation HEAD `40ad290`; fix exact revision/provenance
+binding before another approved run. Generic matrix container commands naming
+`DentoBot` must not be mistaken for this renovation checkout. Current runtime is
+deferred for a newly saved representative case; no execution follows from this
+index. See the [reconciled plan](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+
 ## Inventory boundary and decision rule
 
 - `Testing/` contains **76 active Python/shell scripts**: 44 runners, 27

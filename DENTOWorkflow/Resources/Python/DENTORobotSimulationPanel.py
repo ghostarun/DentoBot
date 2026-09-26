@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from math import degrees, isfinite
 import qt
 
@@ -40,6 +41,7 @@ class DENTORobotSimulationPanel:
         "confirm_task": 4,
         "reset_manual_draft": 5,
         "manual_draft_changed": 5,
+        "check_manual_draft_state": 5,
         "guarded_manual_jog": 5,
         "export_manual_record": 5,
         "plan_approach": 5,
@@ -88,7 +90,10 @@ class DENTORobotSimulationPanel:
         self._manualJogBusy = False
         self._manualJogAvailable = False
         self._manualJogGuardAvailable = False
+        self.manualJogReconciliationRequired = False
         self._manualJogEvidence = None
+        self._manualDraftStateCheckEvidence = None
+        self._manualDraftStateCheckRequested = None
         settings = qt.QSettings()
         self._plannerId = "RRTConnectkConfigDefault"
         self._planningAttempts = max(
@@ -516,6 +521,16 @@ class DENTORobotSimulationPanel:
             "Guarded Jog", self.manualJogGroup
         )
         self.guardedManualJogButton.objectName = "DENTOBOTGuardedManualJogButton"
+        self.checkManualDraftStateButton = qt.QPushButton(
+            "Check Draft State", self.manualJogGroup
+        )
+        self.checkManualDraftStateButton.objectName = (
+            "DENTOBOTCheckManualDraftStateButton"
+        )
+        self.checkManualDraftStateButton.toolTip = (
+            "Run the read-only static state evaluator on the current J1–J5 draft. "
+            "This does not jog, plan, or authorize a route or preview."
+        )
         self.exportManualRecordButton = qt.QPushButton(
             "Export Historical Record…", self.manualJogGroup
         )
@@ -527,6 +542,7 @@ class DENTORobotSimulationPanel:
             "display-only JSON. It cannot restore live state or authorize a route or preview."
         )
         manual_jog_actions.addWidget(self.resetManualJogDraftButton)
+        manual_jog_actions.addWidget(self.checkManualDraftStateButton)
         manual_jog_actions.addWidget(self.guardedManualJogButton)
         manual_jog_actions.addWidget(self.exportManualRecordButton)
         manual_jog_layout.addLayout(manual_jog_actions)
@@ -538,6 +554,15 @@ class DENTORobotSimulationPanel:
         self.manualJogStatusLabel.wordWrap = True
         self.manualJogStatusLabel.setProperty("dentobotRole", "status")
         manual_jog_layout.addWidget(self.manualJogStatusLabel)
+        self.manualDraftStateCheckStatusLabel = qt.QLabel(
+            "Draft-state check: not run.", self.manualJogGroup
+        )
+        self.manualDraftStateCheckStatusLabel.objectName = (
+            "DENTOBOTManualDraftStateCheckStatusLabel"
+        )
+        self.manualDraftStateCheckStatusLabel.wordWrap = True
+        self.manualDraftStateCheckStatusLabel.setProperty("dentobotRole", "status")
+        manual_jog_layout.addWidget(self.manualDraftStateCheckStatusLabel)
         self.manualRecordExportStatusLabel = qt.QLabel(
             "Export status: no export requested.", self.manualJogGroup
         )
@@ -926,6 +951,11 @@ class DENTORobotSimulationPanel:
         self.resetManualJogDraftButton.clicked.connect(
             lambda checked=False: self._invoke("reset_manual_draft")
         )
+        self.checkManualDraftStateButton.clicked.connect(
+            lambda checked=False: self._invoke(
+                "check_manual_draft_state", self.manualJogJointPositionsSi()
+            )
+        )
         self.guardedManualJogButton.clicked.connect(
             lambda checked=False: self._invoke(
                 "guarded_manual_jog", self.manualJogJointPositionsSi()
@@ -1198,7 +1228,12 @@ class DENTORobotSimulationPanel:
             and not self._manualJogBusy
         )
         self.guardedManualJogButton.enabled = bool(
-            self._manualJogGuardAvailable and not self._manualJogBusy
+            self._manualJogGuardAvailable
+            and not self._manualJogBusy
+            and not self.manualJogReconciliationRequired
+        )
+        self.checkManualDraftStateButton.enabled = bool(
+            self._manualJogAvailable and not self._manualJogBusy
         )
 
     def setManualJogLimitsUnavailable(self, message: str) -> None:
@@ -1229,7 +1264,157 @@ class DENTORobotSimulationPanel:
     def setManualJogStatus(self, state: str, message: str, evidence=None) -> None:
         if evidence is not None:
             self._manualJogEvidence = dict(evidence)
+            if evidence.get("manualJogReconciliationRequired") is True:
+                self.manualJogReconciliationRequired = True
+            native_summary = self._formatManualJogNativeEvidence(evidence)
+            if native_summary:
+                message = f"{message} {native_summary}"
         self._setManualJogStatus(state, message)
+
+    def setManualDraftStateCheckResult(
+        self, result=None, *, requested=None, stale=False, error=""
+    ) -> None:
+        details = getattr(result, "details", None)
+        details = details if isinstance(details, Mapping) else {}
+        self._manualDraftStateCheckEvidence = dict(details)
+        if error:
+            self._manualDraftStateCheckEvidence["error"] = str(error)
+        self._manualDraftStateCheckRequested = (
+            dict(requested) if isinstance(requested, Mapping) else None
+        )
+
+        evaluation = details.get("manual_state_evaluation")
+        evaluation = evaluation if isinstance(evaluation, Mapping) else {}
+        endpoint = evaluation.get("endpoint_evaluation")
+        endpoint = endpoint if isinstance(endpoint, Mapping) else {}
+        static = endpoint.get("static_state_validity")
+        static = static if isinstance(static, Mapping) else {}
+        native = details.get("nativeGuardEvidence")
+        native = native if isinstance(native, Mapping) else {}
+
+        verdict = evaluation.get("status")
+        if verdict not in {"passed", "failed", "unknown", "not_reached"}:
+            verdict = "unknown"
+        identity = evaluation.get("identity_status")
+        target_status = evaluation.get("target_endpoint_status")
+
+        def status_text(value):
+            return value.strip() if isinstance(value, str) and value.strip() else "unknown"
+
+        def metric_text(value, unit):
+            try:
+                number = float(value) if not isinstance(value, bool) else float("nan")
+            except (TypeError, ValueError, OverflowError):
+                number = float("nan")
+            return f"{number:.6g} {unit}" if isfinite(number) else "unavailable"
+
+        reasons = []
+        seen_reasons = set()
+        for label, value in (
+            ("Static validity", static.get("message")),
+            ("Evaluator", evaluation.get("reason")),
+            ("Native", native.get("reason")),
+        ):
+            if isinstance(value, str) and value.strip():
+                value = value.strip()
+                if value not in seen_reasons:
+                    rendered = f"{label}: {value}"
+                    reasons.append(rendered)
+                    seen_reasons.add(value)
+        if error:
+            reasons.append(f"Check error: {str(error)}")
+        if not reasons:
+            result_message = getattr(result, "message", "")
+            if isinstance(result_message, str) and result_message.strip():
+                reasons.append(f"Result: {result_message.strip()}")
+        reason = "; ".join(reasons) or (
+            "none reported" if verdict == "passed" else "unavailable"
+        )
+
+        if stale:
+            marker = (
+                "Draft-state check: stale — the draft changed after this check; "
+                "the result is for the captured J1–J5 draft."
+            )
+        elif error or result is None:
+            marker = "Draft-state check: unknown — no evaluator result was received."
+        else:
+            marker = "Draft-state check: complete."
+        self.manualDraftStateCheckStatusLabel.text = "\n".join(
+            (
+                marker,
+                f"Static verdict: {verdict}; identity status: {status_text(identity)}.",
+                "Target diagnostics: endpoint status "
+                + status_text(target_status)
+                + "; position residual "
+                + metric_text(endpoint.get("position_residual_mm"), "mm")
+                + "; drilling-axis residual "
+                + metric_text(endpoint.get("drilling_axis_residual_deg"), "deg")
+                + ".",
+                "Evaluator/native reason: " + reason,
+            )
+        )
+        visual_state = (
+            "ok" if verdict == "passed" else "error" if verdict == "failed" else "blocked"
+        )
+        self.manualDraftStateCheckStatusLabel.setProperty(
+            "dentobotState", "blocked" if stale else visual_state
+        )
+        self.manualDraftStateCheckStatusLabel.style().unpolish(
+            self.manualDraftStateCheckStatusLabel
+        )
+        self.manualDraftStateCheckStatusLabel.style().polish(
+            self.manualDraftStateCheckStatusLabel
+        )
+
+    @staticmethod
+    def _formatManualJogNativeEvidence(details) -> str:
+        details = details if isinstance(details, Mapping) else {}
+        native_evidence = details.get("nativeGuardEvidence")
+        monitored = details.get("monitoredStateStatus")
+        monitored_available = (
+            isinstance(monitored, str)
+            and monitored.strip()
+            and monitored.strip().lower()
+            not in {"unavailable", "unavailable/unknown"}
+        )
+        if not isinstance(native_evidence, Mapping) and not monitored_available:
+            return ""
+        native = native_evidence if isinstance(native_evidence, Mapping) else {}
+
+        def body_name(key):
+            value = native.get(key)
+            return value.strip() if isinstance(value, str) and value.strip() else "unavailable"
+
+        def distance_text(key):
+            value = native.get(key)
+            try:
+                value = float(value) if not isinstance(value, bool) else float("nan")
+            except (TypeError, ValueError, OverflowError):
+                value = float("nan")
+            return f"{value:.6g} m" if isfinite(value) else "unavailable"
+
+        monitored = monitored or native.get("monitoredStateStatus")
+        monitored_text = (
+            monitored.strip()
+            if isinstance(monitored, str) and monitored.strip()
+            else "unavailable"
+        )
+        return (
+            "Native guard evidence — first body: "
+            + body_name("firstBody")
+            + "; second body: "
+            + body_name("secondBody")
+            + "; required clearance: "
+            + distance_text("minimumClearanceM")
+            + "; measured self distance: "
+            + distance_text("minimumSelfDistanceM")
+            + "; measured world distance: "
+            + distance_text("minimumWorldDistanceM")
+            + "; monitored state: "
+            + monitored_text
+            + "."
+        )
 
     def setManualRecordExportStatus(self, state: str, message: str) -> None:
         self.manualRecordExportStatusLabel.text = message

@@ -1,6 +1,14 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-26.
+Last reconciled: 2026-09-27.
+
+The 27 September source gate makes submitted unknown/stale manual jogs fail
+closed for the current facade session and presents possible simulated motion
+truthfully. Focused host tests pass; unique native request/policy attribution,
+current-scene runtime and Tarun's verdict remain open under `S6-LIVE-01`.
+The same date's Check Draft State action evaluates captured review joints through
+the existing read-only endpoint path. Source checks pass; the final engineer
+workbench and its runtime/operator acceptance remain open.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
@@ -20,12 +28,22 @@ The FDI11 PreEntry IK source gate is already implemented.
 The first visible IK-only report now shows passed collision-checked endpoints
 for a changed base/Home/scene; the original saved baseline and Tarun's verdict
 remain open. P1/P2/P3 and guard were NotRun in that report.
-Current source also shares an exact-TCP evaluator across Goal-1, PreEntry and
-explicit Check Current State, and exposes P1/P2/P3 checks in the existing
-planning panel. The P1/P2/P3 paths are diagnostic-only; no complete-chain
-promotion, full manual workbench, recording or final two-area UI is implemented.
-The combined focused Step 6 host pure suite passes 181 tests; no runtime or
-case-specific success follows from that source evidence.
+**2026-09-26 engineering-outcome review (supersedes intermediate status summaries):**
+Baseline `40ad290` contains ROI-first sampling, shared endpoint evaluation,
+separate diagnostic P1/P2/P3, draft/guarded J1–J5 controls and schema-1.0 JSON
+recording. Prior host pure checks passed 193 tests. The full engineering solver
+is partial: detached Base/Home candidates, arbitrary invalid-draft evaluation,
+complete motion evidence/path/replay, final two-area integration and full-chain
+promotion remain open. Native/runtime behavior and measured responsiveness are
+unverified; the last headless fixture failed before any jog (scenarios NOT_RUN).
+Tarun is remote: user simulation trial and visible verdict remain PENDING.
+The [revised existing plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+prioritizes engineer-led state/motion exploration before case-specific planner
+solving. It specifies finite closure slices and reuse of indexed automation.
+Headless and scripted headed Slicer checks are technically available, subject to
+runtime authorization, provenance and the current fresh-case deferral. The
+parallel performance/5.12 checkout is outside this task.
+
 The 2026-09-24 blanket source pause is historical; agent-run planner/GUI
 runtime and milestone verdicts remain separately gated. Independent backlog
 items may advance under their existing entry conditions.

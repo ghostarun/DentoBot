@@ -52,62 +52,248 @@ Keep review rendering responsive while authoritative guard requests are serializ
 
 The 60 FPS target concerns the local interaction/render loop, not a promise that full MoveIt IK, collision and guard checks complete every 16.7 ms. Show the most recent authoritative diagnostic identity and age while a new result is pending; do not hide lag behind an apparently current badge. Capture input event → pose update → visible frame, local FK, MRML transform propagation, viewport frame time, guard transport/decision, ROS scene synchronization, endpoint/continuity evaluation and recording overhead separately. Measure both ordinary continuous manipulation and a bounded sequence of individual guarded jogs. Investigate current SlicerROS2 fork controls, rendering/event-loop behavior and upstream developments, but select changes from measured local bottlenecks; preserve strict acceptance ordering. An RViz/Gazebo/PyBullet-like experience is an interaction/usability target, not authorization to replace the physics or collision authority.
 
-**Upstream reference reviewed 2026-09-26:** the SlicerROS2 v1.1 release already includes interactive 3D and joint controls. Its current 1.2 documentation describes a draggable goal gizmo that runs IK and updates the robot view, with a visible failure state and preview path display. A SlicerROS2 performance study reports about 2.41 ± 0.79 ms per 20 ms ROS spin and about 49 FPS for one displayed robot on its test setup (3.22 ± 1.43 ms with another robot); it contrasts an older implementation that overran at about 56 ms per spin. These are reference measurements, not results for this DentoBot workstation or scene. The browsed upstream issue list had no general renderer-latency item, and its PR page showed no open PR at that snapshot. The adjacent local `upgrade/slicer-5.12` checkout is 14 commits ahead of its locally fetched upstream tip, including ROS shutdown cleanup and read-only MoveIt geometry diagnostics; it remains a separate upgrade branch and was not changed here. Use these findings to prioritize reuse of the existing ghost/goal-control path and to measure local event-loop, FK/MRML/render, MoveIt guard, and ROS costs separately before choosing a performance fix.
+## Reconciled implementation review — 26 September 2026
 
-## Implementation gates and evidence boundaries
+**Reviewed baseline:** `40ad29089be3431735790c4592dd09d5a380bdfd`,
+`feature/step6-workflow-renovation-20260925`, in
+`/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-renovation`.
+The parallel performance/5.12 checkout is outside this plan. Earlier source
+checkpoints and exact commands remain in the [26 September logbook](../logbook/2026-09-26.md).
+This section supersedes their intermediate completion summaries, not their evidence.
 
-1. **Shared evaluator and records:** extend existing branch-keyed motion diagnostics with versioned fields and shared callers. Focused checks prove status fidelity, failed best states, identities, stale-result rejection and manual/automatic parity.
-2. **ROI and reviewed limits:** derive world-RAS midpoint from current upper/opened-lower incisor references; allow edited XYZ/dimensions; generate bounded task-space candidates; test containment, task-axis use, yield/timing and Home-inclusive review.
-3. **Guarded workbench:** integrate base/Home review and explicit acceptance, J1–J5 live jog, invalid-state display, controls, recording/export/path display and measured responsiveness. Source checks precede one serialized operator-visible simulation trial.
+### Intended outcome and assessment
 
-**26 September verification timing update:** The headless manual-jog attempt
-loaded the September 22 FDI31 saved package and stopped at package-lineage
-validation before any jog. Tarun directed treating this as older-case
-compatibility evidence and deferring further case-based runtime tests until
-substantial source progress and a newly saved `.dentocase` reflects the
-renovation; a heavier user session may follow. Keep lineage validation intact.
-The simulation trial, screenshots and operator verdict remain pending.
+Tarun's latest clarification makes the engineering purpose explicit: use his
+robotics expertise to explore configurations, base placement, valid and invalid
+states and intuitive motion before asking an automatic planner to solve the
+case. UI improvement supports that work. The manual workbench is optional to
+use in the workflow but required to deliver in this renovation.
 
-**26 September Base/Home and recording source checkpoint:** Workbench UI now
-labels candidate Base/Home and explicit acceptance through the existing owners.
-The façade retains schema-1.0 historical records for exact J1–J5 requests,
-authoritative accept/reject/unknown outcomes and terminal Base/Home events;
-JSON export is display-only. Pre-task direct Base nudges cannot be assigned a
-complete Step 6 identity and are reported unavailable for recording. The
-combined host pure suite passed 109 tests with Python compilation and diff
-check; no simulation or usability acceptance follows. Path display/replay,
-fuller diagnostics and final UI/full-chain gates remain open.
-4. **Separated planning and two-area UI:** expose PreEntry, P1 Home→PreEntry, P2 PreEntry→Entry, P3 Entry→Target and complete-chain checks through shared routines. Exact predecessor endpoints and frame are required; changed candidate/input identity invalidates downstream stages. Both navigators must agree. A common PreEntry failure before OMPL cannot rank RRT variants.
-5. **Preview boundary:** only current complete independent-guard-valid routes enter 6.4. Retain accepted-prefix, monitored state, first rejected request/evaluation and reason before clearing any session. Incomplete/AwayFromHome blocks preview and normal Return Home; manual Stop records no rejected waypoint. Do not implement teleport, automatic recovery, partial-prefix reversal, hardware or spindle action.
+The direction is sound and substantial foundations exist; the engineer-facing
+solver is **partially implemented, not ready for acceptance**. Repeated source
+checks and launcher repair have outpaced the central interactive capability.
+Operator checks are pending because Tarun is remote; that does not prevent
+bounded source completion or meaningful automation. A failed planner/IK search
+or manual attempt cannot prove mechanical impossibility. A successfully guarded
+manual motion is a feasibility witness only for its exact simulated robot,
+base, Home, scene, tool, phase policy and sampled motion. Physical feasibility
+and design interpretation remain separate engineering judgments.
 
-**25 September source checkpoint for gate 2:** The workspace action now consumes the editable ROI, generates TCP targets inside it, and attempts existing native position-axis IK before static validity/FK and bounded Home-connectivity checks. It reports per-phase counts/timing and fingerprints; stale ROI/trajectory evidence is rejected. A selected but unconfirmed trajectory axis is explicitly provisional. Workspace proposal generation no longer changes task identity; applying a limit proposal requires mechanical bounds and inclusion of current Task Home. The 135-test host pure suite and Python compilation passed. This does not establish runtime yield, speed, visual usability, current-scene collision behavior or operator acceptance. The shared evaluator, manual solver, separated stages and two-area UI remain ahead.
+| Capability | Actual source at reviewed baseline | Remaining evidence or implementation |
+|---|---|---|
+| ROI-first sampling and Home-inclusive limits | Implemented, pure checked | Current-scene yield, freshness and visible review |
+| Shared endpoint diagnostics | Goal-1, PreEntry and current-state callers share evaluator | Arbitrary draft input, full phase/continuity evidence, native clearance and conditioning |
+| P1/P2/P3 diagnostics | Exact predecessor handoff and independent Home-prefix guard | Complete-chain promotion and final UI; partial stages have no route authority |
+| J1–J5 workbench | Draft sliders/numeric/keyboard, ghost, explicit Guarded Jog, accept/reject/unknown handling | Native runtime verification, acknowledgement correlation and monitored convergence; invalid-draft inspection |
+| Base/Home | Existing lock/save owners relabelled with candidate/Accept UI and terminal record events | Detached review candidates and controls; cancellation, explicit commit and invalidation integration |
+| Recording | Schema 1.0, in-session events and current/latest JSON export | Complete motion/diagnostic samples, session selection, path display, historical reopen/replay and readable report |
+| Presentation/performance | Controls added to old cards; existing preview machinery retained | Two-area migration in both navigators and measured local interaction |
+| Preview interruption | Source latch retains incomplete-prefix evidence and blocks Return | Runtime Stop/reject/repeat verification and operator verdict |
 
-**26 September source checkpoint for gate 1 (shared endpoint evaluator):** Goal-1 and standalone PreEntry share one façade exact-TCP endpoint evaluator. It retains a versioned per-seed evaluation, checks MoveIt static validity before FK and records position/axis residuals under existing Cartesian-start tolerances. PreEntry joint-limit evidence uses the pure named-joint SI-to-display margin helper. This initial slice passed 139 host pure tests.
+**Evidence ceiling:** 193 host pure tests passed in the prior checkpoint (157
+state/facade/planning + 36 UI/bridge); compilation, shell syntax, matrix parsing
+and source diff checks passed. These include mocks/stubs and do not prove Qt
+signals, native guard or rendered interaction. The six headless attempts were
+launcher/fixture failures. The final manifest has all jog scenarios `NOT_RUN`:
+no manual-jog runtime verdict or screenshot exists. User simulation trial and
+Tarun's verdict are **PENDING**. Do not describe this as a failed robot jog.
 
-**26 September source checkpoint for gate 1 (manual-state consumer):** The explicit Check Current State action now calls that same evaluator on a captured current joint vector after checking the active simulation runtime, synchronized case scene, confirmed task, selected eligible PreparedBranch, Task Home and current task identity. It records planner identity and the input vector before and after the query, retaining results as stale/unknown when either changes. The displayed current-state static validity is separate from target-endpoint match; a safe pose away from Target is not labelled invalid merely because its target residual is high. Connect/bootstrap and Task Home acceptance retain the lightweight guard-only check. The relevant host pure suite passed 144 tests; `py_compile` and `git diff --check` passed. This is source/unit evidence only: it is not the full interactive solver, does not jog or create/persist motion records, and does not expose P1/P2/P3 yet. Numeric forbidden clearance and exact-state task conditioning remain unknown. No Slicer/ROS/MoveIt/OMPL/preview or hardware trial ran, so runtime performance, visible usability and case feasibility remain unverified.
+### Concrete review findings to resolve first
 
-**26 September source checkpoint for gate 4 (separated stage diagnostics):** The existing planning panel now exposes separate Check P1 Home→PreEntry, Check P2 PreEntry→Entry and Check P3 Entry→Target actions. P1 consumes a same-façade PreEntry candidate; P2/P3 start from the exact terminal joint state of the preceding passing diagnostic. Each stage retains requested path/end state, FK endpoint evaluation, frozen input identity, last valid/first invalid evidence and an independent validate-only guard result for the Home-rooted prefix. Guard attribution requires matching task, session, collision-policy, request ID, phase, sequence, validation kind and exact requested joint vector; unmatched latest status remains unknown. Partial paths and stage records have no route authority and cannot unlock preview. The focused Step 6 host pure suite passed 181 tests; Python compilation and `git diff --check` passed. This is a source-only stage slice on the existing panel, not the final two-area UI or a full-chain promotion gate. The ROS-connected manual engineering workbench, recording, responsive jogs, final UI, and numeric forbidden clearance/exact-state conditioning remain open. No Slicer/ROS/MoveIt/OMPL/preview or hardware trial ran.
+- **Incorrect unknown-state message:** `widget_robot_shell.py:411–425` says the
+  accepted robot is unchanged on unknown/exception, while the façade at
+  `2589–2590` and `2643–2648` explicitly reports that it may have advanced.
+  This is a source defect, not merely absent runtime evidence. Preserve the
+  last confirmed state as historical, show uncertainty and reconcile before
+  accepting another jog. Do not promise no motion after a lost/stale reply.
+- **Raw acknowledgement attribution:** `DENTORobotWorkflowFacade.py:2562–2564`
+  uses Python object freshness; `2620–2629` matches vector/world IDs and requires
+  an absent policy fingerprint. The bridge status has no request ID/sequence.
+  This cannot establish correlation of a delayed identical request or its policy.
+- **Base review mutates the current transform:** façade `setBasePose` at `2712`
+  writes `robotBaseTransform`; production Base nudge uses `logic.nudgeRobotBase`
+  directly. The new façade recording method has no production caller. Candidate
+  labels therefore do not establish detached review or per-edit Base history.
+- **Evidence is retained but not fully usable:** panel `_manualJogEvidence`
+  stores native details without showing collision bodies/distances as structured
+  workbench feedback. The record writer at façade `2245–2343` does not populate
+  evaluated joint samples, TCP/axis or full evaluator reports. Schema identity
+  omits explicit limits and mandatory policy provenance. These are material gaps
+  for comparing configurations, not reasons to build a separate recording system.
 
-The pure `build_manual_simulation_record` / `parse_manual_simulation_record`
-schema (version 1.0) enforces historical/display-only reopen semantics and
-exact requested/accepted/rejected J1–J5 evidence. The 26 September source
-gate connected manual controls, in-session retention and JSON export to this
-schema. Path display/replay and optional video remain open; do not introduce
-a parallel record schema.
+Line references describe baseline `40ad290`; inspect callers before implementing.
+These findings remain under `S6-LIVE-01`, with workspace/preview overlap as above.
 
-**26 September guarded-jog source checkpoint:** The J1–J5 draft controls use
-reviewed/mechanical limits and a display-only goal robot. An explicit jog
-passes through the existing simulation-only raw guard; the façade requires a
-fresh exact joint echo, current task/base/Home/branch/scene identity and the
-acknowledged world object set before reporting acceptance. Rejected and unknown
-results retain draft and native evidence without a UI accepted-state mirror.
-The host pure suite passed 187 tests; Python compilation and `git diff --check`
-passed. The raw status has no collision-policy fingerprint or request ID, so
-policy attribution and runtime behavior remain unverified. Base/Home review and
-acceptance, recording/export, full workbench diagnostics, final two-area UI,
-responsive rendering measurements and the operator-visible simulation verdict
-remain open. This source checkpoint has no route, preview or hardware authority.
+**27 September source continuation:** The first uncertainty boundary is now
+implemented in the existing facade and panel. A submitted jog ending unknown
+or stale latches the facade, blocks another publish, and leaves the draft and
+last confirmed state visible. The UI no longer promises that the simulated
+robot is unchanged; it shows named native bodies, the *required* clearance and
+separate measured self/world distances when available. Focused host pure tests
+passed (6 facade, 5 UI); compilation and diff checks passed. This is source
+evidence only. The raw command still lacks unique request and policy identity,
+so correlation and a supported reconciliation path remain the next part of
+closure slice 1. Current-scene runtime, screenshots and Tarun's verdict remain
+pending. See the [27 September logbook](../logbook/2026-09-27.md).
 
-The first FDI11 visible IK-only report showed collision-checked endpoints for an **intentionally changed** base/Home/task/scene. The direct Home seed timed out after one iteration; P1/P2/P3/guard were NotRun. Tarun's interpretation and separately saved exact setup remain pending, and the original all-zero-Home case is unresolved. This is diagnostic architecture evidence, not a route or case-specific planner fix. FDI21 attribution, exact FDI31 full-chain reference, planner comparison, automated base sweeps and robot-design variants follow under existing owners in the later-work index; their **shared diagnostic primitives are current work**.
+**27 September read-only draft diagnostic:** The workbench now has an explicit
+Check Draft State action. It passes the captured J1–J5 review vector through
+the shared static/endpoint evaluator, retains task and scene identity checks,
+and never commands or mirrors the accepted robot. Static validity is separate
+from Target position/axis match; a safe off-target pose may pass the static
+check. A changed draft or identity marks the result stale/unknown. Focused host
+pure checks passed (6 facade, 4 UI) with compilation and scoped diff checks.
+The combined two-module host regression subsequently passed 73 tests.
+The control still uses the existing reviewed-limit draft range, and the
+authoritative static API currently returns text rather than structured named
+collision pairs for arbitrary draft failures. Those engineering feedback gaps,
+native runtime and operator judgment remain open under closure slices 1–2.
 
-Use the [verification protocol](../AGENTIC_VERIFICATION_PROTOCOL.md) and checkout Testing/verification_matrix.json. Sol Medium orchestrates, owns all reasoning, controlled records and acceptance. Under Tarun's latest orchestration instruction, dispatch **exactly two GPT-6 Luna Max workers in parallel for qualifying bounded grunt work**, with disjoint files and fully settled interfaces; handle trivial or inseparable work locally. Workers do not edit controlled docs, run Slicer/ROS/hardware, set policy, recursively delegate or declare acceptance. If the two-worker preset is unavailable, report the constraint rather than substituting another model. Tarun reviews representative workbench and diagnostic results during implementation. No runtime, milestone, hardware or clinical verdict follows from source checks alone.
+### Required closure sequence within existing gates
+
+These are implementation slices under the original five gates and existing
+backlog owners, not a second pending queue. Complete each bounded source slice
+with the smallest relevant tests, then reuse it; do not repeatedly rerun the
+entire workflow while the same prerequisite is unresolved.
+
+1. **Finish the manual state boundary (gate 3, shared evaluator gate 1).**
+   Use separate draft/review, last acknowledged accepted, and monitored states.
+   Base exploration must not mutate the accepted base transform or synchronized
+   scene until Accept Base; cancellation restores only the review representation.
+   Home candidates must not overwrite accepted Home. Route all controls through
+   those owners. The explicit read-only Check Draft State action is source-implemented
+   for captured J1–J5 on the current accepted Base and scene; finish candidate Base
+   review, phase evidence and native collision attribution. Mechanical and
+   reviewed limits remain command gates; out-of-envelope review, if supported,
+   is visibly invalid and cannot be jogged. J6 is never an arm control.
+   Address raw guard attribution before trusting live acceptance: the current
+   raw status lacks request ID and policy fingerprint. Correlate request/session,
+   exact vector, policy and scene through the existing native protocol; a fresh
+   matching vector alone is insufficient evidence for repeated identical requests.
+   Retain ambiguous/stale outcomes as unknown, reconcile monitored state and block
+   further commands until the accepted state is known. No guessed rollback command.
+   **Exit:** pure checks cover no accepted mutation on draft/cancel/reject/unknown,
+   stale response, same-vector repeated request, identity change and limit/J6 edges.
+
+2. **Deliver one useful engineer exploration loop (gate 3).**
+   Show accepted and review robot together with TCP, drill axis, target trajectory,
+   Base/Home labels, joint margins and named collision evidence. Keep invalid poses
+   inspectable without accepting them. Let the engineer choose and retain ordered
+   waypoints and inspect the connecting motion. Reuse existing goal robot/path
+   primitives and the shared evaluator. A valid endpoint does not validate the
+   segment to it. Initial live exploration remains explicit individual guarded
+   jogs with ordered acknowledgements. Automatically traversing a composed manual
+   sequence requires a separately specified simulation segment/phase-guard gate
+   before implementation; historical replay never issues commands or promotes a
+   planned route. This preserves the engineer's ability to demonstrate intuitive
+   motion without silently granting saved paths preview authority.
+   **Exit:** requested/accepted/rejected paths are distinguishable; rejected motion
+   never draws a continuous accepted segment across the rejection; no planner is
+   needed to draft, inspect or perform an individually guarded jog.
+
+3. **Complete durable engineering evidence (gates 1 and 3).**
+   Reuse schema 1.0 and extend it only where an actual field is missing. Bind each
+   request/outcome to its identity and retain actual native acknowledgement,
+   monitored joints, FK TCP/axis, phase, available diagnostics and timing. Check
+   that failed identity preparation cannot append a new Base/Home event to an
+   older case ledger. Export all selected session records, not just whichever
+   current/latest record the accessor returns. Provide readable report plus
+   machine-readable samples and display-only reopen/replay. Unknown measurements
+   remain unknown; no fabricated clearance/conditioning. Add native metrics through
+   the same scene/guard authority, with unit normalization and no invented threshold.
+   **Exit:** round trip retains successes, failures, unknowns, transitions and exact
+   values; reopened data cannot restore live acceptance or enable preview.
+
+4. **Finish the two-area integration and full-chain boundary (gates 4 and 5).**
+   Keep 6.0–6.2 ownership. Merge exploration/task confirmation/manual solver and
+   stage diagnostics into Planning & Diagnostics; put preview/Stop/Return under
+   Preview & Control in both navigators. Reuse actions rather than duplicate state.
+   Complete-chain promotion requires fresh exact stage handoffs, frozen identities
+   and the independent complete guard. Exercise stale-input invalidation and the
+   interrupted-preview Block Return latch. Recovery, teleport and manual-path
+   promotion remain outside this gate.
+   **Exit:** both navigators agree on every action/lock reason; partial/historical
+   paths cannot enable preview; complete and interrupted paths have explicit states.
+
+5. **Close runtime, responsiveness and operator acceptance (all gates).**
+   Prepare the automation lane during source work, then run the focused production
+   sequence on a current representative case when its fixture/runtime gate is met.
+   Include ROI candidate containment, generation yield/timing, edited ROI display
+   and saved/reopened freshness under S6-WORKSPACE-PURPOSE.
+   Measure input→visible frame, local FK/MRML/render, native guard/ROS and recording
+   separately; 60 FPS is an interaction target, not a guard-rate promise. Fix one
+   measured bottleneck at a time in this checkout; do not import the parallel
+   upgrade task. Obtain Tarun's visible verdict on exploration, invalid-state
+   explanation, manual motion, export/reopen and repeat/Stop behavior. Retain pending
+   operator acceptance while he is remote. Case-specific FDI11/21/31 solving,
+   planner comparisons, automated base sweeps and robot redesign stay downstream.
+
+### Automation is part of completion
+
+Headless checks are within Codex's capability and relevant to this work. Model
+roles are execution policy, not a technical inability of Sol. Reuse the
+[script index](TESTING_VERIFICATION_SCRIPT_INDEX_2026-09-24.md),
+[verification matrix](../../../Testing/verification_matrix.json) and
+[GUI SOP](STEP6_GUI_AUTOMATION_SOP_2026-09-23.md). Existing scripts span preparation,
+case save/reopen, views, scene lifecycle, phase guard and Step 6; their existence
+is coverage potential, not a current-revision end-to-end pass.
+
+| Check layer | Smallest useful reuse | What it establishes |
+|---|---|---|
+| Host pure | Existing state/facade/planning/UI/bridge tests | State transitions, identities, records and stubbed UI contracts |
+| Headless Slicer/ROS | Existing manual-jog runner; scene lifecycle/phase-guard checks only for changed boundaries | Production Qt/MRML/ROS/native behavior on the frozen fixture; save JSON and screenshots |
+| Headed Slicer | Adapt the same production actions to a reviewed real DISPLAY and capture the normal window | Real layout, visibility, event delivery and render timing; script-driven UI checks are possible |
+| Operator review | Tarun's representative normal-window exploration | Robotics interpretation, controllability and usability acceptance |
+
+In this Codex session native desktop CUA is disabled. Headed Slicer Python/Qt
+scripts and screenshot capture remain technically possible through the configured
+runtime. Do not claim generic mouse/keyboard desktop control or infer usability
+from an offscreen screenshot. A headed script that calls only facade methods
+also does not prove every widget connection; exercise real controls where needed.
+
+Before another runtime, repair the existing harness provenance: its launcher pins
+`45a38d9` although the reviewed commit is `40ad290`; the matrix's generic container
+command points to `DentoBot`, not this worktree; the shared native install points
+to the parallel `DentoBot` build. Record the selected full revision, dirty diff,
+Python hashes, native build/source provenance, fixture hash and display mode in
+one result manifest. Do not simply remove revision checks or claim matching source
+hashes attest a binary. Reuse the runner instead of building another harness.
+
+Tarun deferred more runs on the September 22 saved package after its lineage
+failure. Preserve that failure as legacy compatibility evidence. Use pure or
+synthetic checks for isolated contracts now; those cannot replace representative
+anatomy/native checks. Prepare a newly saved case via the existing production
+save/reopen path after substantial source progress. Do not weaken lineage or
+spend the remaining renovation on legacy migration. No case is selected or loaded
+by this review, and it grants no new runtime/retry authorization.
+
+For the next approved runtime, first gate import/identity, then run the bounded
+manual scenarios: valid jog, rejected draft, stale/unknown result, Base/Home
+review/accept/cancel, record/export/reopen and action authority. Stop on the first
+causal blocker, preserve evidence and observe the retry ceiling. Capture accepted
+and invalid-state context and named collision views, exact joints, identity,
+timestamp and screenshot paths. If capture fails, record why; never substitute a
+synthetic image for runtime evidence. Full planned preview/Stop/Return is a later
+check requiring its complete-route prerequisites. GUI results stop for Tarun's
+verdict as the canonical contract requires; independent source work may continue.
+
+### Ownership and completion rule
+
+Sol owns reasoning, review, controlled records and acceptance. Exactly two GPT-6
+Luna Max workers execute qualifying bounded grunt work in parallel with disjoint
+files, no recursive delegation and no controlled-doc edits. Tarun's request that
+Luna write and perform tests remains active: use read-only Luna verification on
+stable files for host checks. The standing worker restriction excludes GUI/ROS
+runtime; a future concrete runtime plan must explicitly assign its sole executor
+under the applicable operator authorization. Neither Sol's coordination role nor
+a matrix entry automatically authorizes a runtime. Do not silently substitute a
+model, silently move tests to Sol, or conflate that role restriction with capability.
+
+Completion means the engineer can inspect a speculative or invalid pose, understand
+its attributed limits/contact/axis evidence, build and perform an ordered
+sequence of individually guarded jogs, vary Base/Home through explicit acceptance, and retain
+and reopen that evidence without unintended state or route authority. The final
+UI, full-chain preview boundary, required measurements and operator verdict must
+also close. A passing test count alone never closes this plan. No additional
+planner algorithm, physics engine, Studio framework, legacy-case campaign or
+5.12 upgrade is required to deliver it.

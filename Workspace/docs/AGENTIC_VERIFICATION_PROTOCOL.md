@@ -185,26 +185,31 @@ full-cycle simulation evidence is not hardware/clinical acceptance.
 
 ## Coordinator and workers
 
-The coordinator is the sole controlled-document editor and owns integration
-and final acceptance. Under the operator's current model policy in
-`Workspace/AGENTS.md`, an optional GPT-6 Luna xhigh implementation worker may
-edit only explicitly assigned code/test files after the coordinator supplies
-the complete plan. This exception does not apply to verification workers and
-does not authorize tests
-or runtime execution. Do not overlap writes or check actively changing files.
+The coordinator owns verification strategy, integration, controlled documents
+and final acceptance. Model routing follows the **2026-09-25 operator override** in the active overlay
+[/home/light-tarun/dentobot/AGENTS.md](/home/light-tarun/dentobot/AGENTS.md),
+also supplied explicitly by Tarun in this task: GPT-6 Sol coordinates; exactly two GPT-6 Luna Max
+workers handle qualifying bounded grunt work in parallel with disjoint files.
+The checkout copy `Workspace/AGENTS.md` still contains the older 23 September
+paragraph; this explicit newer operator instruction supersedes that paragraph.
+Trivial or inseparable work stays with the coordinator. Do not substitute models
+when the requested pair is unavailable. This supersedes the former optional-one
+Luna xhigh/default-solo paragraph; it does not change approval or safety gates.
 
-Verification workers are read-only. A verification worker discovering a defect reports
-it; it does not patch source, change parameters, relax collision rules, or
-silently retry with different inputs.
+Implementation workers edit only explicitly assigned code/tests and preserve
+other work. Verification workers are read-only: report defects without patching,
+changing parameters or relaxing rules. Do not test actively changing files.
+Workers do not recursively delegate or edit controlled records. The standing
+Luna worker restriction excludes GUI/ROS/runtime execution unless an explicit
+operator-authorized bounded runtime assignment supersedes it. Current task-specific
+instructions, including Tarun's Luna-only test execution request, remain applicable.
 
-For Codex model/effort selection, follow `Workspace/AGENTS.md`: GPT-6 Sol low
-orchestrates; GPT-6 Luna xhigh is an optional bounded implementation auxiliary.
-No active task requires Terra. `S6-LIVE-01` retains its two-subagent ceiling,
-visible-verdict stop and safety gates, not its superseded model override.
-Default to solo, or one justified auxiliary. The three workers below are
-available responsibilities, not a mandatory team. More than one requires an
-explicit operator request or approved verification plan. The matrix limit is
-a hard maximum, not a target.
+Headless versus headed is a test environment distinction, not a model capability
+boundary. The coordinator may specify and interpret both. Execution still needs
+the applicable approval and one named runtime owner; an available script or matrix
+profile is not permission. A pure test pass cannot be promoted to native runtime
+verification, and virtual-display screenshots do not replace an operator verdict.
+`S6-LIVE-01` retains the visible-verdict stop, retry ceiling and safety gates.
 
 Outside a stricter task-specific override, use at most three workers alongside
 the coordinator:
