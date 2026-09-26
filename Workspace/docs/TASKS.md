@@ -1436,7 +1436,9 @@ candidate-creation check. A two-target in-memory subset of the unchanged
 created, zero failed and 52 voxels each. The temporary harness then used the
 wrong `GetTag` signature before checking tags/source-mask integrity/repeat;
 its correction crashed at MRB import before the action. No third runtime was
-launched. This is diagnostic throughput only, not full all-tooth or candidate
+launched. The first run's watchdog measured 17.866/13.764 s creation gaps;
+Python bounding-box background flood fill is a source-backed hotspot hypothesis,
+not yet a function profile. This is diagnostic throughput only, not full all-tooth or candidate
 integrity acceptance. Both archive hashes were unchanged. The next action is
 read-only diagnosis of the pre-action import crash and a cheaper discriminating
 check before another runtime approval; see today's logbook for evidence paths.
