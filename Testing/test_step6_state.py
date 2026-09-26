@@ -64,6 +64,7 @@ from DENTOStep6State import (  # noqa: E402
     JOINT_NAMES,
     LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
+    MANUAL_SIMULATION_RECORD_MAX_EVENTS,
     MotionPhase,
     SIMULATION_TOOL_PROVENANCE,
     SPINDLE_PLANNING_POLICY,
@@ -71,6 +72,7 @@ from DENTOStep6State import (  # noqa: E402
     base_placement_source_issue,
     build_assisted_limit_proposal,
     build_attempt_context,
+    build_manual_simulation_record,
     build_motion_diagnostic_session,
     build_planner_comparison,
     build_phase_guard_configuration,
@@ -83,6 +85,7 @@ from DENTOStep6State import (  # noqa: E402
     fingerprint,
     empty_trajectory_registry,
     parse_attempt_context,
+    parse_manual_simulation_record,
     parse_robot_environment_snapshot,
     parse_trajectory_registry,
     prepared_branch_ids_for_trajectory,
@@ -990,3 +993,250 @@ def test_motion_diagnostic_plan_selection_round_trip_and_lock_gate():
             state="locked",
             route_key={"route_type": "direct"},
         )
+
+
+def _manual_simulation_identity():
+    return {
+        "prepared_branch_id": "FDI31/PreparedBranch-A",
+        "task_fingerprint": "task-a",
+        "base_fingerprint": "base-a",
+        "home_fingerprint": "home-a",
+        "trajectory_fingerprint": "trajectory-a",
+        "robot_profile_fingerprint": "robot-a",
+        "scene_fingerprint": "scene-a",
+    }
+
+
+def test_manual_simulation_record_round_trips_historical_display_only_evidence():
+    record = build_manual_simulation_record(
+        identity=_manual_simulation_identity(),
+        events=(
+            {
+                "kind": "requested",
+                "monotonic_ns": 10,
+                "requested_joints": joints(0.25),
+                "tcp_point_ras_mm": (1.0, 2.0, 3.0),
+            },
+            {
+                "kind": "diagnostic",
+                "monotonic_ns": 11,
+                "diagnostic": {"preentry_ik": {"status": "passed"}},
+            },
+            {
+                "kind": "accept_task_home",
+                "monotonic_ns": 12,
+                "accepted_joints": joints(0.75),
+                "details": {"accepted_fingerprint": "home-b"},
+            },
+        ),
+    )
+    restored = parse_manual_simulation_record(canonical_json(record))
+    assert restored == record
+    assert restored["record_status"] == "historical_display_only"
+    assert [event["kind"] for event in restored["events"]] == [
+        "requested", "diagnostic", "accept_task_home"
+    ]
+    assert restored["events"][0]["tcp_point_ras_mm"] == [1.0, 2.0, 3.0]
+
+
+def test_manual_simulation_record_detects_altered_fingerprint():
+    record = build_manual_simulation_record(
+        identity=_manual_simulation_identity(),
+        events=({"kind": "requested", "monotonic_ns": 10, "requested_joints": joints()},),
+    )
+    damaged = json.loads(canonical_json(record))
+    damaged["events"][0]["requested_joints"][JOINT_NAMES[0]] += 0.1
+    with pytest.raises(ValueError, match="fingerprint"):
+        parse_manual_simulation_record(damaged)
+
+
+def test_manual_simulation_record_rejects_out_of_order_events():
+    with pytest.raises(ValueError, match="monotonic time order"):
+        build_manual_simulation_record(
+            identity=_manual_simulation_identity(),
+            events=(
+                {"kind": "requested", "monotonic_ns": 20, "requested_joints": joints()},
+                {"kind": "requested", "monotonic_ns": 19, "requested_joints": joints(1.0)},
+            ),
+        )
+
+
+def test_manual_simulation_record_requires_requested_and_guard_evidence():
+    identity = _manual_simulation_identity()
+    invalid_events = (
+        ({"kind": "requested", "monotonic_ns": 1}, "requires requested J1–J5 or a TCP point"),
+        (
+            {"kind": "guard_accepted", "monotonic_ns": 1, "requested_joints": joints()},
+            "requires requested and accepted J1–J5",
+        ),
+        (
+            {"kind": "guard_rejected", "monotonic_ns": 1, "accepted_joints": joints(),
+             "native_failure_evidence": {"reason": "collision"}},
+            "requires requested and last accepted J1–J5",
+        ),
+        (
+            {"kind": "guard_rejected", "monotonic_ns": 1,
+             "requested_joints": joints(), "accepted_joints": joints()},
+            "requires native failure evidence",
+        ),
+    )
+    for event, message in invalid_events:
+        with pytest.raises(ValueError, match=message):
+            build_manual_simulation_record(identity=identity, events=(event,))
+
+
+def test_manual_simulation_record_preserves_rejected_and_accepted_state_separately():
+    accepted = joints(0.5)
+    requested = joints(1.5)
+    evaluated = joints(1.0)
+    record = build_manual_simulation_record(
+        identity=_manual_simulation_identity(),
+        events=(
+            {
+                "kind": "guard_accepted",
+                "monotonic_ns": 10,
+                "requested_joints": accepted,
+                "evaluated_joints": accepted,
+                "accepted_joints": accepted,
+            },
+            {
+                "kind": "guard_rejected",
+                "monotonic_ns": 11,
+                "requested_joints": requested,
+                "evaluated_joints": evaluated,
+                "accepted_joints": accepted,
+                "native_failure_evidence": {"reason": "collision"},
+                "collision_evidence": {"first_body": "tooth", "second_body": "tool"},
+            },
+        ),
+    )
+    reopened = parse_manual_simulation_record(record)
+    accepted_event, rejected_event = reopened["events"]
+    assert accepted_event["kind"] == "guard_accepted"
+    assert rejected_event["kind"] == "guard_rejected"
+    assert rejected_event["requested_joints"] == requested
+    assert rejected_event["evaluated_joints"] == evaluated
+    assert rejected_event["accepted_joints"] == accepted_event["accepted_joints"]
+    assert rejected_event["native_failure_evidence"]["reason"] == "collision"
+    assert rejected_event["collision_evidence"]["second_body"] == "tool"
+
+
+def test_manual_simulation_acceptance_is_terminal_and_records_new_identity():
+    identity = _manual_simulation_identity()
+    for kind in ("accept_base", "accept_task_home"):
+        accepted = {
+            "kind": kind,
+            "monotonic_ns": 10,
+            "details": {"accepted_fingerprint": f"{kind}-new"},
+        }
+        if kind == "accept_base":
+            accepted["details"]["accepted_matrix_world_ras_mm"] = tuple(
+                float(value) for value in range(16)
+            )
+        else:
+            accepted["accepted_joints"] = joints(0.5)
+        record = build_manual_simulation_record(identity=identity, events=(accepted,))
+        reopened = parse_manual_simulation_record(record)["events"][0]
+        assert reopened["details"]["accepted_fingerprint"] == f"{kind}-new"
+        if kind == "accept_base":
+            assert reopened["details"]["accepted_matrix_world_ras_mm"] == list(
+                map(float, range(16))
+            )
+        else:
+            assert reopened["accepted_joints"] == joints(0.5)
+        with pytest.raises(ValueError, match="must be the final event"):
+            build_manual_simulation_record(
+                identity=identity,
+                events=(
+                    accepted,
+                    {"kind": "diagnostic", "monotonic_ns": 11, "diagnostic": {}},
+                ),
+            )
+        with pytest.raises(ValueError, match="details.accepted_fingerprint"):
+            build_manual_simulation_record(
+                identity=identity,
+                events=({**accepted, "details": {}},),
+            )
+
+
+def test_manual_simulation_review_events_retain_reviewed_candidate_states():
+    matrix = tuple(float(value) for value in range(16))
+    record = build_manual_simulation_record(
+        identity=_manual_simulation_identity(),
+        events=(
+            {
+                "kind": "review_base",
+                "monotonic_ns": 10,
+                "details": {"candidate_matrix_world_ras_mm": matrix},
+            },
+            {
+                "kind": "review_task_home",
+                "monotonic_ns": 11,
+                "requested_joints": joints(0.25),
+            },
+        ),
+    )
+    events = parse_manual_simulation_record(record)["events"]
+    assert events[0]["details"]["candidate_matrix_world_ras_mm"] == list(matrix)
+    assert events[1]["requested_joints"] == joints(0.25)
+
+
+def test_manual_simulation_review_and_acceptance_reject_malformed_states():
+    identity = _manual_simulation_identity()
+    with pytest.raises(ValueError, match="candidate Base matrix.*16 finite"):
+        build_manual_simulation_record(
+            identity=identity,
+            events=(
+                {
+                    "kind": "review_base",
+                    "monotonic_ns": 1,
+                    "details": {"candidate_matrix_world_ras_mm": [0.0] * 15},
+                },
+            ),
+        )
+    with pytest.raises(ValueError, match="review_task_home.*requested J1–J5"):
+        build_manual_simulation_record(
+            identity=identity,
+            events=({"kind": "review_task_home", "monotonic_ns": 1},),
+        )
+    with pytest.raises(ValueError, match="accepted Base matrix.*16 finite"):
+        build_manual_simulation_record(
+            identity=identity,
+            events=(
+                {
+                    "kind": "accept_base",
+                    "monotonic_ns": 1,
+                    "details": {
+                        "accepted_fingerprint": "base-b",
+                        "accepted_matrix_world_ras_mm": [0.0] * 15,
+                    },
+                },
+            ),
+        )
+
+
+def test_manual_simulation_record_rejects_invalid_identity_kind_state_and_size():
+    identity = _manual_simulation_identity()
+    with pytest.raises(ValueError, match="exact branch/task/base/Home"):
+        build_manual_simulation_record(
+            identity={k: v for k, v in identity.items() if k != "home_fingerprint"},
+            events=(),
+        )
+    with pytest.raises(ValueError, match="unknown kind"):
+        build_manual_simulation_record(
+            identity=identity, events=({"kind": "guard_valid", "monotonic_ns": 1},)
+        )
+    bad_joints = joints()
+    bad_joints[JOINT_NAMES[0]] = float("nan")
+    with pytest.raises(ValueError, match="finite J1–J5"):
+        build_manual_simulation_record(
+            identity=identity,
+            events=(
+                {"kind": "requested", "monotonic_ns": 1, "requested_joints": bad_joints},
+            ),
+        )
+    oversized = [{"kind": "diagnostic", "monotonic_ns": 1, "diagnostic": {}}] * (
+        MANUAL_SIMULATION_RECORD_MAX_EVENTS + 1
+    )
+    with pytest.raises(ValueError, match="event bound"):
+        build_manual_simulation_record(identity=identity, events=oversized)

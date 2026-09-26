@@ -494,8 +494,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and planning_anatomy_ready
                 and ros2_active
                 and home_runtime_validated
-                and workspace_runtime_validated
-                and assisted_reviewed
                 and facade_capabilities
                 and facade_capabilities.planning_scene_synchronized
             )
@@ -508,10 +506,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 confirmation_prerequisites.append(_("Connect ROS + MoveIt in 6.1."))
             if not home_runtime_validated:
                 confirmation_prerequisites.append(_("Apply and live-validate Task Home in 6.2."))
-            if not workspace_runtime_validated:
-                confirmation_prerequisites.append(_("Generate or revalidate workspace evidence in 6.3."))
-            if not assisted_reviewed:
-                confirmation_prerequisites.append(_("Review and apply the assisted task limits in 6.3."))
             if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
                 confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
             panel.confirmationStatusLabel.text = (
@@ -532,7 +526,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and task_ready
                 and ros2_active
                 and home_runtime_validated
-                and workspace_runtime_validated
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
@@ -631,7 +624,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
-                and workspace_runtime_validated
                 and approach_complete
                 and drilling_preflight_ready
                 and not preview_active
@@ -835,27 +827,104 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         self._workflowActionBusy = True
         progress = None
+        workspace_status = ""
         try:
+            roi_draft = self._step6TaskSpaceRoiDraft()
+            if roi_draft is None:
+                raise RuntimeError(
+                    self._robotSimulationPanel.taskSpaceRoiStatusLabel.text
+                    if self._robotSimulationPanel
+                    else "Task-space ROI draft is unavailable."
+                )
+            roi, roi_source = roi_draft
             progress = WorkflowProgress("Step 6.3 TCP workspace")
             progress.update("Checking prerequisites", can_cancel=False)
             result = self._robotWorkflowFacade.generateWorkspaceCloud(
                 progress=lambda phase, done=None, total=None: progress.update(
                     phase, done, total, can_cancel=False
-                )
+                ),
+                roi=roi,
+                roi_source=roi_source,
             )
+            workspace_status = result.message
+            counts = result.details.get("candidateCounts", {})
+            if isinstance(counts, dict):
+                count_summary = []
+                if "roiCandidateCount" in counts:
+                    count_summary.append(
+                        f"ROI candidates: {counts['roiCandidateCount']}"
+                    )
+                for label, success_key, attempt_key, rejected_key in (
+                    (
+                        "Position-axis IK",
+                        "positionAxisIkSuccessCount",
+                        "positionAxisIkAttemptCount",
+                        "positionAxisIkFailureCount",
+                    ),
+                    (
+                        "MoveIt static validity",
+                        "moveItStaticValidityAcceptedCount",
+                        "moveItStaticValidityAttemptCount",
+                        "moveItStaticValidityRejectedCount",
+                    ),
+                    (
+                        "Task Home connectivity",
+                        "homeConnectedCount",
+                        "homeConnectivityEvaluatedCount",
+                        "homeConnectivityRejectedCount",
+                    ),
+                ):
+                    success = counts.get(success_key)
+                    attempted = counts.get(attempt_key)
+                    rejected = counts.get(rejected_key)
+                    if success is not None and attempted is not None:
+                        count_summary.append(
+                            f"{label}: {success}/{attempted} passed"
+                            + (f", {rejected} rejected" if rejected is not None else "")
+                        )
+                if count_summary:
+                    workspace_status += " Counts: " + "; ".join(count_summary) + "."
+            elapsed_sec = result.details.get("elapsedSec")
+            if isinstance(elapsed_sec, (int, float)):
+                workspace_status += f" Elapsed: {elapsed_sec:.2f} s."
             if not result.success:
-                raise RuntimeError(result.message)
-            self.ui.robotWorkspaceStatusLabel.text = result.message + " " + _(
-                "Every accepted TCP point retains MoveIt FK/static-validity provenance. "
-                "Only the reported bounded subset has explicit Task Home path evidence; "
-                "unevaluated points must not be treated as connected."
+                raise RuntimeError(workspace_status)
+            self.ui.robotWorkspaceStatusLabel.text = workspace_status + " " + _(
+                "Sample counts are diagnostic evidence; they are not a full-route "
+                "or independent-guard verdict."
             )
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #207227;"
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.text = (
+                "Workspace generation complete: " + workspace_status + " " + _(
+                    "Diagnostic samples only; no full-route or independent-guard "
+                    "verdict was produced."
+                )
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.setProperty(
+                "dentobotState", "ok"
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().unpolish(
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().polish(
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel
+            )
             self.ui.clearRobotWorkspaceButton.enabled = True
-            self._updateStep6PlanningUi(result.message)
+            self._updateStep6PlanningUi(workspace_status)
         except (RuntimeError, ValueError) as exc:
             self.ui.robotWorkspaceStatusLabel.text = str(exc)
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b00020;"
+            if self._robotSimulationPanel:
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel.text = str(exc)
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel.setProperty(
+                    "dentobotState", "error"
+                )
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().unpolish(
+                    self._robotSimulationPanel.taskSpaceRoiStatusLabel
+                )
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().polish(
+                    self._robotSimulationPanel.taskSpaceRoiStatusLabel
+                )
             self._updateStep6PlanningUi(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
         finally:
@@ -869,9 +938,25 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         self.logic.deleteRobotWorkspaceModel()
         if self._robotWorkflowFacade:
-            self._robotWorkflowFacade.invalidateWorkspaceRuntimeValidation()
+            self._robotWorkflowFacade.invalidateWorkspaceRuntimeValidation(
+                invalidate_motion_plan=False
+            )
         self.ui.robotWorkspaceStatusLabel.text = _("No workspace cloud generated.")
         self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b36b00;"
+        if self._robotSimulationPanel:
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.text = _(
+                "Workspace cloud cleared; the editable ROI draft and source are retained. "
+                "Samples are not generated or validated."
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.setProperty(
+                "dentobotState", "blocked"
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().unpolish(
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel
+            )
+            self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().polish(
+                self._robotSimulationPanel.taskSpaceRoiStatusLabel
+            )
         self.ui.clearRobotWorkspaceButton.enabled = False
         self._updateStep6PlanningUi(_("Workspace evidence was cleared."))
 

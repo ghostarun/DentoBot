@@ -7,10 +7,15 @@ overlap routing. TASKS.md retains detailed contracts and completion records;
 this file owns milestone and acceptance design. Tarun's 2026-09-25
 [Step 6 renovation direction](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
 now puts workflow renovation before case-specific planner solving. Its current
-gates are optional bounded workspace/manual diagnostics, responsiveness,
-separated stages, two-area UI and interrupted-preview evidence; the
+gates are task-space-first bounded sampling, one shared evaluator, an optional
+ROS-connected manual engineering workbench with recording and guarded live
+J1–J5 jog, measured 60 FPS interaction, separated stages, two-area UI and
+interrupted-preview evidence. The
 [later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
 links case-specific and adjacent work under the existing backlog owners.
+The [base-pose feasibility reference](diagnostics/DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md)
+is active for evaluator metrics; its automated sweep and robot-design studies
+are deferred.
 The FDI11 PreEntry IK source gate is already implemented.
 The first visible IK-only report now shows passed collision-checked endpoints
 for a changed base/Home/scene; the original saved baseline and Tarun's verdict

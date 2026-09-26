@@ -9,12 +9,29 @@ the 2026-09-24 pause remains historical evidence.
 is the working workflow-first sequence. The
 [later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
 points to case-specific and adjacent work without creating another pending
-queue. Superseded September 20/Campaign 1 prose and the base-pose proposal
-are mapped in the [archive index](diagnostics/archive/step6/README.md);
-their evidence is preserved, while the FDI31 P0 contract and GUI automation
+queue. Superseded September 20/Campaign 1 prose is mapped in the
+[archive index](diagnostics/archive/step6/README.md). The
+[base-pose feasibility plan](diagnostics/DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md)
+is active for shared diagnostic metrics; only automated sweeps and design
+comparisons are deferred. The FDI31 P0 contract and GUI automation
 SOP remain active at their original paths. The Sol Medium coordinator and
 maximum two Luna Max subagents are a hard Step 6 orchestration rule unless
 Tarun overrides it.
+
+**2026-09-25 corrected Step 6 workbench decision:** Tarun supersedes the
+earlier ghost-only description. The optional 6.3 Manual Robot Simulation
+Solver / Engineering Workbench is ROS-connected and simulation-only: guarded
+live J1–J5 jogging advances the accepted simulated robot after acknowledgement;
+rejected requests remain review evidence. Base and Task Home require explicit
+acceptance through existing owners. The manual workbench, automatic planner and
+later base-pose explorer share one authoritative diagnostic evaluator. The
+editable 200 mm cube bounds task-space TCP candidate generation, initially
+about the current upper/opened-lower central-incisor midpoint. Measure
+interaction/render/FK separately from collision, ROS and full diagnostics;
+target 60 FPS ordinary interaction. Versioned manual motion/diagnostic
+recording is required. The [working plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
+holds the implementation gates. No hardware action or case-specific planner
+success follows from this decision.
 
 ## 2026-09-24 — Stale Case Foundation remains loadable for repair
 
@@ -6461,9 +6478,11 @@ request. The existing ROS/MoveIt and independent guard authority, Block
 return, serialized runtime and no-hardware boundaries remain in force.
 **Follow-up confirmation:** The 200 mm cube is a hard TCP sampling-domain
 boundary for reducing computation, not a route/robot-link/guard constraint.
-Manual adjustments move a diagnostic ghost; committing Base or Task Home is
-explicit through the existing owner/invalidation path, and a recording cannot
-authorize preview without a fresh complete guard. Investigate SlicerROS2
+Manual workbench requests may render a review pose immediately, while an
+accepted simulated J1–J5 jog advances only after the existing guard
+acknowledges it. Committing Base or Task Home is explicit through the existing
+owner/invalidation path, and a recording cannot authorize preview without a
+fresh complete guard. Investigate SlicerROS2
 upstream work and measured local responsiveness before choosing a lag fix.
 
 Tarun explicitly authorized source implementation of the
@@ -6478,6 +6497,19 @@ reference afterward. A PreEntry failure before OMPL cannot rank RRT variants.
 The first FDI11 visible check retains failed best joints, residuals, limit
 margins, termination, collision-check and task-conditioning evidence; it does
 not run OMPL, workspace generation, change base/Home/tolerances or move a robot.
+
+**25 September source implementation of the optional workspace boundary:**
+The live workspace action now generates TCP candidates inside the editable
+opened-incisor ROI and sends them through the existing position-axis IK,
+MoveIt static/FK checks, and a bounded Home-connectivity sample in that order.
+An unconfirmed selected trajectory supplies a *provisional* axis; the report
+must identify that status and never claim a complete route or guard verdict.
+Workspace proposals are diagnostic metadata: generating one does not change
+the accepted task or its effective-limit fingerprint. Applying a reviewed
+proposal changes limits and requires URDF bounds and inclusion of the current
+Task Home. ROI edits stale workspace evidence without invalidating an
+independently guarded plan. Host pure tests establish source behavior only;
+current-scene yield, latency and visual acceptance remain open.
 
 The operator chose **Block return** if a preview phase ends after an accepted
 waypoint but before its endpoint. Retain the exact accepted prefix, last

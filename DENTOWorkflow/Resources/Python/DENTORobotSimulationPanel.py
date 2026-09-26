@@ -31,6 +31,7 @@ class DENTORobotSimulationPanel:
         "expert_diagnostics": 1,
         "save_home": 2,
         "apply_home": 2,
+        "roi_from_incisors": 3,
         "revalidate_workspace": 3,
         "review_limits": 3,
         "confirm_task": 4,
@@ -208,6 +209,66 @@ class DENTORobotSimulationPanel:
         )
         workspace_review_description.wordWrap = True
         workspace_review_layout.addWidget(workspace_review_description)
+        roi_description = qt.QLabel(
+            "Task-space ROI draft (world RAS, mm). It bounds TCP candidate sampling only.",
+            self.workspaceReviewGroup,
+        )
+        roi_description.wordWrap = True
+        workspace_review_layout.addWidget(roi_description)
+        self._loadingTaskSpaceRoi = False
+        self._taskSpaceRoiStatusContext = "ROI source not loaded."
+        self._taskSpaceRoiInitialized = False
+        self._taskSpaceRoiOpeningRevision = None
+        self._taskSpaceRoiGapLineNodeId = ""
+        roi_center_row = qt.QHBoxLayout()
+        roi_center_row.addWidget(qt.QLabel("Center RAS (mm):", self.workspaceReviewGroup))
+        self.taskSpaceRoiCenterSpinBoxes = []
+        for axis in "XYZ":
+            roi_center_row.addWidget(qt.QLabel(axis, self.workspaceReviewGroup))
+            spin = qt.QDoubleSpinBox(self.workspaceReviewGroup)
+            spin.objectName = f"DENTOBOTTaskSpaceRoiCenter{axis}SpinBox"
+            spin.minimum, spin.maximum = -1.0e9, 1.0e9
+            spin.decimals, spin.singleStep = 6, 1.0
+            spin.setSpecialValueText(" ")
+            spin.value, spin.enabled = spin.minimum, False
+            roi_center_row.addWidget(spin)
+            self.taskSpaceRoiCenterSpinBoxes.append(spin)
+        workspace_review_layout.addLayout(roi_center_row)
+        roi_dimensions_row = qt.QHBoxLayout()
+        roi_dimensions_row.addWidget(
+            qt.QLabel("Dimensions XYZ (mm):", self.workspaceReviewGroup)
+        )
+        self.taskSpaceRoiDimensionsSpinBoxes = []
+        for axis in "XYZ":
+            roi_dimensions_row.addWidget(qt.QLabel(axis, self.workspaceReviewGroup))
+            spin = qt.QDoubleSpinBox(self.workspaceReviewGroup)
+            spin.objectName = f"DENTOBOTTaskSpaceRoiDimension{axis}SpinBox"
+            spin.minimum, spin.maximum = 0.01, 1.0e9
+            spin.decimals, spin.singleStep = 6, 1.0
+            spin.setSpecialValueText(" ")
+            spin.value, spin.enabled = spin.minimum, False
+            roi_dimensions_row.addWidget(spin)
+            self.taskSpaceRoiDimensionsSpinBoxes.append(spin)
+        workspace_review_layout.addLayout(roi_dimensions_row)
+        self.useCurrentIncisorMidpointButton = qt.QPushButton(
+            "Use current incisor midpoint", self.workspaceReviewGroup
+        )
+        self.useCurrentIncisorMidpointButton.toolTip = (
+            "Load the current Case Foundation upper/opened-lower incisor midpoint "
+            "into this editable ROI draft; this does not generate or validate samples."
+        )
+        workspace_review_layout.addWidget(self.useCurrentIncisorMidpointButton)
+        self.taskSpaceRoiStatusLabel = qt.QLabel(
+            "ROI source not loaded. Samples are not generated or validated.",
+            self.workspaceReviewGroup,
+        )
+        self.taskSpaceRoiStatusLabel.wordWrap = True
+        self.taskSpaceRoiStatusLabel.setProperty("dentobotRole", "status")
+        workspace_review_layout.addWidget(self.taskSpaceRoiStatusLabel)
+        for spin in (
+            self.taskSpaceRoiCenterSpinBoxes + self.taskSpaceRoiDimensionsSpinBoxes
+        ):
+            spin.valueChanged.connect(self._onTaskSpaceRoiEdited)
         workspace_buttons = qt.QHBoxLayout()
         self.revalidateWorkspaceButton = qt.QPushButton(
             "Revalidate Saved Workspace", self.workspaceReviewGroup
@@ -674,6 +735,9 @@ class DENTORobotSimulationPanel:
         self.reviewLimitsButton.clicked.connect(
             lambda checked=False: self._invoke("review_limits")
         )
+        self.useCurrentIncisorMidpointButton.clicked.connect(
+            lambda checked=False: self._invoke("roi_from_incisors")
+        )
         self.revalidateWorkspaceButton.clicked.connect(
             lambda checked=False: self._invoke("revalidate_workspace")
         )
@@ -835,6 +899,20 @@ class DENTORobotSimulationPanel:
             self.runtimeStatusLabel.setProperty("dentobotState", "error")
             return
         callback = self._callbacks.get(name)
+        if callback:
+            callback()
+
+    def _onTaskSpaceRoiEdited(self, _value=0.0) -> None:
+        if self._loadingTaskSpaceRoi:
+            return
+        self.taskSpaceRoiStatusLabel.text = (
+            "Edited ROI draft; samples not generated/validated. "
+            + self._taskSpaceRoiStatusContext
+        )
+        self.taskSpaceRoiStatusLabel.setProperty("dentobotState", "blocked")
+        self.taskSpaceRoiStatusLabel.style().unpolish(self.taskSpaceRoiStatusLabel)
+        self.taskSpaceRoiStatusLabel.style().polish(self.taskSpaceRoiStatusLabel)
+        callback = self._callbacks.get("roi_edited")
         if callback:
             callback()
 

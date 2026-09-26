@@ -20,6 +20,8 @@ if str(HELPER_DIRECTORY) not in sys.path:
 from DENTOStep6Planning import (
     CASE_VIEW_ROLES,
     JointLimitPair,
+    MAX_TASK_SPACE_TCP_CANDIDATES,
+    TaskSpaceRoi,
     WorkspaceAcceptedSample,
     apply_task_joint_limits_to_display_ranges,
     apply_task_limit_range_to_value,
@@ -27,10 +29,13 @@ from DENTOStep6Planning import (
     case_view_present_roles,
     combine_ras_bounds,
     default_task_joint_limits_from_urdf,
+    default_task_space_roi_from_incisors,
+    deterministic_task_space_tcp_candidates,
     deterministic_joint_workspace_samples_display,
     halton_value,
     evaluate_motion_configuration,
     joint_positions_si_from_display,
+    joint_limit_margin_evidence,
     plan_trajectory_motion,
     sample_filtered_tcp_workspace,
     sample_trajectory_world_mm,
@@ -245,7 +250,7 @@ def test_prepared_branch_activation_restores_target_owned_build_nodes() -> None:
     assert "TEMPLATE_FINAL_GUIDE_FINALIZED_SHELL_REFERENCE_ROLE" in source
 
 
-def test_step64_disabled_confirmation_reports_the_missing_runtime_gate() -> None:
+def test_step64_confirmation_keeps_home_context_gates_without_workspace_gate() -> None:
     source = (
         REPOSITORY_ROOT
         / "DENTOWorkflow"
@@ -254,12 +259,22 @@ def test_step64_disabled_confirmation_reports_the_missing_runtime_gate() -> None
         / "dentobot_workflow"
         / "widget_robot.py"
     ).read_text()
-    assert "confirmation_prerequisites = []" in source
-    assert "Activate the verified PreparedBranch in 6.0." in source
-    assert "Apply and live-validate Task Home in 6.2." in source
-    assert "Generate or revalidate workspace evidence in 6.3." in source
-    assert "Complete the authoritative planning-scene audit in 6.1." in source
-    assert '" ".join(confirmation_prerequisites or task_issues)' in source
+    assert "task_issues = self.logic.confirmedTaskFreshnessIssues(" in source
+    button_start = source.index("panel.confirmTaskButton.enabled = bool(")
+    prerequisite_start = source.index("confirmation_prerequisites = []")
+    confirm_gate = source[button_start:prerequisite_start]
+    assert "planning_anatomy_ready" in confirm_gate
+    assert "home_runtime_validated" in confirm_gate
+    assert "planning_scene_synchronized" in confirm_gate
+    assert "workspace_runtime_validated" not in confirm_gate
+    prerequisite_end = source.index("preview_active = bool(", prerequisite_start)
+    prerequisites = source[prerequisite_start:prerequisite_end]
+    assert "Activate the verified PreparedBranch in 6.0." in prerequisites
+    assert "Apply and live-validate Task Home in 6.2." in prerequisites
+    assert "Refresh the Case Foundation planning anatomy." in prerequisites
+    assert "Complete the authoritative planning-scene audit in 6.1." in prerequisites
+    assert '" ".join(confirmation_prerequisites or task_issues)' in prerequisites
+    assert "workspace" not in prerequisites.lower()
 
 
 def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries() -> None:
@@ -1138,6 +1153,70 @@ def test_default_task_joint_limits_match_six_joints() -> None:
     assert limits.joint_6.minimum <= limits.joint_6.maximum
 
 
+def test_joint_limit_margin_evidence_converts_si_and_compares_both_envelopes() -> None:
+    mechanical = SimpleNamespace(
+        joint_1=JointLimitPair(-90.0, 90.0, "deg"),
+        joint_2=JointLimitPair(0.0, 100.0, "mm"),
+    )
+    reviewed = SimpleNamespace(
+        joint_1=JointLimitPair(-45.0, 60.0, "deg"),
+        joint_2=JointLimitPair(30.0, 80.0, "mm"),
+    )
+    metadata = {
+        "joint_names": ("revolute", "prismatic"),
+        "joint_limit_fields": ("joint_1", "joint_2"),
+        "display_units": ("deg", "mm"),
+        "mechanical_limits": mechanical,
+        "task_limits": reviewed,
+    }
+    evidence = joint_limit_margin_evidence(
+        {"revolute": math.radians(75.0), "prismatic": 0.025}, **metadata
+    )
+
+    assert evidence is not None
+    assert evidence["revolute"]["value_display"] == pytest.approx(75.0)
+    assert evidence["revolute"]["mechanical_lower_margin"] == pytest.approx(165.0)
+    assert evidence["revolute"]["mechanical_upper_margin"] == pytest.approx(15.0)
+    assert evidence["revolute"]["mechanical_within_limits"] is True
+    assert evidence["revolute"]["reviewed_task_upper_margin"] == pytest.approx(-15.0)
+    assert evidence["revolute"]["reviewed_task_within_limits"] is False
+    assert evidence["prismatic"]["value_display"] == pytest.approx(25.0)
+    assert evidence["prismatic"]["mechanical_lower_margin"] == pytest.approx(25.0)
+    assert evidence["prismatic"]["mechanical_upper_margin"] == pytest.approx(75.0)
+    assert evidence["prismatic"]["mechanical_within_limits"] is True
+    assert evidence["prismatic"]["reviewed_task_lower_margin"] == pytest.approx(-5.0)
+    assert evidence["prismatic"]["reviewed_task_within_limits"] is False
+    assert joint_limit_margin_evidence({"revolute": 0.0}, **metadata) is None
+
+
+def test_joint_limit_margin_evidence_validation_and_epsilon() -> None:
+    mechanical = SimpleNamespace(joint_1=JointLimitPair(-90.0, 90.0, "deg"))
+    reviewed = SimpleNamespace(joint_1=JointLimitPair(-90.0, 74.999999995, "deg"))
+    arguments = {
+        "joint_names": ("revolute",),
+        "joint_limit_fields": ("joint_1",),
+        "display_units": ("deg",),
+        "mechanical_limits": mechanical,
+        "task_limits": reviewed,
+    }
+
+    evidence = joint_limit_margin_evidence(
+        {"revolute": math.radians(75.0)}, **arguments
+    )
+    assert evidence is not None
+    assert evidence["revolute"]["reviewed_task_within_limits"] is True
+    with pytest.raises(ValueError, match="equal lengths"):
+        joint_limit_margin_evidence(
+            {"revolute": 0.0}, **{**arguments, "display_units": ()}
+        )
+    with pytest.raises(ValueError, match="display units"):
+        joint_limit_margin_evidence(
+            {"revolute": 0.0}, **{**arguments, "display_units": ("rad",)}
+        )
+    with pytest.raises(ValueError, match="finite"):
+        joint_limit_margin_evidence({"revolute": math.nan}, **arguments)
+
+
 def test_apply_task_joint_limits_clamps_to_mechanical_bounds() -> None:
     urdf_limits = default_task_joint_limits_from_urdf(URDF_PATH)
     narrow = build_task_joint_limits_from_parameter_values(
@@ -1298,6 +1377,110 @@ def test_halton_workspace_sampling_is_deterministic_and_bounded() -> None:
     assert halton_value(2, 2) == pytest.approx(0.25)
 
 
+def test_task_space_roi_halton_candidates_are_deterministic_and_strictly_inside() -> None:
+    roi = TaskSpaceRoi(
+        center_world_ras_mm=(10.0, -20.0, 30.0),
+        dimensions_mm=(200.0, 100.0, 60.0),
+    )
+    axis = (0.0, 0.0, -2.0)
+    first = deterministic_task_space_tcp_candidates(
+        roi, 64, confirmed_drill_axis_world_ras=axis
+    )
+    second = deterministic_task_space_tcp_candidates(
+        roi, 64, confirmed_drill_axis_world_ras=axis
+    )
+
+    assert first == second
+    assert len(first) == 64
+    assert all(
+        roi.contains_world_ras_mm(sample.position_world_ras_mm) for sample in first
+    )
+    assert all(
+        sample.drill_axis_world_ras_unit == (0.0, 0.0, -1.0)
+        for sample in first
+    )
+    assert all(
+        lower < coordinate < upper
+        for sample in first
+        for point in (sample.position_world_ras_mm,)
+        for coordinate, lower, upper in zip(
+            point,
+            (-90.0, -70.0, 0.0),
+            (110.0, 30.0, 60.0),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    ((0.0, 1.0, 1.0), (-1.0, 1.0, 1.0), (1.0, float("inf"), 1.0)),
+)
+def test_task_space_roi_rejects_nonpositive_or_nonfinite_dimensions(dimensions) -> None:
+    with pytest.raises(ValueError):
+        TaskSpaceRoi(center_world_ras_mm=(0.0, 0.0, 0.0), dimensions_mm=dimensions)
+
+
+@pytest.mark.parametrize(
+    "center",
+    ((0.0, 0.0), (0.0, float("nan"), 0.0), (0.0, float("inf"), 0.0)),
+)
+def test_task_space_roi_rejects_invalid_world_ras_center(center) -> None:
+    with pytest.raises(ValueError):
+        TaskSpaceRoi(center_world_ras_mm=center)
+
+
+def test_default_task_space_roi_from_opened_incisors() -> None:
+    roi = default_task_space_roi_from_incisors(
+        upper_incisor_world_ras_mm=(2.0, 4.0, -6.0),
+        opened_lower_incisor_world_ras_mm=(8.0, 10.0, 2.0),
+    )
+    assert roi.center_world_ras_mm == (5.0, 7.0, -2.0)
+    assert roi.dimensions_mm == (200.0, 200.0, 200.0)
+
+    with pytest.raises(ValueError):
+        default_task_space_roi_from_incisors((1.0, 2.0), (3.0, 4.0, 5.0))
+    with pytest.raises(ValueError):
+        default_task_space_roi_from_incisors(
+            (1.0, 2.0, 3.0), (3.0, float("nan"), 5.0)
+        )
+
+
+def test_task_space_roi_rejects_candidate_counts_outside_the_bound() -> None:
+    roi = TaskSpaceRoi(center_world_ras_mm=(0.0, 0.0, 0.0))
+    axis = (0.0, 0.0, 1.0)
+
+    with pytest.raises(ValueError):
+        deterministic_task_space_tcp_candidates(
+            roi, 0, confirmed_drill_axis_world_ras=axis
+        )
+    with pytest.raises(ValueError):
+        deterministic_task_space_tcp_candidates(
+            roi,
+            MAX_TASK_SPACE_TCP_CANDIDATES + 1,
+            confirmed_drill_axis_world_ras=axis,
+        )
+
+
+@pytest.mark.parametrize(
+    "axis",
+    ((0.0, 0.0, 0.0), (1.0, float("nan"), 0.0), (1.0, 2.0)),
+)
+def test_task_space_tcp_candidates_reject_invalid_confirmed_axis(axis) -> None:
+    roi = TaskSpaceRoi(center_world_ras_mm=(0.0, 0.0, 0.0))
+
+    with pytest.raises(ValueError):
+        deterministic_task_space_tcp_candidates(
+            roi, 1, confirmed_drill_axis_world_ras=axis
+        )
+
+
+def test_task_space_tcp_candidates_require_confirmed_drill_axis() -> None:
+    roi = TaskSpaceRoi(center_world_ras_mm=(0.0, 0.0, 0.0))
+
+    with pytest.raises(TypeError):
+        deterministic_task_space_tcp_candidates(roi, 1)
+
+
 def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
     completed = []
@@ -1443,3 +1626,131 @@ def test_case_foundation_plane_reparent_preserves_world_normal() -> None:
     )
     assert plane.point == world_point
     assert plane.normal == world_normal
+
+
+def test_assisted_limit_review_preserves_home_and_proposal_only_fingerprint() -> None:
+    source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    ).read_text()
+    mixin = next(
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin"
+    )
+    methods = [
+        node for node in mixin.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {
+            "step6TaskLimitsFingerprint",
+            "proposeAssistedTaskLimits",
+            "reviewAndApplyAssistedTaskLimits",
+        }
+    ]
+
+    class Limit:
+        def __init__(self, minimum, maximum, unit):
+            self.minimum, self.maximum, self.unit = minimum, maximum, unit
+
+    mechanical = SimpleNamespace(
+        joint_1=Limit(-180.0, 180.0, "deg"),
+        joint_2=Limit(0.0, 80.0, "mm"),
+        joint_3=Limit(-180.0, 180.0, "deg"),
+        joint_4=Limit(0.0, 80.0, "mm"),
+        joint_5=Limit(-180.0, 180.0, "deg"),
+        joint_6=Limit(0.0, 0.0, "deg"),
+        as_display_vector=lambda: (-180.0, 0.0, -180.0, 0.0, -180.0, 0.0),
+        as_display_max_vector=lambda: (180.0, 80.0, 180.0, 80.0, 180.0, 0.0),
+    )
+    namespace = {
+        "json": json,
+        "math": math,
+        "_": lambda message: message,
+        "default_task_joint_limits_from_urdf": lambda _path: mechanical,
+        "canonical_json": lambda value: json.dumps(value, sort_keys=True),
+        "fingerprint": lambda value: json.dumps(value, sort_keys=True),
+        "build_assisted_limit_proposal": lambda *args, **kwargs: SimpleNamespace(
+            to_dict=lambda: {"revision": kwargs["revision"], "reviewed": False}
+        ),
+    }
+    extracted = ast.Module(
+        body=[ast.ClassDef(
+            name="ExtractedRobotLogic", bases=[], keywords=[], body=methods,
+            decorator_list=[],
+        )],
+        type_ignores=[],
+    )
+    exec(
+        compile(ast.fix_missing_locations(extracted), "<assisted-limit-review>", "exec"),
+        namespace,
+    )
+
+    class Host(namespace["ExtractedRobotLogic"]):
+        def __init__(self, parameter, home, limits):
+            self.parameter, self.home, self.limits = parameter, home, limits
+            self.invalidations = []
+
+        def robotDescriptionPaths(self):
+            return ("robot.urdf", "")
+
+        def taskHomeFreshnessIssues(self, _parameter):
+            return ()
+
+        def taskHomeRecord(self, _parameter):
+            return self.home
+
+        def invalidateStep6TaskConfirmation(self, _parameter, reason):
+            self.invalidations.append(reason)
+
+        def getTaskJointLimits(self, _parameter):
+            return self.limits
+
+    parameter = SimpleNamespace(
+        step6AssistedLimitProposalJson=json.dumps({
+            "minimum_display": [-90, 10, -90, 0, -90],
+            "maximum_display": [90, 20, 90, 80, 90],
+        }),
+        robotJoint1TaskMinDeg=-90.0,
+        robotJoint1TaskMaxDeg=90.0,
+        robotJoint2TaskMinMm=0.0,
+        robotJoint2TaskMaxMm=80.0,
+        robotJoint3TaskMinDeg=-90.0,
+        robotJoint3TaskMaxDeg=90.0,
+        robotJoint4TaskMinMm=0.0,
+        robotJoint4TaskMaxMm=80.0,
+        robotJoint5TaskMinDeg=-90.0,
+        robotJoint5TaskMaxDeg=90.0,
+        robotJoint6TaskMinDeg=0.0,
+        robotJoint6TaskMaxDeg=0.0,
+    )
+    home = SimpleNamespace(
+        joint_positions_si=(0.0, 0.030, 0.0, 0.040, 0.0),
+    )
+    limits = SimpleNamespace(
+        as_display_vector=lambda: (-90.0, 0.0, -90.0, 0.0, -90.0, 0.0),
+        as_display_max_vector=lambda: (90.0, 80.0, 90.0, 80.0, 90.0, 0.0),
+    )
+    host = Host(parameter, home, limits)
+    original_proposal = parameter.step6AssistedLimitProposalJson
+
+    with pytest.raises(ValueError, match="excludes the current Task Home"):
+        host.reviewAndApplyAssistedTaskLimits(parameter)
+    assert parameter.step6AssistedLimitProposalJson == original_proposal
+    assert (parameter.robotJoint2TaskMinMm, parameter.robotJoint2TaskMaxMm) == (0.0, 80.0)
+    assert host.invalidations == []
+
+    before = host.step6TaskLimitsFingerprint(parameter)
+    parameter.step6AssistedLimitProposalJson = '{"revision":99}'
+    assert host.step6TaskLimitsFingerprint(parameter) == before
+    host.proposeAssistedTaskLimits(
+        parameter, SimpleNamespace(accepted_joint_display_vectors=((0, 30, 0, 40, 0),))
+    )
+    assert host.invalidations == []
+    assert host.step6TaskLimitsFingerprint(parameter) == before
+
+    parameter.step6AssistedLimitProposalJson = json.dumps({
+        "minimum_display": [-90, 0, -90, 0, -90],
+        "maximum_display": [90, 80, 90, 80, 90],
+    })
+    applied = host.reviewAndApplyAssistedTaskLimits(parameter)
+    assert applied["reviewed"]
+    assert host.invalidations == ["Reviewed task limits changed."]

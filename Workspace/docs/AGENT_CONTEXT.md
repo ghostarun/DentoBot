@@ -1,7 +1,12 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-25. `S6-LIVE-01` remains Priority 0. Tarun's
-25 September direction resumes bounded Step 6 source implementation.
+Last reconciled: 2026-09-26. `S6-LIVE-01` remains Priority 0. Tarun's
+25 September direction resumes bounded Step 6 source implementation. The
+26 September source slice now shares a versioned exact-TCP endpoint evaluator
+between Goal-1 and standalone PreEntry and uses one SI-to-display joint-margin
+helper; the combined host pure suite passed 139 tests. Manual-state and
+P1/P2/P3 evaluator callers remain open. See today's logbook for commands and
+the commit checkpoint.
 The standalone FDI11 PreEntry IK source gate passed pure checks and a native
 package build. Tarun's first visible IK-only report shows collision-checked
 endpoints for a changed base/Home/scene, with P1/P2/P3/guard NotRun; its
@@ -10,6 +15,9 @@ places the Step 6 **workflow renovation before case-specific planner solving**.
 Agent-run planner runtime and manual acceptance remain separately gated. The
 [renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md)
 records the current order under existing IDs; the
+[active base-pose technical reference](diagnostics/DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md)
+defines shared diagnostic metrics for the ROS-connected manual engineering
+workbench and automatic planner; its automated sweep is later work. The
 [later-reference index](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md)
 routes deferred case and adjacent ideas. The sole canonical milestone contract is
 [FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md).
@@ -19,7 +27,9 @@ planning under Planning & Diagnostics; put simulation preview/return/repeat
 under Preview & Control. `S6-WORKSPACE-PURPOSE` is the prerequisite for the
 workspace-gate change. The FDI11 IK-only verdict remains open while
 source-level workflow renovation proceeds; agent runtime and milestone verdicts
-remain gated. See the latest TASKS, DEVELOPMENT_PLAN, DECISIONS and logbook entries.
+remain gated. The editable ROI now feeds the source-level live workspace action,
+but its yield, latency and scene behavior await serialized simulation review.
+See the latest TASKS, DEVELOPMENT_PLAN, DECISIONS and logbook entries.
 The 23 September [decision report](diagnostics/DENTOBOT_Step6_Decision_Report_2026-09-23.pdf)
 is review evidence, not a parallel plan. Tarun has supplied source direction;
 do not infer runtime or hardware authorization from the report.

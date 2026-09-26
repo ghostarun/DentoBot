@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 from dataclasses import dataclass, field
-from math import degrees, isfinite, radians, sqrt
+from math import degrees, isfinite, nextafter, radians, sqrt
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 from xml.etree import ElementTree
@@ -103,6 +103,181 @@ class TaskJointLimits:
             self.joint_5.maximum,
             self.joint_6.maximum,
         )
+
+
+def joint_limit_margin_evidence(
+    positions_si: Mapping[str, float],
+    *,
+    joint_names: Sequence[str],
+    joint_limit_fields: Sequence[str],
+    display_units: Sequence[str],
+    mechanical_limits: object,
+    task_limits: object,
+) -> dict[str, dict[str, float | str | bool]] | None:
+    """Report mechanical and reviewed-task margins for named SI positions."""
+
+    metadata = (joint_names, joint_limit_fields, display_units)
+    if any(isinstance(values, (str, bytes)) for values in metadata):
+        raise ValueError("joint margin metadata must be parallel vectors")
+    try:
+        names, fields, units = (tuple(values) for values in metadata)
+    except TypeError as exc:
+        raise ValueError("joint margin metadata must be parallel vectors") from exc
+    if len(names) != len(fields) or len(names) != len(units):
+        raise ValueError("joint margin metadata vectors must have equal lengths")
+    if not all(isinstance(name, str) for name in names) or not all(
+        isinstance(field_name, str) for field_name in fields
+    ):
+        raise ValueError("joint names and limit fields must be strings")
+    if any(unit not in ("deg", "mm") for unit in units):
+        raise ValueError("joint display units must be 'deg' or 'mm'")
+    if not isinstance(positions_si, Mapping) or any(
+        name not in positions_si for name in names
+    ):
+        return None
+
+    result = {}
+    for name, field_name, unit in zip(names, fields, units):
+        try:
+            value_si = float(positions_si[name])
+            mechanical = getattr(mechanical_limits, field_name)
+            task = getattr(task_limits, field_name)
+            mechanical_minimum = float(mechanical.minimum)
+            mechanical_maximum = float(mechanical.maximum)
+            task_minimum = float(task.minimum)
+            task_maximum = float(task.maximum)
+        except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                f"joint margin inputs for {name} must have finite positions and limits"
+            ) from exc
+        if not all(
+            isfinite(value)
+            for value in (
+                value_si,
+                mechanical_minimum,
+                mechanical_maximum,
+                task_minimum,
+                task_maximum,
+            )
+        ):
+            raise ValueError(f"joint margin inputs for {name} must be finite")
+
+        value_display = degrees(value_si) if unit == "deg" else value_si * 1000.0
+        mechanical_lower = value_display - mechanical_minimum
+        mechanical_upper = mechanical_maximum - value_display
+        task_lower = value_display - task_minimum
+        task_upper = task_maximum - value_display
+        margins = (
+            value_display,
+            mechanical_lower,
+            mechanical_upper,
+            task_lower,
+            task_upper,
+        )
+        if not all(isfinite(value) for value in margins):
+            raise ValueError(f"joint margin results for {name} must be finite")
+        mechanical_minimum_margin = min(mechanical_lower, mechanical_upper)
+        task_minimum_margin = min(task_lower, task_upper)
+        result[name] = {
+            "value_display": value_display,
+            "unit": unit,
+            "mechanical_lower_margin": mechanical_lower,
+            "mechanical_upper_margin": mechanical_upper,
+            "mechanical_minimum_margin": mechanical_minimum_margin,
+            "mechanical_within_limits": mechanical_minimum_margin >= -1.0e-8,
+            "reviewed_task_lower_margin": task_lower,
+            "reviewed_task_upper_margin": task_upper,
+            "reviewed_task_minimum_margin": task_minimum_margin,
+            "reviewed_task_within_limits": task_minimum_margin >= -1.0e-8,
+        }
+    return result
+
+
+def _finite_xyz_triplet(
+    values: Sequence[float], label: str
+) -> tuple[float, float, float]:
+    if isinstance(values, (str, bytes)):
+        raise ValueError(f"{label} must be a finite XYZ triplet")
+    try:
+        xyz = tuple(float(value) for value in values)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must be a finite XYZ triplet") from exc
+    if len(xyz) != 3 or not all(isfinite(value) for value in xyz):
+        raise ValueError(f"{label} must be a finite XYZ triplet")
+    return xyz
+
+
+@dataclass(frozen=True)
+class TaskSpaceRoi:
+    """Editable axis-aligned task-space bounds in world-RAS millimetres."""
+
+    center_world_ras_mm: tuple[float, float, float]
+    dimensions_mm: tuple[float, float, float] = (200.0, 200.0, 200.0)
+
+    def __post_init__(self) -> None:
+        for field_name in ("center_world_ras_mm", "dimensions_mm"):
+            values = _finite_xyz_triplet(getattr(self, field_name), field_name)
+            object.__setattr__(self, field_name, values)
+
+        if any(value <= 0.0 for value in self.dimensions_mm):
+            raise ValueError("task-space ROI dimensions must be positive")
+        if any(
+            not isfinite(center - dimension / 2.0)
+            or not isfinite(center + dimension / 2.0)
+            or center - dimension / 2.0 >= center + dimension / 2.0
+            for center, dimension in zip(
+                self.center_world_ras_mm, self.dimensions_mm
+            )
+        ):
+            raise ValueError(
+                "task-space ROI bounds must be finite and non-degenerate"
+            )
+
+    def contains_world_ras_mm(self, point: Sequence[float]) -> bool:
+        """Return whether a world-RAS point lies strictly inside all six faces."""
+
+        xyz = _finite_xyz_triplet(point, "point")
+        return all(
+            center - dimension / 2.0 < value < center + dimension / 2.0
+            for center, dimension, value in zip(
+                self.center_world_ras_mm, self.dimensions_mm, xyz
+            )
+        )
+
+
+def default_task_space_roi_from_incisors(
+    upper_incisor_world_ras_mm: Sequence[float],
+    opened_lower_incisor_world_ras_mm: Sequence[float],
+) -> TaskSpaceRoi:
+    """Center the default ROI on upper and opened-lower incisors in world RAS."""
+
+    upper = _finite_xyz_triplet(
+        upper_incisor_world_ras_mm, "upper_incisor_world_ras_mm"
+    )
+    opened_lower = _finite_xyz_triplet(
+        opened_lower_incisor_world_ras_mm, "opened_lower_incisor_world_ras_mm"
+    )
+    center = tuple(
+        upper_value / 2.0 + lower_value / 2.0
+        for upper_value, lower_value in zip(upper, opened_lower)
+    )
+    if not all(isfinite(value) for value in center):
+        raise ValueError("incisor midpoint must be finite")
+    return TaskSpaceRoi(
+        center_world_ras_mm=center,
+        dimensions_mm=(200.0, 200.0, 200.0),
+    )
+
+
+@dataclass(frozen=True)
+class TaskSpaceTcpCandidate:
+    """ROI position paired with a fixed drill axis.
+
+    This is not a full pose or a feasibility result.
+    """
+
+    position_world_ras_mm: tuple[float, float, float]
+    drill_axis_world_ras_unit: tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -410,6 +585,67 @@ def halton_value(index: int, base: int) -> float:
         remaining, digit = divmod(remaining, base)
         value += fraction * float(digit)
     return value
+
+
+MAX_TASK_SPACE_TCP_CANDIDATES = 100_000
+
+
+def deterministic_task_space_tcp_candidates(
+    roi: TaskSpaceRoi,
+    sample_count: int,
+    *,
+    confirmed_drill_axis_world_ras: Sequence[float],
+) -> tuple[TaskSpaceTcpCandidate, ...]:
+    """Generate deterministic position-plus-axis TCP candidates inside an ROI."""
+
+    try:
+        count = int(sample_count)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "task-space sample_count must be an integer in range"
+        ) from exc
+    if (
+        isinstance(sample_count, bool)
+        or count != sample_count
+        or count < 1
+        or count > MAX_TASK_SPACE_TCP_CANDIDATES
+    ):
+        raise ValueError(
+            f"task-space sample_count must be between 1 and "
+            f"{MAX_TASK_SPACE_TCP_CANDIDATES}"
+        )
+    if not isinstance(roi, TaskSpaceRoi):
+        raise TypeError("roi must be a TaskSpaceRoi")
+
+    axis = _finite_xyz_triplet(
+        confirmed_drill_axis_world_ras, "confirmed_drill_axis_world_ras"
+    )
+    axis_scale = max(abs(value) for value in axis)
+    if axis_scale == 0.0:
+        raise ValueError("confirmed drill axis must be non-zero")
+    scaled_axis = tuple(value / axis_scale for value in axis)
+    axis_norm = sqrt(sum(value * value for value in scaled_axis))
+    unit_axis = tuple(value / axis_norm for value in scaled_axis)
+
+    bases = (2, 3, 5)
+    candidates = []
+    for index in range(1, count + 1):
+        point = []
+        for center, dimension, base in zip(
+            roi.center_world_ras_mm, roi.dimensions_mm, bases
+        ):
+            lower, upper = center - dimension / 2.0, center + dimension / 2.0
+            interior_lower = nextafter(lower, upper)
+            interior_upper = nextafter(upper, lower)
+            coordinate = center + (halton_value(index, base) - 0.5) * dimension
+            point.append(min(interior_upper, max(interior_lower, coordinate)))
+        point = tuple(point)
+        if not roi.contains_world_ras_mm(point):
+            raise ValueError(
+                "task-space ROI is too small for strict float candidates"
+            )
+        candidates.append(TaskSpaceTcpCandidate(point, unit_axis))
+    return tuple(candidates)
 
 
 def deterministic_joint_workspace_samples_display(

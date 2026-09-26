@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from math import isfinite
+
 from .runtime import *
 from .workflow_progress import WorkflowProgress
+
+from DENTOStep6Planning import TaskSpaceRoi
 
 
 class RobotShellWidgetMixin:
@@ -29,6 +34,8 @@ class RobotShellWidgetMixin:
                 "appearance_changed": self._onStep6AppearanceChanged,
                 "save_home": self._onStep6SaveTaskHome,
                 "apply_home": self._onStep6ApplyTaskHome,
+                "roi_from_incisors": self._onStep6UseCurrentIncisorMidpoint,
+                "roi_edited": self._onStep6TaskSpaceRoiEdited,
                 "revalidate_workspace": self._onStep6RevalidateWorkspace,
                 "review_limits": self._onStep6ReviewAssistedLimits,
                 "confirm_task": self._onStep6ConfirmTask,
@@ -537,6 +544,159 @@ class RobotShellWidgetMixin:
         else:
             slicer.util.errorDisplay(result.message)
         self._updateStep6PlanningUi(result.message, error=not result.success)
+
+    def _onStep6UseCurrentIncisorMidpoint(self) -> bool:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return False
+        result = self._robotWorkflowFacade.defaultTaskSpaceRoi()
+        panel = self._robotSimulationPanel
+        source_issue = (
+            str(result.message or "Current incisor midpoint is unavailable.")
+            if not result.success
+            else ""
+        )
+        roi = result.payload
+        if result.success:
+            try:
+                if not isinstance(roi, Mapping):
+                    raise ValueError("ROI source did not return the required payload")
+                center_raw = roi["centerWorldRasMm"]
+                dimensions_raw = roi["dimensionsMm"]
+                if any(
+                    isinstance(values, (str, bytes, Mapping))
+                    or not isinstance(values, Sequence)
+                    or len(values) != 3
+                    for values in (center_raw, dimensions_raw)
+                ):
+                    raise ValueError("ROI center and dimensions must each contain three values")
+                center = tuple(float(value) for value in center_raw)
+                dimensions = tuple(float(value) for value in dimensions_raw)
+                if not all(isfinite(value) for value in center + dimensions):
+                    raise ValueError("ROI center and dimensions must be finite")
+                if not all(value > 0.0 for value in dimensions):
+                    raise ValueError("ROI dimensions must be positive")
+                opening_revision = roi["openingRevision"]
+                if type(opening_revision) is not int or opening_revision < 0:
+                    raise ValueError("ROI opening revision must be a non-negative integer")
+                gap_line_node_id = roi["gapLineNodeId"]
+                if not isinstance(gap_line_node_id, str) or not gap_line_node_id.strip():
+                    raise ValueError("ROI source gap-line ID is missing")
+                spin_values = tuple(
+                    zip(panel.taskSpaceRoiCenterSpinBoxes, center)
+                ) + tuple(zip(panel.taskSpaceRoiDimensionsSpinBoxes, dimensions))
+                display_values = []
+                rounded_decimals = []
+                for spin, value in spin_values:
+                    if not float(spin.minimum) <= value <= float(spin.maximum):
+                        raise ValueError(
+                            f"ROI value {value:g} is outside the spinbox range"
+                        )
+                    decimals = int(spin.decimals)
+                    display_value = round(value, decimals)
+                    if not float(spin.minimum) <= display_value <= float(spin.maximum):
+                        raise ValueError(
+                            f"ROI value {value!r} cannot be displayed within the spinbox range"
+                        )
+                    display_values.append((spin, display_value))
+                    if display_value != value:
+                        rounded_decimals.append(decimals)
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                source_issue = str(exc)
+            else:
+                panel._loadingTaskSpaceRoi = True
+                try:
+                    for spin, display_value in display_values:
+                        spin.value = display_value
+                        spin.enabled = True
+                finally:
+                    panel._loadingTaskSpaceRoi = False
+                panel._taskSpaceRoiStatusContext = (
+                    f"Source opening revision {opening_revision}, gap line "
+                    f"{gap_line_node_id}."
+                )
+                panel._taskSpaceRoiOpeningRevision = opening_revision
+                panel._taskSpaceRoiGapLineNodeId = gap_line_node_id
+                panel._taskSpaceRoiInitialized = True
+                if rounded_decimals:
+                    panel._taskSpaceRoiStatusContext += (
+                        " Display draft rounded to "
+                        f"{max(rounded_decimals)} decimal places."
+                    )
+                panel.taskSpaceRoiStatusLabel.text = (
+                    panel._taskSpaceRoiStatusContext
+                    + " Editable local display draft; TCP samples have not been "
+                    "generated or validated."
+                )
+                panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "blocked")
+        if source_issue:
+            panel._taskSpaceRoiStatusContext = (
+                f"Source issue: {source_issue}. Existing ROI draft is stale/unverified."
+            )
+            panel.taskSpaceRoiStatusLabel.text = (
+                panel._taskSpaceRoiStatusContext + " "
+                "TCP samples have not been generated or validated."
+            )
+            panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "error")
+        panel.taskSpaceRoiStatusLabel.style().unpolish(panel.taskSpaceRoiStatusLabel)
+        panel.taskSpaceRoiStatusLabel.style().polish(panel.taskSpaceRoiStatusLabel)
+        if not source_issue:
+            self._onStep6TaskSpaceRoiEdited()
+        return not source_issue
+
+    def _onStep6TaskSpaceRoiEdited(self) -> None:
+        if not self._robotWorkflowFacade or not self.logic:
+            return
+        self._robotWorkflowFacade.invalidateWorkspaceRuntimeValidation(
+            invalidate_motion_plan=False
+        )
+        model = self.logic.robotWorkspaceModelNode()
+        if model is None:
+            return
+        self.ui.robotWorkspaceStatusLabel.text = _(
+            "ROI draft changed; existing workspace samples are stale."
+        )
+        self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b36b00;"
+        self._updateStep6PlanningUi()
+
+    def _step6TaskSpaceRoiDraft(self):
+        panel = self._robotSimulationPanel
+        if panel is None:
+            return None
+        if not panel._taskSpaceRoiInitialized:
+            if not self._onStep6UseCurrentIncisorMidpoint():
+                return None
+        try:
+            roi = TaskSpaceRoi(
+                center_world_ras_mm=tuple(
+                    float(spin.value) for spin in panel.taskSpaceRoiCenterSpinBoxes
+                ),
+                dimensions_mm=tuple(
+                    float(spin.value)
+                    for spin in panel.taskSpaceRoiDimensionsSpinBoxes
+                ),
+            )
+            opening_revision = panel._taskSpaceRoiOpeningRevision
+            gap_line_node_id = panel._taskSpaceRoiGapLineNodeId
+            if type(opening_revision) is not int or opening_revision < 0:
+                raise ValueError("ROI source opening revision is missing")
+            if not isinstance(gap_line_node_id, str) or not gap_line_node_id.strip():
+                raise ValueError("ROI source gap-line identity is missing")
+        except (TypeError, ValueError, OverflowError) as exc:
+            panel.taskSpaceRoiStatusLabel.text = (
+                f"ROI draft cannot be used: {exc}. TCP samples were not generated."
+            )
+            panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "error")
+            panel.taskSpaceRoiStatusLabel.style().unpolish(
+                panel.taskSpaceRoiStatusLabel
+            )
+            panel.taskSpaceRoiStatusLabel.style().polish(
+                panel.taskSpaceRoiStatusLabel
+            )
+            return None
+        return roi, {
+            "openingRevision": opening_revision,
+            "gapLineNodeId": gap_line_node_id,
+        }
 
     def _onStep6RevalidateWorkspace(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:

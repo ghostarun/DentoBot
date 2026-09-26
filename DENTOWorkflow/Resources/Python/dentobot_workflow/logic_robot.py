@@ -674,7 +674,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             {
                 "minimumDisplay": limits.as_display_vector(),
                 "maximumDisplay": limits.as_display_max_vector(),
-                "reviewedProposal": str(parameterNode.step6AssistedLimitProposalJson or ""),
             }
         )
 
@@ -790,7 +789,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             reviewed=False,
         )
         parameterNode.step6AssistedLimitProposalJson = canonical_json(proposal.to_dict())
-        self.invalidateStep6TaskConfirmation(parameterNode, _("Workspace limit proposal changed."))
         return proposal
 
     def reviewAndApplyAssistedTaskLimits(self, parameterNode):
@@ -802,6 +800,54 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         maxima = tuple(float(value) for value in data.get("maximum_display", ()))
         if len(minima) not in {5, 6} or len(maxima) != len(minima):
             raise ValueError(_("The assisted-limit proposal is invalid."))
+        mechanical = default_task_joint_limits_from_urdf(self.robotDescriptionPaths()[0])
+        mechanical_pairs = (
+            mechanical.joint_1,
+            mechanical.joint_2,
+            mechanical.joint_3,
+            mechanical.joint_4,
+            mechanical.joint_5,
+            mechanical.joint_6,
+        )
+        home_display = None
+        if not self.taskHomeFreshnessIssues(parameterNode):
+            home = self.taskHomeRecord(parameterNode)
+            home_display = (
+                math.degrees(home.joint_positions_si[0]),
+                home.joint_positions_si[1] * 1000.0,
+                math.degrees(home.joint_positions_si[2]),
+                home.joint_positions_si[3] * 1000.0,
+                math.degrees(home.joint_positions_si[4]),
+                0.0,
+            )
+        proposal_ranges = tuple(zip(minima, maxima))
+        if len(proposal_ranges) == 5:
+            proposal_ranges += ((0.0, 0.0),)
+        for index, ((minimum, maximum), mechanical_limit) in enumerate(
+            zip(proposal_ranges, mechanical_pairs), 1
+        ):
+            if (
+                not math.isfinite(minimum)
+                or not math.isfinite(maximum)
+                or minimum > maximum
+            ):
+                raise ValueError(_("The assisted-limit proposal is invalid."))
+            if (
+                minimum < mechanical_limit.minimum
+                or maximum > mechanical_limit.maximum
+            ):
+                raise ValueError(_(
+                    f"Proposed J{index} range [{minimum:.4g}, {maximum:.4g}] "
+                    f"{mechanical_limit.unit} is outside mechanical bounds "
+                    f"[{mechanical_limit.minimum:.4g}, "
+                    f"{mechanical_limit.maximum:.4g}]."
+                ))
+            if home_display is not None and not minimum <= home_display[index - 1] <= maximum:
+                raise ValueError(_(
+                    f"Proposed J{index} range excludes the current Task Home "
+                    f"({home_display[index - 1]:.4g} {mechanical_limit.unit}). "
+                    "Edit the proposal within mechanical bounds and review again."
+                ))
         fields = (
             ("robotJoint1TaskMinDeg", "robotJoint1TaskMaxDeg"),
             ("robotJoint2TaskMinMm", "robotJoint2TaskMaxMm"),
@@ -834,13 +880,33 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         home_issues = self.taskHomeFreshnessIssues(parameterNode)
         if home_issues:
             raise ValueError(" ".join(home_issues))
-        if not self.assistedTaskLimitsReviewed(parameterNode):
-            raise ValueError(_("Review and apply the assisted task-limit proposal first."))
+        home = self.taskHomeRecord(parameterNode)
+        task_limits = self.getTaskJointLimits(parameterNode)
+        display_home = (
+            math.degrees(home.joint_positions_si[0]),
+            home.joint_positions_si[1] * 1000.0,
+            math.degrees(home.joint_positions_si[2]),
+            home.joint_positions_si[3] * 1000.0,
+            math.degrees(home.joint_positions_si[4]),
+            0.0,
+        )
+        task_limit_pairs = (
+            task_limits.joint_1, task_limits.joint_2, task_limits.joint_3,
+            task_limits.joint_4, task_limits.joint_5, task_limits.joint_6,
+        )
+        for index, (value, limit) in enumerate(
+            zip(display_home, task_limit_pairs), 1
+        ):
+            if not limit.minimum <= value <= limit.maximum:
+                raise ValueError(_(
+                    f"Task Home J{index} ({value:.4g} {limit.unit}) is outside the "
+                    f"current task/mechanical bounds [{limit.minimum:.4g}, "
+                    f"{limit.maximum:.4g}]. Review the limits or Task Home."
+                ))
         freshness = self.step6PlanningContextFreshnessIssues(parameterNode)
         if freshness:
             raise ValueError(" ".join(freshness))
         trajectory = self.step6TrajectorySummary(parameterNode)
-        home = self.taskHomeRecord(parameterNode)
         effective_target = validate_simulation_target(
             trajectory["entryRas"], trajectory["targetRas"]
         )
@@ -1049,40 +1115,52 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         self,
         parameterNode,
         progress=None,
+        *,
+        sample_result: WorkspaceSampleResult | None = None,
+        algorithm: str = "ROI3D+PositionAxisIK",
     ) -> tuple[vtkMRMLModelNode, WorkspaceSampleResult]:
         """Create a base-parented, deterministic provisional-TCP reach cloud."""
         base_transform = parameterNode.robotBaseTransform
         if not self.isRobotBaseTransformNode(base_transform):
             raise ValueError(_("Load the Step 6 robot and place its base first."))
-        sample_count = int(parameterNode.robotWorkspaceSampleCount)
-        if sample_count < 50 or sample_count > 5000:
-            raise ValueError(_("Workspace sample count must be between 50 and 5000."))
-        urdf_path, package_root = self.robotDescriptionPaths()
-        base_world = self._numpyFromVtkMatrix(
-            self._worldMatrixFromTransform(base_transform),
-        )
-        result = sample_filtered_tcp_workspace(
-            limits=self.getTaskJointLimits(parameterNode),
-            sample_count=sample_count,
-            current_display_joints=(
-                parameterNode.robotJoint1Deg,
-                parameterNode.robotJoint2Mm,
-                parameterNode.robotJoint3Deg,
-                parameterNode.robotJoint4Mm,
-                parameterNode.robotJoint5Deg,
-                parameterNode.robotJoint6Deg,
-            ),
-            urdf_path=urdf_path,
-            package_root=package_root,
-            base_world_matrix=base_world,
-            coarse_self_clearance_mm=max(
-                5.0,
-                float(parameterNode.robotCoarseSelfClearanceMm),
-            ),
-            environment_points_mm=self.step6EnvironmentObstaclePointsMm(parameterNode),
-            environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
-            progress=progress,
-        )
+        if sample_result is None:
+            sample_count = int(parameterNode.robotWorkspaceSampleCount)
+            if sample_count < 50 or sample_count > 5000:
+                raise ValueError(_("Workspace sample count must be between 50 and 5000."))
+            urdf_path, package_root = self.robotDescriptionPaths()
+            base_world = self._numpyFromVtkMatrix(
+                self._worldMatrixFromTransform(base_transform),
+            )
+            result = sample_filtered_tcp_workspace(
+                limits=self.getTaskJointLimits(parameterNode),
+                sample_count=sample_count,
+                current_display_joints=(
+                    parameterNode.robotJoint1Deg,
+                    parameterNode.robotJoint2Mm,
+                    parameterNode.robotJoint3Deg,
+                    parameterNode.robotJoint4Mm,
+                    parameterNode.robotJoint5Deg,
+                    parameterNode.robotJoint6Deg,
+                ),
+                urdf_path=urdf_path,
+                package_root=package_root,
+                base_world_matrix=base_world,
+                coarse_self_clearance_mm=max(
+                    5.0,
+                    float(parameterNode.robotCoarseSelfClearanceMm),
+                ),
+                environment_points_mm=self.step6EnvironmentObstaclePointsMm(parameterNode),
+                environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
+                progress=progress,
+            )
+            workspace_algorithm = "Halton6D+URDFFK+AABB"
+        else:
+            if not isinstance(sample_result, WorkspaceSampleResult):
+                raise TypeError("sample_result must be a WorkspaceSampleResult")
+            if not str(algorithm or "").strip():
+                raise ValueError("workspace algorithm must be named")
+            result = sample_result
+            workspace_algorithm = str(algorithm).strip()
         if not result.accepted_tcp_base_mm:
             raise RuntimeError(
                 _(
@@ -1110,8 +1188,13 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         model.SetName("[Step 6] DENTO Filtered TCP Workspace")
         model.SetAttribute("DENTOBOT.ModelRole", self.ROBOT_WORKSPACE_MODEL_ROLE)
         model.SetAttribute("DENTOBOT.Status", "SimulationOnly")
-        model.SetAttribute("DENTOBOT.WorkspaceState", "Current")
-        model.SetAttribute("DENTOBOT.WorkspaceAlgorithm", "Halton6D+URDFFK+AABB")
+        model.SetAttribute(
+            "DENTOBOT.WorkspaceState",
+            "Current" if sample_result is None else "Provisional",
+        )
+        model.SetAttribute("DENTOBOT.WorkspaceAlgorithm", workspace_algorithm)
+        if sample_result is not None:
+            model.SetAttribute("DENTOBOT.WorkspaceRuntimeValidated", "false")
         model.SetAttribute("DENTOBOT.WorkspaceRequested", str(result.requested_count))
         model.SetAttribute("DENTOBOT.WorkspaceAccepted", str(result.accepted_count))
         model.SetAndObservePolyData(polydata)

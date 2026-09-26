@@ -36,6 +36,20 @@ COLLISION_AUDIT_SCHEMA_VERSION = "1.0"
 MOTION_DIAGNOSTIC_SCHEMA_VERSION = "2.2"
 SUPPORTED_MOTION_DIAGNOSTIC_SCHEMA_VERSIONS = ("1.0", "2.0", "2.1", "2.2")
 MOTION_DIAGNOSTIC_PLAN_SELECTION_STATES = ("auto", "selected", "locked")
+# Schema 1.0 is still pre-release: this repository has no production writer or
+# persisted records, so the contract is amended before first use.
+MANUAL_SIMULATION_RECORD_SCHEMA_VERSION = "1.0"
+MANUAL_SIMULATION_RECORD_MAX_EVENTS = 100_000
+MANUAL_SIMULATION_EVENT_KINDS = (
+    "requested",
+    "guard_accepted",
+    "guard_rejected",
+    "diagnostic",
+    "review_base",
+    "review_task_home",
+    "accept_base",
+    "accept_task_home",
+)
 PLANNER_COMPARISON_IDS = (
     "RRTConnectkConfigDefault",
     "RRTkConfigDefault",
@@ -234,6 +248,251 @@ def canonical_json(value: object) -> str:
 
 def fingerprint(value: object) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _manual_simulation_json_mapping(
+    value: object, label: str
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be a mapping")
+    try:
+        return json.loads(canonical_json(dict(value)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must contain JSON-safe finite values") from exc
+
+
+def _manual_simulation_joint_state(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, Mapping) or set(value) != set(JOINT_NAMES):
+        raise ValueError(f"{label} must contain exactly the canonical J1–J5 joints")
+    try:
+        return canonicalize_planning_joint_positions(value)
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must contain five finite J1–J5 values") from exc
+
+
+def _manual_simulation_tcp_point(value: object, label: str) -> list[float]:
+    if isinstance(value, (str, bytes, Mapping)):
+        raise ValueError(f"{label} must contain three finite RAS coordinates")
+    try:
+        return list(_finite_tuple(value, 3, label))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must contain three finite RAS coordinates") from exc
+
+
+def _manual_simulation_matrix(value: object, label: str) -> list[float]:
+    if isinstance(value, (str, bytes, Mapping)):
+        raise ValueError(f"{label} must contain 16 finite row-major matrix values")
+    try:
+        return list(_finite_tuple(value, 16, label))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{label} must contain 16 finite row-major matrix values"
+        ) from exc
+
+
+def build_manual_simulation_record(
+    *,
+    identity: Mapping[str, object],
+    events: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    """Build versioned manual-solver evidence that can only reopen display-only.
+
+    ``monotonic_ns`` values use the source monotonic clock; list order breaks
+    ties. Review events preserve the reviewed Base matrix or requested Task
+    Home joints. Accept Base/Task Home is terminal and records both the new
+    fingerprint and committed configuration. Subsequent exploration starts a
+    new record whose exact identity uses that value as ``base_fingerprint`` or
+    ``home_fingerprint``. No live scene, guard-valid, or preview authority is
+    serialized.
+    """
+
+    identity_fields = (
+        "prepared_branch_id",
+        "task_fingerprint",
+        "base_fingerprint",
+        "home_fingerprint",
+        "trajectory_fingerprint",
+        "robot_profile_fingerprint",
+        "scene_fingerprint",
+    )
+    if not isinstance(identity, Mapping) or set(identity) != set(identity_fields):
+        raise ValueError(
+            "manual simulation identity must contain the exact "
+            "branch/task/base/Home/trajectory/profile/scene fields"
+        )
+    clean_identity: dict[str, str] = {}
+    for name in identity_fields:
+        value = identity[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"manual simulation identity is missing {name}")
+        clean_identity[name] = value
+
+    if isinstance(events, (str, bytes)) or not isinstance(events, Sequence):
+        raise ValueError("manual simulation events must be a bounded sequence")
+    if len(events) > MANUAL_SIMULATION_RECORD_MAX_EVENTS:
+        raise ValueError("manual simulation recording exceeds its event bound")
+    allowed_fields = {
+        "kind", "monotonic_ns", "requested_joints", "evaluated_joints",
+        "accepted_joints", "tcp_point_ras_mm", "tcp_path_ras_mm",
+        "native_failure_evidence", "collision_evidence", "diagnostic", "details",
+    }
+    joint_fields = ("requested_joints", "evaluated_joints", "accepted_joints")
+    mapping_fields = (
+        "native_failure_evidence", "collision_evidence", "diagnostic", "details"
+    )
+    clean_events: list[dict[str, object]] = []
+    previous_time_ns = -1
+    for index, raw in enumerate(events):
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"manual simulation event {index} must be a mapping")
+        unknown = set(raw) - allowed_fields
+        if unknown:
+            raise ValueError(f"manual simulation event {index} contains unknown fields")
+        kind = raw.get("kind")
+        if kind not in MANUAL_SIMULATION_EVENT_KINDS:
+            raise ValueError(f"manual simulation event {index} has an unknown kind")
+        monotonic_ns = raw.get("monotonic_ns")
+        if type(monotonic_ns) is not int or monotonic_ns < 0:
+            raise ValueError(
+                f"manual simulation event {index} requires a non-negative "
+                "integer monotonic_ns"
+            )
+        if monotonic_ns < previous_time_ns:
+            raise ValueError("manual simulation events are not in monotonic time order")
+        previous_time_ns = monotonic_ns
+        event: dict[str, object] = {"kind": kind, "monotonic_ns": monotonic_ns}
+        for field in joint_fields:
+            if field in raw:
+                event[field] = _manual_simulation_joint_state(
+                    raw[field], f"event {index} {field}"
+                )
+        if "tcp_point_ras_mm" in raw:
+            event["tcp_point_ras_mm"] = _manual_simulation_tcp_point(
+                raw["tcp_point_ras_mm"], f"event {index} TCP point"
+            )
+        if "tcp_path_ras_mm" in raw:
+            path = raw["tcp_path_ras_mm"]
+            if isinstance(path, (str, bytes, Mapping)) or not isinstance(path, Sequence):
+                raise ValueError(f"event {index} TCP path must be a sequence of points")
+            event["tcp_path_ras_mm"] = [
+                _manual_simulation_tcp_point(point, f"event {index} TCP path point")
+                for point in path
+            ]
+        for field in mapping_fields:
+            if field in raw:
+                event[field] = _manual_simulation_json_mapping(
+                    raw[field], f"event {index} {field}"
+                )
+        if kind == "requested" and not {
+            "requested_joints", "tcp_point_ras_mm"
+        }.intersection(event):
+            raise ValueError(
+                f"manual simulation requested event {index} requires requested J1–J5 or a TCP point"
+            )
+        if kind == "guard_accepted" and not {
+            "requested_joints", "accepted_joints"
+        }.issubset(event):
+            raise ValueError(
+                f"manual simulation accepted event {index} requires requested and accepted J1–J5"
+            )
+        if kind == "guard_rejected":
+            if not {"requested_joints", "accepted_joints"}.issubset(event):
+                raise ValueError(
+                    f"manual simulation rejected event {index} requires requested and last accepted J1–J5"
+                )
+            if not event.get("native_failure_evidence"):
+                raise ValueError(
+                    f"manual simulation rejected event {index} requires native failure evidence"
+                )
+        if kind == "diagnostic" and "diagnostic" not in event:
+            raise ValueError(
+                f"manual simulation diagnostic event {index} requires a "
+                "diagnostic mapping"
+            )
+        if kind == "review_base":
+            details = event.get("details")
+            matrix = (
+                details.get("candidate_matrix_world_ras_mm")
+                if isinstance(details, Mapping)
+                else None
+            )
+            if matrix is None:
+                raise ValueError(
+                    f"manual simulation review_base event {index} requires "
+                    "details.candidate_matrix_world_ras_mm"
+                )
+            event["details"]["candidate_matrix_world_ras_mm"] = (
+                _manual_simulation_matrix(
+                    matrix, f"event {index} candidate Base matrix"
+                )
+            )
+        if kind == "review_task_home" and "requested_joints" not in event:
+            raise ValueError(
+                f"manual simulation review_task_home event {index} requires requested J1–J5"
+            )
+        if kind in {"accept_base", "accept_task_home"}:
+            if index != len(events) - 1:
+                raise ValueError("Base/Task Home acceptance must be the final event in a recording")
+            details = event.get("details")
+            accepted_fingerprint = (
+                details.get("accepted_fingerprint")
+                if isinstance(details, Mapping)
+                else None
+            )
+            if not isinstance(accepted_fingerprint, str) or not accepted_fingerprint.strip():
+                raise ValueError(
+                    f"manual simulation {kind} event requires details.accepted_fingerprint"
+                )
+            if kind == "accept_base":
+                matrix = details.get("accepted_matrix_world_ras_mm")
+                if matrix is None:
+                    raise ValueError(
+                        f"manual simulation {kind} event requires "
+                        "details.accepted_matrix_world_ras_mm"
+                    )
+                event["details"]["accepted_matrix_world_ras_mm"] = (
+                    _manual_simulation_matrix(
+                        matrix, f"event {index} accepted Base matrix"
+                    )
+                )
+            elif "accepted_joints" not in event:
+                raise ValueError(
+                    f"manual simulation {kind} event requires accepted J1–J5"
+                )
+        clean_events.append(event)
+
+    body = {
+        "schema_version": MANUAL_SIMULATION_RECORD_SCHEMA_VERSION,
+        "record_status": "historical_display_only",
+        "identity": clean_identity,
+        "events": clean_events,
+    }
+    return {**body, "record_fingerprint": fingerprint(body)}
+
+
+def parse_manual_simulation_record(
+    payload: str | Mapping[str, object],
+) -> dict[str, object]:
+    """Validate a saved record and always return historical display-only evidence."""
+
+    data = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    expected_fields = {
+        "schema_version", "record_status", "identity", "events",
+        "record_fingerprint",
+    }
+    if set(data) != expected_fields:
+        raise ValueError("manual simulation record has unknown or missing fields")
+    if data.get("schema_version") != MANUAL_SIMULATION_RECORD_SCHEMA_VERSION:
+        raise ValueError("unsupported manual simulation recording schema")
+    if data.get("record_status") != "historical_display_only":
+        raise ValueError("manual simulation recording must remain historical display-only")
+    rebuilt = build_manual_simulation_record(
+        identity=data.get("identity"),
+        events=data.get("events"),
+    )
+    if rebuilt["record_fingerprint"] != data.get("record_fingerprint"):
+        raise ValueError("manual simulation record fingerprint does not match its contents")
+    return rebuilt
 
 
 def _optional_finite_tuple(

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from math import acos, atan2, degrees, isfinite, pi, sqrt
@@ -19,7 +20,15 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import DENTOROS2Bridge as _default_bridge
 from DENTORobotPlacement import joint_positions_si_from_display
-from DENTOStep6Planning import default_task_joint_limits_from_urdf
+from DENTOStep6Planning import (
+    TaskSpaceRoi,
+    WorkspaceAcceptedSample,
+    WorkspaceSampleResult,
+    default_task_joint_limits_from_urdf,
+    default_task_space_roi_from_incisors,
+    deterministic_task_space_tcp_candidates,
+    joint_limit_margin_evidence,
+)
 from DENTOStep6State import (
     DRILL_TOOL_FRAME_POLICY,
     SIMULATION_TARGET_DEPTH_POLICY,
@@ -62,7 +71,7 @@ WORKSPACE_HOME_CONNECTIVITY_MAX_SAMPLES = 13
 WORKSPACE_RUNTIME_VALIDATION_STATUS = (
     "MoveItStaticStateValidity+BoundedHomeConnectivity"
 )
-WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION = "1.0"
+WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION = "2.0"
 HISTORICAL_TEMPLATE_OVERRIDE_ENV = "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE"
 # Compatibility-only display value for diagnostics that predate the
 # authoritative-FK frame policy. Goal 1 never constrains planning to this roll.
@@ -359,6 +368,11 @@ class DENTORobotWorkflowFacade:
         self._preview_timer = None
         self._preview_index = 0
         self._preview_waypoint_in_flight = False
+        self._guarded_preview_active = False
+        self._guarded_preview_phase = ""
+        self._guarded_preview_task_fingerprint = ""
+        self._guarded_preview_request: Optional[dict[str, object]] = None
+        self._incomplete_preview_evidence: Optional[dict[str, object]] = None
         self._preview_last_display_monotonic = 0.0
         self._robot_away_from_home = False
         self._display_sync_depth = 0
@@ -369,6 +383,7 @@ class DENTORobotWorkflowFacade:
         self._phase_sequence = 0
         self._completed_phase = ""
         self._phase_guard_task_fingerprint = ""
+        self._phase_guard_session_id = ""
         self._phase_stream_paused = False
         self._preview_exploratory_tool_contact = False
         self._preview_suppressed_tool_contact_samples = 0
@@ -402,6 +417,12 @@ class DENTORobotWorkflowFacade:
     @property
     def completedPhase(self) -> str:
         return self._completed_phase
+
+    @property
+    def incompletePreviewEvidence(self):
+        """Review evidence retained after an interrupted guarded phase."""
+
+        return deepcopy(self._incomplete_preview_evidence)
 
     @property
     def returnHomeRequired(self) -> bool:
@@ -482,7 +503,8 @@ class DENTORobotWorkflowFacade:
         self._runtime_validated_task_home_key = ""
         self._runtime_task_home_evidence = {}
         self._runtime_validated_workspace_key = ""
-        self._robot_away_from_home = False
+        if self._incomplete_preview_evidence is None:
+            self._robot_away_from_home = False
 
     def invalidateMotionPlan(self) -> None:
         """Drop task/phase plans without discarding the connected scene audit."""
@@ -544,11 +566,24 @@ class DENTORobotWorkflowFacade:
             "paths": paths,
         }
 
-    def invalidateWorkspaceRuntimeValidation(self) -> None:
+    def invalidateWorkspaceRuntimeValidation(
+        self, invalidate_motion_plan: bool = True
+    ) -> None:
         """Invalidate live workspace evidence while preserving ROS/scene state."""
 
         self._runtime_validated_workspace_key = ""
-        self.invalidateMotionPlan()
+        model_reader = getattr(self._logic, "robotWorkspaceModelNode", None)
+        try:
+            model = model_reader() if callable(model_reader) else None
+        except Exception:
+            model = None
+        if model is not None:
+            setter = getattr(model, "SetAttribute", None)
+            if callable(setter):
+                setter("DENTOBOT.WorkspaceRuntimeValidated", "false")
+                setter("DENTOBOT.WorkspaceState", "Stale")
+        if invalidate_motion_plan:
+            self.invalidateMotionPlan()
 
     def invalidateTargetRuntimeState(self) -> None:
         """Drop target-bound runtime state without changing shared Home state."""
@@ -749,6 +784,13 @@ class DENTORobotWorkflowFacade:
     def _clear_phase_session(self) -> None:
         """Invalidate all local state tied to one transient task-guard session."""
 
+        if self._guarded_preview_active:
+            self._latch_incomplete_preview(
+                "The guarded phase session was cleared before endpoint verification."
+            )
+            self._stop_preview_timer()
+            self._guarded_preview_active = False
+
         if self._phase_stream_paused:
             resume_stream = getattr(
                 self._bridge, "resume_slicer_joint_command_stream", None
@@ -770,6 +812,7 @@ class DENTORobotWorkflowFacade:
         self._phase_sequence = 0
         self._completed_phase = ""
         self._phase_guard_task_fingerprint = ""
+        self._phase_guard_session_id = ""
         self._preflight_drilling_plan = None
         self._preflight_task_fingerprint = ""
         self._preflight_orientation_commitment = {}
@@ -881,6 +924,237 @@ class DENTORobotWorkflowFacade:
             return
         self._accepted_motion_history.append(
             {"positions": dict(positions), "phase": str(phase)}
+        )
+
+    @staticmethod
+    def _preview_positions_snapshot(positions):
+        if not isinstance(positions, Mapping):
+            return None
+        try:
+            return {str(name): float(value) for name, value in positions.items()}
+        except (TypeError, ValueError):
+            return None
+
+    def _preview_request_status(self, request, *, accepted: bool, message: str):
+        status = None
+        getter = getattr(self._bridge, "last_task_joint_status", None)
+        try:
+            status = getter() if callable(getter) else None
+        except Exception:
+            status = None
+        identity_matches = bool(
+            status is not None
+            and getattr(status, "task_fingerprint", "")
+            == request.get("taskFingerprint")
+            and getattr(status, "phase", "") == request.get("phase")
+            and getattr(status, "sequence", -1) == request.get("sequence")
+            and (
+                not request.get("guardSessionId")
+                or getattr(status, "guard_session_id", "")
+                == request.get("guardSessionId")
+            )
+        )
+        status_shape_matches = bool(
+            identity_matches
+            and bool(getattr(status, "accepted", False)) is bool(accepted)
+            and not bool(getattr(status, "validate_only", False))
+        )
+        status_reason = str(getattr(status, "reason", "") or "")
+        if accepted:
+            message_matches_status = bool(status_reason and message == status_reason)
+        else:
+            pair = (
+                f" ({getattr(status, 'first_body', '') or '?'} ↔ "
+                f"{getattr(status, 'second_body', '') or '?'})"
+                if getattr(status, "first_body", "")
+                or getattr(status, "second_body", "")
+                else ""
+            )
+            expected_message = (
+                f"Task guard rejected {request.get('phase')} sequence "
+                f"{int(request.get('sequence', -1))}: {status_reason}{pair}"
+            )
+            message_matches_status = bool(status_reason and message == expected_message)
+        current_status_matches = bool(status_shape_matches and message_matches_status)
+        evaluated = None
+        if current_status_matches:
+            raw_evaluated = tuple(getattr(status, "evaluated_positions", ()) or ())
+            if len(raw_evaluated) == len(JOINT_NAMES):
+                try:
+                    evaluated = {
+                        name: float(value)
+                        for name, value in zip(JOINT_NAMES, raw_evaluated)
+                    }
+                except (TypeError, ValueError):
+                    evaluated = None
+        return {
+            "statusIdentityMatched": identity_matches,
+            "statusMessageMatched": message_matches_status,
+            "evaluatedStateStatus": "known" if evaluated is not None else "unknown",
+            "evaluatedPositionsSi": evaluated,
+            "evaluatedSampleIndex": (
+                getattr(status, "evaluated_sample_index", None)
+                if current_status_matches else None
+            ),
+            "firstRejectionInterpolationFraction": (
+                getattr(status, "first_rejection_interpolation_fraction", None)
+                if current_status_matches and not accepted else None
+            ),
+            "firstBody": (
+                str(getattr(status, "first_body", "") or "")
+                if current_status_matches and not accepted else ""
+            ),
+            "secondBody": (
+                str(getattr(status, "second_body", "") or "")
+                if current_status_matches and not accepted else ""
+            ),
+            "nativeReason": (
+                _bounded_text(status_reason)
+                if current_status_matches else _bounded_text(message)
+            ),
+        }
+
+    def _preview_prefix_snapshot(self):
+        prefix = []
+        for record in tuple(self._accepted_motion_history or ()):
+            positions = self._preview_positions_snapshot(record.get("positions"))
+            if positions is None:
+                continue
+            prefix.append(
+                {"phase": str(record.get("phase") or ""), "positionsSi": positions}
+            )
+        return prefix
+
+    def _latch_incomplete_preview(
+        self, reason: str, *, request=None, first_rejected=None
+    ):
+        evidence = self._incomplete_preview_evidence
+        if evidence is None:
+            prefix = self._preview_prefix_snapshot()
+            captured_home = prefix[0]["positionsSi"] if prefix else None
+            last_accepted = prefix[-1]["positionsSi"] if prefix else None
+            bridge_accepted = None
+            monitored = None
+            for attribute, target in (
+                ("last_accepted_joint_positions_si", "accepted"),
+                ("monitored_joint_positions_si", "monitored"),
+            ):
+                reader = getattr(self._bridge, attribute, None)
+                try:
+                    value = reader() if callable(reader) else None
+                except Exception:
+                    value = None
+                snapshot = self._preview_positions_snapshot(value)
+                if target == "accepted":
+                    bridge_accepted = snapshot
+                else:
+                    monitored = snapshot
+            evidence = {
+                "status": "Incomplete",
+                "endpointVerified": False,
+                "reason": _bounded_text(reason),
+                "taskFingerprint": str(self._guarded_preview_task_fingerprint or ""),
+                "phase": str(self._guarded_preview_phase or ""),
+                "capturedHomePositionsSi": captured_home,
+                "acceptedPrefix": prefix,
+                "acceptedWaypointCount": max(0, len(prefix) - 1),
+                "lastAcceptedHistoryPositionsSi": last_accepted,
+                "lastAcceptedPositionsSi": bridge_accepted,
+                "lastMonitoredPositionsSi": monitored,
+                "firstRejected": first_rejected,
+                "pendingRequest": None,
+                "pendingRequestOutcome": None,
+            }
+            self._incomplete_preview_evidence = evidence
+        if request is not None:
+            evidence["pendingRequest"] = {
+                "phase": str(request.get("phase") or ""),
+                "sequence": int(request.get("sequence", -1)),
+                "waypointIndex": int(request.get("waypointIndex", -1)),
+                "requestedPositionsSi": dict(
+                    request.get("requestedPositionsSi") or {}
+                ),
+            }
+        if first_rejected is not None and evidence.get("firstRejected") is None:
+            evidence["firstRejected"] = first_rejected
+        return evidence
+
+    def _record_incomplete_preview_request_result(
+        self, request, *, accepted: bool, message: str
+    ):
+        evidence = self._incomplete_preview_evidence
+        if evidence is None:
+            return
+        status_evidence = self._preview_request_status(
+            request, accepted=accepted, message=message
+        )
+        evidence["pendingRequestOutcome"] = {
+            "accepted": bool(accepted),
+            "message": _bounded_text(message),
+            **status_evidence,
+        }
+        if not accepted and evidence.get("firstRejected") is None:
+            evidence["firstRejected"] = {
+                "phase": str(request.get("phase") or ""),
+                "sequence": int(request.get("sequence", -1)),
+                "waypointIndex": int(request.get("waypointIndex", -1)),
+                "requestedPositionsSi": dict(
+                    request.get("requestedPositionsSi") or {}
+                ),
+                **status_evidence,
+            }
+        if accepted:
+            live_prefix = self._preview_prefix_snapshot()
+            expected_prefix_count = int(request.get("acceptedPrefixCount", -1))
+            if (
+                self._motion_history_task_fingerprint
+                == request.get("taskFingerprint")
+                and len(live_prefix) - 1 > expected_prefix_count
+                and live_prefix[-1]["phase"] == str(request.get("phase") or "")
+                and live_prefix[-1]["positionsSi"]
+                == self._preview_positions_snapshot(
+                    request.get("requestedPositionsSi")
+                )
+            ):
+                evidence["acceptedPrefix"] = live_prefix
+                evidence["acceptedWaypointCount"] = max(0, len(live_prefix) - 1)
+                evidence["lastAcceptedHistoryPositionsSi"] = live_prefix[-1][
+                    "positionsSi"
+                ]
+                expected_prefix_count = -1
+            prefix = list(evidence.get("acceptedPrefix") or ())
+            if len(prefix) - 1 == expected_prefix_count:
+                positions = self._preview_positions_snapshot(
+                    request.get("requestedPositionsSi")
+                )
+                if positions is not None:
+                    prefix.append(
+                        {"phase": str(request.get("phase") or ""), "positionsSi": positions}
+                    )
+                    evidence["acceptedPrefix"] = prefix
+                    evidence["acceptedWaypointCount"] = max(0, len(prefix) - 1)
+                    evidence["lastAcceptedHistoryPositionsSi"] = positions
+        reader = getattr(self._bridge, "last_accepted_joint_positions_si", None)
+        try:
+            evidence["lastAcceptedPositionsSi"] = self._preview_positions_snapshot(
+                reader() if callable(reader) else None
+            )
+        except Exception:
+            evidence["lastAcceptedPositionsSi"] = None
+        reader = getattr(self._bridge, "monitored_joint_positions_si", None)
+        try:
+            evidence["lastMonitoredPositionsSi"] = self._preview_positions_snapshot(
+                reader() if callable(reader) else None
+            )
+        except Exception:
+            evidence["lastMonitoredPositionsSi"] = None
+
+    def _incomplete_preview_block(self, code: str, message: str) -> RobotActionResult:
+        return RobotActionResult(
+            False,
+            code,
+            message,
+            details={"incompletePreview": deepcopy(self._incomplete_preview_evidence)},
         )
 
     def _parameter_node(self):
@@ -1069,8 +1343,9 @@ class DENTORobotWorkflowFacade:
                 "homeConnectivityPlanningAttempts": 1,
                 "homeConnectivityAllowedPlanningTimeSec": 2.0,
                 "classification": (
-                    "StaticCollisionValid+BoundedHomeConnectedSubset"
+                    "ROIPositionAxisIK+MoveItStaticCollisionValid+BoundedHomeConnectedSubset"
                 ),
+                "candidateSampler": "ROI3D+PositionAxisIK",
                 "spindlePlanningPolicy": SPINDLE_PLANNING_POLICY,
                 "spindleLockedValueRad": SPINDLE_LOCKED_VALUE_RAD,
             }
@@ -1230,7 +1505,136 @@ class DENTORobotWorkflowFacade:
                 and sample["home_connectivity"].get("status")
                 == "HomeConnected"
             )
-        except (TypeError, ValueError, json.JSONDecodeError):
+            current_roi_result = self.defaultTaskSpaceRoi()
+            if (
+                not current_roi_result.success
+                or not isinstance(current_roi_result.payload, Mapping)
+            ):
+                return False
+            current_roi_payload = current_roi_result.payload
+            current_revision = current_roi_payload.get("openingRevision")
+            current_gap_id = current_roi_payload.get("gapLineNodeId")
+            if (
+                isinstance(current_revision, bool)
+                or not isinstance(current_revision, int)
+                or not isinstance(current_gap_id, str)
+                or not current_gap_id.strip()
+            ):
+                return False
+            current_roi_source = {
+                "openingRevision": current_revision,
+                "gapLineNodeId": current_gap_id.strip(),
+            }
+            saved_roi_source = payload.get("roi_source")
+            saved_revision = (
+                saved_roi_source.get("openingRevision")
+                if isinstance(saved_roi_source, Mapping)
+                else None
+            )
+            saved_gap_id = (
+                saved_roi_source.get("gapLineNodeId")
+                if isinstance(saved_roi_source, Mapping)
+                else None
+            )
+            if (
+                isinstance(saved_revision, bool)
+                or not isinstance(saved_revision, int)
+                or not isinstance(saved_gap_id, str)
+                or not saved_gap_id.strip()
+                or {
+                    "openingRevision": saved_revision,
+                    "gapLineNodeId": saved_gap_id.strip(),
+                }
+                != current_roi_source
+            ):
+                return False
+            roi_source_fingerprint = fingerprint(current_roi_source)
+            if payload.get("roi_source_fingerprint") != roi_source_fingerprint:
+                return False
+            saved_roi_payload = payload.get("roi")
+            if not isinstance(saved_roi_payload, Mapping):
+                return False
+            saved_roi = TaskSpaceRoi(
+                center_world_ras_mm=saved_roi_payload["center_world_ras_mm"],
+                dimensions_mm=saved_roi_payload["dimensions_mm"],
+            )
+            roi_fingerprint = fingerprint(
+                {
+                    "center_world_ras_mm": saved_roi.center_world_ras_mm,
+                    "dimensions_mm": saved_roi.dimensions_mm,
+                    "source_fingerprint": roi_source_fingerprint,
+                }
+            )
+            if payload.get("roi_fingerprint") != roi_fingerprint:
+                return False
+
+            trajectory_issues = self._logic.step6PlanningContextFreshnessIssues(
+                parameter_node
+            )
+            trajectory = self._logic.step6TrajectorySummary(parameter_node)
+            trajectory_fingerprint = str(
+                self._logic.step6TrajectoryRevision(parameter_node) or ""
+            )
+            if (
+                trajectory_issues
+                or not isinstance(trajectory, Mapping)
+                or not trajectory.get("isValid")
+                or not trajectory_fingerprint
+                or payload.get("trajectory_fingerprint") != trajectory_fingerprint
+            ):
+                return False
+            entry = tuple(float(value) for value in trajectory["entryRas"])
+            target = tuple(float(value) for value in trajectory["targetRas"])
+            if (
+                len(entry) != 3
+                or len(target) != 3
+                or not all(isfinite(value) for value in entry + target)
+            ):
+                return False
+            axis_status = "ProvisionalSelectedTrajectory"
+            axis_entry, axis_target = entry, target
+            task_fingerprint = ""
+            snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            if (
+                snapshot is not None
+                and not self._logic.confirmedTaskFreshnessIssues(parameter_node)
+                and str(snapshot.trajectory_revision or "")
+                == trajectory_fingerprint
+            ):
+                snapshot_entry = tuple(float(value) for value in snapshot.entry_ras_mm)
+                snapshot_target = tuple(float(value) for value in snapshot.target_ras_mm)
+                if (
+                    tuple(round(value, 9) for value in snapshot_entry)
+                    == tuple(round(value, 9) for value in entry)
+                    and tuple(round(value, 9) for value in snapshot_target)
+                    == tuple(round(value, 9) for value in target)
+                ):
+                    axis_status = "ConfirmedCurrent"
+                    axis_entry, axis_target = snapshot_entry, snapshot_target
+                    task_fingerprint = str(snapshot.snapshot_fingerprint or "")
+            axis_fingerprint = fingerprint(
+                {
+                    "status": axis_status,
+                    "entry_ras_mm": axis_entry,
+                    "target_ras_mm": axis_target,
+                    "trajectory_fingerprint": trajectory_fingerprint,
+                    "task_fingerprint": task_fingerprint,
+                }
+            )
+            if (
+                payload.get("task_axis_status") != axis_status
+                or payload.get("task_axis_fingerprint") != axis_fingerprint
+                or payload.get("task_fingerprint", "") != task_fingerprint
+            ):
+                return False
+        except (
+            RuntimeError,
+            TypeError,
+            ValueError,
+            KeyError,
+            OverflowError,
+            json.JSONDecodeError,
+        ):
             return False
         collision_fingerprint = (
             str(collision_audit.audit_fingerprint)
@@ -1606,6 +2010,11 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "robot_load_failed", str(exc))
 
     def requestJointValue(self, joint_id: int | str, display_value: float) -> RobotActionResult:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Joint jogging is blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             if joint_id == SPINDLE_JOINT_NAME or joint_id == len(JOINT_NAMES) + 1:
@@ -1669,6 +2078,11 @@ class DENTORobotWorkflowFacade:
 
     def requestCurrentJointState(self) -> RobotActionResult:
         """Validate/publish values already written by MRML GUI binding."""
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Joint-state requests are blocked because a guarded preview stopped before endpoint verification.",
+            )
         if self.displaySyncActive:
             return RobotActionResult(
                 True,
@@ -1711,6 +2125,11 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "joint_update_failed", str(exc))
 
     def setBasePose(self, matrix_world_ras_mm) -> RobotActionResult:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Base pose changes are blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             if parameter_node.robotBaseMountLocked:
@@ -1735,6 +2154,11 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "base_pose_failed", str(exc))
 
     def lockBase(self) -> RobotActionResult:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Base lock changes are blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             if self._scene_kind(parameter_node) != "case":
@@ -1767,6 +2191,11 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "base_lock_failed", str(exc))
 
     def unlockBase(self) -> RobotActionResult:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Base lock changes are blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             self._logic.setRobotBaseMountLocked(parameter_node, False)
@@ -1855,6 +2284,11 @@ class DENTORobotWorkflowFacade:
     def saveTaskHome(self) -> RobotActionResult:
         """Persist a live, collision-accepted, monitored pose as Task Home."""
 
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Saving Task Home is blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             if not self._logic.isRos2MotionControlActive(
@@ -1973,6 +2407,11 @@ class DENTORobotWorkflowFacade:
         hardware execution.
         """
 
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Applying Task Home is blocked because a guarded preview stopped before endpoint verification.",
+            )
         try:
             parameter_node = self._require_context()
             if not self._logic.isRos2MotionControlActive(
@@ -2477,78 +2916,18 @@ class DENTORobotWorkflowFacade:
     def confirmTask(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()
+            home = self._logic.taskHomeRecord(parameter_node)
+            if home is None:
+                return RobotActionResult(
+                    False,
+                    "task_home_required",
+                    "Save a case/base-specific Task Home before confirming the task.",
+                )
             if not self.taskHomeRuntimeValidated(parameter_node):
                 return RobotActionResult(
                     False,
                     "task_home_runtime_validation_required",
                     "Apply or save Task Home in the current ROS/MoveIt session before confirming the task.",
-                )
-            if not self._logic.assistedTaskLimitsReviewed(parameter_node):
-                return RobotActionResult(
-                    False,
-                    "assisted_limits_required",
-                    "Generate and review the live workspace-assisted limits before confirming the task.",
-                )
-            if not self.workspaceRuntimeValidated(parameter_node):
-                return RobotActionResult(
-                    False,
-                    "workspace_runtime_revalidation_required",
-                    "Revalidate or regenerate the workspace in the current "
-                    "ROS/MoveIt session before task confirmation.",
-                )
-            try:
-                workspace_evidence = json.loads(
-                    str(parameter_node.step6AssistedLimitProposalJson or "")
-                )
-            except (TypeError, ValueError, json.JSONDecodeError):
-                workspace_evidence = {}
-            home = self._logic.taskHomeRecord(parameter_node)
-            collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
-            expected_collision_fingerprint = (
-                str(collision_audit.audit_fingerprint)
-                if collision_audit is not None
-                else ""
-            )
-            workspace_issues = []
-            if (
-                workspace_evidence.get("runtime_validation_status")
-                != WORKSPACE_RUNTIME_VALIDATION_STATUS
-            ):
-                workspace_issues.append(
-                    "Workspace samples lack current MoveIt static-validity and "
-                    "bounded Home-connectivity evidence."
-                )
-            if int(
-                workspace_evidence.get("home_connected_sample_count", 0) or 0
-            ) <= 0:
-                workspace_issues.append(
-                    "Workspace evidence contains no sample planned successfully from Task Home."
-                )
-            if workspace_evidence.get("task_home_fingerprint") != fingerprint(
-                home.to_dict()
-            ):
-                workspace_issues.append("Workspace evidence belongs to another Task Home.")
-            if (
-                workspace_evidence.get("collision_audit_fingerprint")
-                != expected_collision_fingerprint
-            ):
-                workspace_issues.append(
-                    "Workspace evidence belongs to another collision-scene audit."
-                )
-            if (
-                workspace_evidence.get(
-                    "workspace_validation_policy_fingerprint"
-                )
-                != self._workspace_validation_policy_fingerprint()
-            ):
-                workspace_issues.append(
-                    "Workspace evidence uses another static-validation policy."
-                )
-            if workspace_issues:
-                return RobotActionResult(
-                    False,
-                    "workspace_runtime_validation_stale",
-                    " ".join(workspace_issues),
                 )
             if (
                 self._scene_kind(parameter_node) == "case"
@@ -3257,7 +3636,27 @@ class DENTORobotWorkflowFacade:
         self._planning_scene_object_count = count
         self._planning_scene_synchronized = True
         self._template_collision_excluded_object_ids = ()
-        return self._configure_phase_guard(parameter_node, snapshot)
+        self._phase_guard_session_id = ""
+        result = self._configure_phase_guard(parameter_node, snapshot)
+        if result[0]:
+            status_getter = getattr(self._bridge, "last_task_joint_status", None)
+            try:
+                status = status_getter() if callable(status_getter) else None
+            except Exception:
+                status = None
+            if (
+                status is not None
+                and getattr(status, "task_fingerprint", "")
+                == snapshot.snapshot_fingerprint
+                and getattr(status, "phase", "") == "approach"
+                and getattr(status, "sequence", -1) == 0
+                and bool(getattr(status, "accepted", False))
+                and not bool(getattr(status, "validate_only", False))
+            ):
+                self._phase_guard_session_id = str(
+                    getattr(status, "guard_session_id", "") or ""
+                )
+        return result
 
     def _guarded_preview_checkpoints(
         self,
@@ -4106,35 +4505,6 @@ class DENTORobotWorkflowFacade:
                 self._logic.robotDescriptionPaths()[0]
             )
 
-            def limit_margins(positions):
-                if not isinstance(positions, Mapping) or any(
-                    name not in positions for name in JOINT_NAMES
-                ):
-                    return None
-                display = self._display_values_from_si(positions)
-                result = {}
-                for index, name in enumerate(JOINT_NAMES):
-                    mechanical = getattr(mechanical_limits, JOINT_LIMIT_FIELDS[index])
-                    task = getattr(task_limits, JOINT_LIMIT_FIELDS[index])
-                    value = float(display[index])
-                    mech_lo = value - float(mechanical.minimum)
-                    mech_hi = float(mechanical.maximum) - value
-                    task_lo = value - float(task.minimum)
-                    task_hi = float(task.maximum) - value
-                    result[name] = {
-                        "value_display": value,
-                        "unit": JOINT_DISPLAY_UNITS[index],
-                        "mechanical_lower_margin": mech_lo,
-                        "mechanical_upper_margin": mech_hi,
-                        "mechanical_minimum_margin": min(mech_lo, mech_hi),
-                        "mechanical_within_limits": min(mech_lo, mech_hi) >= -1.0e-8,
-                        "reviewed_task_lower_margin": task_lo,
-                        "reviewed_task_upper_margin": task_hi,
-                        "reviewed_task_minimum_margin": min(task_lo, task_hi),
-                        "reviewed_task_within_limits": min(task_lo, task_hi) >= -1.0e-8,
-                    }
-                return result
-
             seed_records: list[dict[str, object]] = []
             if progress:
                 progress("Solving position-axis IK and checking endpoints")
@@ -4155,8 +4525,16 @@ class DENTORobotWorkflowFacade:
                 positions = record.get("best_joint_positions_si") or record.get(
                     "returned_joint_positions_si"
                 )
-                record["mechanical_joint_limit_margins"] = limit_margins(positions)
-                record["reviewed_task_joint_limit_margins"] = limit_margins(positions)
+                margins = joint_limit_margin_evidence(
+                    positions,
+                    joint_names=JOINT_NAMES,
+                    joint_limit_fields=JOINT_LIMIT_FIELDS[: len(JOINT_NAMES)],
+                    display_units=JOINT_DISPLAY_UNITS[: len(JOINT_NAMES)],
+                    mechanical_limits=mechanical_limits,
+                    task_limits=task_limits,
+                )
+                record["mechanical_joint_limit_margins"] = margins
+                record["reviewed_task_joint_limit_margins"] = margins
                 if isinstance(positions, Mapping) and all(
                     name in positions for name in JOINT_NAMES
                 ):
@@ -4316,6 +4694,145 @@ class DENTORobotWorkflowFacade:
             AttributeError,
         ) as exc:
             return RobotActionResult(False, "preentry_ik_diagnostic_failed", str(exc))
+
+    def _evaluate_step6_tcp_endpoint(
+        self,
+        parameter_node,
+        positions_si: Mapping[str, float],
+        *,
+        expected_tcp_world_ras_mm: Sequence[float],
+        expected_drill_axis_world_ras_unit: Sequence[float],
+        check_static: bool = True,
+    ) -> dict[str, object]:
+        """Evaluate static validity and exact world-RAS TCP endpoint evidence."""
+
+        evaluation: dict[str, object] = {
+            "step6_tcp_endpoint_evaluation_schema_version": "1.0",
+            "status": "not_reached",
+            "static_state_validity": {
+                "status": "not_reached",
+                "authoritative": False,
+                "message": "Static joint-state validity was not requested.",
+            },
+            "collision": {"status": "not_reached", "pairs": None},
+            "fk": {
+                "status": "not_reached",
+                "message": "FK was not reached.",
+                "pose_world_ras_mm": None,
+            },
+            "position_residual_mm": None,
+            "drilling_axis_residual_deg": None,
+        }
+        if check_static:
+            valid, message, authoritative = (
+                self._bridge.check_moveit_static_joint_state(positions_si)
+            )
+            validity_status = (
+                "unknown"
+                if not authoritative
+                else "passed"
+                if valid
+                else "failed"
+            )
+            evaluation["static_state_validity"] = {
+                "status": validity_status,
+                "authoritative": bool(authoritative),
+                "message": str(message or ""),
+            }
+            if not authoritative:
+                evaluation["status"] = "unknown"
+                evaluation["collision"] = {"status": "unknown", "pairs": None}
+                evaluation["fk"]["message"] = (
+                    "FK not reached: static validity unavailable."
+                )
+                return evaluation
+            if not valid:
+                evaluation["status"] = "failed"
+                evaluation["collision"] = {"status": "unknown", "pairs": None}
+                evaluation["fk"]["message"] = "FK not reached: static state invalid."
+                return evaluation
+            evaluation["collision"] = {"status": "clear", "pairs": []}
+
+        fk_ok, fk_message, raw_pose = self._bridge.compute_tcp_pose_world_ras_mm(
+            positions_si,
+            base_transform=parameter_node.robotBaseTransform,
+        )
+        fk_message = str(fk_message or "")
+        if not fk_ok or raw_pose is None:
+            evaluation["status"] = "unknown"
+            evaluation["fk"].update(
+                status="unknown",
+                message=fk_message or "Authoritative TCP FK unavailable.",
+            )
+            return evaluation
+        pose = tuple(
+            tuple(float(raw_pose[row][column]) for column in range(4))
+            for row in range(4)
+        )
+        if not all(isfinite(value) for row in pose for value in row):
+            evaluation["status"] = "unknown"
+            evaluation["fk"].update(
+                status="unknown",
+                message=fk_message or "Authoritative TCP FK returned a non-finite pose.",
+            )
+            return evaluation
+
+        evaluation["fk"].update(
+            status="passed", message=fk_message, pose_world_ras_mm=pose
+        )
+        expected_position = tuple(
+            float(expected_tcp_world_ras_mm[i]) for i in range(3)
+        )
+        expected_axis = tuple(
+            float(expected_drill_axis_world_ras_unit[i]) for i in range(3)
+        )
+        if not all(isfinite(value) for value in (*expected_position, *expected_axis)):
+            evaluation["status"] = "unknown"
+            return evaluation
+
+        position_residual_mm = sqrt(
+            sum(
+                (pose[index][3] - expected_position[index]) ** 2
+                for index in range(3)
+            )
+        )
+        if not isfinite(position_residual_mm):
+            evaluation["status"] = "unknown"
+            return evaluation
+        evaluation["position_residual_mm"] = float(position_residual_mm)
+        expected_axis_length = sqrt(sum(value * value for value in expected_axis))
+        actual_axis = tuple(pose[row][2] for row in range(3))
+        actual_axis_length = sqrt(sum(value * value for value in actual_axis))
+        if expected_axis_length <= 1.0e-12 or actual_axis_length <= 1.0e-12:
+            evaluation["status"] = "failed"
+            evaluation["fk"].update(
+                status="failed", failure_reason="invalid_tool_axis"
+            )
+            return evaluation
+        axis_cosine = max(
+            -1.0,
+            min(
+                1.0,
+                sum(a * e for a, e in zip(actual_axis, expected_axis))
+                / (actual_axis_length * expected_axis_length),
+            ),
+        )
+        axis_residual_deg = degrees(acos(axis_cosine))
+        if not isfinite(axis_residual_deg):
+            evaluation["status"] = "unknown"
+            return evaluation
+        evaluation["drilling_axis_residual_deg"] = float(axis_residual_deg)
+        evaluation["status"] = (
+            "failed"
+            if (
+                position_residual_mm
+                > _default_bridge.CARTESIAN_START_POSITION_TOLERANCE_MM
+                or axis_residual_deg
+                > _default_bridge.CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+            )
+            else "passed"
+        )
+        return evaluation
 
     def _goal1_pre_entry_ik_candidates(
         self,
@@ -4529,106 +5046,92 @@ class DENTORobotWorkflowFacade:
                 failures.append(f"canonical TCP position-axis IK: {message}{residual}")
                 finish_seed("position_axis_ik_failed")
                 continue
-            if require_generic_static:
-                valid, validity_message, authoritative = (
-                    self._bridge.check_moveit_static_joint_state(positions)
-                )
-                if not authoritative:
-                    failures.append(
-                        "canonical TCP IK state could not be audited: "
-                        + validity_message
-                    )
-                    seed_record["static_state_validity_status"] = "Unavailable"
-                    seed_record["static_state_validity_message"] = str(
-                        validity_message
-                    )
-                    finish_seed("static_state_validity_unavailable")
-                    continue
-                if not valid:
-                    failures.append(
-                        "canonical TCP IK state is invalid: "
-                        + validity_message
-                    )
-                    seed_record["static_state_validity_status"] = "Invalid"
-                    seed_record["static_state_validity_message"] = str(
-                        validity_message
-                    )
-                    finish_seed("static_state_invalid")
-                    continue
-                seed_record["static_state_validity_status"] = "Valid"
-                seed_record["static_state_validity_message"] = str(
-                    validity_message
-                )
-            else:
-                seed_record["static_state_validity_status"] = "NotRequested"
-            seed_record["returned_joint_positions_si"] = dict(positions)
-            fk_ok, fk_message, authoritative_pose = (
-                self._bridge.compute_tcp_pose_world_ras_mm(
-                    positions,
-                    base_transform=parameter_node.robotBaseTransform,
-                )
-            )
-            if not fk_ok or authoritative_pose is None:
-                failures.append(
-                    "canonical TCP IK authoritative FK failed: " + fk_message
-                )
-                seed_record["authoritative_fk_status"] = "Failed"
-                seed_record["authoritative_fk_message"] = str(fk_message)
-                finish_seed("authoritative_fk_failed")
-                continue
-            seed_record["authoritative_fk_status"] = "Passed"
-            seed_record["authoritative_fk_message"] = str(fk_message or "")
             direction = tuple(
                 float(target[index]) - float(entry[index])
                 for index in range(3)
             )
             direction_length = sqrt(sum(value * value for value in direction))
-            tool_axis = tuple(value / direction_length for value in direction)
+            tool_axis = (
+                tuple(value / direction_length for value in direction)
+                if direction_length > 1.0e-12
+                else (0.0, 0.0, 0.0)
+            )
+            endpoint_evaluation = self._evaluate_step6_tcp_endpoint(
+                parameter_node,
+                positions,
+                expected_tcp_world_ras_mm=pre_entry,
+                expected_drill_axis_world_ras_unit=tool_axis,
+                check_static=require_generic_static,
+            )
+            seed_record["endpoint_evaluation"] = endpoint_evaluation
+            static_validity = endpoint_evaluation["static_state_validity"]
+            if require_generic_static:
+                validity_message = str(static_validity["message"] or "")
+                if not static_validity["authoritative"]:
+                    failures.append(
+                        "canonical TCP IK state could not be audited: "
+                        + validity_message
+                    )
+                    seed_record["static_state_validity_status"] = "Unavailable"
+                    seed_record["static_state_validity_message"] = validity_message
+                    finish_seed("static_state_validity_unavailable")
+                    continue
+                if static_validity["status"] != "passed":
+                    failures.append(
+                        "canonical TCP IK state is invalid: " + validity_message
+                    )
+                    seed_record["static_state_validity_status"] = "Invalid"
+                    seed_record["static_state_validity_message"] = validity_message
+                    finish_seed("static_state_invalid")
+                    continue
+                seed_record["static_state_validity_status"] = "Valid"
+                seed_record["static_state_validity_message"] = validity_message
+            else:
+                seed_record["static_state_validity_status"] = "NotRequested"
+            seed_record["returned_joint_positions_si"] = dict(positions)
+            fk = endpoint_evaluation["fk"]
+            fk_message = str(fk["message"] or "")
+            authoritative_pose = fk["pose_world_ras_mm"]
+            if fk.get("failure_reason") == "invalid_tool_axis":
+                failures.append(
+                    "canonical TCP IK authoritative FK has no tool axis."
+                )
+                seed_record["authoritative_fk_status"] = "InvalidToolAxis"
+                seed_record["authoritative_fk_message"] = fk_message
+                finish_seed("authoritative_fk_invalid_tool_axis")
+                continue
+            if fk["status"] != "passed" or authoritative_pose is None:
+                failures.append(
+                    "canonical TCP IK authoritative FK failed: " + fk_message
+                )
+                seed_record["authoritative_fk_status"] = "Failed"
+                seed_record["authoritative_fk_message"] = fk_message
+                finish_seed("authoritative_fk_failed")
+                continue
+            seed_record["authoritative_fk_status"] = "Passed"
+            seed_record["authoritative_fk_message"] = fk_message
             rotation = tuple(
                 tuple(float(authoritative_pose[row][column]) for column in range(3))
                 for row in range(3)
             )
-            position_residual_mm = sqrt(
-                sum(
-                    (
-                        float(authoritative_pose[index][3])
-                        - float(pre_entry[index])
-                    )
-                    ** 2
-                    for index in range(3)
+            position_residual_mm = endpoint_evaluation["position_residual_mm"]
+            axis_residual_deg = endpoint_evaluation[
+                "drilling_axis_residual_deg"
+            ]
+            if position_residual_mm is None or axis_residual_deg is None:
+                failures.append(
+                    "canonical TCP IK authoritative FK residuals are unavailable."
                 )
-            )
-            actual_axis = tuple(rotation[row][2] for row in range(3))
-            actual_axis_length = sqrt(sum(value * value for value in actual_axis))
-            if actual_axis_length <= 1.0e-12:
-                failures.append("canonical TCP IK authoritative FK has no tool axis.")
-                seed_record["authoritative_fk_status"] = "InvalidToolAxis"
-                finish_seed("authoritative_fk_invalid_tool_axis")
+                seed_record["authoritative_fk_status"] = "Failed"
+                finish_seed("authoritative_fk_failed")
                 continue
-            axis_cosine = max(
-                -1.0,
-                min(
-                    1.0,
-                    sum(
-                        actual_axis[index] * tool_axis[index]
-                        for index in range(3)
-                    )
-                    / actual_axis_length,
-                ),
-            )
-            axis_residual_deg = degrees(acos(axis_cosine))
             seed_record["authoritative_position_residual_mm"] = float(
                 position_residual_mm
             )
             seed_record["authoritative_drilling_axis_residual_deg"] = float(
                 axis_residual_deg
             )
-            if (
-                position_residual_mm
-                > _default_bridge.CARTESIAN_START_POSITION_TOLERANCE_MM
-                or axis_residual_deg
-                > _default_bridge.CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
-            ):
+            if endpoint_evaluation["status"] == "failed":
                 failures.append(
                     "canonical TCP IK authoritative FK exceeds tolerance: "
                     f"position={position_residual_mm:.6g} mm, "
@@ -4636,6 +5139,13 @@ class DENTORobotWorkflowFacade:
                 )
                 seed_record["authoritative_fk_status"] = "OutsideTolerance"
                 finish_seed("authoritative_fk_outside_tolerance")
+                continue
+            if endpoint_evaluation["status"] != "passed":
+                failures.append(
+                    "canonical TCP IK authoritative FK residuals are unavailable."
+                )
+                seed_record["authoritative_fk_status"] = "Failed"
+                finish_seed("authoritative_fk_failed")
                 continue
             ik_diagnostic = {
                 **dict(ik_diagnostic),
@@ -6746,6 +7256,17 @@ class DENTORobotWorkflowFacade:
         on_progress: Optional[Callable[[int, int], None]] = None,
         on_finished: Optional[Callable[[RobotActionResult], None]] = None,
     ) -> RobotActionResult:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "A guarded phase stopped before endpoint verification. Further preview is blocked while its accepted and rejected evidence is retained.",
+            )
+        if self._guarded_preview_active:
+            return RobotActionResult(
+                False,
+                "phase_preview_active",
+                "A guarded simulation phase preview is already active.",
+            )
         plan = self._motion_plan
         if (
             not isinstance(plan, PhasePlan)
@@ -6827,6 +7348,10 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "phase_preview_failed", str(exc))
         self.stopPreview()
         self._preview_index = 0
+        self._guarded_preview_active = True
+        self._guarded_preview_phase = str(requested_phase)
+        self._guarded_preview_task_fingerprint = str(plan.task_fingerprint)
+        self._guarded_preview_request = None
         self._preview_exploratory_tool_contact = False
         self._preview_suppressed_tool_contact_samples = 0
         self._preview_guide_clearance_warnings = []
@@ -6843,6 +7368,11 @@ class DENTORobotWorkflowFacade:
         timer.setSingleShot(True)
 
         def schedule_next() -> None:
+            if (
+                not self._guarded_preview_active
+                or self._incomplete_preview_evidence is not None
+            ):
+                return
             if self._preview_index >= len(plan.waypoint_joint_vectors_si):
                 # The final accepted waypoint still needs one event-loop turn
                 # to enter the completion branch, where endpoint FK and the
@@ -6875,24 +7405,58 @@ class DENTORobotWorkflowFacade:
             review_checker = getattr(self._logic, "step6AnatomyReviewFreshnessIssues", None)
             review_issues = review_checker(parameter_node) if callable(review_checker) else ()
             if review_issues:
-                self.stopPreview()
+                self._latch_incomplete_preview(
+                    "Anatomy review changed before the guarded phase endpoint was verified."
+                )
+                self._stop_preview_timer()
                 self._clear_phase_session()
                 self._robot_away_from_home = True
                 if on_finished:
-                    on_finished(RobotActionResult(False, "task_stale", "; ".join(review_issues)))
+                    on_finished(
+                        RobotActionResult(
+                            False,
+                            "task_stale",
+                            "; ".join(review_issues),
+                            details={
+                                "incompletePreview": deepcopy(
+                                    self._incomplete_preview_evidence
+                                )
+                            },
+                        )
+                    )
                 return
             if self._preview_index >= len(plan.waypoint_joint_vectors_si):
                 completed_phase = plan.requested_phase
-                self.stopPreview()
+                self._stop_preview_timer()
                 endpoint = self._verify_preview_endpoint(plan)
                 if not endpoint.success:
+                    self._latch_incomplete_preview(
+                        "The guarded phase endpoint was not verified: "
+                        + endpoint.message
+                    )
                     self._clear_phase_session()
                     self._robot_away_from_home = True
                     if on_finished:
-                        on_finished(endpoint)
+                        on_finished(
+                            RobotActionResult(
+                                False,
+                                endpoint.code,
+                                endpoint.message,
+                                details={
+                                    **dict(endpoint.details),
+                                    "incompletePreview": deepcopy(
+                                        self._incomplete_preview_evidence
+                                    ),
+                                },
+                                payload=endpoint.payload,
+                            )
+                        )
                     return
                 self._completed_phase = completed_phase
                 self._robot_away_from_home = True
+                self._guarded_preview_active = False
+                self._guarded_preview_phase = ""
+                self._guarded_preview_request = None
                 if on_finished:
                     warning_summary = self._guide_clearance_warning_summary(
                         self._preview_guide_clearance_warnings
@@ -6943,7 +7507,10 @@ class DENTORobotWorkflowFacade:
                 return
             current_issues = self._logic.confirmedTaskFreshnessIssues(parameter_node)
             if current_issues:
-                self.stopPreview()
+                self._latch_incomplete_preview(
+                    "Task identity changed before the guarded phase endpoint was verified."
+                )
+                self._stop_preview_timer()
                 self._clear_phase_session()
                 if on_finished:
                     on_finished(
@@ -6953,11 +7520,28 @@ class DENTORobotWorkflowFacade:
                             "Task changed during preview: "
                             + ", ".join(current_issues)
                             + " Re-plan Approach to start a new guarded session.",
+                            details={
+                                "incompletePreview": deepcopy(
+                                    self._incomplete_preview_evidence
+                                )
+                            },
                         )
                     )
                 return
             positions = plan.waypoint_joint_vectors_si[self._preview_index]
             phase = plan.waypoint_phases[self._preview_index]
+            request = {
+                "taskFingerprint": str(plan.task_fingerprint),
+                "guardSessionId": str(self._phase_guard_session_id or ""),
+                "phase": str(phase),
+                "sequence": int(self._phase_sequence),
+                "waypointIndex": int(self._preview_index),
+                "acceptedPrefixCount": max(
+                    0, len(self._accepted_motion_history) - 1
+                ),
+                "requestedPositionsSi": dict(positions),
+            }
+            self._guarded_preview_request = request
             self._preview_waypoint_in_flight = True
             try:
                 ok, message = self._bridge.apply_task_phase_joint_positions(
@@ -6967,7 +7551,30 @@ class DENTORobotWorkflowFacade:
                     sequence=self._phase_sequence,
                 )
                 if not ok:
-                    self.stopPreview()
+                    failure = {
+                        "phase": str(phase),
+                        "sequence": int(request["sequence"]),
+                        "waypointIndex": int(request["waypointIndex"]),
+                        "requestedPositionsSi": dict(positions),
+                        **self._preview_request_status(
+                            request, accepted=False, message=message
+                        ),
+                    }
+                    if self._incomplete_preview_evidence is None:
+                        self._latch_incomplete_preview(
+                            "The phase guard rejected a requested waypoint: " + message,
+                            request=request,
+                            first_rejected=failure,
+                        )
+                    else:
+                        self._latch_incomplete_preview(
+                            "The guarded preview was stopped while a waypoint request was pending.",
+                            request=request,
+                        )
+                        self._record_incomplete_preview_request_result(
+                            request, accepted=False, message=message
+                        )
+                    self._stop_preview_timer()
                     self._clear_phase_session()
                     if on_finished:
                         on_finished(
@@ -6976,6 +7583,11 @@ class DENTORobotWorkflowFacade:
                                 "phase_waypoint_rejected",
                                 message
                                 + " Re-plan Approach to start a new guarded session.",
+                                details={
+                                    "incompletePreview": deepcopy(
+                                        self._incomplete_preview_evidence
+                                    )
+                                },
                             )
                         )
                     return
@@ -7068,6 +7680,9 @@ class DENTORobotWorkflowFacade:
                 self._append_motion_history_waypoint(
                     positions, phase, plan.task_fingerprint
                 )
+                self._record_incomplete_preview_request_result(
+                    request, accepted=True, message=message
+                )
                 # Keep the re-entrancy latch held until the accepted sequence and
                 # MRML display state have both advanced.  EndModify can process
                 # widget refresh callbacks, which in turn may spin Qt and fire
@@ -7093,6 +7708,11 @@ class DENTORobotWorkflowFacade:
                     )
             finally:
                 self._preview_waypoint_in_flight = False
+                if self._incomplete_preview_evidence is not None:
+                    self._guarded_preview_active = False
+                self._guarded_preview_request = None
+            if self._incomplete_preview_evidence is not None:
+                return
             schedule_next()
 
         timer.timeout.connect(advance)
@@ -7174,42 +7794,66 @@ class DENTORobotWorkflowFacade:
         return RobotActionResult(True, "preview_started", f"Previewing {len(waypoints)} simulated waypoint(s).")
 
     def stopPreview(self) -> RobotActionResult:
+        if self._guarded_preview_active:
+            self._latch_incomplete_preview(
+                "Manual stop requested before guarded phase endpoint verification.",
+                request=self._guarded_preview_request,
+            )
+            if not self._preview_waypoint_in_flight:
+                self._guarded_preview_active = False
+        return self._stop_preview_timer()
+
+    def _stop_preview_timer(self) -> RobotActionResult:
         if self._preview_timer is not None:
             self._preview_timer.stop()
             self._preview_timer = None
-        self._preview_index = 0
-        self._preview_waypoint_in_flight = False
+        if not self._preview_waypoint_in_flight:
+            self._preview_index = 0
         return RobotActionResult(True, "preview_stopped", "Simulated preview stopped.")
 
     def stopGuardedPreview(self) -> RobotActionResult:
-        """Stop a live preview and consume it once any waypoint was accepted."""
+        """Stop a live guarded preview and retain its unverified evidence."""
 
-        had_timer = self._preview_timer is not None
-        accepted_count = int(self._preview_index)
-        result = self.stopPreview()
-        if had_timer and accepted_count > 0:
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "This guarded preview is already incomplete; its retained evidence blocks motion.",
+            )
+        if self._guarded_preview_active:
+            accepted_count = max(0, len(self._accepted_motion_history) - 1)
+            self._latch_incomplete_preview(
+                "Manual stop requested before guarded phase endpoint verification.",
+                request=self._guarded_preview_request,
+            )
+            self._stop_preview_timer()
+            if not self._preview_waypoint_in_flight:
+                self._guarded_preview_active = False
             self._robot_away_from_home = True
             return RobotActionResult(
                 True,
                 "preview_stopped_return_required",
-                "Preview stopped after accepted motion. Its accepted history is "
-                "retained, but an incomplete phase cannot start guarded return.",
-                details={"acceptedWaypointCount": accepted_count},
+                "Preview stopped before endpoint verification. The accepted prefix "
+                "and current request evidence are retained; Return Home is blocked.",
+                details={"incompletePreview": deepcopy(
+                             self._incomplete_preview_evidence
+                         ),
+                         "acceptedWaypointCount": accepted_count},
             )
-        return result
+        return self._stop_preview_timer()
 
     def returnToTaskHome(self) -> RobotActionResult:
         """Reverse accepted task motion under the phase guard, then verify Home."""
 
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "guarded_return_partial_phase",
+                "Guarded Return Home is blocked because a preview phase stopped before endpoint verification. The exact saved prefix is retained for review; recovery is not available in this session.",
+            )
         stopped = self.stopGuardedPreview()
         if stopped.code == "preview_stopped_return_required":
-            return RobotActionResult(
-                False,
+            return self._incomplete_preview_block(
                 "guarded_return_partial_phase",
-                "Guarded return is blocked because the active phase stopped before "
-                "endpoint verification. Re-establish the saved simulation state "
-                "before continuing.",
-                details=stopped.details,
+                "Guarded Return Home is blocked because the active phase stopped before endpoint verification. The exact saved prefix is retained for review.",
             )
         if not self._robot_away_from_home:
             self._clear_phase_session()
@@ -7384,196 +8028,726 @@ class DENTORobotWorkflowFacade:
             payload=result.payload,
         )
 
-    def generateWorkspaceCloud(self, progress=None) -> RobotActionResult:
+    def defaultTaskSpaceRoi(self) -> RobotActionResult:
+        """Return the current opened-incisor ROI without changing case state."""
+
         try:
-            if progress:
-                progress("Checking Task Home and MoveIt")
             parameter_node = self._require_context()
-            self._runtime_validated_workspace_key = ""
-            if not self._logic.isRos2MotionControlActive(
-                parameter_node.robotBaseTransform
+            if self._scene_kind(parameter_node) != "case":
+                return RobotActionResult(
+                    False,
+                    "case_required",
+                    "Open a reviewed case before deriving the task-space ROI.",
+                )
+            gap_line = getattr(parameter_node, "step6CaseJawGapLine", None)
+            if gap_line is None:
+                return RobotActionResult(
+                    False,
+                    "incisor_gap_line_missing",
+                    "The current Case Foundation incisor-gap line is unavailable.",
+                )
+            preparation_issue = self._scene_preparation_issue(parameter_node)
+            if preparation_issue:
+                return RobotActionResult(
+                    False,
+                    "case_foundation_stale",
+                    _bounded_text(preparation_issue),
+                )
+
+            is_line_node = getattr(gap_line, "IsA", None)
+            if not callable(is_line_node) or not is_line_node(
+                "vtkMRMLMarkupsLineNode"
             ):
                 return RobotActionResult(
                     False,
+                    "incisor_gap_line_invalid",
+                    "The Case Foundation reference is not a Markups line node.",
+                )
+            expected_role = getattr(
+                self._logic, "STEP6_CASE_JAW_GAP_LINE_ROLE", None
+            )
+            if not expected_role:
+                return RobotActionResult(
+                    False,
+                    "incisor_gap_line_role_unavailable",
+                    "The canonical Case Foundation incisor-gap role is unavailable.",
+                )
+            if gap_line.GetAttribute("DENTOBOT.MarkupsRole") != expected_role:
+                return RobotActionResult(
+                    False,
+                    "incisor_gap_line_wrong_role",
+                    "The referenced line is not the Case Foundation incisor-gap line.",
+                )
+            if gap_line.GetNumberOfDefinedControlPoints() != 2:
+                return RobotActionResult(
+                    False,
+                    "incisor_gap_line_ambiguous",
+                    "The Case Foundation incisor-gap line must have "
+                    "exactly two defined points.",
+                )
+
+            upper_incisor = [0.0, 0.0, 0.0]
+            opened_lower_incisor = [0.0, 0.0, 0.0]
+            gap_line.GetNthControlPointPositionWorld(0, upper_incisor)
+            gap_line.GetNthControlPointPositionWorld(1, opened_lower_incisor)
+            roi = default_task_space_roi_from_incisors(
+                upper_incisor_world_ras_mm=upper_incisor,
+                opened_lower_incisor_world_ras_mm=opened_lower_incisor,
+            )
+            opening_revision = int(parameter_node.caseFoundationOpeningRevision)
+            gap_line_node_id = str(gap_line.GetID() or "").strip()
+            if not gap_line_node_id:
+                return RobotActionResult(
+                    False,
+                    "incisor_gap_line_invalid",
+                    "The Case Foundation incisor-gap line has no scene identity.",
+                )
+            return RobotActionResult(
+                True,
+                "task_space_roi_ready",
+                "Default task-space ROI derived from the current opened-incisor line.",
+                payload={
+                    "centerWorldRasMm": roi.center_world_ras_mm,
+                    "dimensionsMm": roi.dimensions_mm,
+                    "openingRevision": opening_revision,
+                    "gapLineNodeId": gap_line_node_id,
+                },
+            )
+        except Exception as exc:
+            return RobotActionResult(
+                False,
+                "task_space_roi_failed",
+                _bounded_text(exc),
+            )
+
+    def generateWorkspaceCloud(
+        self,
+        progress=None,
+        *,
+        roi: Optional[TaskSpaceRoi] = None,
+        roi_source: Optional[Mapping[str, object]] = None,
+    ) -> RobotActionResult:
+        """Generate ROI-limited samples and validate them through MoveIt."""
+        started = monotonic()
+        phase_timings_sec: dict[str, float] = {}
+        counts = {
+            "roiCandidateCount": 0,
+            "positionAxisIkAttemptCount": 0,
+            "positionAxisIkSuccessCount": 0,
+            "positionAxisIkFailureCount": 0,
+            "moveItStaticValidityAttemptCount": 0,
+            "moveItStaticValidityAcceptedCount": 0,
+            "moveItStaticValidityRejectedCount": 0,
+            "moveItStaticValidityUnevaluatedCount": 0,
+            "moveItFkAttemptCount": 0,
+            "homeConnectivityEvaluatedCount": 0,
+            "homeConnectedCount": 0,
+            "homeConnectivityRejectedCount": 0,
+        }
+        ik_termination_counts: dict[str, int] = {}
+        ik_collision_check_counts: dict[str, int] = {}
+        ik_failure_examples: list[dict[str, object]] = []
+        runtime_rejections: list[str] = []
+        roi_fp = ""
+        source_fp = ""
+        source_record: dict[str, object] = {}
+        axis_status = "Unavailable"
+        axis_fp = ""
+        task_fp = ""
+        workspace_model = None
+        workspace_model_updated = False
+
+        def record_phase(name: str, phase_started: float) -> None:
+            phase_timings_sec[name] = phase_timings_sec.get(name, 0.0) + max(
+                0.0, monotonic() - phase_started
+            )
+
+        def mark_provisional(model) -> None:
+            setter = getattr(model, "SetAttribute", None)
+            if callable(setter):
+                try:
+                    setter("DENTOBOT.WorkspaceRuntimeValidated", "false")
+                    setter("DENTOBOT.WorkspaceState", "Provisional")
+                except Exception:
+                    pass
+
+        def mark_stale(model) -> None:
+            setter = getattr(model, "SetAttribute", None)
+            if callable(setter):
+                try:
+                    setter("DENTOBOT.WorkspaceRuntimeValidated", "false")
+                    setter("DENTOBOT.WorkspaceState", "Stale")
+                except Exception:
+                    pass
+
+        def mark_axis_status(model) -> None:
+            setter = getattr(model, "SetAttribute", None)
+            if callable(setter) and axis_status != "Unavailable":
+                try:
+                    setter("DENTOBOT.WorkspaceTaskAxisStatus", axis_status)
+                except Exception:
+                    pass
+
+        def details(extra=None) -> dict[str, object]:
+            elapsed = max(0.0, monotonic() - started)
+            timings = dict(phase_timings_sec)
+            timings["totalSec"] = elapsed
+            return {
+                "candidateCounts": dict(counts),
+                "phaseTimingsSec": timings,
+                "elapsedSec": elapsed,
+                "ikTerminationCounts": dict(ik_termination_counts),
+                "ikCollisionCheckCounts": dict(ik_collision_check_counts),
+                "ikFailureExamples": tuple(ik_failure_examples),
+                "sampleFailures": tuple(runtime_rejections),
+                "roiFingerprint": roi_fp,
+                "roiSourceFingerprint": source_fp,
+                "roiSource": dict(source_record),
+                "taskAxisStatus": axis_status,
+                "taskAxisFingerprint": axis_fp,
+                "taskFingerprint": task_fp,
+                **dict(extra or {}),
+            }
+
+        def fail(code: str, message: str, **extra) -> RobotActionResult:
+            self._runtime_validated_workspace_key = ""
+            if workspace_model_updated:
+                mark_provisional(workspace_model)
+            else:
+                mark_stale(workspace_model)
+            return RobotActionResult(
+                False, code, message, details=details(extra)
+            )
+
+        try:
+            if progress:
+                progress("Checking Task Home and synchronized scene")
+            parameter_node = self._require_context()
+            self._runtime_validated_workspace_key = ""
+            model_reader = getattr(self._logic, "robotWorkspaceModelNode", None)
+            try:
+                workspace_model = (
+                    model_reader() if callable(model_reader) else None
+                )
+                mark_stale(workspace_model)
+            except Exception:
+                workspace_model = None
+            if not self._logic.isRos2MotionControlActive(
+                parameter_node.robotBaseTransform
+            ):
+                return fail(
                     "runtime_required",
                     "Connect ROS/MoveIt in 6.1 before generating the workspace.",
                 )
+            if not self._planning_scene_synchronized:
+                return fail(
+                    "planning_scene_required",
+                    "Synchronize and audit the current MoveIt PlanningScene before generating workspace samples.",
+                )
+            scene_issues = self._logic.collisionSceneAuditFreshnessIssues(
+                parameter_node
+            )
+            if scene_issues:
+                return fail("planning_scene_stale", " ".join(scene_issues))
+            collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
+            if collision_audit is None or not collision_audit.audit_fingerprint:
+                return fail(
+                    "planning_scene_required",
+                    "The synchronized collision-scene audit is unavailable.",
+                )
+            collision_fingerprint = str(collision_audit.audit_fingerprint)
+
+            roi_started = monotonic()
+            default_result = self.defaultTaskSpaceRoi()
+            if not default_result.success:
+                record_phase("roiSource", roi_started)
+                return fail(
+                    str(default_result.code or "workspace_roi_source_unavailable"),
+                    str(default_result.message or "The current ROI source is unavailable."),
+                )
+            if not isinstance(default_result.payload, Mapping):
+                record_phase("roiSource", roi_started)
+                return fail(
+                    "workspace_roi_source_invalid",
+                    "The current opened-incisor ROI source is malformed.",
+                )
+            try:
+                default_payload = dict(default_result.payload)
+                revision = default_payload["openingRevision"]
+                gap_line_id = default_payload["gapLineNodeId"]
+                default_roi = TaskSpaceRoi(
+                    center_world_ras_mm=default_payload["centerWorldRasMm"],
+                    dimensions_mm=default_payload["dimensionsMm"],
+                )
+                if (
+                    isinstance(revision, bool)
+                    or not isinstance(revision, int)
+                    or revision < 0
+                    or not isinstance(gap_line_id, str)
+                    or not gap_line_id.strip()
+                ):
+                    raise ValueError("the Case Foundation ROI source identity is invalid")
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                record_phase("roiSource", roi_started)
+                return fail("workspace_roi_source_invalid", _bounded_text(exc))
+            current_source = {
+                "openingRevision": int(revision),
+                "gapLineNodeId": gap_line_id.strip(),
+            }
+            if roi_source is not None:
+                if not isinstance(roi_source, Mapping):
+                    record_phase("roiSource", roi_started)
+                    return fail(
+                        "workspace_roi_source_invalid",
+                        "Edited ROI source must identify the current opening revision and gap line.",
+                    )
+                supplied_revision = roi_source.get("openingRevision")
+                supplied_line_id = roi_source.get("gapLineNodeId")
+                if (
+                    isinstance(supplied_revision, bool)
+                    or not isinstance(supplied_revision, int)
+                    or supplied_revision < 0
+                    or not isinstance(supplied_line_id, str)
+                    or not supplied_line_id.strip()
+                ):
+                    record_phase("roiSource", roi_started)
+                    return fail(
+                        "workspace_roi_source_invalid",
+                        "Edited ROI source identity is invalid.",
+                    )
+                supplied_source = {
+                    "openingRevision": int(supplied_revision),
+                    "gapLineNodeId": supplied_line_id.strip(),
+                }
+                if supplied_source != current_source:
+                    record_phase("roiSource", roi_started)
+                    return fail(
+                        "workspace_roi_source_stale",
+                        "The edited ROI belongs to a stale Case Foundation opening or gap line.",
+                        suppliedRoiSource=supplied_source,
+                        currentRoiSource=current_source,
+                    )
+            elif roi is not None:
+                record_phase("roiSource", roi_started)
+                return fail(
+                    "workspace_roi_source_required",
+                    "Edited ROI bounds require the current opening revision and gap-line identity.",
+                )
+            selected_roi = default_roi if roi is None else roi
+            if not isinstance(selected_roi, TaskSpaceRoi):
+                record_phase("roiSource", roi_started)
+                return fail(
+                    "workspace_roi_invalid",
+                    "ROI must be a valid TaskSpaceRoi in world RAS millimetres.",
+                )
+            source_record = current_source
+            source_fp = fingerprint(source_record)
+            roi_fp = fingerprint(
+                {
+                    "center_world_ras_mm": selected_roi.center_world_ras_mm,
+                    "dimensions_mm": selected_roi.dimensions_mm,
+                    "source_fingerprint": source_fp,
+                }
+            )
+            record_phase("roiSource", roi_started)
+
+            trajectory_issues = self._logic.step6PlanningContextFreshnessIssues(
+                parameter_node
+            )
+            if trajectory_issues:
+                return fail(
+                    "workspace_trajectory_stale",
+                    " ".join(trajectory_issues),
+                )
+            trajectory = self._logic.step6TrajectorySummary(parameter_node)
+            if not isinstance(trajectory, Mapping) or not trajectory.get("isValid"):
+                return fail(
+                    "workspace_trajectory_required",
+                    "Select a current valid Entry/Target trajectory before generating workspace samples.",
+                )
+            trajectory_fp = str(
+                self._logic.step6TrajectoryRevision(parameter_node) or ""
+            )
+            if not trajectory_fp:
+                return fail(
+                    "workspace_trajectory_required",
+                    "The selected Entry/Target trajectory has no current identity.",
+                )
+            try:
+                entry = tuple(float(value) for value in trajectory["entryRas"])
+                target = tuple(float(value) for value in trajectory["targetRas"])
+                if (
+                    len(entry) != 3
+                    or len(target) != 3
+                    or not all(isfinite(value) for value in entry + target)
+                ):
+                    raise ValueError("trajectory points must be finite RAS triplets")
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                return fail("workspace_trajectory_invalid", _bounded_text(exc))
+
+            axis_status = "ProvisionalSelectedTrajectory"
+            axis_entry, axis_target = entry, target
+            try:
+                snapshot = self._logic.confirmedTaskRecord(parameter_node)
+                current_snapshot = bool(
+                    snapshot is not None
+                    and not self._logic.confirmedTaskFreshnessIssues(parameter_node)
+                    and str(snapshot.trajectory_revision or "") == trajectory_fp
+                )
+                if current_snapshot:
+                    snap_entry = tuple(float(value) for value in snapshot.entry_ras_mm)
+                    snap_target = tuple(float(value) for value in snapshot.target_ras_mm)
+                    if (
+                        tuple(round(value, 9) for value in snap_entry)
+                        == tuple(round(value, 9) for value in entry)
+                        and tuple(round(value, 9) for value in snap_target)
+                        == tuple(round(value, 9) for value in target)
+                    ):
+                        axis_entry, axis_target = snap_entry, snap_target
+                        axis_status = "ConfirmedCurrent"
+                        task_fp = str(snapshot.snapshot_fingerprint or "")
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                pass
+            axis_fp = fingerprint(
+                {
+                    "status": axis_status,
+                    "entry_ras_mm": axis_entry,
+                    "target_ras_mm": axis_target,
+                    "trajectory_fingerprint": trajectory_fp,
+                    "task_fingerprint": task_fp,
+                }
+            )
+            sample_count = int(parameter_node.robotWorkspaceSampleCount)
+            if sample_count < 50 or sample_count > 5000:
+                return fail(
+                    "workspace_sample_count_invalid",
+                    "Workspace sample count must be between 50 and 5000.",
+                )
             if not self.taskHomeRuntimeValidated(parameter_node):
-                return RobotActionResult(
-                    False,
+                return fail(
                     "task_home_runtime_validation_required",
                     "Save or apply a live-validated Task Home in 6.2 before generating the workspace.",
                 )
             home = self._logic.taskHomeRecord(parameter_node)
-            home_positions = dict(zip(home.joint_names, home.joint_positions_si))
+            if home is None:
+                return fail(
+                    "task_home_required",
+                    "Save a case/base-specific Task Home before generating the workspace.",
+                )
+            home_positions = canonicalize_planning_joint_positions(
+                dict(zip(home.joint_names, home.joint_positions_si))
+            )
             monitored_ok, monitored_message, monitored, monitored_error = (
                 self._bridge.wait_for_monitored_joint_positions_si(
-                    home_positions,
-                    timeout_sec=1.0,
+                    home_positions, timeout_sec=1.0
                 )
             )
             if not monitored_ok:
-                return RobotActionResult(
-                    False,
+                return fail(
                     "workspace_start_state_mismatch",
                     "Workspace exploration must start from Task Home. "
-                    + monitored_message,
-                    details={
-                        "expectedJointPositionsSi": home_positions,
-                        "monitoredJointPositionsSi": monitored,
-                        "maximumJointError": monitored_error,
-                    },
+                    + str(monitored_message),
+                    expectedJointPositionsSi=home_positions,
+                    monitoredJointPositionsSi=monitored,
+                    maximumJointError=monitored_error,
                 )
-            model, report = self._logic.createOrUpdateRobotWorkspace(
-                parameter_node,
-                progress=(lambda done, total: progress("Sampling local TCP workspace", done, total)) if progress else None,
-            )
-            local_requested_count = report.requested_count
-            locally_accepted_count = report.accepted_count
-            local_self_rejections = report.self_collision_rejections
-            local_environment_rejections = report.environment_rejections
-            all_candidate_samples = tuple(report.accepted_samples)
-            selected_indices = _bounded_even_indices(
-                len(all_candidate_samples),
-                WORKSPACE_RUNTIME_VALIDATION_MAX_SAMPLES,
-            )
-            candidate_samples = tuple(
-                (source_index, all_candidate_samples[source_index])
-                for source_index in selected_indices
-            )
-            runtime_accepted = []
-            accepted_sample_evidence: list[dict[str, Any]] = []
-            runtime_rejections: list[str] = []
-            maximum_local_moveit_fk_difference_mm = 0.0
-            for sample_index, (source_index, sample) in enumerate(candidate_samples):
-                if progress:
-                    progress("Checking MoveIt static states", sample_index, len(candidate_samples))
-                sample_positions = canonicalize_planning_joint_positions(
-                    sample.joint_positions_si_dict()
-                )
-                valid, validity_message, authoritative = (
-                    self._bridge.check_moveit_static_joint_state(
-                        sample_positions
-                    )
-                )
-                if not authoritative:
-                    return RobotActionResult(
-                        False,
-                        "workspace_runtime_validation_unavailable",
-                        "Workspace generation stopped because MoveIt did not "
-                        "return authoritative static-state validity. "
-                        + validity_message,
-                        details={
-                            "candidateIndex": sample_index,
-                            "locallyAcceptedCandidateCount": locally_accepted_count,
-                            "runtimeEvaluatedCandidateCount": len(candidate_samples),
-                        },
-                    )
-                if valid:
-                    fk_ok, fk_message, tcp_base_mm = (
-                        self._bridge.compute_moveit_static_tcp_pose_base_mm(
-                            sample_positions
-                        )
-                    )
-                    if not fk_ok or tcp_base_mm is None:
-                        return RobotActionResult(
-                            False,
-                            "workspace_moveit_fk_unavailable",
-                            "Workspace generation stopped because MoveIt did not "
-                            "return authoritative explicit-state TCP FK. "
-                            + fk_message,
-                            details={"candidateIndex": sample_index},
-                        )
-                    fk_difference_mm = sum(
-                        (
-                            float(tcp_base_mm[index])
-                            - float(sample.tcp_base_mm[index])
-                        )
-                        ** 2
-                        for index in range(3)
-                    ) ** 0.5
-                    maximum_local_moveit_fk_difference_mm = max(
-                        maximum_local_moveit_fk_difference_mm,
-                        fk_difference_mm,
-                    )
-                    runtime_accepted.append(
-                        sample.__class__(
-                            tcp_base_mm=tuple(tcp_base_mm),
-                            joint_display=tuple(sample.joint_display[:-1]) + (0.0,),
-                            joint_positions_si=tuple(
-                                (name, float(sample_positions[name]))
-                                for name in JOINT_NAMES
-                            ),
-                        )
-                    )
-                    accepted_sample_evidence.append(
-                        {
-                            "sample_index": len(runtime_accepted) - 1,
-                            "source_candidate_index": source_index,
-                            "tcp_base_mm": [float(value) for value in tcp_base_mm],
-                            "joint_names": list(JOINT_NAMES),
-                            "joint_positions_si": [
-                                float(sample_positions[name])
-                                for name in JOINT_NAMES
-                            ],
-                            "joint_display": [
-                                float(value) for value in sample.joint_display
-                            ],
-                            "static_state_validity": {
-                                "status": "Valid",
-                                "authoritative": True,
-                                "message": _bounded_text(validity_message),
-                            },
-                            "tcp_fk": {
-                                "source": "MoveItRobotState",
-                                "message": _bounded_text(fk_message),
-                                "local_difference_mm": fk_difference_mm,
-                            },
-                            "home_connectivity": {
-                                "status": "NotEvaluated"
-                            },
-                        }
-                    )
-                elif len(runtime_rejections) < 8:
-                    runtime_rejections.append(
-                        f"sample {source_index}: {validity_message}"
-                    )
-                if sample_index % 10 == 0:
-                    try:
-                        import slicer
+            task_limits = self._logic.getTaskJointLimits(parameter_node)
 
-                        slicer.app.processEvents()
-                    except Exception:
-                        pass
-            if not runtime_accepted:
-                return RobotActionResult(
-                    False,
-                    "workspace_no_moveit_valid_samples",
-                    "MoveIt rejected every locally generated workspace candidate "
-                    "against the synchronized PlanningScene.",
-                    details={"sampleFailures": tuple(runtime_rejections)},
-                )
-            connectivity_indices = self._home_connectivity_sample_indices(
-                runtime_accepted,
-                home_positions,
+            candidate_started = monotonic()
+            candidates = deterministic_task_space_tcp_candidates(
+                selected_roi,
+                sample_count,
+                confirmed_drill_axis_world_ras=tuple(
+                    axis_target[index] - axis_entry[index] for index in range(3)
+                ),
             )
-            home_connected_sample_count = 0
-            home_connectivity_rejected_sample_count = 0
-            connectivity_scene_refreshed = False
-            for connectivity_order, accepted_index in enumerate(
-                connectivity_indices
-            ):
-                if progress:
-                    progress("Checking Task Home connectivity", connectivity_order, len(connectivity_indices))
-                sample = runtime_accepted[accepted_index]
-                sample_positions = sample.joint_positions_si_dict()
-                matches_home, maximum_delta, mismatched = (
-                    self._joint_positions_match(home_positions, sample_positions)
+            counts["roiCandidateCount"] = len(candidates)
+            record_phase("candidateGeneration", candidate_started)
+
+            pose_builder = getattr(
+                self._bridge,
+                "tool_pose_matrices_world_mm",
+                _default_bridge.tool_pose_matrices_world_mm,
+            )
+            goal_setter = getattr(
+                self._bridge,
+                "set_moveit_tcp_goal_matrix",
+                _default_bridge.set_moveit_tcp_goal_matrix,
+            )
+            solver = getattr(
+                self._bridge,
+                "solve_moveit_tcp_position_axis_goal",
+                _default_bridge.solve_moveit_tcp_position_axis_goal,
+            )
+            if not all(callable(value) for value in (pose_builder, goal_setter, solver)):
+                return fail(
+                    "workspace_position_axis_ik_unavailable",
+                    "MoveIt position-axis workspace sampling is unavailable in this runtime.",
                 )
-                connectivity = accepted_sample_evidence[accepted_index][
-                    "home_connectivity"
-                ]
+
+            ik_solutions = []
+            for candidate_index, candidate in enumerate(candidates):
+                if progress:
+                    progress(
+                        "Solving ROI TCP position-axis IK",
+                        candidate_index,
+                        len(candidates),
+                    )
+                pose_started = monotonic()
+                position = tuple(candidate.position_world_ras_mm)
+                axis = tuple(candidate.drill_axis_world_ras_unit)
+                poses = pose_builder(
+                    position,
+                    tuple(position[i] + axis[i] for i in range(3)),
+                    1,
+                )
+                record_phase("fixedAxisPose", pose_started)
+                if not poses:
+                    return fail(
+                        "workspace_pose_build_failed",
+                        f"Could not build fixed-axis pose for ROI candidate {candidate_index}.",
+                        candidateIndex=candidate_index,
+                )
+                goal_started = monotonic()
+                goal_ok, goal_message, _goal_node = goal_setter(poses[0])
+                record_phase("positionAxisGoal", goal_started)
+                if not goal_ok:
+                    return fail(
+                        "workspace_tcp_goal_failed",
+                        f"MoveIt rejected ROI candidate {candidate_index}: {goal_message}",
+                        candidateIndex=candidate_index,
+                    )
+                counts["positionAxisIkAttemptCount"] += 1
+                ik_started = monotonic()
+                try:
+                    ik_ok, ik_message, positions_si, diagnostic = solver(
+                        seed_joint_positions_si=home_positions,
+                        avoid_collisions=True,
+                    )
+                except Exception as exc:
+                    record_phase("positionAxisIK", ik_started)
+                    return fail(
+                        "workspace_position_axis_ik_failed",
+                        _bounded_text(exc),
+                        candidateIndex=candidate_index,
+                    )
+                record_phase("positionAxisIK", ik_started)
+                diagnostic = dict(diagnostic) if isinstance(diagnostic, Mapping) else {}
+                termination = str(diagnostic.get("termination_reason") or "unknown")
+                collision_status = str(
+                    diagnostic.get("collision_check_status") or "unknown"
+                )
+                ik_termination_counts[termination] = (
+                    ik_termination_counts.get(termination, 0) + 1
+                )
+                ik_collision_check_counts[collision_status] = (
+                    ik_collision_check_counts.get(collision_status, 0) + 1
+                )
+                if not ik_ok:
+                    counts["positionAxisIkFailureCount"] += 1
+                    if len(ik_failure_examples) < 8:
+                        ik_failure_examples.append(
+                            {
+                                "candidateIndex": candidate_index,
+                                "requestedTcpWorldRasMm": position,
+                                "message": _bounded_text(ik_message),
+                                "diagnostic": diagnostic,
+                            }
+                        )
+                    continue
+                try:
+                    positions_si = canonicalize_planning_joint_positions(positions_si)
+                except (KeyError, TypeError, ValueError) as exc:
+                    return fail(
+                        "workspace_position_axis_ik_invalid",
+                        f"MoveIt returned an invalid joint vector for candidate {candidate_index}: {exc}",
+                        candidateIndex=candidate_index,
+                    )
+                counts["positionAxisIkSuccessCount"] += 1
+                ik_solutions.append(
+                    (candidate_index, candidate, positions_si, ik_message, diagnostic)
+                )
+
+            if not ik_solutions:
+                return fail(
+                    "workspace_no_ik_samples",
+                    f"Position-axis IK found no solutions for {counts['roiCandidateCount']} ROI candidates; no static checks or Home paths were run, and no new workspace model was produced.",
+                    attemptedCandidateCount=counts["roiCandidateCount"],
+                    terminationStatusCounts=dict(ik_termination_counts),
+                    collisionCheckStatusCounts=dict(ik_collision_check_counts),
+                )
+
+            selected_ik_indices = _bounded_even_indices(
+                len(ik_solutions), WORKSPACE_RUNTIME_VALIDATION_MAX_SAMPLES
+            )
+            selected_ik = tuple(ik_solutions[index] for index in selected_ik_indices)
+            counts["moveItStaticValidityUnevaluatedCount"] = (
+                len(ik_solutions) - len(selected_ik)
+            )
+            runtime_accepted: list[WorkspaceAcceptedSample] = []
+            sample_evidence: list[dict[str, object]] = []
+            for runtime_index, (
+                candidate_index,
+                candidate,
+                positions_si,
+                ik_message,
+                diagnostic,
+            ) in enumerate(selected_ik):
+                if progress:
+                    progress(
+                        "Checking MoveIt static states",
+                        runtime_index,
+                        len(selected_ik),
+                    )
+                counts["moveItStaticValidityAttemptCount"] += 1
+                static_started = monotonic()
+                valid, validity_message, authoritative = (
+                    self._bridge.check_moveit_static_joint_state(positions_si)
+                )
+                record_phase("moveItStaticValidity", static_started)
+                if not authoritative:
+                    return fail(
+                        "workspace_runtime_validation_unavailable",
+                        "MoveIt did not return authoritative static-state validity. "
+                        + str(validity_message),
+                        candidateIndex=candidate_index,
+                    )
+                if not valid:
+                    counts["moveItStaticValidityRejectedCount"] += 1
+                    if len(runtime_rejections) < 8:
+                        runtime_rejections.append(
+                            f"candidate {candidate_index}: {validity_message}"
+                        )
+                    continue
+                counts["moveItStaticValidityAcceptedCount"] += 1
+                counts["moveItFkAttemptCount"] += 1
+                fk_started = monotonic()
+                fk_ok, fk_message, tcp_base_mm = (
+                    self._bridge.compute_moveit_static_tcp_pose_base_mm(positions_si)
+                )
+                record_phase("moveItFk", fk_started)
+                if (
+                    not fk_ok
+                    or tcp_base_mm is None
+                    or len(tuple(tcp_base_mm)) != 3
+                    or not all(isfinite(float(value)) for value in tcp_base_mm)
+                ):
+                    return fail(
+                        "workspace_moveit_fk_unavailable",
+                        "MoveIt did not return authoritative explicit-state TCP FK. "
+                        + str(fk_message),
+                        candidateIndex=candidate_index,
+                    )
+                sample = WorkspaceAcceptedSample(
+                    tcp_base_mm=tuple(float(value) for value in tcp_base_mm),
+                    joint_display=self._display_values_from_si(positions_si),
+                    joint_positions_si=tuple(
+                        (name, float(positions_si[name])) for name in JOINT_NAMES
+                    ),
+                )
+                runtime_accepted.append(sample)
+                sample_evidence.append(
+                    {
+                        "sample_index": len(runtime_accepted) - 1,
+                        "source_candidate_index": candidate_index,
+                        "requested_tcp_world_ras_mm": list(
+                            candidate.position_world_ras_mm
+                        ),
+                        "tcp_base_mm": list(sample.tcp_base_mm),
+                        "joint_names": list(JOINT_NAMES),
+                        "joint_positions_si": [
+                            float(positions_si[name]) for name in JOINT_NAMES
+                        ],
+                        "joint_display": list(sample.joint_display),
+                        "position_axis_ik": {
+                            "status": "Solved",
+                            "message": _bounded_text(ik_message),
+                            "termination_reason": str(
+                                diagnostic.get("termination_reason") or "unknown"
+                            ),
+                            "collision_check_status": str(
+                                diagnostic.get("collision_check_status") or "unknown"
+                            ),
+                            "position_residual_mm": diagnostic.get(
+                                "position_residual_mm"
+                            ),
+                            "axis_residual_deg": diagnostic.get(
+                                "drilling_axis_residual_deg"
+                            ),
+                            "iteration_count": diagnostic.get("iteration_count"),
+                        },
+                        "static_state_validity": {
+                            "status": "Valid",
+                            "authoritative": True,
+                            "message": _bounded_text(validity_message),
+                        },
+                        "tcp_fk": {
+                            "source": "MoveItRobotState",
+                            "message": _bounded_text(fk_message),
+                        },
+                        "home_connectivity": {"status": "NotEvaluated"},
+                    }
+                )
+
+            if not runtime_accepted:
+                return fail(
+                    "workspace_no_moveit_valid_samples",
+                    "MoveIt rejected every converged ROI workspace candidate against the synchronized PlanningScene.",
+                    terminationStatusCounts=dict(ik_termination_counts),
+                    collisionCheckStatusCounts=dict(ik_collision_check_counts),
+                )
+            report = WorkspaceSampleResult(
+                requested_count=len(selected_ik),
+                accepted_samples=tuple(runtime_accepted),
+                self_collision_rejections=0,
+                environment_rejections=counts["moveItStaticValidityRejectedCount"],
+                task_limits=task_limits,
+            )
+            builder = getattr(self._logic, "createOrUpdateRobotWorkspace", None)
+            if not callable(builder):
+                return fail(
+                    "workspace_model_builder_unavailable",
+                    "The ROI workspace display builder is unavailable.",
+                )
+            if progress:
+                progress("Showing provisional ROI TCP samples")
+            display_started = monotonic()
+            built = builder(
+                parameter_node,
+                sample_result=report,
+                algorithm="ROI3D+PositionAxisIK",
+            )
+            if isinstance(built, tuple) and len(built) == 2:
+                workspace_model, _ = built
+            else:
+                workspace_model = built
+            if workspace_model is None:
+                return fail(
+                    "workspace_model_build_failed",
+                    "The ROI workspace model was not created.",
+                )
+            workspace_model_updated = True
+            mark_provisional(workspace_model)
+            mark_axis_status(workspace_model)
+            record_phase("workspaceDisplay", display_started)
+
+            home_indices = self._home_connectivity_sample_indices(
+                runtime_accepted, home_positions
+            )
+            scene_refreshed = False
+            for order, sample_index in enumerate(home_indices):
+                if progress:
+                    progress("Checking Task Home connectivity", order, len(home_indices))
+                sample = runtime_accepted[sample_index]
+                positions_si = sample.joint_positions_si_dict()
+                matches_home, maximum_delta, mismatched = self._joint_positions_match(
+                    home_positions, positions_si
+                )
+                connectivity = sample_evidence[sample_index]["home_connectivity"]
+                counts["homeConnectivityEvaluatedCount"] += 1
+                connection_started = monotonic()
                 if matches_home:
+                    connected = True
                     connectivity.update(
                         {
                             "status": "HomeConnected",
@@ -7583,31 +8757,25 @@ class DENTORobotWorkflowFacade:
                             "message": "Sample matches Task Home within monitored-state tolerances.",
                         }
                     )
-                    home_connected_sample_count += 1
                 else:
                     path = self._bridge.plan_moveit_joint_goal(
                         start_joint_positions_si=home_positions,
-                        goal_joint_positions_si=sample_positions,
-                        refresh_planning_scene=(
-                            not connectivity_scene_refreshed
-                        ),
+                        goal_joint_positions_si=positions_si,
+                        refresh_planning_scene=not scene_refreshed,
                         planning_attempts=1,
                         allowed_planning_time_sec=2.0,
                         planner_id=STEP6_JOINT_PLANNER_ID,
                         planner_context="task_home_to_workspace_sample",
                     )
-                    connectivity_scene_refreshed = True
+                    scene_refreshed = True
+                    connected = bool(path.success)
                     connectivity.update(
                         {
-                            "status": (
-                                "HomeConnected" if path.success else "PlanRejected"
-                            ),
+                            "status": "HomeConnected" if connected else "PlanRejected",
                             "method": "MoveItExplicitTaskHomeStart",
                             "maximum_start_goal_delta": maximum_delta,
                             "mismatched_joints": list(mismatched),
-                            "waypoint_count": len(
-                                path.waypoint_joint_vectors_si
-                            ),
+                            "waypoint_count": len(path.waypoint_joint_vectors_si),
                             "planner_start_source": path.planner_start_source,
                             "message": _bounded_text(path.message),
                             "native_planner_message": _bounded_text(
@@ -7615,182 +8783,162 @@ class DENTORobotWorkflowFacade:
                             ),
                         }
                     )
-                    if path.success:
-                        home_connected_sample_count += 1
-                    else:
-                        home_connectivity_rejected_sample_count += 1
-                if connectivity_order % 3 == 0:
+                if connected:
+                    counts["homeConnectedCount"] += 1
+                else:
+                    counts["homeConnectivityRejectedCount"] += 1
+                record_phase("homeConnectivity", connection_started)
+                if order % 3 == 0:
                     try:
                         import slicer
 
                         slicer.app.processEvents()
                     except Exception:
                         pass
-            if not connectivity_indices or home_connected_sample_count == 0:
-                model.SetAttribute("DENTOBOT.WorkspaceRuntimeValidated", "false")
-                return RobotActionResult(
-                    False,
+            if not home_indices or counts["homeConnectedCount"] == 0:
+                return fail(
                     "workspace_no_home_connected_samples",
-                    "MoveIt found static-valid workspace states, but none of the "
-                    "bounded connectivity samples could be planned from Task Home. "
-                    "Adjust Task Home, base placement, or task limits before review.",
-                    details={
-                        "staticValidSampleCount": len(runtime_accepted),
-                        "homeConnectivityEvaluatedSampleCount": len(
-                            connectivity_indices
-                        ),
-                        "homeConnectivityRejectedSampleCount": (
-                            home_connectivity_rejected_sample_count
-                        ),
-                        "acceptedSampleEvidence": tuple(
-                            accepted_sample_evidence[index]
-                            for index in connectivity_indices
-                        ),
-                    },
+                    "Static-valid ROI samples were found, but none of the bounded samples planned successfully from Task Home. The cloud remains provisional display evidence.",
+                    homeConnectivityEvaluatedSampleCount=len(home_indices),
+                    homeConnectivityRejectedSampleCount=counts[
+                        "homeConnectivityRejectedCount"
+                    ],
+                    acceptedSampleEvidence=tuple(
+                        sample_evidence[index] for index in home_indices
+                    ),
                 )
-            report = report.__class__(
-                requested_count=len(candidate_samples),
-                accepted_samples=tuple(runtime_accepted),
-                self_collision_rejections=0,
-                environment_rejections=(
-                    len(candidate_samples) - len(runtime_accepted)
-                ),
-                task_limits=report.task_limits,
-                excluded_aabb_pairs=report.excluded_aabb_pairs,
-            )
-            import vtk
 
-            points = vtk.vtkPoints()
-            vertices = vtk.vtkCellArray()
-            for sample in runtime_accepted:
-                point_id = points.InsertNextPoint(*sample.tcp_base_mm)
-                vertices.InsertNextCell(1)
-                vertices.InsertCellPoint(point_id)
-            polydata = vtk.vtkPolyData()
-            polydata.SetPoints(points)
-            polydata.SetVerts(vertices)
-            model.SetAndObservePolyData(polydata)
-            model.SetAttribute(
-                "DENTOBOT.WorkspaceAlgorithm",
-                "Halton6D+URDFFK+AABB+MoveItStaticStateValidity+BoundedHomeConnectivity",
-            )
-            model.SetAttribute("DENTOBOT.WorkspaceRuntimeValidated", "true")
-            model.SetAttribute(
-                "DENTOBOT.WorkspaceRuntimeEvaluated", str(report.requested_count)
-            )
-            model.SetAttribute(
-                "DENTOBOT.WorkspaceAccepted", str(report.accepted_count)
-            )
-            model.SetAttribute(
-                "DENTOBOT.WorkspaceHomeConnectivityEvaluated",
-                str(len(connectivity_indices)),
-            )
-            model.SetAttribute(
-                "DENTOBOT.WorkspaceHomeConnected",
-                str(home_connected_sample_count),
-            )
+            proposal_started = monotonic()
             proposal = self._logic.proposeAssistedTaskLimits(parameter_node, report)
-            collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
             proposal_payload = proposal.to_dict()
             proposal_payload.update(
                 {
-                    "runtime_validation_status": (
-                        WORKSPACE_RUNTIME_VALIDATION_STATUS
-                    ),
-                    "runtime_evidence_schema_version": (
-                        WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION
-                    ),
+                    "runtime_validation_status": WORKSPACE_RUNTIME_VALIDATION_STATUS,
+                    "runtime_evidence_schema_version": WORKSPACE_RUNTIME_EVIDENCE_SCHEMA_VERSION,
+                    "algorithm": "ROI3D+PositionAxisIK",
+                    "roi_fingerprint": roi_fp,
+                    "roi_source_fingerprint": source_fp,
+                    "roi_source": dict(source_record),
+                    "roi": {
+                        "center_world_ras_mm": list(
+                            selected_roi.center_world_ras_mm
+                        ),
+                        "dimensions_mm": list(selected_roi.dimensions_mm),
+                    },
+                    "task_axis_status": axis_status,
+                    "task_axis_fingerprint": axis_fp,
+                    "task_fingerprint": task_fp,
+                    "trajectory_fingerprint": trajectory_fp,
                     "tcp_fk_source": "MoveItRobotState",
                     "task_home_fingerprint": fingerprint(home.to_dict()),
-                    "collision_audit_fingerprint": (
-                        str(collision_audit.audit_fingerprint)
-                        if collision_audit is not None
-                        else ""
-                    ),
-                    "workspace_validation_policy_fingerprint": (
-                        self._workspace_validation_policy_fingerprint()
-                    ),
+                    "collision_audit_fingerprint": collision_fingerprint,
+                    "workspace_validation_policy_fingerprint": self._workspace_validation_policy_fingerprint(),
                     "runtime_valid_sample_count": report.accepted_count,
-                    "runtime_evaluated_sample_count": len(candidate_samples),
-                    "locally_accepted_candidate_count": locally_accepted_count,
-                    "local_requested_candidate_count": local_requested_count,
-                    "runtime_rejected_sample_count": (
-                        len(candidate_samples) - report.accepted_count
+                    "runtime_evaluated_sample_count": len(selected_ik),
+                    "locally_accepted_candidate_count": counts[
+                        "positionAxisIkSuccessCount"
+                    ],
+                    "local_requested_candidate_count": len(candidates),
+                    "position_axis_ik_attempted_count": counts[
+                        "positionAxisIkAttemptCount"
+                    ],
+                    "position_axis_ik_success_count": counts[
+                        "positionAxisIkSuccessCount"
+                    ],
+                    "position_axis_ik_failure_count": counts[
+                        "positionAxisIkFailureCount"
+                    ],
+                    "position_axis_ik_termination_counts": dict(
+                        ik_termination_counts
                     ),
-                    "runtime_unevaluated_local_candidate_count": (
-                        locally_accepted_count - len(candidate_samples)
+                    "position_axis_ik_collision_check_counts": dict(
+                        ik_collision_check_counts
                     ),
+                    "moveit_static_validity_rejected_count": counts[
+                        "moveItStaticValidityRejectedCount"
+                    ],
                     "home_connectivity_status": "BoundedSubsetEvaluated",
-                    "home_connectivity_policy": (
-                        "Nearest+JointExtrema+EvenCoverage"
-                    ),
-                    "home_connectivity_evaluated_sample_count": len(
-                        connectivity_indices
-                    ),
-                    "home_connected_sample_count": home_connected_sample_count,
-                    "home_connectivity_rejected_sample_count": (
-                        home_connectivity_rejected_sample_count
-                    ),
-                    "home_connectivity_unevaluated_sample_count": (
-                        report.accepted_count - len(connectivity_indices)
-                    ),
-                    "accepted_sample_evidence": accepted_sample_evidence,
-                    "maximum_local_moveit_fk_difference_mm": (
-                        maximum_local_moveit_fk_difference_mm
-                    ),
+                    "home_connectivity_policy": "Nearest+JointExtrema+EvenCoverage",
+                    "home_connectivity_evaluated_sample_count": counts[
+                        "homeConnectivityEvaluatedCount"
+                    ],
+                    "home_connected_sample_count": counts["homeConnectedCount"],
+                    "home_connectivity_rejected_sample_count": counts[
+                        "homeConnectivityRejectedCount"
+                    ],
+                    "accepted_sample_evidence": sample_evidence,
+                    "candidate_counts": dict(counts),
+                    "phase_timings_sec": dict(phase_timings_sec),
                     "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                 }
+            )
+            record_phase("proposalPersistence", proposal_started)
+            proposal_payload["phase_timings_sec"] = dict(phase_timings_sec)
+            proposal_payload["phase_timings_sec"]["totalSec"] = max(
+                0.0, monotonic() - started
             )
             parameter_node.step6AssistedLimitProposalJson = canonical_json(
                 proposal_payload
             )
             self._runtime_validated_workspace_key = fingerprint(proposal_payload)
+            workspace_model.SetAttribute(
+                "DENTOBOT.WorkspaceAlgorithm",
+                "ROI3D+PositionAxisIK+MoveItStaticStateValidity+BoundedHomeConnectivity",
+            )
+            for attribute, value in (
+                ("DENTOBOT.WorkspaceRuntimeEvaluated", counts["roiCandidateCount"]),
+                ("DENTOBOT.WorkspaceAccepted", report.accepted_count),
+                (
+                    "DENTOBOT.WorkspaceHomeConnectivityEvaluated",
+                    counts["homeConnectivityEvaluatedCount"],
+                ),
+                ("DENTOBOT.WorkspaceHomeConnected", counts["homeConnectedCount"]),
+                ("DENTOBOT.WorkspaceRuntimeValidated", "true"),
+                ("DENTOBOT.WorkspaceState", "Current"),
+                ("DENTOBOT.WorkspaceTaskAxisStatus", axis_status),
+            ):
+                workspace_model.SetAttribute(attribute, str(value))
+
+            yield_fraction = (
+                counts["moveItStaticValidityAcceptedCount"]
+                / max(1, counts["moveItStaticValidityAttemptCount"])
+            )
             return RobotActionResult(
                 True,
                 "workspace_ready",
-                f"Generated {report.accepted_count}/{report.requested_count} "
-                "sampled collision-valid configurations using deterministic FK "
-                "candidates and MoveIt's synchronized static state-validity service; "
-                f"{home_connected_sample_count}/{len(connectivity_indices)} bounded "
-                "samples also planned successfully from Task Home. "
-                "Review the sampled envelope before task confirmation; it does "
-                "not imply every point inside the min/max box is valid or connected to Home.",
-                details={
-                    "requestedCount": report.requested_count,
-                    "acceptedCount": report.accepted_count,
-                    "moveItStaticValidityRejections": (
-                        report.environment_rejections
-                    ),
-                    "localRequestedCandidates": local_requested_count,
-                    "localSelfCollisionRejections": local_self_rejections,
-                    "localEnvironmentRejections": local_environment_rejections,
-                    "excludedAabbPairs": report.excluded_aabb_pairs,
-                    "proposalReviewed": proposal.reviewed,
-                    "runtimeValidationStatus": (
-                        WORKSPACE_RUNTIME_VALIDATION_STATUS
-                    ),
-                    "runtimeEvaluatedSamples": len(candidate_samples),
-                    "locallyAcceptedCandidates": locally_accepted_count,
-                    "tcpFkSource": "MoveItRobotState",
-                    "maximumLocalMoveItFkDifferenceMm": (
-                        maximum_local_moveit_fk_difference_mm
-                    ),
-                    "runtimeRejectedSamples": (
-                        len(candidate_samples) - report.accepted_count
-                    ),
-                    "runtimeUnevaluatedLocalCandidates": (
-                        locally_accepted_count - len(candidate_samples)
-                    ),
-                    "homeConnectivityEvaluatedSamples": len(
-                        connectivity_indices
-                    ),
-                    "homeConnectedSamples": home_connected_sample_count,
-                    "homeConnectivityRejectedSamples": (
-                        home_connectivity_rejected_sample_count
-                    ),
-                    "sampleFailures": tuple(runtime_rejections),
-                },
-                payload=(model, report, proposal),
+                (
+                    f"Generated {counts['roiCandidateCount']} ROI TCP candidates; "
+                    f"position-axis IK solved {counts['positionAxisIkSuccessCount']} "
+                    f"({counts['positionAxisIkFailureCount']} failed), MoveIt static "
+                    f"validity accepted {counts['moveItStaticValidityAcceptedCount']}/"
+                    f"{counts['moveItStaticValidityAttemptCount']} evaluated "
+                    f"({counts['moveItStaticValidityUnevaluatedCount']} IK solutions "
+                    "not evaluated by the bounded MoveIt sample check), and Home "
+                    f"connectivity accepted {counts['homeConnectedCount']}/"
+                    f"{counts['homeConnectivityEvaluatedCount']}. "
+                    f"Task axis: {axis_status}; static-valid yield {yield_fraction:.1%}. "
+                    "The ROI bounds sampling only; samples do not prove exact task, route, or guard feasibility."
+                ),
+                details=details(
+                    {
+                        "requestedCount": counts["roiCandidateCount"],
+                        "acceptedCount": report.accepted_count,
+                        "proposalReviewed": bool(proposal.reviewed),
+                        "runtimeValidationStatus": WORKSPACE_RUNTIME_VALIDATION_STATUS,
+                        "tcpFkSource": "MoveItRobotState",
+                        "moveItStaticValidityRejections": counts[
+                            "moveItStaticValidityRejectedCount"
+                        ],
+                        "homeConnectivityEvaluatedSamples": counts[
+                            "homeConnectivityEvaluatedCount"
+                        ],
+                        "homeConnectedSamples": counts["homeConnectedCount"],
+                        "homeConnectivityRejectedSamples": counts[
+                            "homeConnectivityRejectedCount"
+                        ],
+                    }
+                ),
+                payload=(workspace_model, report, proposal),
             )
-        except (RuntimeError, ValueError, OSError) as exc:
-            return RobotActionResult(False, "workspace_failed", str(exc))
+        except Exception as exc:
+            return fail("workspace_failed", _bounded_text(exc))
