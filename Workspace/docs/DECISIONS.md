@@ -6768,3 +6768,18 @@ jaw transform, omit only the motion-model label from lineage comparison.
 Retain node/geometry and all other jaw-field checks, followed by ordinary
 stale-opening evaluation. Source implementation passed Python compilation and 50 focused pure tests.
 An approved legacy-case runtime reopen remains required before acceptance.
+
+### 2026-09-26 — Keep the case-restore barrier continuous through queued UI events
+
+The first legacy FDI11 Step 5B reopen after the narrow motion-label
+compatibility correction reached post-hydration validation, then rejected a
+docking plane whose saved Confirmed orientation changed during load.
+The loader released its restore barrier before pumping queued Qt events,
+then re-entered it for hydration. Docking callbacks may treat a delayed UI
+signal as an operator edit and mark the plane Draft in that gap. Keep the
+barrier continuous from parameter binding through event delivery and the
+strict post-hydration audit. Preserve rollback and later genuine dependency
+revalidation. The focused Python checks and second serialized 5.10 legacy-case reopen passed:
+strict post-hydration audit, no jaw transform, non-current opening and unchanged
+archive. This is backward-compatibility evidence for the schema-1 fixture;
+normal-window and current-schema case acceptance remain separate.

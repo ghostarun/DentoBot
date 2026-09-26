@@ -418,16 +418,16 @@ class CaseBackendWidgetMixin:
                 # Compatibility migrations and Step 6 freshness review are
                 # allowed only after package integrity has passed, and the
                 # recovery MRB must remain available until that audit passes.
-                # Keep the restore barrier through parameter-node binding so
-                # the first GUI refresh cannot recompute serialized target
-                # bounds before the post-hydration identity audit.
+                # Keep the restore barrier through binding, queued UI events,
+                # and hydration so callbacks cannot change saved state before
+                # the post-hydration identity audit.
                 try:
                     self.setParameterNode(self.logic.getParameterNode())
+                    hydrationGeneration = self._beginCaseBundleRestore()
                     self._endCaseBundleRestore(restoreGeneration)
                     restoreEnded = True
-                    slicer.app.processEvents()
-                    hydrationGeneration = self._beginCaseBundleRestore()
                     try:
+                        slicer.app.processEvents()
                         phase("Hydrating saved workflow", can_cancel=False)
                         self.logic.hydrateDentoCaseStateAfterLoad(
                             self._parameterNode,
