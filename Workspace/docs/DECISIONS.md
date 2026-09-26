@@ -6862,8 +6862,8 @@ case proved stack readiness but exposed a restore-time final-template state
 mutation. Guard final-template staleness during the existing restore barrier;
 retain strict post-hydration package validation and ordinary post-load
 invalidation. Once load passed, Connect returned `stale_mouth_opening` before
-robot creation. The saved exact jaw matrix contains a six-digit rounding tie
-against MRML. Use the already-established `1e-6` lineage tolerance only in
-the guarded exact-matrix restoration comparison, after integrity checks.
-The revised runtime verdict remains open; do not weaken lineage, reconnect
+robot creation. A proposed relaxation of the guarded exact-matrix comparison was disproved:
+read-only archive comparison found the saved MRML matrix already satisfies
+the original `<1e-8` test. That edit was reverted. The stale-pose cause
+remains unproven and the revised runtime verdict remains open; do not weaken lineage, reconnect
 automatically on load, promote 5.12, or start a planner/hardware path.
