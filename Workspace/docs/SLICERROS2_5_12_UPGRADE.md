@@ -390,8 +390,15 @@ fixed `link-1`. The earlier empty result used the `dentobot_arm` group filter,
 which excluded that fixed link. The focused smoke printed
 `DENTOBOT_ROBOT_GEOMETRY_PASS`, but Slicer exited 1 and `move_group` segfaulted
 during shutdown. Geometry is verified in this case-free diagnostic; clean
-teardown is still a hard gate. Keep the 5.10 release and stop runtime retries
-until one bounded lifecycle discriminator is specified from the saved logs.
+teardown remained a hard gate at that revision. A later approved GDB run
+identified late destruction of a scene-retained collision-object publisher as
+Slicer's first fault. Fork `333c410` releases scene publishers before ROS
+shutdown and fixes their reference removal. Its module-only build and one
+focused geometry smoke passed with Slicer exit 0 and no VTK leak report. The
+separately launched `move_group` still faults during handoff SIGINT cleanup.
+Tarun directed representative-case compatibility and measured 5.10/5.12
+comparison next, while retaining 5.10 as the lab default and leaving full
+lifecycle/promotion acceptance open.
 
 ### Phase 4 — measure before claiming performance
 

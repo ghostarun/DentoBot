@@ -6684,3 +6684,21 @@ segfaulted during cleanup. Keep 5.10 and `LAB_RELEASE` unchanged. Stop runtime
 retries at the bounded ceiling and diagnose shutdown from saved evidence before
 representative-case or same-case performance acceptance. No full Slicer rebuild,
 planner, geometry/policy adjustment or hardware action is authorized here.
+
+### 2026-09-26 — PLAT-U-06 publisher lifetime and next decision point
+
+Tarun approved one corrected isolated GDB capture after the first invocation
+stopped before geometry on a test-launch `--no-main-window` mistake. The
+corrected run emitted `DENTOBOT_ROBOT_GEOMETRY_PASS`, then caught Slicer's first
+SIGSEGV while late MRML scene clear destroyed a retained collision-object
+publisher after ROS module shutdown. Release active scene publishers before
+ROS node destruction and `ROSShutdown`; preserve their MRML nodes and fix
+removal of the matching publisher reference. Fork `333c410` implements this
+bounded correction. An incremental native module build and one approved
+focused smoke passed the same geometry assertions with Slicer exit 0 and no
+abnormal-exit/VTK leak line. The external `move_group` process still segfaults
+on the handoff's later SIGINT cleanup; that is a separate lifecycle defect.
+As Tarun directed, proceed to representative saved-case compatibility and
+measured same-case 5.10/5.12 performance, but retain 5.10 as lab default and
+do not promote 5.12 until remaining lifecycle/correctness gates pass. No full
+Slicer rebuild, geometry/policy, planner or hardware change is implied.
