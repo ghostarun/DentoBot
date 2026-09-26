@@ -1473,8 +1473,21 @@ TotalSegmentator report/class map
   spatial candidate scores within one invocation, then releases those
   temporary geometry objects. It still resolves each target separately with
   the existing association helper and failure gates. Report preparation and
-  scoring phases use live progress callbacks; this source/pure correction
-  still needs normal-window watchdog/resource acceptance.
+  scoring phases use live progress callbacks.
+
+**2026-09-26 runtime checkpoint:** One visible Slicer 5.10 run on the named
+FDI11 case opened Step 2 and invoked the actual Check Pulp Masks button once.
+The fresh 28-row report completed in 7.413 s with live progress counters;
+the UI watchdog recorded no recovered stall at its 5 s threshold and a
+maximum 4.105 s event-loop gap. Resource samples showed 2,221 MiB peak
+Slicer RSS, no cgroup OOM/kill or CPU throttling, and no watchdog alert. The
+case archive remained byte-identical and was not saved. The report was
+captured, but the test harness did not complete a clean GUI teardown after its
+modal-window cleanup; do not treat this as a clean-run or operator-acceptance
+pass. It verifies the inventory result for one case only. The visible
+report/anatomy verdict, representative source-mask Case B, and historical
+all-tooth candidate-creation throughput remain open; see the scoped evidence
+and measurement caveat in `TASKS.md`.
 
 ### Acceptance gates
 

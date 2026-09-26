@@ -1329,16 +1329,58 @@ one invocation-local geometry/score cache, keeps `associate_pulp_components`
 and all target-specific acceptance/error gates per row, releases surfaces and
 voxel-point arrays after scoring, and exposes tooth-surface, component,
 candidate-scoring and target-row progress to both Step 2 UI entry paths. A
-focused pure inventory/semantic regression passes 19 tests. No Slicer runtime,
-saved-case mutation or operator anatomy verdict is claimed. Next acceptance is
-one approved normal-window Check Pulp Masks run with watchdog/resource capture.
+focused pure inventory/semantic regression passes 19 tests. At that source-
+verification checkpoint, no Slicer runtime or saved-case mutation had been
+performed and no operator anatomy verdict was claimed; the later approved
+runtime is recorded below.
 
-**Next bounded action:** Run one approved normal-window Step 2 Check Pulp Masks
-with watchdog/resource capture to verify the invocation-local cache, per-tooth
-outcomes, live phase counters, stall intervals and memory trend. Inspect the
-focused FDI11 candidate/report for Tarun's anatomy/UI verdict when that case is
-loaded. Full all-tooth runtime throughput and representative source-mask Case
-B remain open.
+**2026-09-26 approved visible-GUI runtime check:** The previously idle
+SlicerROS2 container was started without launching ROS or MoveIt. A first
+Slicer process exited before opening its window because the temporary X11
+access grant expired before `SlicerApp-real` initialized; the case was not
+opened. The corrected launch retained the documented scoped local-user grant
+for the life of Slicer. In Slicer `5.10.0-2025-11-10`, the actual workflow UI
+opened `SEPT24/pulp-testing-fdi11.dentocase` (SHA-256
+`f7137e03c5ead939171d13bd5480024214493d3a5def41405c4c268650efab2d`), entered
+`2 · Segmentation and Review`, and clicked the enabled **Check Pulp Masks**
+button once. No existing inventory report was present. The case-load progress
+dialog reported named phases and took 14.672 s; the inventory action
+completed in 7.413 s.
+
+The fresh report contained 28 teeth: 5 associated, 1 candidate, 13 missing,
+9 ambiguous and 0 unevaluable. FDI11 remained a reviewed 52-voxel candidate.
+The segmentation stayed at 55 segments. The `.dentocase` SHA-256 was identical
+after the check; the in-memory report was not saved. The normal-window UI
+watchdog recorded 0 recovered stalls at its 5 s threshold and 4 latency events
+of 2.303, 2.510, 2.759 and 4.105 s. Two-second resource samples through the
+result showed 2,221 MiB peak Slicer RSS, 210.4% peak CPU, 82 threads, 43 file
+descriptors, minimum host available memory 5.57 GiB, and no resource alert,
+cgroup OOM/kill or CPU throttling. This is one-case runtime evidence that the
+prior repeated 5.26–5.47 s inventory stalls no longer reproduce; the remaining
+4.105 s latency means this is not a claim of zero pauses or universal
+responsiveness.
+
+**Measurement limitation:** The temporary 100 ms progress observer also saw a
+closed case-load progress dialog. It generated duplicate observation records
+and made watchdog phase attribution chatter between that stale label and the
+active inventory label. The actual Step 2 dialog showed the named phases and
+counters; do not use the observer-record count or exact phase frequencies as
+performance measurements. No code was changed for this harness issue, and no
+runtime retry is authorized by this one-run check.
+
+**Teardown limitation:** The report table was displayed in the normal window.
+Closing its X11 window removed the dialog, but the temporary Python callback did
+not return from `QDialog.exec()` and kept the observer running without a visible
+Slicer window. After confirming no Slicer window remained, only the test's
+Slicer processes were sent SIGTERM to stop the observer. No `RUN_COMPLETE` or
+clean Slicer shutdown is claimed. The container remains idle; the input case
+remains byte-identical. Because the report existed only in the unsaved MRML
+scene, Tarun's visible anatomy/UI verdict is still pending and the report table
+is no longer open. **Next:** Tarun reviews the existing candidate/report in a
+normal window; do not start another agent runtime under this one-run approval.
+Representative source-mask Case B and historical all-tooth candidate-creation
+throughput remain separate acceptance work; Step 4A trajectory-aligned MPR
+review remains under `S4A-PULP-ENDPOINT`.
 
 **Approved verification continuation (2026-09-24):** Tarun approved the
 bounded save/reload check. Slicer re-audited the saved 28-row FDI11 run,
