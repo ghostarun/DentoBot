@@ -6819,3 +6819,14 @@ run loaded, cleared and reopened the immutable FDI21/31 case, exited 0 and
 logged no traceback. Accept this no-ROS representative lifecycle gate, not a
 connected ROS/MoveIt or operator visual verdict. Two roughly 8-second UI gaps
 during load remain a separate `S6-P2-03` responsiveness observation.
+
+The subsequent Slicer 5.10 import-only discriminator passed with the workflow
+module unopened. One corrected in-memory FDI11/FDI21 candidate check then passed
+tags, unchanged source-mask hashes and repeat behavior with process exit 0.
+Accept that bounded integrity result; creation still took 45.177 seconds and
+watchdog UI gaps reached 19.419 seconds. Retain the current six-connected
+enclosed-void/dominance algorithm until a pure equivalence and target-size
+timing check justifies a replacement. The earlier intermittent module-open
+import exit remains unexplained; neither this pass nor the import-only pass
+proves its native cause. Keep full-batch throughput and interactive response
+open under `S3-P0-DENTAL-SEMANTICS` / `S6-P2-03`.

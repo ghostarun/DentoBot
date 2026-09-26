@@ -1070,6 +1070,8 @@ USER_REVIEW_REQUIRED; P3/P4 paused.
 ## P0 dental semantic normalization and pulp-to-tooth association — 2026-09-14
 
 - **ID:** `S3-P0-DENTAL-SEMANTICS`; **Priority:** 0.
+- **2026-09-26 bounded two-target retry:** Accepted 5.10 import-only discriminator exited 0; corrected in-memory FDI11/FDI21 candidate run passed 52 voxels each, derivation/parent tags, unchanged tooth-mask hashes, fresh report and no-duplicate repeat, process exit 0, immutable case SHA. Creation took 45.177 s and UI watchdog gaps reached 19.419 s. This accepts candidate integrity only; all-tooth throughput, responsive UI, operator anatomy and intermittent module-open import fault remain open. Next: pure equivalence and target-size timing before any 6-connected/dominance-preserving optimization.
+
 - **State:** Active implementation/integration. The source trace, bounded
   implementation plan, pure A-H semantic core, MRML registry integration and
   target-specific planning gate are implemented; integrated Slicer runtime,
