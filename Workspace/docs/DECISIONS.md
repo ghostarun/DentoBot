@@ -6841,3 +6841,29 @@ and exited 0. Keep the current cavity algorithm and normal-button guard; do
 not add SciPy or claim a production source speedup from a corrected harness.
 The remaining import/audit and post-action gaps need separate attribution,
 and the actual normal-window all-tooth throughput remains unaccepted.
+
+## 2026-09-27 — Step 2 fingerprint refresh and current-case restore
+
+Tarun's normal-window Create Pulp Masks run exposed post-creation and review-state
+UI stalls in full source segmentation hashing. Keep the existing cavity search
+and fail-closed Case Foundation semantics. Invalidate changed source anatomy
+before planning refresh; retain the visible progress display through that
+refresh. Reuse a cached source fingerprint when only review metadata changes,
+while tracking segmentation content, segment identity/name and semantic metrics.
+An explicitly stale committed pose fails before the costly full snapshot.
+Pure checks pass; ordinary-window responsiveness and anatomy acceptance remain
+open under `S3-P0-DENTAL-SEMANTICS` / `S6-P2-03`.
+
+The external ROS/MoveIt simulation stack remains launcher-owned. Step 6.1
+Connect checks fresh readiness and does not start it. A direct Slicer launch
+cannot establish this gate, and a shell `Refreshing connected workflow` phase
+does not imply Connect succeeded. The first approved handoff on Tarun's new
+case proved stack readiness but exposed a restore-time final-template state
+mutation. Guard final-template staleness during the existing restore barrier;
+retain strict post-hydration package validation and ordinary post-load
+invalidation. Once load passed, Connect returned `stale_mouth_opening` before
+robot creation. The saved exact jaw matrix contains a six-digit rounding tie
+against MRML. Use the already-established `1e-6` lineage tolerance only in
+the guarded exact-matrix restoration comparison, after integrity checks.
+The revised runtime verdict remains open; do not weaken lineage, reconnect
+automatically on load, promote 5.12, or start a planner/hardware path.

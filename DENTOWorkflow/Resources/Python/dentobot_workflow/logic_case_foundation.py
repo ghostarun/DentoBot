@@ -288,12 +288,48 @@ class CaseFoundationLogicMixin:
         if not segmentationNode or not segmentationNode.GetSegmentation():
             return ""
         segmentation = segmentationNode.GetSegmentation()
-        key = (
-            "segmentation",
-            segmentationNode.GetID(),
-            segmentation.GetMTime(),
-            segmentationNode.GetMTime(),
-        )
+
+        def input_key() -> tuple:
+            referenceGeometry = str(
+                segmentation.GetConversionParameter("Reference image geometry") or ""
+            )
+            metricsText = str(
+                segmentationNode.GetAttribute("DENTOBOT.SegmentMetricsJson") or ""
+            )
+            try:
+                stableMetrics = canonical_json(json.loads(metricsText))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                stableMetrics = metricsText
+            metricsDigest = hashlib.sha256(
+                stableMetrics.encode("utf-8")
+            ).hexdigest()
+            segmentIds = vtk.vtkStringArray()
+            segmentation.GetSegmentIDs(segmentIds)
+            segmentInputs = []
+            for index in range(segmentIds.GetNumberOfValues()):
+                segmentId = segmentIds.GetValue(index)
+                segment = segmentation.GetSegment(segmentId)
+                internal = segmentationNode.GetBinaryLabelmapInternalRepresentation(
+                    segmentId
+                )
+                segmentInputs.append(
+                    (
+                        segmentId,
+                        int(segment.GetMTime()) if segment else 0,
+                        str(segment.GetName() or "") if segment else "",
+                        int(internal.GetMTime()) if internal else 0,
+                    )
+                )
+            return (
+                "segmentation",
+                segmentationNode.GetID(),
+                segmentation.GetMTime(),
+                referenceGeometry,
+                metricsDigest,
+                tuple(segmentInputs),
+            )
+
+        key = input_key()
 
         def build() -> str:
             records = []
@@ -323,26 +359,16 @@ class CaseFoundationLogicMixin:
                 )
             return fingerprint(
                 {
-                    "referenceGeometry": str(
-                        segmentation.GetConversionParameter(
-                            "Reference image geometry"
-                        )
-                        or ""
-                    ),
+                    "referenceGeometry": key[3],
                     "segments": records,
                 }
             ) if records else ""
 
         value = self._cachedCaseFoundationFingerprint(key, build)
-        after = (
-            "segmentation",
-            segmentationNode.GetID(),
-            segmentation.GetMTime(),
-            segmentationNode.GetMTime(),
-        )
+        after = input_key()
         if after != key:
-            logging.info("DENTOBOT source fingerprint input MTime changed during export: %s -> %s", key[2:], after[2:])
-            print("DENTOBOT_FINGERPRINT_MTIME_CHANGED", key[2:], after[2:], flush=True)
+            logging.info("DENTOBOT source fingerprint inputs changed during export")
+            print("DENTOBOT_FINGERPRINT_INPUTS_CHANGED", flush=True)
         return value
 
     def buildCaseFoundationSnapshot(self, parameterNode):
@@ -513,6 +539,16 @@ class CaseFoundationLogicMixin:
         }
 
     def requireCaseFoundationPose(self, parameterNode) -> dict[str, object]:
+        transform = parameterNode.step6CaseJawTransform
+        if (
+            self.isStep6CaseJawTransformNode(transform)
+            and str(transform.GetAttribute("DENTOBOT.GeometryState") or "")
+            == "Stale"
+        ):
+            raise ValueError(
+                str(transform.GetAttribute("DENTOBOT.StaleReason") or "")
+                or _("The committed Case Foundation pose is stale.")
+            )
         result = self.evaluateCaseFoundationEligibility(parameterNode)
         if not result["pose"]["eligible"]:
             raise ValueError(result["pose"]["message"])

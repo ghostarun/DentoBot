@@ -349,7 +349,7 @@ class TemplateBuildWidgetMixin:
                 targetDockingAssembly.GetAttribute("DENTOBOT.UpdatedUtc") or ""
             ):
                 staleReason = _("The Step 4C docking assembly was regenerated.")
-            if staleReason:
+            if staleReason and not self._caseBundleRestoreDepth:
                 self.logic.markFinalPrintableTemplateStale(finalModel, staleReason)
                 finalSummary = self.logic.getFinalPrintableTemplateSummary(finalModel)
 

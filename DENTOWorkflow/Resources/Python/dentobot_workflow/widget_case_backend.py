@@ -459,7 +459,7 @@ class CaseBackendWidgetMixin:
                         matrix = vtk.vtkMatrix4x4()
                         transform.GetMatrixTransformToParent(matrix)
                         if all(
-                            abs(matrix.GetElement(row, col) - float(f"{float(values[row * 4 + col]):.6g}")) < 1e-8
+                            abs(matrix.GetElement(row, col) - float(f"{float(values[row * 4 + col]):.6g}")) < 1e-6
                             for row in range(4) for col in range(4)
                         ):
                             for row in range(4):

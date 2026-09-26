@@ -486,6 +486,134 @@ def test_bulk_candidate_creation_keeps_partial_results_and_skips_existing_on_rep
     assert attempts.count("t21") == 2
 
 
+def test_bulk_candidate_widget_invalidates_before_refresh_and_closes_progress():
+    events = []
+    widget_ref = {}
+    processing_states = []
+
+    def process_events():
+        widget = widget_ref.get("widget")
+        if widget:
+            processing_states.append(
+                (
+                    widget._processingSegmentationContentChange,
+                    widget._updatingSegmentationReviewUI,
+                )
+            )
+
+    dialog = SimpleNamespace(
+        setCancelButton=lambda _value: None,
+        setWindowModality=lambda _value: None,
+        setAutoClose=lambda _value: None,
+        setAutoReset=lambda _value: None,
+        show=lambda: events.append("show"),
+        setLabelText=lambda text: (
+            events.append("refresh-label")
+            if text == "Refreshing workflow eligibility..."
+            else None
+        ),
+        setRange=lambda *_values: None,
+        setValue=lambda _value: None,
+        close=lambda: events.append("close"),
+    )
+    widget_methods = _extract_methods(
+        PYTHON / "dentobot_workflow" / "widget_segmentation.py",
+        "SegmentationWidgetMixin",
+        {"onCreateMissingPulps"},
+        {
+            "_": lambda message: message,
+            "qt": SimpleNamespace(
+                QProgressDialog=lambda *_args: dialog,
+                Qt=SimpleNamespace(WindowModal=1),
+            ),
+            "slicer": SimpleNamespace(
+                util=SimpleNamespace(
+                    mainWindow=lambda: None,
+                    errorDisplay=lambda _message: None,
+                ),
+                app=SimpleNamespace(processEvents=process_events),
+            ),
+        },
+    )
+    logic = SimpleNamespace(
+        getPulpInventoryReport=lambda _node: {"rows": [{"status": "missing"}]},
+        createMissingPulpCandidates=lambda _node, progress: (
+            progress(1, 1, "11") or {"createdCount": 1}
+        ),
+        invalidateCaseFoundationForSourceChange=lambda *_args: events.append("invalidate"),
+    )
+    node = object()
+    widget = widget_methods()
+    widget._reviewSegmentationNode = node
+    widget._parameterNode = SimpleNamespace(teethSegmentation=node)
+    widget.logic = logic
+    widget_ref["widget"] = widget
+    widget._rebuildSegmentTree = lambda: events.append("rebuild")
+    widget._updatePlanning = lambda: events.append("planning")
+    widget._updateTemplateModeling = lambda: events.append("template")
+    widget._showPulpInventoryDialog = lambda *_args: events.append("report")
+
+    widget.onCreateMissingPulps()
+
+    assert events.index("invalidate") < events.index("planning")
+    assert events.index("refresh-label") < events.index("planning")
+    assert events.index("close") > events.index("template")
+    assert events.index("close") < events.index("report")
+    assert processing_states
+    assert all(segmentation and review_ui for segmentation, review_ui in processing_states)
+    assert not widget._processingSegmentationContentChange
+    assert not widget._updatingSegmentationReviewUI
+
+
+def test_restore_callbacks_are_noop_and_live_edit_invalidates_before_planning():
+    widget_methods = _extract_methods(
+        PYTHON / "dentobot_workflow" / "widget_segmentation.py",
+        "SegmentationWidgetMixin",
+        {
+            "_onReviewSegmentationContentModified",
+            "_commitPlanningSegmentationSelection",
+        },
+        {"_": lambda message: message},
+    )
+    events = []
+    node = object()
+    widget = widget_methods()
+    widget._caseBundleRestoreDepth = 1
+    widget._processingSegmentationContentChange = False
+    widget._updatingSegmentationReviewUI = False
+    widget._restoringTrajectoryAssociation = False
+    widget._updatingFromParameterNode = False
+    widget._reviewSegmentationNode = node
+    widget._parameterNode = SimpleNamespace(teethSegmentation=node)
+    widget.logic = SimpleNamespace(
+        invalidateSegmentationReviewAfterEdit=lambda *_args: events.append("review"),
+        invalidateCaseFoundationForSourceChange=lambda *_args: events.append("foundation"),
+    )
+
+    widget._onReviewSegmentationContentModified()
+    widget._commitPlanningSegmentationSelection(object())
+    assert events == []
+    assert widget._parameterNode.teethSegmentation is node
+
+    widget._caseBundleRestoreDepth = 0
+    widget._validTrajectoryPointsByNodeId = {}
+    widget.ui = SimpleNamespace(
+        segmentationReviewStatusLabel=SimpleNamespace(text="", styleSheet="")
+    )
+    widget.logic.invalidateSegmentationReviewAfterEdit = (
+        lambda _node: events.append("review") or True
+    )
+    widget._rebuildSegmentTree = lambda: events.append("rebuild")
+    widget._refreshSegmentationInspection = lambda: events.append("inspect")
+    widget._updatePlanning = lambda: events.append("planning")
+    widget._updateTemplateModeling = lambda: events.append("template")
+
+    widget._onReviewSegmentationContentModified()
+
+    assert events.index("foundation") < events.index("planning")
+    assert events.index("planning") < events.index("template")
+
+
 def test_relevant_mask_edit_marks_report_stale_and_blocks_bulk_creation():
     records = _records(("t11", "11", "VALID"))
     node = _trusted_node(records)
