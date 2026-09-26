@@ -1,0 +1,7 @@
+attempt=1 status=
+attempt=2 status={"description_ready":true,"joint_state_publisher_count":1,"mode":"simulation_only","planning_ready":false,"ready":false,"reason":"missing planner nodes: /move_group; missing planner services: /check_state_validity, /compute_cartesian_path, /compute_ik","schema":"dentobot.simulation_status.v1"}
+---
+attempt=3 status={"description_ready":true,"joint_state_publisher_count":1,"mode":"simulation_only","planning_ready":false,"ready":false,"reason":"missing planner nodes: /move_group; missing planner services: /check_state_validity, /compute_cartesian_path, /compute_ik","schema":"dentobot.simulation_status.v1"}
+---
+attempt=4 status={"description_ready":true,"joint_state_publisher_count":1,"mode":"simulation_only","planning_ready":true,"ready":true,"reason":"","schema":"dentobot.simulation_status.v1"}
+---

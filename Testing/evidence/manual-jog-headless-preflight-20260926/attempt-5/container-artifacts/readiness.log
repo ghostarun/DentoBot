@@ -1,0 +1,4 @@
+attempt=1 status=
+attempt=2 status=
+attempt=3 status={"description_ready":true,"joint_state_publisher_count":1,"mode":"simulation_only","planning_ready":true,"ready":true,"reason":"","schema":"dentobot.simulation_status.v1"}
+---

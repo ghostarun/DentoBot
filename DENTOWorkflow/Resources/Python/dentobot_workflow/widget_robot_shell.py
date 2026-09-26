@@ -9,6 +9,8 @@ from .runtime import *
 from .workflow_progress import WorkflowProgress
 
 from DENTOStep6Planning import TaskSpaceRoi
+from DENTOROS2Bridge import show_goal_robot_joint_positions
+from DENTOStep6State import JOINT_NAMES
 
 
 class RobotShellWidgetMixin:
@@ -39,9 +41,16 @@ class RobotShellWidgetMixin:
                 "revalidate_workspace": self._onStep6RevalidateWorkspace,
                 "review_limits": self._onStep6ReviewAssistedLimits,
                 "confirm_task": self._onStep6ConfirmTask,
+                "reset_manual_draft": self._onShellResetManualJogDraft,
+                "manual_draft_changed": self._onShellManualJogDraftChanged,
+                "guarded_manual_jog": self._onShellGuardedManualJog,
+                "export_manual_record": self._onStep6ExportManualRecord,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
                 "check_preentry_ik": self._onStep6CheckPreEntryIK,
+                "check_planning_p1": lambda: self._onStep6CheckPlanningStage("P1"),
+                "check_planning_p2": lambda: self._onStep6CheckPlanningStage("P2"),
+                "check_planning_p3": lambda: self._onStep6CheckPlanningStage("P3"),
                 "compare_planners": self._onStep6ComparePlanners,
                 "cancel_planner_comparison": self._onStep6CancelPlannerComparison,
                 "show_planner_comparison": self._onStep6ShowPlannerComparison,
@@ -95,6 +104,9 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.goalGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.manualJogGroup
+        )
+        self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.collisionGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
@@ -114,6 +126,19 @@ class RobotShellWidgetMixin:
         self.ui.step6MountLockGroupBox.title = _(
             "6.1A — Offline Robot Preview and Manual Simulation Base"
         )
+        self.ui.step6MountLockDescriptionLabel.text = _(
+            "Adjust the existing Manual Simulation Base controls and review its "
+            "world-RAS pose below. The candidate stays unaccepted until you "
+            "choose Accept Base; that action uses the existing base lock and "
+            "collision-scene resynchronization path. This is diagnostic "
+            "placement, not physical mount or registration truth."
+        )
+        self.ui.lockRobotBaseMountButton.text = _("Accept Base")
+        self.ui.lockRobotBaseMountButton.toolTip = _(
+            "Accept the reviewed current Base candidate through the existing "
+            "lockBase path. Failed scene or placement checks leave it unaccepted."
+        )
+        self.ui.unlockRobotBaseMountButton.text = _("Unlock Accepted Base")
         self._robotSimulationPanel.runtimeGroup.title = _(
             "6.1B — Connect ROS + MoveIt"
         )
@@ -278,6 +303,131 @@ class RobotShellWidgetMixin:
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
+    def _onShellResetManualJogDraft(self) -> None:
+        if self._robotSimulationPanel:
+            self._robotSimulationPanel.resetManualJogDraft()
+
+    def _onShellManualJogDraftChanged(
+        self, joint_positions_si: Mapping[str, float]
+    ) -> None:
+        if not self._robotSimulationPanel:
+            return
+        ok, message = show_goal_robot_joint_positions(joint_positions_si)
+        self._robotSimulationPanel.setManualJogDraftDisplayResult(ok, message)
+
+    def _onShellGuardedManualJog(
+        self, joint_positions_si: Mapping[str, float]
+    ) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
+            if panel:
+                panel.setManualJogStatus(
+                    "unknown",
+                    "Guard status: unknown — another Step 6 action is active or the façade is unavailable.",
+                )
+            return
+        try:
+            if set(joint_positions_si) != set(JOINT_NAMES):
+                raise ValueError("A manual jog must contain exactly J1–J5.")
+            requested = {
+                name: float(joint_positions_si[name]) for name in JOINT_NAMES
+            }
+            if not all(isfinite(value) for value in requested.values()):
+                raise ValueError("Manual jog values must be finite.")
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            panel.setManualJogStatus(
+                "blocked",
+                "Guard status: unknown — the draft request is invalid and was retained. "
+                + str(exc),
+                {"identityStatus": "unknown", "guardAccepted": None},
+            )
+            return
+        panel.setManualJogRequestPending()
+        self._workflowActionBusy = True
+        try:
+            result = facade.guardManualRobotJog(requested)
+            details = result.details if isinstance(result.details, Mapping) else {}
+            guard_accepted = details.get("guardAccepted")
+            identity_status = details.get("identityStatus", "unknown")
+            monitored_status = str(
+                details.get("monitoredStateStatus") or "unavailable/unknown"
+            )
+            monitoring = f"Monitored-state status: {monitored_status}."
+            accepted_positions = details.get("acceptedJointPositionsSi")
+            accepted = None
+            if (
+                isinstance(accepted_positions, Mapping)
+                and set(accepted_positions) == set(JOINT_NAMES)
+            ):
+                try:
+                    candidate = {
+                        name: float(accepted_positions[name]) for name in JOINT_NAMES
+                    }
+                    if all(
+                        isfinite(value) and value == requested[name]
+                        for name, value in candidate.items()
+                    ):
+                        accepted = candidate
+                except (TypeError, ValueError, OverflowError):
+                    pass
+            acknowledged = bool(
+                result.success is True
+                and identity_status == "current"
+                and guard_accepted is True
+                and accepted is not None
+            )
+            if acknowledged:
+                ok, mirror_message = self._setRobotJointsFromSi(
+                    accepted, publish_to_ros=False
+                )
+                if ok:
+                    panel.setManualJogAcceptedState(accepted)
+                status = (
+                    "Guard status: acknowledged — the accepted state was mirrored. "
+                    if ok
+                    else "Guard status: acknowledged — accepted state mirroring failed: "
+                    + mirror_message
+                    + " "
+                )
+                panel.setManualJogStatus(
+                    "ok",
+                    status + monitoring + " " + result.message,
+                    details,
+                )
+            elif (
+                result.success is False
+                and identity_status == "current"
+                and guard_accepted is False
+            ):
+                panel.setManualJogStatus(
+                    "error",
+                    "Guard status: rejected — the accepted robot is unchanged and the draft is retained. "
+                    + monitoring
+                    + " "
+                    + result.message,
+                    details,
+                )
+            else:
+                panel.setManualJogStatus(
+                    "blocked",
+                    "Guard status: unknown — the accepted robot is unchanged and the draft is retained. "
+                    + monitoring
+                    + " "
+                    + result.message,
+                    details,
+                )
+        except Exception as exc:
+            panel.setManualJogStatus(
+                "blocked",
+                "Guard status: unknown — the accepted robot is unchanged and the draft is retained. "
+                + str(exc),
+                {"identityStatus": "unknown", "guardAccepted": None, "error": str(exc)},
+            )
+        finally:
+            panel.setManualJogRequestComplete()
+            self._workflowActionBusy = False
+
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
@@ -429,6 +579,54 @@ class RobotShellWidgetMixin:
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if not result.success:
             slicer.util.errorDisplay(result.message)
+
+    def _onStep6ExportManualRecord(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade:
+            return
+        try:
+            record = facade.manualSimulationRecord()
+            if (
+                not isinstance(record, dict)
+                or record.get("record_status") != "historical_display_only"
+            ):
+                raise ValueError(
+                    "The façade did not provide a historical, display-only record."
+                )
+            serialized = json.dumps(record, indent=2, sort_keys=True, allow_nan=False)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            message = "Manual simulation record export unavailable: " + str(exc)
+            panel.setManualRecordExportStatus("blocked", message)
+            slicer.util.errorDisplay(message)
+            return
+        destination = qt.QFileDialog.getSaveFileName(
+            slicer.util.mainWindow(),
+            _("Export Step 6 manual simulation record"),
+            "manual-simulation-record.json",
+            _("JSON files (*.json)"),
+        )
+        if isinstance(destination, tuple):
+            destination = destination[0]
+        if not destination:
+            return
+        try:
+            Path(destination).write_text(serialized + "\n", encoding="utf-8")
+        except OSError as exc:
+            message = (
+                "Manual simulation record export failed; the in-session record "
+                "and its accepted/rejected evidence were not changed. "
+                + str(exc)
+            )
+            panel.setManualRecordExportStatus("error", message)
+            slicer.util.errorDisplay(message)
+            return
+        panel.setManualRecordExportStatus(
+            "ok",
+            "Exported historical/display-only manual simulation evidence to "
+            + str(destination)
+            + ". It cannot restore live state or authorize a route or preview.",
+        )
 
     def _onStep6ShowMotionDiagnostics(self) -> None:
         if not self._parameterNode or not self._robotSimulationPanel:
@@ -849,6 +1047,41 @@ class RobotShellWidgetMixin:
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if result.success and result.details.get("motionDiagnosticSessionFingerprint"):
             self._onStep6ShowMotionDiagnostics()
+
+    def _onStep6CheckPlanningStage(self, stage: str) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
+        try:
+            progress = WorkflowProgress(f"Step 6.5 {stage} diagnostic")
+            progress.update(f"Starting {stage} check", can_cancel=False)
+            result = self._robotWorkflowFacade.checkPlanningStage(
+                stage,
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
+        self._setStep6PanelResult(
+            self._robotSimulationPanel.approachStatusLabel, result
+        )
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        fingerprint = result.details.get("motionDiagnosticSessionFingerprint")
+        if fingerprint and self._parameterNode:
+            try:
+                session = parse_motion_diagnostic_session(
+                    str(self._parameterNode.step6MotionDiagnosticJson or "")
+                )
+            except ValueError:
+                session = None
+            if session and session.session_fingerprint == fingerprint:
+                self._onStep6ShowMotionDiagnostics()
 
     def _onStep6ComparePlanners(self) -> None:
         if getattr(self, "_plannerComparisonState", None):
@@ -1297,6 +1530,7 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.runtimeGroup,
             self._robotSimulationPanel.confirmationGroup,
             self._robotSimulationPanel.goalGroup,
+            self._robotSimulationPanel.manualJogGroup,
             self._robotSimulationPanel.collisionGroup,
             self._robotSimulationPanel.visualizationGroup,
             self._robotSimulationPanel.homeGroup,
@@ -1323,7 +1557,10 @@ class RobotShellWidgetMixin:
                 self._robotSimulationPanel.workspaceReviewGroup,
             ),
             4: (self._robotSimulationPanel.confirmationGroup,),
-            5: (self._robotSimulationPanel.approachGroup,),
+            5: (
+                self._robotSimulationPanel.manualJogGroup,
+                self._robotSimulationPanel.approachGroup,
+            ),
             6: (self._robotSimulationPanel.drillingGroup,),
         }
         for group in visible_by_substep[index]:

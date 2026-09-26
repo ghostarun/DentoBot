@@ -979,6 +979,18 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     "diagnostic or re-plan Approach."
                 )
             )
+        try:
+            confirmed_task = self.confirmedTaskRecord(parameterNode)
+        except (AttributeError, OverflowError, TypeError, ValueError):
+            confirmed_task = None
+        if confirmed_task is None:
+            issues.append(
+                _("Motion diagnostic has no valid confirmed task snapshot.")
+            )
+        elif record.task_fingerprint != confirmed_task.snapshot_fingerprint:
+            issues.append(
+                _("Motion diagnostic belongs to a different confirmed task.")
+            )
         if record.base_fingerprint != self.robotBaseFingerprint(parameterNode):
             issues.append(_("Motion diagnostic belongs to a different base pose."))
         if record.trajectory_fingerprint != self.step6TrajectoryRevision(parameterNode):

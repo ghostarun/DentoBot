@@ -1,0 +1,10 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+"Failed to create extensions directory" "/opt/slicer/Slicer-SuperBuild/Slicer-build/slicer.org/Extensions-3838"
+Switch to module:  "Welcome"
+DENTOBOT_MANUAL_JOG_HEADLESS_FAILED: cannot access local variable 'case_sha256' where it is not associated with a value
+Traceback (most recent call last):
+  File "<string>", line 1045, in <module>
+  File "<string>", line 460, in run
+UnboundLocalError: cannot access local variable 'case_sha256' where it is not associated with a value
+Switch to module:  ""
+Switch to module:  ""

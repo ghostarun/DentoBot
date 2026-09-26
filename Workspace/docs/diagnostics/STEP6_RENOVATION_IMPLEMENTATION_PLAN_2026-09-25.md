@@ -52,17 +52,61 @@ Keep review rendering responsive while authoritative guard requests are serializ
 
 The 60 FPS target concerns the local interaction/render loop, not a promise that full MoveIt IK, collision and guard checks complete every 16.7 ms. Show the most recent authoritative diagnostic identity and age while a new result is pending; do not hide lag behind an apparently current badge. Capture input event → pose update → visible frame, local FK, MRML transform propagation, viewport frame time, guard transport/decision, ROS scene synchronization, endpoint/continuity evaluation and recording overhead separately. Measure both ordinary continuous manipulation and a bounded sequence of individual guarded jogs. Investigate current SlicerROS2 fork controls, rendering/event-loop behavior and upstream developments, but select changes from measured local bottlenecks; preserve strict acceptance ordering. An RViz/Gazebo/PyBullet-like experience is an interaction/usability target, not authorization to replace the physics or collision authority.
 
+**Upstream reference reviewed 2026-09-26:** the SlicerROS2 v1.1 release already includes interactive 3D and joint controls. Its current 1.2 documentation describes a draggable goal gizmo that runs IK and updates the robot view, with a visible failure state and preview path display. A SlicerROS2 performance study reports about 2.41 ± 0.79 ms per 20 ms ROS spin and about 49 FPS for one displayed robot on its test setup (3.22 ± 1.43 ms with another robot); it contrasts an older implementation that overran at about 56 ms per spin. These are reference measurements, not results for this DentoBot workstation or scene. The browsed upstream issue list had no general renderer-latency item, and its PR page showed no open PR at that snapshot. The adjacent local `upgrade/slicer-5.12` checkout is 14 commits ahead of its locally fetched upstream tip, including ROS shutdown cleanup and read-only MoveIt geometry diagnostics; it remains a separate upgrade branch and was not changed here. Use these findings to prioritize reuse of the existing ghost/goal-control path and to measure local event-loop, FK/MRML/render, MoveIt guard, and ROS costs separately before choosing a performance fix.
+
 ## Implementation gates and evidence boundaries
 
 1. **Shared evaluator and records:** extend existing branch-keyed motion diagnostics with versioned fields and shared callers. Focused checks prove status fidelity, failed best states, identities, stale-result rejection and manual/automatic parity.
 2. **ROI and reviewed limits:** derive world-RAS midpoint from current upper/opened-lower incisor references; allow edited XYZ/dimensions; generate bounded task-space candidates; test containment, task-axis use, yield/timing and Home-inclusive review.
 3. **Guarded workbench:** integrate base/Home review and explicit acceptance, J1–J5 live jog, invalid-state display, controls, recording/export/path display and measured responsiveness. Source checks precede one serialized operator-visible simulation trial.
+
+**26 September verification timing update:** The headless manual-jog attempt
+loaded the September 22 FDI31 saved package and stopped at package-lineage
+validation before any jog. Tarun directed treating this as older-case
+compatibility evidence and deferring further case-based runtime tests until
+substantial source progress and a newly saved `.dentocase` reflects the
+renovation; a heavier user session may follow. Keep lineage validation intact.
+The simulation trial, screenshots and operator verdict remain pending.
+
+**26 September Base/Home and recording source checkpoint:** Workbench UI now
+labels candidate Base/Home and explicit acceptance through the existing owners.
+The façade retains schema-1.0 historical records for exact J1–J5 requests,
+authoritative accept/reject/unknown outcomes and terminal Base/Home events;
+JSON export is display-only. Pre-task direct Base nudges cannot be assigned a
+complete Step 6 identity and are reported unavailable for recording. The
+combined host pure suite passed 109 tests with Python compilation and diff
+check; no simulation or usability acceptance follows. Path display/replay,
+fuller diagnostics and final UI/full-chain gates remain open.
 4. **Separated planning and two-area UI:** expose PreEntry, P1 Home→PreEntry, P2 PreEntry→Entry, P3 Entry→Target and complete-chain checks through shared routines. Exact predecessor endpoints and frame are required; changed candidate/input identity invalidates downstream stages. Both navigators must agree. A common PreEntry failure before OMPL cannot rank RRT variants.
 5. **Preview boundary:** only current complete independent-guard-valid routes enter 6.4. Retain accepted-prefix, monitored state, first rejected request/evaluation and reason before clearing any session. Incomplete/AwayFromHome blocks preview and normal Return Home; manual Stop records no rejected waypoint. Do not implement teleport, automatic recovery, partial-prefix reversal, hardware or spindle action.
 
 **25 September source checkpoint for gate 2:** The workspace action now consumes the editable ROI, generates TCP targets inside it, and attempts existing native position-axis IK before static validity/FK and bounded Home-connectivity checks. It reports per-phase counts/timing and fingerprints; stale ROI/trajectory evidence is rejected. A selected but unconfirmed trajectory axis is explicitly provisional. Workspace proposal generation no longer changes task identity; applying a limit proposal requires mechanical bounds and inclusion of current Task Home. The 135-test host pure suite and Python compilation passed. This does not establish runtime yield, speed, visual usability, current-scene collision behavior or operator acceptance. The shared evaluator, manual solver, separated stages and two-area UI remain ahead.
 
-**26 September source checkpoint for gate 1 (initial slice):** The automatic Goal-1 and standalone PreEntry paths now share one façade exact-TCP endpoint evaluator. It retains a versioned per-seed evaluation, checks MoveIt static validity before FK, records position/axis residuals under the existing Cartesian-start tolerances, and reports collision state as `clear` only after an authoritative accepted scene check; a rejected or unverified state has no invented collision pair. The PreEntry joint-limit evidence now uses one pure named-joint helper for SI-to-display conversion and mechanical/reviewed margins. The current worktree's focused host pure suite passed 139 tests; `py_compile` and `git diff --check` passed. This is **source implemented and unit checked** only. The evaluator is not yet callable by manual workbench states or separated P1/P2/P3 checks, and it adds no clearance or exact-state conditioning measurement; those remain unknown until an authoritative provider is integrated. No Slicer/ROS/MoveIt/OMPL/preview or hardware trial ran, so runtime performance, visible usability and case feasibility remain unverified.
+**26 September source checkpoint for gate 1 (shared endpoint evaluator):** Goal-1 and standalone PreEntry share one façade exact-TCP endpoint evaluator. It retains a versioned per-seed evaluation, checks MoveIt static validity before FK and records position/axis residuals under existing Cartesian-start tolerances. PreEntry joint-limit evidence uses the pure named-joint SI-to-display margin helper. This initial slice passed 139 host pure tests.
+
+**26 September source checkpoint for gate 1 (manual-state consumer):** The explicit Check Current State action now calls that same evaluator on a captured current joint vector after checking the active simulation runtime, synchronized case scene, confirmed task, selected eligible PreparedBranch, Task Home and current task identity. It records planner identity and the input vector before and after the query, retaining results as stale/unknown when either changes. The displayed current-state static validity is separate from target-endpoint match; a safe pose away from Target is not labelled invalid merely because its target residual is high. Connect/bootstrap and Task Home acceptance retain the lightweight guard-only check. The relevant host pure suite passed 144 tests; `py_compile` and `git diff --check` passed. This is source/unit evidence only: it is not the full interactive solver, does not jog or create/persist motion records, and does not expose P1/P2/P3 yet. Numeric forbidden clearance and exact-state task conditioning remain unknown. No Slicer/ROS/MoveIt/OMPL/preview or hardware trial ran, so runtime performance, visible usability and case feasibility remain unverified.
+
+**26 September source checkpoint for gate 4 (separated stage diagnostics):** The existing planning panel now exposes separate Check P1 Home→PreEntry, Check P2 PreEntry→Entry and Check P3 Entry→Target actions. P1 consumes a same-façade PreEntry candidate; P2/P3 start from the exact terminal joint state of the preceding passing diagnostic. Each stage retains requested path/end state, FK endpoint evaluation, frozen input identity, last valid/first invalid evidence and an independent validate-only guard result for the Home-rooted prefix. Guard attribution requires matching task, session, collision-policy, request ID, phase, sequence, validation kind and exact requested joint vector; unmatched latest status remains unknown. Partial paths and stage records have no route authority and cannot unlock preview. The focused Step 6 host pure suite passed 181 tests; Python compilation and `git diff --check` passed. This is a source-only stage slice on the existing panel, not the final two-area UI or a full-chain promotion gate. The ROS-connected manual engineering workbench, recording, responsive jogs, final UI, and numeric forbidden clearance/exact-state conditioning remain open. No Slicer/ROS/MoveIt/OMPL/preview or hardware trial ran.
+
+The pure `build_manual_simulation_record` / `parse_manual_simulation_record`
+schema (version 1.0) enforces historical/display-only reopen semantics and
+exact requested/accepted/rejected J1–J5 evidence. The 26 September source
+gate connected manual controls, in-session retention and JSON export to this
+schema. Path display/replay and optional video remain open; do not introduce
+a parallel record schema.
+
+**26 September guarded-jog source checkpoint:** The J1–J5 draft controls use
+reviewed/mechanical limits and a display-only goal robot. An explicit jog
+passes through the existing simulation-only raw guard; the façade requires a
+fresh exact joint echo, current task/base/Home/branch/scene identity and the
+acknowledged world object set before reporting acceptance. Rejected and unknown
+results retain draft and native evidence without a UI accepted-state mirror.
+The host pure suite passed 187 tests; Python compilation and `git diff --check`
+passed. The raw status has no collision-policy fingerprint or request ID, so
+policy attribution and runtime behavior remain unverified. Base/Home review and
+acceptance, recording/export, full workbench diagnostics, final two-area UI,
+responsive rendering measurements and the operator-visible simulation verdict
+remain open. This source checkpoint has no route, preview or hardware authority.
 
 The first FDI11 visible IK-only report showed collision-checked endpoints for an **intentionally changed** base/Home/task/scene. The direct Home seed timed out after one iteration; P1/P2/P3/guard were NotRun. Tarun's interpretation and separately saved exact setup remain pending, and the original all-zero-Home case is unresolved. This is diagnostic architecture evidence, not a route or case-specific planner fix. FDI21 attribution, exact FDI31 full-chain reference, planner comparison, automated base sweeps and robot-design variants follow under existing owners in the later-work index; their **shared diagnostic primitives are current work**.
 

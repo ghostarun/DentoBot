@@ -15,8 +15,9 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from math import acos, atan2, degrees, isfinite, pi, sqrt
-from time import monotonic
+from time import monotonic, monotonic_ns
 from typing import Any, Callable, Mapping, Optional, Sequence
+from uuid import uuid4
 
 import DENTOROS2Bridge as _default_bridge
 from DENTORobotPlacement import joint_positions_si_from_display
@@ -31,6 +32,7 @@ from DENTOStep6Planning import (
 )
 from DENTOStep6State import (
     DRILL_TOOL_FRAME_POLICY,
+    build_manual_simulation_record,
     SIMULATION_TARGET_DEPTH_POLICY,
     SPINDLE_JOINT_NAME,
     SPINDLE_LOCKED_VALUE_RAD,
@@ -43,6 +45,7 @@ from DENTOStep6State import (
     parse_motion_diagnostic_session,
     PLANNER_COMPARISON_IDS,
     planner_comparison_scene_fingerprint,
+    task_snapshot_invalidation_reasons,
     update_motion_diagnostic_plan_selection,
 )
 
@@ -396,8 +399,15 @@ class DENTORobotWorkflowFacade:
         self._runtime_validated_workspace_key = ""
         self._diagnostic_candidate_paths: dict[int, dict[str, tuple]] = {}
         self._diagnostic_plan_selection_override: Optional[dict[str, object]] = None
+        self._step6_preentry_candidate_cache: Optional[dict[str, object]] = None
+        self._step6_stage_diagnostic_chain: dict[str, object] = {}
         self._accepted_motion_history: list[dict[str, object]] = []
         self._motion_history_task_fingerprint = ""
+        self._manual_jog_in_progress = False
+        self._manual_simulation_identity: Optional[dict[str, str]] = None
+        self._manual_simulation_events: list[dict[str, object]] = []
+        # ponytail: snapshots live for this façade session; cap/archive only if long sessions show memory growth.
+        self._manual_simulation_completed_records: list[dict[str, object]] = []
         self._joint_planner_id = STEP6_JOINT_PLANNER_ID
         self._effective_joint_planner_id = ""
         self._joint_planning_attempts = STEP6_JOINT_PLANNING_ATTEMPTS
@@ -816,6 +826,8 @@ class DENTORobotWorkflowFacade:
         self._preflight_drilling_plan = None
         self._preflight_task_fingerprint = ""
         self._preflight_orientation_commitment = {}
+        self._step6_preentry_candidate_cache = None
+        self._step6_stage_diagnostic_chain = {}
         self._accepted_motion_history = []
         self._motion_history_task_fingerprint = ""
 
@@ -1913,7 +1925,7 @@ class DENTORobotWorkflowFacade:
             if progress:
                 progress("Checking connected robot candidate")
             candidate_result = self._apply_positions_si(bootstrap_positions_si)
-            candidate_status = self.checkStateValidity()
+            candidate_status = self._checkStateValidity()
             bootstrap_message = (
                 " Seeded the transient robot from the fresh saved Task Home "
                 "candidate; 6.2 must still validate it in this live runtime."
@@ -2076,6 +2088,579 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "joint_update_failed", str(exc))
 
+    def _manual_jog_current_identity(self, expected_parameter_node=None) -> dict[str, str]:
+        """Return the exact current task identity required for one manual jog."""
+
+        parameter_node = self._require_context()
+        if expected_parameter_node is not None and parameter_node is not expected_parameter_node:
+            raise ValueError("The active Step 6 parameter node changed during the jog.")
+        if self.previewActive or self._guarded_preview_active:
+            raise ValueError("Stop the guarded preview before manually jogging the robot.")
+        if self._incomplete_preview_evidence is not None or self._robot_away_from_home:
+            raise ValueError(
+                "Manual jogging is blocked until the incomplete or away-from-Home state is resolved."
+            )
+        if self._scene_kind(parameter_node) != "case":
+            raise ValueError("A current case collision scene is required for manual jogging.")
+        if not bool(parameter_node.step6PlanningContextImported):
+            raise ValueError("Import the current Step 6 planning context before manual jogging.")
+        if not self._planning_scene_synchronized or self._planning_scene_object_count <= 0:
+            raise ValueError("Synchronize the current collision scene before manual jogging.")
+        if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
+            raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
+        freshness_issues = self._step6_read_only_freshness_issues(parameter_node)
+        if freshness_issues:
+            raise ValueError("Planning inputs are stale: " + "; ".join(freshness_issues))
+
+        snapshot = self._logic.confirmedTaskRecord(parameter_node)
+        home = self._logic.taskHomeRecord(parameter_node)
+        audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        if snapshot is None or home is None or audit is None:
+            raise ValueError("A current confirmed task, Task Home, and collision scene are required.")
+        registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+        branch_id = str(registry.get("selected_branch_id") or "")
+        branches = registry.get("prepared_branches")
+        if (
+            not branch_id
+            or not isinstance(branches, Mapping)
+            or branch_id not in branches
+        ):
+            raise ValueError("An active selected PreparedBranch is required.")
+        branch = self._logic.evaluatePreparedBranchEligibility(
+            parameter_node, branch_id, registry=registry
+        )
+        if not branch.get("eligible"):
+            raise ValueError(str(branch.get("message") or branch.get("reason") or "PreparedBranch is stale."))
+        acknowledgement = audit.runtime_acknowledgement
+        if (
+            audit.status != "Acknowledged"
+            or acknowledgement.get("status") != "Acknowledged"
+        ):
+            raise ValueError("The current collision scene has no runtime acknowledgement.")
+        task_issues = task_snapshot_invalidation_reasons(
+            snapshot,
+            target_segment_id=str(parameter_node.targetToothSegmentId or ""),
+            trajectory_revision=self._logic.step6TrajectoryRevision(parameter_node),
+            base_fingerprint=self._logic.robotBaseFingerprint(parameter_node),
+            home_fingerprint=fingerprint(home.to_dict()),
+            limits_fingerprint=self._logic.step6TaskLimitsFingerprint(parameter_node),
+            robot_profile_fingerprint=self._logic.robotProfileFingerprint(),
+            tool_frame=str(parameter_node.step6ToolFrame),
+        )
+        if task_issues:
+            raise ValueError("Confirmed task inputs are stale: " + "; ".join(task_issues))
+
+        identity = self.plannerComparisonIdentity()
+        expected_identity = {
+            "branch_id": branch_id,
+            "task": snapshot.snapshot_fingerprint,
+            "base": self._logic.robotBaseFingerprint(parameter_node),
+            "home": snapshot.home_fingerprint,
+            "trajectory": self._logic.step6TrajectoryRevision(parameter_node),
+            "robot_profile": self._logic.robotProfileFingerprint(),
+            "collision_audit": planner_comparison_scene_fingerprint(audit),
+        }
+        if identity != expected_identity or any(not value for value in identity.values()):
+            raise ValueError("Task, branch, base, Home, profile, or scene identity changed.")
+        return {
+            **identity,
+            "limits": self._logic.step6TaskLimitsFingerprint(parameter_node),
+        }
+
+    @staticmethod
+    def _manual_simulation_identity_from_jog_identity(
+        identity: Mapping[str, str],
+    ) -> dict[str, str]:
+        return {
+            "prepared_branch_id": identity["branch_id"],
+            "task_fingerprint": identity["task"],
+            "base_fingerprint": identity["base"],
+            "home_fingerprint": identity["home"],
+            "trajectory_fingerprint": identity["trajectory"],
+            "robot_profile_fingerprint": identity["robot_profile"],
+            "scene_fingerprint": identity["collision_audit"],
+        }
+
+    def _manual_simulation_record_dict(self) -> dict[str, object]:
+        if self._manual_simulation_identity is None:
+            raise RuntimeError("No complete manual simulation identity is available.")
+        return build_manual_simulation_record(
+            identity=self._manual_simulation_identity,
+            events=self._manual_simulation_events,
+        )
+
+    def _manual_simulation_freeze(self) -> Optional[dict[str, object]]:
+        if self._manual_simulation_identity is None:
+            return None
+        record = self._manual_simulation_record_dict()
+        if self._manual_simulation_events:
+            self._manual_simulation_completed_records.append(deepcopy(record))
+        self._manual_simulation_identity = None
+        self._manual_simulation_events = []
+        return record
+
+    def _manual_simulation_begin(self, identity: Mapping[str, str]) -> None:
+        clean_identity = self._manual_simulation_identity_from_jog_identity(identity)
+        if self._manual_simulation_identity == clean_identity:
+            return
+        self._manual_simulation_freeze()
+        self._manual_simulation_identity = clean_identity
+        self._manual_simulation_events = []
+
+    def _manual_simulation_prepare_current_identity(self) -> str:
+        try:
+            identity = self._manual_jog_current_identity()
+            self._manual_simulation_begin(identity)
+            return ""
+        except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
+            return _bounded_text(exc)
+
+    def _manual_simulation_append_event(self, event: Mapping[str, object]) -> bool:
+        if self._manual_simulation_identity is None:
+            return False
+        self._manual_simulation_events.append(dict(event))
+        return True
+
+    @staticmethod
+    def _manual_simulation_json_safe(value: object) -> object:
+        if value is None or isinstance(value, (str, bool, int)):
+            return value
+        if isinstance(value, float):
+            return value if isfinite(value) else None
+        if isinstance(value, Mapping):
+            return {
+                str(key): DENTORobotWorkflowFacade._manual_simulation_json_safe(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (tuple, list)):
+            return [DENTORobotWorkflowFacade._manual_simulation_json_safe(item) for item in value]
+        item = getattr(value, "item", None)
+        if callable(item):
+            try:
+                return DENTORobotWorkflowFacade._manual_simulation_json_safe(item())
+            except (TypeError, ValueError, OverflowError):
+                pass
+        return _bounded_text(value)
+
+    def _record_manual_jog_outcome(
+        self,
+        code: str,
+        message: str,
+        details: Mapping[str, object],
+    ) -> None:
+        if self._manual_simulation_identity is None:
+            return
+        requested = details.get("requestedJointPositionsSi")
+        if not isinstance(requested, Mapping) or set(requested) != set(JOINT_NAMES):
+            return
+        native = self._manual_simulation_json_safe(
+            details.get("nativeGuardEvidence") or {}
+        )
+        native = native if isinstance(native, Mapping) else {}
+        policy_fingerprint = str(
+            native.get("collisionScenePolicyFingerprint") or "unknown"
+        )
+        event_details = {
+            "guard_policy_fingerprint": policy_fingerprint,
+            "guard_policy_identity_status": str(
+                native.get("collisionScenePolicyIdentityStatus") or "unknown"
+            ),
+            "simulation_only": True,
+            "route_authority": "none",
+        }
+        requested_joints = {name: float(requested[name]) for name in JOINT_NAMES}
+        accepted = details.get("acceptedJointPositionsSi")
+        if (
+            code == "manual_jog_accepted"
+            and details.get("guardAccepted") is True
+            and details.get("identityStatus") == "current"
+            and isinstance(accepted, Mapping)
+            and set(accepted) == set(JOINT_NAMES)
+            and all(float(accepted[name]) == requested_joints[name] for name in JOINT_NAMES)
+        ):
+            self._manual_simulation_append_event(
+                {
+                    "kind": "guard_accepted",
+                    "monotonic_ns": monotonic_ns(),
+                    "requested_joints": requested_joints,
+                    "accepted_joints": {name: float(accepted[name]) for name in JOINT_NAMES},
+                    "details": event_details,
+                }
+            )
+            return
+
+        accepted_before = details.get("currentAcceptedJointPositionsSiBefore")
+        if (
+            code == "manual_jog_rejected"
+            and details.get("guardAccepted") is False
+            and details.get("rawGuardOutcome") == "rejected"
+            and isinstance(accepted_before, Mapping)
+            and set(accepted_before) == set(JOINT_NAMES)
+        ):
+            self._manual_simulation_append_event(
+                {
+                    "kind": "guard_rejected",
+                    "monotonic_ns": monotonic_ns(),
+                    "requested_joints": requested_joints,
+                    "accepted_joints": {
+                        name: float(accepted_before[name]) for name in JOINT_NAMES
+                    },
+                    "native_failure_evidence": {
+                        "guard_outcome": "rejected",
+                        "message": _bounded_text(message),
+                        "native": dict(native),
+                    },
+                    "details": event_details,
+                }
+            )
+            return
+
+        diagnostic: dict[str, object] = {
+            "code": str(code),
+            "message": _bounded_text(message),
+            "identity_status": str(details.get("identityStatus") or "unknown"),
+            "guard_accepted": details.get("guardAccepted"),
+            "raw_guard_outcome": str(details.get("rawGuardOutcome") or "unknown"),
+            "accepted_state_may_have_advanced": bool(
+                details.get("acceptedStateMayHaveAdvanced")
+            ),
+            "monitored_state_status": str(
+                details.get("monitoredStateStatus") or "unavailable/unknown"
+            ),
+            "guard_policy_fingerprint": policy_fingerprint,
+            "guard_policy_identity_status": event_details[
+                "guard_policy_identity_status"
+            ],
+        }
+        event: dict[str, object] = {
+            "kind": "diagnostic",
+            "monotonic_ns": monotonic_ns(),
+            "diagnostic": diagnostic,
+            "details": event_details,
+        }
+        if native:
+            event["native_failure_evidence"] = {"native": dict(native)}
+        self._manual_simulation_append_event(event)
+
+    def _manual_simulation_base_matrix(
+        self, parameter_node
+    ) -> list[float]:
+        matrix = self._logic._worldMatrixFromTransform(parameter_node.robotBaseTransform)
+        return [
+            float(matrix.GetElement(row, column))
+            for row in range(4)
+            for column in range(4)
+        ]
+
+    def _manual_simulation_recording_unavailable(
+        self, result: RobotActionResult, reason: str
+    ) -> RobotActionResult:
+        return replace(
+            result,
+            details={
+                **dict(result.details),
+                "manualSimulationRecordStatus": "unavailable",
+                "manualSimulationRecordUnavailableReason": (
+                    reason or "A complete pre-commit recording identity was unavailable."
+                ),
+            },
+        )
+
+    def _manual_simulation_finish_acceptance(
+        self,
+        result: RobotActionResult,
+        *,
+        review_event: Mapping[str, object],
+        acceptance_event: Mapping[str, object],
+        unavailable_reason: str,
+    ) -> RobotActionResult:
+        if self._manual_simulation_identity is None:
+            return self._manual_simulation_recording_unavailable(result, unavailable_reason)
+        event_count = len(self._manual_simulation_events)
+        try:
+            self._manual_simulation_append_event(review_event)
+            self._manual_simulation_append_event(acceptance_event)
+            record = self._manual_simulation_record_dict()
+        except (RuntimeError, ValueError, TypeError, OverflowError) as exc:
+            del self._manual_simulation_events[event_count:]
+            return self._manual_simulation_recording_unavailable(result, _bounded_text(exc))
+        self._manual_simulation_completed_records.append(deepcopy(record))
+        self._manual_simulation_identity = None
+        self._manual_simulation_events = []
+        self._manual_simulation_prepare_current_identity()
+        return replace(
+            result,
+            details={
+                **dict(result.details),
+                "manualSimulationRecordStatus": "available",
+                "manualSimulationRecord": record,
+            },
+        )
+
+    def manualSimulationRecord(self) -> dict[str, object]:
+        """Return the validated display-only current or most-recent record."""
+
+        unavailable = self._manual_simulation_prepare_current_identity()
+        if (
+            self._manual_simulation_identity is not None
+            and self._manual_simulation_events
+        ):
+            return self._manual_simulation_record_dict()
+        if self._manual_simulation_completed_records:
+            return deepcopy(self._manual_simulation_completed_records[-1])
+        raise RuntimeError(
+            "Manual simulation recording is unavailable: no event-bearing "
+            "complete identity or completed record is available. " + unavailable
+        )
+
+    def manualSimulationCompletedRecords(self) -> tuple[dict[str, object], ...]:
+        """Return frozen schema-built records for export after Base/Home acceptance."""
+
+        return tuple(deepcopy(record) for record in self._manual_simulation_completed_records)
+
+    def guardManualRobotJog(
+        self, joint_positions_si: Mapping[str, float]
+    ) -> RobotActionResult:
+        """Apply one J1–J5 jog only after a correlated simulation guard reply."""
+
+        details = {
+            "guardAccepted": None,
+            "identityStatus": "unknown",
+            "manualJogStatus": "unknown",
+            "rawGuardOutcome": "not_submitted",
+            "requestedJointPositionsSi": None,
+            "acceptedJointPositionsSi": None,
+            "monitoredStateStatus": "unavailable/unknown",
+            "nativeGuardEvidence": None,
+            "limitMargins": None,
+            "identityBefore": None,
+            "identityAfter": None,
+            "acceptedStateMayHaveAdvanced": False,
+            "simulationOnly": True,
+            "routeAuthority": "none",
+        }
+        recording = {"active": False, "outcomeRecorded": False}
+
+        def outcome(code, message, success=False):
+            details["message"] = _bounded_text(message)
+            if recording["active"] and not recording["outcomeRecorded"]:
+                try:
+                    self._record_manual_jog_outcome(code, message, details)
+                except (RuntimeError, ValueError, TypeError, OverflowError) as exc:
+                    details["manualSimulationRecordStatus"] = "unavailable"
+                    details["manualSimulationRecordUnavailableReason"] = _bounded_text(exc)
+                recording["outcomeRecorded"] = True
+            return RobotActionResult(success, code, message, details=dict(details))
+
+        if self._manual_jog_in_progress:
+            return outcome(
+                "manual_jog_reentrant",
+                "Another manual jog request is already waiting for its guard result.",
+            )
+        self._manual_jog_in_progress = True
+        try:
+            if not isinstance(joint_positions_si, Mapping) or set(joint_positions_si) != set(JOINT_NAMES):
+                details["manualJogStatus"] = "rejected"
+                return outcome(
+                    "manual_jog_invalid_request",
+                    "A manual jog must contain exactly J1–J5; J6 is excluded.",
+                )
+            requested = {}
+            for name in JOINT_NAMES:
+                value = joint_positions_si[name]
+                if isinstance(value, bool) or not isfinite(float(value)):
+                    raise ValueError(f"{name} must be a finite SI joint value.")
+                requested[name] = float(value)
+            requested_vector = tuple(requested[name] for name in JOINT_NAMES)
+            details["requestedJointPositionsSi"] = dict(requested)
+
+            parameter_node = self._require_context()
+            identity_before = self._manual_jog_current_identity(parameter_node)
+            details.update(identityBefore=dict(identity_before), identityStatus="current")
+            self._manual_simulation_begin(identity_before)
+            recording["active"] = self._manual_simulation_append_event(
+                {
+                    "kind": "requested",
+                    "monotonic_ns": monotonic_ns(),
+                    "requested_joints": dict(requested),
+                }
+            )
+            mechanical = default_task_joint_limits_from_urdf(
+                self._logic.robotDescriptionPaths()[0]
+            )
+            margins = joint_limit_margin_evidence(
+                requested,
+                joint_names=JOINT_NAMES,
+                joint_limit_fields=JOINT_LIMIT_FIELDS[: len(JOINT_NAMES)],
+                display_units=JOINT_DISPLAY_UNITS[: len(JOINT_NAMES)],
+                mechanical_limits=mechanical,
+                task_limits=self._logic.getTaskJointLimits(parameter_node),
+            )
+            details["limitMargins"] = margins
+            if margins is None or any(
+                not row["mechanical_within_limits"]
+                or not row["reviewed_task_within_limits"]
+                for row in margins.values()
+            ):
+                details["manualJogStatus"] = "rejected"
+                return outcome(
+                    "manual_jog_joint_limit",
+                    "J1–J5 must stay inside mechanical and reviewed task limits.",
+                )
+
+            displayed = self.currentRobotState().joint_positions_si
+            accepted_reader = getattr(self._bridge, "last_accepted_joint_positions_si", None)
+            accepted_before = accepted_reader() if callable(accepted_reader) else None
+            if not isinstance(accepted_before, Mapping) or any(
+                name not in accepted_before for name in JOINT_NAMES
+            ):
+                return outcome("manual_jog_state_unknown", "The accepted simulation state is unavailable.")
+            accepted_before = tuple(float(accepted_before[name]) for name in JOINT_NAMES)
+            details["currentAcceptedJointPositionsSiBefore"] = {
+                name: accepted_before[index] for index, name in enumerate(JOINT_NAMES)
+            }
+            if not all(isfinite(value) for value in accepted_before) or any(
+                abs(float(displayed[name]) - accepted_before[index]) > 1.0e-9
+                for index, name in enumerate(JOINT_NAMES)
+            ):
+                return outcome(
+                    "manual_jog_state_unknown",
+                    "The displayed robot does not match the accepted simulation state.",
+                )
+
+            status_reader = getattr(self._bridge, "joint_command_status", None)
+            status_before = status_reader() if callable(status_reader) else None
+            apply_guard = getattr(self._bridge, "apply_joint_positions_si_to_motion_control", None)
+            if not callable(apply_guard):
+                return outcome("manual_jog_guard_unavailable", "The simulation raw guard is unavailable.")
+            try:
+                response = apply_guard(requested)
+                apply_ok = response[0] if isinstance(response, (tuple, list)) and len(response) >= 2 and isinstance(response[0], bool) else None
+                apply_message = str(response[1] or "") if apply_ok is not None else "The raw guard returned an invalid response."
+            except Exception as exc:
+                apply_ok, apply_message = None, f"The raw guard request failed: {exc}"
+            try:
+                status = status_reader() if callable(status_reader) else None
+            except Exception:
+                status = None
+
+            def vector(field):
+                try:
+                    values = tuple(float(value) for value in getattr(status, field, ()))
+                except (TypeError, ValueError, OverflowError):
+                    return None
+                return values if len(values) == len(JOINT_NAMES) and all(isfinite(value) for value in values) else None
+
+            native_requested = vector("requested_positions")
+            native_accepted = vector("accepted_positions")
+            objects = tuple(getattr(status, "world_objects", ()) or ())
+            object_ids = tuple(sorted(str(item.get("id") or "") for item in objects if isinstance(item, Mapping)))
+            acknowledgement = self._logic.collisionSceneAuditRecord(parameter_node).runtime_acknowledgement
+            expected_ids = tuple(sorted(str(value) for value in acknowledgement.get("acknowledged_object_ids", ()) if str(value)))
+            native_accepted_flag = getattr(status, "accepted", None)
+            details["nativeGuardEvidence"] = {
+                "responseObserved": status is not None,
+                "freshResponse": status is not None and status is not status_before,
+                "accepted": native_accepted_flag if isinstance(native_accepted_flag, bool) else None,
+                "reason": _bounded_text(getattr(status, "reason", "") or apply_message),
+                "requestedPositionsSi": native_requested,
+                "acceptedPositionsSi": native_accepted,
+                "checkedSamples": int(getattr(status, "checked_samples", 0) or 0),
+                "minimumClearanceM": getattr(status, "minimum_clearance_m", None),
+                "minimumSelfDistanceM": getattr(status, "minimum_self_distance_m", None),
+                "minimumWorldDistanceM": getattr(status, "minimum_world_distance_m", None),
+                "firstBody": str(getattr(status, "first_body", "") or ""),
+                "secondBody": str(getattr(status, "second_body", "") or ""),
+                "worldObjectCount": int(getattr(status, "world_object_count", 0) or 0),
+                "worldObjectEvidencePresent": bool(getattr(status, "world_object_evidence_present", False)),
+                "worldObjectIds": object_ids,
+                "collisionScenePolicyFingerprint": str(getattr(status, "collision_scene_policy_fingerprint", "") or ""),
+                "collisionScenePolicyIdentityStatus": (
+                    "unavailable_in_raw_status_contract"
+                    if not getattr(status, "collision_scene_policy_fingerprint", "")
+                    else "unverified_in_raw_status_contract"
+                ),
+                "bridgeReturnedAccepted": apply_ok,
+            }
+            details["rawGuardOutcome"] = (
+                "accepted" if native_accepted_flag is True else
+                "rejected" if native_accepted_flag is False else "unknown"
+            )
+            if native_accepted_flag is True:
+                details["acceptedStateMayHaveAdvanced"] = True
+
+            accepted_after = accepted_reader() if callable(accepted_reader) else None
+            accepted_after = (
+                tuple(float(accepted_after[name]) for name in JOINT_NAMES)
+                if isinstance(accepted_after, Mapping) and all(name in accepted_after for name in JOINT_NAMES)
+                else None
+            )
+            monitored_reader = getattr(self._bridge, "monitored_joint_positions_si", None)
+            monitored = monitored_reader() if callable(monitored_reader) else None
+            if isinstance(monitored, Mapping) and all(name in monitored for name in JOINT_NAMES):
+                monitored_values = tuple(float(monitored[name]) for name in JOINT_NAMES)
+                if all(isfinite(value) for value in monitored_values):
+                    details["monitoredJointPositionsSi"] = dict(zip(JOINT_NAMES, monitored_values))
+                    details["monitoredStateStatus"] = (
+                        "matched" if native_accepted is not None and all(
+                            abs(actual - expected) <= 1.0e-9
+                            for actual, expected in zip(monitored_values, native_accepted)
+                        ) else "not_converged"
+                    )
+
+            try:
+                identity_after = self._manual_jog_current_identity(parameter_node)
+                details["identityAfter"] = dict(identity_after)
+                details["identityStatus"] = "current" if identity_after == identity_before else "stale"
+            except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
+                details["identityAfter"] = {"status": _bounded_text(exc)}
+                details["identityStatus"] = "stale"
+
+            evidence = details["nativeGuardEvidence"]
+            correlated = bool(
+                evidence["freshResponse"]
+                and native_requested == requested_vector
+                and evidence["worldObjectEvidencePresent"]
+                and evidence["worldObjectCount"] == self._planning_scene_object_count
+                and object_ids == expected_ids
+                and len(expected_ids) == self._planning_scene_object_count
+                and not evidence["collisionScenePolicyFingerprint"]
+                and isinstance(native_accepted_flag, bool)
+                and apply_ok is native_accepted_flag
+            )
+            if not correlated:
+                return outcome("manual_jog_guard_unknown", apply_message or "The raw guard response was missing, stale, or mismatched.")
+            if native_accepted_flag is False:
+                if native_accepted != accepted_before or accepted_after != accepted_before:
+                    details["acceptedStateMayHaveAdvanced"] = accepted_after != accepted_before
+                    return outcome(
+                        "manual_jog_guard_unknown",
+                        "The raw guard rejected the jog but the accepted-state echo changed.",
+                    )
+                details["guardAccepted"] = False
+                details["manualJogStatus"] = "rejected"
+                return outcome("manual_jog_rejected", evidence["reason"] or apply_message)
+            if native_accepted != requested_vector or accepted_after != requested_vector:
+                details.update(manualJogStatus="unknown", acceptedStateMayHaveAdvanced=True)
+                return outcome("manual_jog_guard_unknown", "The acknowledged accepted-state echo did not exactly match J1–J5.")
+            details["acceptedStateMayHaveAdvanced"] = True
+            if details["identityStatus"] != "current":
+                return outcome("manual_jog_identity_stale", "The accepted jog belongs to a task, branch, base, Home, limits, or scene identity that changed during the request.")
+
+            self.invalidateMotionPlan()
+            details.update(
+                guardAccepted=True,
+                manualJogStatus="accepted",
+                acceptedJointPositionsSi=dict(zip(JOINT_NAMES, native_accepted)),
+            )
+            return outcome("manual_jog_accepted", "The simulation-only raw collision guard acknowledged the exact J1–J5 jog.", success=True)
+        except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError, OverflowError) as exc:
+            details["identityStatus"] = "unknown"
+            details["manualJogStatus"] = "unknown"
+            return outcome("manual_jog_unknown", str(exc))
+        finally:
+            self._manual_jog_in_progress = False
+
     def requestCurrentJointState(self) -> RobotActionResult:
         """Validate/publish values already written by MRML GUI binding."""
         if self._incomplete_preview_evidence is not None:
@@ -2132,6 +2717,7 @@ class DENTORobotWorkflowFacade:
             )
         try:
             parameter_node = self._require_context()
+            record_unavailable = self._manual_simulation_prepare_current_identity()
             if parameter_node.robotBaseMountLocked:
                 return RobotActionResult(False, "base_locked", "Unlock the robot base before moving it.")
             base = self._logic.ensureRobotBaseTransform(parameter_node.robotBaseTransform)
@@ -2145,10 +2731,33 @@ class DENTORobotWorkflowFacade:
             base.SetAttribute("DENTOBOT.PlacementWarning", None)
             self._planning_scene_synchronized = False
             self._clear_phase_session()
-            return RobotActionResult(
+            result = RobotActionResult(
                 True,
                 "base_pose_updated",
                 "Updated the unreviewed Manual Simulation Base in world RAS millimetres.",
+            )
+            try:
+                candidate_matrix = self._manual_simulation_base_matrix(parameter_node)
+                if not self._manual_simulation_append_event(
+                    {
+                        "kind": "review_base",
+                        "monotonic_ns": monotonic_ns(),
+                        "details": {
+                            "candidate_matrix_world_ras_mm": candidate_matrix,
+                            "guard_policy_fingerprint": "unknown",
+                        },
+                    }
+                ):
+                    return self._manual_simulation_recording_unavailable(
+                        result, record_unavailable
+                    )
+            except (RuntimeError, ValueError, TypeError, OSError, AttributeError) as exc:
+                return self._manual_simulation_recording_unavailable(
+                    result, _bounded_text(exc)
+                )
+            return replace(
+                result,
+                details={"manualSimulationRecordStatus": "active"},
             )
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_pose_failed", str(exc))
@@ -2161,6 +2770,7 @@ class DENTORobotWorkflowFacade:
             )
         try:
             parameter_node = self._require_context()
+            record_unavailable = self._manual_simulation_prepare_current_identity()
             if self._scene_kind(parameter_node) != "case":
                 return RobotActionResult(False, "scene_required", "Open a case and establish its Case Foundation before locking the base.")
             preparation_issue = self._scene_placement_issue(parameter_node)
@@ -2172,6 +2782,11 @@ class DENTORobotWorkflowFacade:
                 )
             if not (self._logic.robotModelNodes() or self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform)):
                 return RobotActionResult(False, "robot_required", "Load the ROS robot or local fallback before locking the base.")
+            candidate_matrix = None
+            try:
+                candidate_matrix = self._manual_simulation_base_matrix(parameter_node)
+            except (RuntimeError, ValueError, TypeError, OSError, AttributeError) as exc:
+                record_unavailable = record_unavailable or _bounded_text(exc)
             self._logic.setRobotBaseMountLocked(parameter_node, True)
             obstacle_count = 0
             if self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
@@ -2179,13 +2794,61 @@ class DENTORobotWorkflowFacade:
                 self._planning_scene_object_count = obstacle_count
                 self._planning_scene_synchronized = True
             self._clear_phase_session()
-            return RobotActionResult(
+            accepted_matrix = None
+            accepted_fingerprint = ""
+            try:
+                accepted_matrix = self._manual_simulation_base_matrix(parameter_node)
+                accepted_fingerprint = str(
+                    self._logic.robotBaseFingerprint(parameter_node) or ""
+                )
+            except (RuntimeError, ValueError, TypeError, OSError, AttributeError) as exc:
+                record_unavailable = record_unavailable or _bounded_text(exc)
+            result = RobotActionResult(
                 True,
                 "base_locked",
                 "Manual Simulation Base reviewed and locked for diagnostic use; "
                 f"{obstacle_count} MoveIt collision surface(s) synchronized. "
                 "This is not forehead or registration evidence.",
-                details={"obstacleCount": obstacle_count},
+                details={
+                    "obstacleCount": obstacle_count,
+                    "manualSimulationBaseCandidateMatrixWorldRasMm": candidate_matrix,
+                    "manualSimulationBaseAcceptedFingerprint": accepted_fingerprint,
+                    "manualSimulationBaseAcceptedMatrixWorldRasMm": accepted_matrix,
+                },
+            )
+            if candidate_matrix is None or accepted_matrix is None or not accepted_fingerprint:
+                return self._manual_simulation_recording_unavailable(
+                    result,
+                    "The Base lock succeeded, but a complete pre-commit record "
+                    "could not be built. "
+                    + (
+                        record_unavailable
+                        or "A valid accepted Base matrix and fingerprint were unavailable."
+                    ),
+                )
+            return self._manual_simulation_finish_acceptance(
+                result,
+                review_event={
+                    "kind": "review_base",
+                    "monotonic_ns": monotonic_ns(),
+                    "details": {
+                        "candidate_matrix_world_ras_mm": candidate_matrix,
+                        "guard_policy_fingerprint": "unknown",
+                    },
+                },
+                acceptance_event={
+                    "kind": "accept_base",
+                    "monotonic_ns": monotonic_ns(),
+                    "details": {
+                        "accepted_fingerprint": str(accepted_fingerprint or ""),
+                        "accepted_matrix_world_ras_mm": accepted_matrix,
+                        "guard_policy_fingerprint": "unknown",
+                    },
+                },
+                unavailable_reason=(
+                    "The Base lock succeeded, but no complete pre-commit "
+                    "recording identity was available. " + record_unavailable
+                ),
             )
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_lock_failed", str(exc))
@@ -2252,34 +2915,291 @@ class DENTORobotWorkflowFacade:
             return RobotActionResult(False, "planning_scene_failed", str(exc))
 
     def checkStateValidity(self) -> RobotActionResult:
+        """Check the latest guard result and inspect the current review vector."""
+
+        return self._checkStateValidity(include_manual_endpoint=True)
+
+    def _checkStateValidity(
+        self, *, include_manual_endpoint: bool = False
+    ) -> RobotActionResult:
         try:
             state = self.currentRobotState()
             if not state.ros_motion_active:
-                return RobotActionResult(
+                result = RobotActionResult(
                     True,
                     "draft_state_only",
                     "Local MRML state is available; MoveIt/FCL validity requires a ROS 2 connection.",
                     details={"authoritative": False},
                 )
-            status = self._bridge.joint_command_status()
-            if status is None:
-                return RobotActionResult(False, "status_unavailable", "No fresh MoveIt joint-validity status is available.")
-            return RobotActionResult(
-                bool(status.accepted),
-                "state_valid" if status.accepted else "state_invalid",
-                status.reason,
-                details={
-                    "authoritative": True,
-                    "minimumClearanceMm": float(status.minimum_clearance_m) * 1000.0,
-                    "minimumSelfDistanceMm": None if status.minimum_self_distance_m is None else float(status.minimum_self_distance_m) * 1000.0,
-                    "minimumWorldDistanceMm": None if status.minimum_world_distance_m is None else float(status.minimum_world_distance_m) * 1000.0,
-                    "firstBody": status.first_body,
-                    "secondBody": status.second_body,
-                    "worldObjectCount": status.world_object_count,
-                },
-            )
+            else:
+                status = self._bridge.joint_command_status()
+                if status is None:
+                    result = RobotActionResult(
+                        False,
+                        "status_unavailable",
+                        "No fresh MoveIt joint-validity status is available.",
+                    )
+                else:
+                    result = RobotActionResult(
+                        bool(status.accepted),
+                        "state_valid" if status.accepted else "state_invalid",
+                        status.reason,
+                        details={
+                            "authoritative": True,
+                            "minimumClearanceMm": float(status.minimum_clearance_m) * 1000.0,
+                            "minimumSelfDistanceMm": None if status.minimum_self_distance_m is None else float(status.minimum_self_distance_m) * 1000.0,
+                            "minimumWorldDistanceMm": None if status.minimum_world_distance_m is None else float(status.minimum_world_distance_m) * 1000.0,
+                            "firstBody": status.first_body,
+                            "secondBody": status.second_body,
+                            "worldObjectCount": status.world_object_count,
+                        },
+                    )
         except (RuntimeError, ValueError, OSError) as exc:
-            return RobotActionResult(False, "state_check_failed", str(exc))
+            state = None
+            result = RobotActionResult(False, "state_check_failed", str(exc))
+
+        if not include_manual_endpoint:
+            return result
+
+        manual_evaluation = self._manualStateEndpointEvaluation(state)
+
+        endpoint = manual_evaluation["endpoint_evaluation"]
+        static_status = str(
+            (endpoint.get("static_state_validity") or {}).get(
+                "status", "not_reached"
+            )
+        )
+        summary = (
+            "Manual endpoint diagnostic (separate from the latest command-guard "
+            f"status; static endpoint/FK only): current-state static={static_status}, "
+            f"target endpoint={manual_evaluation['target_endpoint_status']}"
+        )
+        position_residual = endpoint.get("position_residual_mm")
+        if position_residual is not None:
+            summary += f", position residual={float(position_residual):.3f} mm"
+        axis_residual = endpoint.get("drilling_axis_residual_deg")
+        if axis_residual is not None:
+            summary += f", axis residual={float(axis_residual):.3f}°"
+        if manual_evaluation.get("stale"):
+            summary += " (stale; measurements retained)"
+        elif manual_evaluation["status"] == "not_reached":
+            summary += f" (not reached: {manual_evaluation['reason']})"
+
+        details = dict(result.details)
+        details["manual_state_evaluation"] = manual_evaluation
+        return replace(result, message=f"{result.message} {summary}", details=details)
+
+    def _step6_read_only_freshness_issues(self, parameter_node) -> tuple[str, ...]:
+        """Check anatomy, jaw opening, base, and Home without registry sync."""
+
+        issues: list[str] = []
+        for label, method_name in (
+            ("anatomy review", "step6AnatomyReviewFreshnessIssues"),
+            ("Case Foundation jaw opening", "step6CaseJawOpeningFreshnessIssues"),
+            ("base placement", "step6BasePlacementFreshnessIssues"),
+            ("Task Home", "taskHomeFreshnessIssues"),
+        ):
+            checker = getattr(self._logic, method_name, None)
+            if not callable(checker):
+                issues.append(f"{label} freshness check is unavailable.")
+                continue
+            found = checker(parameter_node)
+            issues.extend(str(issue) for issue in (found or ()))
+        return tuple(dict.fromkeys(issue for issue in issues if issue))
+
+    def _manualStateEndpointEvaluation(self, state) -> dict[str, object]:
+        """Return read-only endpoint evidence for one captured review vector."""
+
+        input_positions = dict(state.joint_positions_si) if state is not None else None
+        unavailable = {"status": "not_reached", "reason": "Prerequisite unavailable."}
+        evaluation = {
+            "status": "not_reached",
+            "target_endpoint_status": "not_reached",
+            "scope": "single_state_endpoint_only",
+            "stale": None,
+            "identity_status": "unknown",
+            "input_status": "not_reached",
+            "input_joint_positions_si": input_positions,
+            "input_joint_positions_si_after": None,
+            "target_ras_mm": None,
+            "drilling_axis_world_ras_unit": None,
+            "identity_before": None,
+            "identity_after": None,
+            "endpoint_evaluation": unavailable,
+            "reason": "A current confirmed task, PreparedBranch, and synchronized scene are required.",
+        }
+        if state is None:
+            evaluation["reason"] = "The displayed joint state is unavailable."
+            return evaluation
+
+        try:
+            parameter_node = self._require_context()
+            snapshot = self._logic.confirmedTaskRecord(parameter_node)
+            if not state.ros_motion_active:
+                evaluation["reason"] = "The simulation-only ROS/MoveIt runtime is not active."
+            elif self._scene_kind(parameter_node) != "case" or not self._planning_scene_synchronized:
+                evaluation["reason"] = "A synchronized case collision scene is required."
+            elif snapshot is None:
+                evaluation["reason"] = "No confirmed Step 6 task is available."
+            else:
+                collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
+                home = self._logic.taskHomeRecord(parameter_node)
+                registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+                branch_id = str(registry.get("selected_branch_id") or "")
+                branches = registry.get("prepared_branches")
+                if not bool(parameter_node.step6PlanningContextImported) or not branch_id:
+                    evaluation["reason"] = "No active selected PreparedBranch is available."
+                elif collision_audit is None or home is None:
+                    evaluation["reason"] = "A current Task Home and collision-scene audit are required."
+                elif collision_audit.runtime_acknowledgement.get("status") != "Acknowledged":
+                    evaluation["reason"] = "The collision scene has no runtime acknowledgement."
+                elif not isinstance(branches, Mapping) or branch_id not in branches:
+                    evaluation["reason"] = "The selected PreparedBranch is unavailable."
+                else:
+                    read_only_freshness_issues = self._step6_read_only_freshness_issues(
+                        parameter_node
+                    )
+                    branch = self._logic.evaluatePreparedBranchEligibility(
+                        parameter_node, branch_id, registry=registry
+                    )
+                    task_issues = task_snapshot_invalidation_reasons(
+                        snapshot,
+                        target_segment_id=str(parameter_node.targetToothSegmentId or ""),
+                        trajectory_revision=self._logic.step6TrajectoryRevision(parameter_node),
+                        base_fingerprint=self._logic.robotBaseFingerprint(parameter_node),
+                        home_fingerprint=fingerprint(home.to_dict()),
+                        limits_fingerprint=self._logic.step6TaskLimitsFingerprint(parameter_node),
+                        robot_profile_fingerprint=self._logic.robotProfileFingerprint(),
+                        tool_frame=str(parameter_node.step6ToolFrame),
+                    )
+                    if not branch.get("eligible") or task_issues or read_only_freshness_issues:
+                        stale_issues = (
+                            tuple(read_only_freshness_issues)
+                            + tuple(task_issues)
+                            + (() if branch.get("eligible") else (str(branch.get("message") or branch.get("reason") or "PreparedBranch is stale."),))
+                        )
+                        evaluation.update(
+                            status="unknown",
+                            target_endpoint_status="unknown",
+                            stale=True,
+                            identity_status="stale",
+                            reason=(
+                                "The selected task/branch or its anatomy/base/Home prerequisites are stale: "
+                                + ", ".join(stale_issues)
+                            ),
+                        )
+                    else:
+                        entry = tuple(float(value) for value in snapshot.entry_ras_mm)
+                        target = tuple(float(value) for value in snapshot.target_ras_mm)
+                        evaluation["target_ras_mm"] = target
+                        direction = tuple(target[i] - entry[i] for i in range(3))
+                        axis_length = sqrt(sum(value * value for value in direction))
+                        if axis_length <= 1.0e-12:
+                            evaluation.update(
+                                status="unknown",
+                                target_endpoint_status="unknown",
+                                reason="The confirmed Entry-to-Target axis is degenerate.",
+                            )
+                        else:
+                            drill_axis = tuple(value / axis_length for value in direction)
+                            evaluation["drilling_axis_world_ras_unit"] = drill_axis
+                            identity_before = self.plannerComparisonIdentity()
+                            evaluation["identity_before"] = dict(identity_before)
+                            expected_identity = {
+                                "branch_id": branch_id,
+                                "task": snapshot.snapshot_fingerprint,
+                                "base": self._logic.robotBaseFingerprint(parameter_node),
+                                "home": snapshot.home_fingerprint,
+                                "trajectory": self._logic.step6TrajectoryRevision(parameter_node),
+                                "robot_profile": self._logic.robotProfileFingerprint(),
+                                "collision_audit": planner_comparison_scene_fingerprint(
+                                    collision_audit
+                                ),
+                            }
+                            if identity_before != expected_identity:
+                                evaluation["identity_after"] = dict(
+                                    self.plannerComparisonIdentity()
+                                )
+                                evaluation.update(
+                                    status="unknown",
+                                    target_endpoint_status="unknown",
+                                    stale=True,
+                                    identity_status="stale",
+                                    reason=(
+                                        "The task, branch, or scene changed after prerequisite checks; "
+                                        "endpoint evaluation was not reached."
+                                    ),
+                                )
+                                return evaluation
+                            try:
+                                evaluation["endpoint_evaluation"] = self._evaluate_step6_tcp_endpoint(
+                                    parameter_node,
+                                    input_positions,
+                                    expected_tcp_world_ras_mm=target,
+                                    expected_drill_axis_world_ras_unit=drill_axis,
+                                )
+                            except Exception as exc:
+                                endpoint_error = str(exc)
+                                evaluation["endpoint_evaluation"] = {
+                                    "status": "unknown",
+                                    "reason": endpoint_error,
+                                }
+                            else:
+                                endpoint_error = ""
+                            finally:
+                                try:
+                                    evaluation["identity_after"] = dict(self.plannerComparisonIdentity())
+                                except Exception as exc:
+                                    evaluation["identity_after_error"] = str(exc)
+                            try:
+                                positions_after = dict(self.currentRobotState().joint_positions_si)
+                                evaluation["input_joint_positions_si_after"] = positions_after
+                            except Exception as exc:
+                                evaluation["input_after_error"] = str(exc)
+
+                            identity_after = evaluation.get("identity_after")
+                            evaluation["identity_status"] = (
+                                "unknown" if not isinstance(identity_after, Mapping)
+                                else "current" if identity_before == identity_after
+                                else "stale"
+                            )
+                            positions_after = evaluation.get("input_joint_positions_si_after")
+                            evaluation["input_status"] = (
+                                "unknown" if not isinstance(positions_after, Mapping)
+                                else "current" if input_positions == positions_after
+                                else "stale"
+                            )
+                            stale = "stale" in (evaluation["identity_status"], evaluation["input_status"])
+                            current = evaluation["identity_status"] == evaluation["input_status"] == "current"
+                            evaluation["stale"] = True if stale else False if current else None
+                            endpoint = evaluation["endpoint_evaluation"]
+                            endpoint_status = str(endpoint.get("status") or "unknown")
+                            static_status = str(
+                                (endpoint.get("static_state_validity") or {}).get(
+                                    "status", "unknown"
+                                )
+                            )
+                            evaluation["status"] = (
+                                "unknown" if stale or not current else static_status
+                            )
+                            evaluation["target_endpoint_status"] = (
+                                "unknown" if stale or not current else endpoint_status
+                            )
+                            evaluation["reason"] = (
+                                "The joint vector or planner identity changed during the query; captured measurements are retained as stale."
+                                if stale else
+                                "The joint vector or planner identity could not be confirmed after the query."
+                                if not current else
+                                "The read-only endpoint evaluation failed: " + endpoint_error
+                                if endpoint_error else
+                                "Read-only static endpoint and FK evaluation completed for the current input."
+                            )
+        except Exception as exc:
+            evaluation["status"] = "unknown"
+            if evaluation["target_endpoint_status"] == "not_reached":
+                evaluation["target_endpoint_status"] = "unknown"
+            evaluation["reason"] = "Manual endpoint evaluation was unavailable: " + str(exc)
+        return evaluation
 
     def saveTaskHome(self) -> RobotActionResult:
         """Persist a live, collision-accepted, monitored pose as Task Home."""
@@ -2291,6 +3211,7 @@ class DENTORobotWorkflowFacade:
             )
         try:
             parameter_node = self._require_context()
+            record_unavailable = self._manual_simulation_prepare_current_identity()
             if not self._logic.isRos2MotionControlActive(
                 parameter_node.robotBaseTransform
             ):
@@ -2319,7 +3240,7 @@ class DENTORobotWorkflowFacade:
                     "Task Home was not saved because the strict collision guard rejected it. "
                     + accepted.message,
                 )
-            state_validity = self.checkStateValidity()
+            state_validity = self._checkStateValidity()
             if not state_validity.success or not bool(
                 state_validity.details.get("authoritative", False)
             ):
@@ -2382,7 +3303,7 @@ class DENTORobotWorkflowFacade:
             }
             self._clear_phase_session()
             self._robot_away_from_home = False
-            return RobotActionResult(
+            result = RobotActionResult(
                 True,
                 "task_home_saved",
                 f"Saved and live-validated Task Home revision {record.revision} "
@@ -2393,6 +3314,37 @@ class DENTORobotWorkflowFacade:
                     **self._runtime_task_home_evidence,
                 },
                 payload=record,
+            )
+            accepted_fingerprint = fingerprint(record.to_dict())
+            accepted_joints = dict(candidate_positions)
+            event_details = {
+                "accepted_fingerprint": accepted_fingerprint,
+                "guard_policy_fingerprint": (
+                    str(record.guard_policy_fingerprint or "unknown")
+                ),
+            }
+            return self._manual_simulation_finish_acceptance(
+                result,
+                review_event={
+                    "kind": "review_task_home",
+                    "monotonic_ns": monotonic_ns(),
+                    "requested_joints": accepted_joints,
+                    "details": {
+                        "guard_policy_fingerprint": event_details[
+                            "guard_policy_fingerprint"
+                        ],
+                    },
+                },
+                acceptance_event={
+                    "kind": "accept_task_home",
+                    "monotonic_ns": monotonic_ns(),
+                    "accepted_joints": accepted_joints,
+                    "details": event_details,
+                },
+                unavailable_reason=(
+                    "Task Home was saved successfully, but no complete "
+                    "pre-commit recording identity was available. " + record_unavailable
+                ),
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "task_home_failed", str(exc))
@@ -2525,7 +3477,7 @@ class DENTORobotWorkflowFacade:
                         "maximumJointError": monitored_error,
                     },
                 )
-            state_validity = self.checkStateValidity()
+            state_validity = self._checkStateValidity()
             if not state_validity.success or not bool(
                 state_validity.details.get("authoritative", False)
             ):
@@ -4337,6 +5289,8 @@ class DENTORobotWorkflowFacade:
     def checkPreEntryIK(self, *, progress=None) -> RobotActionResult:
         """Persist endpoint-only PreEntry IK evidence; this creates no plan."""
 
+        self._step6_preentry_candidate_cache = None
+        self._step6_stage_diagnostic_chain = {}
         try:
             parameter_node = self._require_context()
             if self._scene_kind(parameter_node) != "case":
@@ -4672,6 +5626,25 @@ class DENTORobotWorkflowFacade:
             parameter_node.step6MotionDiagnosticJson = canonical_json(
                 session.to_dict()
             )
+            self._step6_preentry_candidate_cache = {
+                "identity": dict(identity),
+                "candidate_records_fingerprint": fingerprint(
+                    session.to_dict()["candidate_records"]
+                ),
+                "pre_entry_ras_mm": tuple(float(value) for value in pre_entry),
+                "entry_ras_mm": tuple(float(value) for value in entry),
+                "target_ras_mm": tuple(float(value) for value in target),
+                "candidates": tuple(
+                    {
+                        "positions": dict(candidate["positions"]),
+                        "roll_deg": float(candidate["rollDeg"]),
+                        "route_type": str(candidate.get("routeType") or "direct"),
+                        "seed_sample_index": candidate.get("seedSampleIndex"),
+                        "orientation": dict(candidate["orientationCommitment"]),
+                    }
+                    for candidate in _ik_candidates
+                ),
+            }
             return RobotActionResult(
                 True,
                 "preentry_ik_diagnostic_complete",
@@ -4694,6 +5667,807 @@ class DENTORobotWorkflowFacade:
             AttributeError,
         ) as exc:
             return RobotActionResult(False, "preentry_ik_diagnostic_failed", str(exc))
+
+    def _step6_stage_context(self) -> dict[str, object]:
+        """Read current prerequisites without syncing or changing MRML state."""
+
+        parameter_node = self._require_context()
+        if self._scene_kind(parameter_node) != "case":
+            raise ValueError("Open the current case before checking a planning stage.")
+        if self.previewActive or self._robot_away_from_home or self._incomplete_preview_evidence:
+            raise ValueError(
+                "Stop preview and complete a guarded Return Home before stage diagnostics."
+            )
+        if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
+            raise ValueError("Connect the simulation-only ROS/MoveIt runtime first.")
+        freshness_issues = self._step6_read_only_freshness_issues(parameter_node)
+        if freshness_issues:
+            raise ValueError("Planning inputs are stale: " + "; ".join(freshness_issues))
+
+        snapshot = self._logic.confirmedTaskRecord(parameter_node)
+        home = self._logic.taskHomeRecord(parameter_node)
+        audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        if snapshot is None or home is None or audit is None:
+            raise ValueError("A current confirmed task, Task Home, and collision scene are required.")
+        registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+        branch_id = str(registry.get("selected_branch_id") or "")
+        branches = registry.get("prepared_branches")
+        if (
+            not bool(parameter_node.step6PlanningContextImported)
+            or not branch_id
+            or not isinstance(branches, Mapping)
+            or branch_id not in branches
+        ):
+            raise ValueError("An active selected PreparedBranch is required.")
+        branch = self._logic.evaluatePreparedBranchEligibility(
+            parameter_node, branch_id, registry=registry
+        )
+        if not branch.get("eligible"):
+            raise ValueError(str(branch.get("message") or branch.get("reason") or "PreparedBranch is stale."))
+        task_issues = task_snapshot_invalidation_reasons(
+            snapshot,
+            target_segment_id=str(parameter_node.targetToothSegmentId or ""),
+            trajectory_revision=self._logic.step6TrajectoryRevision(parameter_node),
+            base_fingerprint=self._logic.robotBaseFingerprint(parameter_node),
+            home_fingerprint=fingerprint(home.to_dict()),
+            limits_fingerprint=self._logic.step6TaskLimitsFingerprint(parameter_node),
+            robot_profile_fingerprint=self._logic.robotProfileFingerprint(),
+            tool_frame=str(parameter_node.step6ToolFrame),
+        )
+        if task_issues:
+            raise ValueError("Confirmed task inputs are stale: " + "; ".join(task_issues))
+        if (
+            home.base_fingerprint != self._logic.robotBaseFingerprint(parameter_node)
+            or home.robot_profile_fingerprint != self._logic.robotProfileFingerprint()
+        ):
+            raise ValueError("Task Home does not match the current base and robot profile.")
+        if audit.runtime_acknowledgement.get("status") != "Acknowledged":
+            raise ValueError("The collision scene has no runtime acknowledgement.")
+        if not self._planning_scene_synchronized:
+            raise ValueError("The acknowledged collision scene is not synchronized in this runtime.")
+        if not self.taskHomeRuntimeValidated(parameter_node):
+            raise ValueError("Task Home is not validated in the current ROS/MoveIt session.")
+
+        identity = self.plannerComparisonIdentity()
+        expected_identity = {
+            "branch_id": branch_id,
+            "task": snapshot.snapshot_fingerprint,
+            "base": self._logic.robotBaseFingerprint(parameter_node),
+            "home": snapshot.home_fingerprint,
+            "trajectory": self._logic.step6TrajectoryRevision(parameter_node),
+            "robot_profile": self._logic.robotProfileFingerprint(),
+            "collision_audit": planner_comparison_scene_fingerprint(audit),
+        }
+        if identity != expected_identity:
+            raise ValueError("Task, branch, base, Home, profile, or scene identity changed.")
+        if (
+            self._motion_plan is not None
+            and bool(getattr(self._motion_plan, "success", False))
+            and str(getattr(self._motion_plan, "task_fingerprint", ""))
+            == snapshot.snapshot_fingerprint
+        ) or (
+            self._preflight_drilling_plan is not None
+            and self._preflight_task_fingerprint == snapshot.snapshot_fingerprint
+        ) or (
+            bool(self._phase_guard_session_id)
+            and self._phase_guard_task_fingerprint == snapshot.snapshot_fingerprint
+        ):
+            raise ValueError(
+                "A current preview route or phase-guard session exists. Invalidate it before configuring the diagnostic guard."
+            )
+
+        home_positions = dict(zip(home.joint_names, home.joint_positions_si))
+        monitored_ok, monitored_message, monitored_positions, monitored_error = (
+            self._bridge.wait_for_monitored_joint_positions_si(
+                home_positions, timeout_sec=1.0
+            )
+        )
+        if not monitored_ok:
+            raise ValueError(
+                "MoveIt monitored joints do not match Task Home. "
+                + str(monitored_message)
+            )
+        pre_entry, entry = self._logic.step6ApproachPoints(parameter_node, snapshot)
+        target = tuple(float(value) for value in snapshot.target_ras_mm)
+        drill_axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+        drill_length = sqrt(sum(value * value for value in drill_axis))
+        if drill_length <= 1.0e-12:
+            raise ValueError("Entry and Target do not define a drilling axis.")
+        drill_axis = tuple(value / drill_length for value in drill_axis)
+        return {
+            "parameter_node": parameter_node,
+            "snapshot": snapshot,
+            "home": home,
+            "collision_audit": audit,
+            "identity": identity,
+            "home_positions": home_positions,
+            "monitored_positions": dict(monitored_positions),
+            "monitored_error": float(monitored_error),
+            "pre_entry": tuple(float(value) for value in pre_entry),
+            "entry": tuple(float(value) for value in entry),
+            "target": target,
+            "drill_axis": drill_axis,
+        }
+
+    def _replace_step6_stage_outcomes(
+        self,
+        parameter_node,
+        outcome: Optional[Mapping[str, object]],
+        *,
+        expected_identity: Optional[Mapping[str, object]] = None,
+        clear_all: bool = False,
+    ) -> bool:
+        """Update only additive schema-2.2 stage evidence on a PreEntry report."""
+
+        payload = str(parameter_node.step6MotionDiagnosticJson or "").strip()
+        if not payload:
+            return False
+        session = parse_motion_diagnostic_session(payload)
+        if (
+            session.schema_version != "2.2"
+            or session.full_task_outcome.get("diagnostic_kind") != "preentry_ik"
+        ):
+            return False
+        if expected_identity is not None:
+            if (
+                session.state != "Current"
+                or session.task_fingerprint != expected_identity.get("task")
+                or session.base_fingerprint != expected_identity.get("base")
+                or session.trajectory_fingerprint != expected_identity.get("trajectory")
+                or session.robot_profile_fingerprint != expected_identity.get("robot_profile")
+                or session.collision_audit_fingerprint
+                != self._logic.collisionSceneAuditRecord(parameter_node).audit_fingerprint
+            ):
+                return False
+            full = session.full_task_outcome
+            if any(
+                full.get(field) != expected_identity.get(key)
+                for field, key in (
+                    ("task_identity_fingerprint", "task"),
+                    ("base_identity_fingerprint", "base"),
+                    ("home_identity_fingerprint", "home"),
+                    ("trajectory_identity_fingerprint", "trajectory"),
+                    ("robot_profile_identity_fingerprint", "robot_profile"),
+                    ("collision_scene_identity_fingerprint", "collision_audit"),
+                    ("branch_id", "branch_id"),
+                )
+            ):
+                return False
+        phases = ("P1", "P2", "P3")
+        replaced_phase = str((outcome or {}).get("phase_id") or "")
+        replaced_index = phases.index(replaced_phase) if replaced_phase in phases else len(phases)
+        stages = [] if clear_all else [
+            dict(stage)
+            for stage in session.stage_outcomes
+            if str(stage.get("phase_id") or "") in phases
+            and phases.index(str(stage.get("phase_id"))) < replaced_index
+        ]
+        if outcome is not None:
+            if str(outcome.get("phase_id") or "") not in phases:
+                return False
+            stages.append(dict(outcome))
+        stages.sort(key=lambda stage: phases.index(str(stage.get("phase_id") or "P3")))
+        updated = build_motion_diagnostic_session(
+            state=session.state,
+            stale_reason=session.stale_reason,
+            task_fingerprint=session.task_fingerprint,
+            base_fingerprint=session.base_fingerprint,
+            trajectory_fingerprint=session.trajectory_fingerprint,
+            robot_profile_fingerprint=session.robot_profile_fingerprint,
+            collision_audit_fingerprint=session.collision_audit_fingerprint,
+            planning_parameters_fingerprint=session.planning_parameters_fingerprint,
+            candidate_records=session.candidate_records,
+            selected_candidate_index=session.selected_candidate_index,
+            failure_classification=session.failure_classification,
+            operator_review_state=(
+                "Unreviewed" if outcome is not None else session.operator_review_state
+            ),
+            schema_version=session.schema_version,
+            stage_outcomes=stages,
+            full_task_outcome=session.full_task_outcome,
+        )
+        parameter_node.step6MotionDiagnosticJson = canonical_json(updated.to_dict())
+        return True
+
+    def _step6_stage_guard_evidence(
+        self,
+        context: Mapping[str, object],
+        path_by_phase: Mapping[str, Sequence[Mapping[str, float]]],
+    ) -> dict[str, object]:
+        """Guard the exact Home-rooted prefix in validate-only mode."""
+
+        phase_names = {
+            "P1": "approach",
+            "P2": "terminal_contact",
+            "P3": "drilling",
+        }
+        waypoints: list[dict[str, float]] = []
+        phases: list[str] = []
+        for phase_id in ("P1", "P2", "P3"):
+            for waypoint in path_by_phase.get(phase_id, ()):
+                waypoints.append(
+                    {name: float(waypoint[name]) for name in JOINT_NAMES}
+                )
+                phases.append(phase_names[phase_id])
+        if not waypoints:
+            return {
+                "status": "not_reached",
+                "reason": "No requested waypoint was available for phase guarding.",
+                "first_invalid_index": None,
+                "first_invalid_requested": {"status": "not_reached", "state": None},
+                "first_invalid_evaluated": {"status": "unknown", "state": None},
+                "last_valid": {"status": "not_reached", "state": None},
+                "named_pair": None,
+                "clearance": {"status": "unknown", "minimum_world_distance_m": None},
+            }
+
+        parameter_node = context["parameter_node"]
+        snapshot = context["snapshot"]
+        configured, configure_message = self._configure_phase_guard(
+            parameter_node,
+            snapshot,
+            preflight_start_positions_si=context["home_positions"],
+        )
+        if not configured:
+            return {
+                "status": "unknown",
+                "reason": str(configure_message),
+                "first_invalid_index": None,
+                "first_invalid_requested": {"status": "not_reached", "state": None},
+                "first_invalid_evaluated": {"status": "unknown", "state": None},
+                "last_valid": {"status": "not_reached", "state": None},
+                "named_pair": None,
+                "clearance": {"status": "unknown", "minimum_world_distance_m": None},
+            }
+        guard_identity_reader = getattr(
+            self._bridge,
+            "current_task_guard_identity",
+            _default_bridge.current_task_guard_identity,
+        )
+        guard_identity = guard_identity_reader()
+        guard_policy_fingerprint = self._strict_guard_policy_fingerprint()
+        if (
+            not isinstance(guard_identity, Mapping)
+            or guard_identity.get("task_fingerprint") != snapshot.snapshot_fingerprint
+            or not guard_identity.get("guard_session_id")
+            or guard_identity.get("collision_scene_policy_fingerprint")
+            != guard_policy_fingerprint
+        ):
+            return {
+                "status": "unknown",
+                "reason": "The configured phase-guard task/session/policy identity is unavailable or mismatched.",
+                "first_invalid_index": None,
+                "first_invalid_requested": {"status": "not_reached", "state": None},
+                "first_invalid_evaluated": {"status": "unknown", "state": None},
+                "last_valid": {"status": "not_reached", "state": None},
+                "named_pair": None,
+                "clearance": {"status": "unknown", "minimum_world_distance_m": None},
+            }
+        request_id_prefix = uuid4().hex
+        validate = getattr(
+            self._bridge,
+            "validate_task_phase_waypoints",
+            _default_bridge.validate_task_phase_waypoints,
+        )
+        guard_ok, guard_message, invalid_index = validate(
+            waypoints,
+            phases,
+            task_fingerprint=snapshot.snapshot_fingerprint,
+            request_id_prefix=request_id_prefix,
+        )
+        invalid_index = int(invalid_index)
+        status_getter = getattr(
+            self._bridge, "last_task_joint_status", _default_bridge.last_task_joint_status
+        )
+        status = status_getter()
+        expected_index = invalid_index if invalid_index >= 0 else len(waypoints) - 1
+        expected_phase = phases[expected_index]
+        requested_positions = (
+            getattr(status, "requested_positions", ()) if status is not None else ()
+        )
+        requested_vector = (
+            tuple(float(value) for value in requested_positions)
+            if len(requested_positions) == len(JOINT_NAMES)
+            else ()
+        )
+        expected_vector = tuple(
+            float(waypoints[expected_index][name]) for name in JOINT_NAMES
+        )
+        expected_request_id = f"{request_id_prefix}:{expected_index}"
+        matches = bool(
+            (guard_ok or invalid_index >= 0)
+            and
+            status is not None
+            and getattr(status, "task_fingerprint", "") == snapshot.snapshot_fingerprint
+            and getattr(status, "guard_session_id", "")
+            == guard_identity.get("guard_session_id")
+            and getattr(status, "collision_scene_policy_fingerprint", "")
+            == guard_policy_fingerprint
+            and getattr(status, "request_id", "")
+            == expected_request_id
+            and getattr(status, "validation_kind", "") == "transition"
+            and str(getattr(status, "phase", "")) == expected_phase
+            and int(getattr(status, "sequence", -1))
+            == int(
+                getattr(
+                    self._bridge,
+                    "ROS2_TASK_GUARD_INITIAL_SEQUENCE",
+                    _default_bridge.ROS2_TASK_GUARD_INITIAL_SEQUENCE,
+                )
+            ) + expected_index
+            and bool(getattr(status, "validate_only", False))
+            and len(requested_vector) == len(expected_vector)
+            and all(
+                abs(actual - expected) <= 1.0e-12
+                for actual, expected in zip(requested_vector, expected_vector)
+            )
+        )
+        if guard_ok and matches and bool(getattr(status, "accepted", False)):
+            guard_status = "passed"
+        elif (
+            invalid_index >= 0
+            and matches
+            and not bool(getattr(status, "accepted", False))
+            and int(getattr(status, "checked_samples", 0)) > 0
+        ):
+            guard_status = "failed"
+        else:
+            guard_status = "unknown"
+        requested_state = (
+            dict(waypoints[invalid_index])
+            if 0 <= invalid_index < len(waypoints)
+            else None
+        )
+        evaluated_vector = getattr(status, "evaluated_positions", ()) if matches else ()
+        evaluated_state = (
+            dict(zip(JOINT_NAMES, (float(value) for value in evaluated_vector)))
+            if len(evaluated_vector) == len(JOINT_NAMES)
+            else None
+        )
+        last_valid_index = (
+            invalid_index - 1
+            if invalid_index >= 0
+            else len(waypoints) - 1
+            if guard_ok
+            else -1
+        )
+        last_valid_request = (
+            dict(waypoints[last_valid_index])
+            if 0 <= last_valid_index < len(waypoints)
+            else None
+        )
+        pair = None
+        if matches and (
+            getattr(status, "first_body", "") or getattr(status, "second_body", "")
+        ):
+            pair = [
+                str(getattr(status, "first_body", "") or ""),
+                str(getattr(status, "second_body", "") or ""),
+            ]
+        world_distance = (
+            getattr(status, "minimum_world_distance_m", None) if matches else None
+        )
+        clearance = {
+            "status": "measured" if world_distance is not None else "unknown",
+            "minimum_world_distance_m": (
+                None if world_distance is None else float(world_distance)
+            ),
+            "configured_minimum_m": (
+                float(status.minimum_clearance_m) if matches else None
+            ),
+            "nearest_pair": pair,
+        }
+        warning_reader = getattr(self._bridge, "last_task_phase_validation_warnings", None)
+        warnings = self._normalize_guide_clearance_warnings(
+            warning_reader() if callable(warning_reader) else ()
+        )
+        return {
+            "status": guard_status,
+            "reason": str(guard_message or ""),
+            "first_invalid_index": invalid_index if invalid_index >= 0 else None,
+            "first_invalid_requested": {
+                "status": "failed" if requested_state is not None else "not_reached",
+                "state": requested_state,
+                "phase": phases[invalid_index] if 0 <= invalid_index < len(phases) else None,
+            },
+            "first_invalid_evaluated": {
+                "status": "failed" if evaluated_state is not None and guard_status == "failed" else "unknown",
+                "state": evaluated_state,
+                "phase": expected_phase if matches else None,
+                "sequence": int(getattr(status, "sequence", -1)) if matches else None,
+                "guard_session_id": (
+                    str(guard_identity["guard_session_id"]) if matches else None
+                ),
+                "request_id": expected_request_id if matches else None,
+            },
+            "last_valid": {
+                "status": "passed" if last_valid_request is not None else "not_reached",
+                "requested_state": last_valid_request,
+                "evaluated_state": (
+                    evaluated_state if guard_ok and last_valid_index == expected_index else None
+                ),
+            },
+            "named_pair": pair,
+            "clearance": clearance,
+            "checked_samples": int(getattr(status, "checked_samples", 0)) if matches else None,
+            "collision_scene_policy_fingerprint": guard_policy_fingerprint,
+            "guide_clearance_warnings": [dict(item) for item in warnings],
+        }
+
+    def checkPlanningStage(
+        self,
+        phase_id: str,
+        *,
+        progress=None,
+    ) -> RobotActionResult:
+        """Run P1, P2, or P3 as non-executable planning evidence only."""
+
+        phase_id = str(phase_id)
+        if phase_id not in {"P1", "P2", "P3"}:
+            return RobotActionResult(
+                False,
+                "planning_stage_invalid",
+                "Planning stage must be P1, P2, or P3.",
+                details={"phase_id": phase_id, "status": "unknown"},
+            )
+        stage_started = monotonic()
+        if phase_id == "P1":
+            self._step6_stage_diagnostic_chain = {}
+            try:
+                parameter_node = self._require_context()
+                self._replace_step6_stage_outcomes(
+                    parameter_node, None, clear_all=True
+                )
+            except (RuntimeError, ValueError, OSError, TypeError, KeyError):
+                parameter_node = None
+        else:
+            parameter_node = None
+
+        try:
+            context = self._step6_stage_context()
+            parameter_node = context["parameter_node"]
+            identity = context["identity"]
+            cache = self._step6_preentry_candidate_cache
+            if not isinstance(cache, Mapping):
+                raise ValueError(
+                    "Run PreEntry IK in this façade instance first; saved reports cannot restore its endpoint candidates."
+                )
+            if cache.get("identity") != identity:
+                self._step6_preentry_candidate_cache = None
+                self._step6_stage_diagnostic_chain = {}
+                raise ValueError("The PreEntry candidate cache belongs to changed inputs.")
+            session = parse_motion_diagnostic_session(
+                str(parameter_node.step6MotionDiagnosticJson or "")
+            )
+            cached_records_fingerprint = cache.get("candidate_records_fingerprint")
+            if (
+                session.schema_version != "2.2"
+                or session.state != "Current"
+                or session.full_task_outcome.get("diagnostic_kind") != "preentry_ik"
+                or fingerprint(session.to_dict()["candidate_records"])
+                != cached_records_fingerprint
+                or session.task_fingerprint != identity["task"]
+                or session.base_fingerprint != identity["base"]
+                or session.trajectory_fingerprint != identity["trajectory"]
+                or session.robot_profile_fingerprint != identity["robot_profile"]
+                or session.collision_audit_fingerprint
+                != context["collision_audit"].audit_fingerprint
+            ):
+                self._step6_preentry_candidate_cache = None
+                self._step6_stage_diagnostic_chain = {}
+                raise ValueError("The same-instance PreEntry endpoint evidence is stale or replaced.")
+            if phase_id == "P1":
+                path_by_phase: dict[str, tuple[dict[str, float], ...]] = {}
+                predecessor = None
+                candidates = tuple(cache.get("candidates") or ())
+                if not candidates:
+                    outcome = {
+                        "stage": "stage1_free_space",
+                        "phase_id": "P1",
+                        "status": "NotRun",
+                        "diagnostic_status": "not_reached",
+                        "reason": "PreEntry IK produced no collision-checked endpoint candidate.",
+                        "route_authority": "none",
+                        "endpoint_evidence": {
+                            "status": "not_reached",
+                            "input_identity_fingerprints": dict(identity),
+                            "first_invalid_requested_state": {"status": "not_reached", "state": None},
+                            "first_invalid_evaluated_state": {"status": "unknown", "state": None},
+                        },
+                    }
+                    self._replace_step6_stage_outcomes(
+                        parameter_node, outcome, expected_identity=identity
+                    )
+                    return RobotActionResult(
+                        False, "planning_stage_blocked", outcome["reason"],
+                        details={"phase_id": phase_id, "status": outcome["diagnostic_status"], "stageOutcome": outcome},
+                        payload=outcome,
+                    )
+                candidate = candidates[0]
+                start = dict(context["home_positions"])
+                requested_goal = dict(candidate["positions"])
+                if progress:
+                    progress("P1: planning Task Home to the selected PreEntry endpoint")
+                plan = self._bridge.plan_moveit_joint_goal(
+                    start_joint_positions_si=start,
+                    goal_joint_positions_si=requested_goal,
+                    refresh_planning_scene=True,
+                    planning_attempts=self._joint_planning_attempts,
+                    allowed_planning_time_sec=self._joint_planning_time_sec,
+                    planner_id=self._joint_planner_id,
+                    planner_context="step6_diagnostic_p1_home_to_preentry",
+                )
+                path = tuple(
+                    {name: float(point[name]) for name in JOINT_NAMES}
+                    for point in (plan.waypoint_joint_vectors_si or ())
+                )
+                path_by_phase["P1"] = path
+                plan_evidence = {
+                    "status": "passed" if plan.success and path else "failed",
+                    "success": bool(plan.success),
+                    "message": _bounded_text(plan.message),
+                    "native_message": _bounded_text(plan.native_planner_message),
+                    "planner_id": str(getattr(plan, "effective_planner_id", "") or self._joint_planner_id),
+                    "waypoint_count": len(path),
+                    "waypoint_times_sec": [float(value) for value in plan.waypoint_times_sec],
+                    "path_joint_positions_si": [dict(point) for point in path],
+                }
+                expected_tcp = context["pre_entry"]
+                fixed_rotation = candidate["orientation"].get("rotationRas")
+                roll_deg = float(candidate["roll_deg"])
+                orientation_fingerprint = str(candidate["orientation"].get("fingerprint") or "")
+                selected_candidate = dict(candidate)
+            else:
+                expected_predecessor = "P1" if phase_id == "P2" else "P2"
+                chain = self._step6_stage_diagnostic_chain
+                stages = chain.get("stages") if isinstance(chain, Mapping) else None
+                if (
+                    not isinstance(chain, Mapping)
+                    or chain.get("identity") != identity
+                    or not isinstance(stages, Mapping)
+                    or expected_predecessor not in stages
+                    or stages[expected_predecessor].get("diagnostic_status") != "passed"
+                ):
+                    if isinstance(chain, Mapping) and chain.get("identity") != identity:
+                        self._step6_stage_diagnostic_chain = {}
+                    outcome = {
+                        "stage": "stage2_fixed_axis_terminal" if phase_id == "P2" else "stage3_drilling",
+                        "phase_id": phase_id,
+                        "status": "NotRun",
+                        "diagnostic_status": "unknown",
+                        "reason": f"{phase_id} requires a fresh, passed {expected_predecessor} result from this façade instance.",
+                        "route_authority": "none",
+                        "endpoint_evidence": {
+                            "input_identity_fingerprints": dict(identity),
+                            "first_invalid_requested_state": {"status": "not_reached", "state": None},
+                            "first_invalid_evaluated_state": {"status": "unknown", "state": None},
+                        },
+                    }
+                    self._replace_step6_stage_outcomes(
+                        parameter_node, outcome, expected_identity=identity
+                    )
+                    return RobotActionResult(
+                        False, "planning_stage_blocked", outcome["reason"],
+                        details={"phase_id": phase_id, "status": "unknown", "stageOutcome": outcome},
+                        payload=outcome,
+                    )
+                # A rerun invalidates this phase and every dependent phase.
+                stages = {key: value for key, value in stages.items() if key < phase_id}
+                self._step6_stage_diagnostic_chain = {**dict(chain), "stages": stages}
+                selected_candidate = dict(chain["candidate"])
+                path_by_phase = {
+                    key: tuple(value["path"])
+                    for key, value in stages.items()
+                }
+                predecessor_path = tuple(stages[expected_predecessor]["path"])
+                if not predecessor_path:
+                    raise ValueError(f"{expected_predecessor} has no retained path endpoint.")
+                start = dict(predecessor_path[-1])
+                if phase_id == "P2":
+                    start_tcp = context["pre_entry"]
+                    expected_tcp = context["entry"]
+                    phase_name = "terminal_contact"
+                else:
+                    start_tcp = context["entry"]
+                    expected_tcp = context["target"]
+                    phase_name = "drilling"
+                fixed_rotation = selected_candidate["orientation"].get("rotationRas")
+                roll_deg = float(selected_candidate["roll_deg"])
+                orientation_fingerprint = str(selected_candidate["orientation"].get("fingerprint") or "")
+                if progress:
+                    progress(f"{phase_id}: planning the exact {expected_predecessor} endpoint to {phase_name} endpoint")
+                plan = self._bridge.plan_moveit_cartesian_path(
+                    entry_ras_mm=start_tcp,
+                    target_ras_mm=expected_tcp,
+                    sample_count=max(3, int(context["parameter_node"].robotMotionPlanSampleCount)),
+                    base_transform=context["parameter_node"].robotBaseTransform,
+                    avoid_collisions=False,
+                    minimum_fraction=0.99,
+                    start_joint_positions_si=start,
+                    axial_roll_start_deg=roll_deg,
+                    axial_roll_end_deg=roll_deg,
+                    fixed_rotation_ras=fixed_rotation,
+                    position_axis_only=True,
+                )
+                path = tuple(
+                    {name: float(point[name]) for name in JOINT_NAMES}
+                    for point in (plan.waypoint_joint_vectors_si or ())
+                )
+                path_by_phase[phase_id] = path
+                plan_evidence = {
+                    "status": "passed" if plan.success and path else "failed",
+                    "success": bool(plan.success),
+                    "message": _bounded_text(plan.message),
+                    "completion_fraction": float(plan.fraction),
+                    "coordinate_frame": str(plan.coordinate_frame),
+                    "start_position_error_mm": plan.start_position_error_mm,
+                    "start_orientation_error_deg": plan.start_orientation_error_deg,
+                    "last_valid_waypoint_index": int(plan.last_valid_waypoint_index),
+                    "last_valid_joint_positions_si": plan.last_valid_joint_positions_si,
+                    "first_invalid_requested_index": int(plan.first_invalid_requested_index),
+                    "first_invalid_tcp_world_ras_mm": plan.first_invalid_ras_mm,
+                    "first_invalid_joint_positions_si": plan.first_invalid_joint_positions_si,
+                    "first_invalid_collision_pairs": [list(pair) for pair in plan.first_invalid_collision_pairs],
+                    "failure_classification": str(plan.failure_classification or "unknown"),
+                    "waypoint_count": len(path),
+                    "waypoint_times_sec": [float(value) for value in plan.waypoint_times_sec],
+                    "path_joint_positions_si": [dict(point) for point in path],
+                }
+
+            end_state = dict(path[-1]) if path else None
+            endpoint_evaluation = (
+                self._evaluate_step6_tcp_endpoint(
+                    context["parameter_node"],
+                    end_state,
+                    expected_tcp_world_ras_mm=expected_tcp,
+                    expected_drill_axis_world_ras_unit=context["drill_axis"],
+                )
+                if end_state is not None
+                else {"status": "not_reached", "position_residual_mm": None, "drilling_axis_residual_deg": None}
+            )
+            if phase_id == "P1":
+                path_by_phase = {"P1": path}
+            guard = self._step6_stage_guard_evidence(context, path_by_phase)
+            identity_after = self.plannerComparisonIdentity()
+            identity_current = identity_after == identity
+            if not identity_current:
+                self._step6_preentry_candidate_cache = None
+                self._step6_stage_diagnostic_chain = {}
+            plan_passed = bool(plan.success and path)
+            if not identity_current or endpoint_evaluation.get("status") == "unknown" or guard.get("status") == "unknown":
+                diagnostic_status = "unknown"
+            elif not plan_passed or endpoint_evaluation.get("status") != "passed" or guard.get("status") != "passed":
+                diagnostic_status = "failed"
+            else:
+                diagnostic_status = "passed"
+            label = {
+                "P1": "stage1_free_space",
+                "P2": "stage2_fixed_axis_terminal",
+                "P3": "stage3_drilling",
+            }[phase_id]
+            reason = (
+                "The requested stage path, endpoint FK, and composed-prefix guard all passed."
+                if diagnostic_status == "passed"
+                else "Input identity changed during planning; retained measurements are stale."
+                if not identity_current
+                else str(plan.message or guard.get("reason") or "Stage checks did not pass.")
+            )
+            guard_invalid = guard.get("first_invalid_requested")
+            guard_evaluated = guard.get("first_invalid_evaluated")
+            first_invalid_requested = (
+                guard_invalid
+                if isinstance(guard_invalid, Mapping)
+                and guard_invalid.get("status") == "failed"
+                else {
+                    "status": "failed" if plan_evidence.get("first_invalid_requested_index", -1) >= 0 or plan_evidence.get("first_invalid_tcp_world_ras_mm") is not None else "not_reached",
+                    "state": {
+                        "cartesian_waypoint_index": plan_evidence.get("first_invalid_requested_index"),
+                        "tcp_world_ras_mm": plan_evidence.get("first_invalid_tcp_world_ras_mm"),
+                    }
+                    if plan_evidence.get("first_invalid_requested_index", -1) >= 0 or plan_evidence.get("first_invalid_tcp_world_ras_mm") is not None
+                    else None,
+                }
+            )
+            first_invalid_evaluated = (
+                guard_evaluated
+                if isinstance(guard_evaluated, Mapping)
+                and guard_evaluated.get("status") == "failed"
+                else {"status": "unknown", "state": None}
+            )
+            path_fingerprint = fingerprint([dict(point) for point in path])
+            endpoint_fingerprint = fingerprint(
+                {
+                    "start": start,
+                    "requested_goal": requested_goal if phase_id == "P1" else expected_tcp,
+                    "end": end_state,
+                    "orientation": orientation_fingerprint,
+                }
+            )
+            endpoint_evidence = {
+                "status": diagnostic_status,
+                "input_identity_fingerprints": dict(identity),
+                "identity_after": dict(identity_after),
+                "phase_start_joint_positions_si": dict(start),
+                "requested_goal": (
+                    {"joint_positions_si": dict(requested_goal), "tcp_world_ras_mm": expected_tcp}
+                    if phase_id == "P1"
+                    else {"tcp_world_ras_mm": expected_tcp}
+                ),
+                "phase_end_joint_positions_si": end_state if plan_passed else None,
+                "last_valid": guard.get("last_valid"),
+                "first_invalid_requested_state": first_invalid_requested,
+                "first_invalid_evaluated_state": first_invalid_evaluated,
+                "endpoint_fk": endpoint_evaluation,
+                "phase_guard": guard,
+                "plan": plan_evidence,
+                "path_joint_positions_si": [dict(point) for point in path],
+                "path_fingerprint": path_fingerprint,
+                "endpoint_fingerprint": endpoint_fingerprint,
+                "orientation_fingerprint": orientation_fingerprint,
+                "guard_policy_fingerprint": self._strict_guard_policy_fingerprint(),
+                "duration_sec": max(0.0, monotonic() - stage_started),
+                "route_authority": "none",
+            }
+            outcome = {
+                "stage": label,
+                "phase_id": phase_id,
+                "status": {
+                    "passed": "Passed",
+                    "failed": "Failed",
+                    "unknown": "Unknown",
+                    "not_reached": "NotRun",
+                }[diagnostic_status],
+                "diagnostic_status": diagnostic_status,
+                "reason": _bounded_text(reason),
+                "waypoint_count": len(path),
+                "completion_fraction": float(getattr(plan, "fraction", 1.0 if plan.success else 0.0)),
+                "route_authority": "none",
+                "endpoint_evidence": endpoint_evidence,
+            }
+            if identity_current:
+                if diagnostic_status == "passed":
+                    chain = self._step6_stage_diagnostic_chain
+                    if phase_id == "P1" or not isinstance(chain, Mapping):
+                        chain = {"identity": dict(identity), "candidate": selected_candidate, "stages": {}}
+                    stages = dict(chain.get("stages") or {})
+                    stages[phase_id] = {
+                        "diagnostic_status": diagnostic_status,
+                        "route_authority": "none",
+                        "path": path,
+                        "end": end_state,
+                        "endpoint_evidence": endpoint_evidence,
+                    }
+                    self._step6_stage_diagnostic_chain = {
+                        **dict(chain), "identity": dict(identity), "candidate": selected_candidate, "stages": stages
+                    }
+                self._replace_step6_stage_outcomes(
+                    parameter_node, outcome, expected_identity=identity
+                )
+            return RobotActionResult(
+                diagnostic_status == "passed",
+                "planning_stage_passed" if diagnostic_status == "passed" else "planning_stage_incomplete",
+                f"{phase_id}: {reason}",
+                details={"phase_id": phase_id, "status": diagnostic_status, "stageOutcome": outcome},
+                payload=outcome,
+            )
+        except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
+            try:
+                current_identity = self.plannerComparisonIdentity()
+                cache = self._step6_preentry_candidate_cache
+                chain = self._step6_stage_diagnostic_chain
+                if isinstance(cache, Mapping) and cache.get("identity") != current_identity:
+                    self._step6_preentry_candidate_cache = None
+                if isinstance(chain, Mapping) and chain.get("identity") != current_identity:
+                    self._step6_stage_diagnostic_chain = {}
+            except Exception:
+                self._step6_stage_diagnostic_chain = {}
+                self._step6_preentry_candidate_cache = None
+            return RobotActionResult(
+                False,
+                "planning_stage_blocked",
+                str(exc),
+                details={"phase_id": phase_id, "status": "unknown"},
+            )
 
     def _evaluate_step6_tcp_endpoint(
         self,

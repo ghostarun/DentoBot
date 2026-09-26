@@ -1,0 +1,58 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+"Failed to create extensions directory" "/opt/slicer/Slicer-SuperBuild/Slicer-build/slicer.org/Extensions-3838"
+Switch to module:  "Welcome"
+Switch to module:  "DENTOWorkflow"
+DENTOBOT_CASE_LOAD_PHASE 0.000 0.000 Checking package integrity
+DENTOBOT_CASE_LOAD_PHASE 0.161 0.161 Saving recovery snapshot
+Info: In /opt/slicer/Slicer/Libs/MRML/Core/vtkArchive.cxx, line 35
+Zip: adding: /home/dentobot/.cache/slicer.org/Slicer/SlicerIO/_tmp202609261G6HN/recovery/recovery.mrml
+
+
+Info: In /opt/slicer/Slicer/Libs/MRML/Core/vtkArchive.cxx, line 35
+Zip: adding rel: recovery/recovery.mrml
+
+
+saved  "/tmp/Slicer-/dentobot-case-open-nyfw5k1u/recovery.mrb"
+DENTOBOT_CASE_LOAD_PHASE 0.177 0.337 Importing Slicer scene
+"MRB Slicer Data Bundle" Reader has successfully read the file "/tmp/Slicer-/dentobot-case-open-nyfw5k1u/incoming/case.mrb" "[1.62s]"
+DENTOBOT_CASE_LOAD_PHASE 2.934 3.272 Validating imported scene
+DENTOBOT_FINGERPRINT_BUILD segmentation 3.791
+void qSlicerSubjectHierarchySegmentationsPlugin::updateAllSegmentsFromMRML(vtkMRMLSegmentationNode*) : Unable to find subject hierarchy item for segmentation node  [Case Foundation] Moving Lower Jaw + Teeth  so per-segment subject hierarchy node cannot be created
+void qSlicerSubjectHierarchySegmentationsPlugin::updateAllSegmentsFromMRML(vtkMRMLSegmentationNode*) : Unable to find subject hierarchy item for segmentation node  [Case Foundation] Moving Lower Jaw + Teeth  so per-segment subject hierarchy node cannot be created
+void qSlicerSubjectHierarchySegmentationsPlugin::updateAllSegmentsFromMRML(vtkMRMLSegmentationNode*) : Unable to find subject hierarchy item for segmentation node  [Case Foundation] Moving Lower Jaw + Teeth  so per-segment subject hierarchy node cannot be created
+ResolveUnresolvedItems: Failed to process 1 unresolved items
+
+
+vtkMRMLSubjectHierarchyNode::ResolveSubjectHierarchy: Failed to merge subject hierarchy nodes, re-building subject hierarchy from scratch
+
+
+"MRB Slicer Data Bundle" Reader has successfully read the file "/tmp/Slicer-/dentobot-case-open-nyfw5k1u/recovery.mrb" "[0.31s]"
+DENTOBOT_MANUAL_JOG_HEADLESS_FAILED: Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>
+Traceback (most recent call last):
+  File "/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py", line 252, in _bindAndValidateRestoredCase
+    self.logic.validateLoadedCaseBundleWorkflow(
+  File "/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py", line 1766, in validateLoadedCaseBundleWorkflow
+    raise CaseBundleError(
+DENTOCaseBundle.CaseBundleError: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py", line 382, in _openCaseBundle
+    self._bindAndValidateRestoredCase(inspection.workflow, phase=phase)
+  File "/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py", line 257, in _bindAndValidateRestoredCase
+    raise CaseBundleError(
+DENTOCaseBundle.CaseBundleError: Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<string>", line 1046, in <module>
+  File "<string>", line 512, in run
+  File "/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py", line 415, in _openCaseBundle
+    raise CaseBundleError(
+DENTOCaseBundle.CaseBundleError: Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>
+Switch to module:  ""
+The module "ROS2" has been registered but not instantiated.
+The following modules have been instantiated: ("AddManyMarkupsFiducialTest", "AddScalarVolumes", "Annotations", "AtlasTests", "BRAINSDWICleanup", "BRAINSDeface", "BRAINSFit", "BRAINSFitRigidRegistrationCrashIssue4139", "BRAINSIntensityNormalize", "BRAINSROIAuto", "BRAINSResample", "BRAINSResize", "BRAINSStripRotation", "BRAINSTransformConvert", "CLI4Test", "CLIROITest", "Cameras", "CastScalarVolume", "CheckerBoardFilter", "ColorLegendSelfTest", "Colors", "CompareVolumes", "CreateDICOMSeries", "CropVolume", "CropVolumeSelfTest", "CropVolumeSequence", "CurvatureAnisotropicDiffusion", "CurvedPlanarReformation", "DENTOWorkflow", "DICOM", "DynamicModeler", "Markups", "Models", "ResampleScalarVectorDWIVolume", "SubjectHierarchy", "Terminologies", "Units", "Volumes")
+Switch to module:  ""

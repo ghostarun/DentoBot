@@ -1,0 +1,97 @@
+[INFO] [launch]: All log files can be found below /home/dentobot/.ros/log/2026-09-26-13-46-22-311799-light-tarun-ThinkStation-P3-Tower-Gen-2-101
+[INFO] [launch]: Default logging verbosity is set to INFO
+WARNING:root:[33;21mCannot infer URDF from `/workspace/ros2_ws/install/dentobot_moveit_config/share/dentobot_moveit_config`. -- using config/dentobot.urdf[0m
+WARNING:root:[33;21mCannot infer SRDF from `/workspace/ros2_ws/install/dentobot_moveit_config/share/dentobot_moveit_config`. -- using config/dentobot.srdf[0m
+WARNING:root:[33;20mtrajectory_execution: `Parameter file_path is undefined and no matches for /workspace/ros2_ws/install/dentobot_moveit_config/share/dentobot_moveit_config/config/*_controllers.yaml[0m
+[INFO] [robot_state_publisher-1]: process started with pid [111]
+[INFO] [slicer_joint_state_publisher-2]: process started with pid [112]
+[INFO] [move_group-3]: process started with pid [116]
+[INFO] [collision_guard-4]: process started with pid [119]
+[INFO] [simulation_status_publisher-5]: process started with pid [120]
+[robot_state_publisher-1] [INFO] [1790430384.432168513] [dentobot_robot_state_publisher]: Robot initialized
+[slicer_joint_state_publisher-2] [INFO] [1790430384.800216756] [dentobot_slicer_joint_state_publisher]: Publishing simulated joint states for 6 joints from Slicer topic /dentobot/validated_joint_positions; this node has no robot command or hardware interface.
+[move_group-3] [WARN] [1790430385.022656029] [rcl.logging_rosout]: Publisher already registered for node name: 'move_group'. If this is due to multiple nodes with the same name then all logs for the logger named 'move_group' will go out over the existing publisher. As soon as any node with that name is destructed it will unregister the publisher, preventing any further logs for that name from being published on the rosout topic.
+[move_group-3] [INFO] [1790430385.025546342] [move_group.move_group.moveit.ros.rdf_loader]: Loaded robot model in 0.00145328 seconds
+[move_group-3] [INFO] [1790430385.025601332] [move_group.move_group.moveit.core.robot_model]: Loading robot model 'dentobot'...
+[move_group-3] [INFO] [1790430385.025608892] [move_group.move_group.moveit.core.robot_model]: No root/virtual joint specified in SRDF. Assuming fixed joint
+[collision_guard-4] [WARN] [1790430385.035770220] [rcl.logging_rosout]: Publisher already registered for node name: 'dentobot_collision_guard'. If this is due to multiple nodes with the same name then all logs for the logger named 'dentobot_collision_guard' will go out over the existing publisher. As soon as any node with that name is destructed it will unregister the publisher, preventing any further logs for that name from being published on the rosout topic.
+[collision_guard-4] [INFO] [1790430385.038519667] [dentobot_collision_guard.moveit.ros.rdf_loader]: Loaded robot model in 0.000894552 seconds
+[collision_guard-4] [INFO] [1790430385.038580515] [dentobot_collision_guard.moveit.core.robot_model]: Loading robot model 'dentobot'...
+[collision_guard-4] [INFO] [1790430385.038589051] [dentobot_collision_guard.moveit.core.robot_model]: No root/virtual joint specified in SRDF. Assuming fixed joint
+[move_group-3] [INFO] [1790430385.459781499] [move_group.move_group.moveit.kinematics.kdl_kinematics_plugin]: Joint weights for group 'dentobot_arm': 1 1 1 1 1
+[collision_guard-4] [INFO] [1790430385.595545698] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Publishing maintained planning scene on 'monitored_planning_scene'
+[move_group-3] [INFO] [1790430385.595545679] [move_group.move_group.moveit.ros.planning_scene_monitor]: Publishing maintained planning scene on 'monitored_planning_scene'
+[move_group-3] [INFO] [1790430385.595722594] [move_group.move_group.moveit.ros.moveit_cpp]: Listening to 'joint_states' for joint states
+[move_group-3] [INFO] [1790430385.596374306] [move_group.move_group.moveit.ros.current_state_monitor]: Listening to joint states on topic 'joint_states'
+[move_group-3] [INFO] [1790430385.596740973] [move_group.move_group.moveit.ros.planning_scene_monitor]: Listening to '/attached_collision_object' for attached collision objects
+[move_group-3] [INFO] [1790430385.596753862] [move_group.move_group.moveit.ros.planning_scene_monitor]: Stopping existing planning scene publisher.
+[move_group-3] [INFO] [1790430385.596828667] [move_group.move_group.moveit.ros.planning_scene_monitor]: Stopped publishing maintained planning scene.
+[move_group-3] [INFO] [1790430385.597088735] [move_group.move_group.moveit.ros.planning_scene_monitor]: Publishing maintained planning scene on 'monitored_planning_scene'
+[collision_guard-4] [INFO] [1790430385.597114149] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Stopped publishing maintained planning scene.
+[collision_guard-4] [INFO] [1790430385.597129529] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Starting world geometry update monitor for collision objects, attached objects, octomap updates.
+[move_group-3] [INFO] [1790430385.597132886] [move_group.move_group.moveit.ros.planning_scene_monitor]: Starting planning scene monitor
+[collision_guard-4] [INFO] [1790430385.597346067] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Listening to 'collision_object'
+[collision_guard-4] [INFO] [1790430385.597528459] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Listening to 'planning_scene_world' for planning scene world geometry
+[move_group-3] [INFO] [1790430385.597544781] [move_group.move_group.moveit.ros.planning_scene_monitor]: Listening to '/planning_scene'
+[move_group-3] [INFO] [1790430385.597554405] [move_group.move_group.moveit.ros.planning_scene_monitor]: Starting world geometry update monitor for collision objects, attached objects, octomap updates.
+[move_group-3] [INFO] [1790430385.597765735] [move_group.move_group.moveit.ros.planning_scene_monitor]: Listening to 'collision_object'
+[move_group-3] [INFO] [1790430385.598003958] [move_group.move_group.moveit.ros.planning_scene_monitor]: Listening to 'planning_scene_world' for planning scene world geometry
+[collision_guard-4] [INFO] [1790430385.598170688] [dentobot_collision_guard.moveit.ros.current_state_monitor]: Listening to joint states on topic '/joint_states'
+[move_group-3] [WARN] [1790430385.598196527] [move_group.move_group.moveit.ros.occupancy_map_monitor]: Resolution not specified for Octomap. Assuming resolution = 0.1 instead
+[move_group-3] [ERROR] [1790430385.598209488] [move_group.move_group.moveit.ros.occupancy_map_monitor]: No 3D sensor plugin(s) defined for octomap updates
+[collision_guard-4] [INFO] [1790430385.598387085] [dentobot_collision_guard.moveit.ros.planning_scene_monitor]: Listening to '/attached_collision_object' for attached collision objects
+[collision_guard-4] [INFO] [1790430385.599777473] [dentobot_collision_guard]: Collision guard ready: group=dentobot_arm, self/world clearance=0.001 m, interpolation steps=(0.017453 rad, 0.000500 m). Simulation only.
+[move_group-3] [INFO] [1790430385.924108477] [move_group.move_group.moveit.ros.planning_pipeline]: Successfully loaded planner 'OMPL'
+[move_group-3] [INFO] [1790430385.924516697] [move_group]: Try loading adapter 'default_planning_request_adapters/ResolveConstraintFrames'
+[move_group-3] [INFO] [1790430385.944666294] [move_group]: Loaded adapter 'default_planning_request_adapters/ResolveConstraintFrames'
+[move_group-3] [INFO] [1790430385.944692707] [move_group]: Try loading adapter 'default_planning_request_adapters/ValidateWorkspaceBounds'
+[move_group-3] [INFO] [1790430385.944815128] [move_group]: Loaded adapter 'default_planning_request_adapters/ValidateWorkspaceBounds'
+[move_group-3] [INFO] [1790430385.944817636] [move_group]: Try loading adapter 'default_planning_request_adapters/CheckStartStateBounds'
+[move_group-3] [INFO] [1790430385.944828497] [move_group]: Loaded adapter 'default_planning_request_adapters/CheckStartStateBounds'
+[move_group-3] [INFO] [1790430385.944830039] [move_group]: Try loading adapter 'default_planning_request_adapters/CheckStartStateCollision'
+[move_group-3] [INFO] [1790430385.944834490] [move_group]: Loaded adapter 'default_planning_request_adapters/CheckStartStateCollision'
+[move_group-3] [INFO] [1790430385.945196952] [move_group]: Try loading adapter 'default_planning_response_adapters/AddTimeOptimalParameterization'
+[move_group-3] [INFO] [1790430385.973361659] [move_group]: Loaded adapter 'default_planning_response_adapters/AddTimeOptimalParameterization'
+[move_group-3] [INFO] [1790430385.973384274] [move_group]: Try loading adapter 'default_planning_response_adapters/ValidateSolution'
+[move_group-3] [INFO] [1790430385.975538373] [move_group]: Loaded adapter 'default_planning_response_adapters/ValidateSolution'
+[move_group-3] [INFO] [1790430385.975550017] [move_group]: Try loading adapter 'default_planning_response_adapters/DisplayMotionPath'
+[move_group-3] [INFO] [1790430385.975839449] [move_group]: Loaded adapter 'default_planning_response_adapters/DisplayMotionPath'
+[move_group-3] [FATAL] [1790430385.976300682] [move_group.move_group.moveit.ros.trajectory_execution_manager]: Parameter '~moveit_controller_manager' not specified. This is needed to identify the plugin to use for interacting with controllers. No paths can be executed.
+[move_group-3] [INFO] [1790430385.976326259] [move_group]: MoveGroup debug mode is ON
+[move_group-3] [INFO] [1790430386.047336700] [move_group.move_group.moveit.ros.move_group.executable]: 
+[move_group-3] 
+[move_group-3] ********************************************************
+[move_group-3] * MoveGroup using: 
+[move_group-3] *     - apply_planning_scene_service
+[move_group-3] *     - clear_octomap_service
+[move_group-3] *     - get_group_urdf
+[move_group-3] *     - load_geometry_from_file
+[move_group-3] *     - CartesianPathService
+[move_group-3] *     - execute_trajectory_action
+[move_group-3] *     - get_planning_scene_service
+[move_group-3] *     - kinematics_service
+[move_group-3] *     - move_action
+[move_group-3] *     - motion_plan_service
+[move_group-3] *     - query_planners_service
+[move_group-3] *     - state_validation_service
+[move_group-3] *     - save_geometry_to_file
+[move_group-3] ********************************************************
+[move_group-3] 
+[move_group-3] [INFO] [1790430386.047377006] [move_group.move_group.moveit.ros.move_group.context]: MoveGroup context using pipeline ompl
+[move_group-3] [INFO] [1790430386.047383147] [move_group.move_group.moveit.ros.move_group.context]: MoveGroup context initialization complete
+[move_group-3] [96mLoading 'move_group/ApplyPlanningSceneService'...[0m
+[move_group-3] [96mLoading 'move_group/ClearOctomapService'...[0m
+[move_group-3] [96mLoading 'move_group/GetUrdfService'...[0m
+[move_group-3] [96mLoading 'move_group/LoadGeometryFromFileService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupCartesianPathService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupExecuteTrajectoryAction'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupGetPlanningSceneService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupKinematicsService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupMoveAction'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupPlanService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupQueryPlannersService'...[0m
+[move_group-3] [96mLoading 'move_group/MoveGroupStateValidationService'...[0m
+[move_group-3] [96mLoading 'move_group/SaveGeometryToFileService'...[0m
+[move_group-3] 
+[move_group-3] [92mYou can start planning now![0m
+[move_group-3] 

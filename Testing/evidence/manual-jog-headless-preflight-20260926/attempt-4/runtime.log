@@ -1,0 +1,2 @@
+Existing simulation process found; refusing to replace it:
+S    awk             awk $1 !~ /^Z/ && ($2 == "Slicer" || $2 == "SlicerApp-real" || $2 == "move_group" || $2 == "robot_state_pub" || $0 ~ /ros2 launch dentobot_moveit_config simulation.launch.py/) {print}

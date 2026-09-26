@@ -1071,6 +1071,29 @@ def last_task_joint_status() -> Optional[TaskJointStatus]:
     return _last_task_status
 
 
+def current_task_guard_identity() -> Optional[Mapping[str, str]]:
+    """Return the active task guard's task/session/policy identity, if valid."""
+
+    if not _last_task_config_json:
+        return None
+    try:
+        config = json.loads(_last_task_config_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    task_fingerprint = str(config.get("task_fingerprint") or "")
+    guard_session_id = str(config.get("guard_session_id") or "")
+    policy_fingerprint = str(config.get("collision_scene_policy_fingerprint") or "")
+    if not task_fingerprint or not guard_session_id or not policy_fingerprint:
+        return None
+    return MappingProxyType(
+        {
+            "task_fingerprint": task_fingerprint,
+            "guard_session_id": guard_session_id,
+            "collision_scene_policy_fingerprint": policy_fingerprint,
+        }
+    )
+
+
 def last_task_phase_validation_warnings() -> tuple[Mapping[str, object], ...]:
     """Return bounded immutable warning records from the latest chain preflight."""
 
@@ -1483,6 +1506,7 @@ def validate_task_phase_waypoints(
     *,
     task_fingerprint: str,
     first_sequence: int = ROS2_TASK_GUARD_INITIAL_SEQUENCE,
+    request_id_prefix: str = "",
 ) -> Tuple[bool, str, int]:
     """Validate an ordered plan without moving or consuming the preview state."""
 
@@ -1493,15 +1517,19 @@ def validate_task_phase_waypoints(
     phases = tuple(str(value) for value in waypoint_phases or ())
     if not waypoints or len(waypoints) != len(phases):
         return False, "Phase-guard preflight requires one phase per waypoint.", -1
+    if not isinstance(request_id_prefix, str):
+        return False, "Phase-guard request ID prefix must be text.", -1
     warnings: list[Mapping[str, object]] = []
     for index, (waypoint, phase) in enumerate(zip(waypoints, phases)):
-        ok, message = apply_task_phase_joint_positions(
-            waypoint,
-            task_fingerprint=task_fingerprint,
-            phase=phase,
-            sequence=int(first_sequence) + index,
-            validate_only=True,
-        )
+        command = {
+            "task_fingerprint": task_fingerprint,
+            "phase": phase,
+            "sequence": int(first_sequence) + index,
+            "validate_only": True,
+        }
+        if request_id_prefix:
+            command["request_id"] = f"{request_id_prefix}:{index}"
+        ok, message = apply_task_phase_joint_positions(waypoint, **command)
         if not ok:
             _last_task_phase_validation_warnings = tuple(warnings)
             return (

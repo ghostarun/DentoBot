@@ -1,6 +1,6 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-25.
+Last reconciled: 2026-09-26.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and
 overlap routing. TASKS.md retains detailed contracts and completion records;
@@ -20,6 +20,12 @@ The FDI11 PreEntry IK source gate is already implemented.
 The first visible IK-only report now shows passed collision-checked endpoints
 for a changed base/Home/scene; the original saved baseline and Tarun's verdict
 remain open. P1/P2/P3 and guard were NotRun in that report.
+Current source also shares an exact-TCP evaluator across Goal-1, PreEntry and
+explicit Check Current State, and exposes P1/P2/P3 checks in the existing
+planning panel. The P1/P2/P3 paths are diagnostic-only; no complete-chain
+promotion, full manual workbench, recording or final two-area UI is implemented.
+The combined focused Step 6 host pure suite passes 181 tests; no runtime or
+case-specific success follows from that source evidence.
 The 2026-09-24 blanket source pause is historical; agent-run planner/GUI
 runtime and milestone verdicts remain separately gated. Independent backlog
 items may advance under their existing entry conditions.
@@ -1217,13 +1223,19 @@ describes the currently implemented seven-card UI until migration. It no longer
 defines the desired operator navigation after 6.2. Preserve 6.0 case/branch,
 6.1 base/ROS/scene and 6.2 validated Task Home as prerequisites. Then show:
 
-**2026-09-25 implementation order:** Tarun authorized the bounded
+**2026-09-25 implementation order, source status updated 2026-09-26:** Tarun
+authorized the bounded
 [renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
 Number these areas **6.3 Planning & Diagnostics** and **6.4 Preview &
-Control**. Build and visibly review FDI11 PreEntry IK alone before optional
-workspace migration or separate P1/P2/P3 exposure; the first trial runs no
-OMPL. Correct FDI21 fixed-upper exact-state attribution before another
-Stage-3 review; then use an exact saved FDI31 full-chain reference. An
+Control**. FDI11 PreEntry IK was first shown as a standalone operator-visible
+diagnostic; its report belongs to an intentionally changed base/Home/scene and
+Tarun's interpretation remains open. Source-only P1/P2/P3 actions now exist in
+the planning panel, but no new IK/OMPL comparison or case-specific planner
+trial follows from them. Complete manual path display/replay, fuller workbench
+diagnostics and the final UI
+gates before later case-specific solving. Correct FDI21 fixed-upper exact-state
+attribution before another Stage-3 review; then use an exact saved FDI31
+full-chain reference. An
 interrupted phase blocks further preview/normal Return Home while retaining
 the exact accepted/rejected evidence; partial-prefix reversal is a later
 separate acceptance gate. This ordering supersedes the migration order below
@@ -1231,7 +1243,7 @@ where they differ, without changing its full-chain/guard or runtime gates.
 
 | Desired area | Owned action and acceptance boundary |
 |---|---|
-| Planning & Diagnostics (`S6-WORKSPACE-PURPOSE`, `S6-LIVE-01`) | Confirm one current task identity; optionally inspect/revalidate workspace evidence and reviewed task limits; run PreEntry IK, P1, P2, P3 and planner comparison as ordered plan-only diagnostics; promote only a complete, current, independent-guard-valid chain. The workspace cloud is exploration/seed evidence, not a mandatory proof of one trajectory's feasibility. Preserve exact first failure and partial paths as display-only evidence. |
+| Planning & Diagnostics (`S6-WORKSPACE-PURPOSE`, `S6-LIVE-01`) | Confirm one current task identity; optionally inspect/revalidate workspace evidence and reviewed task limits; provide the ROS-connected Manual Robot Simulation Solver / Engineering Workbench for simulation-only base/Home/J1–J5 exploration with guarded acceptance and recording; run PreEntry IK, P1, P2, P3 and planner comparison as ordered plan-only diagnostics; promote only a complete, current, independent-guard-valid chain. The workspace cloud is exploration/seed evidence, not a mandatory proof of one trajectory's feasibility. Preserve exact first failure and partial paths as display-only evidence. |
 | Preview & Control (`S6-LIVE-03/04`) | Consume only that fresh complete plan, show and run real-time **simulation** Approach and Drill previews with monitored acknowledgements, reverse the accepted route under the guard, verify Home, then return to Planning for a new plan/repeat. Show expert ROS diagnostics without converting them into a hardware command. Physical hardware requires a separate safety, registration, calibration and authorization milestone. |
 
 **Migration order and checks:** (1) classify the current 6.3 filters and all

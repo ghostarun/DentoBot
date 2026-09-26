@@ -1,0 +1,39 @@
+{
+  "case_saved": false,
+  "case_sha256": "eb48a805c81578bafcc8ca72663b6f8a98b1f9721c7f9e680d44b458558e7adb",
+  "case_source": "/workspace/data/Slicer_Saved/SampleStudy1/FDI31/dentobot-case-sep22-step6.dentocase",
+  "error": "Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>",
+  "evidence_directory": "/tmp/dentobot-verification/manual-jog-20260926T135140Z-685190",
+  "failure_phase": "case_preflight",
+  "finished_at_utc": "2026-09-26T13:52:12.844372+00:00",
+  "gate": "S6-LIVE-01 guarded manual J1-J5 jog",
+  "hardware_execution_enabled": false,
+  "planner_calls": 0,
+  "preview_started": false,
+  "required_screenshot_files": [
+    "pre-jog-context-ui.png",
+    "pre-jog-context-viewport.png",
+    "accepted-result-ui.png",
+    "accepted-result-viewport.png",
+    "unknown-result-ui.png",
+    "unknown-result-viewport.png"
+  ],
+  "route_authority": "none",
+  "scenarios": {
+    "accepted": {
+      "status": "NOT_RUN"
+    },
+    "rejected": {
+      "status": "NOT_RUN"
+    },
+    "unavailable": {
+      "status": "NOT_RUN"
+    }
+  },
+  "schema_version": "1.0",
+  "screenshots": {},
+  "simulation_only": true,
+  "started_at_utc": "2026-09-26T13:52:03.791510+00:00",
+  "status": "FAIL",
+  "traceback": "Traceback (most recent call last):\n  File \"/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py\", line 252, in _bindAndValidateRestoredCase\n    self.logic.validateLoadedCaseBundleWorkflow(\n  File \"/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py\", line 1766, in validateLoadedCaseBundleWorkflow\n    raise CaseBundleError(\nDENTOCaseBundle.CaseBundleError: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py\", line 382, in _openCaseBundle\n    self._bindAndValidateRestoredCase(inspection.workflow, phase=phase)\n  File \"/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py\", line 257, in _bindAndValidateRestoredCase\n    raise CaseBundleError(\nDENTOCaseBundle.CaseBundleError: Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"<string>\", line 512, in run\n  File \"/workspace/ros2_ws/src/DentoBot-step6-renovation/DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py\", line 415, in _openCaseBundle\n    raise CaseBundleError(\nDENTOCaseBundle.CaseBundleError: Pre-bind package validation failed: Loaded Step 6 state differs from the package lineage record: step6.trajectoryRegistry.prepared_branches.guide-5c0da27697aceceb8f14.model_node_ids.<list>\n"
+}

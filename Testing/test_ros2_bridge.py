@@ -65,6 +65,30 @@ def test_task_guard_rejects_non_target_allowance_before_ros():
     assert "Only the selected target" in reason
 
 
+def test_current_task_guard_identity_reads_only_active_configuration(monkeypatch):
+    monkeypatch.setattr(
+        bridge_module,
+        "_last_task_config_json",
+        json.dumps(
+            {
+                "task_fingerprint": "task-a",
+                "guard_session_id": "session-a",
+                "collision_scene_policy_fingerprint": "policy-a",
+            }
+        ),
+    )
+
+    identity = bridge_module.current_task_guard_identity()
+
+    assert dict(identity) == {
+        "task_fingerprint": "task-a",
+        "guard_session_id": "session-a",
+        "collision_scene_policy_fingerprint": "policy-a",
+    }
+    monkeypatch.setattr(bridge_module, "_last_task_config_json", "")
+    assert bridge_module.current_task_guard_identity() is None
+
+
 def test_ready_status_requires_simulation_mode_and_one_joint_source():
     ready = parse_simulation_status(status_payload())
     assert ready.state == RuntimeState.READY
@@ -272,7 +296,18 @@ def test_task_guard_status_preserves_bounded_housing_contact_warning_and_rejects
 
 
 def test_full_chain_validation_retains_bounded_guide_warning_records(monkeypatch):
-    def accept(_positions, *, task_fingerprint, phase, sequence, validate_only):
+    request_ids = []
+
+    def accept(
+        _positions,
+        *,
+        task_fingerprint,
+        phase,
+        sequence,
+        validate_only,
+        request_id="",
+    ):
+        request_ids.append(request_id)
         bridge_module._last_task_status = SimpleNamespace(
             guide_clearance_warning=True,
             guide_clearance_warning_sample_count=1,
@@ -288,11 +323,13 @@ def test_full_chain_validation_retains_bounded_guide_warning_records(monkeypatch
         ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},),
         ("drilling",),
         task_fingerprint="task",
+        request_id_prefix="stage-check",
     )
     warnings = bridge_module.last_task_phase_validation_warnings()
     assert ok and invalid == -1 and "warning" in message
     assert warnings[0]["minimum_guide_clearance_warning_m"] == 0.0008
     assert warnings[0]["guide_clearance_warning_robot_link"] == "pneumatic_spindle-Copy"
+    assert request_ids == ["stage-check:0"]
 
 
 def test_moveit_frame_contract_constants():

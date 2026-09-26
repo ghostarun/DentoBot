@@ -6546,3 +6546,26 @@ After Tarun closed Slicer, a serialized simulation-only probe completed Connect 
 Tarun later stated he cannot launch Slicer manually and approved a revised headless check. A Connect-only heartbeat probe passed with 31 objects in 39.637 seconds and a 5.395-second maximum Qt gap. The longer watchdog gap after its pass marker belonged to synchronous disconnect obstacle removals; package-load gaps were earlier. The native process still exited 1 after adapter shutdown. Treat the Connect functional path as headless verified while keeping disconnect, load, shutdown, and desktop responsiveness open under `S6-P2-03`.
 
 On Tarun's immediate `S6-P2-03` continuation, keep disconnect object removal synchronous but report each completed removal through the shared progress callback and both UI routes. A headless run showed 31/31 removals and a successful disconnect. The remaining 8.293-second UI gap is in pinned SlicerROS2 native `RemoveRobot`; splitting that MRML/ROS call onto a Python thread is not authorized or safe. Leave native teardown, intermittent load crash and shutdown exit as measured open work; progress does not constitute full responsiveness acceptance.
+
+## 2026-09-26 — Attribute stage guard evidence to its exact request
+
+The Step 6 stage diagnostic may use the bridge's latest transient guard status
+only when it matches the current task fingerprint, active guard session,
+collision-policy fingerprint, per-waypoint request ID, phase, sequence,
+validate-only transition kind and exact requested joint vector. A missing or
+mismatched field yields `unknown`; an empty pair list or stale response is not
+a pass. This prevents a prior jog/guard response from being attributed to a
+new P1/P2/P3 stage. Stage paths remain diagnostic-only and cannot authorize
+preview. Focused pure tests cover wrong session and wrong requested vector;
+runtime/native acceptance remains separate.
+
+## 2026-09-26 — Defer Step 6 case-based runtime testing until a current save
+
+The guarded manual-jog headless runner attempted the September 22 FDI31
+`.dentocase` and stopped at package-lineage validation before any jog. Tarun
+directed that this older package not bias current renovation design. Preserve
+the result as older-case compatibility evidence and keep the lineage gate.
+Continue bounded source and pure checks; defer further case-based Slicer/ROS
+tests until substantial development progress and a newly saved case reflects
+the changed workflow. A heavier user testing session may follow. Runtime,
+screenshots and user verdict remain pending.

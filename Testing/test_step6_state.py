@@ -838,6 +838,90 @@ def _motion_diagnostic(*, schema_version, stage_name):
     )
 
 
+@pytest.mark.parametrize(
+    "confirmed_task, expected",
+    [
+        (SimpleNamespace(snapshot_fingerprint="task-b"), "different confirmed task"),
+        (SimpleNamespace(snapshot_fingerprint="task-a"), None),
+        (None, "no valid confirmed task snapshot"),
+        (ValueError("invalid confirmed task"), "no valid confirmed task snapshot"),
+    ],
+)
+def test_motion_diagnostic_freshness_checks_confirmed_task_fingerprint(
+    confirmed_task, expected
+):
+    source_path = ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "motionDiagnosticFreshnessIssues"
+    )
+    namespace = {
+        "_": lambda value: value,
+        "json": json,
+        "MOTION_DIAGNOSTIC_SCHEMA_VERSION": "2.2",
+        "SPINDLE_PLANNING_POLICY": SPINDLE_PLANNING_POLICY,
+        "SPINDLE_LOCKED_VALUE_RAD": 0.0,
+    }
+    exec(compile(ast.Module([method], type_ignores=[]), str(source_path), "exec"), namespace)
+    record = build_motion_diagnostic_session(
+        state="Current",
+        task_fingerprint="task-a",
+        base_fingerprint="base-a",
+        trajectory_fingerprint="trajectory-a",
+        robot_profile_fingerprint="robot-a",
+        collision_audit_fingerprint="collision-a",
+        planning_parameters_fingerprint="planner-a",
+        candidate_records=(_motion_candidate(),),
+        selected_candidate_index=0,
+        failure_classification="none",
+        schema_version="2.2",
+        stage_outcomes=(),
+        full_task_outcome={
+            "status": "Complete",
+            "spindle_planning_policy": SPINDLE_PLANNING_POLICY,
+            "spindle_locked_value_rad": 0.0,
+        },
+    )
+
+    class Probe:
+        @staticmethod
+        def motionDiagnosticRecord(_parameter):
+            return record
+
+        @staticmethod
+        def confirmedTaskRecord(_parameter):
+            if isinstance(confirmed_task, Exception):
+                raise confirmed_task
+            return confirmed_task
+
+        @staticmethod
+        def robotBaseFingerprint(_parameter):
+            return "base-a"
+
+        @staticmethod
+        def step6TrajectoryRevision(_parameter):
+            return "trajectory-a"
+
+        @staticmethod
+        def robotProfileFingerprint():
+            return "robot-a"
+
+        @staticmethod
+        def collisionSceneAuditRecord(_parameter):
+            return SimpleNamespace(audit_fingerprint="collision-a")
+
+    issues = namespace["motionDiagnosticFreshnessIssues"](
+        Probe(), SimpleNamespace()
+    )
+    if expected is None:
+        assert not any("different confirmed task" in issue for issue in issues)
+    else:
+        assert any(expected in issue for issue in issues)
+
+
 def test_motion_diagnostic_v21_names_fixed_axis_terminal_stage():
     record = _motion_diagnostic(
         schema_version="2.1",
@@ -856,6 +940,65 @@ def test_motion_diagnostic_v22_keeps_old_reports_readable():
     assert parse_motion_diagnostic_session(current.to_dict()) == current
     assert parse_motion_diagnostic_session(previous.to_dict()) == previous
     assert current.schema_version != previous.schema_version
+
+
+def test_motion_diagnostic_v22_round_trips_nested_p1_p2_p3_endpoint_evidence():
+    stages = (
+        {
+            "stage": "stage1_free_space",
+            "status": "Passed",
+            "endpoint": {
+                "requested_joints_si": joints(0.1),
+                "evaluated_joints_si": joints(0.2),
+                "position_residual_mm": 0.11,
+                "axis_residual_deg": 0.12,
+            },
+        },
+        {
+            "stage": "stage2_fixed_axis_terminal",
+            "status": "Passed",
+            "endpoint": {
+                "requested_joints_si": joints(1.1),
+                "evaluated_joints_si": joints(1.2),
+                "position_residual_mm": 0.21,
+                "axis_residual_deg": 0.22,
+            },
+        },
+        {
+            "stage": "stage3_drilling",
+            "status": "Passed",
+            "endpoint": {
+                "requested_joints_si": joints(2.1),
+                "evaluated_joints_si": joints(2.2),
+                "position_residual_mm": 0.31,
+                "axis_residual_deg": 0.32,
+            },
+        },
+    )
+    record = build_motion_diagnostic_session(
+        state="Current",
+        task_fingerprint="task-a",
+        base_fingerprint="base-a",
+        trajectory_fingerprint="trajectory-a",
+        robot_profile_fingerprint="robot-a",
+        collision_audit_fingerprint="collision-a",
+        planning_parameters_fingerprint="planner-a",
+        candidate_records=(_motion_candidate(),),
+        selected_candidate_index=0,
+        failure_classification="none",
+        schema_version="2.2",
+        stage_outcomes=stages,
+        full_task_outcome={"status": "Complete"},
+    )
+
+    restored = parse_motion_diagnostic_session(record.to_dict())
+    assert restored.stage_outcomes == stages
+    assert restored.stage_outcomes[1]["endpoint"]["position_residual_mm"] == 0.21
+
+    damaged = json.loads(canonical_json(record.to_dict()))
+    damaged["stage_outcomes"][1]["endpoint"]["position_residual_mm"] = 9.99
+    with pytest.raises(ValueError, match="fingerprint"):
+        parse_motion_diagnostic_session(damaged)
 
 
 def test_motion_diagnostic_retains_exact_error_dialog_text():

@@ -148,6 +148,42 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
     def _confirmStep6SceneSwitch(self, target: str) -> bool:
         return target == "case"
 
+    def _step6BasePoseEvidence(self) -> str:
+        if not self._parameterNode or not self.logic:
+            return _("Candidate Base pose is unavailable.")
+        base = self._parameterNode.robotBaseTransform
+        if not self.logic.isRobotBaseTransformNode(base):
+            return _("Candidate Base transform is unavailable.")
+        try:
+            matrix = vtk.vtkMatrix4x4()
+            base.GetMatrixTransformToWorld(matrix)
+            values = tuple(
+                float(matrix.GetElement(row, column))
+                for row in range(3)
+                for column in range(4)
+            )
+            if not all(math.isfinite(value) for value in values):
+                return _("Candidate Base pose contains non-finite matrix values.")
+            x, y, z = values[3], values[7], values[11]
+            rotation = tuple(
+                tuple(values[row * 4 + column] for column in range(3))
+                for row in range(3)
+            )
+            rotation_text = "; ".join(
+                "(" + ", ".join(f"{value:.5f}" for value in row) + ")"
+                for row in rotation
+            )
+            fingerprint = str(self.logic.robotBasePoseFingerprint(base) or "unavailable")
+            return (
+                "Candidate Base pose — world RAS origin "
+                f"({x:.3f}, {y:.3f}, {z:.3f}) mm; rotation rows "
+                f"{rotation_text}; pose fingerprint {fingerprint[:12]}."
+            )
+        except (AttributeError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
+            return _("Candidate Base pose evidence is unavailable: %1").replace(
+                "%1", str(exc)
+            )
+
     def _updateStep6PlanningUi(self, message: str = "", error: bool = False) -> None:
         if not hasattr(self, "ui") or not self._parameterNode:
             return
@@ -243,20 +279,20 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         base_state = str(self._parameterNode.step6BasePlacementStatus or "Unlocked")
         base_source = str(self._parameterNode.step6BasePlacementSource or "")
-        if locked:
-            mount_status = _(
-                "Manual Simulation Base: %1 (diagnostic placement only; no "
-                "forehead/registration truth)."
-            ).replace(
-                "%1", base_state
-            )
-        elif base_state == BasePlacementStatus.STALE.value:
+        base_pose_evidence = self._step6BasePoseEvidence()
+        if base_state == BasePlacementStatus.STALE.value:
             mount_status = (
                 _(
-                    "Base placement is Stale (%1). Reposition it directly in "
-                    "Robot + CBCT context, then review and lock it again."
+                    "Base candidate is Stale (%1). Reposition and review it in "
+                    "Robot + CBCT context before Accept Base. %2"
                 ).replace("%1", base_source or "unreviewed source")
+                .replace("%2", base_pose_evidence)
             )
+        elif locked:
+            mount_status = _(
+                "Accepted Manual Simulation Base — %1. Diagnostic placement only; "
+                "no forehead or registration truth. %2"
+            ).replace("%1", base_state).replace("%2", base_pose_evidence)
         elif not scene_active:
             mount_status = _("Choose a scene before loading the robot.")
         elif not scene_prepared:
@@ -265,9 +301,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
             mount_status = _(
-                "Manual Simulation Base is unlocked; position it directly in "
-                "Robot + CBCT context."
-            )
+                "Review candidate Base in Robot + CBCT context, then choose "
+                "Accept Base. It remains unaccepted until that action succeeds. %1"
+            ).replace("%1", base_pose_evidence)
 
         if message and "motion plan" in message.lower():
             plan_status = message
@@ -291,7 +327,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         )
         self.ui.step6MountLockStatusLabel.text = mount_status
         self.ui.step6MountLockStatusLabel.styleSheet = (
-            style_ok if locked else style_warn
+            style_ok
+            if locked and base_state != BasePlacementStatus.STALE.value
+            else style_warn
         )
         self.ui.step6TrajectoryPlanningStatusLabel.text = plan_status
         self.ui.step6TrajectoryPlanningStatusLabel.styleSheet = (
@@ -404,6 +442,27 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         panel = self._robotSimulationPanel
         if panel is not None:
+            try:
+                urdf_path, _package_root = self.logic.robotDescriptionPaths()
+                mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
+                reviewed_limits = build_task_joint_limits_from_parameter_values(
+                    j1_min=self._parameterNode.robotJoint1TaskMinDeg,
+                    j1_max=self._parameterNode.robotJoint1TaskMaxDeg,
+                    j2_min=self._parameterNode.robotJoint2TaskMinMm,
+                    j2_max=self._parameterNode.robotJoint2TaskMaxMm,
+                    j3_min=self._parameterNode.robotJoint3TaskMinDeg,
+                    j3_max=self._parameterNode.robotJoint3TaskMaxDeg,
+                    j4_min=self._parameterNode.robotJoint4TaskMinMm,
+                    j4_max=self._parameterNode.robotJoint4TaskMaxMm,
+                    j5_min=self._parameterNode.robotJoint5TaskMinDeg,
+                    j5_max=self._parameterNode.robotJoint5TaskMaxDeg,
+                    j6_min=self._parameterNode.robotJoint6TaskMinDeg,
+                    j6_max=self._parameterNode.robotJoint6TaskMaxDeg,
+                )
+                panel.setManualJogLimits(mechanical_limits, reviewed_limits)
+                panel.setManualJogAcceptedState(self._robotJointPositionsSi())
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                panel.setManualJogLimitsUnavailable(str(exc))
             panel.loadFallbackButton.enabled = bool(
                 scene_prepared and (not locked or robot_recovery_allowed)
             )
@@ -521,6 +580,20 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.returnHomeRequired
             )
+            panel.setManualJogAvailability(
+                draft_available=bool(ros2_active and local_robot_present),
+                jog_available=bool(
+                    planning_anatomy_ready
+                    and task_ready
+                    and ros2_active
+                    and home_runtime_validated
+                    and facade_capabilities
+                    and facade_capabilities.planning_scene_synchronized
+                    and not preview_active
+                    and not away_from_home
+                    and not getattr(self, "_workflowActionBusy", False)
+                ),
+            )
             panel.planApproachButton.enabled = bool(
                 planning_anatomy_ready
                 and task_ready
@@ -540,6 +613,23 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
+            stage_diagnostic_enabled = bool(
+                planning_anatomy_ready
+                and task_ready
+                and ros2_active
+                and home_runtime_validated
+                and facade_capabilities
+                and facade_capabilities.planning_scene_synchronized
+                and not preview_active
+                and not away_from_home
+                and not getattr(self, "_plannerComparisonState", None)
+            )
+            for button in (
+                panel.checkPlanningP1Button,
+                panel.checkPlanningP2Button,
+                panel.checkPlanningP3Button,
+            ):
+                button.enabled = stage_diagnostic_enabled
             panel.comparePlannersButton.enabled = panel.planApproachButton.enabled
             override_active = bool(
                 self._robotWorkflowFacade
