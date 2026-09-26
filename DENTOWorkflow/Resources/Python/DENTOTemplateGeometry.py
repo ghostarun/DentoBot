@@ -1526,6 +1526,7 @@ def regularize_patient_contact_shell(
     shell_thickness_mm: float | None = None,
     boundary_bridge_world: vtk.vtkPolyData | None = None,
     terminal_clip_planes_ras: list[dict] | None = None,
+    progress=None,
 ) -> tuple[vtk.vtkPolyData, dict]:
     """Voxel-union a Hollow candidate and enforce anatomy fit clearance.
 
@@ -1684,7 +1685,11 @@ def regularize_patient_contact_shell(
             f"to stay below {MAX_SAMPLE_POINTS:,}."
         )
 
-    def sample_distances(poly_data: vtk.vtkPolyData):
+    total_distance_fields = 2 + int(boundary_bridge is not None)
+    completed_distance_fields = 0
+
+    def sample_distances(poly_data: vtk.vtkPolyData, label: str):
+        nonlocal completed_distance_fields
         implicit = vtk.vtkImplicitPolyDataDistance()
         implicit.SetInput(poly_data)
         sample = vtk.vtkSampleFunction()
@@ -1693,24 +1698,39 @@ def regularize_patient_contact_shell(
         sample.SetSampleDimensions(*dimensions)
         sample.ComputeNormalsOff()
         sample.Update()
+        completed_distance_fields += 1
+        if progress is not None:
+            progress(
+                f"Patient-shell distance field: {label}",
+                completed_distance_fields,
+                total_distance_fields,
+            )
         return sample.GetOutput()
 
-    candidate_image = sample_distances(candidate)
-    anatomy_image = sample_distances(anatomy)
-    candidate_distances = vtk_to_numpy(
-        candidate_image.GetPointData().GetScalars()
-    ).reshape(dimensions[2], dimensions[1], dimensions[0])
-    anatomy_distances = vtk_to_numpy(
-        anatomy_image.GetPointData().GetScalars()
-    ).reshape(dimensions[2], dimensions[1], dimensions[0])
-    actual_spacing = tuple(float(value) for value in candidate_image.GetSpacing())
-    clearance_guard = max(0.0, clearance - max(actual_spacing) * 1.25)
-    repair_band_limit = None
     if use_fitting_surface_fallback:
-        fitting_image = sample_distances(fitting_surface)
+        anatomy_image = sample_distances(anatomy, "anatomy clearance")
+        grid_image = anatomy_image
+        anatomy_distances = vtk_to_numpy(
+            anatomy_image.GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        fitting_image = sample_distances(fitting_surface, "fitting surface")
         fitting_distances = vtk_to_numpy(
             fitting_image.GetPointData().GetScalars()
         ).reshape(dimensions[2], dimensions[1], dimensions[0])
+    else:
+        candidate_image = sample_distances(candidate, "hollow candidate")
+        anatomy_image = sample_distances(anatomy, "anatomy clearance")
+        grid_image = candidate_image
+        candidate_distances = vtk_to_numpy(
+            candidate_image.GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+        anatomy_distances = vtk_to_numpy(
+            anatomy_image.GetPointData().GetScalars()
+        ).reshape(dimensions[2], dimensions[1], dimensions[0])
+    actual_spacing = tuple(float(value) for value in grid_image.GetSpacing())
+    clearance_guard = max(0.0, clearance - max(actual_spacing) * 1.25)
+    repair_band_limit = None
+    if use_fitting_surface_fallback:
         half_voxel_diagonal = 0.5 * math.sqrt(
             sum(value * value for value in actual_spacing)
         )
@@ -1724,7 +1744,10 @@ def regularize_patient_contact_shell(
     else:
         shell_mask = candidate_distances <= 0.0
     if boundary_bridge is not None:
-        bridge_image = sample_distances(boundary_bridge)
+        bridge_image = sample_distances(
+            boundary_bridge,
+            "support-boundary bridge",
+        )
         bridge_distances = vtk_to_numpy(
             bridge_image.GetPointData().GetScalars()
         ).reshape(dimensions[2], dimensions[1], dimensions[0])
@@ -1734,7 +1757,7 @@ def regularize_patient_contact_shell(
     def apply_terminal_clip_planes(mask: np.ndarray) -> np.ndarray:
         if not terminal_clip_planes:
             return mask
-        grid_origin = candidate_image.GetOrigin()
+        grid_origin = grid_image.GetOrigin()
         x_coordinates = (
             float(grid_origin[0])
             + np.arange(dimensions[0], dtype=float) * actual_spacing[0]
@@ -1769,7 +1792,7 @@ def regularize_patient_contact_shell(
         )
         closing_kernel_size = 2 * closing_radius_voxels + 1
         closing_image = vtk.vtkImageData()
-        closing_image.DeepCopy(candidate_image)
+        closing_image.DeepCopy(grid_image)
         closing_scalars = numpy_to_vtk(
             np.ascontiguousarray(shell_mask.astype(np.uint8).ravel()),
             deep=True,
@@ -1827,7 +1850,7 @@ def regularize_patient_contact_shell(
         )
 
     binary_image = vtk.vtkImageData()
-    binary_image.DeepCopy(candidate_image)
+    binary_image.DeepCopy(grid_image)
     scalars = numpy_to_vtk(
         np.ascontiguousarray(shell_mask.astype(np.uint8).ravel()),
         deep=True,

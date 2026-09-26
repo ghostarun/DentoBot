@@ -2485,8 +2485,8 @@ class DENTOWorkflowTestMixin:
             widget._createOrUpdateTemplateUndercuts = lambda: generated.append(
                 "blockout"
             )
-            widget._createOrUpdatePatientContactShell = lambda: generated.append(
-                "shell"
+            widget._createOrUpdatePatientContactShell = (
+                lambda progress=None: generated.append("shell")
             )
             widget._createOrUpdateFinalPrintableTemplate = lambda **kwargs: generated.append(
                 "final"

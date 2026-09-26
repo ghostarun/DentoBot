@@ -1537,7 +1537,7 @@ class TemplateBuildWidgetMixin:
                 reusedStages.append(_("patient shell"))
             else:
                 progress.update("Building patient shell", 1, 3)
-                self._createOrUpdatePatientContactShell()
+                self._createOrUpdatePatientContactShell(progress=progress.update)
                 progress.update("Patient shell complete", 2, 3)
                 generatedStages.append(_("patient shell"))
 

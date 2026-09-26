@@ -45,3 +45,36 @@ def test_terminal_coverage_closes_collar_before_final_clipping(angle):
         assert result["surfaceRegionCount"] == expected_regions
         assert result["boundaryOrNonManifoldEdgeCount"] == 0
         assert shell.GetNumberOfCells() > 0
+
+
+def test_patient_shell_fallback_progress_skips_hollow_candidate():
+    candidate = vtk.vtkPlaneSource()
+    candidate.SetOrigin(-3, -3, 0)
+    candidate.SetPoint1(3, -3, 0)
+    candidate.SetPoint2(-3, 3, 0)
+    candidate.Update()
+
+    anatomy_source = vtk.vtkCubeSource()
+    anatomy_source.SetBounds(-1, 1, -1, 1, 2, 2.5)
+    anatomy_source.Update()
+
+    progress = []
+    shell, metrics = regularize_patient_contact_shell(
+        candidate.GetOutput(),
+        anatomy_source.GetOutput(),
+        fit_clearance_mm=0.0,
+        sampling_spacing_mm=0.5,
+        fitting_surface_world=candidate.GetOutput(),
+        shell_thickness_mm=1.0,
+        progress=lambda phase, done, total: progress.append(
+            (phase, done, total)
+        ),
+    )
+
+    assert shell.GetNumberOfCells() > 0
+    assert metrics["surfaceRegionCount"] == 1
+    assert metrics["boundaryOrNonManifoldEdgeCount"] == 0
+    assert progress == [
+        ("Patient-shell distance field: anatomy clearance", 1, 2),
+        ("Patient-shell distance field: fitting surface", 2, 2),
+    ]

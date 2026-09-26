@@ -6702,3 +6702,18 @@ As Tarun directed, proceed to representative saved-case compatibility and
 measured same-case 5.10/5.12 performance, but retain 5.10 as lab default and
 do not promote 5.12 until remaining lifecycle/correctness gates pass. No full
 Slicer rebuild, geometry/policy, planner or hardware change is implied.
+
+### 2026-09-26 — Step 5B fallback sampling and progress
+
+The same-case profile locates the Step 5B shell stall in four VTK distance
+fields, including a hollow-candidate field whose values are discarded when
+Dynamic Modeler returned an open candidate and the validated fitting-surface
+fallback is used. Skip only that unused field, reuse the anatomy sample image
+for the unchanged output grid, and call the existing progress/cancel updater
+after each complete distance field. Give the standalone patient-shell action
+the same progress lifecycle as the combined builder. Preserve the serial VTK
+calculation, fitting-surface geometry, clearances and all shell policy; do not
+introduce a worker thread, parameter change, fake percentage or ETA. The pure
+VTK regression and syntax checks pass. Require one explicitly approved
+post-fix Slicer verification before recording runtime acceptance; keep the
+accepted 5.10 image as lab default and the 5.12 candidate isolated.

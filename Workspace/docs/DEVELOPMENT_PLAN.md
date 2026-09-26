@@ -1362,6 +1362,14 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   byte-equivalent aligned-labelmap path reduced headless load to 13.49 seconds
   with a 3.82-second maximum Qt gap; normal-window and Step 4A verdicts remain
   open before this broader responsiveness contract can close.
+  A 2026-09-26 same-case Step 5B profile located a 5.8-second UI-thread pause
+  in four VTK distance-field samples. The fitting-surface fallback was
+  sampling a hollow-candidate field it did not use. The bounded source fix
+  removes that sample and reports progress after each completed field; its
+  focused synthetic VTK test passes. The post-fix Slicer runtime and GPU-host
+  acceptance remain pending. Same-case 5.10/5.12 timings used llvmpipe and had
+  markedly unequal 5.10 CPU throttling, so they remain diagnostic observations
+  rather than a version-performance verdict.
 
 ## Immediate Step 4A P0 correction — displayed pulp contact and smooth masks
 

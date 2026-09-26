@@ -819,6 +819,7 @@ class PatientShellLogicMixin:
         blockoutSafetyMm: float = 0.0,
         voxelClosingMm: float = 0.0,
         shellModel: vtkMRMLModelNode | None = None,
+        progress=None,
     ) -> tuple[vtkMRMLModelNode, dict]:
         """Create a visible-support shell with Dynamic Modeler and voxel fit Boolean."""
 
@@ -1007,6 +1008,7 @@ class PatientShellLogicMixin:
                 terminal_clip_planes_ras=(
                     inputs["visibleSummary"]["terminalClipPlanesRas"]
                 ),
+                progress=progress,
             )
             metrics["boundaryBridge"] = bridgeMetrics
             warnings = []

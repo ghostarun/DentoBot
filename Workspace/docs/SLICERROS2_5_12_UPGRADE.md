@@ -421,6 +421,34 @@ Correctness parity and no material workflow regression are mandatory. A speed
 claim requires repeatable measured improvement; release-note relevance alone is
 not performance evidence.
 
+#### 2026-09-26 same-case diagnostic sample
+
+Four headless runs used the same de-identified representative-case bytes,
+DentoBot source revision, 8 GiB/4 CPU container limit, Xvfb and Mesa llvmpipe:
+two runs per image, alternated 5.10, 5.12, 5.12, 5.10. Median case-load time
+was 18.31 s on 5.10 and 16.22 s on 5.12; Step 5B was 67.79 s and 52.48 s;
+Step 4C was 41.28 s and 33.02 s. The median of each image's longest sampled
+Qt gap was 9.03 s and 7.62 s respectively. Every run reported 48 Step 5B and
+35 Step 4C progress events and completed both actions. The probe returned exit
+1 only because its existing assertion requires the maximum gap to be below
+7 s; this was not a template or dock-generation failure.
+
+This is not a version-performance verdict: 5.10 accumulated about 503–520
+seconds of cgroup CPU throttling versus about 1.3–1.9 seconds on 5.12, so
+scheduling differed materially. Process RSS peaked around 2.5 GiB on 5.10 and
+2.6–2.8 GiB on 5.12. The resource watchdog reported no OOM or abnormal alert.
+Xvfb/llvmpipe cannot establish presented FPS, GPU performance or the 60-FPS
+requirement.
+
+A separate same-case 5.10 `cProfile` sample attributed 6.016 of 6.639 seconds
+to `regularize_patient_contact_shell`; 34 VTK `Update()` calls took 5.836 s,
+with four distance-field samples taking 5.708 s. In the open-candidate fitting
+fallback, the hollow-candidate field was sampled and then unused. The bounded
+source correction skips that field, reuses the anatomy sample image for grid
+metadata, and calls the existing progress callback after each completed field.
+It preserves geometry parameters and policy. The focused host VTK suite passes
+(3 tests); post-fix Slicer verification is still required.
+
 ### Phase 5 — promote or roll back
 
 After operator acceptance, publish a new immutable DentoBot runtime image

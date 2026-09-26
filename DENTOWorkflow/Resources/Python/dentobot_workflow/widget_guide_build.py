@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .workflow_progress import WorkflowCancelled, WorkflowProgress
 
 
 from dentobot_workflow.widget_template_build import TemplateBuildWidgetMixin
@@ -42,7 +43,7 @@ class GuideBuildWidgetMixin(TemplateFinalizationWidgetMixin, TemplateBuildWidget
 
 
 
-    def _createOrUpdatePatientContactShell(self):
+    def _createOrUpdatePatientContactShell(self, progress=None):
         if not self._parameterNode or not self.logic:
             raise RuntimeError(_("DENTOWorkflow is not ready."))
         shellModel, details = self.logic.createOrUpdatePatientContactShell(
@@ -56,6 +57,7 @@ class GuideBuildWidgetMixin(TemplateFinalizationWidgetMixin, TemplateBuildWidget
             blockoutSafetyMm=self._parameterNode.templateBlockoutSafetyMm,
             voxelClosingMm=self._parameterNode.templateShellVoxelClosingMm,
             shellModel=self._parameterNode.patientContactShellModel,
+            progress=progress,
         )
         self._parameterNode.patientContactShellModel = shellModel
         self.logic.markFinalPrintableTemplateStale(
@@ -77,12 +79,24 @@ class GuideBuildWidgetMixin(TemplateFinalizationWidgetMixin, TemplateBuildWidget
 
         if not self._parameterNode or not self.logic:
             return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
         try:
-            self._createOrUpdatePatientContactShell()
+            progress = WorkflowProgress("Step 5B patient shell")
+            self._createOrUpdatePatientContactShell(progress=progress.update)
+        except WorkflowCancelled as exc:
+            self.ui.patientContactShellStatusLabel.text = str(exc)
+            self.ui.patientContactShellStatusLabel.styleSheet = "color: #b36b00;"
         except (RuntimeError, ValueError) as exc:
             self.ui.patientContactShellStatusLabel.text = str(exc)
             self.ui.patientContactShellStatusLabel.styleSheet = "color: #b00020;"
             slicer.util.errorDisplay(str(exc))
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
 
     def onDeletePatientContactShell(self) -> None:
         if not self._parameterNode or not self.logic:
@@ -244,8 +258,6 @@ class GuideBuildWidgetMixin(TemplateFinalizationWidgetMixin, TemplateBuildWidget
             self._updateTemplateFinalization()
         except (RuntimeError, ValueError) as exc:
             slicer.util.errorDisplay(str(exc))
-
-
 
 
 
