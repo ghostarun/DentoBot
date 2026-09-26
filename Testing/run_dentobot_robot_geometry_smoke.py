@@ -29,6 +29,7 @@ EXPECTED_MODELS = {
 }
 PLANNING_GROUP = "dentobot_arm"
 PROBE_NAME = "DENTOBOT_GEOMETRY_PROBE"
+EXPECTED_PROBE_LINK = "link-1"
 
 
 def process_events(seconds: float) -> None:
@@ -97,7 +98,7 @@ def check_visual_models(robot):
 
 def collision_pairs(robot):
     pairs = []
-    for pair in robot.GetMoveItCollidingBodyPairs(PLANNING_GROUP, [0.0] * 5):
+    for pair in robot.GetMoveItWholeRobotCollidingBodyPairs(PLANNING_GROUP, [0.0] * 5):
         fields = str(pair).split("\t", 1)
         if len(fields) == 2:
             pairs.append(fields)
@@ -105,15 +106,14 @@ def collision_pairs(robot):
 
 
 def wait_for_probe_contact(robot, timeout=4.0):
-    links = set(EXPECTED_MODELS.values())
     deadline = time.monotonic() + timeout
     last_pairs = []
     while time.monotonic() < deadline:
         last_pairs = collision_pairs(robot)
         for first, second in last_pairs:
-            if first == PROBE_NAME and second in links:
+            if first == PROBE_NAME and second == EXPECTED_PROBE_LINK:
                 return [first, second]
-            if second == PROBE_NAME and first in links:
+            if second == PROBE_NAME and first == EXPECTED_PROBE_LINK:
                 return [second, first]
         process_events(0.1)
     raise RuntimeError(f"No MoveIt probe-to-link collision; pairs={last_pairs}.")
@@ -177,7 +177,8 @@ def run():
         if slicer.mrmlScene.GetFirstNodeByName(PROBE_NAME) is not None:
             raise RuntimeError(f"Unexpected pre-existing model {PROBE_NAME}.")
         cube = vtk.vtkCubeSource()
-        cube.SetBounds(-1000.0, 1000.0, -1000.0, 1000.0, -1000.0, 1000.0)
+        # This 4 mm probe crosses link-1 facet 614 at (-45, 0, 0) mm in base_link.
+        cube.SetBounds(-47.0, -43.0, -2.0, 2.0, -2.0, 2.0)
         cube.Update()
         probe = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", PROBE_NAME)
         probe.SetAndObservePolyData(cube.GetOutput())
@@ -185,6 +186,11 @@ def run():
             raise RuntimeError("Could not publish the temporary MoveIt geometry probe.")
         process_events(1.1)
         additions_drained = True
+        geometry = set(robot.GetMoveItSceneGeometryDiagnostic(PROBE_NAME))
+        expected_geometry = {"probe_present=true", "probe_shapes=1"}
+        expected_geometry.update(f"link={link}:shapes=1" for link in EXPECTED_MODELS.values())
+        if not expected_geometry.issubset(geometry):
+            raise RuntimeError(f"MoveIt collision geometry is incomplete: {sorted(geometry)}")
         contact = wait_for_probe_contact(robot)
         report = {
             "slicer_visual_models": models,
