@@ -324,15 +324,31 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     open_start = source.index("    def _openCaseBundle")
     open_end = source.index("\n    def onOpenCaseBundle", open_start)
     open_case = source[open_start:open_end]
-    assert open_case.index(
-        "self.setParameterNode(self.logic.getParameterNode())"
-    ) < open_case.index("self._endCaseBundleRestore(restoreGeneration)") < open_case.index(
-        "self.logic.hydrateDentoCaseStateAfterLoad("
+    outer_begin = open_case.index(
+        "restoreGeneration = self._beginCaseBundleRestore()"
     )
-    assert "self._updateFromParameterNodeOnce()" in open_case
-    assert open_case.index("self.logic.hydrateDentoCaseStateAfterLoad(") < open_case.index(
-        "self._validateHydratedCaseBundle(inspection.workflow)"
+    hydrate = open_case.index("self.logic.hydrateDentoCaseStateAfterLoad(")
+    bind = open_case.rfind("self.setParameterNode(", 0, hydrate)
+    pre_hydration_pump = open_case.index("slicer.app.processEvents()", bind)
+    post_hydration_pump = open_case.index("slicer.app.processEvents()", hydrate)
+    audit = open_case.index("self._validateHydratedCaseBundle(inspection.workflow)")
+    hydration_error = open_case.index(
+        "\n                except Exception as hydrationError", audit
     )
+    outer_finally = open_case.index("\n        finally:\n", outer_begin)
+    outer_end = open_case.index(
+        "self._endCaseBundleRestore(restoreGeneration)", outer_finally
+    )
+    assert outer_begin < bind < pre_hydration_pump < hydrate
+    assert hydrate < post_hydration_pump < audit < outer_finally < outer_end
+    assert open_case.count("self._endCaseBundleRestore(restoreGeneration)") == 1
+    assert outer_begin < pre_hydration_pump < outer_finally
+    assert outer_begin < post_hydration_pump < outer_finally
+
+    success_flow = open_case[bind:hydration_error]
+    assert "self._beginCaseBundleRestore(" not in success_flow
+    assert "self._endCaseBundleRestore(" not in success_flow
+    assert "self._updateFromParameterNodeOnce()" in success_flow
     assert open_case.index("self._validateHydratedCaseBundle(inspection.workflow)") < open_case.index(
         "self._revalidateImportedStep6ContextAfterLoad()"
     )

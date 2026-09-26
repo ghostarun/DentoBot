@@ -1281,6 +1281,17 @@ queued callback sequence is still an inference; require Tarun's normal-window
 verdict and representative saved-case lifecycle evidence before closing this
 item. The 5.12 upgrade is indefinitely deferred.
 
+**Representative lifecycle continuation:** Two 5.10 FDI21/31 case opens
+completed but stopped at a combined post-import assertion. Source trace found
+that a nested hydration generation caused the outer restore token to be
+rejected, leaving depth 1. A single transaction token now spans import,
+event processing, hydration, audit and recovery; 13 pure case-bundle tests
+pass. The third bounded 5.10 run loaded, cleared, and reopened the immutable
+case with matching stage and segment counts, process exit 0 and no traceback.
+This accepts no-ROS representative lifecycle only; normal-window operator
+review and any connected lifecycle remain separate. Its two 8-second load UI
+gaps remain under `S6-P2-03` responsiveness evidence.
+
 The former reconnect/`mrmlScene.Clear(0)` abort no longer reproduces: warm New
 Case, module reload, reconnect, and save/reopen reach the functional lifecycle
 PASS marker. This item therefore no longer blocks Priority-0 workflow work.

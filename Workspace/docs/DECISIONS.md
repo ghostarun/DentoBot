@@ -6799,3 +6799,23 @@ source `9632cc7`, preserved the case archive, emitted `RUN_COMPLETE`, exited 0,
 and logged no PythonQt traceback. Accept this focused teardown regression only.
 The report was dismissed by the harness, so it supplies no operator visual
 verdict and does not close representative saved-case lifecycle acceptance.
+
+Tarun then authorized both adjacent checks. Keep their incomplete outcomes
+separate: a two-target pulp-candidate run measured 31.632 s for FDI11/FDI21
+creation, but its temporary tag assertion failed before full integrity checks;
+the corrected attempt exited abnormally during MRB import before the action.
+Two FDI21/31 case opens completed, but custom lifecycle harnesses stopped at
+the same combined widget-binding assertion before clear/reopen. No archive
+changed and resource samples showed no OOM or CPU throttling. Do not infer a
+candidate-creation crash or a saved-case restore defect from these harness
+boundaries. Stop automated repeats here, inspect import and binding evidence
+read-only, and require a revised discriminating check before further runtime.
+
+The lifecycle branch then gained a deterministic source explanation: the
+nested hydration generation made the outer restore end obsolete, leaving the
+barrier at depth 1. Use one outer token for the complete load/rollback
+transaction. Its focused pure suite passed 13 tests; the third bounded 5.10
+run loaded, cleared and reopened the immutable FDI21/31 case, exited 0 and
+logged no traceback. Accept this no-ROS representative lifecycle gate, not a
+connected ROS/MoveIt or operator visual verdict. Two roughly 8-second UI gaps
+during load remain a separate `S6-P2-03` responsiveness observation.
