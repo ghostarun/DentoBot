@@ -6783,3 +6783,13 @@ revalidation. The focused Python checks and second serialized 5.10 legacy-case r
 strict post-hydration audit, no jaw transform, non-current opening and unchanged
 archive. This is backward-compatibility evidence for the schema-1 fixture;
 normal-window and current-schema case acceptance remain separate.
+## 2026-09-26 — Guard accepted-5.10 widget teardown refreshes
+
+The Step 2 r3 functional run exited 0 but logged docking and template-guide
+PythonQt callbacks touching destroyed widgets after completion. Keep the
+correction in the owning 5.10 widget callbacks: return from their refreshes
+once cleanup starts, and do not run the template input refresh without a
+parameter node. This avoids changing MRML state or disconnecting ordinary
+operator signals. Queued callback ordering is a source-backed hypothesis, not
+yet runtime-proven; normal-window teardown remains the acceptance gate.
+`PLAT-U-06` Slicer 5.12 work stays indefinitely deferred.

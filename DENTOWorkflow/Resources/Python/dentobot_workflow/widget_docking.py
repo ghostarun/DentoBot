@@ -44,7 +44,11 @@ class DockingWidgetMixin:
         )
 
     def _updateTargetDocking(self) -> None:
-        if self._updatingTargetDockingUI or not hasattr(self, "ui"):
+        if (
+            self._isCleaningUp
+            or self._updatingTargetDockingUI
+            or not hasattr(self, "ui")
+        ):
             return
         if not self._parameterNode or not self.logic:
             self.ui.generateTargetDockingAssemblyButton.enabled = False

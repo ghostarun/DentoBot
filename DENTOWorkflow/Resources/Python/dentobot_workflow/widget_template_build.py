@@ -477,7 +477,7 @@ class TemplateBuildWidgetMixin:
             return
 
     def _updateTemplateGuide(self) -> None:
-        if self._updatingTemplateGuideUI:
+        if self._isCleaningUp or self._updatingTemplateGuideUI:
             return
         if not self._parameterNode or not self.logic:
             self._clearTemplateGuide()
@@ -1080,9 +1080,14 @@ class TemplateBuildWidgetMixin:
 
     def onTemplateGuideInputChanged(self, *args) -> None:
         del args
-        if not self._updatingTemplateGuideUI:
-            self._updateTemplateGuide()
-            self._updateTemplateFinalization()
+        if (
+            self._isCleaningUp
+            or self._updatingTemplateGuideUI
+            or not self._parameterNode
+        ):
+            return
+        self._updateTemplateGuide()
+        self._updateTemplateFinalization()
 
     def onTemplateGuideTrajectorySelectionChanged(self, trajectoryNode) -> None:
         if (
