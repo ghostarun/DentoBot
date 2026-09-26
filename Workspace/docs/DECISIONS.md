@@ -6830,3 +6830,14 @@ timing check justifies a replacement. The earlier intermittent module-open
 import exit remains unexplained; neither this pass nor the import-only pass
 proves its native cause. Keep full-batch throughput and interactive response
 open under `S3-P0-DENTAL-SEMANTICS` / `S6-P2-03`.
+
+The next real-mask check overturned the proposed cavity optimization: existing
+six-connected void detection took 0.016/0.019 seconds for FDI11/FDI21. A
+same-case 5.10 profile showed that the earlier 45-second direct-logic harness
+bypassed the Step 2 button's existing widget callback guards, causing repeated
+planning and Case Foundation fingerprint work. A second temporary harness
+using those same guards passed the identical integrity checks in 1.683 seconds
+and exited 0. Keep the current cavity algorithm and normal-button guard; do
+not add SciPy or claim a production source speedup from a corrected harness.
+The remaining import/audit and post-action gaps need separate attribution,
+and the actual normal-window all-tooth throughput remains unaccepted.
