@@ -6757,3 +6757,14 @@ upstream integration, runtime checks, version comparisons and promotion.
 Preserve the isolated evidence and accepted 5.10/LAB_RELEASE. S6-P2-03
 continues only its independent 5.10 responsiveness and GPU-host frame-rate
 work. Earlier PLAT-U-06 next-gate wording is superseded by this hold.
+
+### 2026-09-26 — Preserve legacy closed-source jaw labels as derived metadata
+
+A schema-1 FDI11 package with no saved jaw transform was rejected at pre-bind
+because its closed-source summary used PureTMJHingeRotation while the current
+summary reports VirtualOpenMouthArticulator. For schema-1/2 ClosedSource
+packages with that exact historical marker, empty source fingerprint and no
+jaw transform, omit only the motion-model label from lineage comparison.
+Retain node/geometry and all other jaw-field checks, followed by ordinary
+stale-opening evaluation. Source implementation passed Python compilation and 50 focused pure tests.
+An approved legacy-case runtime reopen remains required before acceptance.

@@ -6,6 +6,8 @@ import copy
 
 from .runtime import *
 
+from DENTOStep6State import is_legacy_closed_source_jaw_marker
+
 
 class CaseBundleLogicMixin:
     REGISTRY_TARGET_ID_ATTRIBUTE = "DENTOBOT.RegistryTargetID"
@@ -1702,6 +1704,12 @@ class CaseBundleLogicMixin:
             # Derived readiness is re-evaluated after integrity validation.
             expectedJawOpening.pop("current", None)
             expectedJawOpening.pop("placementReady", None)
+            if is_legacy_closed_source_jaw_marker(
+                schemaVersion,
+                expectedJawOpening,
+                parameterNode.step6CaseJawTransform is not None,
+            ):
+                expectedJawOpening.pop("motionModel", None)
         actualComparableStep6 = {
             key: currentStep6.get(key)
             for key in expectedComparableStep6

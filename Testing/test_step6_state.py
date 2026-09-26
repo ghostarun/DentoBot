@@ -81,6 +81,7 @@ from DENTOStep6State import (  # noqa: E402
     canonical_json,
     validate_simulation_target,
     fingerprint,
+    is_legacy_closed_source_jaw_marker,
     empty_trajectory_registry,
     parse_attempt_context,
     parse_robot_environment_snapshot,
@@ -104,6 +105,32 @@ from DENTOStep6State import (  # noqa: E402
     upsert_guide_set,
     upsert_trajectory_record,
 )
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "has_jaw_transform", "jaw_changes", "expected"),
+    [
+        ("1.0", False, {}, True),
+        ("2.0", False, {}, True),
+        ("3.0", False, {}, False),
+        ("1.0", True, {}, False),
+        ("1.0", False, {"preparationMode": "OpenSource"}, False),
+        ("1.0", False, {"motionModel": "Other"}, False),
+        ("1.0", False, {"sourceGeometryFingerprint": "geometry-a"}, False),
+    ],
+)
+def test_legacy_closed_source_jaw_marker_requires_all_legacy_conditions(
+    schema_version, has_jaw_transform, jaw_changes, expected
+):
+    jaw_opening = {
+        "preparationMode": "ClosedSource",
+        "motionModel": "PureTMJHingeRotation",
+        "sourceGeometryFingerprint": "",
+    }
+    jaw_opening.update(jaw_changes)
+    assert is_legacy_closed_source_jaw_marker(
+        schema_version, jaw_opening, has_jaw_transform
+    ) is expected
 
 
 def joints(value=0.0):

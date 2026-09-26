@@ -73,6 +73,18 @@ SIMULATION_TOOL_PROVENANCE = (
 DRILL_TOOL_FRAME_POLICY = "stage1-position-axis-authoritative-fk-v3"
 
 
+def is_legacy_closed_source_jaw_marker(
+    schema_version: str, jaw_opening: dict, has_jaw_transform: bool
+) -> bool:
+    return (
+        schema_version in LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS
+        and not has_jaw_transform
+        and jaw_opening.get("preparationMode") == "ClosedSource"
+        and jaw_opening.get("motionModel") == "PureTMJHingeRotation"
+        and jaw_opening.get("sourceGeometryFingerprint") == ""
+    )
+
+
 def canonicalize_planning_joint_positions(
     joint_positions_si: Mapping[str, float],
 ) -> dict[str, float]:

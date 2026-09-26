@@ -1374,8 +1374,12 @@ mandibular-attached proxies. The placement-only fallback remains non-planning.
   in four VTK distance-field samples. The fitting-surface fallback was
   sampling a hollow-candidate field it did not use. The bounded source fix
   removes that sample and reports progress after each completed field; its
-  focused synthetic VTK test passes. The post-fix Slicer runtime and GPU-host
-  acceptance remain pending. Same-case 5.10/5.12 timings used llvmpipe and had
+  focused synthetic VTK test passes. The authorized same-case 5.10 headless
+  post-fix check passed: all three distance-field callbacks, current watertight shell and unified template,
+  unchanged saved case and process exit 0. Its one 5.229-second stall was in
+  the test harness hashing the case before Step 5B; the largest Step 5B gap
+  was 2.892 seconds. Normal-window and GPU-host acceptance remain pending.
+  Same-case 5.10/5.12 timings used llvmpipe and had
   markedly unequal 5.10 CPU throttling, so they remain diagnostic observations
   rather than a version-performance verdict.
 
