@@ -1,5 +1,7 @@
 # SlicerROS2 and Slicer 5.12 Upgrade Assessment
 
+**Operator status — 2026-09-26: deferred indefinitely.** Tarun requires explicit approval before any further 5.12 build, runtime, upstream integration, comparison or promotion. Preserve accepted 5.10 and LAB_RELEASE. The following completed results remain historical evidence and the later phases are conditional plans, not queued work. Independent 5.10 responsiveness continues under S6-P2-03.
+
 Assessment date: 2026-09-09
 
 Implementation branch: `upgrade/slicerros2-5.12-performance` (created

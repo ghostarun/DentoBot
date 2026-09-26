@@ -6,18 +6,12 @@ The DENTO Workflow module starts a low-overhead event-loop watchdog on setup. Wh
 
 ## 2026-09-09 Slicer 5.12 migration status
 
-The accepted runtime remains Slicer 5.10.0. A controlled Slicer 5.12.0
-candidate is planned in `Workspace/docs/SLICERROS2_5_12_UPGRADE.md`. Do not
-change the current image, generated ROS products, or lab manifest in place.
-The candidate must use a clean rebuild against the new Slicer superbuild and
-pass the approved compatibility and workflow gates before promotion.
+The accepted runtime remains Slicer 5.10.0. Tarun deferred the isolated Slicer 5.12 candidate indefinitely on 2026-09-26. Do not start another 5.12 build, runtime, upstream integration, comparison or promotion without his explicit approval. Keep the current image and lab manifest selected; `Workspace/docs/SLICERROS2_5_12_UPGRADE.md` records historical candidate evidence and conditional gates.
 
 The fork's isolated 5.12 source-image build now patches Slicer's pinned
 `SuperBuild/External_curl.cmake` to enable curl `file://` support, with an
 exact-match guard. `SLICER_BUILD_JOBS` defaults to 3 for the full SuperBuild.
-A distinct corrected image tag is building; the 5.10 release remains selected.
-Robot mesh loading and collision geometry require the focused runtime gate
-before this candidate can be used for representative planning.
+The final full rebuild attempt stopped during VTK compilation; no corrected full image was produced. A separate isolated local-file retrieval overlay later passed focused robot-mesh and static-contact checks. The 5.10 release remains selected and the candidate is now paused.
 
 The candidate Dockerfile accepts a pinned 5.12 image digest through the
 `SLICERROS2_BASE_IMAGE` build argument; omitting it retains the accepted 5.10 base. The
@@ -26,8 +20,7 @@ The candidate Dockerfile accepts a pinned 5.12 image digest through the
 and default to `5.10`. An isolated 5.12 candidate image was built under
 `dentobot/slicerros2:platu06-slicer512-00bb35055611`, and its three ROS
 packages were compiled into separate scratch output. It has not been selected
-by `LAB_RELEASE` or launched for Slicer/ROS compatibility. The running 5.10
-container and rollback image remain unchanged.
+by `LAB_RELEASE`. The isolated candidate was used only for bounded diagnostic gates; the accepted 5.10 container and rollback image remain unchanged.
 
 ## 2026-09-08 provisional simulation verification restart
 

@@ -6748,3 +6748,12 @@ visibility. Slicer exited 0 after two destroyed-widget PythonQt tracebacks
 during teardown; route that distinct lifecycle evidence through `S6-U-01` and
 do not conflate it with the Step 2 inventory computation or the isolated 5.12
 native ROS shutdown result.
+
+### 2026-09-26 — Defer PLAT-U-06 indefinitely
+
+Tarun explicitly deferred the Slicer 5.12 upgrade indefinitely and requires
+his explicit approval before it starts again. Stop all candidate builds,
+upstream integration, runtime checks, version comparisons and promotion.
+Preserve the isolated evidence and accepted 5.10/LAB_RELEASE. S6-P2-03
+continues only its independent 5.10 responsiveness and GPU-host frame-rate
+work. Earlier PLAT-U-06 next-gate wording is superseded by this hold.

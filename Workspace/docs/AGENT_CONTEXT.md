@@ -1,5 +1,7 @@
 # DENTOBOT agent context
 
+**Operator hold, 2026-09-26:** `PLAT-U-06` Slicer 5.12 work is deferred indefinitely. Do not start candidate builds, runtime, upstream integration, comparison or promotion without Tarun's explicit approval. `S6-P2-03` remains the independent accepted-5.10 responsiveness lane.
+
 Last reconciled: 2026-09-26. `S6-LIVE-01` remains Priority 0. Tarun's
 25 September direction resumes bounded Step 6 source implementation.
 The standalone FDI11 PreEntry IK source gate passed pure checks and a native

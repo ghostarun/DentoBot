@@ -39,9 +39,7 @@ four-incisor planner comparison or closes the saved FDI31 GUI milestones.
 
 Stage 3 / Track A remains incomplete and follows this integrity correction.
 The remaining P1 Case Platform/Studio roadmap stays behind Track-A acceptance.
-Slicer 5.12 migration remains the separate `PLAT-U-06` plan in
-[SLICERROS2_5_12_UPGRADE.md](SLICERROS2_5_12_UPGRADE.md); it is not an action
-for this task. Reviewed clean/post-surgery anatomy is the acceptance baseline;
+Slicer 5.12 migration is deferred indefinitely under `PLAT-U-06`. No further candidate action starts without Tarun's explicit approval; the historical plan remains in [SLICERROS2_5_12_UPGRADE.md](SLICERROS2_5_12_UPGRADE.md). Reviewed clean/post-surgery anatomy is the acceptance baseline;
 retired pre-surgery/x4 cases remain negative diagnostics.
 
 ## 2026-09-15 FDI31 recovery Campaign 1 — preserved historical execution
