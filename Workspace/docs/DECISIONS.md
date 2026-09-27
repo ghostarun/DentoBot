@@ -6867,3 +6867,15 @@ read-only archive comparison found the saved MRML matrix already satisfies
 the original `<1e-8` test. That edit was reverted. The stale-pose cause
 remains unproven and the revised runtime verdict remains open; do not weaken lineage, reconnect
 automatically on load, promote 5.12, or start a planner/hardware path.
+
+**2026-09-27 precision follow-up:** A subsequent operator-approved read-only
+5.10 reopen identified the exact stale-pose input: one of twelve saved Case
+Foundation landmark coordinates changed by one floating-point unit on MRML
+reload. Preserve the full-precision planning identity and strict pose gate.
+After the existing strict package audit, restore saved landmark precision only
+for a current transform whose committed fingerprint matches the saved
+environment and whose live landmarks are all within `1e-9` mm of the saved
+coordinates. Do not use a broad tolerance to declare a changed pose current.
+An approved revised fresh-process 5.10 verification passed with equal
+saved/committed/live fingerprints, pose `VALID`, clean process exit and
+unchanged package hash. Normal-window and ROS acceptance remain open.

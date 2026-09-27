@@ -442,9 +442,9 @@ class CaseBackendWidgetMixin:
                     slicer.app.processEvents()
                     phase("Validating hydrated case", can_cancel=False)
                     self._validateHydratedCaseBundle(inspection.workflow)
-                    # MRML rounds matrices to six significant digits. Only
-                    # after all strict package audits may the validated
-                    # environment restore the exact saved pose matrix.
+                    # MRML can round pose coordinates during serialization.
+                    # Restore validated saved precision only after all strict
+                    # package audits, and only for sub-nanometre differences.
                     transform = self._parameterNode.step6CaseJawTransform
                     environment = inspection.workflow.get("step6", {}).get("environment") or {}
                     values = environment.get("jaw_transform_matrix", [])
@@ -466,6 +466,22 @@ class CaseBackendWidgetMixin:
                                 for col in range(4):
                                     matrix.SetElement(row, col, float(values[row * 4 + col]))
                             transform.SetMatrixTransformToParent(matrix)
+                        landmarks = self._parameterNode.step6CaseJawLandmarks
+                        savedPoints = environment.get("landmark_positions_ras_mm", [])
+                        if (
+                            self.logic.isStep6CaseJawLandmarksNode(landmarks)
+                            and landmarks.GetNumberOfDefinedControlPoints() == 4
+                            and len(savedPoints) == 12
+                        ):
+                            livePoints = self.logic.step6CaseJawLandmarkPositions(landmarks)
+                            if all(
+                                abs(float(livePoints[index][axis]) - float(savedPoints[index * 3 + axis])) < 1e-9
+                                for index in range(4) for axis in range(3)
+                            ):
+                                for index in range(4):
+                                    point = tuple(map(float, savedPoints[index * 3:index * 3 + 3]))
+                                    if tuple(livePoints[index]) != point:
+                                        landmarks.SetNthControlPointPositionWorld(index, *point)
                     self._revalidateImportedStep6ContextAfterLoad()
                     phase("Revalidating restored planning context", can_cancel=False)
                     savedStage = int(self._parameterNode.workflowStageIndex)
