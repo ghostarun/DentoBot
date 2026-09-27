@@ -6915,3 +6915,14 @@ unchanged archive SHA-256 and process exit 0. Segmentation fingerprint build
 took 3.631 s and full load 14.523 s in this single run. Accept the correctness
 gate; do not claim a repeatable workflow speed gain or normal-window/60-FPS
 responsiveness from this observation alone.
+
+Tarun then authorized the adjacent checks. Two fresh 5.10 same-case
+copy/buffer pairs preserved strict source/pose lineage and clean exits while
+reducing segmentation fingerprint duration by 0.710/0.742 s and full load
+duration by 0.974/0.620 s. Accept a bounded repeatable same-host load gain,
+not a cross-host guarantee. A desktop Step 5B run completed with progress,
+current shell/template, unchanged input and clean exit; no >=5 s watchdog
+stall occurred. Its completion view retains a red FDI21 lineage badge; source inspection confirms
+that color is target identity, not a failure warning. Visible anatomy/status
+acceptance still awaits Tarun's verdict. The 60-FPS capable-GPU
+gate remains separate.
