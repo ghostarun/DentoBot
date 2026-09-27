@@ -6926,3 +6926,8 @@ stall occurred. Its completion view retains a red FDI21 lineage badge; source in
 that color is target identity, not a failure warning. Visible anatomy/status
 acceptance still awaits Tarun's verdict. The 60-FPS capable-GPU
 gate remains separate.
+
+Tarun reviewed the Step 5B completion capture and answered “Yeah looks
+good.” Accept the visible focused FDI21/31 Step 5B output at Operator Verified
+scope. Keep capable-GPU frame-rate and other Step 5B/5C acceptance under their
+existing backlog owners; this verdict does not promote the mixed branch.
