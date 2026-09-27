@@ -6908,3 +6908,10 @@ pass their buffer directly to SHA-256 instead of allocating a second complete
 representative saved-case reopen must still prove strict lineage and measure
 whether UI latency improves; the synthetic buffer timing alone is not a
 workflow performance verdict.
+
+The authorized read-only Slicer 5.10 reopen of the unchanged September 27
+FDI11 package now passes strict source/pose lineage and `VALID` pose, with
+unchanged archive SHA-256 and process exit 0. Segmentation fingerprint build
+took 3.631 s and full load 14.523 s in this single run. Accept the correctness
+gate; do not claim a repeatable workflow speed gain or normal-window/60-FPS
+responsiveness from this observation alone.

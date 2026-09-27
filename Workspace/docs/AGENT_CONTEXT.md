@@ -1,5 +1,14 @@
 # DENTOBOT agent context
 
+**Performance checkout checkpoint, 2026-09-27:** Source implementation and the
+authorized focused 5.10 checks for this development pass are concluded on
+`upgrade/slicerros2-5.12-performance`. The branch is an evidence checkpoint,
+not an accepted release or a wholesale merge candidate. Outstanding
+normal-window, capable-GPU and platform-host acceptance stays in `backlog.md`
+under `S6-P2-03`/`PLAT-U-04`/`PLAT-U-05`; the 5.12 candidate remains parked
+under `PLAT-U-06`. Curate accepted 5.10 changes on a main-based integration
+branch rather than fast-forwarding this mixed branch.
+
 **Operator hold, 2026-09-26:** `PLAT-U-06` Slicer 5.12 work is deferred indefinitely. Do not start candidate builds, runtime, upstream integration, comparison or promotion without Tarun's explicit approval. `S6-P2-03` remains the independent accepted-5.10 responsiveness lane.
 
 Last reconciled: 2026-09-26. `S6-LIVE-01` remains Priority 0. Tarun's
