@@ -231,7 +231,7 @@ class CaseFoundationLogicMixin:
                 {
                     "shape": tuple(int(value) for value in array.shape),
                     "dtype": str(array.dtype),
-                    "sha256": hashlib.sha256(array.tobytes()).hexdigest(),
+                    "sha256": hashlib.sha256(array.data).hexdigest(),
                     "ijkToRas": geometry,
                 }
             )
@@ -354,7 +354,7 @@ class CaseFoundationLogicMixin:
                             ),
                         },
                         "shape": tuple(int(value) for value in array.shape),
-                        "sha256": hashlib.sha256(array.tobytes()).hexdigest(),
+                        "sha256": hashlib.sha256(array.data).hexdigest(),
                     }
                 )
             return fingerprint(

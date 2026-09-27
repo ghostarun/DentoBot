@@ -6899,3 +6899,12 @@ stage for an existing package that explicitly saved 0. One separate temporary
 5.10 save/reopen passed Step 6 index 10 after visiting Case, with strict load
 and clean exit; the supplied package was unchanged. This is navigation
 persistence only, not ROS/planner or anatomy acceptance.
+
+**2026-09-27 accepted-5.10 fingerprint memory correction:** Keep the exact
+Case Foundation source fingerprint schema and synchronous MRML ownership.
+Its volume and segment hash inputs are already C-contiguous NumPy arrays;
+pass their buffer directly to SHA-256 instead of allocating a second complete
+`.tobytes()` copy. Pure digest parity and focused cache tests pass. A
+representative saved-case reopen must still prove strict lineage and measure
+whether UI latency improves; the synthetic buffer timing alone is not a
+workflow performance verdict.
