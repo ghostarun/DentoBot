@@ -6878,4 +6878,14 @@ environment and whose live landmarks are all within `1e-9` mm of the saved
 coordinates. Do not use a broad tolerance to declare a changed pose current.
 An approved revised fresh-process 5.10 verification passed with equal
 saved/committed/live fingerprints, pose `VALID`, clean process exit and
-unchanged package hash. Normal-window and ROS acceptance remain open.
+unchanged package hash. Normal-window and case-specific post-fix Connect
+acceptance remain open; prior 5.10 Connect capability is verified below.
+
+**2026-09-27 ROS verdict correction:** The operator confirms the launch-owned
+ROS stack dependency and prior successful Connect as verified. The 2026-09-26
+accepted 5.10 performance-checkout handoff supports Connect/Disconnect
+capability with 31 acknowledged collision objects and cleanup. The subsequent
+new FDI11 case stopped before robot creation on a stale pose; its post-fix
+reopen verified pose only. Preserve the general Connect verdict without
+claiming a post-fix FDI11 connection, fresh/warm reconstruction, planner or
+hardware result.
