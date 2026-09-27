@@ -110,7 +110,9 @@ class CaseBackendWidgetMixin:
         self._enforceStep6OpenedJawDisplaySeparation()
         self._restoreStageExclusiveInteractionLocks()
         try:
-            self._parameterNode.workflowStageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+            currentStage = int(self.ui.workflowStageComboBox.currentIndex)
+            if currentStage > 0 or int(self._parameterNode.workflowStageIndex) < 0:
+                self._parameterNode.workflowStageIndex = currentStage
             self.logic.prepareDentoCaseSchema2ForSave(self._parameterNode)
             # Capture lineage while Markups carry the same intrinsic
             # interaction state that will be serialized into the MRB.

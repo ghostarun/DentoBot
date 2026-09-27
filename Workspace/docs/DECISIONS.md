@@ -6889,3 +6889,13 @@ new FDI11 case stopped before robot creation on a stale pose; its post-fix
 reopen verified pose only. Preserve the general Connect verdict without
 claiming a post-fix FDI11 connection, fresh/warm reconstruction, planner or
 hardware result.
+
+**2026-09-27 saved workflow stage:** Save Case Package is housed in stage 0.
+Recording only the selected stage at save time loses the operator's last
+working stage when they navigate to Case to save. Preserve the last non-Case
+stage on ordinary navigation and use it for a package saved from Case; a
+genuinely new Case-stage package retains stage 0. Do not infer a different
+stage for an existing package that explicitly saved 0. One separate temporary
+5.10 save/reopen passed Step 6 index 10 after visiting Case, with strict load
+and clean exit; the supplied package was unchanged. This is navigation
+persistence only, not ROS/planner or anatomy acceptance.

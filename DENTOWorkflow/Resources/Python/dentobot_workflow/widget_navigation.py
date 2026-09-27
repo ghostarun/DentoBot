@@ -619,6 +619,13 @@ class WorkflowNavigationWidgetMixin:
         if not entries:
             return
         index = max(0, min(int(index), len(entries) - 1))
+        if (
+            index > 0
+            and self._parameterNode
+            and self._caseBundleRestoreDepth == 0
+            and int(self._parameterNode.workflowStageIndex) != index
+        ):
+            self._parameterNode.workflowStageIndex = index
         previousIndex = int(self.ui.workflowStageComboBox.currentIndex)
         stageChanged = index != previousIndex
         self._updatingWorkflowNavigationUI = True
