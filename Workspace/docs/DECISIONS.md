@@ -6931,3 +6931,14 @@ Tarun reviewed the Step 5B completion capture and answered “Yeah looks
 good.” Accept the visible focused FDI21/31 Step 5B output at Operator Verified
 scope. Keep capable-GPU frame-rate and other Step 5B/5C acceptance under their
 existing backlog owners; this verdict does not promote the mixed branch.
+
+## 2026-09-27 — Performance checkout integration follows Step 6 revamp
+
+Tarun directs that the accepted development changes from
+`upgrade/slicerros2-5.12-performance` be merged to `main` after the Step 6
+revamp is complete and he approves integration. This supersedes any inference
+that the completed performance checkpoint should merge immediately. The
+integration review must curate the accepted 5.10/workflow delta because the
+branch also contains the indefinitely deferred `PLAT-U-06` 5.12 candidate.
+GPU-host FPS and platform installation evidence remain separate acceptance
+gates; merging source does not promote `LAB_RELEASE`.

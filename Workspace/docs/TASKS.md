@@ -13,6 +13,17 @@ baseline, not a second scheduling authority. Read current state/next action in
 backlog.md before using these contracts; update substantive contract/acceptance
 changes here and keep execution chronology in the dated logbook.
 
+**2026-09-27 performance-checkout integration gate:** Tarun directs that
+`upgrade/slicerros2-5.12-performance` supply the accepted development changes
+for `main` after the Step 6 revamp is complete and he explicitly approves
+integration. Until then the checkout is a concluded development checkpoint,
+not a merged release. At the gate, review dependencies and curate accepted
+5.10/workflow changes on a main-based integration branch rather than merging
+all candidate history. `PLAT-U-06` remains indefinitely deferred; 5.12 code,
+image or promotion requires separate explicit approval. GPU-host FPS and
+platform acceptance remain tracked independently under `S6-P2-03` and
+`PLAT-U-04/05`, and a `main` merge alone does not satisfy lab-release gates.
+
 ## Immediate P0 — bore-safe Step 5B dock attachments
 
 - **ID:** `W5-U-04`; **Priority:** 0 (operator-promoted 2026-09-10);

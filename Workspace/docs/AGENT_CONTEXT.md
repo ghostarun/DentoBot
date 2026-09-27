@@ -3,11 +3,13 @@
 **Performance checkout checkpoint, 2026-09-27:** Source implementation and the
 authorized focused 5.10 checks for this development pass are concluded on
 `upgrade/slicerros2-5.12-performance`. The branch is an evidence checkpoint,
-not an accepted release or a wholesale merge candidate. Outstanding
-normal-window, capable-GPU and platform-host acceptance stays in `backlog.md`
-under `S6-P2-03`/`PLAT-U-04`/`PLAT-U-05`; the 5.12 candidate remains parked
-under `PLAT-U-06`. Curate accepted 5.10 changes on a main-based integration
-branch rather than fast-forwarding this mixed branch.
+not an accepted release or a wholesale merge candidate. Tarun's later
+integration direction is to merge this checkout's accepted development work
+after the Step 6 revamp is completed and he approves integration. At that
+gate, curate the 5.10/workflow changes on a main-based integration branch;
+do not fast-forward the mixed branch or import its deferred 5.12 candidate
+without a separate explicit `PLAT-U-06` approval. Capable-GPU and platform-host
+acceptance stays in `backlog.md` under `S6-P2-03`/`PLAT-U-04`/`PLAT-U-05`.
 
 **Operator hold, 2026-09-26:** `PLAT-U-06` Slicer 5.12 work is deferred indefinitely. Do not start candidate builds, runtime, upstream integration, comparison or promotion without Tarun's explicit approval. `S6-P2-03` remains the independent accepted-5.10 responsiveness lane.
 
