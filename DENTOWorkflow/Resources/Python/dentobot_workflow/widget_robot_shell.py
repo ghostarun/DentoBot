@@ -44,6 +44,7 @@ class RobotShellWidgetMixin:
                 "reset_manual_draft": self._onShellResetManualJogDraft,
                 "manual_draft_changed": self._onShellManualJogDraftChanged,
                 "check_manual_draft_state": self._onShellCheckManualRobotDraftState,
+                "reconcile_manual_jog": self._onShellReconcileManualRobotJog,
                 "guarded_manual_jog": self._onShellGuardedManualJog,
                 "export_manual_record": self._onStep6ExportManualRecord,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
@@ -531,6 +532,100 @@ class RobotShellWidgetMixin:
                     "manualJogReconciliationRequired": True,
                     "error": str(exc),
                 },
+            )
+        finally:
+            panel.setManualJogRequestComplete()
+            self._workflowActionBusy = False
+
+    def _onShellReconcileManualRobotJog(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
+            if panel:
+                panel.setManualJogStatus(
+                    "blocked",
+                    "Reconciliation unavailable — no query was sent; the draft is retained while another Step 6 action is active or the façade is unavailable.",
+                )
+            return
+        if not getattr(panel, "manualJogReconciliationRequired", False):
+            panel.setManualJogStatus(
+                "blocked", "Reconciliation is available only after a submitted jog has unknown state."
+            )
+            return
+
+        panel.setManualJogRequestPending()
+        self._workflowActionBusy = True
+        try:
+            result = facade.reconcileManualRobotJog()
+            details = result.details if isinstance(result.details, Mapping) else {}
+            accepted_positions = details.get("acceptedJointPositionsSi")
+            accepted = None
+            if (
+                isinstance(accepted_positions, Mapping)
+                and set(accepted_positions) == set(JOINT_NAMES)
+            ):
+                try:
+                    candidate = {
+                        name: float(accepted_positions[name]) for name in JOINT_NAMES
+                    }
+                    if all(isfinite(value) for value in candidate.values()):
+                        accepted = candidate
+                except (TypeError, ValueError, OverflowError):
+                    pass
+            evidence = details.get("nativeGuardEvidence")
+            correlated = bool(
+                isinstance(evidence, Mapping)
+                and evidence.get("responseCorrelated") is True
+                and evidence.get("operation") == "state_query"
+                and evidence.get("queryOnly") is True
+            )
+            reconciled = bool(
+                result.success is True
+                and getattr(result, "code", "") == "manual_jog_reconciled"
+                and details.get("identityStatus") == "current"
+                and details.get("monitoredStateStatus") == "matched"
+                and details.get("manualJogReconciliationRequired") is False
+                and accepted is not None
+                and correlated
+            )
+            if reconciled:
+                ok, mirror_message = self._setRobotJointsFromSi(
+                    accepted, publish_to_ros=False
+                )
+                if ok:
+                    panel.setManualJogAcceptedState(accepted, preserve_draft=True)
+                    status = (
+                        "Reconciled native accepted J1–J5 state and mirrored the simulation. "
+                    )
+                else:
+                    status = (
+                        "Native state was reconciled, but the application mirror failed: "
+                        + str(mirror_message)
+                        + ". "
+                    )
+                collision = str(details.get("collisionStatus") or "unknown")
+                panel.setManualJogStatus(
+                    "ok",
+                    status
+                    + f"Static collision validity: {collision}. "
+                    + str(result.message),
+                    details,
+                )
+            else:
+                failed_details = dict(details)
+                failed_details["manualJogReconciliationRequired"] = True
+                panel.setManualJogStatus(
+                    "blocked",
+                    "Reconciliation did not complete; the accepted state remains unresolved and the draft is retained. "
+                    + str(getattr(result, "message", "")),
+                    failed_details,
+                )
+        except Exception as exc:
+            panel.setManualJogStatus(
+                "blocked",
+                "Reconciliation failed; the accepted state remains unresolved and the draft is retained. "
+                + str(exc),
+                {"manualJogReconciliationRequired": True, "error": str(exc)},
             )
         finally:
             panel.setManualJogRequestComplete()

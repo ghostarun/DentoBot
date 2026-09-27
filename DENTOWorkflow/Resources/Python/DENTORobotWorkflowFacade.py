@@ -69,6 +69,7 @@ JOINT_LIMIT_FIELDS = (
 )
 JOINT_DISPLAY_UNITS = ("deg", "mm", "deg", "mm", "deg", "deg")
 JOINT_NAMES = tuple(_default_bridge.ROS2_JOINT_SI_ORDER)
+MANUAL_JOINT_POLICY_ID = _default_bridge.ROS2_MANUAL_JOINT_POLICY_ID
 DISPLAY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
 WORKSPACE_RUNTIME_VALIDATION_MAX_SAMPLES = 400
 WORKSPACE_HOME_CONNECTIVITY_MAX_SAMPLES = 13
@@ -406,6 +407,8 @@ class DENTORobotWorkflowFacade:
         self._motion_history_task_fingerprint = ""
         self._manual_jog_in_progress = False
         self._manual_jog_reconciliation_required = False
+        self._manual_jog_uncertainty: Optional[dict[str, object]] = None
+        self._manual_jog_session_id = uuid4().hex
         self._manual_simulation_identity: Optional[dict[str, str]] = None
         self._manual_simulation_events: list[dict[str, object]] = []
         # ponytail: snapshots live for this façade session; cap/archive only if long sessions show memory growth.
@@ -2259,14 +2262,15 @@ class DENTORobotWorkflowFacade:
             details.get("nativeGuardEvidence") or {}
         )
         native = native if isinstance(native, Mapping) else {}
-        policy_fingerprint = str(
-            native.get("collisionScenePolicyFingerprint") or "unknown"
-        )
+        policy_id = str(native.get("policyId") or "unknown")
         event_details = {
-            "guard_policy_fingerprint": policy_fingerprint,
-            "guard_policy_identity_status": str(
-                native.get("collisionScenePolicyIdentityStatus") or "unknown"
-            ),
+            "guard_policy_fingerprint": "unknown",
+            "guard_policy_id": policy_id,
+            "guard_policy_identity_status": "manual_policy_id_correlated"
+            if policy_id == MANUAL_JOINT_POLICY_ID
+            else "unknown",
+            "guard_request_id": str(native.get("requestId") or "unknown"),
+            "guard_session_id": str(native.get("sessionId") or "unknown"),
             "simulation_only": True,
             "route_authority": "none",
         }
@@ -2329,7 +2333,7 @@ class DENTORobotWorkflowFacade:
             "monitored_state_status": str(
                 details.get("monitoredStateStatus") or "unavailable/unknown"
             ),
-            "guard_policy_fingerprint": policy_fingerprint,
+            "guard_policy_fingerprint": "unknown",
             "guard_policy_identity_status": event_details[
                 "guard_policy_identity_status"
             ],
@@ -2448,6 +2452,23 @@ class DENTORobotWorkflowFacade:
         def outcome(code, message, success=False):
             if command_submitted["value"] and code.endswith(("_unknown", "_stale")):
                 self._manual_jog_reconciliation_required = True
+                identity = details.get("identityBefore")
+                requested = details.get("requestedJointPositionsSi")
+                if (
+                    isinstance(identity, Mapping)
+                    and isinstance(requested, Mapping)
+                    and set(requested) == set(JOINT_NAMES)
+                    and details.get("requestId")
+                    and details.get("sessionId") == self._manual_jog_session_id
+                ):
+                    self._manual_jog_uncertainty = {
+                        "identity": dict(identity),
+                        "requested": {name: float(requested[name]) for name in JOINT_NAMES},
+                        "requestId": str(details["requestId"]),
+                        "sessionId": self._manual_jog_session_id,
+                    }
+                if code.endswith("_unknown"):
+                    details["acceptedStateMayHaveAdvanced"] = True
             details["manualJogReconciliationRequired"] = (
                 self._manual_jog_reconciliation_required
             )
@@ -2463,9 +2484,12 @@ class DENTORobotWorkflowFacade:
 
         if self._manual_jog_reconciliation_required:
             details["manualJogStatus"] = "unknown"
+            details["manualJogUncertainty"] = deepcopy(
+                self._manual_jog_uncertainty
+            )
             return outcome(
                 "manual_jog_reconciliation_required",
-                "A prior submitted manual jog has unresolved state; reconcile the accepted state in a genuinely fresh simulation session before jogging again.",
+                "A prior submitted manual jog has unresolved state; use Reconcile State before jogging again.",
             )
         if self._manual_jog_in_progress:
             return outcome(
@@ -2543,22 +2567,28 @@ class DENTORobotWorkflowFacade:
                     "The displayed robot does not match the accepted simulation state.",
                 )
 
-            status_reader = getattr(self._bridge, "joint_command_status", None)
-            status_before = status_reader() if callable(status_reader) else None
-            apply_guard = getattr(self._bridge, "apply_joint_positions_si_to_motion_control", None)
+            apply_guard = getattr(self._bridge, "apply_manual_joint_positions_si", None)
             if not callable(apply_guard):
-                return outcome("manual_jog_guard_unavailable", "The simulation raw guard is unavailable.")
+                return outcome("manual_jog_guard_unavailable", "The correlated manual simulation guard is unavailable.")
+            request_id = uuid4().hex
+            session_id = self._manual_jog_session_id
+            details.update(requestId=request_id, sessionId=session_id)
             command_submitted["value"] = True
+            apply_message = "The manual guard returned an invalid response."
             try:
-                response = apply_guard(requested)
-                apply_ok = response[0] if isinstance(response, (tuple, list)) and len(response) >= 2 and isinstance(response[0], bool) else None
-                apply_message = str(response[1] or "") if apply_ok is not None else "The raw guard returned an invalid response."
+                response = apply_guard(requested, request_id, session_id)
             except Exception as exc:
-                apply_ok, apply_message = None, f"The raw guard request failed: {exc}"
-            try:
-                status = status_reader() if callable(status_reader) else None
-            except Exception:
-                status = None
+                response = None
+                apply_message = f"The manual guard request failed: {exc}"
+            if (
+                isinstance(response, (tuple, list))
+                and len(response) == 3
+                and (response[0] is None or isinstance(response[0], bool))
+            ):
+                apply_ok, apply_message, status = response
+                apply_message = str(apply_message or "")
+            else:
+                apply_ok, status = None, None
 
             def vector(field):
                 try:
@@ -2570,13 +2600,42 @@ class DENTORobotWorkflowFacade:
             native_requested = vector("requested_positions")
             native_accepted = vector("accepted_positions")
             objects = tuple(getattr(status, "world_objects", ()) or ())
-            object_ids = tuple(sorted(str(item.get("id") or "") for item in objects if isinstance(item, Mapping)))
+            world_objects_valid = all(
+                isinstance(item, Mapping)
+                and isinstance(item.get("id"), str)
+                and bool(item["id"])
+                for item in objects
+            )
+            object_ids = (
+                tuple(sorted(item["id"] for item in objects))
+                if world_objects_valid
+                else ()
+            )
             acknowledgement = self._logic.collisionSceneAuditRecord(parameter_node).runtime_acknowledgement
             expected_ids = tuple(sorted(str(value) for value in acknowledgement.get("acknowledged_object_ids", ()) if str(value)))
             native_accepted_flag = getattr(status, "accepted", None)
+            if not isinstance(native_accepted_flag, bool):
+                native_accepted_flag = None
+            command_valid = getattr(status, "command_valid", None)
+            if not isinstance(command_valid, bool):
+                command_valid = None
+            native_request_id = getattr(status, "request_id", None)
+            native_session_id = getattr(status, "session_id", None)
+            native_policy_id = getattr(status, "policy_id", None)
+            response_correlated = bool(
+                status is not None
+                and native_request_id == request_id
+                and native_session_id == session_id
+                and native_policy_id == MANUAL_JOINT_POLICY_ID
+                and native_requested == requested_vector
+            )
             details["nativeGuardEvidence"] = {
                 "responseObserved": status is not None,
-                "freshResponse": status is not None and status is not status_before,
+                "responseCorrelated": response_correlated,
+                "requestId": str(native_request_id or ""),
+                "sessionId": str(native_session_id or ""),
+                "policyId": str(native_policy_id or ""),
+                "commandValid": command_valid,
                 "accepted": native_accepted_flag if isinstance(native_accepted_flag, bool) else None,
                 "reason": _bounded_text(getattr(status, "reason", "") or apply_message),
                 "requestedPositionsSi": native_requested,
@@ -2591,18 +2650,16 @@ class DENTORobotWorkflowFacade:
                 "worldObjectEvidencePresent": bool(getattr(status, "world_object_evidence_present", False)),
                 "worldObjectIds": object_ids,
                 "collisionScenePolicyFingerprint": str(getattr(status, "collision_scene_policy_fingerprint", "") or ""),
-                "collisionScenePolicyIdentityStatus": (
-                    "unavailable_in_raw_status_contract"
-                    if not getattr(status, "collision_scene_policy_fingerprint", "")
-                    else "unverified_in_raw_status_contract"
-                ),
+                "collisionScenePolicyIdentityStatus": "manual_policy_id_correlated"
+                if native_policy_id == MANUAL_JOINT_POLICY_ID
+                else "unknown",
                 "bridgeReturnedAccepted": apply_ok,
             }
             details["rawGuardOutcome"] = (
                 "accepted" if native_accepted_flag is True else
                 "rejected" if native_accepted_flag is False else "unknown"
             )
-            if native_accepted_flag is True:
+            if native_accepted_flag is True or apply_ok is True:
                 details["acceptedStateMayHaveAdvanced"] = True
 
             accepted_after = accepted_reader() if callable(accepted_reader) else None
@@ -2634,15 +2691,17 @@ class DENTORobotWorkflowFacade:
 
             evidence = details["nativeGuardEvidence"]
             correlated = bool(
-                evidence["freshResponse"]
-                and native_requested == requested_vector
+                evidence["responseCorrelated"]
+                and command_valid is not None
+                and isinstance(native_accepted_flag, bool)
+                and (native_accepted_flag is False or command_valid is True)
+                and apply_ok is native_accepted_flag
                 and evidence["worldObjectEvidencePresent"]
                 and evidence["worldObjectCount"] == self._planning_scene_object_count
+                and world_objects_valid
                 and object_ids == expected_ids
                 and len(expected_ids) == self._planning_scene_object_count
-                and not evidence["collisionScenePolicyFingerprint"]
-                and isinstance(native_accepted_flag, bool)
-                and apply_ok is native_accepted_flag
+                and len(set(expected_ids)) == len(expected_ids)
             )
             if not correlated:
                 return outcome("manual_jog_guard_unknown", apply_message or "The raw guard response was missing, stale, or mismatched.")
@@ -2674,6 +2733,339 @@ class DENTORobotWorkflowFacade:
             details["identityStatus"] = "unknown"
             details["manualJogStatus"] = "unknown"
             return outcome("manual_jog_unknown", str(exc))
+        finally:
+            self._manual_jog_in_progress = False
+
+    def reconcileManualRobotJog(self) -> RobotActionResult:
+        """Read back the native accepted state and clear only a verified jog latch."""
+        details: dict[str, object] = {
+            "manualJogReconciliationRequired": self._manual_jog_reconciliation_required,
+            "manualJogStatus": "unknown",
+            "identityStatus": "unknown",
+            "monitoredStateStatus": "unavailable/unknown",
+            "nativeGuardEvidence": None,
+            "acceptedJointPositionsSi": None,
+            "simulationOnly": True,
+            "routeAuthority": "none",
+        }
+
+        def finish(code: str, message: str, success: bool = False):
+            details["manualJogReconciliationRequired"] = (
+                self._manual_jog_reconciliation_required
+            )
+            details["message"] = _bounded_text(message)
+            return RobotActionResult(success, code, message, details=dict(details))
+
+        if not self._manual_jog_reconciliation_required:
+            return finish(
+                "manual_jog_reconciliation_not_required",
+                "There is no unresolved submitted manual jog to reconcile.",
+            )
+        if self._manual_jog_in_progress:
+            return finish(
+                "manual_jog_reentrant",
+                "A manual-jog request is already waiting for its result.",
+            )
+
+        self._manual_jog_in_progress = True
+        try:
+            uncertainty = self._manual_jog_uncertainty
+            if not isinstance(uncertainty, Mapping):
+                return finish(
+                    "manual_jog_reconciliation_unavailable",
+                    "The submitted jog identity is unavailable; accepted state remains unresolved.",
+                )
+            expected_identity = uncertainty.get("identity")
+            requested = uncertainty.get("requested")
+            if (
+                not isinstance(expected_identity, Mapping)
+                or not isinstance(requested, Mapping)
+                or set(requested) != set(JOINT_NAMES)
+                or uncertainty.get("sessionId") != self._manual_jog_session_id
+            ):
+                return finish(
+                    "manual_jog_reconciliation_unavailable",
+                    "The submitted jog identity is incomplete or belongs to another façade session.",
+                )
+            echo = {}
+            for name in JOINT_NAMES:
+                value = requested[name]
+                if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(float(value)):
+                    return finish(
+                        "manual_jog_reconciliation_unavailable",
+                        "The submitted J1–J5 echo is not a finite numeric vector.",
+                    )
+                echo[name] = float(value)
+            echo_vector = tuple(echo[name] for name in JOINT_NAMES)
+            parameter_node = self._require_context()
+            identity_before = self._manual_jog_current_identity(parameter_node)
+            details["identityBefore"] = dict(identity_before)
+            if identity_before != dict(expected_identity):
+                details["identityStatus"] = "stale"
+                return finish(
+                    "manual_jog_reconciliation_stale",
+                    "Task, branch, base, Home, limits, profile, or scene identity changed since the uncertain jog.",
+                )
+
+            def audit_object_ids(audit):
+                acknowledgement = getattr(audit, "runtime_acknowledgement", None)
+                if not isinstance(acknowledgement, Mapping):
+                    return None
+                raw_ids = acknowledgement.get("acknowledged_object_ids")
+                if not isinstance(raw_ids, (tuple, list)) or any(
+                    not isinstance(value, str) or not value for value in raw_ids
+                ):
+                    return None
+                ids = tuple(sorted(raw_ids))
+                return ids if len(set(ids)) == len(ids) else None
+
+            audit_before = self._logic.collisionSceneAuditRecord(parameter_node)
+            expected_ids_before = audit_object_ids(audit_before)
+            if (
+                expected_ids_before is None
+                or not expected_ids_before
+                or len(expected_ids_before) != self._planning_scene_object_count
+            ):
+                return finish(
+                    "manual_jog_reconciliation_scene_unknown",
+                    "The acknowledged collision-scene object identity is unavailable.",
+                )
+
+            query_id = uuid4().hex
+            session_id = self._manual_jog_session_id
+            details.update(queryRequestId=query_id, sessionId=session_id)
+            query = getattr(self._bridge, "query_manual_joint_state_si", None)
+            if not callable(query):
+                return finish(
+                    "manual_jog_reconciliation_unavailable",
+                    "The read-only native accepted-state query is unavailable.",
+                )
+            try:
+                response = query(echo, query_id, session_id)
+            except Exception as exc:
+                response = None
+                query_message = f"Native state query failed: {exc}"
+            else:
+                query_message = "The native state query returned an invalid response."
+            if (
+                isinstance(response, (tuple, list))
+                and len(response) == 2
+            ):
+                status, query_message = response
+                query_message = str(query_message or "")
+            else:
+                status = None
+
+            def vector(values):
+                if not isinstance(values, (tuple, list)) or len(values) != len(JOINT_NAMES):
+                    return None
+                result = []
+                for value in values:
+                    if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(float(value)):
+                        return None
+                    result.append(float(value))
+                return tuple(result)
+
+            native_echo = vector(getattr(status, "requested_positions", None))
+            native_accepted = vector(getattr(status, "accepted_positions", None))
+            operation = getattr(status, "operation", None)
+            query_only = getattr(status, "query_only", None)
+            command_valid = getattr(status, "command_valid", None)
+            static_validity = getattr(status, "accepted", None)
+            native_ids = tuple(
+                sorted(
+                    item["id"]
+                    for item in (getattr(status, "world_objects", ()) or ())
+                    if isinstance(item, Mapping)
+                    and isinstance(item.get("id"), str)
+                    and item["id"]
+                )
+            )
+            objects = tuple(getattr(status, "world_objects", ()) or ())
+            world_evidence_present = getattr(
+                status, "world_object_evidence_present", False
+            ) is True
+            world_count = getattr(status, "world_object_count", None)
+            world_objects_valid = (
+                isinstance(world_count, int)
+                and not isinstance(world_count, bool)
+                and len(objects) == world_count
+                and all(
+                    isinstance(item, Mapping)
+                    and isinstance(item.get("id"), str)
+                    and bool(item["id"])
+                    for item in objects
+                )
+            )
+            response_correlated = bool(
+                status is not None
+                and getattr(status, "request_id", None) == query_id
+                and getattr(status, "session_id", None) == session_id
+                and getattr(status, "policy_id", None) == MANUAL_JOINT_POLICY_ID
+                and operation == "state_query"
+                and query_only is True
+                and native_echo == echo_vector
+                and command_valid is True
+                and isinstance(static_validity, bool)
+                and native_accepted is not None
+            )
+            details["nativeGuardEvidence"] = {
+                "responseObserved": status is not None,
+                "responseCorrelated": response_correlated,
+                "operation": operation,
+                "queryOnly": query_only,
+                "requestId": str(getattr(status, "request_id", "") or ""),
+                "sessionId": str(getattr(status, "session_id", "") or ""),
+                "policyId": str(getattr(status, "policy_id", "") or ""),
+                "commandValid": command_valid if isinstance(command_valid, bool) else None,
+                "staticStateValid": static_validity if isinstance(static_validity, bool) else None,
+                "reason": _bounded_text(getattr(status, "reason", "") or query_message),
+                "requestedPositionsSi": native_echo,
+                "acceptedPositionsSi": native_accepted,
+                "checkedSamples": int(getattr(status, "checked_samples", 0) or 0),
+                "minimumClearanceM": getattr(status, "minimum_clearance_m", None),
+                "minimumSelfDistanceM": getattr(status, "minimum_self_distance_m", None),
+                "minimumWorldDistanceM": getattr(status, "minimum_world_distance_m", None),
+                "firstBody": str(getattr(status, "first_body", "") or ""),
+                "secondBody": str(getattr(status, "second_body", "") or ""),
+                "worldObjectCount": world_count,
+                "worldObjectEvidencePresent": world_evidence_present,
+                "worldObjectIds": native_ids,
+                "collisionScenePolicyFingerprint": str(
+                    getattr(status, "collision_scene_policy_fingerprint", "") or ""
+                ),
+            }
+            if not response_correlated:
+                return finish(
+                    "manual_jog_reconciliation_unknown",
+                    query_message or "The read-only native reply was missing, stale, or mismatched.",
+                )
+            if (
+                not world_evidence_present
+                or not world_objects_valid
+                or world_count != self._planning_scene_object_count
+                or len(native_ids) != world_count
+                or len(set(native_ids)) != len(native_ids)
+                or native_ids != expected_ids_before
+            ):
+                return finish(
+                    "manual_jog_reconciliation_scene_stale",
+                    "Native and acknowledged collision-scene object IDs do not match.",
+                )
+
+            accepted = dict(zip(JOINT_NAMES, native_accepted))
+            details["acceptedJointPositionsSi"] = dict(accepted)
+            wait_for_state = getattr(
+                self._bridge, "wait_for_monitored_joint_positions_si", None
+            )
+            if not callable(wait_for_state):
+                return finish(
+                    "manual_jog_reconciliation_monitor_unavailable",
+                    "The fresh ROS/MoveIt monitored-state reader is unavailable.",
+                )
+            try:
+                monitored_result = wait_for_state(accepted)
+            except Exception as exc:
+                monitored_result = None
+                monitor_message = f"Monitored-state read failed: {exc}"
+            else:
+                monitor_message = "The monitored-state reader returned an invalid response."
+            if isinstance(monitored_result, (tuple, list)) and len(monitored_result) == 4:
+                monitored_ok, monitor_message, monitored, maximum_error = monitored_result
+                monitor_message = str(monitor_message or "")
+            else:
+                monitored_ok, monitored, maximum_error = False, {}, float("inf")
+            monitored_vector = tuple(
+                float(monitored[name]) for name in JOINT_NAMES
+            ) if isinstance(monitored, Mapping) and set(monitored) == set(JOINT_NAMES) and all(
+                not isinstance(monitored[name], bool)
+                and isinstance(monitored[name], Real)
+                and isfinite(float(monitored[name]))
+                for name in JOINT_NAMES
+            ) else None
+            details.update(
+                monitoredStateStatus="matched" if monitored_ok is True else "not_converged",
+                monitoredJointPositionsSi=(
+                    dict(zip(JOINT_NAMES, monitored_vector))
+                    if monitored_vector is not None
+                    else None
+                ),
+                monitoredMaximumError=maximum_error,
+            )
+            if monitored_ok is not True or monitored_vector is None:
+                return finish(
+                    "manual_jog_reconciliation_monitor_mismatch",
+                    monitor_message or "ROS/MoveIt monitored state does not match the native accepted vector.",
+                )
+
+            try:
+                identity_after = self._manual_jog_current_identity(parameter_node)
+                audit_after = self._logic.collisionSceneAuditRecord(parameter_node)
+                expected_ids_after = audit_object_ids(audit_after)
+            except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
+                details["identityAfter"] = {"status": _bounded_text(exc)}
+                details["identityStatus"] = "stale"
+                return finish(
+                    "manual_jog_reconciliation_stale",
+                    "Task, branch, base, Home, limits, profile, or scene identity became unavailable after the state query.",
+                )
+            details["identityAfter"] = dict(identity_after)
+            details["worldObjectIdsBefore"] = expected_ids_before
+            details["worldObjectIdsAfter"] = expected_ids_after
+            details["identityStatus"] = (
+                "current"
+                if identity_after == identity_before == dict(expected_identity)
+                and expected_ids_after == expected_ids_before
+                else "stale"
+            )
+            if details["identityStatus"] != "current":
+                return finish(
+                    "manual_jog_reconciliation_stale",
+                    "Task, branch, base, Home, limits, or scene identity changed during reconciliation.",
+                )
+
+            commit = getattr(
+                self._bridge, "accept_manual_joint_state_reconciliation", None
+            )
+            if not callable(commit):
+                return finish(
+                    "manual_jog_reconciliation_unavailable",
+                    "The bridge cannot commit a verified reconciliation.",
+                )
+            try:
+                committed = commit(status, echo, query_id, session_id)
+            except Exception as exc:
+                committed = (False, f"Could not commit reconciled state: {exc}")
+            if not (
+                isinstance(committed, (tuple, list))
+                and len(committed) == 2
+                and committed[0] is True
+            ):
+                commit_message = (
+                    str(committed[1])
+                    if isinstance(committed, (tuple, list)) and len(committed) == 2
+                    else "Could not commit reconciled native state."
+                )
+                return finish("manual_jog_reconciliation_unknown", commit_message)
+
+            self.invalidateMotionPlan()
+            self._manual_jog_reconciliation_required = False
+            self._manual_jog_uncertainty = None
+            details.update(
+                manualJogReconciliationRequired=False,
+                manualJogStatus="reconciled",
+                collisionStatus="valid" if static_validity else "invalid",
+                acceptedJointPositionsSi=dict(accepted),
+            )
+            return finish(
+                "manual_jog_reconciled",
+                "Native accepted J1–J5 state was reconciled with ROS/MoveIt monitored state. "
+                + ("The static collision check passed." if static_validity else "The known accepted state currently fails static collision validity."),
+                success=True,
+            )
+        except Exception as exc:
+            details["identityStatus"] = "unknown"
+            return finish("manual_jog_reconciliation_unknown", str(exc))
         finally:
             self._manual_jog_in_progress = False
 

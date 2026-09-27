@@ -42,6 +42,7 @@ class DENTORobotSimulationPanel:
         "reset_manual_draft": 5,
         "manual_draft_changed": 5,
         "check_manual_draft_state": 5,
+        "reconcile_manual_jog": 5,
         "guarded_manual_jog": 5,
         "export_manual_record": 5,
         "plan_approach": 5,
@@ -531,6 +532,13 @@ class DENTORobotSimulationPanel:
             "Run the read-only static state evaluator on the current J1–J5 draft. "
             "This does not jog, plan, or authorize a route or preview."
         )
+        self.reconcileManualJogButton = qt.QPushButton(
+            "Reconcile State", self.manualJogGroup
+        )
+        self.reconcileManualJogButton.objectName = "DENTOBOTReconcileManualJogButton"
+        self.reconcileManualJogButton.toolTip = (
+            "Read and verify the native accepted J1–J5 state. This does not issue motion."
+        )
         self.exportManualRecordButton = qt.QPushButton(
             "Export Historical Record…", self.manualJogGroup
         )
@@ -543,6 +551,7 @@ class DENTORobotSimulationPanel:
         )
         manual_jog_actions.addWidget(self.resetManualJogDraftButton)
         manual_jog_actions.addWidget(self.checkManualDraftStateButton)
+        manual_jog_actions.addWidget(self.reconcileManualJogButton)
         manual_jog_actions.addWidget(self.guardedManualJogButton)
         manual_jog_actions.addWidget(self.exportManualRecordButton)
         manual_jog_layout.addLayout(manual_jog_actions)
@@ -956,6 +965,9 @@ class DENTORobotSimulationPanel:
                 "check_manual_draft_state", self.manualJogJointPositionsSi()
             )
         )
+        self.reconcileManualJogButton.clicked.connect(
+            lambda checked=False: self._invoke("reconcile_manual_jog")
+        )
         self.guardedManualJogButton.clicked.connect(
             lambda checked=False: self._invoke(
                 "guarded_manual_jog", self.manualJogJointPositionsSi()
@@ -1177,7 +1189,7 @@ class DENTORobotSimulationPanel:
         if self._manualJogDraftInitialized:
             self._setManualJogDraftValues(self._manualJogDisplayValues, notify=True)
 
-    def setManualJogAcceptedState(self, positions_si) -> None:
+    def setManualJogAcceptedState(self, positions_si, *, preserve_draft=False) -> None:
         try:
             values = {joint: float(positions_si[joint]) for joint in JOINT_NAMES}
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -1208,7 +1220,7 @@ class DENTORobotSimulationPanel:
             + self._formatManualJogDisplayValues(display)
             + ". Review only until Accept Task Home passes the live checks."
         )
-        if not self._manualJogDraftInitialized and self._manualJogLimits:
+        if not preserve_draft and not self._manualJogDraftInitialized and self._manualJogLimits:
             self._setManualJogDraftValues(display, notify=False)
 
     def setManualJogAvailability(
@@ -1234,6 +1246,11 @@ class DENTORobotSimulationPanel:
         )
         self.checkManualDraftStateButton.enabled = bool(
             self._manualJogAvailable and not self._manualJogBusy
+        )
+        self.reconcileManualJogButton.enabled = bool(
+            self._manualJogAvailable
+            and self.manualJogReconciliationRequired
+            and not self._manualJogBusy
         )
 
     def setManualJogLimitsUnavailable(self, message: str) -> None:
@@ -1264,8 +1281,10 @@ class DENTORobotSimulationPanel:
     def setManualJogStatus(self, state: str, message: str, evidence=None) -> None:
         if evidence is not None:
             self._manualJogEvidence = dict(evidence)
-            if evidence.get("manualJogReconciliationRequired") is True:
-                self.manualJogReconciliationRequired = True
+            if "manualJogReconciliationRequired" in evidence:
+                self.manualJogReconciliationRequired = (
+                    evidence["manualJogReconciliationRequired"] is True
+                )
             native_summary = self._formatManualJogNativeEvidence(evidence)
             if native_summary:
                 message = f"{message} {native_summary}"

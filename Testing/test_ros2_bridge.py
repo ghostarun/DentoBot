@@ -7,6 +7,7 @@ import inspect
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = ROOT / "DENTOWorkflow" / "Resources" / "Python"
@@ -18,6 +19,11 @@ from DENTOROS2Bridge import (  # noqa: E402
     CARTESIAN_START_POSITION_TOLERANCE_MM,
     ROS2_JOINT_COMMAND_STATUS_SCHEMA,
     ROS2_JOINT_SI_ORDER,
+    ROS2_MANUAL_JOINT_COMMAND_SCHEMA,
+    ROS2_MANUAL_JOINT_COMMAND_TOPIC,
+    ROS2_MANUAL_JOINT_POLICY_ID,
+    ROS2_MANUAL_JOINT_STATUS_SCHEMA,
+    ROS2_MANUAL_JOINT_STATUS_TOPIC,
     ROS2_PLANNING_GROUP,
     ROS2_SIMULATION_STATUS_SCHEMA,
     ROS2_TASK_GUARD_INITIAL_SEQUENCE,
@@ -30,11 +36,15 @@ from DENTOROS2Bridge import (  # noqa: E402
     align_ros2_goal_to_base_transform,
     align_ros2_robot_to_base_transform,
     configure_task_phase_guard,
+    accept_manual_joint_state_reconciliation,
+    apply_manual_joint_positions_si,
     joint_si_vector,
     parse_joint_command_status,
+    parse_manual_joint_status,
     parse_simulation_status,
     parse_task_joint_status,
     position_axis_joint_limit_blockers,
+    query_manual_joint_state_si,
 )
 import DENTOROS2Bridge as bridge_module  # noqa: E402
 
@@ -48,6 +58,33 @@ def status_payload(**overrides) -> str:
         "joint_state_publisher_count": 1,
         "ready": True,
         "reason": "",
+    }
+    data.update(overrides)
+    return json.dumps(data)
+
+
+def manual_joint_status_payload(**overrides) -> str:
+    data = {
+        "schema": ROS2_MANUAL_JOINT_STATUS_SCHEMA,
+        "mode": "simulation_only",
+        "operation": "jog",
+        "request_id": "request-a",
+        "session_id": "session-a",
+        "policy_id": ROS2_MANUAL_JOINT_POLICY_ID,
+        "command_valid": True,
+        "query_only": False,
+        "accepted": True,
+        "reason": "clear",
+        "requested_positions": [0.1, 0.02, 0.2, 0.02, 0.1],
+        "accepted_positions": [0.1, 0.02, 0.2, 0.02, 0.1],
+        "checked_samples": 3,
+        "minimum_clearance_m": 0.001,
+        "minimum_self_distance_m": 0.002,
+        "minimum_world_distance_m": 0.003,
+        "first_body": "",
+        "second_body": "",
+        "world_object_count": 0,
+        "world_objects": [],
     }
     data.update(overrides)
     return json.dumps(data)
@@ -172,6 +209,366 @@ def test_joint_guard_status_rejects_wrong_mode_and_vector_length():
         assert "five" in str(exc)
     else:
         raise AssertionError("five-joint status was accepted")
+
+
+def test_manual_joint_status_requires_exact_simulation_request_policy_and_vectors():
+    status = parse_manual_joint_status(manual_joint_status_payload())
+    assert status.request_id == "request-a"
+    assert status.session_id == "session-a"
+    assert status.policy_id == ROS2_MANUAL_JOINT_POLICY_ID
+    assert status.command_valid is True
+    assert status.accepted_positions == status.requested_positions
+
+    for change in (
+        {"schema": ROS2_JOINT_COMMAND_STATUS_SCHEMA},
+        {"mode": "hardware"},
+        {"request_id": ""},
+        {"session_id": ""},
+        {"policy_id": "phase_guard_fingerprint"},
+        {"operation": "state_query"},
+        {"query_only": True},
+        {"command_valid": 1},
+        {"requested_positions": [True, 0.02, 0.2, 0.02, 0.1]},
+        {"accepted_positions": [0.1, 0.02, float("inf"), 0.02, 0.1]},
+        {"world_object_count": True},
+        {"world_object_count": 1},
+    ):
+        with pytest.raises(ValueError):
+            parse_manual_joint_status(manual_joint_status_payload(**change))
+
+
+def _manual_bridge_probe(monkeypatch, replies):
+    class Subscriber:
+        def __init__(self, node):
+            self.node = node
+            self.payload = ""
+            self.messages = 0
+            self.observer = None
+
+        def SaveWithSceneOff(self):
+            pass
+
+        def AddObserver(self, _event, callback):
+            self.observer = callback
+            return 1
+
+        def RemoveObserver(self, _observer):
+            self.observer = None
+
+        def GetNumberOfMessages(self):
+            return self.messages
+
+        def GetLastMessage(self):
+            return self.payload
+
+        def deliver(self, payload):
+            self.payload = payload
+            self.messages += 1
+            if self.observer:
+                self.observer(self)
+
+        def GetID(self):
+            return "manual-status"
+
+    class Publisher:
+        def __init__(self, node):
+            self.node = node
+            self.messages = []
+
+        def SaveWithSceneOff(self):
+            pass
+
+        def Publish(self, payload):
+            self.messages.append(payload)
+            for reply in replies:
+                self.node.subscriber.deliver(reply)
+
+        def GetID(self):
+            return "manual-command"
+
+    class RosNode:
+        def __init__(self):
+            self.subscriber = None
+            self.publisher = None
+            self.removed = []
+
+        def CreateAndAddSubscriberNode(self, _type, topic):
+            assert topic == ROS2_MANUAL_JOINT_STATUS_TOPIC
+            self.subscriber = Subscriber(self)
+            return self.subscriber
+
+        def CreateAndAddPublisherNode(self, _type, topic):
+            assert topic == ROS2_MANUAL_JOINT_COMMAND_TOPIC
+            self.publisher = Publisher(self)
+            return self.publisher
+
+        def RemoveAndDeleteSubscriberNode(self, topic):
+            self.removed.append(("subscriber", topic))
+
+        def RemoveAndDeletePublisherNode(self, topic):
+            self.removed.append(("publisher", topic))
+
+        def GetNumberOfNodeReferences(self, _role):
+            return 0
+
+    class Timer:
+        active = True
+
+        def isActive(self):
+            return self.active
+
+        def stop(self):
+            self.active = False
+
+        def start(self):
+            self.active = True
+
+    node = RosNode()
+    timer = Timer()
+    monkeypatch.setattr(bridge_module, "ensure_default_ros2_node_in_scene", lambda: node)
+    monkeypatch.setattr(bridge_module, "get_ros2_logic", lambda: SimpleNamespace(Spin=lambda: None))
+    monkeypatch.setattr(bridge_module, "find_ros2_robot_by_name", lambda _name: object())
+    monkeypatch.setattr(bridge_module, "_slicer_joint_command_timer", timer)
+    monkeypatch.setattr(bridge_module, "_native_joint_positions", [0.0] * 5)
+    monkeypatch.setattr(bridge_module, "_last_manual_joint_status", None)
+    monkeypatch.setattr(bridge_module, "_last_manual_joint_status_at", 0.0)
+    monkeypatch.setattr(bridge_module, "_last_joint_status", None)
+    monkeypatch.setattr(bridge_module, "_last_joint_status_at", 0.0)
+    monkeypatch.setattr(bridge_module, "_last_task_status", None)
+    monkeypatch.setattr(bridge_module, "_last_task_status_at", 0.0)
+    monkeypatch.setattr(bridge_module, "_restore_motion_control_positions", lambda _values: None)
+    monkeypatch.setattr(bridge_module, "joint_command_status", lambda: None)
+    monkeypatch.setattr(
+        bridge_module,
+        "_publish_slicer_joint_command",
+        lambda: pytest.fail("manual jog must not publish the compatibility heartbeat"),
+    )
+    return node, timer
+
+
+def test_manual_jog_ignores_delayed_same_vector_wrong_session_and_policy_replies(monkeypatch):
+    requested = (0.1, 0.02, 0.2, 0.02, 0.1)
+    replies = [
+        manual_joint_status_payload(request_id="previous-request"),
+        manual_joint_status_payload(session_id="previous-session"),
+        manual_joint_status_payload(policy_id="task_phase_policy_fingerprint"),
+        manual_joint_status_payload(),
+    ]
+    node, timer = _manual_bridge_probe(monkeypatch, replies)
+    request = dict(zip(ROS2_JOINT_SI_ORDER, requested))
+
+    applied, message, status = apply_manual_joint_positions_si(
+        request, "request-a", "session-a", timeout_sec=0.02
+    )
+
+    assert applied is True
+    assert message == "clear"
+    assert status.request_id == "request-a"
+    assert status.session_id == "session-a"
+    command, = node.publisher.messages
+    assert json.loads(command) == {
+        "schema": ROS2_MANUAL_JOINT_COMMAND_SCHEMA,
+        "mode": "simulation_only",
+        "operation": "jog",
+        "request_id": "request-a",
+        "session_id": "session-a",
+        "policy_id": ROS2_MANUAL_JOINT_POLICY_ID,
+        "joint_positions": list(requested),
+    }
+    assert len(node.publisher.messages) == 1
+    assert node.removed == [
+        ("publisher", ROS2_MANUAL_JOINT_COMMAND_TOPIC),
+        ("subscriber", ROS2_MANUAL_JOINT_STATUS_TOPIC),
+    ]
+    assert timer.active
+    assert bridge_module.last_accepted_joint_positions_si() == request
+
+
+def test_manual_jog_timeout_ignores_same_vector_delayed_status_without_cache_rollback(monkeypatch):
+    requested = (0.1, 0.02, 0.2, 0.02, 0.1)
+    node, timer = _manual_bridge_probe(
+        monkeypatch,
+        [
+            manual_joint_status_payload(request_id="previous-request"),
+            manual_joint_status_payload(session_id="previous-session"),
+            manual_joint_status_payload(policy_id="wrong-policy"),
+        ],
+    )
+    request = dict(zip(ROS2_JOINT_SI_ORDER, requested))
+
+    applied, message, status = apply_manual_joint_positions_si(
+        request, "request-a", "session-a", timeout_sec=0.02
+    )
+
+    assert applied is None
+    assert "timeout" in message
+    assert status is None
+    assert len(node.publisher.messages) == 1
+    assert bridge_module.last_accepted_joint_positions_si() == {
+        name: 0.0 for name in ROS2_JOINT_SI_ORDER
+    }
+    assert not timer.active
+
+
+def test_manual_jog_conclusive_rejection_resumes_compatibility_stream(monkeypatch):
+    requested = (0.1, 0.02, 0.2, 0.02, 0.1)
+    node, timer = _manual_bridge_probe(
+        monkeypatch,
+        [
+            manual_joint_status_payload(
+                accepted=False,
+                accepted_positions=[0.0] * len(ROS2_JOINT_SI_ORDER),
+                reason="self collision",
+            )
+        ],
+    )
+
+    applied, message, status = apply_manual_joint_positions_si(
+        dict(zip(ROS2_JOINT_SI_ORDER, requested)),
+        "request-a",
+        "session-a",
+        timeout_sec=0.02,
+    )
+
+    assert applied is False
+    assert message == "self collision"
+    assert status.accepted is False
+    assert timer.active
+    assert bridge_module.last_accepted_joint_positions_si() == {
+        name: 0.0 for name in ROS2_JOINT_SI_ORDER
+    }
+    assert len(node.publisher.messages) == 1
+
+
+def test_manual_jog_inconsistent_accepted_vector_does_not_advance_cache_or_display(monkeypatch):
+    requested = (0.1, 0.02, 0.2, 0.02, 0.1)
+    unexpected_accepted = (0.15, 0.02, 0.2, 0.02, 0.1)
+    node, timer = _manual_bridge_probe(
+        monkeypatch,
+        [
+            manual_joint_status_payload(
+                accepted_positions=list(unexpected_accepted),
+            )
+        ],
+    )
+    request = dict(zip(ROS2_JOINT_SI_ORDER, requested))
+    restored_positions = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_restore_motion_control_positions",
+        lambda values: restored_positions.append(tuple(values)),
+    )
+
+    applied, message, status = apply_manual_joint_positions_si(
+        request, "request-a", "session-a", timeout_sec=0.02
+    )
+
+    assert applied is None
+    assert "did not confirm" in message
+    assert status.accepted is True
+    assert bridge_module.last_accepted_joint_positions_si() == {
+        name: 0.0 for name in ROS2_JOINT_SI_ORDER
+    }
+    assert bridge_module._native_joint_positions == [0.0] * 5
+    assert bridge_module._last_manual_joint_status is None
+    assert restored_positions == []
+    assert not timer.active
+    assert len(node.publisher.messages) == 1
+
+
+def test_manual_state_query_correlates_echo_without_mutating_until_commit(monkeypatch):
+    echoed = (0.1, 0.02, 0.2, 0.02, 0.1)
+    accepted = (0.12, 0.02, 0.2, 0.02, 0.1)
+    replies = [
+        manual_joint_status_payload(
+            operation="state_query", query_only=True, request_id="stale-request"
+        ),
+        manual_joint_status_payload(
+            operation="state_query", query_only=True, requested_positions=[0] * 5
+        ),
+        manual_joint_status_payload(
+            operation="state_query",
+            query_only=True,
+            accepted=False,
+            reason="native state currently collides",
+            accepted_positions=list(accepted),
+        ),
+    ]
+    node, timer = _manual_bridge_probe(monkeypatch, replies)
+    restore_calls = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_restore_motion_control_positions",
+        lambda values: restore_calls.append(tuple(values)),
+    )
+
+    status, message = query_manual_joint_state_si(
+        dict(zip(ROS2_JOINT_SI_ORDER, echoed)), "request-a", "session-a"
+    )
+
+    assert status is not None
+    assert status.operation == "state_query" and status.query_only is True
+    assert status.accepted is False  # static collision result, not query failure
+    assert status.accepted_positions == accepted
+    assert "collides" in message
+    assert json.loads(node.publisher.messages[0])["operation"] == "state_query"
+    assert json.loads(node.publisher.messages[0])["joint_positions"] == list(echoed)
+    assert len(node.publisher.messages) == 1
+    assert not timer.active
+    assert restore_calls == []
+    assert bridge_module._native_joint_positions == [0.0] * 5
+    assert bridge_module._last_manual_joint_status is None
+
+    ok, commit_message = accept_manual_joint_state_reconciliation(
+        status,
+        dict(zip(ROS2_JOINT_SI_ORDER, echoed)),
+        "request-a",
+        "session-a",
+    )
+
+    assert ok, commit_message
+    assert timer.active
+    assert restore_calls == [accepted]
+    assert bridge_module._native_joint_positions == list(accepted)
+    assert bridge_module.last_accepted_joint_positions_si() == dict(
+        zip(ROS2_JOINT_SI_ORDER, accepted)
+    )
+
+
+def test_manual_state_query_timeout_stays_paused_and_does_not_change_cache(monkeypatch):
+    node, timer = _manual_bridge_probe(
+        monkeypatch,
+        [manual_joint_status_payload(operation="jog", query_only=False)],
+    )
+    initial = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    status, message = query_manual_joint_state_si(
+        initial, "request-a", "session-a", timeout_sec=0.02
+    )
+
+    assert status is None and "timeout" in message
+    assert len(node.publisher.messages) == 1
+    assert not timer.active
+    assert bridge_module._native_joint_positions == [0.0] * 5
+    assert bridge_module._last_manual_joint_status is None
+
+
+def test_manual_jog_transient_interface_failure_resumes_preexisting_stream(monkeypatch):
+    node, timer = _manual_bridge_probe(monkeypatch, [])
+    monkeypatch.setattr(node, "CreateAndAddPublisherNode", lambda *_args: None)
+
+    applied, message, status = apply_manual_joint_positions_si(
+        dict(zip(ROS2_JOINT_SI_ORDER, (0.1, 0.02, 0.2, 0.02, 0.1))),
+        "request-a",
+        "session-a",
+        timeout_sec=0.02,
+    )
+
+    assert applied is None
+    assert "interface is unavailable" in message
+    assert status is None
+    assert node.publisher is None
+    assert node.removed == [("subscriber", ROS2_MANUAL_JOINT_STATUS_TOPIC)]
+    assert timer.active
 
 
 def test_task_guard_status_requires_and_preserves_transient_session_identity():

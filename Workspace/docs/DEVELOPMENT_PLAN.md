@@ -2,10 +2,13 @@
 
 Last reconciled: 2026-09-27.
 
-The 27 September source gate makes submitted unknown/stale manual jogs fail
-closed for the current facade session and presents possible simulated motion
-truthfully. Focused host tests pass; unique native request/policy attribution,
-current-scene runtime and Tarun's verdict remain open under `S6-LIVE-01`.
+The 27 September source gates make submitted unknown/stale manual jogs fail
+closed for the current facade session and present possible simulated motion
+truthfully. A separate manual command/status protocol now binds unique
+request/session and ordinary raw policy identity at source level; the combined
+host pure check passed 106 tests. The later read-only reconciliation source
+retry passed 118 host pure tests. Native build/current-scene runtime and
+Tarun's verdict remain open under `S6-LIVE-01`.
 The same date's Check Draft State action evaluates captured review joints through
 the existing read-only endpoint path. Source checks pass; the final engineer
 workbench and its runtime/operator acceptance remain open.

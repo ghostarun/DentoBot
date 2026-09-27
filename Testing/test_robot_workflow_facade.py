@@ -2505,6 +2505,8 @@ def _manual_jog_probe(monkeypatch):
         return SimpleNamespace(
             accepted=accepted,
             reason=reason,
+            operation="jog",
+            query_only=False,
             requested_positions=tuple(requested[name] for name in ROS2_JOINT_SI_ORDER),
             accepted_positions=tuple(current[name] for name in ROS2_JOINT_SI_ORDER),
             checked_samples=3,
@@ -2519,33 +2521,182 @@ def _manual_jog_probe(monkeypatch):
         )
 
     bridge.raw_status = raw_status(True, bridge.accepted, bridge.accepted, "current")
-    bridge.joint_command_status = lambda: bridge.raw_status
+    bridge.legacy_status_reads = []
+    bridge.joint_command_status = lambda: bridge.legacy_status_reads.append(True) or bridge.raw_status
     bridge.last_accepted_joint_positions_si = lambda: dict(bridge.accepted)
     bridge.monitored_joint_positions_si = lambda: dict(bridge.accepted)
-    bridge.raw_requests = []
+    bridge.manual_requests = []
+    bridge.raw_requests = bridge.manual_requests
     bridge.raw_reject = False
     bridge.raw_silent = False
+    bridge.manual_policy_id = workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    bridge.manual_request_id = None
+    bridge.manual_session_id = None
+    bridge.response_request_id = None
+    bridge.response_session_id = None
+    bridge.raw_policy_fingerprint = "task-phase-fingerprint-must-not-identify-raw-policy"
+    bridge.query_requests = []
+    bridge.query_accepted = None
+    bridge.query_response_id = None
+    bridge.query_session_id = None
+    bridge.query_policy_id = None
+    bridge.query_object_ids = None
+    bridge.query_monitor_matches = True
+    bridge.query_commit_fails = False
+    bridge.query_commit_calls = []
 
-    def apply_raw(positions):
+    def apply_manual(positions, request_id, session_id):
         requested = {name: float(positions[name]) for name in ROS2_JOINT_SI_ORDER}
-        bridge.raw_requests.append(requested)
+        bridge.manual_requests.append((requested, request_id, session_id))
+        bridge.manual_request_id = request_id
+        bridge.manual_session_id = session_id
         if bridge.raw_silent:
-            return False, "raw guard timed out"
+            return None, "manual guard timed out", None
         if bridge.raw_reject:
-            bridge.raw_status = raw_status(False, requested, bridge.accepted, "self collision")
-            return False, "self collision"
-        bridge.accepted = dict(requested)
-        bridge.raw_status = raw_status(True, requested, bridge.accepted, "clear")
-        return True, "clear"
+            bridge.raw_status = raw_status(
+                False, requested, bridge.accepted, "self collision"
+            )
+            accepted = False
+            message = "self collision"
+        else:
+            bridge.accepted = dict(requested)
+            bridge.raw_status = raw_status(True, requested, bridge.accepted, "clear")
+            accepted = True
+            message = "clear"
+        bridge.raw_status = SimpleNamespace(
+            **bridge.raw_status.__dict__,
+            request_id=bridge.response_request_id or bridge.manual_request_id,
+            session_id=bridge.response_session_id or bridge.manual_session_id,
+            policy_id=bridge.manual_policy_id,
+            command_valid=True,
+            collision_scene_policy_fingerprint=bridge.raw_policy_fingerprint,
+        )
+        return accepted, message, bridge.raw_status
 
-    bridge.apply_joint_positions_si_to_motion_control = apply_raw
+    bridge.apply_manual_joint_positions_si = apply_manual
+
+    def query_manual(echo, request_id, session_id):
+        echo = {name: float(echo[name]) for name in ROS2_JOINT_SI_ORDER}
+        bridge.query_requests.append((echo, request_id, session_id))
+        accepted = bridge.query_accepted or bridge.accepted
+        status = raw_status(False, echo, accepted, "static collision")
+        ids = bridge.query_object_ids or ["jaw", "tooth"]
+        status_values = dict(status.__dict__)
+        status_values.update(
+            request_id=bridge.query_response_id or request_id,
+            session_id=bridge.query_session_id or session_id,
+            policy_id=bridge.query_policy_id or workflow_facade_module.MANUAL_JOINT_POLICY_ID,
+            command_valid=True,
+            operation="state_query",
+            query_only=True,
+            world_objects=tuple({"id": value} for value in ids),
+            collision_scene_policy_fingerprint=bridge.raw_policy_fingerprint,
+        )
+        status = SimpleNamespace(**status_values)
+        return status, status.reason
+
+    def wait_for_monitored(expected):
+        if not bridge.query_monitor_matches:
+            return False, "monitored state mismatch", dict(bridge.accepted), float("inf")
+        return True, "matched", dict(expected), 0.0
+
+    def commit_query(status, _echo, _request_id, _session_id):
+        bridge.query_commit_calls.append(status)
+        if bridge.query_commit_fails:
+            return False, "commit failed"
+        bridge.accepted = dict(zip(ROS2_JOINT_SI_ORDER, status.accepted_positions))
+        return True, "committed"
+
+    bridge.query_manual_joint_state_si = query_manual
+    bridge.wait_for_monitored_joint_positions_si = wait_for_monitored
+    bridge.accept_manual_joint_state_reconciliation = commit_query
     request = dict(
         zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
     )
     return facade, parameter_node, logic, bridge, request, limits, task, mechanical
 
 
-def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection(
+def test_manual_jog_reconciliation_reads_native_state_and_allows_static_failure(monkeypatch):
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    bridge.raw_silent = True
+    unknown = facade.guardManualRobotJog(request)
+    assert not unknown.success
+    assert unknown.details["manualJogReconciliationRequired"] is True
+    accepted_before = dict(bridge.accepted)
+    bridge.query_accepted = dict(request)
+    motion_calls_before = (len(bridge.applied), len(bridge.phase_calls))
+
+    result = facade.reconcileManualRobotJog()
+
+    assert result.success
+    assert result.code == "manual_jog_reconciled"
+    assert result.details["manualJogReconciliationRequired"] is False
+    assert result.details["acceptedJointPositionsSi"] == request
+    assert result.details["collisionStatus"] == "invalid"
+    assert result.details["nativeGuardEvidence"]["staticStateValid"] is False
+    assert result.details["nativeGuardEvidence"]["operation"] == "state_query"
+    assert result.details["nativeGuardEvidence"]["queryOnly"] is True
+    assert bridge.query_requests[0][0] == request
+    assert len(bridge.query_requests[0][0]) == 5  # J6 never enters the query.
+    assert bridge.accepted == request and bridge.accepted != accepted_before
+    assert len(bridge.manual_requests) == 1
+    assert (len(bridge.applied), len(bridge.phase_calls)) == motion_calls_before
+    assert not facade._manual_jog_reconciliation_required
+    assert facade._manual_jog_uncertainty is None
+
+
+def test_manual_jog_reconciliation_rejects_stale_id_scene_monitor_and_identity(monkeypatch):
+    for mismatch in ("request", "scene", "malformed_scene", "monitor", "identity"):
+        facade, _node, logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+        bridge.raw_silent = True
+        facade.guardManualRobotJog(request)
+        bridge.query_accepted = dict(request)
+        if mismatch == "request":
+            bridge.query_response_id = "delayed-query"
+        elif mismatch == "scene":
+            bridge.query_object_ids = ["jaw", "other-tooth"]
+        elif mismatch == "malformed_scene":
+            query_manual = bridge.query_manual_joint_state_si
+
+            def query_with_malformed_world_entry(echo, request_id, session_id):
+                status, message = query_manual(echo, request_id, session_id)
+                status = SimpleNamespace(
+                    **status.__dict__,
+                    world_objects=(*status.world_objects, {"id": ""}),
+                )
+                return status, message
+
+            bridge.query_manual_joint_state_si = query_with_malformed_world_entry
+        elif mismatch == "monitor":
+            bridge.query_monitor_matches = False
+        else:
+            original_base_fingerprint = logic.robotBaseFingerprint
+            original_query = bridge.query_manual_joint_state_si
+            changed = {"value": False}
+
+            def query_then_change(echo, request_id, session_id):
+                response = original_query(echo, request_id, session_id)
+                changed["value"] = True
+                return response
+
+            bridge.query_manual_joint_state_si = query_then_change
+            logic.robotBaseFingerprint = lambda _node: (
+                "base-b" if changed["value"] else original_base_fingerprint(_node)
+            )
+        accepted_before = dict(bridge.accepted)
+        motion_calls_before = (len(bridge.applied), len(bridge.phase_calls))
+
+        result = facade.reconcileManualRobotJog()
+
+        assert not result.success, mismatch
+        assert facade._manual_jog_reconciliation_required, mismatch
+        assert bridge.accepted == accepted_before, mismatch
+        assert bridge.query_commit_calls == [], mismatch
+        assert len(bridge.manual_requests) == 1, mismatch
+        assert (len(bridge.applied), len(bridge.phase_calls)) == motion_calls_before, mismatch
+
+
+def test_manual_jog_accepts_only_exact_correlated_guard_ack_and_retains_rejection(
     monkeypatch,
 ):
     facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
@@ -2572,7 +2723,10 @@ def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection
     assert accepted.details["routeAuthority"] == "none"
     assert accepted.details["nativeGuardEvidence"][
         "collisionScenePolicyIdentityStatus"
-    ] == "unavailable_in_raw_status_contract"
+    ] == "manual_policy_id_correlated"
+    assert accepted.details["nativeGuardEvidence"]["policyId"] == (
+        workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    )
     assert bridge.phase_calls == []
     facade.currentRobotState = lambda: SimpleNamespace(
         joint_positions_si=dict(bridge.accepted)
@@ -2581,6 +2735,10 @@ def test_manual_jog_accepts_only_fresh_exact_raw_guard_ack_and_retains_rejection
     assert accepted_again.success
     assert accepted_again.details["manualJogReconciliationRequired"] is False
     assert len(bridge.raw_requests) == 2
+    first_request, second_request = bridge.manual_requests
+    assert first_request[1] != second_request[1]
+    assert first_request[2] == second_request[2] == facade._manual_jog_session_id
+    assert not bridge.legacy_status_reads
 
     facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
         _manual_jog_probe(monkeypatch)
@@ -2616,7 +2774,8 @@ def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
     assert not unknown.success
     assert unknown.details["guardAccepted"] is None
     assert unknown.details["manualJogStatus"] == "unknown"
-    assert unknown.details["nativeGuardEvidence"]["freshResponse"] is False
+    assert unknown.details["nativeGuardEvidence"]["responseCorrelated"] is False
+    assert unknown.details["acceptedStateMayHaveAdvanced"] is True
     assert unknown.details["requestedJointPositionsSi"] == request
     assert unknown.details["acceptedJointPositionsSi"] is None
     assert unknown.details["manualJogReconciliationRequired"] is True
@@ -2668,23 +2827,25 @@ def test_manual_jog_latches_when_submitted_guard_call_raises(monkeypatch):
     accepted_before = dict(bridge.accepted)
     attempted = []
 
-    def raise_after_submission(positions):
-        attempted.append(dict(positions))
+    def raise_after_submission(positions, request_id, session_id):
+        attempted.append((dict(positions), request_id, session_id))
         raise RuntimeError("guard response lost")
 
-    bridge.apply_joint_positions_si_to_motion_control = raise_after_submission
+    bridge.apply_manual_joint_positions_si = raise_after_submission
 
     result = facade.guardManualRobotJog(request)
 
     assert not result.success
     assert result.code == "manual_jog_guard_unknown"
     assert result.details["manualJogReconciliationRequired"] is True
-    assert attempted == [request]
+    assert attempted[0][0] == request
+    assert attempted[0][1] == result.details["requestId"]
+    assert attempted[0][2] == facade._manual_jog_session_id
     assert bridge.accepted == accepted_before
 
     blocked = facade.guardManualRobotJog(request)
     assert blocked.code == "manual_jog_reconciliation_required"
-    assert attempted == [request]
+    assert len(attempted) == 1
     assert bridge.accepted == accepted_before
 
 
@@ -2754,13 +2915,13 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
     ]
 
     nested = []
-    apply_raw = bridge.apply_joint_positions_si_to_motion_control
+    apply_raw = bridge.apply_manual_joint_positions_si
 
-    def reentrant_apply(positions):
+    def reentrant_apply(positions, request_id, session_id):
         nested.append(facade.guardManualRobotJog(request))
-        return apply_raw(positions)
+        return apply_raw(positions, request_id, session_id)
 
-    bridge.apply_joint_positions_si_to_motion_control = reentrant_apply
+    bridge.apply_manual_joint_positions_si = reentrant_apply
     outer = facade.guardManualRobotJog(request)
     assert outer.success
     assert len(nested) == 1
@@ -2769,37 +2930,53 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
     assert len(bridge.raw_requests) == 1
 
 
-def test_manual_jog_does_not_trust_unbound_raw_policy_fingerprint(monkeypatch):
+def test_manual_jog_uses_raw_manual_policy_id_not_phase_fingerprint(monkeypatch):
     facade, _node, _logic, bridge, request, _limits, _task, _mechanical = (
         _manual_jog_probe(monkeypatch)
     )
-    apply_raw = bridge.apply_joint_positions_si_to_motion_control
 
-    def apply_with_unbound_policy(positions):
-        result = apply_raw(positions)
-        bridge.raw_status = SimpleNamespace(
-            **bridge.raw_status.__dict__,
-            collision_scene_policy_fingerprint="unbound-policy",
-        )
-        return result
+    result = facade.guardManualRobotJog(request)
 
-    bridge.apply_joint_positions_si_to_motion_control = apply_with_unbound_policy
+    assert result.success
+    assert result.details["nativeGuardEvidence"][
+        "collisionScenePolicyIdentityStatus"
+    ] == "manual_policy_id_correlated"
+    assert result.details["nativeGuardEvidence"][
+        "collisionScenePolicyFingerprint"
+    ] == bridge.raw_policy_fingerprint
+    assert result.details["nativeGuardEvidence"]["policyId"] == (
+        workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    )
+
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    bridge.manual_policy_id = "task_phase_policy_fingerprint"
+    mismatched = facade.guardManualRobotJog(request)
+    assert not mismatched.success
+    assert mismatched.details["guardAccepted"] is None
+    assert mismatched.details["manualJogStatus"] == "unknown"
+    assert mismatched.details["nativeGuardEvidence"]["responseCorrelated"] is False
+    assert mismatched.details["manualJogReconciliationRequired"] is True
+
+
+def test_manual_jog_latches_same_vector_reply_from_wrong_session(monkeypatch):
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    bridge.response_session_id = "older-facade-session"
 
     result = facade.guardManualRobotJog(request)
 
     assert not result.success
-    assert result.details["guardAccepted"] is None
-    assert result.details["manualJogStatus"] == "unknown"
-    assert result.details["nativeGuardEvidence"][
-        "collisionScenePolicyIdentityStatus"
-    ] == "unverified_in_raw_status_contract"
-    assert result.details["acceptedJointPositionsSi"] is None
+    assert result.details["nativeGuardEvidence"]["requestedPositionsSi"] == tuple(
+        request[name] for name in ROS2_JOINT_SI_ORDER
+    )
+    assert result.details["nativeGuardEvidence"]["responseCorrelated"] is False
+    assert result.details["acceptedStateMayHaveAdvanced"] is True
+    assert result.details["manualJogReconciliationRequired"] is True
 
 
 def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_jogs(
     monkeypatch,
 ):
-    facade, _node, _logic, _bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
     accepted = facade.guardManualRobotJog(request)
     accepted_record = parse_manual_simulation_record(facade.manualSimulationRecord())
     assert [event["kind"] for event in accepted_record["events"]] == [
@@ -2809,6 +2986,16 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
     assert accepted_record["record_status"] == "historical_display_only"
     assert accepted_record["events"][0]["requested_joints"] == request
     assert accepted_record["events"][1]["accepted_joints"] == request
+    assert accepted_record["events"][1]["details"]["guard_policy_id"] == (
+        workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    )
+    assert accepted_record["events"][1]["details"]["guard_policy_fingerprint"] == "unknown"
+    assert accepted_record["events"][1]["details"]["guard_request_id"] == (
+        bridge.manual_requests[0][1]
+    )
+    assert accepted_record["events"][1]["details"]["guard_session_id"] == (
+        facade._manual_jog_session_id
+    )
     assert set(accepted_record["events"][1]["accepted_joints"]) == set(
         ROS2_JOINT_SI_ORDER
     )

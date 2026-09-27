@@ -1428,6 +1428,25 @@ host pure checks passed (6 facade, 4 UI). Current draft controls still use the
 reviewed-limit range; native static failures lack structured collision-pair
 evidence. Runtime and Tarun's verdict remain pending.
 
+**2026-09-27 manual acknowledgement source gate:** After commit `407fde4`,
+the native guard and Python bridge/facade gained a separate one-shot,
+simulation-only manual request/status pair with unique request/session and
+actual ordinary ACM policy identity. Exact vector, policy, world IDs and
+task/scene identity are checked before the UI can mirror acceptance; uncertain
+responses retain the last confirmed app state and pause the legacy heartbeat.
+The combined host pure check passed 106 tests, Python compilation and diff
+check passed; native build/current-case Slicer/ROS and operator verdict remain
+open. This does not clear the uncertainty latch or promote a manual path.
+
+**2026-09-27 reconciliation source retry:** The dedicated native read-only
+query and UI Reconcile State action now have both source halves. Exact
+request/session/policy/echo, frozen task/scene identity, scene object IDs and
+fresh monitored J1–J5 must agree before clearing an uncertain-jog latch;
+static collision validity remains separately reported. A missing operation
+is rejected before motion. The combined host pure run passed 118 tests.
+Native build and current-case Slicer/ROS/screenshot/operator acceptance remain
+open; no manual path gains preview authority.
+
 **Bound task:** `S6-LIVE-01` (Priority 0); pending `S6-LIVE-03..05` require acceptance
 of their preceding milestone.
 
@@ -1599,7 +1618,7 @@ own visible stop.
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. The 27 September source gates add an uncertainty latch and read-only Check Draft State; combined current host pure checks passed 73 tests. Earlier broader host coverage passed 193 tests. The latest legacy-case runtime stopped before jog; scenarios NOT_RUN. User simulation trial and visible verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain the corrected unknown-state display and finish request/policy correlation; complete detached Base/Home review and expand the read-only draft check beyond reviewed-limit controls; deliver visible ordered manual exploration and complete motion records; finish two-area/full-chain integration; then focused current-case automation, measurements and operator acceptance. Preserve fresh-case deferral, guard boundaries and diagnostic-only partial paths. See the [27 September logbook](logbook/2026-09-27.md) and [26 September review](logbook/2026-09-26.md) for evidence. |
+| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. The 27 September source gates add an uncertainty latch and read-only Check Draft State; combined current host pure checks passed 73 tests. The paired manual request/session/policy and read-only reconciliation source gates passed 118 combined host pure tests. Earlier broader host coverage passed 193 tests. The latest legacy-case runtime stopped before jog; scenarios NOT_RUN. User simulation trial and visible verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain the corrected unknown-state display and native-check the source-implemented request/policy correlation and monitored reconciliation; complete detached Base/Home review and expand the read-only draft check beyond reviewed-limit controls; deliver visible ordered manual exploration and complete motion records; finish two-area/full-chain integration; then focused current-case automation, measurements and operator acceptance. Preserve fresh-case deferral, guard boundaries and diagnostic-only partial paths. See the [27 September logbook](logbook/2026-09-27.md) and [26 September review](logbook/2026-09-26.md) for evidence. |
 | 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, J1–J5 planning, J6 external-spindle boundary, narrow contact policy and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Completed-phase reverse-history Return Home is implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result. Tarun chose **Block return** for an interrupted phase after accepted motion. | Preserve the exact accepted prefix, last accepted/monitored state and rejected requested/evaluated state with native reason when applicable; latch Incomplete/AwayFromHome and block further preview and normal Return Home. Exact-prefix guarded reversal is a separate future feature/acceptance gate. For a Complete route only, trial Approach→Drill preview→guarded Return Home→replan/route choice after the preceding planner verdict. |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |

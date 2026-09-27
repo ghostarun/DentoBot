@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, replace
 from enum import Enum
 from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
+from numbers import Real
 from types import MappingProxyType
 from typing import Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
@@ -34,6 +35,12 @@ ROS2_TOOL_TCP_LINK = "dentobot_drill_tcp"
 ROS2_SLICER_JOINT_COMMAND_TOPIC = "/dentobot/slicer_joint_positions"
 ROS2_JOINT_COMMAND_STATUS_TOPIC = "/dentobot/joint_command_status"
 ROS2_JOINT_COMMAND_STATUS_SCHEMA = "dentobot.joint_command_status.v1"
+ROS2_MANUAL_JOINT_COMMAND_TOPIC = "/dentobot/manual_joint_command"
+ROS2_MANUAL_JOINT_STATUS_TOPIC = "/dentobot/manual_joint_status"
+ROS2_MANUAL_JOINT_COMMAND_SCHEMA = "dentobot.manual_joint_command.v1"
+ROS2_MANUAL_JOINT_STATUS_SCHEMA = "dentobot.manual_joint_status.v1"
+ROS2_MANUAL_JOINT_POLICY_ID = "raw_planning_scene_acm_transition_v1"
+ROS2_MANUAL_JOINT_ACK_TIMEOUT_SEC = 1.5
 ROS2_TASK_GUARD_CONFIG_TOPIC = "/dentobot/task_guard_config"
 ROS2_TASK_JOINT_COMMAND_TOPIC = "/dentobot/task_joint_command"
 ROS2_TASK_JOINT_STATUS_TOPIC = "/dentobot/task_joint_status"
@@ -194,6 +201,16 @@ class JointCommandStatus:
 
 
 @dataclass(frozen=True)
+class ManualJointStatus(JointCommandStatus):
+    request_id: str = ""
+    session_id: str = ""
+    policy_id: str = ""
+    command_valid: bool = False
+    operation: str = "jog"
+    query_only: bool = False
+
+
+@dataclass(frozen=True)
 class TaskJointStatus:
     accepted: bool
     reason: str
@@ -249,6 +266,8 @@ _joint_status_subscriber = None
 _joint_status_observer = None
 _last_joint_status = None
 _last_joint_status_at = 0.0
+_last_manual_joint_status = None
+_last_manual_joint_status_at = 0.0
 _configured_motion_widget = None
 _native_joint_positions = [0.0] * len(ROS2_JOINT_SI_ORDER)
 _native_goal_transform = None
@@ -395,6 +414,66 @@ def parse_joint_command_status(payload: str) -> JointCommandStatus:
         world_objects=world_objects(),
         world_object_evidence_present="world_objects" in data,
         collision_scene_policy_fingerprint=scene_policy_fingerprint,
+    )
+
+
+def parse_manual_joint_status(payload: str) -> ManualJointStatus:
+    """Parse the request-correlated simulation-only raw jog acknowledgement."""
+    try:
+        data = json.loads(payload)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Invalid manual-joint status JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Manual-joint status must be a JSON object.")
+    if data.get("schema") != ROS2_MANUAL_JOINT_STATUS_SCHEMA:
+        raise ValueError("Unsupported or missing manual-joint status schema.")
+    if data.get("mode") != "simulation_only":
+        raise ValueError("Refusing manual-joint status outside simulation_only mode.")
+    for key in ("request_id", "session_id"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ValueError(f"{key} must be a non-empty string.")
+    if data.get("policy_id") != ROS2_MANUAL_JOINT_POLICY_ID:
+        raise ValueError("Manual-joint status has an unsupported guard policy.")
+    operation = data.get("operation")
+    query_only = data.get("query_only")
+    if operation not in ("jog", "state_query") or type(query_only) is not bool:
+        raise ValueError("Manual-joint status has an invalid operation.")
+    if query_only is not (operation == "state_query"):
+        raise ValueError("Manual-joint operation and query_only flag disagree.")
+    if not isinstance(data.get("command_valid"), bool):
+        raise ValueError("command_valid must be a boolean.")
+    world_object_count = data.get("world_object_count")
+    world_objects = data.get("world_objects")
+    if (
+        isinstance(world_object_count, bool)
+        or not isinstance(world_object_count, int)
+        or world_object_count < 0
+        or not isinstance(world_objects, list)
+        or len(world_objects) != world_object_count
+    ):
+        raise ValueError("Manual-joint status must include an exact world-object count and list.")
+    for key in ("requested_positions", "accepted_positions"):
+        values = data.get(key)
+        if (
+            not isinstance(values, list)
+            or len(values) != len(ROS2_JOINT_SI_ORDER)
+            or any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values)
+            or not all(isfinite(float(value)) for value in values)
+        ):
+            raise ValueError(f"{key} must contain five finite JSON joint numbers.")
+
+    ordinary = dict(data, schema=ROS2_JOINT_COMMAND_STATUS_SCHEMA)
+    status = parse_joint_command_status(json.dumps(ordinary))
+    if status.accepted and not data["command_valid"]:
+        raise ValueError("An invalid manual-joint command cannot be accepted.")
+    return ManualJointStatus(
+        **status.__dict__,
+        request_id=data["request_id"],
+        session_id=data["session_id"],
+        policy_id=data["policy_id"],
+        command_valid=data["command_valid"],
+        operation=operation,
+        query_only=query_only,
     )
 
 
@@ -937,6 +1016,16 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
     ):
         candidates.append(
             (_last_joint_status_at, tuple(_last_joint_status.accepted_positions))
+        )
+    if (
+        _last_manual_joint_status is not None
+        and len(_last_manual_joint_status.accepted_positions) == len(ROS2_JOINT_SI_ORDER)
+    ):
+        candidates.append(
+            (
+                _last_manual_joint_status_at,
+                tuple(_last_manual_joint_status.accepted_positions),
+            )
         )
     if len(_native_joint_positions) == len(ROS2_JOINT_SI_ORDER):
         candidates.append((-1.0, tuple(float(value) for value in _native_joint_positions)))
@@ -2460,6 +2549,259 @@ def apply_joint_positions_si_to_motion_control(
     finally:
         if stream_was_active and _slicer_joint_command_timer is not None:
             _slicer_joint_command_timer.start()
+
+
+def _request_manual_joint_status(
+    positions_si: Mapping[str, float],
+    request_id: str,
+    session_id: str,
+    *,
+    operation: str,
+    timeout_sec: float,
+) -> tuple[Optional[ManualJointStatus], str, bool, bool, Optional[tuple[float, ...]]]:
+    """Publish one transient manual request; leave heartbeat policy to its caller."""
+    try:
+        if not isinstance(positions_si, Mapping) or set(positions_si) != set(ROS2_JOINT_SI_ORDER):
+            raise ValueError("Manual joint positions must contain exactly J1–J5.")
+        if any(
+            isinstance(positions_si[name], bool)
+            or not isinstance(positions_si[name], Real)
+            or not isfinite(float(positions_si[name]))
+            for name in ROS2_JOINT_SI_ORDER
+        ):
+            raise ValueError("Manual joint positions must be finite SI numbers.")
+        values = joint_si_vector(positions_si)
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id must be a non-empty string.")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("session_id must be a non-empty string.")
+        if operation not in ("jog", "state_query"):
+            raise ValueError("Unsupported manual-joint operation.")
+    except (KeyError, TypeError, ValueError) as exc:
+        return None, str(exc), False, False, None
+    if find_ros2_robot_by_name(ROS2_ROBOT_NAME) is None:
+        return None, "The DENTOBOT ROS robot is not connected.", False, False, None
+
+    ros_node = ensure_default_ros2_node_in_scene()
+    if ros_node is None:
+        return None, "ROS2 default node is not initialized.", False, False, None
+
+    stream_was_active = pause_slicer_joint_command_stream()
+    subscriber = publisher = observer = None
+    submitted = False
+    response = {"status": None}
+    accepted_before_vector = None
+
+    def observe_status(caller=None, event=None):
+        del event
+        try:
+            payload = caller.GetLastMessage() if caller is not None else ""
+            status = parse_manual_joint_status(str(payload or ""))
+        except (TypeError, ValueError):
+            return
+        if (
+            status.request_id == request_id
+            and status.session_id == session_id
+            and status.policy_id == ROS2_MANUAL_JOINT_POLICY_ID
+            and status.requested_positions == tuple(values)
+            and status.operation == operation
+            and status.query_only is (operation == "state_query")
+        ):
+            response["status"] = status
+
+    def remove_transient(role, topic, node):
+        if node is None:
+            return
+        try:
+            node_id = node.GetID()
+            if role == "publisher":
+                ros_node.RemoveAndDeletePublisherNode(topic)
+            else:
+                ros_node.RemoveAndDeleteSubscriberNode(topic)
+        except Exception:
+            node_id = None
+        finally:
+            _remove_ros2_node_reference(ros_node, role, node_id)
+
+    try:
+        try:
+            if operation == "jog":
+                accepted_before = last_accepted_joint_positions_si()
+                if isinstance(accepted_before, Mapping) and all(
+                    name in accepted_before for name in ROS2_JOINT_SI_ORDER
+                ):
+                    accepted_before_vector = tuple(
+                        float(accepted_before[name]) for name in ROS2_JOINT_SI_ORDER
+                    )
+        except (TypeError, ValueError, OverflowError):
+            accepted_before_vector = None
+        subscriber = ros_node.CreateAndAddSubscriberNode(
+            "String", ROS2_MANUAL_JOINT_STATUS_TOPIC
+        )
+        publisher = ros_node.CreateAndAddPublisherNode(
+            "String", ROS2_MANUAL_JOINT_COMMAND_TOPIC
+        )
+        if subscriber is None or publisher is None:
+            return (
+                None,
+                "The transient manual-jog ROS interface is unavailable.",
+                stream_was_active,
+                False,
+                accepted_before_vector,
+            )
+        subscriber.SaveWithSceneOff()
+        publisher.SaveWithSceneOff()
+        observer = subscriber.AddObserver("ModifiedEvent", observe_status)
+        if subscriber.GetNumberOfMessages() > 0:
+            observe_status(subscriber)
+        command = {
+            "schema": ROS2_MANUAL_JOINT_COMMAND_SCHEMA,
+            "mode": "simulation_only",
+            "operation": operation,
+            "request_id": request_id,
+            "session_id": session_id,
+            "policy_id": ROS2_MANUAL_JOINT_POLICY_ID,
+            "joint_positions": values,
+        }
+        submitted = True
+        publisher.Publish(
+            json.dumps(command, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        )
+
+        deadline = time.monotonic() + max(0.0, float(timeout_sec))
+        while response["status"] is None and time.monotonic() < deadline:
+            ros_logic = get_ros2_logic()
+            if ros_logic is not None:
+                try:
+                    ros_logic.Spin()
+                except Exception:
+                    pass
+            try:
+                import slicer
+
+                slicer.app.processEvents()
+            except Exception:
+                pass
+            if subscriber.GetNumberOfMessages() > 0:
+                observe_status(subscriber)
+            if response["status"] is None:
+                time.sleep(0.01)
+
+        status = response["status"]
+        if status is None:
+            return None, "No correlated manual-joint response arrived before timeout.", stream_was_active, submitted, accepted_before_vector
+        return status, status.reason, stream_was_active, submitted, accepted_before_vector
+    except Exception as exc:
+        return None, f"Manual-joint response is unknown: {exc}", stream_was_active, submitted, accepted_before_vector
+    finally:
+        if subscriber is not None and observer is not None:
+            try:
+                subscriber.RemoveObserver(observer)
+            except Exception:
+                pass
+        remove_transient("publisher", ROS2_MANUAL_JOINT_COMMAND_TOPIC, publisher)
+        remove_transient("subscriber", ROS2_MANUAL_JOINT_STATUS_TOPIC, subscriber)
+
+
+def apply_manual_joint_positions_si(
+    positions_si: Mapping[str, float],
+    request_id: str,
+    session_id: str,
+    *,
+    timeout_sec: float = ROS2_MANUAL_JOINT_ACK_TIMEOUT_SEC,
+) -> tuple[Optional[bool], str, Optional[ManualJointStatus]]:
+    """Publish one correlated manual jog and return only its exact guard reply."""
+    global _last_manual_joint_status, _last_manual_joint_status_at
+    global _native_joint_positions
+    status, message, stream_was_active, submitted, accepted_before = (
+        _request_manual_joint_status(
+            positions_si,
+            request_id,
+            session_id,
+            operation="jog",
+            timeout_sec=timeout_sec,
+        )
+    )
+    if status is None:
+        if stream_was_active and not submitted:
+            resume_slicer_joint_command_stream()
+        return None, message, None
+    values = joint_si_vector(positions_si)
+    if status.accepted:
+        if not status.command_valid or status.accepted_positions != tuple(values):
+            return None, "The manual-jog acknowledgement did not confirm the submitted state.", status
+    elif accepted_before is None or status.accepted_positions != accepted_before:
+        return None, "The manual-jog rejection did not confirm the prior accepted state.", status
+    try:
+        _restore_motion_control_positions(status.accepted_positions)
+    except Exception as exc:
+        return None, f"Could not mirror the manual-jog state: {exc}", status
+    _last_manual_joint_status = status
+    _last_manual_joint_status_at = time.monotonic()
+    _native_joint_positions = list(status.accepted_positions)
+    if stream_was_active:
+        resume_slicer_joint_command_stream()
+    if not status.accepted:
+        return False, status.reason or "The manual-jog guard rejected the command.", status
+    return True, status.reason or "Manual jog accepted.", status
+
+
+def query_manual_joint_state_si(
+    echo_positions_si: Mapping[str, float],
+    request_id: str,
+    session_id: str,
+    *,
+    timeout_sec: float = ROS2_MANUAL_JOINT_ACK_TIMEOUT_SEC,
+) -> tuple[Optional[ManualJointStatus], str]:
+    """Issue one read-only native accepted-state query, keeping heartbeat paused."""
+    status, message, _stream_was_active, _submitted, _accepted_before = (
+        _request_manual_joint_status(
+            echo_positions_si,
+            request_id,
+            session_id,
+            operation="state_query",
+            timeout_sec=timeout_sec,
+        )
+    )
+    return status, message
+
+
+def accept_manual_joint_state_reconciliation(
+    status: ManualJointStatus,
+    echo_positions_si: Mapping[str, float],
+    request_id: str,
+    session_id: str,
+) -> tuple[bool, str]:
+    """Commit a facade-verified query result and only then resume the heartbeat."""
+    global _last_manual_joint_status, _last_manual_joint_status_at
+    global _native_joint_positions
+    try:
+        echo = joint_si_vector(echo_positions_si)
+        accepted = tuple(float(value) for value in status.accepted_positions)
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError) as exc:
+        return False, f"Manual-joint reconciliation state is invalid: {exc}"
+    if (
+        not isinstance(status, ManualJointStatus)
+        or status.operation != "state_query"
+        or status.query_only is not True
+        or status.request_id != request_id
+        or status.session_id != session_id
+        or status.policy_id != ROS2_MANUAL_JOINT_POLICY_ID
+        or status.requested_positions != tuple(echo)
+        or status.command_valid is not True
+        or len(accepted) != len(ROS2_JOINT_SI_ORDER)
+        or not all(isfinite(value) for value in accepted)
+    ):
+        return False, "Manual-joint reconciliation reply did not match its read-only request."
+    try:
+        _restore_motion_control_positions(accepted)
+    except Exception as exc:
+        return False, f"Could not mirror the reconciled native state: {exc}"
+    _last_manual_joint_status = status
+    _last_manual_joint_status_at = time.monotonic()
+    _native_joint_positions = list(accepted)
+    resume_slicer_joint_command_stream()
+    return True, "Native manual-joint state reconciled."
 
 
 def show_goal_robot_joint_positions(
@@ -5564,6 +5906,7 @@ def shutdown_slicer_adapter() -> None:
     global _status_subscriber, _status_observer, _last_status, _last_status_at
     global _joint_status_subscriber, _joint_status_observer
     global _last_joint_status, _last_joint_status_at
+    global _last_manual_joint_status, _last_manual_joint_status_at
     global _task_config_publisher, _task_command_publisher
     global _task_status_subscriber, _task_status_observer
     global _last_task_status, _last_task_status_at, _last_task_config_json
@@ -5637,6 +5980,8 @@ def shutdown_slicer_adapter() -> None:
     _joint_status_observer = None
     _last_joint_status = None
     _last_joint_status_at = 0.0
+    _last_manual_joint_status = None
+    _last_manual_joint_status_at = 0.0
     _task_config_publisher = None
     _task_command_publisher = None
     _task_status_subscriber = None

@@ -29,6 +29,9 @@ constexpr char STATUS_SCHEMA[] = "dentobot.joint_command_status.v1";
 constexpr char TASK_CONFIG_SCHEMA[] = "dentobot.task_guard_config.v3";
 constexpr char TASK_COMMAND_SCHEMA[] = "dentobot.task_joint_command.v2";
 constexpr char TASK_STATUS_SCHEMA[] = "dentobot.task_joint_status.v2";
+constexpr char MANUAL_COMMAND_SCHEMA[] = "dentobot.manual_joint_command.v1";
+constexpr char MANUAL_STATUS_SCHEMA[] = "dentobot.manual_joint_status.v1";
+constexpr char MANUAL_POLICY_ID[] = "raw_planning_scene_acm_transition_v1";
 constexpr double CLEARANCE_COMPARISON_EPSILON_M = 1e-9;
 constexpr double SIMULATION_GUIDE_CLEARANCE_M = 0.0001;
 constexpr double SIMULATION_GUIDE_CONTACT_MAX_PENETRATION_M = 0.0005;
@@ -229,6 +232,81 @@ bool parse_json_object(
   return true;
 }
 
+struct ManualJointCommand
+{
+  std::string request_id;
+  std::string session_id;
+  std::string policy_id;
+  std::string operation;
+  std::vector<double> joint_positions;
+};
+
+bool parse_manual_joint_command(
+  const std::string& payload, ManualJointCommand& command, std::string& reason)
+{
+  Json::Value document;
+  if (!parse_json_object(payload, document, reason))
+  {
+    reason = "Malformed manual joint command: " + reason;
+    return false;
+  }
+
+  // Keep usable identity for a rejection status even when another field fails.
+  json_string_field(document, "request_id", command.request_id);
+  json_string_field(document, "session_id", command.session_id);
+  json_string_field(document, "policy_id", command.policy_id);
+  const bool operation_valid =
+    json_string_field(document, "operation", command.operation) &&
+    (command.operation == "jog" || command.operation == "state_query");
+  const auto malformed = [&reason](const std::string& field) {
+    reason = "Malformed or unsupported manual joint command field: " + field + ".";
+    return false;
+  };
+  std::string schema;
+  std::string mode;
+  std::string policy_id;
+  const bool schema_valid =
+    json_string_field(document, "schema", schema) && schema == MANUAL_COMMAND_SCHEMA;
+  const bool mode_valid =
+    json_string_field(document, "mode", mode) && mode == "simulation_only";
+  const bool request_id_valid = !command.request_id.empty();
+  const bool session_id_valid = !command.session_id.empty();
+  const bool policy_valid =
+    json_string_field(document, "policy_id", policy_id) && policy_id == MANUAL_POLICY_ID;
+  const bool positions_valid =
+    json_number_array_field(document, "joint_positions", command.joint_positions) &&
+    command.joint_positions.size() == 5;
+  if (!schema_valid)
+  {
+    return malformed("schema");
+  }
+  if (!mode_valid)
+  {
+    return malformed("mode");
+  }
+  if (!request_id_valid)
+  {
+    return malformed("request_id");
+  }
+  if (!session_id_valid)
+  {
+    return malformed("session_id");
+  }
+  if (!operation_valid)
+  {
+    return malformed("operation");
+  }
+  if (!policy_valid)
+  {
+    return malformed("policy_id");
+  }
+  if (!positions_valid)
+  {
+    return malformed("joint_positions (expected five finite ordered J1-J5 values)");
+  }
+  return true;
+}
+
 struct TaskGuardConfig
 {
   bool valid{ false };
@@ -333,6 +411,10 @@ public:
       "task_command_topic", "/dentobot/task_joint_command");
     task_status_topic_ = declare_parameter<std::string>(
       "task_status_topic", "/dentobot/task_joint_status");
+    manual_command_topic_ = declare_parameter<std::string>(
+      "manual_command_topic", "/dentobot/manual_joint_command");
+    manual_status_topic_ = declare_parameter<std::string>(
+      "manual_status_topic", "/dentobot/manual_joint_status");
     minimum_clearance_m_ = declare_parameter<double>("minimum_clearance_m", 0.001);
     maximum_revolute_step_rad_ = declare_parameter<double>(
       "maximum_revolute_step_rad", 0.017453292519943295);
@@ -344,7 +426,8 @@ public:
     if (group_name_.empty() || raw_command_topic_.empty() ||
         accepted_command_topic_.empty() || status_topic_.empty() ||
         task_config_topic_.empty() || task_command_topic_.empty() ||
-        task_status_topic_.empty())
+        task_status_topic_.empty() || manual_command_topic_.empty() ||
+        manual_status_topic_.empty())
     {
       throw std::invalid_argument("collision-guard names and topics must be non-empty");
     }
@@ -388,6 +471,8 @@ public:
     status_publisher_ = create_publisher<std_msgs::msg::String>(status_topic_, 10);
     task_status_publisher_ = create_publisher<std_msgs::msg::String>(
       task_status_topic_, 10);
+    manual_status_publisher_ = create_publisher<std_msgs::msg::String>(
+      manual_status_topic_, 10);
     command_subscription_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       raw_command_topic_, 10,
       std::bind(&DentobotCollisionGuard::on_command, this, std::placeholders::_1));
@@ -397,6 +482,9 @@ public:
     task_command_subscription_ = create_subscription<std_msgs::msg::String>(
       task_command_topic_, 10,
       std::bind(&DentobotCollisionGuard::on_task_command, this, std::placeholders::_1));
+    manual_command_subscription_ = create_subscription<std_msgs::msg::String>(
+      manual_command_topic_, 10,
+      std::bind(&DentobotCollisionGuard::on_manual_command, this, std::placeholders::_1));
     heartbeat_timer_ = create_wall_timer(
       std::chrono::milliseconds(500),
       std::bind(&DentobotCollisionGuard::publish_last_status, this));
@@ -472,6 +560,45 @@ private:
     }
     last_status_json_ = status_json(result, requested, last_accepted_positions_);
     publish_last_status();
+  }
+
+  void on_manual_command(const std_msgs::msg::String::SharedPtr message)
+  {
+    ManualJointCommand command;
+    GuardResult result;
+    std::string reason;
+    const bool command_valid = parse_manual_joint_command(message->data, command, reason);
+    if (!command_valid)
+    {
+      result.reason = reason;
+    }
+    else if (command.operation == "state_query")
+    {
+      result = validate_motion(
+        last_accepted_positions_, last_accepted_positions_, nullptr, "",
+        std::numeric_limits<double>::quiet_NaN(), true);
+      if (result.accepted)
+      {
+        result.reason =
+          "Current accepted state passed static bounds, collision, and clearance checks.";
+      }
+    }
+    else
+    {
+      result = validate_motion(last_accepted_positions_, command.joint_positions);
+      if (result.accepted)
+      {
+        last_accepted_positions_ = command.joint_positions;
+        publish_accepted(last_accepted_positions_);
+      }
+      last_status_json_ = status_json(
+        result, command.joint_positions, last_accepted_positions_);
+    }
+
+    std_msgs::msg::String status;
+    status.data = status_json(
+      result, command.joint_positions, last_accepted_positions_, &command, command_valid);
+    manual_status_publisher_->publish(status);
   }
 
   bool parse_task_config(const std::string& payload, TaskGuardConfig& config, std::string& reason)
@@ -1726,13 +1853,26 @@ private:
   std::string status_json(
     const GuardResult& result,
     const std::vector<double>& requested,
-    const std::vector<double>& accepted) const
+    const std::vector<double>& accepted,
+    const ManualJointCommand* manual_command = nullptr,
+    bool command_valid = true) const
   {
     std::ostringstream output;
     output << '{'
-           << "\"schema\":\"" << STATUS_SCHEMA << "\","
-           << "\"mode\":\"simulation_only\","
-           << "\"accepted\":" << (result.accepted ? "true" : "false") << ','
+           << "\"schema\":\""
+           << (manual_command == nullptr ? STATUS_SCHEMA : MANUAL_STATUS_SCHEMA) << "\","
+           << "\"mode\":\"simulation_only\",";
+    if (manual_command != nullptr)
+    {
+      output << "\"request_id\":\"" << json_escape(manual_command->request_id) << "\","
+             << "\"session_id\":\"" << json_escape(manual_command->session_id) << "\","
+             << "\"policy_id\":\"" << MANUAL_POLICY_ID << "\","
+             << "\"operation\":\"" << json_escape(manual_command->operation) << "\","
+             << "\"query_only\":"
+             << (manual_command->operation == "state_query" ? "true" : "false") << ','
+             << "\"command_valid\":" << (command_valid ? "true" : "false") << ',';
+    }
+    output << "\"accepted\":" << (result.accepted ? "true" : "false") << ','
            << "\"reason\":\"" << json_escape(result.reason) << "\","
            << "\"requested_positions\":" << json_array(requested) << ','
            << "\"accepted_positions\":" << json_array(accepted) << ','
@@ -1896,6 +2036,8 @@ private:
   std::string task_config_topic_;
   std::string task_command_topic_;
   std::string task_status_topic_;
+  std::string manual_command_topic_;
+  std::string manual_status_topic_;
   double minimum_clearance_m_{ 0.001 };
   double maximum_revolute_step_rad_{ 0.017453292519943295 };
   double maximum_prismatic_step_m_{ 0.0005 };
@@ -1920,9 +2062,11 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr accepted_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr task_status_publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr manual_status_publisher_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr command_subscription_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr task_config_subscription_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr task_command_subscription_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr manual_command_subscription_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 };
 

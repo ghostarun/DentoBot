@@ -149,6 +149,28 @@ authoritative static API currently returns text rather than structured named
 collision pairs for arbitrary draft failures. Those engineering feedback gaps,
 native runtime and operator judgment remain open under closure slices 1–2.
 
+**27 September manual acknowledgement source gate:** A dedicated simulation-only
+manual command/status pair now carries unique request and facade-session IDs,
+the actual ordinary PlanningScene ACM transition policy ID, J1–J5 and native
+scene/guard evidence. The bridge accepts only the matching one-shot reply;
+uncertain or inconsistent replies leave the compatibility stream paused and
+the last confirmed app state intact. The native raw array and phase-aware task
+protocols retain separate meanings. A combined 106-test host pure check passed.
+Native C++ compilation, current-case ROS/Slicer behavior, monitored-state
+reconciliation and Tarun's visible verdict remain open. This source result
+does not make the live manual jog accepted.
+
+**27 September reconciliation retry:** A read-only native `state_query` and
+explicit Reconcile State action are now source-implemented. The query reports
+the native accepted vector, static validity and world evidence without a
+motion publish. The façade retains the uncertain jog's frozen identity and
+clears its latch only after request/session/policy/echo, scene objects and
+fresh ROS monitored state agree; the UI preserves the draft. Missing operation
+is rejected before motion. The combined host pure suite passed 118 tests.
+The earlier quota-interrupted half-gate is superseded at **source** level.
+Native C++ build, current-case runtime exchange, screenshots and Tarun's
+visible verdict remain pending; detached Base/Home review is still open.
+
 ### Required closure sequence within existing gates
 
 These are implementation slices under the original five gates and existing
@@ -166,8 +188,9 @@ entire workflow while the same prerequisite is unresolved.
    review, phase evidence and native collision attribution. Mechanical and
    reviewed limits remain command gates; out-of-envelope review, if supported,
    is visibly invalid and cannot be jogged. J6 is never an arm control.
-   Address raw guard attribution before trusting live acceptance: the current
-   raw status lacks request ID and policy fingerprint. Correlate request/session,
+   The dedicated manual status now has request/session and actual raw policy
+   identity at source level; verify it in the native runtime before trusting
+   live acceptance. Correlate request/session,
    exact vector, policy and scene through the existing native protocol; a fresh
    matching vector alone is insufficient evidence for repeated identical requests.
    Retain ambiguous/stale outcomes as unknown, reconcile monitored state and block

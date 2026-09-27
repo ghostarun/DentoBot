@@ -1,5 +1,29 @@
 # Dentobot Technical Decisions
 
+## 2026-09-27 — explicit read-only uncertain-jog reconciliation
+
+The dedicated manual protocol requires an explicit operation. Missing or
+malformed operation is rejected before motion. A `state_query` reports the
+native accepted J1–J5 state and separately labels static validity; it never
+applies or publishes a joint command. Reconciliation may clear the uncertain
+jog latch only when the query is request/session/policy correlated and the
+native accepted state agrees with fresh ROS monitored state under unchanged
+task/base/Home/scene identity and exact world-object evidence. Failure keeps
+the latch and draft. This extends the manual boundary at source level only;
+native build/runtime and operator acceptance remain required.
+
+## 2026-09-27 — manual-jog acknowledgement protocol source gate
+
+The manual engineering jog uses a separate simulation-only String command/status
+pair with unique request and facade-session IDs. The native reply identifies the
+actual ordinary PlanningScene ACM transition policy and retains the existing
+clearance/scene evidence. A matching joint vector or fresh heartbeat alone is
+insufficient to accept a jog. Keep the legacy raw array heartbeat and the
+phase-aware task protocol separate; the latter's selected-target contact
+fingerprint does not describe an ordinary raw manual jog. Unknown or stale
+outcomes remain latched until authoritative accepted/monitored reconciliation.
+This is a source design decision, not native/runtime or operator acceptance.
+
 ## 2026-09-27 — uncertain manual-jog state
 
 An unresolved submitted simulation jog must block subsequent jogs in its

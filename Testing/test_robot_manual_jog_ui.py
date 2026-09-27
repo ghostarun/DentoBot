@@ -136,7 +136,10 @@ def test_manual_jog_controls_use_reviewed_mechanical_intersection_and_keep_j6_fi
     panel._manualJogEvidence = None
     panel.resetManualJogDraftButton = _Control()
     panel.checkManualDraftStateButton = _Control()
+    panel.reconcileManualJogButton = _Control()
     panel.guardedManualJogButton = _Control()
+    panel.manualJogReconciliationRequired = False
+    panel._manualJogGuardAvailable = True
     panel.manualJogDraftStateLabel = _Control()
     panel.manualJogStatusLabel = _Control()
     ghost_updates = []
@@ -410,6 +413,7 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
     panel.manualJogJointControls = {}
     panel.resetManualJogDraftButton = _Control()
     panel.checkManualDraftStateButton = _Control()
+    panel.reconcileManualJogButton = _Control()
     panel.guardedManualJogButton = _Control()
     panel.manualJogStatusLabel = _Control()
     panel._manualJogEvidence = None
@@ -437,6 +441,7 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
     panel.setManualJogAvailability(True, True)
     assert not panel.guardedManualJogButton.enabled
     assert panel.checkManualDraftStateButton.enabled
+    assert panel.reconcileManualJogButton.enabled
 
     unavailable = panel._formatManualJogNativeEvidence(
         {
@@ -464,6 +469,112 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
             "monitoredStateStatus": "unavailable/unknown",
         }
     ) == ""
+
+
+def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    method = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_onShellReconcileManualRobotJog"},
+        {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
+    )["_onShellReconcileManualRobotJog"]
+    panel_source = panel_path.read_text(encoding="utf-8")
+    shell_source = shell_path.read_text(encoding="utf-8")
+    assert '"reconcile_manual_jog": 5' in panel_source
+    assert "self.reconcileManualJogButton.clicked.connect(" in panel_source
+    assert '"reconcile_manual_jog": self._onShellReconcileManualRobotJog' in shell_source
+
+    draft = {name: float(index + 1) for index, name in enumerate(JOINT_NAMES)}
+    accepted = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    details = {
+        "identityStatus": "current",
+        "monitoredStateStatus": "matched",
+        "manualJogReconciliationRequired": False,
+        "collisionStatus": "invalid",
+        "acceptedJointPositionsSi": accepted,
+        "nativeGuardEvidence": {
+            "responseCorrelated": True,
+            "operation": "state_query",
+            "queryOnly": True,
+        },
+    }
+
+    class Panel:
+        def __init__(self):
+            self.manualJogReconciliationRequired = True
+            self.draft = dict(draft)
+            self.accepted = []
+            self.status = None
+            self.pending = False
+
+        def setManualJogRequestPending(self):
+            self.pending = True
+
+        def setManualJogRequestComplete(self):
+            self.pending = False
+
+        def setManualJogAcceptedState(self, positions, *, preserve_draft=False):
+            self.accepted.append((dict(positions), preserve_draft))
+
+        def setManualJogStatus(self, state, message, evidence=None):
+            self.status = (state, message)
+            if evidence is not None and "manualJogReconciliationRequired" in evidence:
+                self.manualJogReconciliationRequired = (
+                    evidence["manualJogReconciliationRequired"] is True
+                )
+
+    class Facade:
+        def __init__(self, result):
+            self.result = result
+            self.calls = 0
+
+        def reconcileManualRobotJog(self):
+            self.calls += 1
+            return self.result
+
+    def invoke(result):
+        panel = Panel()
+        facade = Facade(result)
+        mirrors = []
+        host = type("ShellProbe", (), {"_onShellReconcileManualRobotJog": method})()
+        host._robotSimulationPanel = panel
+        host._robotWorkflowFacade = facade
+        host._workflowActionBusy = False
+        host._setRobotJointsFromSi = lambda positions, *, publish_to_ros: (
+            mirrors.append((dict(positions), publish_to_ros)) or (True, "")
+        )
+        host._onShellReconcileManualRobotJog()
+        return panel, facade, mirrors
+
+    success = SimpleNamespace(
+        success=True,
+        code="manual_jog_reconciled",
+        message="state reconciled",
+        details=details,
+    )
+    panel, facade, mirrors = invoke(success)
+    assert facade.calls == 1
+    assert mirrors == [(accepted, False)]
+    assert panel.accepted == [(accepted, True)]
+    assert panel.draft == draft
+    assert not panel.manualJogReconciliationRequired
+    assert "Static collision validity: invalid" in panel.status[1]
+
+    failure = SimpleNamespace(
+        success=False,
+        code="manual_jog_reconciliation_monitor_mismatch",
+        message="monitored state mismatch",
+        details={"manualJogReconciliationRequired": True},
+    )
+    panel, facade, mirrors = invoke(failure)
+    assert facade.calls == 1
+    assert mirrors == []
+    assert panel.accepted == []
+    assert panel.draft == draft
+    assert panel.manualJogReconciliationRequired
+    assert not panel.pending
 
 
 def test_manual_draft_state_check_is_read_only_and_marks_stale_results():

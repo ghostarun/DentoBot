@@ -5,13 +5,23 @@ Last reconciled: 2026-09-27. `S6-LIVE-01` remains Priority 0.
 **27 September source continuation:** Unknown/stale submitted manual jogs now
 latch the facade and block later publishes; UI wording shows possible native
 advancement and displays attributed guard distances with correct threshold vs
-measurement labels. Focused host pure checks passed (6 facade, 5 UI). Request
-and policy correlation, authoritative reconciliation and runtime/operator
-acceptance remain open. See the 27 September logbook and active renovation plan.
+measurement labels. Focused host pure checks passed (6 facade, 5 UI). At that
+checkpoint, request/policy correlation and reconciliation were still open;
+their later source completion is recorded below. Runtime/operator acceptance
+remains open. See the 27 September logbook and active renovation plan.
 The same date's read-only Check Draft State source gate passed focused checks
 (6 facade, 4 UI): it evaluates a captured J1–J5 candidate without jogging,
 and labels static validity separately from task-target match. Arbitrary
 out-of-range review, named collision evidence and runtime usability remain open.
+Later 27 September source work added a separate simulation-only manual
+request/status pair with request/session and actual raw ACM policy identity;
+the combined host pure check passed 106 tests. At that checkpoint, native
+build/runtime, reconciliation, screenshots and operator verdict remained open.
+The later two-worker retry implemented the read-only native accepted-state
+query and explicit UI reconciliation source path; 118 combined host pure tests
+passed. Native C++ build, current-case ROS/Slicer exchange, screenshots and
+Tarun's verdict remain pending. Detached Base/Home exploration is next source
+work under the same Step 6 plan.
 
 **2026-09-26 engineering-outcome review (supersedes intermediate status summaries):**
 Baseline `40ad290` contains ROI-first sampling, shared endpoint evaluation,
