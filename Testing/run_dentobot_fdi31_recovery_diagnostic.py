@@ -783,7 +783,7 @@ def _native_fk_world_rows(robot, positions_si, base_transform, bridge, link_name
         pose_base = vtk.vtkMatrix4x4()
         pose_base.Identity()
         if robot.ComputeKDLFK(
-            bridge.visual_joint_si_vector(positions_si), pose_base, link_name
+            bridge.joint_si_vector(positions_si), pose_base, link_name
         ) is None:
             return None
         base_world = vtk.vtkMatrix4x4()
@@ -1569,7 +1569,7 @@ def run_p1():
         "frames_and_units": {
             "case": "SlicerRAS/mm",
             "native_robot": "base_link/metres",
-            "joints": "SI units; J1-J5 only; J6 fixed at zero",
+            "joints": "SI units; exactly the canonical J1-J5 values",
         },
         "automatic_selections_in_workflow_order": [
             _workflow_step(
@@ -1713,9 +1713,7 @@ def _home_positions(logic, parameter):
         parameter.robotJoint3Deg,
         parameter.robotJoint4Mm,
         parameter.robotJoint5Deg,
-        parameter.robotJoint6Deg,
     )
-    positions.pop("pneumatic_spindle-Copy_Revolute-6", None)
     return positions, {
         "source": "saved_parameter_display_values",
         "record": None,
@@ -2444,7 +2442,8 @@ def run_p2():
             "position_tolerance_mm": POSITION_TOLERANCE_MM,
             "axis_tolerance_deg": AXIS_TOLERANCE_DEG,
             "planning_joints": list(bridge.ROS2_JOINT_SI_ORDER),
-            "spindle": "external; not a planning DOF; J6 fixed at zero",
+            "arm_dof_count": 5,
+            "axial_roll": "unconstrained by the five-DOF arm",
             "strict_guard_policy_fingerprint": expected_scene_policy_fingerprint or None,
         },
         "native_build_identity": {

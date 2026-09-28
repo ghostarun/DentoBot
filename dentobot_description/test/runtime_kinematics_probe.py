@@ -18,12 +18,6 @@ JOINTS = (
     ("link-3_Revolute-3", "revolute", "link-4", 0.35),
     ("link-4_Slider-4", "prismatic", "link-5", 0.02),
     ("link-5_Revolute-5", "revolute", "pneumatic_spindle-Copy", 0.35),
-    (
-        "pneumatic_spindle-Copy_Revolute-6",
-        "continuous",
-        "burr",
-        0.35,
-    ),
 )
 LINKS = (
     "base_link",

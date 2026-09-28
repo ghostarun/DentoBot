@@ -284,7 +284,40 @@
       "evidence_level": "pure_test",
       "entrypoint": "Testing/test_robot_manual_jog_ui.py",
       "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_robot_manual_jog_ui.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_application_shell.py",
-      "pass_condition": "exit_code_zero; TCP drag remains explicit-enable only; keyboard and Cartesian nudge gating, exact J1-J5 position-axis IK, stage validation, accepted-state separation, J6 exclusion and no route/preview authority pass"
+      "pass_condition": "exit_code_zero; TCP drag remains explicit-enable only; keyboard and Cartesian nudge gating, exact five-DOF position-axis IK, stage validation, accepted-state separation and no route/preview authority pass"
+    },
+    {
+      "id": "pure.five_dof_robot_contract",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 180,
+      "evidence_level": "pure_test",
+      "entrypoint": "dentobot_description/test/test_description.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider dentobot_description/test/test_description.py Testing/test_moveit_config.py Testing/test_step6_state.py Testing/test_step6_planning.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_robot_manual_jog_ui.py Testing/test_application_shell.py",
+      "pass_condition": "exit_code_zero; URDF and workflow expose exactly five movable joints J1-J5; burr/spindle geometry and canonical TCP remain fixed; Home, limits, FK/IK, guard, persistence and UI contain no sixth joint slot; manual paths retain no route or preview authority"
+    },
+    {
+      "id": "build.five_dof_robot_model",
+      "execution_kind": "container_colcon",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.five_dof_robot_contract"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "build",
+      "entrypoint": "dentobot_moveit_config",
+      "command_template": "In an isolated install overlay, source ROS Jazzy and run colcon build --packages-select dentobot_description dentobot_moveit_config, then record source/install provenance and verify the generated robot model reports exactly J1-J5 as movable/planning variables.",
+      "pass_condition": "exit_code_zero; both packages build in the isolated overlay; selected model and guard derive exactly five ordered arm joints; no installed package outside the overlay is replaced"
     },
     {
       "id": "build.slicer_ros2_if_changed",

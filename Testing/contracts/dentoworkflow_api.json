@@ -2367,7 +2367,6 @@
         "robotJoint3Deg",
         "robotJoint4Mm",
         "robotJoint5Deg",
-        "robotJoint6Deg",
         "robotTranslationStepMm",
         "robotRotationStepDeg",
         "robotKeyboardNudgeEnabled",
@@ -2417,8 +2416,6 @@
         "robotJoint4TaskMaxMm",
         "robotJoint5TaskMinDeg",
         "robotJoint5TaskMaxDeg",
-        "robotJoint6TaskMinDeg",
-        "robotJoint6TaskMaxDeg",
         "sceneDisplayPresetJson"
       ],
       "methods": {}

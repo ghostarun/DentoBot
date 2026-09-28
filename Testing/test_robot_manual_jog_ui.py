@@ -408,19 +408,19 @@ def test_manual_jog_planning_refresh_follows_connect_sync_and_draft_checks():
 
 
 def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limits():
-    def to_si(j1, j2, j3, j4, j5, j6):
+    def to_si(j1, j2, j3, j4, j5):
         return {
             JOINT_NAMES[0]: radians(j1),
             JOINT_NAMES[1]: j2 / 1000.0,
             JOINT_NAMES[2]: radians(j3),
             JOINT_NAMES[3]: j4 / 1000.0,
             JOINT_NAMES[4]: radians(j5),
-            "pneumatic_spindle-Copy_Revolute-6": radians(j6),
         }
 
     names = {
         "setManualJogLimits",
         "setManualJogAvailability",
+        "_updateManualJogKeyboardControlState",
         "resetManualJogDraft",
         "_setManualJogDraftValues",
         "_onManualJogSliderChanged",
@@ -515,7 +515,6 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     panel._onManualJogSliderChanged(JOINT_NAMES[3], 0)
     assert panel.manualJogJointControls[JOINT_NAMES[3]][1].value == -2.0
     assert set(panel.manualJogJointPositionsSi()) == set(JOINT_NAMES)
-    assert "pneumatic_spindle-Copy_Revolute-6" not in panel.manualJogJointPositionsSi()
     assert len(ghost_updates) == 3
     assert all(action == "manual_draft_changed" for action, _state in ghost_updates)
 
@@ -531,7 +530,7 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     assert "J1 10.00 deg" in panel.taskHomeCurrentStateLabel.text
     assert "J2 3.00 mm" in panel.taskHomeCurrentStateLabel.text
     assert "J5 30.00 deg" in panel.taskHomeCurrentStateLabel.text
-    assert "J6 excluded" in panel.taskHomeCurrentStateLabel.text
+    assert "five-DOF arm" in panel.taskHomeCurrentStateLabel.text
     assert "pneumatic_spindle" not in panel.taskHomeCurrentStateLabel.text
     panel.resetManualJogDraft()
     assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == 10.0
@@ -603,6 +602,8 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
                 raise self.exception
             return self.result
 
+    refresh_states = []
+
     def invoke(
         details,
         *,
@@ -626,6 +627,9 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
         host._robotSimulationPanel = panel
         host._robotWorkflowFacade = facade
         host._workflowActionBusy = False
+        host._updateStep6PlanningUi = lambda: refresh_states.append(
+            host._workflowActionBusy
+        )
         host._setRobotJointsFromSi = lambda positions, *, publish_to_ros: (
             mirrors.append((dict(positions), publish_to_ros)) or (True, "")
         )
@@ -648,6 +652,7 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
     assert panel.draft == requested
     assert panel.status[0] == "ok"
     assert panel.evidence == accepted_details
+    assert refresh_states[-1] is False
 
     pending_details = {
         **accepted_details,
@@ -743,7 +748,7 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
     assert panel.status[0] == "blocked"
     assert panel.evidence["manualJogReconciliationRequired"] is True
 
-    invalid_request = {**requested, "J6": 0.0}
+    invalid_request = {**requested, "unexpected_joint": 0.0}
     panel, facade, mirrors = invoke({}, request=invalid_request)
     assert facade.calls == []
     assert mirrors == []
@@ -758,6 +763,7 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
         {
             "setManualJogAvailability",
             "setManualJogStatus",
+            "_updateManualJogKeyboardControlState",
             "_formatManualJogNativeEvidence",
             "_setManualJogStatus",
         },
@@ -912,6 +918,8 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
             self.calls += 1
             return self.result
 
+    refresh_states = []
+
     def invoke(result):
         panel = Panel()
         facade = Facade(result)
@@ -920,6 +928,9 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
         host._robotSimulationPanel = panel
         host._robotWorkflowFacade = facade
         host._workflowActionBusy = False
+        host._updateStep6PlanningUi = lambda: refresh_states.append(
+            host._workflowActionBusy
+        )
         host._setRobotJointsFromSi = lambda positions, *, publish_to_ros: (
             mirrors.append((dict(positions), publish_to_ros)) or (True, "")
         )
@@ -939,6 +950,7 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
     assert panel.draft == draft
     assert not panel.manualJogReconciliationRequired
     assert "Static collision validity: invalid" in panel.status[1]
+    assert refresh_states[-1] is False
 
     failure = SimpleNamespace(
         success=False,
@@ -1132,6 +1144,81 @@ def test_manual_draft_state_check_is_read_only_and_marks_stale_results():
     assert "endpoint status unknown" in unknown.manualDraftStateCheckStatusLabel.text
     assert "position residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
     assert "drilling-axis residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
+
+
+def test_workspace_generation_refreshes_planning_ui_after_busy_clears():
+    events = []
+    progress_instances = []
+
+    class Label:
+        def setProperty(self, _name, _value):
+            pass
+
+        def style(self):
+            return self
+
+        def unpolish(self, _label):
+            pass
+
+        def polish(self, _label):
+            pass
+
+    host = SimpleNamespace(
+        _parameterNode=object(),
+        logic=object(),
+        _robotWorkflowFacade=SimpleNamespace(
+            generateWorkspaceCloud=lambda **_kwargs: SimpleNamespace(
+                success=True, message="generated", details={}
+            )
+        ),
+        _workflowActionBusy=False,
+        _step6TaskSpaceRoiDraft=lambda: ("roi", "source"),
+        _robotSimulationPanel=SimpleNamespace(taskSpaceRoiStatusLabel=Label()),
+    )
+
+    class Progress:
+        def __init__(self, _title):
+            self.closed = False
+            progress_instances.append(self)
+
+        def update(self, *_args, **_kwargs):
+            pass
+
+        def close(self):
+            events.append(("close", host._workflowActionBusy))
+            self.closed = True
+
+    def refresh(message="", error=False):
+        events.append(
+            ("refresh", host._workflowActionBusy, message, error, progress_instances[0].closed)
+        )
+
+    host._updateStep6PlanningUi = refresh
+    host.ui = SimpleNamespace(
+        robotWorkspaceStatusLabel=Label(),
+        clearRobotWorkspaceButton=SimpleNamespace(enabled=False),
+    )
+    on_generate = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"onGenerateRobotWorkspace"},
+        {
+            "WorkflowProgress": Progress,
+            "_": lambda message: message,
+            "slicer": SimpleNamespace(
+                util=SimpleNamespace(errorDisplay=lambda _message: None)
+            ),
+        },
+    )["onGenerateRobotWorkspace"]
+
+    on_generate(host)
+
+    assert events == [
+        ("close", True),
+        ("refresh", False, "generated", False, True),
+    ]
+    assert host.ui.robotWorkspaceStatusLabel.text.startswith("generated")
+    assert host.ui.clearRobotWorkspaceButton.enabled is True
 
 
 def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
@@ -2244,7 +2331,6 @@ def test_set_robot_joints_from_si_converts_radians_without_publishing():
         JOINT_NAMES[2]: radians(-45),
         JOINT_NAMES[3]: 0.0035,
         JOINT_NAMES[4]: radians(90),
-        "pneumatic_spindle-Copy_Revolute-6": radians(-90),
     }
 
     assert method(host, positions, publish_to_ros=False) == (True, "")
@@ -2254,8 +2340,7 @@ def test_set_robot_joints_from_si_converts_radians_without_publishing():
         round(parameter_node.robotJoint3Deg, 6),
         parameter_node.robotJoint4Mm,
         round(parameter_node.robotJoint5Deg, 6),
-        round(parameter_node.robotJoint6Deg, 6),
-    ) == (30.0, 12.0, -45.0, 3.5, 90.0, -90.0)
+    ) == (30.0, 12.0, -45.0, 3.5, 90.0)
     assert parameter_node.modified == [17]
     assert robot_updates == [True]
     assert ros_checks == []
@@ -2328,7 +2413,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
             details={
                 "staged": True,
                 "candidateJointPositionsSi": candidate,
-                "acceptedJointPositionsSi": {**accepted, "J6": 1.0},
+                "acceptedJointPositionsSi": {**accepted, "unexpected_joint": 1.0},
                 "identityStatus": "unknown",
                 "acceptanceStatus": "unknown",
                 "failureEvidence": {"reason": "scene status unavailable"},
@@ -2612,7 +2697,7 @@ def test_manual_task_home_stage_cancel_and_accept_delegate_without_preaccept_mut
     assert panel.accepted_mirrors == [(accepted, True)]
     assert host._workflowActionBusy is False
 
-    panel.draft = {**candidate, "pneumatic_spindle-Copy_Revolute-6": 0.0}
+    panel.draft = {**candidate, "unexpected_joint": 0.0}
     stage_calls_before = sum(call[0] == "stage" for call in facade.calls)
     host._onStep6ReviewManualTaskHome()
     stage_calls_after = sum(call[0] == "stage" for call in facade.calls)
@@ -2875,7 +2960,7 @@ def test_cartesian_tcp_surface_is_step6_3_owned_and_explicitly_drag_gated():
     assert "self.tcpDragEnabledCheckBox.checked = False" in source
     assert "exact J1–J5 MoveIt kinematic IK" in source
     assert "Pitch and yaw tilt the TCP/drill " in source
-    assert "Axial roll: unconstrained (J6 excluded)" in source
+    assert "Axial roll is unconstrained by the five-DOF arm." in source
     assert '"Roll (local TCP, deg)"' not in source
     assert "they do not check collision validity" in source
     assert "collision-aware evaluation and stages its J1–J5 result as a draft" in source
@@ -2971,7 +3056,7 @@ def test_tcp_keyboard_binding_mapping_and_text_editor_gate():
     assert "Shift+Up" not in dict((key, value) for key, *value in bindings)
     help_text = _method_node(panel_path, "DENTORobotSimulationPanel", "__init__")
     help_source = ast.unparse(help_text)
-    assert "Axial roll is unconstrained (J6 excluded)" in help_source
+    assert "Axial roll is unconstrained by the five-DOF arm." in help_source
     assert "Ctrl+↓/↑ pitch" in help_source
     assert "Shift+←/→ yaw" in help_source
 
@@ -3001,6 +3086,231 @@ def test_tcp_keyboard_binding_mapping_and_text_editor_gate():
     assert len(calls) == 1
 
 
+def test_manual_joint_keyboard_nudges_are_opt_in_draft_only_and_unit_aware():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    bindings = _class_constant(
+        panel_path, "DENTORobotSimulationPanel", "MANUAL_JOG_KEY_BINDINGS"
+    )
+    assert bindings == (
+        ("Q", 0, 1.0),
+        ("A", 0, -1.0),
+        ("W", 1, 1.0),
+        ("S", 1, -1.0),
+        ("E", 2, 1.0),
+        ("D", 2, -1.0),
+        ("R", 3, 1.0),
+        ("F", 3, -1.0),
+        ("T", 4, 1.0),
+        ("G", 4, -1.0),
+    )
+    initializer = ast.unparse(
+        _method_node(panel_path, "DENTORobotSimulationPanel", "__init__")
+    )
+    assert "Enable joint keyboard nudges" in initializer
+    assert "self.manualJogKeyboardEnabledCheckBox.checked = False" in initializer
+    assert "degrees_step:g" in initializer
+    assert "millimeters_step:g" in initializer
+    assert "((0.1, 0.1), (0.5, 0.5), (1.0, 1.0))" in initializer
+    assert "J1 Q/A, J2 W/S, J3 E/D, J4 R/F, J5 T/G" in initializer
+
+    class Signal:
+        def __init__(self):
+            self.callbacks = []
+
+        def connect(self, callback):
+            self.callbacks.append(callback)
+
+        def disconnect(self, callback):
+            self.callbacks.remove(callback)
+
+        def emit(self, *args):
+            for callback in tuple(self.callbacks):
+                callback(*args)
+
+    class KeySequence:
+        def __init__(self, key):
+            self.key = key
+
+    class Shortcut:
+        def __init__(self, sequence, parent):
+            self.sequence = sequence
+            self.parent = parent
+            self.activated = Signal()
+            self.enabled = True
+
+        def trigger(self):
+            if self.enabled:
+                self.activated.emit()
+
+    application = SimpleNamespace(focusChanged=Signal())
+    qt = SimpleNamespace(
+        QShortcut=Shortcut,
+        QKeySequence=KeySequence,
+        Qt=SimpleNamespace(WidgetWithChildrenShortcut="widget_with_children"),
+        QApplication=SimpleNamespace(instance=lambda: application),
+    )
+
+    def to_si(j1, j2, j3, j4, j5):
+        return {
+            JOINT_NAMES[0]: radians(j1),
+            JOINT_NAMES[1]: j2 / 1000.0,
+            JOINT_NAMES[2]: radians(j3),
+            JOINT_NAMES[3]: j4 / 1000.0,
+            JOINT_NAMES[4]: radians(j5),
+        }
+
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {
+            "_setupManualJogKeyboardShortcuts",
+            "_connectManualJogKeyboardFocusUpdates",
+            "_manualJogKeyboardControlsAllowed",
+            "_updateManualJogKeyboardControlState",
+            "_onManualJogKeyboardNudge",
+            "_onManualJogNumericChanged",
+            "_updateManualJogDraftFromControls",
+            "_formatManualJogDisplayValues",
+            "manualJogJointPositionsSi",
+        },
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "isfinite": math.isfinite,
+            "joint_positions_si_from_display": to_si,
+            "qt": qt,
+        },
+    )
+    panel_type = type("ManualJointKeyboardProbe", (), methods)
+    panel_type.MANUAL_JOG_KEY_BINDINGS = bindings
+    panel = panel_type()
+    panel._activeSubstep = 3
+    panel.manualJogGroup = SimpleNamespace(visible=True, destroyed=Signal())
+    panel._manualJogAvailable = True
+    panel._manualJogGuardContextAvailable = True
+    panel._manualJogBusy = False
+    panel._manualJogDraftInitialized = False
+    panel.manualJogReconciliationRequired = False
+    panel.manualJogKeyboardEnabledCheckBox = _Control()
+    panel.manualJogKeyboardEnabledCheckBox.checked = False
+    panel.manualJogKeyboardStepComboBox = SimpleNamespace(
+        currentData=(0.25, 0.75), enabled=False
+    )
+    panel._manualJogKeyboardShortcuts = []
+    text_focus = [False]
+    panel._hasTcpTextEditorFocus = lambda: text_focus[0]
+    panel._updateManualJogKeyboardControlState()
+
+    class SpinBox(_Control):
+        def __init__(self, value):
+            super().__init__(value)
+            self.minimum, self.maximum = -100.0, 100.0
+            self.on_value_changed = None
+
+        def setValue(self, value):
+            super().setValue(value)
+            if not self._signals_blocked and self.on_value_changed:
+                self.on_value_changed(self.value)
+
+    values = (10.0, 2.0, -5.0, 1.0, 30.0)
+    mechanical = ((-100.0, 100.0),) * 5
+    panel._manualJogLimits = (mechanical, mechanical)
+    panel._manualJogDisplayValues = values
+    accepted = {joint: float(index) for index, joint in enumerate(JOINT_NAMES)}
+    panel._manualJogAcceptedJointPositionsSi = accepted.copy()
+    panel.manualJogJointControls = {}
+    for index, joint in enumerate(JOINT_NAMES):
+        spinbox = SpinBox(values[index])
+        spinbox.on_value_changed = (
+            lambda value, name=joint: panel._onManualJogNumericChanged(name, value)
+        )
+        panel.manualJogJointControls[joint] = (_Control(), spinbox, _Control())
+    panel.manualJogDraftStateLabel = _Control()
+    panel.setManualJogAvailability = lambda *_args: None
+    panel._setManualJogStatus = lambda *_args: None
+    updates = []
+    panel._invoke = lambda action, state: updates.append((action, dict(state)))
+    panel._setupManualJogKeyboardShortcuts()
+    panel._updateManualJogKeyboardControlState()
+
+    shortcuts = panel._manualJogKeyboardShortcuts
+    assert [shortcut.sequence.key for shortcut in shortcuts] == [
+        key for key, _index, _direction in bindings
+    ]
+    assert all(shortcut.parent is panel.manualJogGroup for shortcut in shortcuts)
+    assert all(
+        shortcut.context == "widget_with_children" and not shortcut.autoRepeat
+        for shortcut in shortcuts
+    )
+    assert not any(shortcut.enabled for shortcut in shortcuts)
+    shortcuts[0].trigger()
+    assert updates == []
+
+    panel.manualJogKeyboardEnabledCheckBox.checked = True
+    panel._updateManualJogKeyboardControlState()
+    assert panel.manualJogKeyboardStepComboBox.enabled
+    assert all(shortcut.enabled for shortcut in shortcuts)
+    for shortcut, (_key, joint_index, direction) in zip(
+        shortcuts, bindings, strict=True
+    ):
+        before = tuple(
+            float(panel.manualJogJointControls[joint][1].value)
+            for joint in JOINT_NAMES
+        )
+        shortcut.trigger()
+        after = tuple(
+            float(panel.manualJogJointControls[joint][1].value)
+            for joint in JOINT_NAMES
+        )
+        step = 0.25 if joint_index in (0, 2, 4) else 0.75
+        assert after[joint_index] == before[joint_index] + step * direction
+        assert all(
+            after[index] == before[index]
+            for index in range(len(JOINT_NAMES))
+            if index != joint_index
+        )
+    assert len(updates) == len(bindings)
+    assert all(action == "manual_draft_changed" for action, _state in updates)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted
+
+    panel._connectManualJogKeyboardFocusUpdates()
+    text_focus[0] = True
+    application.focusChanged.emit(None, object())
+    assert not any(shortcut.enabled for shortcut in shortcuts)
+    before_focus_nudge = tuple(
+        float(panel.manualJogJointControls[joint][1].value) for joint in JOINT_NAMES
+    )
+    panel._onManualJogKeyboardNudge(0, 1.0)
+    assert tuple(
+        float(panel.manualJogJointControls[joint][1].value) for joint in JOINT_NAMES
+    ) == before_focus_nudge
+    text_focus[0] = False
+    application.focusChanged.emit(None, None)
+    assert all(shortcut.enabled for shortcut in shortcuts)
+    text_focus[0] = True
+    application.focusChanged.emit(None, object())
+    panel.manualJogGroup.destroyed.emit(None)
+    assert panel._manualJogKeyboardFocusSlot not in application.focusChanged.callbacks
+    text_focus[0] = False
+
+    blocked_states = (
+        (4, True, False, False),
+        (3, True, False, True),
+        (3, True, True, False),
+    )
+    for blocked_state in blocked_states:
+        (
+            panel._activeSubstep,
+            panel.manualJogGroup.visible,
+            panel._manualJogBusy,
+            panel.manualJogReconciliationRequired,
+        ) = blocked_state
+        panel._updateManualJogKeyboardControlState()
+        assert not panel.manualJogKeyboardEnabledCheckBox.enabled
+        assert not panel.manualJogKeyboardStepComboBox.enabled
+        assert not any(shortcut.enabled for shortcut in shortcuts)
+        assert not panel.manualJogKeyboardEnabledCheckBox.checked
+
+
 def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
     panel_path = PYTHON / "DENTORobotSimulationPanel.py"
     methods = _methods(
@@ -3013,6 +3323,7 @@ def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
             "_updateTcpCartesianControlState",
             "_tcpCartesianControlsAllowed",
             "setActiveSubstep",
+            "_updateManualJogKeyboardControlState",
         },
         {},
     )
@@ -3240,7 +3551,7 @@ def test_tcp_ik_solution_stages_only_complete_finite_mechanical_j1_j5_draft():
     for invalid in (
         {joint: value for joint, value in candidate.items() if joint != JOINT_NAMES[4]},
         {**candidate, JOINT_NAMES[0]: math.nan},
-        {**candidate, "pneumatic_spindle-Copy_Revolute-6": 0.0},
+        {**candidate, "unexpected_joint": 0.0},
         {**candidate, JOINT_NAMES[1]: 0.500},
     ):
         panel = make_panel()

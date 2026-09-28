@@ -57,13 +57,7 @@ PLANNER_COMPARISON_IDS = (
 )
 MANUAL_SIMULATION_BASE_SOURCE = "manual-simulation-base"
 QUARANTINED_CIRCULAR_BASE_SOURCE = "quarantined-circular-mount-plane"
-"""Commandable robot joints used by MoveIt and the Step 6 guard.
-
-The pneumatic spindle remains in the URDF as a visual/collision branch, but it
-is deliberately absent from this planning order: its angular position is not a
-robot command.  ``LEGACY_JOINT_NAMES`` is retained only to migrate old saved
-six-value records at the persistence boundary.
-"""
+"""Canonical positioning joints used by Step 6 workflow state."""
 JOINT_NAMES = (
     "link-1_Revolute-1",
     "link-2_Slider-2",
@@ -71,32 +65,21 @@ JOINT_NAMES = (
     "link-4_Slider-4",
     "link-5_Revolute-5",
 )
-SPINDLE_JOINT_NAME = "pneumatic_spindle-Copy_Revolute-6"
-LEGACY_JOINT_NAMES = JOINT_NAMES + (SPINDLE_JOINT_NAME,)
-SPINDLE_LOCKED_VALUE_RAD = 0.0
-SPINDLE_LOCK_TOLERANCE_RAD = 1.0e-9
-SPINDLE_PLANNING_POLICY = "external-pressure-spindle-nonplanning-v2"
 SIMULATION_TARGET_DEPTH_POLICY = "simulation-target-depth-preserve-request-v2"
 SIMULATION_TOOL_PROVENANCE = (
     "CAD-derived/provisional/un-calibrated; " + SIMULATION_TARGET_DEPTH_POLICY
 )
-# The five-DOF arm can command TCP XYZ plus the drilling-axis direction.  Roll
-# about that axis belongs to the external pneumatic spindle and is not part of
-# the MoveIt task constraint.  Bump the policy fingerprint so older full-frame
-# evidence is explicitly stale after this kinematic correction.
+# The arm controls TCP position and drill-axis direction. Axial roll remains
+# unconstrained because the arm does not control that orientation component.
 DRILL_TOOL_FRAME_POLICY = "stage1-position-axis-authoritative-fk-v3"
 
 
 def canonicalize_planning_joint_positions(
     joint_positions_si: Mapping[str, float],
 ) -> dict[str, float]:
-    """Return a finite commandable J1–J5 vector.
-
-    An optional historical spindle key is ignored at this boundary.  It is not
-    canonicalized, constrained, or sent to MoveIt; old records are migrated by
-    their parser and their pre-migration evidence is stale by fingerprint.
-    """
-
+    """Return a finite vector containing exactly the canonical J1–J5 joints."""
+    if not isinstance(joint_positions_si, Mapping) or set(joint_positions_si) != set(JOINT_NAMES):
+        raise ValueError("joint vector must contain exactly the canonical J1–J5 joints")
     result = {name: float(joint_positions_si[name]) for name in JOINT_NAMES}
     if not all(isfinite(value) for value in result.values()):
         raise ValueError("planning joint vector must contain five finite values")
@@ -186,15 +169,6 @@ def planner_comparison_scene_fingerprint(audit: "CollisionSceneAudit") -> str:
         "objects": audit.object_records,
         "policy": audit.runtime_acknowledgement.get("expected_policy_fingerprint"),
     })
-
-
-def spindle_is_locked(joint_positions_si: Mapping[str, float]) -> bool:
-    """Compatibility check for legacy records; never used for planning."""
-    try:
-        value = float(joint_positions_si[SPINDLE_JOINT_NAME])
-    except (KeyError, TypeError, ValueError):
-        return False
-    return isfinite(value) and abs(value - SPINDLE_LOCKED_VALUE_RAD) <= SPINDLE_LOCK_TOLERANCE_RAD
 
 
 class BasePlacementStatus(str, Enum):
@@ -1350,9 +1324,6 @@ class TaskHomeRecord:
     validated_at_utc: str = ""
     minimum_clearance_mm: float | None = None
     world_object_count: int = 0
-    spindle_planning_policy: str = SPINDLE_PLANNING_POLICY
-    spindle_locked_value_rad: float = SPINDLE_LOCKED_VALUE_RAD
-
     def to_dict(self) -> dict[str, object]:
         result = asdict(self)
         result["joint_names"] = list(self.joint_names)
@@ -1402,8 +1373,6 @@ def build_task_home(
         validated_at_utc=str(validated_at_utc or ""),
         minimum_clearance_mm=clearance,
         world_object_count=max(0, int(world_object_count)),
-        spindle_planning_policy=SPINDLE_PLANNING_POLICY,
-        spindle_locked_value_rad=SPINDLE_LOCKED_VALUE_RAD,
     )
 
 
@@ -1413,11 +1382,6 @@ def parse_task_home(payload: str | Mapping[str, object]) -> TaskHomeRecord:
         raise ValueError("unsupported Task Home schema")
     names = tuple(str(value) for value in data.get("joint_names", ()))
     values = tuple(data.get("joint_positions_si", ()))
-    if names == LEGACY_JOINT_NAMES:
-        # Old six-joint homes are read as J1–J5 only.  Their old planning
-        # evidence is invalidated by the new robot-profile/TCP fingerprint.
-        names = JOINT_NAMES
-        values = values[: len(JOINT_NAMES)]
     if names != JOINT_NAMES or len(values) != len(JOINT_NAMES):
         raise ValueError("Task Home joint order does not match the J1–J5 planning profile")
     return build_task_home(
@@ -1467,10 +1431,6 @@ def build_assisted_limit_proposal(
 ) -> AssistedLimitProposal:
     def planning_display_vector(vector: Sequence[float]) -> tuple[float, ...]:
         values = tuple(float(value) for value in vector)
-        # Workspace/UI compatibility vectors may still carry the fixed visual
-        # spindle slot. Only J1–J5 participate in the proposal.
-        if len(values) == len(JOINT_NAMES) + 1:
-            values = values[: len(JOINT_NAMES)]
         return _finite_tuple(values, len(JOINT_NAMES), "workspace joint vector")
 
     samples = tuple(planning_display_vector(vector) for vector in accepted_display_vectors)

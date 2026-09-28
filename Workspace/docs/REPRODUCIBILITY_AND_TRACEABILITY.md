@@ -1,5 +1,27 @@
 # DENTOBOT Inference Reproducibility and Traceability
 
+## 2026-09-28 five-DOF model transition
+
+Commit `84234a6` is the pre-refactor Step 6 checkpoint. The next source gate
+removes the historical sixth-joint compatibility slot from the current robot
+description and workflow. Reproducible current robot evidence must identify
+exactly five ordered movable joints, J1–J5. The pneumatic spindle housing and
+burr retain their meshes, collisions and exact neutral transform through a
+fixed attachment; `dentobot_drill_tcp` remains the canonical TCP. A sixth
+value in an older record is historical evidence and is not silently truncated
+into current state.
+
+The indexed `pure.five_dof_robot_contract` passed 394 tests. The isolated
+`build.five_dof_robot_model` then built `dentobot_description` and
+`dentobot_moveit_config`; source and installed URDF SHA-256 were both
+`3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a`.
+A serialized simulation-only runtime proved exact J1–J5 robot load, guard
+acceptance, collision-valid state, canonical TCP TF and a five-joint IK result.
+The generic fixed-orientation Cartesian diagnostic returned fraction zero,
+which is expected outside the arm's position-plus-drill-axis task; the Step 6
+position-axis continuity gate remains separate. This evidence grants no route,
+preview, spindle-speed, hardware, drilling or patient authority.
+
 ## 2026-09-11 Case Foundation trace contract
 
 Schema-2 Case Foundation evidence records exact source CBCT content/geometry,

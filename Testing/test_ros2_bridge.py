@@ -1549,7 +1549,21 @@ def test_preflight_start_is_canonical_read_only_and_rejects_malformed_mapping(mo
     canonical = dict(
         zip(ROS2_JOINT_SI_ORDER, (1.0, 2.0, 3.0, 4.0, 5.0))
     )
-    canonical["pneumatic_spindle"] = 99.0
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="task",
+        target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth"],
+        base_transform=None,
+        entry_ras_mm=(0, 0, 0),
+        target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75,
+        approach_standoff_mm=5,
+        preflight_start_positions_si={**canonical, "unexpected_joint": 99.0},
+    )
+    assert not ok
+    assert "exactly the canonical J1–J5 joints" in reason
+    assert config_publisher.messages == []
+    assert command_publisher.messages == []
     ok, reason = configure_task_phase_guard(
         task_fingerprint="task",
         target_object_id="selected-tooth",
@@ -1781,3 +1795,186 @@ def test_robot_facade_exposes_moveit_goal_without_hardware_execute_path():
     assert "def solveIk" in facade
     assert "def planToGoal" in facade
     assert "def execute" not in facade
+
+
+def _joint_goal_result_with_fake(monkeypatch, *, mode="success", track_release=True):
+    events = []
+    names = list(ROS2_JOINT_SI_ORDER)
+    vectors = ([0.0] * len(names), [0.1] + [0.0] * (len(names) - 1))
+    if mode == "malformed":
+        vectors = ([0.0] * (len(names) - 1), [0.1] + [0.0] * (len(names) - 2))
+
+    points = []
+    for index, positions in enumerate(vectors):
+        def get_positions(index=index, positions=positions):
+            events.append(("positions", index))
+            if mode == "exception":
+                raise RuntimeError("joint point read failed")
+            return positions
+
+        points.append(
+            SimpleNamespace(
+                GetPositions=get_positions,
+                GetTimeFromStart=lambda index=index: float(index),
+            )
+        )
+    joint_trajectory = SimpleNamespace(
+        GetJointNames=lambda: names,
+        GetPoints=lambda: points,
+    )
+    trajectory = SimpleNamespace(GetJointTrajectory=lambda: joint_trajectory)
+    if track_release:
+        trajectory.UnRegister = lambda value: events.append(("unregister", value))
+
+    authority_calls = {"plan": 0, "preview": 0, "execute": 0}
+
+    class MotionNode:
+        def PlanMoveItTrajectory(self, *_args):
+            authority_calls["plan"] += 1
+            return trajectory
+
+        def PreviewMoveItTrajectory(self, *_args):
+            authority_calls["preview"] += 1
+
+        def ExecuteMoveItTrajectory(self, *_args):
+            authority_calls["execute"] += 1
+
+        def GetLastJointPlanMessage(self):
+            return ""
+
+        def GetLastJointPlannerId(self):
+            return ""
+
+    motion_node = MotionNode()
+    parameter_node = SimpleNamespace(motionControlNodeID="motion")
+    logic = SimpleNamespace(
+        last_ik_solution=[0.0] * len(names),
+        getParameterNode=lambda: parameter_node,
+    )
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, object(), None, None),
+    )
+    monkeypatch.setattr(bridge_module, "monitored_joint_positions_si", lambda: {})
+    monkeypatch.setitem(
+        sys.modules,
+        "slicer",
+        SimpleNamespace(mrmlScene=SimpleNamespace(GetNodeByID=lambda _node_id: motion_node)),
+    )
+    result = bridge_module.plan_moveit_joint_goal(
+        refresh_planning_scene=False,
+        planning_attempts=1,
+    )
+    return result, events, authority_calls
+
+
+@pytest.mark.parametrize(
+    ("mode", "success", "message"),
+    [
+        ("success", True, "Plan ready"),
+        ("malformed", False, "malformed joint point"),
+        ("exception", False, "joint point read failed"),
+    ],
+)
+def test_joint_goal_planning_releases_trajectory_once_after_conversion(
+    monkeypatch, mode, success, message
+):
+    result, events, authority_calls = _joint_goal_result_with_fake(
+        monkeypatch, mode=mode
+    )
+
+    assert result.success is success
+    assert message in result.message
+    assert events.count(("unregister", None)) == 1
+    assert events[-1] == ("unregister", None)
+    assert any(event[0] == "positions" for event in events)
+    assert authority_calls == {"plan": 1, "preview": 0, "execute": 0}
+
+
+def _static_fk_result_with_fake(monkeypatch, *, values, fail_at=None, track_release=True):
+    events = []
+
+    def get_element(row, column):
+        events.append(("element", row, column))
+        if row == fail_at:
+            raise RuntimeError("matrix element read failed")
+        return values[row] if column == 3 else float(row == column)
+
+    matrix = SimpleNamespace(GetElement=get_element)
+    if track_release:
+        matrix.UnRegister = lambda value: events.append(("unregister", value))
+
+    class MotionNode:
+        def ComputeMoveItForwardKinematics(self, *_args):
+            return matrix
+
+        def GetLastForwardKinematicsMessage(self):
+            return "MoveIt FK returned an authoritative pose."
+
+        def PreviewMoveItTrajectory(self, *_args):
+            pytest.fail("static FK must not start preview")
+
+        def ExecuteMoveItTrajectory(self, *_args):
+            pytest.fail("static FK must not execute a trajectory")
+
+    motion_node = MotionNode()
+    parameter_node = SimpleNamespace(motionControlNodeID="motion")
+    logic = SimpleNamespace(getParameterNode=lambda: parameter_node)
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, None, None, None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "slicer",
+        SimpleNamespace(mrmlScene=SimpleNamespace(GetNodeByID=lambda _node_id: motion_node)),
+    )
+    positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    result = bridge_module.compute_moveit_static_tcp_pose_base_mm(positions)
+    return result, events
+
+
+@pytest.mark.parametrize(
+    ("values", "fail_at", "success", "rows_read"),
+    [
+        ((1.0, 2.0, 3.0), None, True, (0, 1, 2)),
+        ((1.0, 2.0, 3.0), 1, False, (0, 1)),
+        ((1.0, float("nan"), 3.0), None, False, (0, 1, 2)),
+    ],
+)
+def test_static_fk_releases_matrix_after_copy_on_success_and_failure(
+    monkeypatch, values, fail_at, success, rows_read
+):
+    result, events = _static_fk_result_with_fake(
+        monkeypatch,
+        values=values,
+        fail_at=fail_at,
+    )
+
+    assert result[0] is success
+    assert events.count(("unregister", None)) == 1
+    assert events[-1] == ("unregister", None)
+    assert tuple(event[1] for event in events if event[0] == "element") == rows_read
+    if success:
+        assert result[2] == (1.0, 2.0, 3.0)
+    else:
+        assert result[2] is None
+
+
+def test_vtk_result_fakes_without_unregister_remain_supported(monkeypatch):
+    result, events, _authority_calls = _joint_goal_result_with_fake(
+        monkeypatch,
+        track_release=False,
+    )
+    assert result.success
+    assert not any(event[0] == "unregister" for event in events)
+
+    result, events = _static_fk_result_with_fake(
+        monkeypatch,
+        values=(1.0, 2.0, 3.0),
+        track_release=False,
+    )
+    assert result[0]
+    assert not any(event[0] == "unregister" for event in events)

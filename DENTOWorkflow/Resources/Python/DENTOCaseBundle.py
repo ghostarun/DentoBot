@@ -320,6 +320,63 @@ def is_additive_rrt_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
     )
 
 
+def is_five_dof_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
+    """Recognize only the recorded six-to-five-DOF URDF profile transition."""
+
+    saved_identity = "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682"
+    current_identity = (
+        "cac087c6ee96258416e587e43303a0351f331a8b668daf4ff0f3929a030ae52c"
+    )
+    urdf_hashes = {
+        "description/urdf/dentobot.urdf": (
+            "c70c12e38dc12dd4798f6332426eea82a430dc882836ef31cf0ce293c1e3f3d5",
+            "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a",
+        ),
+        "description/urdf/dentobot.diagnostic-no-spindle-collision.urdf": (
+            "8345886de7ecbe359df010da37a5099d209edae41dc9fc9857a4dccbe61ace99",
+            "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995",
+        ),
+    }
+    if (
+        saved.get("schemaVersion") != "1.0"
+        or current.get("schemaVersion") != "1.0"
+        or saved.get("runtimeRestorePolicy")
+        != "verify-installed-resources-then-explicitly-connect"
+        or current.get("runtimeRestorePolicy")
+        != "verify-installed-resources-then-explicitly-connect"
+        or saved.get("identitySha256") != saved_identity
+        or current.get("identitySha256") != current_identity
+    ):
+        return False
+    before, after = saved.get("components"), current.get("components")
+    if (
+        not isinstance(before, list)
+        or not isinstance(after, list)
+        or any(not isinstance(item, dict) for item in before + after)
+        or any(set(item) != {"path", "sha256", "sizeBytes"} for item in before + after)
+        or any(not isinstance(item.get("path"), str) for item in before + after)
+    ):
+        return False
+    saved_by_path = {item["path"]: item for item in before}
+    current_by_path = {item["path"]: item for item in after}
+    if (
+        len(saved_by_path) != len(before)
+        or len(current_by_path) != len(after)
+        or saved_by_path.keys() != current_by_path.keys()
+    ):
+        return False
+    if any(
+        saved_by_path.get(path, {}).get("sha256") != hashes[0]
+        or current_by_path.get(path, {}).get("sha256") != hashes[1]
+        for path, hashes in urdf_hashes.items()
+    ):
+        return False
+    return all(
+        saved_by_path[path] == current_by_path[path]
+        for path in saved_by_path.keys() - urdf_hashes.keys()
+    )
+
+
 def create_case_bundle(
     destination: str | Path,
     scene_mrb: str | Path,

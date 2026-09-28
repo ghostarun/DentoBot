@@ -260,7 +260,7 @@ def test_tcp_ik_shell_stages_only_successful_complete_finite_j1_j5_payload():
         (False, {}, {"authoritativeStaticValidity": None, "failureEvidence": "unknown"}),
         (True, {name: value for name, value in valid.items() if name != JOINT_NAMES[-1]}, {}),
         (True, {**valid, JOINT_NAMES[0]: float("nan")}, {}),
-        (True, {**valid, "pneumatic_spindle-Copy_Revolute-6": 0.0}, {}),
+        (True, {**valid, "unexpected_joint": 0.0}, {}),
     )
     for success, payload, details in invalid_responses:
         events, draft, accepted = run(success, payload, details)

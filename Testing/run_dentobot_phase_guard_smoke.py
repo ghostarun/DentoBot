@@ -619,24 +619,23 @@ def main() -> None:
         require(overshoot, False, "overshoot", "overshot")
         report["overshoot_rejected"] = True
 
-        # A legacy six-value command attempts to address the external spindle.
-        # The guard rejects it because only J1-J5 are planning DOFs.
-        spindle = list(safe_joints) + [0.1]
-        spindle_result = task_command(
+        # An extra position makes the joint vector malformed and must be
+        # rejected as a whole.
+        extra_value_request = list(safe_joints) + [0.1]
+        extra_value_result = task_command(
             node,
-            config=config_payload(entry, target, "phase-smoke-spindle"),
-            joints=spindle,
+            config=config_payload(entry, target, "phase-smoke-extra-joint-value"),
+            joints=extra_value_request,
             phase="drilling",
             sequence=0,
         )
-        require(spindle_result, False, "spindle movement", "five")
-        report["spindle_motion_rejected"] = True
+        require(extra_value_result, False, "extra joint value", "five")
+        report["extra_joint_value_rejected"] = True
 
         bounds = task_command(
             node,
             config=config_payload(entry, target, "phase-smoke-bounds"),
-            # Keep the externally driven spindle at its fixed value so this
-            # assertion exercises the independent J1–J5 joint-bound path.
+            # Use exactly five arm values to exercise the joint-bound path.
             joints=[99.0] * 5,
             phase="drilling",
             sequence=0,

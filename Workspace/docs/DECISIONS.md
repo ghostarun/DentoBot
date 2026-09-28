@@ -1,5 +1,68 @@
 # Dentobot Technical Decisions
 
+## 2026-09-28 — Use the five-DOF checklist as the headed-campaign implementation plan
+
+The detailed five-DOF acceptance checklist now governs implementation and
+execution of the automated headed GUI simulation campaign under `S6-LIVE-01`.
+It supersedes older campaign sequencing where they conflict without creating a
+second pending queue. The new five-DOF FDI11 package remains a planned output
+until it is saved through the current workflow and passes a fresh-process
+reopen.
+
+For this task, Tarun raised the orchestration cap from two to four simultaneous
+GPT-6 Luna Max workers. Use the smallest useful number for independent,
+disjoint implementation or host-test scopes. Sol owns reasoning, controlled
+records, integration, serialized GUI/ROS/MoveIt runtime and acceptance. Luna
+workers do not recursively delegate or own exclusive runtime resources. The
+current platform has four total slots including Sol, so only three Luna workers
+can run beside Sol at once; a fourth permitted worker can run sequentially.
+
+## 2026-09-28 — Model the robotics problem as five DOF with no J6 compatibility slot
+
+Tarun superseded the 1 September compatibility decision and the narrower
+4 September planning-only removal. The DENTOBOT positioning robot has exactly
+five commandable joints, J1–J5. The pneumatic drill is a separate speed-
+controlled spindle device; it is not a joint, positioning degree of freedom,
+IK variable, planning variable, Home/limit field, guard slot, joint-state
+element, workflow control or saved motion value.
+
+Remove the sixth movable URDF joint and attach the burr geometry to the spindle
+housing with the same fixed neutral transform. Preserve the physical spindle
+and burr links, meshes, collision geometry, canonical `dentobot_drill_tcp`,
+drill axis, five-joint order/units and all existing collision/phase policies.
+Remove six-value compatibility from current workflow definitions rather than
+silently truncating it. Historical records retain their dated meaning but do
+not establish current five-DOF state. New robot evidence must contain exactly
+J1–J5. Axial tool roll remains an unconstrained task component because the
+five-DOF arm does not control it.
+
+This source refactor does not introduce a spindle-speed controller. RPM or
+pressure command/status needs a separate simulation and hardware safety
+contract with calibrated limits and authority; it must never enter the arm's
+joint-state, IK, planner or guard interfaces.
+
+## 2026-09-28 — Refresh manual-jog availability after completion clears busy
+
+An accepted, rejected, or reconciled manual-jog action may trigger robot-state
+signals while `_workflowActionBusy` is true. The authoritative Step 6 refresh
+must therefore run only after the shell clears busy and completes the panel
+request; otherwise a valid next draft can remain disabled from a stale cached
+availability value. The completion path now uses that ordering for both Guarded
+Jog and Reconcile State. This preserves draft/accepted/unknown evidence and
+does not grant route or preview authority. Host tests pass; headed-runtime
+verification is pending because the next recorded retry was blocked by the
+account runtime-approval usage limit.
+
+## 2026-09-28 — Halt runtime retries after the r14 pre-launch block
+
+Tarun directed that runtime testing stop after the r14 recording attempt was
+rejected before launch by the account usage limit. Preserve r13's partial
+recording and r14's prepared wrapper/diagnostics as evidence. Do not launch
+Slicer, ROS/MoveIt, Docker runtime or the recorder, and do not convert the
+source/host result into headed, native rejection/unknown, full-chain preview or
+operator acceptance. Resume only after a later explicit operator instruction;
+the named five-DOF acceptance case remains absent.
+
 ## 2026-09-27 — complete-chain authority before Step 6 preview
 
 Retained partial Stage 2/3 plans are display-only diagnostics, even when their

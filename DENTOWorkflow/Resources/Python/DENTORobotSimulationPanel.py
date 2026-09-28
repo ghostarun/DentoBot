@@ -91,6 +91,18 @@ class DENTORobotSimulationPanel:
         ("Shift+Left", None, 2, -1.0),
         ("Shift+Right", None, 2, 1.0),
     )
+    MANUAL_JOG_KEY_BINDINGS = (
+        ("Q", 0, 1.0),
+        ("A", 0, -1.0),
+        ("W", 1, 1.0),
+        ("S", 1, -1.0),
+        ("E", 2, 1.0),
+        ("D", 2, -1.0),
+        ("R", 3, 1.0),
+        ("F", 3, -1.0),
+        ("T", 4, 1.0),
+        ("G", 4, -1.0),
+    )
     PLACEMENT_SURFACE_ACTIONS = frozenset(
         {
             "load_fallback",
@@ -128,6 +140,8 @@ class DENTORobotSimulationPanel:
         self._tcpIkStageFailureText = ""
         self._tcpIkAvailable = False
         self._tcpKeyboardShortcuts = []
+        self._manualJogKeyboardShortcuts = []
+        self._manualJogKeyboardFocusSlot = None
         settings = qt.QSettings()
         self._plannerId = "RRTConnectkConfigDefault"
         self._planningAttempts = max(
@@ -281,7 +295,7 @@ class DENTORobotSimulationPanel:
             "staging does not change the accepted Home, robot, or ROS scene. Accept "
             "Task Home uses the live facade checks and never sends motion. If the "
             "candidate differs from the current accepted robot state, use Guarded "
-            "Manual Jog separately, then review again. J6 is excluded. Plan + Apply "
+            "Manual Jog separately, then review again. The five-DOF arm controls position and drill-axis direction; axial roll is unconstrained. Plan + Apply "
             "uses the saved Home and its existing live gate; this is not physical "
             "actuator homing.",
             self.homeGroup,
@@ -320,7 +334,7 @@ class DENTORobotSimulationPanel:
         home_buttons.addWidget(self.applyTaskHomeButton)
         home_layout.addLayout(home_buttons)
         self.taskHomeCurrentStateLabel = qt.QLabel(
-            "Current accepted robot J1–J5: unavailable; J6 is excluded.",
+            "Current accepted five-joint state: unavailable.",
             self.homeGroup,
         )
         self.taskHomeCurrentStateLabel.objectName = (
@@ -523,7 +537,7 @@ class DENTORobotSimulationPanel:
             "Guarded Jog after authoritative guard acknowledgement advances accepted "
             "simulated state. Manual exploration grants no route or preview authority. "
             "Translation steps use parent/world RAS. Pitch and yaw tilt the TCP/drill "
-            "axis about local TCP axes; axial roll is unconstrained because J6 is excluded.",
+            "axis about local TCP axes; axial roll is unconstrained by the five-DOF arm.",
             self.goalGroup,
         )
         description.wordWrap = True
@@ -639,7 +653,7 @@ class DENTORobotSimulationPanel:
                 self.tcpCartesianNudgeButtons[(is_rotation, axis, sign)] = button
                 tcp_controls.addWidget(button, row, column)
         axial_roll_label = qt.QLabel(
-            "Axial roll: unconstrained (J6 excluded)", self.tcpCartesianGroup
+            "Axial roll is unconstrained by the five-DOF arm.", self.tcpCartesianGroup
         )
         axial_roll_label.objectName = "DENTOBOTTcpAxialRollUnconstrainedLabel"
         tcp_controls.addWidget(axial_roll_label, 4, 0, 1, 3)
@@ -653,14 +667,14 @@ class DENTORobotSimulationPanel:
         self.tcpKeyboardEnabledCheckBox.checked = False
         self.tcpKeyboardEnabledCheckBox.toolTip = (
             "Arrow keys move X/Y, Page Up/Down move Z; Shift+Left/Right rotates yaw, "
-            "and Ctrl+Up/Down rotates pitch. Axial roll is unconstrained because J6 "
-            "is excluded. Shortcuts are active only while this "
+            "and Ctrl+Up/Down rotates pitch. Axial roll is unconstrained by the "
+            "five-DOF arm. Shortcuts are active only while this "
             "workbench is visible and enabled, and no text or numeric editor has focus."
         )
         tcp_layout.addWidget(self.tcpKeyboardEnabledCheckBox)
         self.tcpKeyboardHelpLabel = qt.QLabel(
             "Keyboard: ←/→ X, ↓/↑ Y, PgDn/PgUp Z; Ctrl+↓/↑ pitch; "
-            "Shift+←/→ yaw. Axial roll is unconstrained (J6 excluded). J1–J5 "
+            "Shift+←/→ yaw. Axial roll is unconstrained by the five-DOF arm. J1–J5 "
             "numeric fields accept typing and focused arrow-key adjustment.",
             self.tcpCartesianGroup,
         )
@@ -755,12 +769,46 @@ class DENTORobotSimulationPanel:
             joint_rows.addWidget(slider, index, 1)
             joint_rows.addWidget(value, index, 2)
         manual_jog_layout.addLayout(joint_rows)
-        self.manualJogJ6Label = qt.QLabel(
-            "J6: fixed at 0° — external pneumatic spindle, unavailable to arm jogs.",
+        manual_jog_keyboard_layout = qt.QHBoxLayout()
+        self.manualJogKeyboardEnabledCheckBox = qt.QCheckBox(
+            "Enable joint keyboard nudges", self.manualJogGroup
+        )
+        self.manualJogKeyboardEnabledCheckBox.objectName = (
+            "DENTOBOTManualJogKeyboardEnabledCheckBox"
+        )
+        self.manualJogKeyboardEnabledCheckBox.checked = False
+        self.manualJogKeyboardEnabledCheckBox.toolTip = (
+            "Explicitly enable draft-only J1–J5 keyboard nudges. Shortcuts are "
+            "inactive outside visible Step 6.3 or while draft controls are blocked."
+        )
+        manual_jog_keyboard_layout.addWidget(self.manualJogKeyboardEnabledCheckBox)
+        manual_jog_keyboard_layout.addWidget(qt.QLabel("Step:", self.manualJogGroup))
+        self.manualJogKeyboardStepComboBox = qt.QComboBox(self.manualJogGroup)
+        self.manualJogKeyboardStepComboBox.objectName = (
+            "DENTOBOTManualJogKeyboardStepComboBox"
+        )
+        for degrees_step, millimeters_step in (
+            (0.1, 0.1),
+            (0.5, 0.5),
+            (1.0, 1.0),
+        ):
+            self.manualJogKeyboardStepComboBox.addItem(
+                f"{degrees_step:g}° / {millimeters_step:g} mm",
+                (degrees_step, millimeters_step),
+            )
+        manual_jog_keyboard_layout.addWidget(self.manualJogKeyboardStepComboBox)
+        manual_jog_layout.addLayout(manual_jog_keyboard_layout)
+        self.manualJogKeyboardHelpLabel = qt.QLabel(
+            "Keyboard nudges: J1 Q/A, J2 W/S, J3 E/D, J4 R/F, J5 T/G "
+            "(positive/negative). Each key changes only that joint's display-only draft.",
             self.manualJogGroup,
         )
-        self.manualJogJ6Label.objectName = "DENTOBOTManualJogJ6FixedLabel"
-        manual_jog_layout.addWidget(self.manualJogJ6Label)
+        self.manualJogKeyboardHelpLabel.objectName = (
+            "DENTOBOTManualJogKeyboardHelpLabel"
+        )
+        self.manualJogKeyboardHelpLabel.wordWrap = True
+        manual_jog_layout.addWidget(self.manualJogKeyboardHelpLabel)
+        self._setupManualJogKeyboardShortcuts()
         manual_jog_primary_actions = qt.QHBoxLayout()
         manual_jog_secondary_actions = qt.QHBoxLayout()
         self.resetManualJogDraftButton = qt.QPushButton(
@@ -1061,14 +1109,6 @@ class DENTORobotSimulationPanel:
         )
         approach_description.wordWrap = True
         approach_layout.addWidget(approach_description)
-        spindle_policy = qt.QLabel(
-            "Spindle locked — external pressure/RPM; not planned. Joint 6 remains "
-            "in the compatibility vector at 0 rad.",
-            self.approachGroup,
-        )
-        spindle_policy.wordWrap = True
-        spindle_policy.setProperty("dentobotRole", "status")
-        approach_layout.addWidget(spindle_policy)
         self.toolInsertionStatusLabel = qt.QLabel(
             "Tool insertion capacity will be checked before Approach planning.",
             self.approachGroup,
@@ -1241,6 +1281,9 @@ class DENTORobotSimulationPanel:
         )
         self.tcpKeyboardEnabledCheckBox.toggled.connect(
             lambda _checked=False: self._updateTcpCartesianControlState()
+        )
+        self.manualJogKeyboardEnabledCheckBox.toggled.connect(
+            lambda _checked=False: self._updateManualJogKeyboardControlState()
         )
         self.refreshButton.clicked.connect(
             lambda checked=False: self._invoke("refresh")
@@ -1423,6 +1466,8 @@ class DENTORobotSimulationPanel:
         self.drillingGroup.visible = False
         self.previewControlGroup.visible = False
         self._updateTcpCartesianControlState()
+        self._updateManualJogKeyboardControlState()
+        self._connectManualJogKeyboardFocusUpdates()
 
     def setAnatomyReviewCandidates(
         self,
@@ -1522,6 +1567,87 @@ class DENTORobotSimulationPanel:
                     self._onTcpKeyboardNudge(ta, ra, d)
             )
             self._tcpKeyboardShortcuts.append(shortcut)
+
+    def _setupManualJogKeyboardShortcuts(self) -> None:
+        for key, joint_index, direction in self.MANUAL_JOG_KEY_BINDINGS:
+            shortcut = qt.QShortcut(
+                qt.QKeySequence(key), self.manualJogGroup
+            )
+            shortcut.objectName = f"DENTOBOTManualJogNudgeShortcut{key}"
+            shortcut.context = qt.Qt.WidgetWithChildrenShortcut
+            shortcut.autoRepeat = False
+            shortcut.enabled = False
+            shortcut.activated.connect(
+                lambda index=joint_index, sign=direction:
+                    self._onManualJogKeyboardNudge(index, sign)
+            )
+            self._manualJogKeyboardShortcuts.append(shortcut)
+
+    def _connectManualJogKeyboardFocusUpdates(self) -> None:
+        application = qt.QApplication.instance()
+        if application is None:
+            return
+        slot = lambda *_args: self._updateManualJogKeyboardControlState()
+        self._manualJogKeyboardFocusSlot = slot
+        application.focusChanged.connect(slot)
+        self.manualJogGroup.destroyed.connect(
+            lambda *_args: application.focusChanged.disconnect(slot)
+        )
+
+    def _manualJogKeyboardControlsAllowed(self) -> bool:
+        return bool(
+            self._activeSubstep == 3
+            and self.manualJogGroup.visible
+            and self._manualJogAvailable
+            and not self._manualJogBusy
+            and not self.manualJogReconciliationRequired
+        )
+
+    def _updateManualJogKeyboardControlState(self) -> None:
+        if not hasattr(self, "manualJogKeyboardEnabledCheckBox"):
+            return
+        allowed = self._manualJogKeyboardControlsAllowed()
+        if not allowed:
+            self.manualJogKeyboardEnabledCheckBox.blockSignals(True)
+            self.manualJogKeyboardEnabledCheckBox.checked = False
+            self.manualJogKeyboardEnabledCheckBox.blockSignals(False)
+        self.manualJogKeyboardEnabledCheckBox.enabled = allowed
+        self.manualJogKeyboardStepComboBox.enabled = allowed
+        shortcuts_enabled = bool(
+            allowed
+            and self.manualJogKeyboardEnabledCheckBox.checked
+            and not self._hasTcpTextEditorFocus()
+        )
+        for shortcut in self._manualJogKeyboardShortcuts:
+            shortcut.enabled = shortcuts_enabled
+
+    def _onManualJogKeyboardNudge(self, joint_index: int, direction: float) -> None:
+        if (
+            not self._manualJogKeyboardControlsAllowed()
+            or not self.manualJogKeyboardEnabledCheckBox.checked
+            or self._hasTcpTextEditorFocus()
+        ):
+            return
+        if joint_index not in range(len(JOINT_NAMES)) or direction not in (
+            -1.0,
+            1.0,
+        ):
+            return
+        try:
+            degrees_step, millimeters_step = (
+                self.manualJogKeyboardStepComboBox.currentData
+            )
+            step = float(
+                degrees_step if joint_index in (0, 2, 4) else millimeters_step
+            )
+            control = self.manualJogJointControls[JOINT_NAMES[joint_index]][1]
+            current = float(control.value)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return
+        amount = float(direction) * step
+        if not isfinite(amount) or amount == 0.0:
+            return
+        control.setValue(current + amount)
 
     def _tcpCartesianControlsAllowed(self) -> bool:
         return bool(
@@ -1705,7 +1831,7 @@ class DENTORobotSimulationPanel:
         if not isinstance(payload, Mapping):
             return reject("joint solution payload is unavailable or not a mapping")
         if set(payload) != set(JOINT_NAMES):
-            return reject("joint solution must contain exactly J1–J5; J6 is excluded")
+            return reject("joint solution must contain exactly the five canonical J1–J5 values")
         try:
             positions = {joint: float(payload[joint]) for joint in JOINT_NAMES}
         except (TypeError, ValueError, OverflowError):
@@ -1854,7 +1980,7 @@ class DENTORobotSimulationPanel:
                 "Current accepted robot state: unavailable."
             )
             self.taskHomeCurrentStateLabel.text = (
-                "Current accepted robot J1–J5: unavailable; J6 is excluded."
+                "Current accepted five-joint state: unavailable."
             )
             return
         self._manualJogAcceptedJointPositionsSi = values
@@ -1870,7 +1996,7 @@ class DENTORobotSimulationPanel:
             + self._formatManualJogDisplayValues(display)
         )
         self.taskHomeCurrentStateLabel.text = (
-            "Current accepted robot J1–J5 (J6 excluded): "
+            "Current accepted robot J1–J5 (five-DOF arm): "
             + self._formatManualJogDisplayValues(display)
         )
         if (
@@ -1893,13 +2019,13 @@ class DENTORobotSimulationPanel:
                 not isinstance(positions, Mapping)
                 or set(positions) != set(JOINT_NAMES)
             ):
-                return f"{label}: unavailable; J6 is excluded."
+                return f"{label}: unavailable; five canonical joint values are required."
             try:
                 values = {joint: float(positions[joint]) for joint in JOINT_NAMES}
             except (TypeError, ValueError, OverflowError):
-                return f"{label}: unavailable; J6 is excluded."
+                return f"{label}: unavailable; five canonical joint values are required."
             if not all(isfinite(value) for value in values.values()):
-                return f"{label}: unavailable; J6 is excluded."
+                return f"{label}: unavailable; five canonical joint values are required."
             display = (
                 degrees(values[JOINT_NAMES[0]]),
                 values[JOINT_NAMES[1]] * 1000.0,
@@ -1908,7 +2034,7 @@ class DENTORobotSimulationPanel:
                 degrees(values[JOINT_NAMES[4]]),
             )
             return (
-                f"{label} (J6 excluded): "
+                f"{label} (five-DOF arm): "
                 + self._formatManualJogDisplayValues(display)
             )
 
@@ -2095,6 +2221,7 @@ class DENTORobotSimulationPanel:
             and self.manualJogReconciliationRequired
             and not self._manualJogBusy
         )
+        self._updateManualJogKeyboardControlState()
 
 
     def setManualJogLimitsUnavailable(self, message: str) -> None:
@@ -2134,6 +2261,7 @@ class DENTORobotSimulationPanel:
             native_summary = self._formatManualJogNativeEvidence(evidence)
             if native_summary:
                 message = f"{message} {native_summary}"
+        self._updateManualJogKeyboardControlState()
         self._setManualJogStatus(state, message)
 
     def setManualDraftStateCheckResult(
@@ -2538,9 +2666,7 @@ class DENTORobotSimulationPanel:
         self._setManualJogDraftValues(display, notify=True)
 
     def manualJogJointPositionsSi(self) -> dict[str, float]:
-        positions = joint_positions_si_from_display(
-            *self._manualJogDisplayValues, 0.0
-        )
+        positions = joint_positions_si_from_display(*self._manualJogDisplayValues)
         return {joint: float(positions[joint]) for joint in JOINT_NAMES}
 
     def _onManualJogSliderChanged(self, joint: str, position: int) -> None:
@@ -2674,6 +2800,7 @@ class DENTORobotSimulationPanel:
             self._disableTcpDragForSubstepChange()
         self._activeSubstep = next_substep
         self._updateTcpCartesianControlState()
+        self._updateManualJogKeyboardControlState()
 
     def setPlacementSurfaceActive(self, active: bool) -> None:
         self._placementSurfaceActive = bool(active)
@@ -3217,7 +3344,7 @@ class DENTORobotSimulationPanel:
             session.full_task_outcome.get("tool_orientation_fingerprint") or ""
         )
         full_task_label = qt.QLabel(
-            f"Full task: {full_status}. Spindle locked at 0 rad; external RPM is not planned."
+            f"Full task: {full_status}. The five-DOF arm controls position and drill-axis direction; axial roll is unconstrained."
             + (
                 f" Stage-1 fixed tool frame: {orientation_id[:12]}."
                 if orientation_id
@@ -3523,6 +3650,7 @@ class DENTORobotSimulationPanel:
         self._tcpIkAvailable = bool(capabilities.ik_available)
         self.planGoalButton.enabled = False
         self._updateTcpCartesianControlState()
+        self._updateManualJogKeyboardControlState()
         self.syncCollisionButton.enabled = capabilities.collision_check_available
         self.checkStateButton.enabled = capabilities.connected
         # Step-aware enablement is owned by widget_robot._updateStep6PlanningUi.

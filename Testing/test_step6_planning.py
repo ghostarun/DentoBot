@@ -363,7 +363,7 @@ def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries
     assert "P3_HALTON_BASES = (2, 3, 5, 7, 11)" in exact_smoke_source
     assert "P3 active joint range is invalid" in exact_smoke_source
     assert "robot_node.GetJointTypes()" in exact_smoke_source
-    assert "SPINDLE_JOINT_NAME" in exact_smoke_source
+    assert 'expected_names = set(bridge.ROS2_JOINT_SI_ORDER)' in exact_smoke_source
     assert "joint_type == \"continuous\"" in exact_smoke_source
     assert '"seed_manifest": seeds' in exact_smoke_source
     assert "generic_static_authoritative" in exact_smoke_source
@@ -1145,12 +1145,12 @@ def test_combine_ras_bounds_returns_none_when_empty() -> None:
     assert combine_ras_bounds(((0.0, 0.0, 0.0, 0.0, 0.0, 0.0),)) is None
 
 
-def test_default_task_joint_limits_match_six_joints() -> None:
+def test_default_task_joint_limits_match_five_joints() -> None:
     limits = default_task_joint_limits_from_urdf(URDF_PATH)
     assert limits.joint_1.unit == "deg"
     assert limits.joint_2.unit == "mm"
     assert limits.joint_1.minimum <= limits.joint_1.maximum
-    assert limits.joint_6.minimum <= limits.joint_6.maximum
+    assert len(limits.as_display_vector()) == 5
 
 
 def test_joint_limit_margin_evidence_converts_si_and_compares_both_envelopes() -> None:
@@ -1230,12 +1230,9 @@ def test_apply_task_joint_limits_clamps_to_mechanical_bounds() -> None:
         j4_max=urdf_limits.joint_4.maximum - 0.5,
         j5_min=urdf_limits.joint_5.minimum + 0.5,
         j5_max=urdf_limits.joint_5.maximum - 0.5,
-        j6_min=-90.0,
-        j6_max=90.0,
     )
     clamped = apply_task_joint_limits_to_display_ranges(narrow, urdf_limits)
-    assert clamped.joint_6.minimum >= urdf_limits.joint_6.minimum
-    assert clamped.joint_6.maximum <= urdf_limits.joint_6.maximum
+    assert len(clamped.as_display_vector()) == 5
 
 
 def test_apply_task_joint_limits_rejects_inverted_range() -> None:
@@ -1251,8 +1248,6 @@ def test_apply_task_joint_limits_rejects_inverted_range() -> None:
         j4_max=urdf_limits.joint_4.maximum,
         j5_min=urdf_limits.joint_5.minimum,
         j5_max=urdf_limits.joint_5.maximum,
-        j6_min=urdf_limits.joint_6.minimum,
-        j6_max=urdf_limits.joint_6.maximum,
     )
     with pytest.raises(ValueError, match="exceeds mechanical range"):
         apply_task_joint_limits_to_display_ranges(invalid, urdf_limits)
@@ -1283,7 +1278,7 @@ def test_step6_joint_limit_ui_merges_min_value_max_rows() -> None:
     names = {element.get("name") for element in tree.iter() if element.get("name")}
     assert "robotJointControlGroupBox" not in names
     assert "step6JointValueHeaderLabel" in names
-    for index in range(1, 7):
+    for index in range(1, 6):
         assert f"robotJoint{index}TaskMinSpinBox" in names
         assert f"robotJoint{index}SpinBox" in names
         assert f"robotJoint{index}TaskMaxSpinBox" in names
@@ -1326,29 +1321,16 @@ def test_sample_trajectory_world_mm_linear_interpolation() -> None:
     assert np.allclose(samples[2], (10.0, 0.0, 0.0))
 
 
-def test_canonical_drill_tcp_matches_reference_tip_at_zero_and_ignores_j6() -> None:
-    """The planning frame is upstream of the uncontrolled air rotor."""
-
+def test_canonical_drill_tcp_matches_reference_tip_and_rejects_extra_joint() -> None:
     zero = link_transforms_base_m(URDF_PATH, DESCRIPTION_ROOT, {})
-    spinning = link_transforms_base_m(
-        URDF_PATH,
-        DESCRIPTION_ROOT,
-        {"pneumatic_spindle-Copy_Revolute-6": 1.1},
-    )
+    with pytest.raises(ValueError, match="exactly"):
+        link_transforms_base_m(
+            URDF_PATH, DESCRIPTION_ROOT, {"unexpected_joint": 1.1}
+        )
     assert np.allclose(
         zero["dentobot_drill_tcp"],
         zero["dentobot_drill_tip_provisional"],
         atol=1.0e-12,
-    )
-    assert np.allclose(
-        zero["dentobot_drill_tcp"],
-        spinning["dentobot_drill_tcp"],
-        atol=1.0e-12,
-    )
-    assert not np.allclose(
-        zero["dentobot_drill_tip_provisional"],
-        spinning["dentobot_drill_tip_provisional"],
-        atol=1.0e-6,
     )
 
 
@@ -1357,12 +1339,12 @@ def test_halton_workspace_sampling_is_deterministic_and_bounded() -> None:
     first = deterministic_joint_workspace_samples_display(
         limits,
         12,
-        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0),
     )
     second = deterministic_joint_workspace_samples_display(
         limits,
         12,
-        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0),
     )
     assert first == second
     assert len(first) == 12
@@ -1487,7 +1469,7 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     result = sample_filtered_tcp_workspace(
         limits=limits,
         sample_count=10,
-        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0, 0.0),
+        current_display_joints=(0.0, 20.0, 10.0, 20.0, 5.0),
         urdf_path=URDF_PATH,
         package_root=DESCRIPTION_ROOT,
         base_world_matrix=np.eye(4, dtype=float),
@@ -1503,37 +1485,39 @@ def test_filtered_workspace_uses_fk_and_reports_all_requested_samples() -> None:
     assert result.environment_rejections == 0
     assert all(len(point) == 3 for point in result.accepted_tcp_base_mm)
     assert len(result.accepted_samples) == 10
-    assert all(len(sample.joint_display) == 6 for sample in result.accepted_samples)
+    assert all(len(sample.joint_display) == 5 for sample in result.accepted_samples)
     assert all(len(sample.joint_positions_si) == 5 for sample in result.accepted_samples)
 
 
-def test_workspace_sample_normalizes_transition_build_ordered_joint_values() -> None:
-    legacy_names = (
+def test_workspace_sample_requires_canonical_exact_five_joint_values() -> None:
+    joint_names = (
         "link-1_Revolute-1",
         "link-2_Slider-2",
         "link-3_Revolute-3",
         "link-4_Slider-4",
         "link-5_Revolute-5",
-        "pneumatic_spindle-Copy_Revolute-6",
     )
-    values = (0.1, 0.02, -0.3, 0.04, 0.5, 0.0)
+    values = (0.1, 0.02, -0.3, 0.04, 0.5)
     canonical = WorkspaceAcceptedSample(
         tcp_base_mm=(1.0, 2.0, 3.0),
-        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        joint_positions_si=tuple(zip(legacy_names[:5], values[:5])),
+        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0),
+        joint_positions_si=tuple(zip(joint_names, values)),
     )
-    transition = WorkspaceAcceptedSample(
+    extra_value = WorkspaceAcceptedSample(
         tcp_base_mm=(1.0, 2.0, 3.0),
-        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        joint_positions_si=values,
+        joint_display=(0.0, 0.0, 0.0, 0.0, 0.0),
+        joint_positions_si=tuple(
+            zip((*joint_names, "unexpected_joint"), (*values, 0.0))
+        ),
     )
-    assert canonical.joint_positions_si_dict() == dict(zip(legacy_names[:5], values[:5]))
-    assert transition.joint_positions_si_dict() == dict(zip(legacy_names, values))
+    assert canonical.joint_positions_si_dict() == dict(zip(joint_names, values))
+    with pytest.raises(ValueError, match="exactly"):
+        extra_value.joint_positions_si_dict()
 
 
 def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others() -> None:
     neutral_ok, neutral_reason, _neutral_tcp = evaluate_motion_configuration(
-        joint_positions_si_from_display(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        joint_positions_si_from_display(0.0, 0.0, 0.0, 0.0, 0.0),
         urdf_path=URDF_PATH,
         package_root=DESCRIPTION_ROOT,
         base_world_matrix=np.eye(4, dtype=float),
@@ -1550,7 +1534,6 @@ def test_coarse_guard_excludes_known_baseline_false_positives_but_rejects_others
         225.53998591992487,
         42.857142857142854,
         129.82908450905677,
-        -69.23076923076923,
     )
     collision_ok, collision_reason, _collision_tcp = evaluate_motion_configuration(
         joint_positions_si_from_display(*colliding_display),
@@ -1657,9 +1640,8 @@ def test_assisted_limit_review_preserves_home_and_proposal_only_fingerprint() ->
         joint_3=Limit(-180.0, 180.0, "deg"),
         joint_4=Limit(0.0, 80.0, "mm"),
         joint_5=Limit(-180.0, 180.0, "deg"),
-        joint_6=Limit(0.0, 0.0, "deg"),
-        as_display_vector=lambda: (-180.0, 0.0, -180.0, 0.0, -180.0, 0.0),
-        as_display_max_vector=lambda: (180.0, 80.0, 180.0, 80.0, 180.0, 0.0),
+        as_display_vector=lambda: (-180.0, 0.0, -180.0, 0.0, -180.0),
+        as_display_max_vector=lambda: (180.0, 80.0, 180.0, 80.0, 180.0),
     )
     namespace = {
         "json": json,
@@ -1719,15 +1701,13 @@ def test_assisted_limit_review_preserves_home_and_proposal_only_fingerprint() ->
         robotJoint4TaskMaxMm=80.0,
         robotJoint5TaskMinDeg=-90.0,
         robotJoint5TaskMaxDeg=90.0,
-        robotJoint6TaskMinDeg=0.0,
-        robotJoint6TaskMaxDeg=0.0,
     )
     home = SimpleNamespace(
         joint_positions_si=(0.0, 0.030, 0.0, 0.040, 0.0),
     )
     limits = SimpleNamespace(
-        as_display_vector=lambda: (-90.0, 0.0, -90.0, 0.0, -90.0, 0.0),
-        as_display_max_vector=lambda: (90.0, 80.0, 90.0, 80.0, 90.0, 0.0),
+        as_display_vector=lambda: (-90.0, 0.0, -90.0, 0.0, -90.0),
+        as_display_max_vector=lambda: (90.0, 80.0, 90.0, 80.0, 90.0),
     )
     host = Host(parameter, home, limits)
     original_proposal = parameter.step6AssistedLimitProposalJson
@@ -1754,3 +1734,132 @@ def test_assisted_limit_review_preserves_home_and_proposal_only_fingerprint() ->
     applied = host.reviewAndApplyAssistedTaskLimits(parameter)
     assert applied["reviewed"]
     assert host.invalidations == ["Reviewed task limits changed."]
+
+
+def _exact_case_runner_helper(name):
+    path = REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    tree = ast.parse(path.read_text())
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+    module = ast.Module(body=[function], type_ignores=[])
+    namespace = {"math": math, "RuntimeError": RuntimeError, "ValueError": ValueError}
+    exec(compile(ast.fix_missing_locations(module), str(path), "exec"), namespace)
+    return namespace[name]
+
+
+def test_exact_case_runner_expected_fdi_fails_closed_for_fdi11_campaign() -> None:
+    require_fdi = _exact_case_runner_helper("require_expected_fdi")
+    require_fdi("11", "11")
+    require_fdi("11", "FDI11")
+    require_fdi("31", "")
+    with pytest.raises(RuntimeError, match="expected FDI 11"):
+        require_fdi("31", "11")
+
+
+def test_exact_case_runner_guide_warning_expectation_is_opt_in() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    parse_count = _exact_case_runner_helper(
+        "parse_expected_guide_clearance_warning_count"
+    )
+    require_count = _exact_case_runner_helper(
+        "require_expected_guide_clearance_warning_count"
+    )
+    assert parse_count("") is None
+    assert parse_count(" 0 ") == 0
+    assert parse_count("2") == 2
+    require_count(0, None)
+    require_count(3, None)
+    require_count(0, 0)
+    with pytest.raises(RuntimeError, match="expected 1, observed 0"):
+        require_count(0, 1)
+    with pytest.raises(ValueError, match="non-negative integer"):
+        parse_count("-1")
+    assert "if preflight_warning_count <= 0" not in source
+    assert "require_expected_guide_clearance_warning_count(" in source
+    assert '"preflight_guide_clearance_warnings": preflight_warning_details' in source
+
+
+def test_exact_case_interruption_requires_prefix_and_blocks_return_and_repeat() -> None:
+    validate = _exact_case_runner_helper("validate_interruption_evidence")
+    home = {"j1": 0.0, "j2": 0.01}
+    accepted = {"j1": 0.1, "j2": 0.01}
+    evidence = {
+        "status": "Incomplete",
+        "endpointVerified": False,
+        "acceptedWaypointCount": 1,
+        "acceptedPrefix": [
+            {"phase": "home", "positionsSi": home},
+            {"phase": "approach", "positionsSi": accepted},
+        ],
+        "capturedHomePositionsSi": home,
+        "pendingRequest": {
+            "phase": "approach",
+            "sequence": 7,
+            "requestedPositionsSi": accepted,
+        },
+        "pendingRequestOutcome": {"accepted": True, "sequence": 7},
+        "firstRejected": None,
+    }
+    result = validate(
+        evidence,
+        accepted,
+        dict(accepted),
+        SimpleNamespace(
+            success=False,
+            code="guarded_return_partial_phase",
+            message="blocked",
+        ),
+        SimpleNamespace(
+            success=False,
+            code="incomplete_preview_blocks_motion",
+            message="blocked",
+        ),
+    )
+    assert result["accepted_waypoint_count"] == 1
+    assert result["pending_request_outcome"] == evidence["pendingRequestOutcome"]
+    assert result["return_home"]["blocked"]
+    assert result["repeat_preview"]["blocked"]
+    assert result["accepted_state_unchanged_after_blocked_actions"]
+    assert result["no_home_teleport"]
+
+    evidence["acceptedWaypointCount"] = 0
+    with pytest.raises(RuntimeError, match="accepted preview prefix"):
+        validate(
+            evidence,
+            accepted,
+            accepted,
+            SimpleNamespace(success=False, code="guarded_return_partial_phase", message=""),
+            SimpleNamespace(success=False, code="incomplete_preview_blocks_motion", message=""),
+        )
+
+
+def test_exact_case_interruption_is_a_separate_non_complete_cycle_mode() -> None:
+    source = (
+        REPOSITORY_ROOT / "Testing" / "run_dentobot_step65_exact_case_smoke.py"
+    ).read_text()
+    assert 'os.environ.get("DENTOBOT_STEP65_INTERRUPTION_ONLY", "") == "1"' in source
+    assert 'EXPECTED_FDI.removeprefix("FDI") != "11"' in source
+    assert "separate fresh-process run" in source
+    assert '"full_workflow_claimed": False' in source
+    assert '"guarded_preview_complete": False' in source
+    assert '"guarded_return_home_complete": False' in source
+    assert '"repeat_guarded_preview_complete": False' in source
+    start = source.index('    if INTERRUPTION_ONLY:\n        full_task_status =')
+    end = source.index("    approach_finished = []", start)
+    branch = source[start:end]
+    assert "if int(index) > 0" in branch
+    assert "widget._onStep6StopPreview()" in branch
+    assert branch.index("widget._onStep6StopPreview()") < branch.index(
+        "facade.returnToTaskHome()"
+    )
+    assert branch.index("facade.returnToTaskHome()") < branch.index(
+        'facade.previewPhase("approach", interval_ms=50)'
+    )
+    assert "DENTOBOT_STEP65_INTERRUPTION_ONLY_PASS" in source
+    assert "DENTOBOT_STEP65_INTERRUPTION_ONLY_FAILED" in source
+    assert "DENTOBOT_STEP65_EXACT_CASE_PASS" in source

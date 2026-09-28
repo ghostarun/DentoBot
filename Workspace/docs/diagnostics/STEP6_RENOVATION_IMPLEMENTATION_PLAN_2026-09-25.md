@@ -2,6 +2,24 @@
 
 **Date:** 2026-09-25. **Priority:** renovate Step 6 before case-specific planner solving. Owners are S6-WORKSPACE-PURPOSE, S6-LIVE-01, S6-LIVE-03/04 and S6-P2-03. [Backlog](../backlog.md) is the sole pending queue; [TASKS](../TASKS.md) holds task contracts; the [FDI31 P0 contract](FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) retains its milestone and safety gates. The [base-pose feasibility plan](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) is an **active technical reference for shared diagnostic metrics**. Its automated sweep and robot-design comparisons remain later work in the [reference index](STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md).
 
+**29 September execution checkpoint:** Tarun explicitly resumed bounded
+simulation runtime. A new recorded headed production run passed the case
+migration and 21 enabled Step 6 checks, then saved the current five-DOF FDI11
+case. A separate fresh-process read-only run strictly reopened it and passed
+12 saved/offline checks; both videos and normal exits are complete. Saved
+Task Home is five joints and `Validated` in lineage, but offline reopen
+intentionally clears active task confirmation and changes Home to
+`Unreviewed`. Reconnect, revalidate Home and confirm the task before any
+new planner/preview authority. The case-bound native rejection remains
+unrun, while controlled unknown/reconciliation passed. Joint keyboard
+source/host checks and the r19 recorded physical J1–J5 draft-only key gate
+passed; case-bound TCP interaction,
+responsiveness at normal-window size, historical record persistence and
+positive full-chain preview/interruption remain pending. The [detailed
+five-DOF checklist](STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md)
+is the current execution order; older checkpoints below are dated evidence,
+not current halt instructions. Tarun's robotics/usability verdict is PENDING.
+
 ## 27 September execution order after the operator's testing review
 
 The 14-item exact-case headed trial has already checked case restore, one
@@ -48,6 +66,48 @@ events, a case-bound guarded accepted/rejected/unknown sequence, normal-window
 responsiveness/usability and positive full-chain preview/interruption remain
 open; Tarun's verdict remains PENDING.
 
+**28 September five-DOF model refactor — source/build/runtime verified:** Tarun directed
+that J6 cease to exist anywhere in the current robotics workflow. Commit
+`84234a6` checkpoints the preceding renovation before this change. Supersede
+the old visual/saved six-slot compatibility policy: the arm has exactly five
+movable joints, J1–J5. Convert the burr attachment's former spindle revolute
+joint to a fixed joint at the exact neutral transform, while retaining spindle
+housing/burr meshes, collisions and the canonical fixed planning TCP. Remove
+sixth-joint fields and logic from state, Home, limits, sampling, FK/IK, guard,
+joint publishers, serialization, UI and current tests. New robot evidence is
+strictly five-joint; historical six-value evidence is not silently promoted.
+Describe axial roll positively as unconstrained by the five-DOF arm. Treat the
+drill as a separate future speed-controlled device and do not invent an RPM,
+pressure or hardware command in this source gate.
+
+The acceptance ladder is complete for this bounded refactor: static audit;
+exact five-joint URDF with unchanged neutral geometry/TCP; 394 focused host
+tests and Python/JSON/XML/YAML checks; isolated builds of both changed ROS
+packages; and one serialized simulation-only runtime proving exact J1–J5
+through robot load, guard, joint-state publication, static validity, TCP TF and
+five-joint IK. The generic six-dimensional fixed-orientation Cartesian
+diagnostic remains unsupported and is recorded as such; Step 6 uses its
+separate position-plus-drill-axis continuity path. Case restore and
+normal-window operator review use a newly saved five-DOF case later; older
+six-value cases are not acceptance fixtures.
+
+The latest implementation and execution plan for creating that new case and
+running the automated headed GUI simulation campaign is the
+[detailed five-DOF acceptance checklist](STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md).
+It governs current campaign sequencing under `S6-LIVE-01`, not a second task queue. Its
+planned fixture path is
+`data/Slicer_Saved/SampleStudy1/SEPT24/sept28_fdi11_step6_five_dof_acceptance.dentocase`;
+the fixture remains PENDING until it is saved through the current workflow and
+qualified by a fresh-process reopen.
+
+For this campaign, Tarun raised the task-specific worker cap from two to four
+simultaneous GPT-6 Luna Max workers. Sol still owns reasoning, controlled
+records, integration, serialized runtime and acceptance. Use only the number
+needed for independent disjoint implementation/host-test scopes; Luna workers
+do not own GUI/ROS/runtime. The current platform has four total concurrency
+slots including Sol, so the effective concurrent worker count in this session
+is at most three beside Sol, with any fourth worker used sequentially.
+
 1. Finish the remaining workbench source slices below: inspectable invalid
    drafts, accepted/rejected/unknown state and reconciliation, ordered motion
    evidence/export/reopen, the two-area interface, and full-chain preview
@@ -72,8 +132,9 @@ open; Tarun's verdict remains PENDING.
    PENDING until he supplies it.
 
 This sequence avoids spending repeated full-runtime cycles on an unfinished
-workbench while retaining mandatory guard, stale-identity, J6 and preview
-checks. A passed source test never substitutes for the final native/GUI check.
+workbench while retaining mandatory guard, stale-identity, exact five-joint
+shape and preview checks. A passed source test never substitutes for the final
+native/GUI check.
 
 **27 September execution checkpoint:** The original renovation checkout now
 passes 225 combined host tests for the remaining source gates, including
@@ -283,7 +344,7 @@ representative native preview/interruption and responsiveness remain open.
 | 6.3C Planning and diagnostics | Shared PreEntry/Entry/Target IK evidence, separate P1/P2/P3, full-chain validation and one-click automatic planning. | Manual paths, ROI samples, saved reports and partial stages are display-only; only a fresh complete route passing the independent full-chain guard can authorize preview. |
 | 6.4 Preview and control | Guarded Approach/Drill preview, Stop, status, normal reverse-history Return Home from a completed phase endpoint. | Interrupted preview retains accepted/rejected history and **Blocks Return**. Future partial-prefix recovery and reset need separate gates. Expert ROS status is read-only. |
 
-Both navigators must share the same action ownership and locked-action reasons. 6.3 merges the old workspace, task-confirmation and planning cards; 6.4 owns preview and control. Accept Base and Accept Task Home delegate to 6.1/6.2 owners even when initiated from the workbench. J6 remains an external spindle and is fixed at zero in arm-planning display.
+Both navigators must share the same action ownership and locked-action reasons. 6.3 merges the old workspace, task-confirmation and planning cards; 6.4 owns preview and control. Accept Base and Accept Task Home delegate to 6.1/6.2 owners even when initiated from the workbench. The arm-planning display and every current robot-state interface contain exactly J1–J5; drill speed belongs to a separate future device contract.
 
 ### What the engineering workbench must actually do
 
@@ -516,7 +577,7 @@ entire workflow while the same prerequisite is unresolved.
    for captured J1–J5 on the current accepted Base and scene; finish candidate Base
    review, phase evidence and native collision attribution. Mechanical and
    reviewed limits remain command gates; out-of-envelope review, if supported,
-   is visibly invalid and cannot be jogged. J6 is never an arm control.
+   is visibly invalid and cannot be jogged. Arm state contains exactly J1–J5.
    The dedicated manual status now has request/session and actual raw policy
    identity at source level; verify it in the native runtime before trusting
    live acceptance. Correlate request/session,
@@ -525,7 +586,8 @@ entire workflow while the same prerequisite is unresolved.
    Retain ambiguous/stale outcomes as unknown, reconcile monitored state and block
    further commands until the accepted state is known. No guessed rollback command.
    **Exit:** pure checks cover no accepted mutation on draft/cancel/reject/unknown,
-   stale response, same-vector repeated request, identity change and limit/J6 edges.
+   stale response, same-vector repeated request, identity change, limit edges and
+   extra-value shape rejection.
 
 2. **Deliver one useful engineer exploration loop (gate 3).**
    Show accepted and review robot together with TCP, drill axis, target trajectory,
@@ -666,12 +728,39 @@ views, exact joints, identity, timestamp and screenshot paths; never replace
 missing runtime evidence with a synthetic image. GUI results stop for Tarun's
 verdict as the canonical contract requires; independent source work may continue.
 
+### 28 September completion-order checkpoint
+
+The first five-DOF headed campaign after the case-restore/native-result fixes
+reached the accepted and invalid-draft gates, then stopped at the first new
+unknown-result boundary because a valid follow-up Guarded Jog was disabled. The
+cause was an ordering race in the shell completion path: robot-state refreshes
+while `_workflowActionBusy` was true cached jog availability as false, and the
+completion path cleared busy without a final authoritative refresh. The
+production shell now clears busy, completes the panel request, and refreshes
+Step 6 availability in that order. The full Manual Jog UI suite (35 tests) and
+headed-runner source suite (44 tests) pass, with compile and diff checks clean.
+
+The next serialized runtime is run-local package r14 under
+`data/dentobot-runs/s6-live-01-five-dof-campaign-20260928T165722Z-r14/`.
+Its exact `:10` recording command was prepared but automatic approval rejected
+the escalated Docker/runtime action before launch because the account usage
+limit was reached. This leaves the source fix **headed-runtime pending**; r13
+remains partial failure evidence. Do not promote this source result to native
+unknown/reconciliation acceptance, a whole-run recording, a new case, full
+chain preview, or Tarun's verdict. **Operator halt, 28 September:** do not
+launch r14, Slicer, ROS/MoveIt or the recorder until a later explicit resume
+instruction. Preserve the itemized source/runtime evidence and keep the next
+runtime gate pending.
+
 ### Ownership and completion rule
 
-Sol owns reasoning, review, controlled records and acceptance. Exactly two GPT-6
-Luna Max workers execute qualifying bounded grunt work in parallel with disjoint
-files, no recursive delegation and no controlled-doc edits. Tarun's request that
-Luna write and perform tests remains active: use read-only Luna verification on
+Sol owns reasoning, review, controlled records, serialized runtime and
+acceptance. For this campaign, use up to four GPT-6 Luna Max workers when
+qualifying bounded grunt work has genuinely independent scopes, with disjoint
+files, no recursive delegation and no controlled-doc edits. The current
+platform permits at most three workers beside Sol concurrently; an additional
+permitted worker is sequential. Tarun's request that Luna write and perform
+tests remains active: use read-only Luna verification on
 stable files for host checks. The standing worker restriction excludes GUI/ROS
 runtime; a future concrete runtime plan must explicitly assign its sole executor
 under the applicable operator authorization. Neither Sol's coordination role nor

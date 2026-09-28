@@ -823,8 +823,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     j4_max=self._parameterNode.robotJoint4TaskMaxMm,
                     j5_min=self._parameterNode.robotJoint5TaskMinDeg,
                     j5_max=self._parameterNode.robotJoint5TaskMaxDeg,
-                    j6_min=self._parameterNode.robotJoint6TaskMinDeg,
-                    j6_max=self._parameterNode.robotJoint6TaskMaxDeg,
                 )
                 panel.setManualJogLimits(mechanical_limits, reviewed_limits)
                 panel.setManualJogAcceptedState(self._robotJointPositionsSi())
@@ -1112,7 +1110,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             (self.ui.robotJoint3SpinBox, limits.joint_3),
             (self.ui.robotJoint4SpinBox, limits.joint_4),
             (self.ui.robotJoint5SpinBox, limits.joint_5),
-            (self.ui.robotJoint6SpinBox, limits.joint_6),
         )
         for spinbox, joint_limit in pairs:
             minimum, maximum, value = apply_task_limit_range_to_value(
@@ -1122,11 +1119,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             spinbox.setMinimum(minimum)
             spinbox.setMaximum(maximum)
             spinbox.setValue(value)
-        # The pneumatic spindle is intentionally still visible in the robot
-        # model, but it is an uncontrolled air rotor—not a Step 6 commandable
-        # axis. Keep the compatibility row as a fixed explanatory value.
-        self.ui.robotJoint6SpinBox.enabled = False
-
     def _onTaskJointLimitSpinBoxChanged(self, value: float = 0.0) -> None:
         del value
         if (
@@ -1180,9 +1172,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
             self._parameterNode.robotJoint5Deg = degrees(
                 joint_positions_si["link-5_Revolute-5"],
-            )
-            self._parameterNode.robotJoint6Deg = degrees(
-                joint_positions_si.get("pneumatic_spindle-Copy_Revolute-6", 0.0),
             )
         finally:
             self._parameterNode.EndModify(was_modifying)
@@ -1299,6 +1288,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         self._workflowActionBusy = True
         progress = None
         workspace_status = ""
+        planning_message = ""
+        planning_error = False
         try:
             roi_draft = self._step6TaskSpaceRoiDraft()
             if roi_draft is None:
@@ -1383,8 +1374,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotSimulationPanel.taskSpaceRoiStatusLabel
             )
             self.ui.clearRobotWorkspaceButton.enabled = True
-            self._updateStep6PlanningUi(workspace_status)
+            planning_message = workspace_status
         except (RuntimeError, ValueError) as exc:
+            planning_message = str(exc)
+            planning_error = True
             self.ui.robotWorkspaceStatusLabel.text = str(exc)
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b00020;"
             if self._robotSimulationPanel:
@@ -1398,12 +1391,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().polish(
                     self._robotSimulationPanel.taskSpaceRoiStatusLabel
                 )
-            self._updateStep6PlanningUi(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
         finally:
-            if progress:
-                progress.close()
-            self._workflowActionBusy = False
+            try:
+                if progress:
+                    progress.close()
+            finally:
+                self._workflowActionBusy = False
+                self._updateStep6PlanningUi(planning_message, error=planning_error)
 
     def onClearRobotWorkspace(self, checked: bool = False) -> None:
         del checked

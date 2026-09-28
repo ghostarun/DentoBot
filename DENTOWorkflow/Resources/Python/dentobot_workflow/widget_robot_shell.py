@@ -597,8 +597,11 @@ class RobotShellWidgetMixin:
                 },
             )
         finally:
-            panel.setManualJogRequestComplete()
             self._workflowActionBusy = False
+            panel.setManualJogRequestComplete()
+            # Robot-state signals can refresh Step 6 while the action is busy;
+            # recompute availability once completion has cleared that guard.
+            self._updateStep6PlanningUi()
 
     def _onShellReconcileManualRobotJog(self) -> None:
         panel = self._robotSimulationPanel
@@ -691,8 +694,9 @@ class RobotShellWidgetMixin:
                 {"manualJogReconciliationRequired": True, "error": str(exc)},
             )
         finally:
-            panel.setManualJogRequestComplete()
             self._workflowActionBusy = False
+            panel.setManualJogRequestComplete()
+            self._updateStep6PlanningUi()
 
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:

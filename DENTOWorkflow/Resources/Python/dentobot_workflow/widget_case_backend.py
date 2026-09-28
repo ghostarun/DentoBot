@@ -430,12 +430,6 @@ class CaseBackendWidgetMixin:
                         )
                     phase("Validating imported scene", can_cancel=False)
                     self._bindAndValidateRestoredCase(inspection.workflow, phase=phase)
-                    profileMigration = (
-                        self.logic._migrateLegacyJ2ZeroRobotProfile(
-                            self._parameterNode,
-                            inspection.robot_profile,
-                        )
-                    )
                     phase("Binding restored workflow", can_cancel=False)
                 except Exception as loadError:
                     logging.exception(
@@ -497,6 +491,12 @@ class CaseBackendWidgetMixin:
                         slicer.app.processEvents()
                         phase("Validating hydrated case", can_cancel=False)
                         self._validateHydratedCaseBundle(inspection.workflow)
+                        profileMigration = (
+                            self.logic._migrateLegacyJ2ZeroRobotProfile(
+                                self.logic.getParameterNode(),
+                                inspection.robot_profile,
+                            )
+                        )
                         step6Workflow = inspection.workflow.get("step6")
                         environment = (
                             step6Workflow.get("environment")

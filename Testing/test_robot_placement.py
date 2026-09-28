@@ -1,9 +1,13 @@
 """Pure tests for draft Slicer robot placement geometry."""
 
 from pathlib import Path
+import ast
+import math
 import sys
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +26,7 @@ from DENTORobotPlacement import (
     validate_patient_ras_condylar_landmarks,
     world_transform_to_parent_local,
 )
+from DENTOStep6State import JOINT_NAMES, build_task_home, canonical_json, parse_task_home
 
 
 URDF_PATH = REPOSITORY_ROOT / "dentobot_description" / "urdf" / "dentobot.urdf"
@@ -29,7 +34,7 @@ DESCRIPTION_ROOT = REPOSITORY_ROOT / "dentobot_description"
 
 
 def test_selected_zero_and_reversed_joint_four_match_robot_description() -> None:
-    zero_positions = joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+    zero_positions = joint_positions_si_from_display(0, 0, 0, 0, 0)
     zero_poses = {
         pose.link_name: pose
         for pose in robot_link_mesh_poses_mm(
@@ -244,3 +249,266 @@ def test_draft_jaw_opening_hinge_survives_workspace_parent_translation() -> None
         hinge_local = np.linalg.inv(parent_to_world) @ np.append(hinge_world, 1.0)
         hinge_after = (parent_to_world @ jaw_local @ hinge_local)[:3]
         assert np.allclose(hinge_after, hinge_world, atol=1e-3)
+
+
+def _profile_migration_logic():
+    source = (
+        HELPER_DIRECTORY / "dentobot_workflow" / "logic_robot.py"
+    ).read_text()
+    mixin = next(
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin"
+    )
+    methods = [
+        node for node in mixin.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {
+            "_robotProfileComponentSha256",
+            "_migrateLegacyJ2ZeroRobotProfile",
+        }
+    ]
+    helper_calls = []
+
+    def five_dof_upgrade(saved, current):
+        helper_calls.append((saved, current))
+        return (
+            saved.get("fiveDofProfile") is True
+            and current.get("upgradesFiveDofProfile") == saved.get("name")
+        )
+
+    namespace = {
+        "JOINT_NAMES": JOINT_NAMES,
+        "LEGACY_J2_RETRACTED_ZERO_URDF_SHA256": "legacy-j2",
+        "J2_EXTENDED_J5_CONTINUOUS_URDF_SHA256": "current-j2",
+        "J2_TRAVEL_M": 0.08,
+        "J2_TRAVEL_MM": 80.0,
+        "build_task_home": build_task_home,
+        "canonical_json": canonical_json,
+        "is_additive_rrt_profile_upgrade": lambda *_args: False,
+        "is_five_dof_profile_upgrade": five_dof_upgrade,
+        "_": lambda message: message,
+        "math": math,
+    }
+    extracted = ast.Module(
+        body=[ast.ClassDef(
+            name="ExtractedRobotLogic",
+            bases=[],
+            keywords=[],
+            body=methods,
+            decorator_list=[],
+        )],
+        type_ignores=[],
+    )
+    exec(
+        compile(ast.fix_missing_locations(extracted), "<profile-migration>", "exec"),
+        namespace,
+    )
+    return namespace["ExtractedRobotLogic"], helper_calls
+
+
+class _MigrationParameterNode(SimpleNamespace):
+    def StartModify(self):
+        return 0
+
+    def EndModify(self, _was_modifying):
+        pass
+
+
+class _MigrationHost:
+    def __init__(self, logic_type, current_profile):
+        self.logic = logic_type()
+        self.current_profile = current_profile
+        self.invalidations = []
+
+    def caseBundleRobotProfile(self):
+        return self.current_profile
+
+    def taskHomeRecord(self, parameter_node):
+        payload = str(parameter_node.step6TaskHomeJson or "").strip()
+        return parse_task_home(payload) if payload else None
+
+    def isRobotBaseTransformNode(self, node):
+        return node is not None
+
+    def _robotProfileComponentSha256(self, profile, component_path):
+        return self.logic._robotProfileComponentSha256(profile, component_path)
+
+    def invalidateStep6TaskConfirmation(self, parameter_node, reason):
+        self.invalidations.append(reason)
+        parameter_node.step6ConfirmedTaskJson = ""
+
+    def migrate(self, parameter_node, saved_profile):
+        return type(self.logic)._migrateLegacyJ2ZeroRobotProfile(
+            self, parameter_node, saved_profile
+        )
+
+
+def _five_dof_profiles():
+    saved = {
+        "name": "five-dof-v1",
+        "fiveDofProfile": True,
+        "identitySha256": "saved-profile",
+        "components": [],
+    }
+    current = {
+        "identitySha256": "current-profile",
+        "upgradesFiveDofProfile": "five-dof-v1",
+        "components": [],
+    }
+    return saved, current
+
+
+def test_five_dof_profile_upgrade_preserves_home_and_invalidates_dependent_state() -> None:
+    logic_type, helper_calls = _profile_migration_logic()
+    saved_profile, current_profile = _five_dof_profiles()
+    positions = (0.12, 0.025, -0.34, 0.041, 1.2)
+    original_home = build_task_home(
+        dict(zip(JOINT_NAMES, positions)),
+        base_fingerprint="base-pose-v3",
+        robot_profile_fingerprint="saved-profile",
+        revision=7,
+        runtime_validation_status="Validated",
+        collision_audit_fingerprint="old-audit",
+        guard_policy_fingerprint="old-guard",
+        validated_at_utc="2026-09-20T00:00:00Z",
+        minimum_clearance_mm=2.0,
+        world_object_count=4,
+    )
+
+    class Base:
+        def __init__(self):
+            self.attributes = {"DENTOBOT.RobotProfileFingerprint": "saved-profile"}
+
+        def GetAttribute(self, name):
+            return self.attributes.get(name, "")
+
+    base = Base()
+    parameter = _MigrationParameterNode(
+        step6TaskHomeJson=canonical_json(original_home.to_dict()),
+        step6PlanningContextImported=True,
+        robotBaseTransform=base,
+        robotJoint1Deg=6.0,
+        robotJoint2Mm=21.0,
+        robotJoint3Deg=-18.0,
+        robotJoint4Mm=33.0,
+        robotJoint5Deg=54.0,
+        step6AssistedLimitProposalJson="old-proposal",
+        step6CollisionSceneAuditJson="old-audit",
+        step6ConfirmedTaskJson="old-confirmation",
+    )
+    host = _MigrationHost(logic_type, current_profile)
+
+    result = host.migrate(parameter, saved_profile)
+
+    migrated_home = parse_task_home(parameter.step6TaskHomeJson)
+    assert result["compatible"] and result["migrated"]
+    assert helper_calls == [(saved_profile, current_profile)]
+    assert migrated_home.joint_names == JOINT_NAMES
+    assert migrated_home.joint_positions_si == positions
+    assert migrated_home.robot_profile_fingerprint == "current-profile"
+    assert migrated_home.base_fingerprint == "base-pose-v3"
+    assert migrated_home.revision == 8
+    assert migrated_home.runtime_validation_status == "Unreviewed"
+    assert migrated_home.collision_audit_fingerprint == ""
+    assert migrated_home.guard_policy_fingerprint == ""
+    assert len(migrated_home.joint_positions_si) == 5
+    assert parameter.step6AssistedLimitProposalJson == ""
+    assert parameter.step6CollisionSceneAuditJson == ""
+    assert parameter.step6ConfirmedTaskJson == ""
+    assert host.invalidations
+    assert parameter.robotBaseTransform is base
+    assert base.GetAttribute("DENTOBOT.RobotProfileFingerprint") == "saved-profile"
+    assert (
+        parameter.robotJoint1Deg,
+        parameter.robotJoint2Mm,
+        parameter.robotJoint3Deg,
+        parameter.robotJoint4Mm,
+        parameter.robotJoint5Deg,
+    ) == (6.0, 21.0, -18.0, 33.0, 54.0)
+    assert not hasattr(parameter, "robotJoint6Deg")
+
+
+def test_five_dof_profile_upgrade_without_step6_state_does_not_fabricate_state() -> None:
+    logic_type, helper_calls = _profile_migration_logic()
+    saved_profile, current_profile = _five_dof_profiles()
+    parameter = _MigrationParameterNode(
+        step6TaskHomeJson="",
+        step6PlanningContextImported=False,
+        robotBaseTransform=None,
+        step6AssistedLimitProposalJson="",
+        step6CollisionSceneAuditJson="",
+        step6ConfirmedTaskJson="",
+    )
+    host = _MigrationHost(logic_type, current_profile)
+
+    result = host.migrate(parameter, saved_profile)
+
+    assert result["compatible"] and not result["migrated"]
+    assert helper_calls == [(saved_profile, current_profile)]
+    assert parameter.step6TaskHomeJson == ""
+    assert parameter.step6AssistedLimitProposalJson == ""
+    assert parameter.step6CollisionSceneAuditJson == ""
+    assert not host.invalidations
+
+
+@pytest.mark.parametrize("corruption", ("profile", "extra-j6"))
+def test_five_dof_profile_upgrade_rejects_incompatible_saved_home(corruption) -> None:
+    logic_type, _helper_calls = _profile_migration_logic()
+    saved_profile, current_profile = _five_dof_profiles()
+    home = build_task_home(
+        dict(zip(JOINT_NAMES, (0.0, 0.01, 0.0, 0.02, 0.0))),
+        base_fingerprint="base-pose-v3",
+        robot_profile_fingerprint="saved-profile",
+        revision=3,
+    ).to_dict()
+    if corruption == "profile":
+        home["robot_profile_fingerprint"] = "different-profile"
+    else:
+        home["joint_names"] = [*JOINT_NAMES, "link-6_Revolute-6"]
+        home["joint_positions_si"] = [*home["joint_positions_si"], 0.0]
+    saved_home_json = canonical_json(home)
+    parameter = _MigrationParameterNode(
+        step6TaskHomeJson=saved_home_json,
+        step6PlanningContextImported=True,
+        robotBaseTransform=None,
+        step6AssistedLimitProposalJson="proposal",
+        step6CollisionSceneAuditJson="audit",
+        step6ConfirmedTaskJson="confirmed",
+    )
+    host = _MigrationHost(logic_type, current_profile)
+
+    with pytest.raises(ValueError):
+        host.migrate(parameter, saved_profile)
+
+    assert parameter.step6TaskHomeJson == saved_home_json
+    assert parameter.step6AssistedLimitProposalJson == "proposal"
+    assert parameter.step6CollisionSceneAuditJson == "audit"
+    assert parameter.step6ConfirmedTaskJson == "confirmed"
+    assert not host.invalidations
+
+
+def test_unrecognized_profile_transition_remains_incompatible_and_unchanged() -> None:
+    logic_type, helper_calls = _profile_migration_logic()
+    _saved_profile, current_profile = _five_dof_profiles()
+    saved_profile = {
+        "identitySha256": "unknown-profile",
+        "components": [],
+    }
+    parameter = _MigrationParameterNode(
+        step6TaskHomeJson="",
+        step6PlanningContextImported=True,
+        robotBaseTransform=object(),
+        step6AssistedLimitProposalJson="proposal",
+        step6CollisionSceneAuditJson="audit",
+        step6ConfirmedTaskJson="confirmed",
+    )
+    host = _MigrationHost(logic_type, current_profile)
+
+    result = host.migrate(parameter, saved_profile)
+
+    assert not result["compatible"]
+    assert helper_calls == [(saved_profile, current_profile)]
+    assert parameter.step6AssistedLimitProposalJson == "proposal"
+    assert parameter.step6CollisionSceneAuditJson == "audit"
+    assert parameter.step6ConfirmedTaskJson == "confirmed"
+    assert not host.invalidations

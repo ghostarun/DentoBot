@@ -23,14 +23,13 @@ class RobotPlacementWidgetMixin:
 
     def _robotJointPositionsSi(self) -> dict[str, float]:
         if not self._parameterNode:
-            return joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+            return joint_positions_si_from_display(0, 0, 0, 0, 0)
         return joint_positions_si_from_display(
             self._parameterNode.robotJoint1Deg,
             self._parameterNode.robotJoint2Mm,
             self._parameterNode.robotJoint3Deg,
             self._parameterNode.robotJoint4Mm,
             self._parameterNode.robotJoint5Deg,
-            self._parameterNode.robotJoint6Deg,
         )
 
     def _setupRobotKeyboardShortcuts(self) -> None:

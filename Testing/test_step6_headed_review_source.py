@@ -4,12 +4,14 @@ import ast
 from collections.abc import Mapping, Sequence
 import hashlib
 import importlib
+import json
 import math
 import os
 from pathlib import Path
 import re
 
 import pytest
+import step6_manual_jog_scenarios as manual_jog_scenarios
 
 
 RUNNER = Path(__file__).with_name("run_dentobot_step6_headed_review.py")
@@ -71,6 +73,129 @@ def _button_clicks(tree, button_name):
     ]
 
 
+def test_output_case_path_is_absolute_distinct_new_and_dentocase(tmp_path):
+    validate = _extract_helper("_validate_output_case_path", {"Path": Path})
+    source = tmp_path / "source.dentocase"
+    source.write_bytes(b"source")
+    output = tmp_path / "reviewed.dentocase"
+
+    assert validate(str(output), source) == output
+    with pytest.raises(ValueError, match="absolute path"):
+        validate("relative/reviewed.dentocase", source)
+    with pytest.raises(ValueError, match="end in .dentocase"):
+        validate(str(tmp_path / "reviewed.zip"), source)
+    with pytest.raises(ValueError, match="distinct"):
+        validate(str(source), source)
+    output.write_bytes(b"existing")
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        validate(str(output), source)
+    assert output.read_bytes() == b"existing"
+
+
+def test_save_current_case_calls_production_owner_and_records_source_relation(tmp_path):
+    validate = _extract_helper("_validate_output_case_path", {"Path": Path})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
+    save = _extract_helper("_save_current_case", {
+        "Path": Path,
+        "os": os,
+        "_validate_output_case_path": validate,
+        "_sha256_file": sha_file,
+    })
+    source = tmp_path / "source.dentocase"
+    output = tmp_path / "reviewed.dentocase"
+    source.write_bytes(b"source archive")
+
+    class Widget:
+        destination = None
+
+        def _createCaseBundle(self, destination):
+            self.destination = destination
+            temporary = Path(destination).with_suffix(".tmp")
+            temporary.write_bytes(b"saved from workflow")
+            os.replace(temporary, destination)
+            return type("Inspection", (), {"path": Path(destination)})()
+
+    widget = Widget()
+    evidence = save(widget, output, source, sha_file(source))
+
+    assert widget.destination == str(output)
+    assert evidence["output_path"] == str(output)
+    assert evidence["size_bytes"] == len(b"saved from workflow")
+    assert evidence["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert evidence["source_relationship"] == {
+        "source_path": str(source),
+        "source_sha256": sha_file(source),
+        "source_unchanged": True,
+        "saved_from_current_workflow_session": True,
+    }
+    assert source.read_bytes() == b"source archive"
+
+
+def test_save_current_case_never_calls_owner_for_existing_output(tmp_path):
+    validate = _extract_helper("_validate_output_case_path", {"Path": Path})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
+    save = _extract_helper("_save_current_case", {
+        "Path": Path,
+        "os": os,
+        "_validate_output_case_path": validate,
+        "_sha256_file": sha_file,
+    })
+    source = tmp_path / "source.dentocase"
+    output = tmp_path / "reviewed.dentocase"
+    source.write_bytes(b"source archive")
+    output.write_bytes(b"keep me")
+
+    class Widget:
+        called = False
+
+        def _createCaseBundle(self, destination):
+            self.called = True
+            raise AssertionError("existing output reached production save owner")
+
+    widget = Widget()
+    with pytest.raises(FileExistsError):
+        save(widget, output, source, sha_file(source))
+    assert widget.called is False
+    assert output.read_bytes() == b"keep me"
+
+
+def test_optional_save_is_last_selected_check_before_normal_pass_exit():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    save_call = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_save_current_case"
+    )
+    success = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "outcome"
+                for target in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value == "PASS"
+    )
+    gate = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "unpassed"
+                for target in node.targets)
+    )
+    assert gate.lineno < save_call.lineno < success.lineno
+    assert "_unpassed_selected_checks(report['items'])" in ast.unparse(gate.value)
+    assert '"save_current_case"' in SOURCE
+    assert '"DENTOBOT_HEADED_OUTPUT_CASE is unset."' in SOURCE
+
+    unpassed = _extract_helper("_unpassed_selected_checks")
+    assert unpassed({
+        "pass": {"status": "PASS"},
+        "native": {"status": "PREFLIGHT_PASS"},
+        "skipped": {"status": "NOT_RUN"},
+    }) == []
+    assert unpassed({"failed": {"status": "FAIL"}}) == ["failed"]
+
+
 def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     run = next(
         node for node in TREE.body
@@ -80,7 +205,14 @@ def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     assert "DENTOBOT_HEADED_NATIVE_SOURCE_SHA256" in SOURCE
     assert "DENTOBOT_HEADED_NATIVE_BINARY_SHA256" in SOURCE
     assert "DENTOBOT_HEADED_NATIVE_PACKAGE_PREFIX" in SOURCE
-    assert "if (not allow_jog and not draft_only and not invalid_draft_review) or native is None:" in SOURCE
+    native_gate = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.If) and "native is None" in ast.unparse(node.test)
+    )
+    assert ast.unparse(native_gate.test) == (
+        "not allow_jog and (not draft_only) and (not invalid_draft_review) "
+        "and (not joint_keyboard_opt_in) or native is None"
+    )
     assert "get_package_prefix" in SOURCE
     assert 're.fullmatch(r"[0-9a-fA-F]{64}", value)' in SOURCE
     assert 'source_hash != expected_source or binary_hash != expected_binary' in SOURCE
@@ -144,6 +276,108 @@ def test_record_reopen_opt_in_and_prerequisites_are_exact(monkeypatch):
         monkeypatch.setenv("DENTOBOT_HEADED_RECORD_REOPEN", value)
         with pytest.raises(RuntimeError, match="DENTOBOT_HEADED_RECORD_REOPEN must be exactly"):
             requested()
+
+
+def test_manual_outcome_opt_ins_are_exact_and_require_the_existing_jog_gate(monkeypatch):
+    requested = _extract_helper("_exact_env_opt_in", {"os": os})
+    monkeypatch.delenv("DENTOBOT_HEADED_ALLOW_REJECTED_JOG", raising=False)
+    assert requested("DENTOBOT_HEADED_ALLOW_REJECTED_JOG") is False
+    monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_REJECTED_JOG", "0")
+    assert requested("DENTOBOT_HEADED_ALLOW_REJECTED_JOG") is False
+    monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_REJECTED_JOG", "1")
+    assert requested("DENTOBOT_HEADED_ALLOW_REJECTED_JOG") is True
+    for invalid in ("yes", "true", "01", " "):
+        monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_REJECTED_JOG", invalid)
+        with pytest.raises(RuntimeError, match="must be exactly '1', '0', or unset"):
+            requested("DENTOBOT_HEADED_ALLOW_REJECTED_JOG")
+
+    run = next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == "run")
+    run_source = ast.unparse(run)
+    assert "DENTOBOT_HEADED_ALLOW_REJECTED_JOG=1 requires DENTOBOT_HEADED_ALLOW_JOG=1" in run_source
+    assert "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION=1 requires DENTOBOT_HEADED_ALLOW_JOG=1" in run_source
+    assert "DENTOBOT_MANUAL_JOG_REJECTION_PLAN_JSON" in run_source
+
+
+def test_shared_rejection_plan_binds_case_fixture_and_exact_start_vectors():
+    headless_source = RUNNER.with_name("run_dentobot_manual_jog_headless.py").read_text(encoding="utf-8")
+    assert "TESTING = ROOT / \"Testing\"" in headless_source
+    assert "fixture_identity as _fixture_identity" in headless_source
+    assert "rejection_plan as _rejection_plan" in headless_source
+    assert "fixture_identity_value=saved_identity['fixture_identity']" in ast.unparse(
+        ast.parse(headless_source)
+    )
+
+    def finite_vector(values):
+        if not isinstance(values, Mapping) or set(values) != set(JOINT_NAMES):
+            raise ValueError("expected exact J1-J5")
+        result = {name: float(values[name]) for name in JOINT_NAMES}
+        if not all(math.isfinite(value) for value in result.values()):
+            raise ValueError("expected finite J1-J5")
+        return result
+
+    start = dict(zip(JOINT_NAMES, (0.0, 0.01, 0.0, 0.02, 0.0)))
+    target = dict(start, J1=0.001)
+    plan_json = json.dumps({
+        "schema_version": "1.0",
+        "case_sha256": "case-hash",
+        "fixture_identity": "fixture-hash",
+        "starting_positions_si": start,
+        "requested_positions_si": target,
+        "review_reference": "reviewed collision vector",
+    })
+    parsed, reason = manual_jog_scenarios.rejection_plan(
+        plan_json,
+        case_sha256="case-hash",
+        fixture_identity_value="fixture-hash",
+        finite_vector=finite_vector,
+    )
+    assert reason == ""
+    assert parsed == {
+        "starting_positions_si": start,
+        "requested_positions_si": target,
+        "case_sha256": "case-hash",
+        "fixture_identity": "fixture-hash",
+        "review_reference": "reviewed collision vector",
+    }
+    with pytest.raises(ValueError, match="different saved case"):
+        manual_jog_scenarios.rejection_plan(
+            plan_json,
+            case_sha256="other-case",
+            fixture_identity_value="fixture-hash",
+            finite_vector=finite_vector,
+        )
+    with pytest.raises(ValueError, match="different fixture identity"):
+        manual_jog_scenarios.rejection_plan(
+            plan_json,
+            case_sha256="case-hash",
+            fixture_identity_value="other-fixture",
+            finite_vector=finite_vector,
+        )
+
+    captured = {}
+
+    def fingerprint_fn(value):
+        captured["value"] = value
+        return "fixture-hash"
+
+    fixture = manual_jog_scenarios.fixture_identity(
+        branch_id="branch",
+        task_core={"task": "core"},
+        home_revision=7,
+        home_joint_positions_si=start,
+        scene_source_object_ids=["case-object"],
+        scene_base_fingerprint="base",
+        fingerprint_fn=fingerprint_fn,
+    )
+    assert fixture == "fixture-hash"
+    assert captured["value"] == {
+        "branch_id": "branch",
+        "task_core": {"task": "core"},
+        "home_revision": 7,
+        "home_joint_positions_si": start,
+        "scene_source_object_ids": ["case-object"],
+        "scene_base_fingerprint": "base",
+    }
 
 
 def test_historical_probe_loader_imports_callable_without_running_probe():
@@ -459,11 +693,11 @@ def test_checkout_profile_accepts_only_renovation_or_explicit_integration(monkey
         profile()
 
 
-def test_runner_sends_at_most_one_guarded_jog_and_no_direct_route_or_preview_calls():
+def test_runner_routes_guarded_scenarios_through_one_production_click_owner():
     calls = _calls(TREE)
     assert len(_button_clicks(TREE, "guardedManualJogButton")) == 1
     assert len(_button_clicks(TREE, "lockRobotBaseMountButton")) == 0
-    assert SOURCE.count("_guard_click(widget, panel, target)") == 1
+    assert SOURCE.count("_guard_click(widget, panel, target)") == 3
     assert calls.count("acceptManualBaseReview") == 0
     assert calls.count("acceptManualTaskHomeReview") == 0
     assert calls.count("planApproach") == 0
@@ -472,6 +706,103 @@ def test_runner_sends_at_most_one_guarded_jog_and_no_direct_route_or_preview_cal
     assert calls.count("previewDrilling") == 0
     assert calls.count("reconcileManualRobotJog") == 0
     assert '"base_acceptance_attempted": False' in SOURCE
+
+
+def test_case_bound_rejection_is_preflighted_and_uses_the_shared_guard_path():
+    names = _module_constant("CHECK_NAMES")
+    assert "case_bound_rejected_guard" in names
+    run = next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == "run")
+    run_source = ast.unparse(run)
+    assert run_source.index("_prepare_case_bound_rejection(") < run_source.index("jog_ui = _guard_click(")
+    assert run_source.index("_run_case_bound_rejection(") < run_source.index("_run_unknown_reconciliation(")
+
+    fixture = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_manual_jog_fixture_identity"
+    )
+    fixture_source = ast.unparse(fixture)
+    assert "entry_ras_mm" in fixture_source and "target_ras_mm" in fixture_source
+    assert "scene_source_object_ids=scene['source_object_ids']" in fixture_source
+    assert "scene_base_fingerprint=str(audit.base_fingerprint)" in fixture_source
+
+    prepare = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_prepare_case_bound_rejection"
+    )
+    prepare_source = ast.unparse(prepare)
+    assert "_rejection_plan(" in prepare_source
+    assert "case_sha256=case_sha256" in prepare_source
+    assert "fixture_identity_value=fixture_identity" in prepare_source
+    assert "finite_vector=_finite_vector" in prepare_source
+    assert "_within_both_limits(logic, parameter_node, target)" in prepare_source
+    assert "_exactly_matches(plan['starting_positions_si'], accepted_target)" in prepare_source
+    assert "_exactly_matches(visible_target, target)" in prepare_source
+
+    rejected = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_case_bound_rejection"
+    )
+    rejected_source = ast.unparse(rejected)
+    for required in (
+        "ui = _guard_click(widget, panel, target)",
+        "native.get('responseObserved') is True",
+        "native.get('responseCorrelated') is True",
+        "native.get('accepted') is False",
+        "native.get('worldObjectEvidencePresent') is True",
+        "native.get('worldObjectIds')",
+        "ui.get('draft_positions_si'), target",
+        "after[key], before[key]",
+        "'case-bound-rejected-jog'",
+        "'case_bound_rejected_guard'",
+    ):
+        assert required in rejected_source
+    assert not any(
+        name in rejected_source
+        for name in ("planApproach", "planDrilling", "previewApproach", "previewDrilling")
+    )
+
+
+def test_unknown_ack_wrapper_restores_bridge_and_uses_production_reconcile_owner():
+    names = _module_constant("CHECK_NAMES")
+    assert "unknown_reconcile_state" in names
+    unknown = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_unknown_reconciliation"
+    )
+    wrapper = next(
+        node for node in ast.walk(unknown)
+        if isinstance(node, ast.FunctionDef) and node.name == "stale_acknowledgement"
+    )
+    wrapper_calls = [
+        node for node in ast.walk(wrapper)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "original_apply"
+    ]
+    assert len(wrapper_calls) == 1
+    replacement = next(
+        node for node in ast.walk(wrapper)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "dataclasses.replace"
+    )
+    assert {keyword.arg for keyword in replacement.keywords} == {"request_id", "session_id"}
+    source = ast.unparse(unknown)
+    assert "setattr(bridge_owner, 'apply_manual_joint_positions_si', stale_acknowledgement)" in source
+    assert "setattr(bridge_owner, 'apply_manual_joint_positions_si', original_apply)" in source
+    assert "panel.guardedManualJogButton.enabled is False" in source
+    assert "'repeat_jog_blocked': not panel.guardedManualJogButton.enabled" in source
+    assert "panel.reconcileManualJogButton.click()" in source
+    assert "facade.reconcileManualRobotJog" not in source
+    assert "query_evidence.get('operation') == 'state_query'" in source
+    assert "reconciliation.get('identityBefore') == identity_before" in source
+    assert "reconciliation.get('identityAfter') == identity_before" in source
+    assert "current_identity == identity_before" in source
+    assert "state_after['accepted_si'], native_accepted" in source
+    assert "state_after['monitored_si'], monitored" in source
+    assert "state_after['displayed_si'], native_accepted" in source
+    assert "'unknown-reconciliation-required'" in source
+    assert "'unknown-state-reconciled'" in source
+    assert not any(
+        name in source
+        for name in ("planApproach", "planDrilling", "previewApproach", "previewDrilling")
+    )
 
 
 def test_taskless_draft_only_stops_with_evidence_before_jog_or_acceptance():
@@ -578,7 +909,9 @@ def test_base_home_acceptance_is_exactly_opt_in_and_keeps_default_checklist():
         "base_controls_and_accepted_status",
         "draft_state_control_visible",
         "native_version_preflight",
+        "base_profile_rebind_prerequisite",
         "simulation_ros_connect_and_scene_readback",
+        "profile_migration_recovery_after_scene_ack",
         "draft_state_read_only",
         "invalid_out_of_reviewed_range_draft",
         "single_guarded_j1_jog",
@@ -619,6 +952,436 @@ def test_base_home_acceptance_is_exactly_opt_in_and_keeps_default_checklist():
     assert "task_home_accept_owner.click()" not in default_path
     assert "base_acceptance_owner.click()" in acceptance_path
     assert "task_home_accept_owner.click()" in acceptance_path
+
+
+def test_stale_restored_base_rebind_precedes_connect_without_scene_ack():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    rebind = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_run_base_profile_rebind_prerequisite")
+    checks = _module_constant("CHECK_NAMES")
+    assert checks.index("base_profile_rebind_prerequisite") < checks.index(
+        "simulation_ros_connect_and_scene_readback"
+    )
+    assert checks.index("simulation_ros_connect_and_scene_readback") < checks.index(
+        "base_stage_and_cancel"
+    ) < checks.index("base_acceptance_trial") < checks.index(
+        "task_home_review_acceptance_trial"
+    )
+
+    rebind_source = ast.unparse(rebind)
+    opt_in_gate = next(node for node in ast.walk(rebind)
+                       if isinstance(node, ast.If)
+                       and "allow_base_home_accept" in ast.unparse(node.test))
+    assert ast.unparse(opt_in_gate.test) == (
+        "not allow_base_home_accept or status != 'Stale' or locked"
+    )
+    assert "panel.beginManualBaseReviewButton.click()" in rebind_source
+    assert "accept_owner = widget.ui.lockRobotBaseMountButton" in rebind_source
+    assert "accept_owner.click()" in rebind_source
+    review_click = next(node for node in ast.walk(rebind)
+                        if isinstance(node, ast.Call)
+                        and ast.unparse(node.func) == "panel.beginManualBaseReviewButton.click")
+    accept_click = next(node for node in ast.walk(rebind)
+                        if isinstance(node, ast.Call)
+                        and ast.unparse(node.func) == "accept_owner.click")
+    assert review_click.lineno < accept_click.lineno
+    configure_base_controls = next(node for node in ast.walk(rebind)
+                                   if isinstance(node, ast.Call)
+                                   and ast.unparse(node)
+                                   == "widget._configureRobotSimulationShellSubstep(1)")
+    refresh_base_controls = next(node for node in ast.walk(rebind)
+                                 if isinstance(node, ast.Call)
+                                 and ast.unparse(node)
+                                 == "widget._updateStep6PlanningUi()")
+    assert configure_base_controls.lineno < refresh_base_controls.lineno < review_click.lineno
+    assert configure_base_controls.lineno < accept_click.lineno
+    active_base_guard = next(node for node in ast.walk(rebind)
+                             if isinstance(node, ast.If)
+                             and "panel._activeSubstep != 1" in ast.unparse(node.test)
+                             and "panel.beginManualBaseReviewButton.enabled"
+                             in ast.unparse(node.test))
+    assert active_base_guard.lineno < review_click.lineno
+    assert "_same_matrix(staged_details.get('candidateMatrixWorldRasMm'), accepted_matrix)" in rebind_source
+    assert "_same_matrix(staged_details.get('acceptedMatrixWorldRasMm'), accepted_matrix)" in rebind_source
+    assert "_same_matrix(after.get('acceptedMatrixWorldRasMm'), accepted_matrix)" in rebind_source
+    assert "'accepted_matrix_unchanged': _same_matrix(" in rebind_source
+    assert "'base_pose_fingerprint_unchanged': pose_fingerprint_after == pose_fingerprint_before" in rebind_source
+    assert "'case_unchanged': case_hash_after == case_hash" in rebind_source
+    assert "(not evidence['accepted_matrix_unchanged'])" in rebind_source
+    assert "(not evidence['base_pose_fingerprint_unchanged'])" in rebind_source
+    assert "(not evidence['case_unchanged'])" in rebind_source
+    assert "'native_scene_acknowledgement': 'deferred_until_after_connect'" in rebind_source
+    assert "evidence['scene_acknowledgement_deferred'] = True" in rebind_source
+    assert "_scene_evidence(" not in rebind_source
+    assert "syncCollisionButton" not in rebind_source
+
+    rebind_call = next(node for node in ast.walk(run)
+                       if isinstance(node, ast.Call)
+                       and ast.unparse(node.func) == "_run_base_profile_rebind_prerequisite")
+    connect_guard = next(node for node in ast.walk(run)
+                         if isinstance(node, ast.If)
+                         and ast.unparse(node.test) == "not panel.connectButton.enabled")
+    connect_click = next(node for node in ast.walk(run)
+                         if isinstance(node, ast.Call)
+                         and ast.unparse(node.func) == "panel.connectButton.click")
+    assert rebind_call.lineno < connect_guard.lineno < connect_click.lineno
+
+    sync_click = next(node for node in ast.walk(run)
+                      if isinstance(node, ast.Call)
+                      and ast.unparse(node.func) == "panel.syncCollisionButton.click")
+    scene_readback = next(node for node in ast.walk(run)
+                          if isinstance(node, ast.Call)
+                          and ast.unparse(node.func) == "_scene_evidence")
+    scene_ack_gate = next(node for node in ast.walk(run)
+                          if isinstance(node, ast.If)
+                          and "scene_ack.get('status') != 'Acknowledged'"
+                          in ast.unparse(node.test))
+    assert connect_click.lineno < sync_click.lineno < scene_readback.lineno < scene_ack_gate.lineno
+
+    later_run_clicks = [node for node in ast.walk(run)
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "click"
+                        and node.lineno > connect_click.lineno]
+    later_sources = [ast.unparse(node.func) for node in later_run_clicks]
+    assert "panel.beginManualBaseReviewButton.click" in later_sources
+    assert "panel.cancelManualBaseReviewButton.click" in later_sources
+    assert "base_acceptance_owner.click" in later_sources
+    assert "panel.reviewTaskHomeButton.click" in later_sources
+    assert "task_home_accept_owner.click" in later_sources
+
+
+def test_migrated_task_prerequisites_run_after_scene_ack_before_draft_and_rejection_identity():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    checks = _module_constant("CHECK_NAMES")
+    assert "profile_migration_recovery_after_scene_ack" in checks
+
+    recovery = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_ensure_current_home_workspace_task"
+        and any(keyword.arg == "phase"
+                and ast.literal_eval(keyword.value) == "after_scene_ack"
+                for keyword in node.keywords)
+    )
+    scene_ack_gate = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.If)
+        and "scene_ack.get('status') != 'Acknowledged'" in ast.unparse(node.test)
+    )
+    rejection_identity = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name)
+                and target.id == "manual_jog_fixture_identity"
+                for target in node.targets)
+        and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value.func) == "_manual_jog_fixture_identity"
+    )
+    draft_check = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "panel.checkManualDraftStateButton.click"
+    )
+    assert scene_ack_gate.end_lineno < recovery.lineno
+    assert recovery.lineno < rejection_identity.lineno < draft_check.lineno
+
+
+def test_migrated_prerequisite_recovery_uses_production_controls_and_checks_evidence():
+    ensure = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_ensure_current_home_workspace_task")
+    source = ast.unparse(ensure)
+    controls = (
+        "reviewTaskHomeButton",
+        "acceptTaskHomeButton",
+        "generateRobotWorkspaceButton",
+        "reviewLimitsButton",
+        "confirmTaskButton",
+    )
+    click_lines = []
+    for control in controls:
+        click = next(node for node in _button_clicks(ensure, control))
+        click_lines.append(click.lineno)
+    assert click_lines == sorted(click_lines)
+
+    for required in (
+        "state_fields = ('accepted_si', 'monitored_si', 'displayed_si')",
+        "_finite_vector(state_before['accepted_si'])",
+        "accepted_si",
+        "monitored_si",
+        "displayed_si",
+        "_exactly_matches",
+        "candidateJointPositionsSi",
+        "staged",
+        "home_revision <= old_revision",
+        "taskHomeRuntimeValidated",
+        "runtime_validation_status != 'Validated'",
+        "workspace",
+        "confirmedTaskRecord",
+        "confirmedTaskFreshnessIssues",
+        "_sha256_file(case_path)",
+        "case_hash",
+        "route_authority",
+        "planner_calls",
+        "preview_started",
+        "previewActive",
+    ):
+        assert required in source
+    assert not any(
+        name in source
+        for name in ("planApproach", "planDrilling", "previewApproach", "previewDrilling")
+    )
+
+
+def test_workspace_review_uses_production_refresh_and_persists_last_boundary():
+    ensure = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_ensure_current_home_workspace_task")
+    generation = next(node for node in ast.walk(ensure)
+                      if isinstance(node, ast.Call)
+                      and ast.unparse(node.func)
+                      == "widget.ui.generateRobotWorkspaceButton.click")
+    review = next(node for node in ast.walk(ensure)
+                  if isinstance(node, ast.Call)
+                  and ast.unparse(node.func) == "panel.reviewLimitsButton.click")
+    markers = sorted(
+        (node for node in ast.walk(ensure)
+         if isinstance(node, ast.Assign)
+         and ast.unparse(node.targets[0]) == "evidence['last_completed_boundary']"),
+        key=lambda node: node.lineno,
+    )
+    assert [ast.literal_eval(node.value) for node in markers] == [
+        "before_workspace_generation_click",
+        "workspace_generation_returned_current",
+        "before_assisted_limit_review_click",
+        "assisted_limit_review_returned_current",
+    ]
+    assert markers[0].lineno < generation.lineno < markers[1].lineno
+    assert markers[2].lineno < review.lineno < markers[3].lineno
+
+    statements = ensure.body
+    for marker in markers:
+        next_statement = statements[statements.index(marker) + 1]
+        assert isinstance(next_statement, ast.Expr)
+        assert ast.unparse(next_statement.value) == "_write_report(report)"
+
+    runtime_validation = next(node for node in ast.walk(ensure)
+                              if isinstance(node, ast.If)
+                              and "facade.workspaceRuntimeValidated(parameter_node) is not True"
+                              in ast.unparse(node.test))
+    limits_validation = next(node for node in ast.walk(ensure)
+                             if isinstance(node, ast.If)
+                             and "logic.assistedTaskLimitsReviewed(parameter_node) is not True"
+                             in ast.unparse(node.test))
+    assert generation.lineno < runtime_validation.lineno < markers[1].lineno
+    assert review.lineno < limits_validation.lineno < markers[3].lineno
+    assert not any(
+        isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "widget._updateStep6PlanningUi"
+        and generation.lineno < node.lineno < review.lineno
+        for node in ast.walk(ensure)
+    )
+
+    production_source = (
+        RUNNER.parent.parent
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_robot.py"
+    ).read_text(encoding="utf-8")
+    production_tree = ast.parse(production_source)
+    production_handler = next(node for node in ast.walk(production_tree)
+                              if isinstance(node, ast.FunctionDef)
+                              and node.name == "onGenerateRobotWorkspace")
+    cloud_generation = next(node for node in ast.walk(production_handler)
+                            if isinstance(node, ast.Call)
+                            and ast.unparse(node.func)
+                            == "self._robotWorkflowFacade.generateWorkspaceCloud")
+    production_refresh = next(node for node in ast.walk(production_handler)
+                              if isinstance(node, ast.Call)
+                              and ast.unparse(node.func) == "self._updateStep6PlanningUi"
+                              and ast.unparse(node.args[0]) == "planning_message")
+    busy_reset = next(node for node in ast.walk(production_handler)
+                      if isinstance(node, ast.Assign)
+                      and ast.unparse(node.targets[0]) == "self._workflowActionBusy"
+                      and ast.unparse(node.value) == "False")
+    assert cloud_generation.lineno < busy_reset.lineno < production_refresh.lineno
+
+
+def test_migration_roi_recovery_uses_visible_production_source_control():
+    ensure = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_ensure_current_home_workspace_task")
+    source = ast.unparse(ensure)
+    assert "_onStep6UseCurrentIncisorMidpoint" not in source
+
+    load_state = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "roi_loaded"
+                for target in node.targets)
+    )
+    assert "_taskSpaceRoiInitialized" in ast.unparse(load_state.value)
+    assert ast.unparse(load_state.value).startswith("not ")
+    load_gate = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "roi_loaded"
+    )
+    branch = ast.Module(body=load_gate.body, type_ignores=[])
+    button_binding = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.Assign)
+        and ast.unparse(node.value) == "panel.useCurrentIncisorMidpointButton"
+    )
+    button_name = ast.unparse(button_binding.targets[0])
+    scroll = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "_scroll_to_visible"
+        and button_name in ast.unparse(node)
+    )
+    availability_gate = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.If)
+        and ".enabled" in ast.unparse(node.test)
+        and "_visible(" in ast.unparse(node.test)
+        and button_name in ast.unparse(node.test)
+    )
+    click = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "click"
+        and ast.unparse(node.func.value) == button_name
+    )
+    process = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "_process_events"
+        and node.lineno > click.lineno
+    )
+    initialized_check = next(
+        node for node in ast.walk(branch)
+        if isinstance(node, ast.If)
+        and "_taskSpaceRoiInitialized" in ast.unparse(node.test)
+        and node.lineno > process.lineno
+    )
+    assert ast.unparse(initialized_check.test).startswith("not ")
+    evidence_validation = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.If)
+        and "math.isfinite" in ast.unparse(node.test)
+        and "roi_opening_revision" in ast.unparse(node.test)
+        and "roi_gap_line_id" in ast.unparse(node.test)
+        and node.lineno > process.lineno
+    )
+    math_check = next(
+        node for node in ast.walk(evidence_validation)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "math.isfinite"
+    )
+    capture = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "_capture"
+        and "task-space-roi-before-workspace" in ast.unparse(node)
+    )
+    assert button_binding.lineno < scroll.lineno < availability_gate.lineno < click.lineno
+    assert click.lineno < process.lineno < initialized_check.lineno
+    assert process.lineno < math_check.lineno
+    assert process.lineno < evidence_validation.lineno < capture.lineno
+    assert evidence_validation.end_lineno < capture.lineno
+    assert capture.lineno < next(
+        node.lineno for node in ast.walk(ensure)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "widget.ui.generateRobotWorkspaceButton.click"
+    )
+    assert "_taskSpaceRoiOpeningRevision" in source
+    assert "_taskSpaceRoiGapLineNodeId" in source
+    assert "taskSpaceRoiCenterSpinBoxes" in source
+    assert "taskSpaceRoiDimensionsSpinBoxes" in source
+    assert "float(spin.value)" in source
+    for field in (
+        "_taskSpaceRoiOpeningRevision",
+        "_taskSpaceRoiGapLineNodeId",
+        "taskSpaceRoiCenterSpinBoxes",
+        "taskSpaceRoiDimensionsSpinBoxes",
+    ):
+        read = next(
+            node for node in ast.walk(ensure)
+            if isinstance(node, ast.Attribute)
+            and node.attr == field
+            and node.lineno > process.lineno
+        )
+        assert read.lineno < evidence_validation.lineno
+    assert "type(roi_opening_revision) is not int" in ast.unparse(evidence_validation.test)
+    assert "not isinstance(roi_gap_line_id, str)" in ast.unparse(evidence_validation.test)
+    assert "not roi_gap_line_id.strip()" in ast.unparse(evidence_validation.test)
+
+
+def test_migration_prerequisites_are_rechecked_after_base_home_acceptance_before_save():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    checks = _module_constant("CHECK_NAMES")
+    assert "profile_migration_recovery_before_save" in checks
+    before_save = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_ensure_current_home_workspace_task"
+        and any(keyword.arg == "phase"
+                and ast.literal_eval(keyword.value) == "before_save"
+                for keyword in node.keywords)
+    )
+    base_accept = next(node for node in ast.walk(run)
+                       if isinstance(node, ast.Call)
+                       and ast.unparse(node.func) == "base_acceptance_owner.click")
+    home_accept = next(node for node in ast.walk(run)
+                       if isinstance(node, ast.Call)
+                       and ast.unparse(node.func) == "task_home_accept_owner.click")
+    save = next(node for node in ast.walk(run)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_save_current_case")
+    assert base_accept.lineno < before_save.lineno
+    assert home_accept.lineno < before_save.lineno < save.lineno
+
+
+def test_migration_prerequisite_failure_persists_each_post_confirmation_invariant():
+    ensure = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_ensure_current_home_workspace_task"
+    )
+    source = ast.unparse(ensure)
+    for field in (
+        "confirmed_task_present",
+        "confirmed_task_freshness_issues",
+        "assisted_limits_reviewed",
+        "task_home_runtime_validated",
+        "workspace_runtime_validated",
+        "route_preview_unchanged",
+        "source_case_unchanged",
+    ):
+        assert repr(field) in source
+    evidence_write = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node) == "_write_report(report)"
+        and node.lineno > next(
+            item.lineno for item in ast.walk(ensure)
+            if isinstance(item, ast.Assign)
+            and "post_confirmation_invariants" in ast.unparse(item)
+        )
+    )
+    combined_failure = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.If)
+        and "confirmed_after is None" in ast.unparse(node.test)
+    )
+    assert evidence_write.lineno < combined_failure.lineno
 
 
 def test_opt_in_acceptance_verifies_base_home_owners_and_stops_on_first_failure():
@@ -1305,3 +2068,121 @@ def test_window_is_sized_before_capture_and_scroll_failures_include_geometry():
             isinstance(node, ast.Raise) and "viewport_details" in ast.unparse(node)
             for node in failure.body
         )
+
+
+def test_joint_keyboard_draft_review_is_opt_in_physical_and_stops_before_jog():
+    assert "manual_jog_keyboard_draft_check" in _module_constant("CHECK_NAMES")
+
+    run = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    run_source = ast.unparse(run)
+    assert "DENTOBOT_HEADED_JOINT_KEYBOARD" in run_source
+    keyboard_check = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_run_manual_jog_keyboard_draft_check"
+    )
+    draft_check_click = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "click"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "checkManualDraftStateButton"
+    )
+    assert draft_check_click.lineno < keyboard_check.lineno
+    assert "if joint_keyboard_only" in run_source
+    assert "Joint keyboard draft-only review completed" in run_source
+
+    helper = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_run_manual_jog_keyboard_draft_check"
+    )
+    helper_source = ast.unparse(helper)
+    for required in (
+        "manualJogKeyboardEnabledCheckBox",
+        "manualJogKeyboardStepComboBox",
+        "MANUAL_JOG_KEY_BINDINGS",
+        "autoRepeat",
+        "_deliver_key",
+        "_setManualJogDraftValues",
+        "numeric_editor_focus",
+        "no_guard_request_plan_or_preview",
+        "capture('failure')",
+    ):
+        assert required in helper_source
+    assert "_onManualJogKeyboardNudge" not in helper_source
+    assert "_guard_click" not in helper_source
+    manual_control_lookups = [
+        node for node in ast.walk(helper)
+        if isinstance(node, ast.Subscript)
+        and ast.unparse(node.value) == "panel.manualJogJointControls"
+    ]
+    assert manual_control_lookups
+    assert all(
+        not (
+            isinstance(node.slice, ast.Constant)
+            and node.slice.value in JOINT_NAMES
+        )
+        for node in manual_control_lookups
+    )
+    assert any(
+        ast.unparse(node) == "panel.manualJogJointControls[JOINT_NAMES[0]]"
+        for node in ast.walk(helper)
+    )
+
+    delivery = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_deliver_key"
+    )
+    delivery_source = ast.unparse(delivery)
+    assert "QTest" in delivery_source and "keyClick" in delivery_source
+    assert "QKeyEvent" in delivery_source and "sendEvent" in delivery_source
+    assert "refusing callback fallback" in delivery_source
+    assert "callback(" not in delivery_source
+
+
+def test_keyboard_expected_si_uses_the_canonical_joint_name_at_each_display_index():
+    state_path = (
+        RUNNER.parent.parent
+        / "DENTOWorkflow/Resources/Python/DENTOStep6State.py"
+    )
+    state_tree = ast.parse(state_path.read_text(encoding="utf-8"))
+    canonical_names = ast.literal_eval(next(
+        node.value for node in state_tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "JOINT_NAMES"
+            for target in node.targets
+        )
+    ))
+    apply_step = _extract_helper(
+        "_apply_display_step_to_expected_si", {"JOINT_NAMES": canonical_names}
+    )
+    before = {name: float(index) for index, name in enumerate(canonical_names)}
+    for index, name in enumerate(canonical_names):
+        expected = dict(before)
+        expected[name] += 0.0001
+        assert apply_step(before, index, 0.0001) == expected
+
+    keyboard_check = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_run_manual_jog_keyboard_draft_check"
+    )
+    calls = sorted(
+        (
+            node for node in ast.walk(keyboard_check)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_apply_display_step_to_expected_si"
+        ),
+        key=lambda node: node.lineno,
+    )
+    assert len(calls) == 2
+    assert ast.unparse(calls[0].args[1]) == "joint_index"
+    assert ast.literal_eval(calls[1].args[1]) == 0

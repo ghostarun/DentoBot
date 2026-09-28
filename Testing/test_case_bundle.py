@@ -29,6 +29,7 @@ from DENTOCaseBundle import (  # noqa: E402
     create_case_bundle,
     extract_scene_mrb,
     is_additive_rrt_profile_upgrade,
+    is_five_dof_profile_upgrade,
     lineage_snapshot_matches,
     lineage_snapshot_mismatch_path,
     validate_case_bundle,
@@ -372,6 +373,68 @@ def test_only_known_additive_rrt_profile_upgrade_is_compatible() -> None:
     assert not is_additive_rrt_profile_upgrade(saved, {**current, "identitySha256": "forged"})
 
 
+def test_only_known_five_dof_profile_upgrade_is_compatible() -> None:
+    saved_identity = "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682"
+    current_identity = (
+        "cac087c6ee96258416e587e43303a0351f331a8b668daf4ff0f3929a030ae52c"
+    )
+
+    def profile(identity, components):
+        return {
+            "schemaVersion": "1.0",
+            "runtimeRestorePolicy": "verify-installed-resources-then-explicitly-connect",
+            "identitySha256": identity,
+            "components": components,
+        }
+
+    old_canonical = {
+        "path": "description/urdf/dentobot.urdf",
+        "sha256": "c70c12e38dc12dd4798f6332426eea82a430dc882836ef31cf0ce293c1e3f3d5",
+        "sizeBytes": 100,
+    }
+    new_canonical = {
+        **old_canonical,
+        "sha256": "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a",
+        "sizeBytes": 101,
+    }
+    old_diagnostic = {
+        "path": "description/urdf/dentobot.diagnostic-no-spindle-collision.urdf",
+        "sha256": "8345886de7ecbe359df010da37a5099d209edae41dc9fc9857a4dccbe61ace99",
+        "sizeBytes": 90,
+    }
+    new_diagnostic = {
+        **old_diagnostic,
+        "sha256": "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995",
+        "sizeBytes": 91,
+    }
+    mesh = {"path": "description/meshes/link.stl", "sha256": "a" * 64, "sizeBytes": 12}
+    saved_components = [old_canonical, old_diagnostic, mesh]
+    current_components = [new_canonical, new_diagnostic, mesh]
+    saved = profile(saved_identity, saved_components)
+    current = profile(current_identity, current_components)
+
+    assert is_five_dof_profile_upgrade(saved, current)
+    assert not is_five_dof_profile_upgrade(
+        saved, profile(current_identity, current_components[:-1])
+    )
+    assert not is_five_dof_profile_upgrade(
+        saved,
+        profile(
+            current_identity,
+            current_components + [{"path": "extra", "sha256": "b" * 64, "sizeBytes": 1}],
+        ),
+    )
+    mutated = [{**item} for item in current_components]
+    mutated[2]["sha256"] = "b" * 64
+    assert not is_five_dof_profile_upgrade(saved, profile(current_identity, mutated))
+    wrong_urdf = [{**item} for item in current_components]
+    wrong_urdf[0]["sha256"] = "c" * 64
+    assert not is_five_dof_profile_upgrade(saved, profile(current_identity, wrong_urdf))
+    assert not is_five_dof_profile_upgrade(
+        saved, profile(saved_identity, current_components)
+    )
+
+
 def test_lineage_snapshot_accepts_append_only_schema_v1_extensions() -> None:
     saved = {
         "field": "targetToothBoundsRoi",
@@ -485,6 +548,23 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     open_start = source.index("    def _openCaseBundle")
     open_end = source.index("\n    def onOpenCaseBundle", open_start)
     open_case = source[open_start:open_end]
+    bind_validation = open_case.index(
+        "self._bindAndValidateRestoredCase(inspection.workflow"
+    )
+    hydrated_validation = open_case.index(
+        "self._validateHydratedCaseBundle(inspection.workflow)"
+    )
+    profile_migration = open_case.index(
+        "self.logic._migrateLegacyJ2ZeroRobotProfile("
+    )
+    revalidation = open_case.index(
+        "self._revalidateImportedStep6ContextAfterLoad()"
+    )
+    assert bind_validation < hydrated_validation < profile_migration < revalidation
+    assert (
+        "self.logic._migrateLegacyJ2ZeroRobotProfile(\n"
+        "                                self.logic.getParameterNode(),"
+    ) in open_case
     assert open_case.index(
         "self.setParameterNode(self.logic.getParameterNode())"
     ) < open_case.index("self._endCaseBundleRestore(restoreGeneration)") < open_case.index(

@@ -1103,7 +1103,6 @@ class RobotSceneSyncLogicMixin:
                 parameterNode.robotJoint3Deg,
                 parameterNode.robotJoint4Mm,
                 parameterNode.robotJoint5Deg,
-                parameterNode.robotJoint6Deg,
             )
         if defer_runtime_acknowledgement:
             acknowledgement = {

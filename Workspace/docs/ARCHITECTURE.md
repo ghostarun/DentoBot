@@ -105,7 +105,7 @@ adjacent anatomy and guide/template geometry remain authoritative for both
 collision and the research clearance margin. Historical template exclusion and
 session anatomy-review collision proxies are process-local opt-ins only and are
 never persisted or treated as acceptance evidence. The accepted five-joint
-canonical TCP, J6-outside-planning model, independent guard, and full-chain
+canonical five-DOF TCP/model, independent guard, and full-chain
 promotion rules are unchanged.
 
 ## Guarded-live-first Step 6 architecture — 2026-09-03
@@ -122,7 +122,7 @@ Task Home --strict MoveIt/guard--> PreEntry
 
 MoveIt first attempts each collision-off fixed-axis terminal line. Its bounded
 sequential IK fallback may solve only those same poses from the preceding
-accepted J1-J5 state, with J6 fixed at zero and FK residual verification. The
+accepted J1–J5 state with FK residual verification. The
 independent phase guard remains the final waypoint authority. A phase session
 is transient and single-use; stopping or completing it never creates reusable
 case authorization.
@@ -143,28 +143,20 @@ joints and world-RAS KDL FK. A stopped or completed preview is transient; after
 accepted motion, strict guarded Return Home is the only path back to replanning.
 This implementation remains runtime-unverified until the x4 acceptance gate.
 
-## Step 6 spindle and full-chain planning boundary — 2026-09-04
+## Step 6 spindle and full-chain planning boundary — superseded 2026-09-28
 
-The pneumatic spindle joint remains in the URDF and visual/collision robot
-tree for compatibility, but it is not a controllable planning degree of
-freedom. `DENTOStep6State` owns the versioned policy
-`external-pressure-spindle-nonplanning-v2`; the visual branch is held at
-`0 rad` whenever a six-value compatibility vector is needed. The MoveIt
-`dentobot_arm` group, FK/IK, workspace, trajectories, guard commands, and
-previews contain only J1–J5. A six-value legacy vector is accepted only at a
-read/visual boundary, where its sixth slot is discarded; nonzero six-value
-motion commands are rejected by the guard. J5 remains the only continuous arm
-joint in Step 6 planning.
+The robot description and workflow expose exactly five movable joints,
+J1–J5. The physical pneumatic spindle housing and burr remain in the visual and
+collision tree, joined by their exact neutral fixed transform. They introduce
+no arm joint or compatibility value. The drill's future speed/status interface
+is a separate domain and never enters joint states, IK, planning, Home, limits,
+guards or saved motion evidence. J5 is the only continuous arm joint.
 
-The canonical planning frame is `dentobot_drill_tcp`, a fixed sibling of the
-J6 joint under `pneumatic_spindle-Copy`. Its transform is the CAD burr-tip
-reference pose evaluated at the neutral spindle angle, so its position and
-physical +Z drilling axis are independent of air-rotor roll. The historical
-`dentobot_tool_tcp` and `dentobot_drill_tip_provisional` links stay downstream
-of J6 for visualization and collision representation only. They are not
-planning TCPs. This separation prevents an uncontrolled rotor angle from
-being used to satisfy tool orientation and removes the former solve-with-J6,
-then-canonicalize production path.
+The canonical planning frame remains `dentobot_drill_tcp`, fixed to the spindle
+housing at the CAD burr-tip reference pose. Its position and physical +Z drill
+axis are independent of drill rotation. Current evidence and interfaces are
+strictly five-joint; historical six-value records are dated evidence and are
+not silently promoted to current state.
 
 Goal 1 now owns a connected three-stage preflight: strict MoveIt
 Home→PreEntry; axis-constrained PreEntry→Entry with only terminal configured
@@ -193,7 +185,7 @@ PreEntry and the terminal stages are a five-dimensional drilling task: exact
 TCP XYZ plus the two independent angular constraints defining tool +Z. The
 native SlicerROS2 robot node evaluates this task with the existing MoveIt
 `RobotState`, Jacobian, joint bounds, and PlanningScene; it does not pass an
-invented sixth pose constraint to KDL and never introduces J6. The
+invented sixth pose constraint to KDL. The
 authoritative Stage-1 FK frame is retained as a display/fingerprint scaffold,
 while the bounded continuity fallback checks only XYZ and +Z because housing
 roll is not a commanded degree of freedom. Stage 2/3 therefore preserve the

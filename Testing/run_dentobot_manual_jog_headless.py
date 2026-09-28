@@ -26,7 +26,8 @@ import vtk
 ROOT = Path(__file__).resolve().parents[1]
 HELPERS = ROOT / "DENTOWorkflow/Resources/Python"
 MODULE = ROOT / "DENTOWorkflow"
-for candidate in (HELPERS, MODULE):
+TESTING = ROOT / "Testing"
+for candidate in (HELPERS, MODULE, TESTING):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
@@ -42,6 +43,10 @@ from DENTOStep6Planning import (  # noqa: E402
     joint_limit_margin_evidence,
 )
 from DENTOStep6State import fingerprint  # noqa: E402
+from step6_manual_jog_scenarios import (  # noqa: E402
+    fixture_identity as _fixture_identity,
+    rejection_plan as _rejection_plan,
+)
 
 
 REPORT_NAME = "manual_jog_headless.json"
@@ -211,15 +216,14 @@ def _identity(logic, parameter_node, facade) -> dict[str, object]:
         "tool_frame": str(parameter_node.step6ToolFrame),
         "corridor_radius_mm": float(parameter_node.step6TrajectoryCorridorRadiusMm),
     }
-    fixture_identity = fingerprint(
-        {
-            "branch_id": branch_id,
-            "task_core": task_core,
-            "home_revision": int(home.revision),
-            "home_joint_positions_si": home_positions,
-            "scene_source_object_ids": scene["source_object_ids"],
-            "scene_base_fingerprint": scene["base_fingerprint"],
-        }
+    fixture_identity = _fixture_identity(
+        branch_id=branch_id,
+        task_core=task_core,
+        home_revision=home.revision,
+        home_joint_positions_si=home_positions,
+        scene_source_object_ids=scene["source_object_ids"],
+        scene_base_fingerprint=scene["base_fingerprint"],
+        fingerprint_fn=fingerprint,
     )
     base = parameter_node.robotBaseTransform
     return {
@@ -392,30 +396,6 @@ def _within_both_limits(logic, parameter_node, positions: dict[str, float]):
     ):
         return None
     return evidence
-
-
-def _rejection_plan(raw_plan: str, *, case_sha256: str, fixture_identity: str):
-    if not raw_plan.strip():
-        return None, "No exact pre-reviewed rejection vector was supplied."
-    try:
-        plan = json.loads(raw_plan)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Rejection plan is not valid JSON: {exc}") from exc
-    if not isinstance(plan, dict) or plan.get("schema_version") != "1.0":
-        raise ValueError("Rejection plan schema_version must be '1.0'.")
-    if plan.get("case_sha256") != case_sha256:
-        raise ValueError("Rejection plan belongs to a different saved case.")
-    if plan.get("fixture_identity") != fixture_identity:
-        raise ValueError("Rejection plan belongs to a different fixture identity.")
-    start = _finite_vector(plan.get("starting_positions_si"))
-    target = _finite_vector(plan.get("requested_positions_si"))
-    return {
-        "starting_positions_si": start,
-        "requested_positions_si": target,
-        "case_sha256": case_sha256,
-        "fixture_identity": fixture_identity,
-        "review_reference": str(plan.get("review_reference") or ""),
-    }, ""
 
 
 def _guard_click(widget, panel, target: dict[str, float]) -> dict[str, object]:
@@ -783,7 +763,8 @@ def run() -> dict[str, object]:
         rejection_plan, rejection_skip_reason = _rejection_plan(
             os.environ.get("DENTOBOT_MANUAL_JOG_REJECTION_PLAN_JSON", ""),
             case_sha256=case_sha256,
-            fixture_identity=saved_identity["fixture_identity"],
+            fixture_identity_value=saved_identity["fixture_identity"],
+            finite_vector=_finite_vector,
         )
         if rejection_plan is not None:
             if not _matches_at_display_precision(

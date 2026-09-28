@@ -12,6 +12,8 @@ from xml.etree import ElementTree
 
 import numpy as np
 
+from DENTOStep6State import JOINT_NAMES
+
 
 @dataclass(frozen=True)
 class RobotLinkMeshPose:
@@ -93,20 +95,14 @@ def joint_positions_si_from_display(
     joint_3_deg: float,
     joint_4_mm: float,
     joint_5_deg: float,
-    joint_6_deg: float,
 ) -> dict[str, float]:
-    """Convert Slicer controls into URDF units for visualisation.
-
-    The returned J6 value is retained only for the visual spindle branch;
-    Step 6 canonicalizes commandable planning state to J1–J5 before MoveIt.
-    """
+    """Convert the five canonical Slicer controls into URDF units."""
     return {
         "link-1_Revolute-1": radians(float(joint_1_deg)),
         "link-2_Slider-2": float(joint_2_mm) / 1000.0,
         "link-3_Revolute-3": radians(float(joint_3_deg)),
         "link-4_Slider-4": float(joint_4_mm) / 1000.0,
         "link-5_Revolute-5": radians(float(joint_5_deg)),
-        "pneumatic_spindle-Copy_Revolute-6": radians(float(joint_6_deg)),
     }
 
 
@@ -122,6 +118,8 @@ def link_transforms_base_m(
     if root.tag != "robot":
         raise ValueError("The description does not contain a URDF robot root.")
     positions = dict(joint_positions_si or {})
+    if positions and set(positions) != set(JOINT_NAMES):
+        raise ValueError("joint positions must contain exactly the canonical J1–J5 joints")
 
     link_names = {link.get("name", "") for link in root.findall("link")}
     child_links: set[str] = set()
@@ -157,6 +155,13 @@ def link_transforms_base_m(
                 ),
             }
         )
+    movable_names = tuple(
+        joint["name"]
+        for joint in joints
+        if joint["type"] not in {"fixed", "floating", "planar"}
+    )
+    if movable_names != JOINT_NAMES:
+        raise ValueError("robot description must contain exactly the canonical J1–J5 movable joints")
     roots = link_names - child_links
     if len(roots) != 1:
         raise ValueError(f"Expected one URDF root link, found {sorted(roots)}.")

@@ -439,7 +439,6 @@ class LifecycleWidgetMixin:
             self._parameterNode.robotJoint3Deg,
             self._parameterNode.robotJoint4Mm,
             self._parameterNode.robotJoint5Deg,
-            self._parameterNode.robotJoint6Deg,
         )
         base, models = self.logic.createOrUpdateRobotPlacement(
             self._parameterNode.robotBaseTransform,

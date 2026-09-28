@@ -62,12 +62,10 @@ from DENTOStep6State import (  # noqa: E402
     BasePlacementStatus,
     DENTAL_FDI_TOOTH_IDS,
     JOINT_NAMES,
-    LEGACY_JOINT_NAMES,
     MANUAL_SIMULATION_BASE_SOURCE,
     MANUAL_SIMULATION_RECORD_MAX_EVENTS,
     MotionPhase,
     SIMULATION_TOOL_PROVENANCE,
-    SPINDLE_PLANNING_POLICY,
     approach_points,
     base_placement_source_issue,
     build_assisted_limit_proposal,
@@ -537,32 +535,25 @@ def test_task_home_round_trip_is_versioned_and_case_base_specific():
     assert restored.revision == 3
     assert restored.joint_names == JOINT_NAMES
     assert len(restored.joint_positions_si) == 5
-    assert restored.spindle_planning_policy == SPINDLE_PLANNING_POLICY
 
 
-def test_legacy_nonzero_spindle_home_migrates_without_changing_arm_pose():
-    legacy = build_task_home(
+def test_task_home_rejects_extra_joint_names_and_values():
+    extra_joint = build_task_home(
         joints(0.25),
         base_fingerprint="base-a",
         robot_profile_fingerprint="robot-a",
     ).to_dict()
-    legacy["joint_names"] = list(LEGACY_JOINT_NAMES)
-    legacy["joint_positions_si"] = [
-        *legacy["joint_positions_si"],
-        2.75,
-    ]
-    legacy.pop("spindle_planning_policy")
-    legacy.pop("spindle_locked_value_rad")
-    restored = parse_task_home(legacy)
-    assert restored.joint_positions_si == tuple(legacy["joint_positions_si"][:-1])
-    assert restored.joint_names == JOINT_NAMES
+    extra_joint["joint_names"] = [*JOINT_NAMES, "unexpected_joint"]
+    extra_joint["joint_positions_si"] = [*extra_joint["joint_positions_si"], 2.75]
+    with pytest.raises(ValueError, match="J1–J5"):
+        parse_task_home(extra_joint)
 
 
 def test_workspace_limit_suggestion_retains_observed_range_and_needs_review():
     proposal = build_assisted_limit_proposal(
-        ((0, 10, 20, 30, 40, 50), (10, 20, 30, 40, 50, 60)),
-        (-100, 0, -100, 0, -100, -360),
-        (360, 80, 360, 75, 360, 360),
+        ((0, 10, 20, 30, 40), (10, 20, 30, 40, 50)),
+        (-100, 0, -100, 0, -100),
+        (360, 80, 360, 75, 360),
     )
     assert proposal.accepted_sample_count == 2
     assert not proposal.reviewed
@@ -862,8 +853,6 @@ def test_motion_diagnostic_freshness_checks_confirmed_task_fingerprint(
         "_": lambda value: value,
         "json": json,
         "MOTION_DIAGNOSTIC_SCHEMA_VERSION": "2.2",
-        "SPINDLE_PLANNING_POLICY": SPINDLE_PLANNING_POLICY,
-        "SPINDLE_LOCKED_VALUE_RAD": 0.0,
     }
     exec(compile(ast.Module([method], type_ignores=[]), str(source_path), "exec"), namespace)
     record = build_motion_diagnostic_session(
@@ -879,11 +868,7 @@ def test_motion_diagnostic_freshness_checks_confirmed_task_fingerprint(
         failure_classification="none",
         schema_version="2.2",
         stage_outcomes=(),
-        full_task_outcome={
-            "status": "Complete",
-            "spindle_planning_policy": SPINDLE_PLANNING_POLICY,
-            "spindle_locked_value_rad": 0.0,
-        },
+        full_task_outcome={"status": "Complete"},
     )
 
     class Probe:
@@ -1220,7 +1205,7 @@ def test_manual_simulation_record_round_trips_exact_motion_samples():
         ("monitored_joints", {JOINT_NAMES[0]: 0.0}, "exactly the canonical"),
         (
             "monitored_joints",
-            {**joints(), LEGACY_JOINT_NAMES[-1]: 0.0},
+            {**joints(), "unexpected_joint": 0.0},
             "exactly the canonical",
         ),
         ("tcp_pose_world_ras_mm", (0.0,) * 15, "16 finite row-major"),

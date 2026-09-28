@@ -113,7 +113,6 @@ class DENTOWorkflowParameterNode:
     robotJoint3Deg: float = 0.0
     robotJoint4Mm: float = 0.0
     robotJoint5Deg: float = 0.0
-    robotJoint6Deg: float = 0.0
     robotTranslationStepMm: float = 1.0
     robotRotationStepDeg: float = 1.0
     robotKeyboardNudgeEnabled: bool = False
@@ -166,6 +165,4 @@ class DENTOWorkflowParameterNode:
     robotJoint4TaskMaxMm: float = 75.0
     robotJoint5TaskMinDeg: float = -180.0
     robotJoint5TaskMaxDeg: float = 180.0
-    robotJoint6TaskMinDeg: float = -360.0
-    robotJoint6TaskMaxDeg: float = 360.0
     sceneDisplayPresetJson: str = ""

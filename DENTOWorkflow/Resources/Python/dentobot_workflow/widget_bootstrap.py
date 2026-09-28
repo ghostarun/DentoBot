@@ -1049,8 +1049,6 @@ class BootstrapWidgetMixin:
             self.ui.robotJoint4TaskMaxSpinBox,
             self.ui.robotJoint5TaskMinSpinBox,
             self.ui.robotJoint5TaskMaxSpinBox,
-            self.ui.robotJoint6TaskMinSpinBox,
-            self.ui.robotJoint6TaskMaxSpinBox,
         ):
             limitSpinBox.connect(
                 "valueChanged(double)",
@@ -1089,7 +1087,6 @@ class BootstrapWidgetMixin:
             self.ui.robotJoint3SpinBox,
             self.ui.robotJoint4SpinBox,
             self.ui.robotJoint5SpinBox,
-            self.ui.robotJoint6SpinBox,
         ):
             jointSpinBox.connect("valueChanged(double)", self.onRobotJointValueChanged)
         self.ui.robotBaseTransformSelector.connect(

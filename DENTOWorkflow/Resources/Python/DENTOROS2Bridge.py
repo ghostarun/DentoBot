@@ -19,8 +19,6 @@ from uuid import uuid4
 
 from DENTOStep6State import (
     JOINT_NAMES,
-    LEGACY_JOINT_NAMES,
-    SPINDLE_LOCKED_VALUE_RAD,
     canonicalize_planning_joint_positions,
 )
 
@@ -82,7 +80,6 @@ ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE = (
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
 ROS2_JOINT_SI_ORDER = tuple(JOINT_NAMES)
-ROS2_LEGACY_JOINT_SI_ORDER = tuple(LEGACY_JOINT_NAMES)
 ROS2_CONTINUOUS_REVOLUTE_JOINTS = frozenset(
     {
         "link-5_Revolute-5",
@@ -899,12 +896,8 @@ def _restore_motion_control_positions(values: Sequence[float]) -> None:
         setter = getattr(widget, "_setJointUi_SIToSlicer", None) if widget else None
         if widget is None or not callable(setter):
             return
-        # The visual robot retains the downstream spindle branch. Keep its
-        # display angle at the reference value while the command state remains
-        # the five-joint MoveIt vector.
-        restored = [float(value) for value in values] + [SPINDLE_LOCKED_VALUE_RAD]
-        widget.jointPositionsRad = restored
-        setter(restored)
+        widget.jointPositionsRad = [float(value) for value in values]
+        setter(widget.jointPositionsRad)
     except Exception:
         return
 
@@ -1838,11 +1831,6 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     return [canonical[name] for name in ROS2_JOINT_SI_ORDER]
 
 
-def visual_joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
-    """Append the fixed visual spindle angle for the expert robot display."""
-    return joint_si_vector(positions_si) + [SPINDLE_LOCKED_VALUE_RAD]
-
-
 def position_axis_joint_limit_blockers(
     joint_values_si: Sequence[float],
     lower_limits_si: Sequence[float],
@@ -2069,7 +2057,7 @@ def show_moveit_joint_goal(
     if error or logic is None or robot_node is None:
         return False, error or "MoveIt goal-robot context is unavailable."
     try:
-        values = visual_joint_si_vector(joint_positions_si)
+        values = joint_si_vector(joint_positions_si)
         logic.last_ik_solution = list(values)
         logic.updategoalTransformsFromJointsKDL(robot_node, values)
     except Exception as exc:
@@ -2330,8 +2318,9 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
     widget.ui.executeButton.visible = False
     _motion_ui_status(
         widget,
-        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tcp · J1–J5 planning only; "
-        "the pneumatic spindle is external and not planned. Plan/preview only.",
+        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tcp · five-DOF arm "
+        "positioning and axis orientation only; axial roll is unconstrained. The "
+        "physical drill is a separate future speed-controlled device. Plan/preview only.",
     )
     _configured_motion_widget = widget
     return True
@@ -2819,7 +2808,7 @@ def show_goal_robot_joint_positions(
     if robot_node.GetNumberOfNodeReferences("goal_model") == 0:
         return False, "The transient goal robot is unavailable."
     try:
-        values = visual_joint_si_vector(positions_si)
+        values = joint_si_vector(positions_si)
         motion_logic.updategoalTransformsFromJointsKDL(robot_node, values)
         for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
             model = robot_node.GetNthNodeReference("goal_model", index)
@@ -3444,9 +3433,8 @@ def _position_axis_residual_mm_degrees(
     """Return translation and drill-axis residual, leaving housing roll free.
 
     The robot has five controllable positioning joints.  Cartesian Stage 2/3
-    therefore constrain the physical burr position and its drilling axis, but
-    deliberately do not constrain rotation about that axis (the pneumatic
-    spindle is external and uncommanded).
+    therefore constrain the physical burr position and drilling axis. Axial
+    roll is unconstrained because the five-DOF arm does not control it.
     """
 
     actual_rows = _matrix4_rows(actual)
@@ -4338,7 +4326,7 @@ def plan_moveit_cartesian_path(
             recovered = [dict(seed)]
             # Try the previous arm state first, then small deterministic
             # perturbations to escape a local IK branch without changing the
-            # requested Cartesian frame or spindle policy.
+            # requested Cartesian frame or five-DOF pose contract.
             perturbations = (
                 ("link-1_Revolute-1", 0.05),
                 ("link-1_Revolute-1", -0.05),
@@ -5541,7 +5529,23 @@ def solve_moveit_tcp_position_axis_goal(
     return True, message or "MoveIt position-axis IK solved the canonical TCP.", ordered, diagnostic
 
 
+def _release_moveit_vtk_result(value) -> None:
+    unregister = getattr(value, "UnRegister", None) if value is not None else None
+    if callable(unregister):
+        try:
+            unregister(None)
+        except Exception:
+            pass
+
+
 def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
+    try:
+        return _copy_moveit_trajectory_result(trajectory)
+    finally:
+        _release_moveit_vtk_result(trajectory)
+
+
+def _copy_moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
     ok, message = _trajectory_motion_summary(trajectory)
     if not ok:
         return MoveItCartesianResult(False, message)
@@ -5989,6 +5993,7 @@ def compute_moveit_static_tcp_pose_base_mm(
             "rebuild/restart it before Step 6.3.",
             None,
         )
+    matrix = None
     try:
         matrix = compute_fk(
             ROS2_PLANNING_GROUP,
@@ -6003,6 +6008,8 @@ def compute_moveit_static_tcp_pose_base_mm(
         position = tuple(float(matrix.GetElement(index, 3)) for index in range(3))
     except Exception as exc:
         return False, f"MoveIt FK query failed: {exc}", None
+    finally:
+        _release_moveit_vtk_result(matrix)
     if len(position) != 3 or not all(isfinite(value) for value in position):
         return False, "MoveIt FK returned a non-finite TCP position.", None
     return True, message, position

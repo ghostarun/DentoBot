@@ -8,7 +8,10 @@ from DENTOStep6State import (
     SIMULATION_TOOL_PROVENANCE,
     validate_simulation_target,
 )
-from DENTOCaseBundle import is_additive_rrt_profile_upgrade
+from DENTOCaseBundle import (
+    is_additive_rrt_profile_upgrade,
+    is_five_dof_profile_upgrade,
+)
 
 from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
 
@@ -483,6 +486,69 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 ),
             }
 
+        if is_five_dof_profile_upgrade(savedRobotProfile, currentProfile):
+            taskHome = self.taskHomeRecord(parameterNode)
+            if taskHome is not None and (
+                taskHome.robot_profile_fingerprint != savedIdentity
+                or taskHome.joint_names != JOINT_NAMES
+                or len(taskHome.joint_positions_si) != len(JOINT_NAMES)
+            ):
+                raise ValueError(
+                    _(
+                        "The saved Task Home does not match the five-DOF case-package "
+                        "robot profile and J1–J5 joint vector."
+                    )
+                )
+
+            hasPersistentStep6RobotState = bool(
+                taskHome is not None
+                or parameterNode.step6PlanningContextImported
+                or self.isRobotBaseTransformNode(parameterNode.robotBaseTransform)
+            )
+            if hasPersistentStep6RobotState:
+                migratedTaskHome = None
+                if taskHome is not None:
+                    migratedTaskHome = build_task_home(
+                        dict(zip(taskHome.joint_names, taskHome.joint_positions_si)),
+                        base_fingerprint=taskHome.base_fingerprint,
+                        robot_profile_fingerprint=currentIdentity,
+                        revision=taskHome.revision + 1,
+                        runtime_validation_status="Unreviewed",
+                    )
+
+                wasModifying = parameterNode.StartModify()
+                try:
+                    if migratedTaskHome is not None:
+                        parameterNode.step6TaskHomeJson = canonical_json(
+                            migratedTaskHome.to_dict()
+                        )
+                    parameterNode.step6AssistedLimitProposalJson = ""
+                    parameterNode.step6CollisionSceneAuditJson = ""
+                finally:
+                    parameterNode.EndModify(wasModifying)
+                self.invalidateStep6TaskConfirmation(
+                    parameterNode,
+                    _(
+                        "The five-DOF robot profile changed; review the base and "
+                        "revalidate Task Home and workspace evidence."
+                    ),
+                )
+
+            return {
+                "compatible": True,
+                "migrated": hasPersistentStep6RobotState,
+                "message": _(
+                    "Accepted the five-DOF robot-profile upgrade. Review the base, "
+                    "then revalidate Task Home and workspace evidence under the "
+                    "current robot profile before planning."
+                )
+                if hasPersistentStep6RobotState
+                else _(
+                    "Accepted the tracked five-DOF robot-profile upgrade; this "
+                    "package contains no persistent Step 6 robot state to migrate."
+                ),
+            }
+
         savedUrdfSha = self._robotProfileComponentSha256(
             savedRobotProfile,
             "description/urdf/dentobot.urdf",
@@ -679,10 +745,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
 
     def taskHomeRecord(self, parameterNode):
         payload = str(parameterNode.step6TaskHomeJson or "").strip()
-        # Package hydration/lineage comparison must be read-only. The parser
-        # canonicalizes legacy J6 in memory, which makes the old confirmed-task
-        # fingerprint stale without altering the just-loaded MRML record.
-        # Explicit 6.2 save/revalidation persists the migrated Home.
         return parse_task_home(payload) if payload else None
 
     def saveCurrentTaskHome(self, parameterNode, *, runtime_validation=None):
@@ -698,7 +760,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 parameterNode.robotJoint3Deg,
                 parameterNode.robotJoint4Mm,
                 parameterNode.robotJoint5Deg,
-                parameterNode.robotJoint6Deg,
             ),
             base_fingerprint=self.robotBaseFingerprint(parameterNode),
             robot_profile_fingerprint=self.robotProfileFingerprint(),
@@ -717,7 +778,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             world_object_count=int(evidence.get("worldObjectCount", 0)),
         )
         parameterNode.step6TaskHomeJson = canonical_json(record.to_dict())
-        parameterNode.robotJoint6Deg = 0.0
         self.invalidateStep6TaskConfirmation(parameterNode, _("Task Home changed."))
         return record
 
@@ -798,7 +858,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             raise ValueError(_("Generate an assisted-limit proposal first.")) from exc
         minima = tuple(float(value) for value in data.get("minimum_display", ()))
         maxima = tuple(float(value) for value in data.get("maximum_display", ()))
-        if len(minima) not in {5, 6} or len(maxima) != len(minima):
+        if len(minima) != 5 or len(maxima) != 5:
             raise ValueError(_("The assisted-limit proposal is invalid."))
         mechanical = default_task_joint_limits_from_urdf(self.robotDescriptionPaths()[0])
         mechanical_pairs = (
@@ -807,7 +867,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             mechanical.joint_3,
             mechanical.joint_4,
             mechanical.joint_5,
-            mechanical.joint_6,
         )
         home_display = None
         if not self.taskHomeFreshnessIssues(parameterNode):
@@ -818,11 +877,8 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 math.degrees(home.joint_positions_si[2]),
                 home.joint_positions_si[3] * 1000.0,
                 math.degrees(home.joint_positions_si[4]),
-                0.0,
             )
         proposal_ranges = tuple(zip(minima, maxima))
-        if len(proposal_ranges) == 5:
-            proposal_ranges += ((0.0, 0.0),)
         for index, ((minimum, maximum), mechanical_limit) in enumerate(
             zip(proposal_ranges, mechanical_pairs), 1
         ):
@@ -854,13 +910,10 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             ("robotJoint3TaskMinDeg", "robotJoint3TaskMaxDeg"),
             ("robotJoint4TaskMinMm", "robotJoint4TaskMaxMm"),
             ("robotJoint5TaskMinDeg", "robotJoint5TaskMaxDeg"),
-            ("robotJoint6TaskMinDeg", "robotJoint6TaskMaxDeg"),
         )
-        for index, (minimum_field, maximum_field) in enumerate(fields[:5]):
+        for index, (minimum_field, maximum_field) in enumerate(fields):
             setattr(parameterNode, minimum_field, minima[index])
             setattr(parameterNode, maximum_field, maxima[index])
-        parameterNode.robotJoint6TaskMinDeg = 0.0
-        parameterNode.robotJoint6TaskMaxDeg = 0.0
         data["reviewed"] = True
         parameterNode.step6AssistedLimitProposalJson = canonical_json(data)
         self.invalidateStep6TaskConfirmation(parameterNode, _("Reviewed task limits changed."))
@@ -888,11 +941,10 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             math.degrees(home.joint_positions_si[2]),
             home.joint_positions_si[3] * 1000.0,
             math.degrees(home.joint_positions_si[4]),
-            0.0,
         )
         task_limit_pairs = (
             task_limits.joint_1, task_limits.joint_2, task_limits.joint_3,
-            task_limits.joint_4, task_limits.joint_5, task_limits.joint_6,
+            task_limits.joint_4, task_limits.joint_5,
         )
         for index, (value, limit) in enumerate(
             zip(display_home, task_limit_pairs), 1
@@ -998,23 +1050,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         if record.robot_profile_fingerprint != self.robotProfileFingerprint():
             issues.append(_("Motion diagnostic belongs to different robot resources."))
         try:
-            diagnosticSpindleValue = float(
-                record.full_task_outcome.get("spindle_locked_value_rad")
-            )
-        except (TypeError, ValueError):
-            diagnosticSpindleValue = float("nan")
-        if (
-            record.full_task_outcome.get("spindle_planning_policy")
-            != SPINDLE_PLANNING_POLICY
-            or diagnosticSpindleValue != SPINDLE_LOCKED_VALUE_RAD
-        ):
-            issues.append(
-                _(
-                    "Motion diagnostic predates the external spindle-lock policy; "
-                    "re-plan Approach."
-                )
-            )
-        try:
             collision_audit = self.collisionSceneAuditRecord(parameterNode)
         except (ValueError, json.JSONDecodeError):
             collision_audit = None
@@ -1118,8 +1153,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             j4_max=parameterNode.robotJoint4TaskMaxMm,
             j5_min=parameterNode.robotJoint5TaskMinDeg,
             j5_max=parameterNode.robotJoint5TaskMaxDeg,
-            j6_min=parameterNode.robotJoint6TaskMinDeg,
-            j6_max=parameterNode.robotJoint6TaskMaxDeg,
         )
         return apply_task_joint_limits_to_display_ranges(task_limits, urdf_limits)
 
@@ -1152,7 +1185,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                     parameterNode.robotJoint3Deg,
                     parameterNode.robotJoint4Mm,
                     parameterNode.robotJoint5Deg,
-                    parameterNode.robotJoint6Deg,
                 ),
                 urdf_path=urdf_path,
                 package_root=package_root,
@@ -1165,7 +1197,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 environment_clearance_mm=float(parameterNode.robotEnvironmentClearanceMm),
                 progress=progress,
             )
-            workspace_algorithm = "Halton6D+URDFFK+AABB"
+            workspace_algorithm = "Halton5D+URDFFK+AABB"
         else:
             if not isinstance(sample_result, WorkspaceSampleResult):
                 raise TypeError("sample_result must be a WorkspaceSampleResult")
@@ -1254,8 +1286,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         parameterNode.robotJoint4TaskMaxMm = limits.joint_4.maximum
         parameterNode.robotJoint5TaskMinDeg = limits.joint_5.minimum
         parameterNode.robotJoint5TaskMaxDeg = limits.joint_5.maximum
-        parameterNode.robotJoint6TaskMinDeg = limits.joint_6.minimum
-        parameterNode.robotJoint6TaskMaxDeg = limits.joint_6.maximum
         return limits
 
     def planStep6TrajectoryMotion(self, parameterNode) -> MotionPlanResult:
@@ -1298,7 +1328,6 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             parameterNode.robotJoint3Deg,
             parameterNode.robotJoint4Mm,
             parameterNode.robotJoint5Deg,
-            parameterNode.robotJoint6Deg,
         )
         limits = self.getTaskJointLimits(parameterNode)
         if ros_active:
