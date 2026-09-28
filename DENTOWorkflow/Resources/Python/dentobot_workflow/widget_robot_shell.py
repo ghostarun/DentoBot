@@ -9,8 +9,12 @@ from .runtime import *
 from .workflow_progress import WorkflowProgress
 
 from DENTOStep6Planning import TaskSpaceRoi
-from DENTOROS2Bridge import show_goal_robot_joint_positions
-from DENTOStep6State import JOINT_NAMES
+from DENTOROS2Bridge import (
+    clear_manual_simulation_record_paths,
+    show_goal_robot_joint_positions,
+    show_manual_simulation_record_paths,
+)
+from DENTOStep6State import JOINT_NAMES, parse_manual_simulation_record
 
 
 class RobotShellWidgetMixin:
@@ -23,9 +27,9 @@ class RobotShellWidgetMixin:
                 "connect": self._onShellConnectRobot,
                 "disconnect": self._onShellDisconnectRobot,
                 "load_fallback": self._onShellLoadFallbackRobot,
-                "create_goal": self._onShellCreateTcpGoal,
+                "set_tcp_drag_enabled": self._onShellSetTcpDragEnabled,
+                "nudge_tcp_goal": self._onShellNudgeTcpGoal,
                 "solve_ik": self._onShellSolveIk,
-                "plan_goal": self._onShellPlanGoal,
                 "refresh": self._refreshShellRobotCapabilities,
                 "sync_collision": self._onShellSyncCollisionScene,
                 "check_state": self._onShellCheckRobotState,
@@ -33,8 +37,14 @@ class RobotShellWidgetMixin:
                 "cbct_preset": self._onStep6CbctPresetChanged,
                 "create_proxy": self._onStep6CreateForeheadProxy,
                 "placement_review": self._onStep6PlacementReview,
+                "begin_manual_base_review": self._onStep6BeginManualBaseReview,
+                "cancel_manual_base_review": self._onStep6CancelManualBaseReview,
+                "reconcile_manual_base": self._onStep6ReconcileManualBaseAcceptance,
                 "appearance_changed": self._onStep6AppearanceChanged,
-                "save_home": self._onStep6SaveTaskHome,
+                "review_task_home": self._onStep6ReviewManualTaskHome,
+                "cancel_task_home_review": self._onStep6CancelManualTaskHomeReview,
+                "accept_task_home_review": self._onStep6AcceptManualTaskHomeReview,
+                "reconcile_task_home": self._onStep6ReconcileManualTaskHomeAcceptance,
                 "apply_home": self._onStep6ApplyTaskHome,
                 "roi_from_incisors": self._onStep6UseCurrentIncisorMidpoint,
                 "roi_edited": self._onStep6TaskSpaceRoiEdited,
@@ -47,6 +57,9 @@ class RobotShellWidgetMixin:
                 "reconcile_manual_jog": self._onShellReconcileManualRobotJog,
                 "guarded_manual_jog": self._onShellGuardedManualJog,
                 "export_manual_record": self._onStep6ExportManualRecord,
+                "import_manual_record": self._onStep6ImportManualRecord,
+                "show_manual_record": self._onStep6ShowManualRecord,
+                "clear_manual_record": self._onStep6ClearManualRecord,
                 "expert_diagnostics": self._onStep6OpenExpertDiagnostics,
                 "plan_approach": self._onStep6PlanApproach,
                 "check_preentry_ik": self._onStep6CheckPreEntryIK,
@@ -117,6 +130,9 @@ class RobotShellWidgetMixin:
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.drillingGroup
         )
+        self.ui.robotPlacementVerticalLayout.addWidget(
+            self._robotSimulationPanel.previewControlGroup
+        )
         self.ui.robotPlacementCollapsibleButton.text = _(
             "Step 6 — Native Placement-to-Task Simulation"
         )
@@ -129,16 +145,18 @@ class RobotShellWidgetMixin:
             "6.1A — Offline Robot Preview and Manual Simulation Base"
         )
         self.ui.step6MountLockDescriptionLabel.text = _(
-            "Adjust the existing Manual Simulation Base controls and review its "
-            "world-RAS pose below. The candidate stays unaccepted until you "
-            "choose Accept Base; that action uses the existing base lock and "
-            "collision-scene resynchronization path. This is diagnostic "
-            "placement, not physical mount or registration truth."
+            "Review and nudge a detached numeric Base candidate in world RAS. "
+            "Only an acknowledged Accept Base promotes it. If acceptance or "
+            "rollback cannot be confirmed, the Base outcome is unknown and more "
+            "acceptance waits for runtime reconciliation. This gate has no "
+            "candidate ghost; the numeric readout does not establish physical "
+            "mount or registration truth."
         )
         self.ui.lockRobotBaseMountButton.text = _("Accept Base")
         self.ui.lockRobotBaseMountButton.toolTip = _(
-            "Accept the reviewed current Base candidate through the existing "
-            "lockBase path. Failed scene or placement checks leave it unaccepted."
+            "Accept the detached numeric Base candidate through the guarded "
+            "Step 6 Base review path. An unknown lock/scene outcome blocks later "
+            "acceptance until runtime reconciliation."
         )
         self.ui.unlockRobotBaseMountButton.text = _("Unlock Accepted Base")
         self._robotSimulationPanel.runtimeGroup.title = _(
@@ -147,7 +165,9 @@ class RobotShellWidgetMixin:
         self.ui.step6TaskJointLimitsGroupBox.title = _(
             "6.2 — Live Joint State for Task Home"
         )
-        self.ui.step6WorkspaceGroupBox.title = _("6.3 — Workspace and Assisted Limits")
+        self.ui.step6WorkspaceGroupBox.title = _(
+            "Workspace and Assisted Limits"
+        )
         self.ui.step6TrajectoryPlanningGroupBox.visible = False
         self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.ros2MotionControlGroupBox.enabled = False
@@ -246,12 +266,12 @@ class RobotShellWidgetMixin:
                 self._updateRobotPlacement()
                 self._applyStep6RecommendedView()
             self._refreshShellRobotCapabilities()
-            # Capability refresh writes a generic runtime summary. Restore the
-            # action-specific result after it.
-            self._robotSimulationPanel.showRuntimeResult(result)
         finally:
             progress.close()
             self._workflowActionBusy = False
+        self._updateStep6PlanningUi()
+        # Capability and planning refreshes write generic runtime summaries.
+        self._robotSimulationPanel.showRuntimeResult(result)
         if remediationConnected:
             slicer.util.warningDisplay(result.message)
         elif not result.success:
@@ -274,10 +294,11 @@ class RobotShellWidgetMixin:
             if result.success:
                 self._updateRobotPlacement()
             self._refreshShellRobotCapabilities()
-            self._robotSimulationPanel.showRuntimeResult(result)
         finally:
             progress.close()
             self._workflowActionBusy = False
+        self._updateStep6PlanningUi()
+        self._robotSimulationPanel.showRuntimeResult(result)
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
@@ -297,13 +318,54 @@ class RobotShellWidgetMixin:
             slicer.util.errorDisplay(result.message)
         self._refreshShellRobotCapabilities()
 
-    def _onShellCreateTcpGoal(self) -> None:
-        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+    def _onShellSetTcpDragEnabled(self, enabled: bool) -> bool:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if panel is None:
+            return False
+        was_busy = bool(getattr(self, "_workflowActionBusy", False))
+        if facade is None or (was_busy and enabled):
+            panel.goalStatusLabel.text = (
+                "TCP drag change rejected: the façade is unavailable or another "
+                "Step 6 action is active."
+            )
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return False
+        if not was_busy:
+            self._workflowActionBusy = True
+        try:
+            result = facade.setTcpDragEnabled(bool(enabled))
+            panel.showGoalResult(result)
+            return bool(result.success)
+        except Exception as exc:
+            panel.goalStatusLabel.text = f"TCP drag change failed: {exc}"
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return False
+        finally:
+            if not was_busy:
+                self._workflowActionBusy = False
+
+    def _onShellNudgeTcpGoal(self, payload) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if panel is None:
             return
-        result = self._robotWorkflowFacade.ensureTcpGoal()
-        self._robotSimulationPanel.showGoalResult(result)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
+        if facade is None or getattr(self, "_workflowActionBusy", False):
+            panel.goalStatusLabel.text = (
+                "TCP nudge rejected: the façade is unavailable or another "
+                "Step 6 action is active."
+            )
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return
+        self._workflowActionBusy = True
+        try:
+            result = facade.nudgeTcpGoal(payload)
+            panel.showGoalResult(result)
+        except Exception as exc:
+            panel.goalStatusLabel.text = f"TCP nudge failed: {exc}"
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+        finally:
+            self._workflowActionBusy = False
 
     def _onShellResetManualJogDraft(self) -> None:
         if self._robotSimulationPanel:
@@ -372,6 +434,7 @@ class RobotShellWidgetMixin:
             )
         finally:
             self._workflowActionBusy = False
+        self._updateStep6PlanningUi()
 
     def _onShellGuardedManualJog(
         self, joint_positions_si: Mapping[str, float]
@@ -634,27 +697,89 @@ class RobotShellWidgetMixin:
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.solveIk()
-        self._robotSimulationPanel.showGoalResult(result)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
-
-    def _onShellPlanGoal(self) -> None:
-        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+        panel = self._robotSimulationPanel
+        try:
+            result = self._robotWorkflowFacade.solveIk()
+        except Exception as exc:
+            message = (
+                "TCP Solve IK could not complete; the prior J1–J5 draft and accepted "
+                "robot state are retained. "
+                + str(exc)
+            )
+            panel.goalStatusLabel.text = message
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
             return
-        result = self._robotWorkflowFacade.planToGoal()
-        self._robotSimulationPanel.showGoalResult(result)
-        self._step6MotionPlan = result.payload if result.success else None
-        self._updateStep6PlanningUi(result.message, error=not result.success)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
+        panel.showGoalResult(result)
+        payload = getattr(result, "payload", None)
+        failure = ""
+        if result.success is not True:
+            failure = str(result.message or "Collision-aware TCP IK was not accepted.")
+        elif not isinstance(payload, Mapping) or set(payload) != set(JOINT_NAMES):
+            failure = (
+                "Successful TCP IK response did not contain exactly J1–J5; "
+                "the existing draft is retained."
+            )
+        else:
+            try:
+                payload = {name: float(payload[name]) for name in JOINT_NAMES}
+            except (TypeError, ValueError, OverflowError):
+                payload = None
+            if payload is None or not all(isfinite(value) for value in payload.values()):
+                failure = (
+                    "Successful TCP IK response contained invalid J1–J5 values; "
+                    "the existing draft is retained."
+                )
+        details = result.details if isinstance(result.details, Mapping) else {}
+        evidence = {
+            key: details[key]
+            for key in (
+                "staticValidityEvidence",
+                "failureEvidence",
+                "candidateJointPositionsSi",
+                "collisionAwareValidated",
+                "authoritativeStaticValidity",
+            )
+            if key in details
+        }
+        if failure:
+            if evidence:
+                failure += " Evidence: " + repr(evidence)
+            message = (
+                "TCP IK result was not staged; the prior J1–J5 draft and accepted "
+                "robot state are retained. "
+                + failure
+            )
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
+            return
+        try:
+            staged = panel.stageTcpIkSolution(payload)
+        except Exception as exc:
+            staged = False
+            stage_error = str(exc)
+        else:
+            stage_error = str(
+                getattr(panel, "_tcpIkStageFailureText", "")
+                or "the solution was rejected by the draft controls"
+            )
+        if not staged:
+            message = (
+                "MoveIt IK solved, but its result was not staged. The prior J1–J5 "
+                "draft is retained; no accepted robot state or route changed: "
+                + stage_error
+            )
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
 
     def _onShellSyncCollisionScene(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
         result = self._robotWorkflowFacade.syncPlanningScene()
-        self._robotSimulationPanel.showCollisionResult(result)
         self._refreshShellRobotCapabilities()
+        self._updateStep6PlanningUi()
+        self._robotSimulationPanel.showCollisionResult(result)
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
@@ -758,6 +883,102 @@ class RobotShellWidgetMixin:
             "Applied Robot + CBCT Placement Review and framed the union of visible case, robot, goal, mount, and proxy bounds."
         )
 
+    def _onStep6BeginManualBaseReview(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade:
+            return
+        review = facade.manualBaseReview()
+        details = getattr(review, "details", {}) or {}
+        if not review.success or details.get("staged"):
+            self._updateStep6PlanningUi(review.message, error=not review.success)
+            if not review.success:
+                slicer.util.errorDisplay(review.message)
+            return
+        if details.get("identityStatus") != "current":
+            message = (
+                "Base review identity is stale or unknown; no new candidate was staged. "
+                "Cancel the retained review only if you intend to discard its evidence."
+            )
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
+            return
+        accepted_matrix = details.get("acceptedMatrixWorldRasMm")
+        try:
+            accepted_matrix = tuple(float(value) for value in accepted_matrix)
+            matrix_valid = len(accepted_matrix) == 16 and all(
+                isfinite(value) for value in accepted_matrix
+            )
+        except (TypeError, ValueError, OverflowError):
+            accepted_matrix = ()
+            matrix_valid = False
+        if not matrix_valid:
+            message = "Accepted Base matrix evidence is invalid; no candidate was staged."
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
+            return
+        result = facade.stageManualBaseReview(accepted_matrix)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6CancelManualBaseReview(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade:
+            return
+        result = facade.cancelManualBaseReview()
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6ReconcileManualBaseAcceptance(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or self._workflowActionBusy:
+            return
+        self._workflowActionBusy = True
+        result = None
+        error_message = ""
+        try:
+            result = facade.reconcileManualBaseAcceptance()
+        except Exception as exc:
+            error_message = str(exc)
+        finally:
+            self._workflowActionBusy = False
+
+        success = bool(getattr(result, "success", False))
+        message = str(getattr(result, "message", "") or error_message).strip()
+        details = getattr(result, "details", None)
+        if not isinstance(details, Mapping):
+            details = {}
+        status = (
+            "Reconcile Base State succeeded: the accepted Base/native scene was "
+            "reconciled; the detached candidate remains staged and unaccepted."
+            if success
+            else "Reconcile Base State did not confirm the accepted Base/native scene; "
+            "the state remains unresolved."
+        )
+        if message:
+            status += " " + message
+        candidate = details.get("candidateMatrixWorldRasMm")
+        if candidate is not None:
+            status += " Staged Base draft evidence: " + str(candidate)
+        failure = details.get("failureEvidence")
+        if failure is not None:
+            status += " Preserved Base acceptance failure evidence: " + str(failure)
+        uncertainty = details.get("acceptanceUncertainty")
+        if uncertainty:
+            status += " Acceptance uncertainty: " + str(uncertainty)
+
+        self._updateStep6PlanningUi(status, error=not success)
+        if hasattr(panel, "manualBaseReviewStatusLabel"):
+            panel.manualBaseReviewStatusLabel.text = (
+                str(panel.manualBaseReviewStatusLabel.text or "") + " " + status
+            ).strip()
+        if not success:
+            slicer.util.errorDisplay(status)
+
     def _onStep6AppearanceChanged(
         self,
         key: str,
@@ -774,14 +995,150 @@ class RobotShellWidgetMixin:
         )
         self._updateWorkflowViewControls()
 
-    def _onStep6SaveTaskHome(self) -> None:
-        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+    def _onStep6ReviewManualTaskHome(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
             return
-        result = self._robotWorkflowFacade.saveTaskHome()
-        self._setStep6PanelResult(self._robotSimulationPanel.homeStatusLabel, result)
+        action_error = None
+        self._workflowActionBusy = True
+        try:
+            status = facade.manualTaskHomeReview()
+            details = status.details if isinstance(status.details, Mapping) else {}
+            if (
+                status.success is not True
+                or details.get("identityStatus") != "current"
+                or details.get("staged") is True
+            ):
+                result = status
+            else:
+                draft = panel.manualJogJointPositionsSi()
+                if not isinstance(draft, Mapping) or set(draft) != set(JOINT_NAMES):
+                    raise ValueError("A Task Home review requires exactly J1–J5.")
+                requested = {name: float(draft[name]) for name in JOINT_NAMES}
+                if not all(isfinite(value) for value in requested.values()):
+                    raise ValueError("Task Home draft joint values must be finite.")
+                result = facade.stageManualTaskHomeReview(requested)
+        except Exception as exc:
+            action_error = str(exc)
+        finally:
+            self._workflowActionBusy = False
+        if action_error is not None:
+            self._updateStep6PlanningUi(action_error, error=True)
+            panel.taskHomeReviewStatusLabel.text = (
+                "Home review: unknown; no accepted state was changed. "
+                + action_error
+            )
+            slicer.util.errorDisplay(action_error)
+            return
         self._updateStep6PlanningUi(result.message, error=not result.success)
+        panel.setManualTaskHomeReviewResult(result)
         if not result.success:
             slicer.util.errorDisplay(result.message)
+
+    def _onStep6CancelManualTaskHomeReview(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
+            return
+        action_error = None
+        self._workflowActionBusy = True
+        try:
+            result = facade.cancelManualTaskHomeReview()
+        except Exception as exc:
+            action_error = str(exc)
+        finally:
+            self._workflowActionBusy = False
+        if action_error is not None:
+            self._updateStep6PlanningUi(action_error, error=True)
+            panel.taskHomeReviewStatusLabel.text = (
+                "Home review: unknown; retained state was not mirrored. "
+                + action_error
+            )
+            slicer.util.errorDisplay(action_error)
+            return
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        panel.setManualTaskHomeReviewResult(result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6AcceptManualTaskHomeReview(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
+            return
+        action_error = None
+        self._workflowActionBusy = True
+        try:
+            result = facade.acceptManualTaskHomeReview()
+        except Exception as exc:
+            action_error = str(exc)
+        finally:
+            self._workflowActionBusy = False
+        if action_error is not None:
+            self._updateStep6PlanningUi(action_error, error=True)
+            panel.taskHomeReviewStatusLabel.text = (
+                "Home review: unknown; current accepted state was not mirrored. "
+                + action_error
+            )
+            slicer.util.errorDisplay(action_error)
+            return
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        details = result.details if isinstance(result.details, Mapping) else {}
+        accepted = details.get("acceptedJointPositionsSi")
+        if (
+            result.success is True
+            and details.get("identityStatus") == "current"
+            and details.get("acceptanceStatus") == "accepted"
+            and isinstance(accepted, Mapping)
+            and set(accepted) == set(JOINT_NAMES)
+        ):
+            try:
+                positions = {name: float(accepted[name]) for name in JOINT_NAMES}
+            except (KeyError, TypeError, ValueError, OverflowError):
+                positions = {}
+            if len(positions) == len(JOINT_NAMES) and all(
+                isfinite(value) for value in positions.values()
+            ):
+                panel.setManualJogAcceptedState(positions, preserve_draft=True)
+        panel.setManualTaskHomeReviewResult(result)
+        if not result.success:
+            slicer.util.errorDisplay(result.message)
+
+    def _onStep6ReconcileManualTaskHomeAcceptance(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        result = None
+        error_message = ""
+        try:
+            result = facade.reconcileManualTaskHomeAcceptance()
+        except Exception as exc:
+            error_message = str(exc)
+        finally:
+            self._workflowActionBusy = False
+
+        success = getattr(result, "success", False) is True
+        message = str(getattr(result, "message", "") or error_message).strip()
+        status = (
+            "Reconcile Task Home State succeeded; the displayed result reflects "
+            "façade evidence. This action issued no Home save or jog."
+            if success
+            else "Reconcile Task Home State remains unresolved; the displayed "
+            "result reflects façade evidence. This action issued no Home save or jog."
+        )
+        if result is None and message:
+            status += " " + message
+        self._updateStep6PlanningUi(status, error=not success)
+        if result is not None:
+            panel.setManualTaskHomeReviewResult(result)
+        panel.taskHomeReviewStatusLabel.text = (
+            str(panel.taskHomeReviewStatusLabel.text or "") + " " + status
+        ).strip()
+        if not success:
+            slicer.util.errorDisplay(status + (" " + message if result is not None and message else ""))
 
     def _onStep6ExportManualRecord(self) -> None:
         panel = self._robotSimulationPanel
@@ -789,36 +1146,80 @@ class RobotShellWidgetMixin:
         if not panel or not facade:
             return
         try:
-            record = facade.manualSimulationRecord()
-            if (
-                not isinstance(record, dict)
-                or record.get("record_status") != "historical_display_only"
-            ):
-                raise ValueError(
-                    "The façade did not provide a historical, display-only record."
+            completed = facade.manualSimulationCompletedRecords()
+            if not isinstance(completed, (tuple, list)):
+                raise ValueError("The façade returned an invalid completed-record collection.")
+            records = []
+            completed_fingerprints = set()
+            for record in completed:
+                if not isinstance(record, Mapping):
+                    raise ValueError("The façade returned an invalid manual simulation record.")
+                parse_manual_simulation_record(record)
+                fingerprint = record["record_fingerprint"]
+                records.append(record)
+                completed_fingerprints.add(fingerprint)
+            active = facade.manualSimulationRecord()
+            if not isinstance(active, Mapping):
+                raise ValueError("The façade returned an invalid manual simulation record.")
+            parse_manual_simulation_record(active)
+            if active["record_fingerprint"] not in completed_fingerprints:
+                records.append(active)
+            if not records:
+                raise ValueError("No available manual simulation records were returned.")
+            serialized = json.dumps(records, indent=2, sort_keys=True, allow_nan=False)
+            report = [
+                "Step 6 Manual Simulation Records",
+                "Historical/display-only evidence. It cannot restore live state or authorize a route or preview.",
+                "Evidence values are shown as recorded; unknown and unavailable values remain explicit.",
+                f"Records exported: {len(records)}",
+                "",
+            ]
+            for index, record in enumerate(records, 1):
+                events = record["events"]
+                kind_counts = {}
+                for event in events:
+                    kind = event["kind"]
+                    kind_counts[kind] = kind_counts.get(kind, 0) + 1
+                report.extend(
+                    (
+                        f"Record {index}: schema={record['schema_version']}; "
+                        f"status={record['record_status']}; "
+                        f"fingerprint={record['record_fingerprint']}",
+                        "  Identity: "
+                        + json.dumps(record["identity"], sort_keys=True, allow_nan=False),
+                        f"  Events ({len(events)}): "
+                        + (", ".join(f"{kind}={count}" for kind, count in kind_counts.items()) or "none"),
+                        "  Recorded status/evidence values (verbatim; unknown/unavailable values are retained):",
+                        json.dumps(events, indent=2, sort_keys=True, allow_nan=False),
+                    )
                 )
-            serialized = json.dumps(record, indent=2, sort_keys=True, allow_nan=False)
-        except (RuntimeError, TypeError, ValueError) as exc:
-            message = "Manual simulation record export unavailable: " + str(exc)
+                report.append("")
+            report_text = "\n".join(report)
+        except (RuntimeError, TypeError, ValueError, OverflowError) as exc:
+            message = "Manual simulation records export unavailable: " + str(exc)
             panel.setManualRecordExportStatus("blocked", message)
             slicer.util.errorDisplay(message)
             return
         destination = qt.QFileDialog.getSaveFileName(
             slicer.util.mainWindow(),
-            _("Export Step 6 manual simulation record"),
-            "manual-simulation-record.json",
+            _("Export Step 6 manual simulation records"),
+            "manual-simulation-records.json",
             _("JSON files (*.json)"),
         )
         if isinstance(destination, tuple):
             destination = destination[0]
         if not destination:
             return
+        destination = Path(destination)
+        report_path = destination.with_suffix(".report.txt")
         try:
-            Path(destination).write_text(serialized + "\n", encoding="utf-8")
+            destination.write_text(serialized + "\n", encoding="utf-8")
+            report_path.write_text(report_text + "\n", encoding="utf-8")
         except OSError as exc:
             message = (
-                "Manual simulation record export failed; the in-session record "
-                "and its accepted/rejected evidence were not changed. "
+                "Manual simulation records export failed; the JSON or companion "
+                "report may be incomplete. The in-session record and its "
+                "accepted/rejected evidence were not changed. "
                 + str(exc)
             )
             panel.setManualRecordExportStatus("error", message)
@@ -826,10 +1227,131 @@ class RobotShellWidgetMixin:
             return
         panel.setManualRecordExportStatus(
             "ok",
-            "Exported historical/display-only manual simulation evidence to "
+            f"Exported {len(records)} historical/display-only manual simulation records to "
             + str(destination)
+            + " with companion report "
+            + str(report_path)
             + ". It cannot restore live state or authorize a route or preview.",
         )
+
+    def _onStep6ImportManualRecord(self) -> None:
+        panel = self._robotSimulationPanel
+        if not panel:
+            return
+        source = qt.QFileDialog.getOpenFileName(
+            slicer.util.mainWindow(),
+            _("Open Step 6 manual simulation records"),
+            "",
+            _("JSON files (*.json)"),
+        )
+        if isinstance(source, tuple):
+            source = source[0]
+        if not source:
+            return
+        maximum_file_bytes = 16 * 1024 * 1024
+        maximum_records = 100
+        maximum_events = 10_000
+        try:
+            with open(source, "rb") as stream:
+                raw = stream.read(maximum_file_bytes + 1)
+            if len(raw) > maximum_file_bytes:
+                raise ValueError("JSON file exceeds the 16 MiB import limit.")
+            payload = json.loads(raw.decode("utf-8"))
+            if isinstance(payload, Mapping):
+                raw_records = [payload]
+            elif isinstance(payload, list):
+                raw_records = payload
+            else:
+                raise ValueError("JSON must contain one record object or an array of records.")
+            if not raw_records or len(raw_records) > maximum_records:
+                raise ValueError("JSON must contain between 1 and 100 manual simulation records.")
+            records = []
+            event_count = 0
+            for index, raw_record in enumerate(raw_records, start=1):
+                if not isinstance(raw_record, Mapping):
+                    raise ValueError(f"Record {index} must be a JSON object.")
+                record = parse_manual_simulation_record(raw_record)
+                records.append(record)
+                event_count += len(record["events"])
+                if event_count > maximum_events:
+                    raise ValueError("Imported records exceed the 10,000 event limit.")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, OverflowError) as exc:
+            message = (
+                "Manual simulation records import rejected; the previous historical "
+                "selection and display remain unchanged: " + str(exc)
+            )
+            panel.setManualRecordImportStatus("blocked", message)
+            slicer.util.errorDisplay(message)
+            return
+        try:
+            clear_manual_simulation_record_paths()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            message = (
+                "Manual simulation records were validated but not loaded because "
+                "the previous historical path could not be cleared: " + str(exc)
+            )
+            panel.setManualRecordImportStatus("error", message)
+            slicer.util.errorDisplay(message)
+            return
+        panel.setManualRecordImportStatus(
+            "ok",
+            f"Validated {len(records)} historical/display-only record(s); "
+            "identity remains historical and live state was not read or changed.",
+        )
+        panel.setManualSimulationRecords(records)
+
+    def _onStep6ShowManualRecord(self, record) -> None:
+        panel = self._robotSimulationPanel
+        if not panel:
+            return
+        try:
+            result = show_manual_simulation_record_paths(record)
+            if not isinstance(result, tuple) or len(result) != 2:
+                raise ValueError("historical path renderer returned an invalid result")
+            success, message = result
+            if not success:
+                cleanup_message = ""
+                try:
+                    clear_manual_simulation_record_paths()
+                except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                    cleanup_message = " Previous historical path cleanup failed: " + str(exc)
+                panel.setManualRecordImportStatus(
+                    "unavailable",
+                    "Historical TCP path unavailable: " + str(message) + cleanup_message,
+                )
+                if cleanup_message:
+                    slicer.util.errorDisplay(cleanup_message.strip())
+                return
+            panel.setManualRecordImportStatus(
+                "ok",
+                str(message)
+                + " This is historical display evidence; live robot state is unchanged.",
+            )
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            try:
+                clear_manual_simulation_record_paths()
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                pass
+            message = "Historical path display is unavailable: " + str(exc)
+            panel.setManualRecordImportStatus("error", message)
+            slicer.util.errorDisplay(message)
+
+    def _onStep6ClearManualRecord(self) -> None:
+        panel = self._robotSimulationPanel
+        try:
+            clear_manual_simulation_record_paths()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            if panel:
+                panel.setManualRecordImportStatus(
+                    "error", "Historical paths could not be cleared: " + str(exc)
+                )
+            slicer.util.errorDisplay("Historical paths could not be cleared: " + str(exc))
+            return
+        if panel:
+            panel.clearManualSimulationRecords()
+            panel.setManualRecordImportStatus(
+                "idle", "Historical paths and imported records were cleared; live state is unchanged."
+            )
 
     def _onStep6ShowMotionDiagnostics(self) -> None:
         if not self._parameterNode or not self._robotSimulationPanel:
@@ -1173,7 +1695,9 @@ class RobotShellWidgetMixin:
         self._workflowActionBusy = True
         progress = None
         try:
-            progress = WorkflowProgress("Step 6.4 guarded approach")
+            progress = WorkflowProgress(
+                "Step 6 Planning & Diagnostics — guarded approach"
+            )
             progress.update("Starting planner", can_cancel=False)
             result = self._robotWorkflowFacade.planApproachPhase(
                 **self._robotSimulationPanel.planningPolicy(),
@@ -1233,7 +1757,9 @@ class RobotShellWidgetMixin:
         self._workflowActionBusy = True
         progress = None
         try:
-            progress = WorkflowProgress("Step 6.5 PreEntry IK diagnostic")
+            progress = WorkflowProgress(
+                "Step 6 Planning & Diagnostics — PreEntry IK diagnostic"
+            )
             progress.update("Starting endpoint diagnostic", can_cancel=False)
             result = self._robotWorkflowFacade.checkPreEntryIK(
                 progress=lambda phase, done=None, total=None: progress.update(
@@ -1259,7 +1785,9 @@ class RobotShellWidgetMixin:
         self._workflowActionBusy = True
         progress = None
         try:
-            progress = WorkflowProgress(f"Step 6.5 {stage} diagnostic")
+            progress = WorkflowProgress(
+                f"Step 6 Planning & Diagnostics — {stage} diagnostic"
+            )
             progress.update(f"Starting {stage} check", can_cancel=False)
             result = self._robotWorkflowFacade.checkPlanningStage(
                 stage,
@@ -1293,7 +1821,9 @@ class RobotShellWidgetMixin:
             return
         panel = self._robotSimulationPanel
         if not panel or not panel.planApproachButton.enabled:
-            slicer.util.errorDisplay("Complete the current Step 6.5 prerequisites first.")
+            slicer.util.errorDisplay(
+                "Complete the current Planning & Diagnostics prerequisites first."
+            )
             return
         try:
             identity = self._robotWorkflowFacade.plannerComparisonIdentity()
@@ -1374,7 +1904,9 @@ class RobotShellWidgetMixin:
             self._robotWorkflowFacade.invalidateMotionPlan()
             policy = dict(state["policy"])
             policy["planner_id"] = planner_id
-            progress = WorkflowProgress(f"Step 6.4 planner {index + 1}/3: {planner_id}")
+            progress = WorkflowProgress(
+                f"Step 6 Planning & Diagnostics planner {index + 1}/3: {planner_id}"
+            )
             try:
                 progress.update("Starting planner", can_cancel=False)
                 result = self._robotWorkflowFacade.planApproachPhase(
@@ -1619,15 +2151,14 @@ class RobotShellWidgetMixin:
         if not result.success:
             slicer.util.errorDisplay(result.message)
 
-    def _onStep6PhasePreviewFinished(self, label, result) -> None:
-        self._setStep6PanelResult(label, result)
+    def _onStep6PhasePreviewFinished(self, result) -> None:
         if self._robotSimulationPanel:
             if result.success:
                 self._robotSimulationPanel.previewProgressLabel.text = (
                     "Guarded preview complete; endpoint verified."
                 )
             else:
-                self._robotSimulationPanel.resetPreviewProgress("Preview stopped or rejected.")
+                self._robotSimulationPanel.resetPreviewProgress(result.message)
         self._updateStep6PlanningUi(result.message, error=not result.success)
 
     def _onStep6PreviewApproach(self) -> None:
@@ -1639,7 +2170,7 @@ class RobotShellWidgetMixin:
             speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),
             on_progress=lambda index, count: self._onStep6PreviewProgress(index, count),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
-                self._robotSimulationPanel.approachStatusLabel, outcome
+                outcome
             ),
         )
         self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
@@ -1665,7 +2196,7 @@ class RobotShellWidgetMixin:
             speed_multiplier=self._robotSimulationPanel.previewSpeedMultiplier(),
             on_progress=lambda index, count: self._onStep6PreviewProgress(index, count),
             on_finished=lambda outcome: self._onStep6PhasePreviewFinished(
-                self._robotSimulationPanel.drillingStatusLabel, outcome
+                outcome
             ),
         )
         self._setStep6PanelResult(self._robotSimulationPanel.drillingStatusLabel, result)
@@ -1711,7 +2242,7 @@ class RobotShellWidgetMixin:
     def _configureRobotSimulationShellSubstep(self, substep_index: int) -> None:
         if not self._robotSimulationPanel:
             return
-        index = max(0, min(int(substep_index), 6))
+        index = max(0, min(int(substep_index), 4))
         self._step6SubstepIndex = index
         self._robotSimulationPanel.setActiveSubstep(index)
         self._updatingStep6SubstepNavigation = True
@@ -1721,7 +2252,7 @@ class RobotShellWidgetMixin:
             if self._step6PreviousSubstepButton is not None:
                 self._step6PreviousSubstepButton.enabled = index > 0
             if self._step6NextSubstepButton is not None:
-                self._step6NextSubstepButton.enabled = index < 6
+                self._step6NextSubstepButton.enabled = index < 4
         finally:
             self._updatingStep6SubstepNavigation = False
         groups = (
@@ -1740,6 +2271,7 @@ class RobotShellWidgetMixin:
             self._robotSimulationPanel.workspaceReviewGroup,
             self._robotSimulationPanel.approachGroup,
             self._robotSimulationPanel.drillingGroup,
+            self._robotSimulationPanel.previewControlGroup,
         )
         for group in groups:
             group.visible = False
@@ -1756,18 +2288,21 @@ class RobotShellWidgetMixin:
                 self._robotSimulationPanel.homeGroup,
             ),
             3: (
+                self.ui.step6TaskJointLimitsGroupBox,
                 self.ui.step6WorkspaceGroupBox,
+                self._robotSimulationPanel.homeGroup,
                 self._robotSimulationPanel.workspaceReviewGroup,
-            ),
-            4: (self._robotSimulationPanel.confirmationGroup,),
-            5: (
+                self._robotSimulationPanel.confirmationGroup,
+                self._robotSimulationPanel.goalGroup,
                 self._robotSimulationPanel.manualJogGroup,
                 self._robotSimulationPanel.approachGroup,
+                self._robotSimulationPanel.drillingGroup,
             ),
-            6: (self._robotSimulationPanel.drillingGroup,),
+            4: (self._robotSimulationPanel.previewControlGroup,),
         }
         for group in visible_by_substep[index]:
             group.visible = True
+        self._robotSimulationPanel.applyTaskHomeButton.visible = index == 2
         self.ui.ros2MotionControlGroupBox.visible = False
         self.ui.robotPlacementDescriptionLabel.visible = index == 0
         if self._step61PlacementMirrorStatusLabel is not None:
@@ -1776,7 +2311,7 @@ class RobotShellWidgetMixin:
         shellActive = bool(self._applicationShell and self._applicationShell.active)
         if self._step6SubstepNavigator is not None:
             self._step6SubstepNavigator.visible = not shellActive
-        if index in {4, 5, 6}:
+        if index in {3, 4}:
             self._refreshShellRobotCapabilities()
         if (
             not shellActive

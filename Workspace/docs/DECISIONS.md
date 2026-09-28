@@ -1,5 +1,79 @@
 # Dentobot Technical Decisions
 
+## 2026-09-27 — complete-chain authority before Step 6 preview
+
+Retained partial Stage 2/3 plans are display-only diagnostics, even when their
+individual `PhasePlan` payload reports successful returned waypoints. Only a
+fresh exact Home→PreEntry→Entry→Target chain with independent guard validation
+and current task, orientation, plan, session and policy identity may authorize
+Approach preview. Drill preview must derive from the same approved preflight.
+The two-area UI places planning/exploration apart from guarded Preview/Stop/
+Return, but UI placement alone is not authority. Ghost-only diagnostic
+playback remains display evidence; manual/historical paths never promote.
+Source/host checks pass; native runtime and Tarun's verdict remain pending.
+
+## 2026-09-27 — read-only proof for uncertain Task Home saves
+
+An ambiguous `saveTaskHome()` result cannot be retried as a new acceptance.
+Freeze the pre-save Home revision and non-Home identity, retain the staged
+candidate, and require an explicit read-only native state query. Only the
+expected new validated Home, unchanged Base/profile/strict guard and audit,
+correlated request/session/manual-policy status, exact acknowledged scene
+objects, fresh monitored joints and displayed joints may clear the unknown
+latch. Failure preserves the candidate and evidence. The bridge may reflect
+the proved accepted native state after these checks; the action issues no
+second Home save or jog and grants no route or preview authority. The manual
+native status currently supplies a protocol policy ID but no comparable
+collision-policy fingerprint, so saved Home strict-policy and scene-audit
+provenance remain separate checks. Source/host tests pass; native runtime and
+operator acceptance remain pending.
+
+## 2026-09-27 — Finish Step 6 source before curated 5.10 integration and broad GUI campaign
+
+Tarun questioned the cost of repeated runtime trial-and-error while the
+manual engineering workbench is still partial, and asked to continue with a
+plan that addresses the parallel performance checkout. The 14-item current-
+case headed checklist already supplies bounded happy-path guard/Base/Home
+evidence. Complete the remaining Step 6 source slices with focused pure and
+safety checks, using narrow native checks only when source evidence cannot
+settle a boundary. Then curate proven accepted-5.10 integrity/performance
+changes from `DentoBot-performance-5.12` into a fresh reviewed integration
+branch before one broad representative GUI campaign. The parallel branch has
+mixed deferred 5.12 history and overlaps dirty Step 6 files, so it is not a
+whole-branch merge source. Preserve exact restore/lineage, guard/identity,
+J6 and preview boundaries throughout. Keep Slicer shutdown and operator
+verdict separate. This decision changes sequencing only; no merge, commit,
+push, image promotion or runtime acceptance is implied.
+
+## 2026-09-27 — Detached Task Home review before live acceptance
+
+For `S6-LIVE-01` in the Step 6 renovation checkout, a draft J1–J5 Home
+candidate is a review state. It cannot change the accepted robot, native
+scene or saved Task Home by staging or cancellation. Home acceptance requires
+the frozen current manual identity and agreement with guard-accepted,
+ROS-monitored and displayed joints; a different candidate must first be
+reached by an individually acknowledged guarded jog. The existing
+`saveTaskHome()` remains the sole persistence/live-validation owner.
+Ambiguous post-save outcomes retain the candidate and failure evidence and
+block repeat/cancel until a separate reconciliation mechanism is verified.
+This follows the 25 September renovation plan, adds no route or preview
+authority, and has only source/host evidence at this checkpoint. See the
+[27 September logbook](logbook/2026-09-27.md).
+
+## 2026-09-27 — audited Case Foundation landmark roundoff on restore
+
+Keep strict `.dentocase` package validation and the original saved pose
+fingerprint. After that audit, restore the package's validated environment
+record before exact matrix/landmark restoration. A rebuilt Case Foundation
+snapshot may use its saved 12 landmark world coordinates only when all points
+are finite, each live coordinate differs by at most `1e-9` mm and has the same
+nine-decimal value, and the landmark and committed-pose fingerprints match.
+Any material or identity difference uses live coordinates and remains stale.
+This handles VTK world-coordinate roundoff without a global fingerprint or
+schema change. Fresh Slicer reopened the unchanged September 27 case with
+pose, Base and PreparedBranch `VALID`; the independently changed task-limits
+fingerprint remains visible and does not gain runtime authority.
+
 ## 2026-09-27 — explicit read-only uncertain-jog reconciliation
 
 The dedicated manual protocol requires an explicit operation. Missing or
@@ -6641,3 +6715,103 @@ Continue bounded source and pure checks; defer further case-based Slicer/ROS
 tests until substantial development progress and a newly saved case reflects
 the changed workflow. A heavier user testing session may follow. Runtime,
 screenshots and user verdict remain pending.
+
+## 2026-09-27 — Manual state exploration may precede task confirmation
+
+The newly saved September 27 case reopened with a current PreparedBranch and
+simulation scene, but has no confirmed Step 6 task. The recorded Check Draft
+State stopped before static validity solely because the shared endpoint
+evaluator required a task snapshot. That prerequisite prevents the engineer
+from testing robot configurations before choosing a target/Home solution,
+which is the stated purpose of the Step 6 manual solver. Permit a separate
+task-independent manual static review and guarded-jog identity only when the
+case, imported eligible branch, accepted Base, reviewed limits, profile,
+synchronized acknowledged scene and simulation ROS are current. Task Home may
+be absent or stale in this exploration mode; label its identity as unconfirmed
+and never use it to claim Home or route authority. The September 27 package
+stores a Task Home fingerprint for a different Base, so forcing Home currency
+would recreate the planner dependency the workbench is meant to diagnose.
+Freeze and recheck that exact identity across a query or jog; a task
+becoming confirmed changes it. Report Target residual and task endpoint as
+`not_reached` until a real task is confirmed. Preserve the existing strict
+confirmed-task path and native request/session/policy/vector/world-object
+correlation. No manual state or recording gains route/preview authority.
+Source and runtime verification of this decision remain open under
+`S6-LIVE-01`; the run-local diagnostics and today's logbook preserve the
+failing prerequisite evidence.
+
+## 2026-09-27 — Detached Base source review is numeric until visual proof
+
+Under `S6-LIVE-01`, the first detached Manual Simulation Base source gate keeps
+the candidate in façade session state and routes Step 6 nudge/reset through it.
+The accepted MRML Base and ROS scene remain the accepted representation until
+an explicit, verified Accept Base. This gate displays candidate and accepted
+matrix values but does not claim a visual ghost. An uncertain lock/scene
+outcome blocks further Base acceptance pending an explicit reconciliation
+design and native/runtime evidence. Step 3B's existing placement interaction
+remains separate. This implements the active Step 6 renovation plan without
+changing guard, route, preview or hardware authority; see the 27 September
+logbook for source-only verification and open operator verdict.
+
+## 2026-09-28 — Normalize the opened-jaw display at save and active-view boundaries
+
+The operator's Sep28 FDI11 save retained an untransformed closed-source
+segmentation visibly alongside current opened proxies. The same state was
+present in the preceding Sep27 package. Keep the existing
+`_enforceStep6OpenedJawDisplaySeparation` as the single display policy owner;
+reapply it after transient view restoration in `onSceneStartSave` and after
+active-stage view refresh, including its no-snapshot path. Preserve the source
+segmentation, jaw transform, opened anatomy, inspectable source views, robot,
+collision and planner policy. A headed open, separate save and reopen now
+confirm source aggregate/2D/3D hidden and both opened proxies visible for
+the exact operator case. Tarun's later normal-window verdict remains pending.
+The bounded 16-item GUI checklist passed but its video is partial because of
+the separately tracked `S6-U-01` shutdown; neither result authorizes a route,
+preview or hardware action.
+
+## 2026-09-28 — Keep the 5.10 publisher teardown port isolated pending native shutdown cause
+
+For `S6-U-01`, the installed-era SlicerROS2 publisher reference-removal index
+was out of range, and the installed quit path did not release publishers before
+ROS shutdown. An isolated four-file port of the existing `333c410` correction
+from source baseline `261a130` built against Slicer 5.10. The Step 6 widget now
+uses its existing robot-disconnect and adapter-shutdown functions during normal
+widget cleanup. These are bounded lifecycle improvements, but two connected
+no-case probes still exited 1 with class-loader warnings; the second explicitly
+released the native publisher before exit. Therefore do not replace the pinned
+installed native package or label the shutdown fixed from this port. Keep the
+5.12 branch untouched. The next runtime diagnostic needs Tarun's reviewed
+approval under the verification protocol's accumulated failure ceiling; the
+prepared signal-stack probe was rejected by automatic approval review before
+launch. Today's logbook and run-local diagnostics retain the exact source,
+build, screenshot, exit and cleanup evidence.
+
+## 2026-09-28 — Remove native ROS2 robots before module unload
+
+The operator-approved instrumented `S6-U-01` run proved Python widget cleanup
+and explicit publisher release completed before the same two class-loader
+warnings. A first robot-local cleanup stopped PlanningSceneMonitor activity and
+released cached RobotModel state, but its one post-correction run still exited
+1. That run reported the ROS2 module was registered but no longer instantiated
+when scripted cleanup executed. The installed-era native logic destroyed its
+ROS nodes without first removing their owned robot nodes, so those nodes could
+retain MoveIt loaders across plugin unload. Keep the smallest correction in the
+native owner: `vtkSlicerROS2Logic::DisconnectRobots()` copies each managed ROS
+node's robot-name list and removes each robot through its existing teardown
+route before subscriptions, publishers, ROS nodes and ROS shutdown, both from
+`aboutToQuit` and the logic destructor. Keep robot-local release as an
+idempotent destructor fallback. Source tests and isolated compilation are
+required now; a later single narrow zero-exit run remains the acceptance gate.
+Do not alter the installed package or the deferred 5.12 checkout from this
+source/build evidence.
+
+### Runtime acceptance addendum
+
+The operator-authorized final headed simulation subsequently passed the exact
+reproduced connected lifecycle: Slicer, recorder and FFmpeg exited 0, the two
+class-loader warnings disappeared, widget cleanup completed, and no owned
+process remained. Accept the native ordering correction for `S6-U-01`'s
+no-case condition. Continue to require the corrected reviewed native package
+and an independent zero-exit result in the final case-bearing Step 6 campaign;
+the narrow shutdown pass grants no planner, preview, hardware or usability
+authority.

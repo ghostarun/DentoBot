@@ -7,6 +7,56 @@ import time
 from .runtime import *
 
 
+def _restore_saved_case_foundation_landmarks(landmarks, saved_positions) -> bool:
+    """Restore exact saved RAS values after package lineage has been audited."""
+
+    if saved_positions is None or (
+        isinstance(saved_positions, (list, tuple)) and not saved_positions
+    ):
+        return False
+    if not isinstance(saved_positions, (list, tuple)) or len(saved_positions) != 12:
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        )
+    try:
+        saved = tuple(float(value) for value in saved_positions)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        ) from exc
+    if not all(math.isfinite(value) for value in saved):
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        )
+    if landmarks is None or landmarks.GetNumberOfDefinedControlPoints() != 4:
+        raise CaseBundleError(
+            "The restored Case Foundation landmark set does not match the package."
+        )
+
+    current = []
+    for index in range(4):
+        point = [0.0, 0.0, 0.0]
+        landmarks.GetNthControlPointPositionWorld(index, point)
+        current.extend(float(value) for value in point)
+    if (
+        not all(math.isfinite(value) for value in current)
+        or any(
+            abs(actual - expected) > 1e-6
+            or round(actual, 9) != round(expected, 9)
+            for actual, expected in zip(current, saved)
+        )
+    ):
+        raise CaseBundleError(
+            "The restored Case Foundation landmarks materially differ from the package."
+        )
+
+    for index in range(4):
+        landmarks.SetNthControlPointPositionWorld(
+            index, *saved[index * 3:index * 3 + 3]
+        )
+    return True
+
+
 class CaseBackendWidgetMixin:
     def _setMetadataPlaceholders(self) -> None:
         for label in (
@@ -447,11 +497,29 @@ class CaseBackendWidgetMixin:
                         slicer.app.processEvents()
                         phase("Validating hydrated case", can_cancel=False)
                         self._validateHydratedCaseBundle(inspection.workflow)
-                        # MRML rounds matrices to six significant digits. Only
-                        # after all strict package audits may the validated
-                        # environment restore the exact saved pose matrix.
+                        step6Workflow = inspection.workflow.get("step6")
+                        environment = (
+                            step6Workflow.get("environment")
+                            if isinstance(step6Workflow, dict) else None
+                        )
+                        if isinstance(environment, dict):
+                            try:
+                                parse_robot_environment_snapshot(environment)
+                            except (TypeError, ValueError, OverflowError):
+                                logging.warning(
+                                    "Ignoring invalid saved Step 6 environment after hydration audit"
+                                )
+                                environment = {}
+                            else:
+                                self._parameterNode.step6EnvironmentJson = canonical_json(
+                                    environment
+                                )
+                        else:
+                            environment = {}
+                        # MRML serialization can perturb pose values. Only
+                        # after strict package audits and identity checks may
+                        # the validated environment restore exact saved values.
                         transform = self._parameterNode.step6CaseJawTransform
-                        environment = inspection.workflow.get("step6", {}).get("environment") or {}
                         values = environment.get("jaw_transform_matrix", [])
                         if (
                             transform
@@ -471,6 +539,18 @@ class CaseBackendWidgetMixin:
                                     for col in range(4):
                                         matrix.SetElement(row, col, float(values[row * 4 + col]))
                                 transform.SetMatrixTransformToParent(matrix)
+                                savedLandmarks = environment.get(
+                                    "landmark_positions_ras_mm"
+                                )
+                                if savedLandmarks not in (None, [], ()):
+                                    landmarks = self._parameterNode.step6CaseJawLandmarks
+                                    if not self.logic.isStep6CaseJawLandmarksNode(landmarks):
+                                        raise CaseBundleError(
+                                            _("The restored Case Foundation landmarks do not match the package.")
+                                        )
+                                    _restore_saved_case_foundation_landmarks(
+                                        landmarks, savedLandmarks
+                                    )
                     finally:
                         self._endCaseBundleRestore(hydrationGeneration)
                     self._revalidateImportedStep6ContextAfterLoad()

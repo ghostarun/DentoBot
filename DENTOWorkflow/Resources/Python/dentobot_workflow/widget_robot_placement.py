@@ -6,6 +6,21 @@ from .runtime import *
 
 
 class RobotPlacementWidgetMixin:
+    def _isStep6RobotWorkflowActive(self) -> bool:
+        stageEntries = self._workflowStageEntries()
+        return bool(
+            stageEntries
+            and int(self.ui.workflowStageComboBox.currentIndex) == len(stageEntries) - 1
+            and not self._isStep3BActive()
+        )
+
+    def _isStep6ManualBaseReviewActive(self) -> bool:
+        return bool(
+            self._isStep6RobotWorkflowActive()
+            and self._robotSimulationPanel
+            and self._robotSimulationPanel._activeSubstep == 1
+        )
+
     def _robotJointPositionsSi(self) -> dict[str, float]:
         if not self._parameterNode:
             return joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
@@ -55,15 +70,9 @@ class RobotPlacementWidgetMixin:
     def _updateRobotKeyboardShortcutState(self) -> None:
         if not hasattr(self, "ui"):
             return
-        stageEntries = self._workflowStageEntries()
-        robotStageActive = bool(
-            stageEntries
-            and int(self.ui.workflowStageComboBox.currentIndex)
-            == len(stageEntries) - 1
-        )
         placementSurfaceActive = self._isOfflinePlacementSurfaceActive()
         enabled = bool(
-            placementSurfaceActive
+            (self._isStep6ManualBaseReviewActive() or self._isStep3BActive())
             and self._parameterNode
             and not self._parameterNode.robotBaseMountLocked
             and self._parameterNode.robotKeyboardNudgeEnabled
@@ -94,6 +103,7 @@ class RobotPlacementWidgetMixin:
     def _setRobotTransformInteractionVisible(self, visible: bool) -> None:
         if not self.logic:
             return
+        robotStageActive = self._isStep6RobotWorkflowActive()
         baseTransform = (
             self._parameterNode.robotBaseTransform if self._parameterNode else None
         )
@@ -104,6 +114,7 @@ class RobotPlacementWidgetMixin:
             if displayNode:
                 editable = bool(
                     visible
+                    and not robotStageActive
                     and self._parameterNode
                     and not self._parameterNode.robotBaseMountLocked
                 )
@@ -298,6 +309,9 @@ class RobotPlacementWidgetMixin:
             self.logic._applyRobotBaseMountInteractionState(
                 self._parameterNode,
                 bool(self._parameterNode.robotBaseMountLocked),
+            )
+            self._setRobotTransformInteractionVisible(
+                self._isOfflinePlacementSurfaceActive()
             )
             try:
                 self._applyTaskJointLimitsToJointSpinboxes()

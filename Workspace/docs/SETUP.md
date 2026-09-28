@@ -1890,3 +1890,32 @@ After a source edit use **Reload Module (Dev)**. The external stack and case
 scene remain, while the Slicer-side robot and GUI are rebuilt; reconnect before
 continuing Robot Simulation. Repeated reload must leave exactly one navigation
 dock, one task dock, and no duplicate callbacks.
+
+### Opt-in headed simulation screen recording (renovation checkout)
+
+`Testing/record_slicer_screen.py` uses the host's existing `ffmpeg` and
+`xdpyinfo` to capture an entire X11 display. It does not install a package or
+change the Slicer container. Use an isolated Xvfb display for automated
+checks; the recorder must run on the **host**, while Slicer may run in the
+container using that shared X11 socket. Select a new private output directory
+per run. `--command -- <argv...>` records a test command from before start
+through exit; `--until-enter` is an opt-in recording of a manual engineering
+session and stops when the operator presses Enter. A finalized video and
+SHA-256 sidecar manifest are written together. Example for an already running
+isolated display:
+
+```bash
+python3 Testing/record_slicer_screen.py --display :98 \
+  --output /absolute/private/new-run/video/session.mkv --until-enter
+```
+
+The recording contains whatever appears on that display. Review it for
+identifiers before sharing. Video is visual evidence, while the Step 6 manual
+JSON record holds joint, guard, scene and acknowledgement facts. The indexed
+headed runner is `runtime.step6_headed_review` in
+`Testing/verification_matrix.json`; it requires a current reviewed case,
+exact checkout/native hashes, one serialized simulation stack and separate
+runtime authorization. The 27 September attempt stopped at package
+post-hydration integrity before the new controls could be observed.
+For the full repeatable host/container sequence and evidence checklist, see
+[Step 6 recorded headed automation workflow](diagnostics/STEP6_RECORDED_HEADED_AUTOMATION_WORKFLOW.md).

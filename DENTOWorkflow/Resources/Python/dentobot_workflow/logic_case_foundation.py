@@ -7,6 +7,53 @@ import time
 from .runtime import *
 
 
+def _canonical_case_foundation_landmark_positions(
+    current_positions,
+    saved_environment_json,
+    current_landmarks_fingerprint,
+    committed_pose_fingerprint,
+) -> tuple:
+    current = tuple(current_positions)
+    if (
+        not isinstance(saved_environment_json, str)
+        or not current_landmarks_fingerprint
+        or not committed_pose_fingerprint
+    ):
+        return current
+    try:
+        environment = json.loads(saved_environment_json)
+        if not isinstance(environment, dict):
+            return current
+        saved_positions = environment.get("landmark_positions_ras_mm")
+        if not isinstance(saved_positions, list) or len(saved_positions) != 12:
+            return current
+        if (
+            environment.get("jaw_landmarks_fingerprint") != current_landmarks_fingerprint
+            or environment.get("planning_pose_fingerprint") != committed_pose_fingerprint
+        ):
+            return current
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in saved_positions
+        ):
+            return current
+        saved = tuple(float(value) for value in saved_positions)
+        current_values = tuple(float(value) for value in current)
+        if len(current_values) != 12 or not all(
+            math.isfinite(value) for value in (*current_values, *saved)
+        ):
+            return current
+        if any(
+            abs(current_value - saved_value) > 1e-9
+            or round(current_value, 9) != round(saved_value, 9)
+            for current_value, saved_value in zip(current_values, saved)
+        ):
+            return current
+        return saved
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        return current
+
+
 class CaseFoundationLogicMixin:
     CASE_FOUNDATION_HINGE_SCHEMA = "VirtualOpenMouthArticulatorV1"
 
@@ -352,6 +399,10 @@ class CaseFoundationLogicMixin:
         landmarks = parameterNode.step6CaseJawLandmarks
         base = parameterNode.robotBaseTransform
         positions = ()
+        landmarksFingerprint = (
+            self._step6CaseJawLandmarksFingerprint(landmarks)
+            if self.isStep6CaseJawLandmarksNode(landmarks) else ""
+        )
         if (
             self.isStep6CaseJawLandmarksNode(landmarks)
             and landmarks.GetNumberOfDefinedControlPoints() == 4
@@ -360,6 +411,13 @@ class CaseFoundationLogicMixin:
                 float(value)
                 for point in self.step6CaseJawLandmarkPositions(landmarks)
                 for value in point
+            )
+            positions = _canonical_case_foundation_landmark_positions(
+                positions,
+                parameterNode.step6EnvironmentJson,
+                landmarksFingerprint,
+                str(transform.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or "")
+                if transform else "",
             )
         try:
             preparation = json.loads(
@@ -389,10 +447,7 @@ class CaseFoundationLogicMixin:
                 str(transform.GetAttribute("DENTOBOT.SourceGeometryFingerprint") or "")
                 if transform else ""
             ),
-            jaw_landmarks_fingerprint=(
-                self._step6CaseJawLandmarksFingerprint(landmarks)
-                if self.isStep6CaseJawLandmarksNode(landmarks) else ""
-            ),
+            jaw_landmarks_fingerprint=landmarksFingerprint,
             landmark_positions_ras_mm=positions,
             landmark_review_fingerprint=fingerprint(
                 str(landmarks.GetAttribute("DENTOBOT.SurfaceEvidenceJson") or "")

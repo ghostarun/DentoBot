@@ -392,23 +392,23 @@ class WorkflowNavigationWidgetMixin:
             self._displayInspectionContext()
             return
         self._updateWorkflowViewControls()
-        if not self._workflowViewPriorState:
-            return
-        if self._workflowViewActivePresetKey == "custom":
-            availableKeys = set(self._workflowViewEntriesByKey)
-            visibleKeys = self._workflowViewVisibleKeys & availableKeys
-            self._applyWorkflowViewKeys(
-                visibleKeys,
-                activePresetKey="custom",
-                updateStatus=False,
-            )
-        elif self._workflowViewActivePresetKey:
-            self._applyWorkflowViewPreset(
-                self._workflowViewActivePresetKey,
-                updateStatus=False,
-            )
-        if self._isOfflinePlacementSurfaceActive():
-            self._ensureOfflinePlacementSceneVisible()
+        if self._workflowViewPriorState:
+            if self._workflowViewActivePresetKey == "custom":
+                availableKeys = set(self._workflowViewEntriesByKey)
+                visibleKeys = self._workflowViewVisibleKeys & availableKeys
+                self._applyWorkflowViewKeys(
+                    visibleKeys,
+                    activePresetKey="custom",
+                    updateStatus=False,
+                )
+            elif self._workflowViewActivePresetKey:
+                self._applyWorkflowViewPreset(
+                    self._workflowViewActivePresetKey,
+                    updateStatus=False,
+                )
+            if self._isOfflinePlacementSurfaceActive():
+                self._ensureOfflinePlacementSceneVisible()
+        self._enforceStep6OpenedJawDisplaySeparation()
 
     def onWorkflowStageChanged(self, index: int) -> None:
         if self._updatingWorkflowNavigationUI:

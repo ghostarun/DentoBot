@@ -1,11 +1,13 @@
 """Ordinary-Python tests for the portable DENTOBOT case-bundle contract."""
 
-from pathlib import Path
+import ast
 import hashlib
 import json
+import math
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -33,9 +35,168 @@ from DENTOCaseBundle import (  # noqa: E402
 )
 
 
+def _saved_landmark_restore_helper():
+    source_path = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_restore_saved_case_foundation_landmarks"
+    )
+    namespace = {"math": math, "CaseBundleError": CaseBundleError}
+    exec(
+        compile(ast.Module([helper], type_ignores=[]), str(source_path), "exec"),
+        namespace,
+    )
+    return namespace[helper.name]
+
+
+def _canonical_case_foundation_landmark_positions_helper():
+    source_path = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_foundation.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_canonical_case_foundation_landmark_positions"
+    )
+    namespace = {"json": json, "math": math}
+    exec(
+        compile(ast.Module([helper], type_ignores=[]), str(source_path), "exec"),
+        namespace,
+    )
+    return namespace[helper.name]
+
+
+class FakeLandmarks:
+    def __init__(self, points):
+        self.points = [list(point) for point in points]
+        self.writes = 0
+
+    def GetNumberOfDefinedControlPoints(self):
+        return len(self.points)
+
+    def GetNthControlPointPositionWorld(self, index, result):
+        result[:] = self.points[index]
+
+    def SetNthControlPointPositionWorld(self, index, *point):
+        self.points[index] = list(point)
+        self.writes += 1
+
+
 def write_mrb(path: Path, mrml: str) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("Case/scene.mrml", mrml)
+
+
+def test_case_foundation_landmark_positions_recovers_tiny_world_roundoff() -> None:
+    canonicalize = _canonical_case_foundation_landmark_positions_helper()
+    current = [float(index) for index in range(12)]
+    current[0] = 1.2345678901
+    saved = list(current)
+    saved[0] = 1.2345678904
+    environment = {
+        "landmark_positions_ras_mm": saved,
+        "jaw_landmarks_fingerprint": "jaw-current",
+        "planning_pose_fingerprint": "pose-committed",
+    }
+
+    result = canonicalize(
+        tuple(current), json.dumps(environment), "jaw-current", "pose-committed"
+    )
+
+    assert result == tuple(saved)
+
+
+def test_case_foundation_landmark_positions_fail_closed() -> None:
+    canonicalize = _canonical_case_foundation_landmark_positions_helper()
+    current = [float(index) for index in range(12)]
+    current[0] = 1.2345678904
+    saved = list(current)
+
+    def environment_json(
+        positions,
+        jaw_fingerprint="jaw-current",
+        pose_fingerprint="pose-committed",
+    ):
+        return json.dumps(
+            {
+                "landmark_positions_ras_mm": positions,
+                "jaw_landmarks_fingerprint": jaw_fingerprint,
+                "planning_pose_fingerprint": pose_fingerprint,
+            }
+        )
+
+    drifted = list(saved)
+    drifted[0] += 2e-9
+    rounded_mismatch = list(saved)
+    rounded_mismatch[0] = 1.2345678906
+    wrong_length = saved[:-1]
+    nonfinite = list(saved)
+    nonfinite[0] = float("nan")
+    cases = (
+        ("material landmark drift", environment_json(drifted)),
+        ("rounded-coordinate mismatch", environment_json(rounded_mismatch)),
+        ("landmark fingerprint mismatch", environment_json(saved, "jaw-stale")),
+        (
+            "pose fingerprint mismatch",
+            environment_json(saved, pose_fingerprint="pose-stale"),
+        ),
+        ("malformed JSON", "{"),
+        ("wrong coordinate count", environment_json(wrong_length)),
+        ("nonfinite saved coordinate", environment_json(nonfinite)),
+    )
+
+    for reason, saved_environment_json in cases:
+        assert canonicalize(
+            tuple(current), saved_environment_json, "jaw-current", "pose-committed"
+        ) == tuple(current), reason
+
+
+def test_case_foundation_landmark_restore_recovers_only_mrml_roundoff() -> None:
+    restore = _saved_landmark_restore_helper()
+    saved = [54.95761498266071, 1.0, 2.0] + [float(i) for i in range(9)]
+    restored_from = list(saved)
+    restored_from[0] = 54.95761498266072
+    node = FakeLandmarks(
+        [restored_from[index:index + 3] for index in range(0, 12, 3)]
+    )
+
+    assert restore(node, saved)
+    assert node.writes == 4
+    assert [value for point in node.points for value in point] == saved
+
+
+@pytest.mark.parametrize(
+    "saved,points",
+    [
+        ([1.0] * 11, [[1.0, 1.0, 1.0]] * 4),
+        ([float("nan")] + [1.0] * 11, [[1.0, 1.0, 1.0]] * 4),
+        ([1.0] * 12, [[1.0, 1.0, 1.0]] * 3),
+        ([1.0] * 12, [[1.0000011, 1.0, 1.0]] + [[1.0, 1.0, 1.0]] * 3),
+        (
+            [1.0000000004, 1.0, 1.0] + [1.0] * 9,
+            [[1.0000000006, 1.0, 1.0]] + [[1.0, 1.0, 1.0]] * 3,
+        ),
+    ],
+)
+def test_case_foundation_landmark_restore_fails_closed(saved, points) -> None:
+    restore = _saved_landmark_restore_helper()
+    node = FakeLandmarks(points)
+    original = [point[:] for point in node.points]
+
+    with pytest.raises(CaseBundleError):
+        restore(node, saved)
+
+    assert node.points == original
+    assert node.writes == 0
 
 
 def robot_profile_fixture(tmp_path: Path) -> dict:
@@ -333,8 +494,25 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     assert open_case.index("self.logic.hydrateDentoCaseStateAfterLoad(") < open_case.index(
         "self._validateHydratedCaseBundle(inspection.workflow)"
     )
-    assert open_case.index("self._validateHydratedCaseBundle(inspection.workflow)") < open_case.index(
-        "self._revalidateImportedStep6ContextAfterLoad()"
+    validation = open_case.index(
+        "self._validateHydratedCaseBundle(inspection.workflow)"
+    )
+    saved_environment_parse = open_case.index(
+        "parse_robot_environment_snapshot(environment)", validation
+    )
+    saved_environment_reset = open_case.index(
+        "self._parameterNode.step6EnvironmentJson = canonical_json(", validation
+    )
+    landmark_restore = open_case.index(
+        "_restore_saved_case_foundation_landmarks(", validation
+    )
+    revalidate = open_case.index("self._revalidateImportedStep6ContextAfterLoad()")
+    assert (
+        validation
+        < saved_environment_parse
+        < saved_environment_reset
+        < landmark_restore
+        < revalidate
     )
 
 

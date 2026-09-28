@@ -1175,11 +1175,83 @@ def test_manual_simulation_record_round_trips_historical_display_only_evidence()
     )
     restored = parse_manual_simulation_record(canonical_json(record))
     assert restored == record
+    assert restored["schema_version"] == "1.0"
     assert restored["record_status"] == "historical_display_only"
     assert [event["kind"] for event in restored["events"]] == [
         "requested", "diagnostic", "accept_task_home"
     ]
     assert restored["events"][0]["tcp_point_ras_mm"] == [1.0, 2.0, 3.0]
+    assert not {
+        "monitored_joints", "tcp_pose_world_ras_mm", "drill_axis_world_ras_unit"
+    }.intersection(restored["events"][0])
+
+
+def test_manual_simulation_record_round_trips_exact_motion_samples():
+    tcp_pose = (
+        1.0, 0.0, 0.0, 10.0,
+        0.0, 1.0, 0.0, 20.0,
+        0.0, 0.0, 1.0, 30.0,
+        0.0, 0.0, 0.0, 1.0,
+    )
+    drill_axis = (0.0, 0.0, -1.0000005)
+    record = build_manual_simulation_record(
+        identity=_manual_simulation_identity(),
+        events=({
+            "kind": "requested",
+            "monotonic_ns": 10,
+            "requested_joints": joints(0.25),
+            "monitored_joints": joints(0.5),
+            "tcp_point_ras_mm": (1.0, 2.0, 3.0),
+            "tcp_pose_world_ras_mm": tcp_pose,
+            "drill_axis_world_ras_unit": drill_axis,
+        },),
+    )
+    event = parse_manual_simulation_record(canonical_json(record))["events"][0]
+    assert event["monitored_joints"] == joints(0.5)
+    assert event["tcp_point_ras_mm"] == [1.0, 2.0, 3.0]
+    assert event["tcp_pose_world_ras_mm"] == list(tcp_pose)
+    assert event["drill_axis_world_ras_unit"] == list(drill_axis)
+    assert record["record_status"] == "historical_display_only"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("monitored_joints", {JOINT_NAMES[0]: 0.0}, "exactly the canonical"),
+        (
+            "monitored_joints",
+            {**joints(), LEGACY_JOINT_NAMES[-1]: 0.0},
+            "exactly the canonical",
+        ),
+        ("tcp_pose_world_ras_mm", (0.0,) * 15, "16 finite row-major"),
+        (
+            "tcp_pose_world_ras_mm",
+            (0.0,) * 15 + (float("nan"),),
+            "16 finite row-major",
+        ),
+        ("drill_axis_world_ras_unit", (0.0, 0.0), "three finite RAS coordinates"),
+        (
+            "drill_axis_world_ras_unit",
+            (0.0, 0.0, float("inf")),
+            "three finite RAS coordinates",
+        ),
+        ("drill_axis_world_ras_unit", (0.0, 0.0, 0.0), "unit vector"),
+        ("drill_axis_world_ras_unit", (0.0, 0.0, -2.0), "unit vector"),
+    ),
+)
+def test_manual_simulation_record_rejects_invalid_motion_samples(
+    field, value, message
+):
+    with pytest.raises(ValueError, match=message):
+        build_manual_simulation_record(
+            identity=_manual_simulation_identity(),
+            events=({
+                "kind": "requested",
+                "monotonic_ns": 1,
+                "requested_joints": joints(),
+                field: value,
+            },),
+        )
 
 
 def test_manual_simulation_record_detects_altered_fingerprint():

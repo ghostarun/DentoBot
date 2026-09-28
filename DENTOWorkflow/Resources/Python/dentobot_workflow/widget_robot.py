@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from math import degrees, isfinite
+
 from .runtime import *
 from .workflow_progress import WorkflowProgress
 
+from DENTOStep6State import JOINT_NAMES
 
 from dentobot_workflow.widget_robot_shell import RobotShellWidgetMixin
 
@@ -16,6 +20,114 @@ from dentobot_workflow.widget_robot_scene import RobotSceneWidgetMixin
 
 
 class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotShellWidgetMixin):
+    def _manualJogIdentityCurrent(self) -> bool:
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        if facade is None:
+            return False
+        try:
+            facade._manual_jog_current_identity(self._parameterNode)
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
+            return False
+        return True
+
+    def _manualBaseReviewControlState(
+        self, scene_prepared, robot_present, locked, review_result, ros2_active=False
+    ) -> dict[str, bool]:
+        details = getattr(review_result, "details", {}) or {}
+        staged = bool(details.get("staged"))
+        identity_current = str(details.get("identityStatus") or "unknown") == "current"
+        acceptance_unknown = (
+            str(details.get("acceptanceStatus") or "") == "unknown"
+            or bool(details.get("acceptanceUncertainty"))
+        )
+        review_success = bool(getattr(review_result, "success", False))
+        return {
+            "group": staged or bool(scene_prepared and robot_present),
+            "begin": bool(
+                scene_prepared
+                and robot_present
+                and not locked
+                and not staged
+                and identity_current
+                and not acceptance_unknown
+                and review_success
+            ),
+            "accept": bool(
+                scene_prepared
+                and robot_present
+                and not locked
+                and staged
+                and identity_current
+                and not acceptance_unknown
+                and review_success
+            ),
+            "cancel": staged and not acceptance_unknown,
+            "acceptance_unknown": acceptance_unknown,
+            "reconcile": bool(
+                scene_prepared
+                and robot_present
+                and ros2_active
+                and staged
+                and identity_current
+                and bool(getattr(review_result, "success", False))
+                and acceptance_unknown
+            ),
+        }
+
+    def _manualTaskHomeReviewControlState(self, live_scene, review_result):
+        details = getattr(review_result, "details", {}) or {}
+        if not isinstance(details, Mapping):
+            details = {}
+        staged = details.get("staged") is True
+        identity_current = str(details.get("identityStatus") or "unknown") == "current"
+        acceptance_status = str(details.get("acceptanceStatus") or "unknown")
+        acceptance_uncertain = bool(details.get("acceptanceUncertainty"))
+        success = bool(getattr(review_result, "success", False))
+        accepted = details.get("acceptedJointPositionsSi")
+        candidate = details.get("candidateJointPositionsSi")
+        try:
+            matches = (
+                isinstance(accepted, Mapping)
+                and isinstance(candidate, Mapping)
+                and set(accepted) == set(JOINT_NAMES)
+                and set(candidate) == set(JOINT_NAMES)
+                and all(
+                    isfinite(float(accepted[joint]))
+                    and isfinite(float(candidate[joint]))
+                    and abs(
+                        float(accepted[joint]) - float(candidate[joint])
+                    ) <= 1.0e-12
+                    for joint in JOINT_NAMES
+                )
+            )
+        except (TypeError, ValueError, OverflowError):
+            matches = False
+        return {
+            "group": bool(live_scene or staged),
+            "review": bool(
+                live_scene
+                and success
+                and identity_current
+                and not staged
+                and acceptance_status in {"review", "accepted"}
+            ),
+            "cancel": staged and not acceptance_uncertain,
+            "accept": bool(
+                live_scene
+                and success
+                and staged
+                and identity_current
+                and not acceptance_uncertain
+                and acceptance_status == "review"
+                and matches
+            ),
+            "reconcile": bool(
+                live_scene
+                and staged
+                and acceptance_uncertain
+            ),
+        }
+
 
 
 
@@ -148,12 +260,114 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
     def _confirmStep6SceneSwitch(self, target: str) -> bool:
         return target == "case"
 
-    def _step6BasePoseEvidence(self) -> str:
+    def _syncManualBaseCandidateGhost(self, reviewResult=None) -> str:
+        details = getattr(reviewResult, "details", {}) or {}
+        if not isinstance(details, Mapping):
+            details = {}
+        staged = bool(details.get("staged"))
+        identity_current = str(details.get("identityStatus") or "unknown") == "current"
+        candidate = details.get("candidateMatrixWorldRasMm")
+        try:
+            candidate = tuple(float(value) for value in candidate)
+            valid = len(candidate) == 16 and all(
+                math.isfinite(value) for value in candidate
+            )
+        except (TypeError, ValueError, OverflowError):
+            candidate = ()
+            valid = False
+        logic = getattr(self, "logic", None)
+
+        def clear_ghost() -> None:
+            self._manualBaseCandidateGhostKey = None
+            clear = getattr(logic, "clearManualBaseCandidateGhost", None)
+            if callable(clear):
+                clear()
+
+        if not (staged and identity_current and valid):
+            cache_initialized = hasattr(self, "_manualBaseCandidateGhostKey")
+            if getattr(self, "_manualBaseCandidateGhostKey", None) is not None or not cache_initialized:
+                clear_ghost()
+            else:
+                self._manualBaseCandidateGhostKey = None
+            if staged and identity_current:
+                return (
+                    "Candidate visualization unavailable: staged matrix evidence is invalid; "
+                    "the candidate remains unaccepted."
+                )
+            return ""
+
+        base_fingerprint = ""
+        parameter_node = getattr(self, "_parameterNode", None)
+        base = getattr(parameter_node, "robotBaseTransform", None)
+        fingerprint = getattr(logic, "robotBasePoseFingerprint", None)
+        if callable(fingerprint) and base is not None:
+            try:
+                base_fingerprint = str(fingerprint(base) or "")
+            except Exception:
+                pass
+
+        def node_id(node):
+            get_id = getattr(node, "GetID", None)
+            return (str(get_id() or "") or id(node)) if callable(get_id) else id(node)
+
+        cache_key = (
+            candidate,
+            base_fingerprint,
+            tuple(
+                node_id(node) if node is not None else None
+                for node in (
+                    parameter_node,
+                    base,
+                    getattr(parameter_node, "inputVolume", None),
+                    getattr(parameter_node, "teethSegmentation", None),
+                )
+            ),
+        )
+
+        unknown = (
+            str(details.get("acceptanceStatus") or "") == "unknown"
+            or bool(details.get("acceptanceUncertainty"))
+        )
+        visible_status = (
+            "Cyan translucent ghost shows the staged candidate; the solid robot may "
+            "reflect an uncertain native state."
+            if unknown
+            else "Cyan translucent ghost shows the staged candidate; the solid robot "
+            "shows the accepted Base."
+        )
+        if getattr(self, "_manualBaseCandidateGhostKey", None) == cache_key:
+            return visible_status
+
+        show = getattr(logic, "showManualBaseCandidateGhost", None)
+        if not callable(show):
+            shown, message = False, "candidate visualization API unavailable"
+        else:
+            try:
+                shown, message = show(candidate)
+            except Exception as exc:
+                shown, message = False, str(exc)
+        if shown:
+            self._manualBaseCandidateGhostKey = cache_key
+            return visible_status
+
+        clear_ghost()
+        reason = str(message or "local robot models are unavailable")
+        return (
+            f"Candidate visualization unavailable: {reason}. "
+            "The staged candidate remains unaccepted."
+        )
+
+    def _step6BasePoseEvidence(self, reviewResult=None) -> str:
+        ghost_status = self._syncManualBaseCandidateGhost(reviewResult)
         if not self._parameterNode or not self.logic:
-            return _("Candidate Base pose is unavailable.")
+            return _("Candidate Base pose is unavailable.") + (
+                " " + ghost_status if ghost_status else ""
+            )
         base = self._parameterNode.robotBaseTransform
         if not self.logic.isRobotBaseTransformNode(base):
-            return _("Candidate Base transform is unavailable.")
+            return _("Candidate Base transform is unavailable.") + (
+                " " + ghost_status if ghost_status else ""
+            )
         try:
             matrix = vtk.vtkMatrix4x4()
             base.GetMatrixTransformToWorld(matrix)
@@ -174,10 +388,76 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 for row in rotation
             )
             fingerprint = str(self.logic.robotBasePoseFingerprint(base) or "unavailable")
-            return (
-                "Candidate Base pose — world RAS origin "
+            accepted_text = (
+                "Accepted Base — world RAS origin "
                 f"({x:.3f}, {y:.3f}, {z:.3f}) mm; rotation rows "
-                f"{rotation_text}; pose fingerprint {fingerprint[:12]}."
+                f"{rotation_text}; pose fingerprint {fingerprint[:12]}"
+            )
+            details = getattr(reviewResult, "details", {}) or {}
+            staged = bool(details.get("staged"))
+            identity_status = str(details.get("identityStatus") or "unknown")
+            candidate = details.get("candidateMatrixWorldRasMm")
+            candidate_text = "No detached Base candidate is staged."
+            if staged:
+                try:
+                    candidate_values = tuple(float(value) for value in candidate)
+                    if len(candidate_values) != 16 or not all(
+                        math.isfinite(value) for value in candidate_values
+                    ):
+                        raise ValueError("invalid 4 x 4 matrix evidence")
+                    candidate_x, candidate_y, candidate_z = (
+                        candidate_values[3], candidate_values[7], candidate_values[11]
+                    )
+                    candidate_rows = "; ".join(
+                        "(" + ", ".join(
+                            f"{candidate_values[row * 4 + col]:.5f}"
+                            for col in range(3)
+                        ) + ")"
+                        for row in range(3)
+                    )
+                    candidate_text = (
+                        "Review candidate — world RAS origin "
+                        f"({candidate_x:.3f}, {candidate_y:.3f}, {candidate_z:.3f}) mm; "
+                        f"rotation rows {candidate_rows}; identity {identity_status}."
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    candidate_text = (
+                        "Review candidate matrix evidence is invalid; preserve the "
+                        f"candidate and do not accept it. Identity {identity_status}."
+                    )
+            elif identity_status != "current":
+                candidate_text = (
+                    "No detached Base candidate is staged; review identity is "
+                    f"{identity_status}."
+                )
+            acceptance_unknown = (
+                str(details.get("acceptanceStatus") or "") == "unknown"
+                or bool(details.get("acceptanceUncertainty"))
+            )
+            state_text = (
+                "Native scene state is unverified; Base acceptance is blocked until "
+                "runtime reconciliation confirms it."
+                if acceptance_unknown
+                else "Staging alone leaves the accepted robot model and ROS scene unchanged; "
+                "only acknowledged acceptance promotes the candidate."
+            )
+            review_text = (
+                accepted_text + ". " + candidate_text + " Numeric review only. "
+                + state_text
+            )
+            if ghost_status:
+                review_text += " " + ghost_status
+            failure = details.get("failureEvidence")
+            if failure is not None:
+                review_text += " Preserved Base acceptance failure evidence: " + str(failure)
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel and hasattr(panel, "manualBaseReviewStatusLabel"):
+                panel.manualBaseReviewStatusLabel.text = review_text
+                panel.cancelManualBaseReviewButton.enabled = (
+                    staged and not acceptance_unknown
+                )
+            return accepted_text + ". " + candidate_text + (
+                " " + ghost_status if ghost_status else ""
             )
         except (AttributeError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
             return _("Candidate Base pose evidence is unavailable: %1").replace(
@@ -197,6 +477,12 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         active_plan = facade_plan or self._step6MotionPlan
         has_plan = active_plan is not None and active_plan.success
         scene_kind = self._step6SceneKind()
+        stage_entries = self._workflowStageEntries()
+        robot_stage_active = bool(
+            stage_entries
+            and int(self.ui.workflowStageComboBox.currentIndex) == len(stage_entries) - 1
+            and not self._isStep3BActive()
+        )
         scene_active = scene_kind == "case"
         case_jaw_issues = (
             self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
@@ -279,12 +565,26 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         base_state = str(self._parameterNode.step6BasePlacementStatus or "Unlocked")
         base_source = str(self._parameterNode.step6BasePlacementSource or "")
-        base_pose_evidence = self._step6BasePoseEvidence()
+        review_result = (
+            self._robotWorkflowFacade.manualBaseReview()
+            if self._robotWorkflowFacade and robot_stage_active
+            else None
+        )
+        base_pose_evidence = self._step6BasePoseEvidence(review_result)
+        review_details = getattr(review_result, "details", {}) or {}
+        manual_base_review_staged = bool(review_details.get("staged"))
+        manual_base_identity_current = (
+            str(review_details.get("identityStatus") or "unknown") == "current"
+        )
+        manual_base_acceptance_unknown = (
+            str(review_details.get("acceptanceStatus") or "") == "unknown"
+            or bool(review_details.get("acceptanceUncertainty"))
+        )
         if base_state == BasePlacementStatus.STALE.value:
             mount_status = (
                 _(
-                    "Base candidate is Stale (%1). Reposition and review it in "
-                    "Robot + CBCT context before Accept Base. %2"
+                    "Base review is Stale (%1). Its evidence remains visible, "
+                    "and Accept Base is disabled until current identity is restored. %2"
                 ).replace("%1", base_source or "unreviewed source")
                 .replace("%2", base_pose_evidence)
             )
@@ -301,8 +601,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             mount_status = _("Load the ROS robot (or MRML fallback) before placing.")
         else:
             mount_status = _(
-                "Review candidate Base in Robot + CBCT context, then choose "
-                "Accept Base. It remains unaccepted until that action succeeds. %1"
+                "Start a numeric Base review, adjust with the local-axis controls, "
+                "then choose Accept Base. Only acknowledged acceptance promotes "
+                "the candidate. %1"
+            ).replace("%1", base_pose_evidence)
+        if manual_base_acceptance_unknown:
+            mount_status = _(
+                "Base acceptance outcome is unknown. Further acceptance is blocked "
+                "until runtime reconciliation confirms the native scene state. %1"
             ).replace("%1", base_pose_evidence)
 
         if message and "motion plan" in message.lower():
@@ -351,14 +657,25 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         )
 
         place_enabled = scene_prepared and robot_present and not locked
-        self.ui.lockRobotBaseMountButton.enabled = (
-            scene_prepared and robot_present and not locked
+        self.ui.lockRobotBaseMountButton.enabled = bool(
+            scene_prepared
+            and robot_present
+            and not locked
+            and (
+                not robot_stage_active
+                or (
+                    manual_base_review_staged
+                    and manual_base_identity_current
+                    and not manual_base_acceptance_unknown
+                    and bool(getattr(review_result, "success", False))
+                )
+            )
         )
         self.ui.unlockRobotBaseMountButton.enabled = locked
         self.ui.planTrajectoryMotionButton.enabled = (
             imported and locked and planning_anatomy_ready
         )
-        self.ui.previewTrajectoryMotionButton.enabled = has_plan
+        self.ui.previewTrajectoryMotionButton.enabled = False
         self.ui.stopTrajectoryMotionButton.enabled = (
             self._step6MotionPreviewTimer is not None
             or bool(
@@ -398,6 +715,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if widget is not None:
                 widget.setEnabled(False)
         self.ui.robotMountPlaneSelector.enabled = False
+        self.ui.robotBaseTransformSelector.enabled = not robot_stage_active
         for widget_name in (
             "robotXMinusButton",
             "robotXPlusButton",
@@ -442,6 +760,55 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         panel = self._robotSimulationPanel
         if panel is not None:
+            facade = self._robotWorkflowFacade
+            try:
+                task_home_review_result = (
+                    facade.manualTaskHomeReview() if facade else None
+                )
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                task_home_review_result = None
+            task_home_live_scene = bool(
+                scene_prepared
+                and robot_present
+                and locked
+                and ros2_active
+                and not self._workflowActionBusy
+                and not getattr(self, "_step6MotionPreviewTimer", None)
+                and not bool(getattr(facade, "previewActive", False))
+                and not bool(getattr(facade, "returnHomeRequired", False))
+            )
+            task_home_controls = self._manualTaskHomeReviewControlState(
+                task_home_live_scene, task_home_review_result
+            )
+            panel.homeGroup.enabled = bool(
+                scene_prepared or task_home_controls["cancel"]
+            )
+            panel.reviewTaskHomeButton.enabled = bool(
+                task_home_controls["review"] and not self._workflowActionBusy
+            )
+            panel.cancelTaskHomeReviewButton.enabled = bool(
+                task_home_controls["cancel"] and not self._workflowActionBusy
+            )
+            panel.acceptTaskHomeButton.enabled = bool(
+                task_home_controls["accept"] and not self._workflowActionBusy
+            )
+            panel.reconcileTaskHomeButton.enabled = bool(
+                task_home_controls["reconcile"] and not self._workflowActionBusy
+            )
+            panel.setManualTaskHomeReviewResult(task_home_review_result)
+            if robot_stage_active:
+                control_state = self._manualBaseReviewControlState(
+                    scene_prepared, robot_present, locked, review_result, ros2_active
+                )
+                panel.manualBaseReviewGroup.enabled = control_state["group"]
+                panel.beginManualBaseReviewButton.enabled = control_state["begin"]
+                panel.cancelManualBaseReviewButton.enabled = control_state["cancel"]
+                panel.reconcileManualBaseStateButton.enabled = bool(
+                    control_state["reconcile"] and not self._workflowActionBusy
+                )
+                self.ui.lockRobotBaseMountButton.enabled = control_state["accept"]
+            else:
+                panel.manualBaseReviewGroup.enabled = False
             try:
                 urdf_path, _package_root = self.logic.robotDescriptionPaths()
                 mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
@@ -470,9 +837,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             panel.createProxyButton.enabled = bool(
                 scene_prepared and not ros2_active
             )
-            panel.saveTaskHomeButton.enabled = bool(
-                scene_prepared and locked and ros2_active
-            )
             panel.motionDiagnosticsButton.enabled = bool(
                 str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
             )
@@ -484,18 +848,20 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
             if home_runtime_validated:
                 panel.homeStatusLabel.text = _(
-                    "Task Home is current and live-validated in this ROS/MoveIt session."
+                    "Accepted Task Home is current and live-validated in this ROS/MoveIt session."
                 )
             elif home_ready and ros2_active:
                 panel.homeStatusLabel.text = _(
-                    "Saved Task Home is current but unvalidated in this runtime. Apply it now."
+                    "Saved Task Home is current but unvalidated in this runtime. Plan + Apply it to validate."
                 )
             elif home_ready:
                 panel.homeStatusLabel.text = _(
                     "Saved Task Home is current; connect ROS/MoveIt in 6.1 to validate it."
                 )
             else:
-                panel.homeStatusLabel.text = " ".join(home_issues)
+                panel.homeStatusLabel.text = (
+                    "Saved Task Home status: " + " ".join(home_issues)
+                )
             panel.reviewLimitsButton.enabled = bool(
                 scene_prepared
                 and ros2_active
@@ -528,7 +894,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             ).strip():
                 panel.workspaceReviewStatusLabel.text = _(
                     "Saved workspace evidence needs live revalidation. Replay it "
-                    "without changing the reviewed envelope, or regenerate 6.3 "
+                    "without changing the reviewed envelope, or regenerate the "
                     "if replay rejects any state."
                 )
             else:
@@ -584,11 +950,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 draft_available=bool(ros2_active and local_robot_present),
                 jog_available=bool(
                     planning_anatomy_ready
-                    and task_ready
                     and ros2_active
-                    and home_runtime_validated
                     and facade_capabilities
                     and facade_capabilities.planning_scene_synchronized
+                    and self._manualJogIdentityCurrent()
                     and not preview_active
                     and not away_from_home
                     and not getattr(self, "_workflowActionBusy", False)
@@ -702,10 +1067,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             panel.returnHomeButton.enabled = bool(
                 ros2_active and away_from_home and not preview_active
             )
-            panel.stopPreviewDrillingButton.enabled = preview_active
-            panel.returnHomeDrillingButton.enabled = bool(
-                ros2_active and away_from_home and not preview_active
-            )
             approach_complete = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.completedPhase == MotionPhase.APPROACH.value
@@ -719,16 +1080,21 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and not preview_active
             )
             panel.previewDrillingButton.enabled = bool(
-                approach_complete
+                drilling_preflight_ready
+                and approach_complete
                 and isinstance(facade_plan, PhasePlan)
                 and facade_plan.success
                 and facade_plan.requested_phase == MotionPhase.DRILLING.value
+                and task_ready
+                and ros2_active
+                and not preview_active
+                and not away_from_home
             )
             if not drilling_preflight_ready:
                 panel.drillingStatusLabel.text = _(
                     "Drill preview is blocked until Approach planning returns a complete guarded "
                     "Stage 3 preflight. Inspect partial Stage 3 evidence and paths "
-                    "in the 6.5 diagnostics; partial output cannot unlock drilling."
+                    "in Planning & Diagnostics; partial output cannot unlock drilling."
                 )
             elif not approach_complete:
                 panel.drillingStatusLabel.text = _(
@@ -864,6 +1230,16 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
             return
+        if self._isStep6RobotWorkflowActive():
+            if not self._isStep6ManualBaseReviewActive():
+                return
+            result = self._robotWorkflowFacade.acceptManualBaseReview()
+            self._updateStep6PlanningUi(result.message, error=not result.success)
+            if result.success:
+                self._updateRobotPlacement()
+            else:
+                slicer.util.errorDisplay(result.message)
+            return
         result = self._robotWorkflowFacade.lockBase()
         if result.success:
             try:
@@ -883,6 +1259,11 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
     def onUnlockRobotBaseMount(self, checked: bool = False) -> None:
         del checked
         if not self._parameterNode or not self.logic or not self._robotWorkflowFacade:
+            return
+        if (
+            self._isStep6RobotWorkflowActive()
+            and not self._isStep6ManualBaseReviewActive()
+        ):
             return
         result = self._robotWorkflowFacade.unlockBase()
         self._updateStep6PlanningUi(result.message, error=not result.success)
@@ -927,7 +1308,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     else "Task-space ROI draft is unavailable."
                 )
             roi, roi_source = roi_draft
-            progress = WorkflowProgress("Step 6.3 TCP workspace")
+            progress = WorkflowProgress(
+                "Step 6 Planning & Diagnostics — TCP workspace"
+            )
             progress.update("Checking prerequisites", can_cancel=False)
             result = self._robotWorkflowFacade.generateWorkspaceCloud(
                 progress=lambda phase, done=None, total=None: progress.update(
@@ -1063,25 +1446,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             slicer.util.errorDisplay(action.message)
             return
         self._updateStep6PlanningUi(action.message)
-
-    def onPreviewTrajectoryMotion(self, checked: bool = False) -> None:
-        del checked
-        if not self._robotWorkflowFacade:
-            return
-        self.onStopTrajectoryMotion()
-        result = self._robotWorkflowFacade.previewPlan(
-            on_progress=lambda _index, _count: self._updateRobotPlacement(),
-            on_finished=self._onFacadePreviewFinished,
-        )
-        self._updateStep6PlanningUi(result.message, error=not result.success)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
-
-    def _onFacadePreviewFinished(self, result) -> None:
-        self._updateRobotPlacement()
-        self._updateStep6PlanningUi(result.message, error=not result.success)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
 
     def _advanceStep6MotionPreview(self) -> None:
         if not self._step6MotionPlan or not self._step6MotionPlan.waypoint_joint_vectors_si:

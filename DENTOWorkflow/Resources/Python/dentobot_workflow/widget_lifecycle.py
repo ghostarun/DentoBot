@@ -7,6 +7,8 @@ from .runtime import *
 
 class LifecycleWidgetMixin:
     def cleanup(self) -> None:
+        if self._isCleaningUp:
+            return
         self._isCleaningUp = True
         self._caseFoundationSnapshot = None
         self._workflowViewRefreshScheduled = False
@@ -32,6 +34,24 @@ class LifecycleWidgetMixin:
         self.setParameterNode(None)
         self.removeObservers()
         self._sceneObserversActive = False
+        try:
+            mrmlRobotModels = self.logic.robotModelNodes() if self.logic else []
+            if find_ros2_robot_by_name(ROS2_ROBOT_NAME) is not None:
+                disconnected, message = disconnect_dentobot_motion_control(
+                    mrmlRobotModels,
+                )
+                if not disconnected:
+                    logging.warning(
+                        "Could not fully disconnect DENTOBOT ROS motion control "
+                        "during widget cleanup: %s",
+                        message,
+                    )
+        except Exception:
+            logging.exception(
+                "Could not disconnect DENTOBOT ROS motion control during widget cleanup"
+            )
+        finally:
+            shutdown_slicer_adapter()
         release_default_ros2_node_singleton()
         if self._viewControlsPalette:
             self._viewControlsPalette.deleteLater()
@@ -534,6 +554,7 @@ class LifecycleWidgetMixin:
         )
         if self._resumeWorkflowViewPriorStateAfterSave:
             self._restoreWorkflowViewState(updateUi=False)
+        self._enforceStep6OpenedJawDisplaySeparation()
 
     def onSceneEndSave(self, caller=None, event=None) -> None:
         del caller, event

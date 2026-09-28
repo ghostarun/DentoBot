@@ -76,10 +76,8 @@ WORKSPACE_SPECS = (
             "6.0 Activate Verified PreparedBranch",
             "6.1A–6.1B Offline Base and ROS Gate",
             "6.2 Validated Task Home",
-            "6.3 ROS Workspace and Limits",
-            "6.4 Task Confirmation",
-            "6.5 Approach",
-            "6.6 Drill Preview",
+            "Planning & Diagnostics",
+            "Preview & Control",
         ),
     ),
 )

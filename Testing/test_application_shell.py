@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+import ast
+from collections.abc import Mapping
+from math import isfinite
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +26,7 @@ from DENTOApplicationShell import (  # noqa: E402
     workspace_for_stage,
     workspace_index_for_stage,
 )
+from DENTOStep6State import JOINT_NAMES  # noqa: E402
 
 
 def test_native_windows_fallback_disables_step6():
@@ -53,19 +58,25 @@ def test_workspace_mapping_preserves_segmentation_and_guide_substeps():
     assert workspace_for_stage(5).workspace_id == "guide_design"
     assert workspace_for_stage(9).workspace_id == "guide_design"
     assert workspace_for_stage(10).workspace_id == "robot_simulation"
-    assert len(workspace_for_stage(10).substep_titles) == 7
+    assert workspace_for_stage(10).substep_titles == (
+        "6.0 Activate Verified PreparedBranch",
+        "6.1A–6.1B Offline Base and ROS Gate",
+        "6.2 Validated Task Home",
+        "Planning & Diagnostics",
+        "Preview & Control",
+    )
     assert workspace_index_for_stage(999) == 0
 
 
 def test_step6_navigation_and_primary_actions_use_phase_names():
     assert workspace_for_stage(10).substep_titles[-2:] == (
-        "6.5 Approach",
-        "6.6 Drill Preview",
+        "Planning & Diagnostics",
+        "Preview & Control",
     )
     panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
-    assert 'QPushButton("Preview Approach"' in panel
+    assert '"Preview Approach", self.previewControlGroup' in panel
     assert 'QPushButton("Prepare Drill Preview"' in panel
-    assert 'QPushButton("Preview Drill"' in panel
+    assert '"Preview Drill", self.previewControlGroup' in panel
     assert "Goal 1" not in panel and "Goal 2" not in panel
 
 
@@ -137,6 +148,175 @@ def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     assert "self._robotWorkflowFacade.syncPlanningScene()" in workflow
 
 
+def test_step6_cartesian_goal_requires_explicit_drag_toggle_and_has_no_plan_route():
+    workflow = (
+        HELPERS / "dentobot_workflow" / "widget_robot_shell.py"
+    ).read_text(encoding="utf-8")
+    assert '"set_tcp_drag_enabled": self._onShellSetTcpDragEnabled' in workflow
+    assert '"nudge_tcp_goal": self._onShellNudgeTcpGoal' in workflow
+    assert '"create_goal":' not in workflow
+    assert '"plan_goal":' not in workflow
+    assert "def _onShellPlanGoal" not in workflow
+    assert "facade.setTcpDragEnabled(bool(enabled))" in workflow
+    assert "return bool(result.success)" in workflow
+
+    solve = workflow.split("def _onShellSolveIk", 1)[1].split(
+        "def _onShellSyncCollisionScene", 1
+    )[0]
+    assert "errorDisplay" not in solve
+    assert "if result.success is not True:" in solve
+    assert "set(payload) != set(JOINT_NAMES)" in solve
+    assert "isfinite(value) for value in payload.values()" in solve
+    assert "stageTcpIkSolution(payload)" in solve
+    assert solve.index("if failure:") < solve.index(
+        "stageTcpIkSolution(payload)"
+    )
+    assert "_onShellGuardedManualJog" not in solve
+    assert "planToGoal" not in solve and "_step6MotionPlan" not in solve
+
+    substeps = workflow.split("visible_by_substep = {", 1)[1].split(
+        "for group in visible_by_substep[index]", 1
+    )[0]
+    planning_and_diagnostics = substeps.split("3:", 1)[1].split("4:", 1)[0]
+    assert "self._robotSimulationPanel.goalGroup" in planning_and_diagnostics
+
+
+def test_tcp_ik_shell_stages_only_successful_complete_finite_j1_j5_payload():
+    shell_path = HELPERS / "dentobot_workflow/widget_robot_shell.py"
+    tree = ast.parse(shell_path.read_text(encoding="utf-8"))
+    shell_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RobotShellWidgetMixin"
+    )
+    solve_node = next(
+        node
+        for node in shell_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_onShellSolveIk"
+    )
+    namespace = {
+        "Mapping": Mapping,
+        "JOINT_NAMES": JOINT_NAMES,
+        "isfinite": isfinite,
+        "slicer": SimpleNamespace(
+            util=SimpleNamespace(errorDisplay=lambda message: error_messages.append(message))
+        ),
+    }
+    error_messages = []
+    exec(
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[solve_node], type_ignores=[])),
+            str(shell_path),
+            "exec",
+        ),
+        namespace,
+    )
+    solve = namespace["_onShellSolveIk"]
+
+    def run(success, payload, details=None):
+        joint_draft = {name: -1.0 for name in JOINT_NAMES}
+        accepted_state = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+        events = []
+        result = SimpleNamespace(
+            success=success,
+            message="static validity unknown" if success is not True else "authoritative valid",
+            payload=payload,
+            details=details or {},
+        )
+
+        class Panel:
+            _tcpIkStageFailureText = ""
+
+            def showGoalResult(self, value):
+                events.append(("show", value))
+
+            def stageTcpIkSolution(self, value):
+                events.append(("stage", dict(value)))
+                joint_draft.update(value)
+                return True
+
+            def setManualJogDraftDisplayResult(self, ok, message):
+                events.append(("draft_status", ok, message))
+
+            def setManualJogStatus(self, state, message):
+                events.append(("jog_status", state, message))
+
+        panel = Panel()
+        host = SimpleNamespace(
+            _robotSimulationPanel=panel,
+            _robotWorkflowFacade=SimpleNamespace(solveIk=lambda: result),
+        )
+        solve(host)
+        return events, joint_draft, accepted_state
+
+    valid = {name: float(index) + 0.25 for index, name in enumerate(JOINT_NAMES)}
+    events, draft, accepted = run(True, valid)
+    assert [event[0] for event in events] == ["show", "stage"]
+    assert draft == valid
+    assert accepted == {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+
+    invalid_responses = (
+        (False, valid, {"authoritativeStaticValidity": False}),
+        (False, {}, {"authoritativeStaticValidity": None, "failureEvidence": "unknown"}),
+        (True, {name: value for name, value in valid.items() if name != JOINT_NAMES[-1]}, {}),
+        (True, {**valid, JOINT_NAMES[0]: float("nan")}, {}),
+        (True, {**valid, "pneumatic_spindle-Copy_Revolute-6": 0.0}, {}),
+    )
+    for success, payload, details in invalid_responses:
+        events, draft, accepted = run(success, payload, details)
+        assert not any(event[0] == "stage" for event in events)
+        assert draft == {name: -1.0 for name in JOINT_NAMES}
+        assert accepted == {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+        assert any(event[0] == "draft_status" and event[1] is False for event in events)
+        assert any(event[0] == "jog_status" for event in events)
+    assert error_messages == []
+
+    joint_draft = {name: -1.0 for name in JOINT_NAMES}
+    accepted_state = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    events = []
+
+    class GoalStatusLabel:
+        text = ""
+
+        def setProperty(self, name, value):
+            events.append(("goal_status_property", name, value))
+
+    class ExceptionPanel:
+        _tcpIkStageFailureText = ""
+        goalStatusLabel = GoalStatusLabel()
+
+        def showGoalResult(self, value):
+            events.append(("show", value))
+
+        def stageTcpIkSolution(self, value):
+            events.append(("stage", dict(value)))
+            joint_draft.update(value)
+            return True
+
+        def setManualJogDraftDisplayResult(self, ok, message):
+            events.append(("draft_status", ok, message))
+
+        def setManualJogStatus(self, state, message):
+            events.append(("jog_status", state, message))
+
+    panel = ExceptionPanel()
+
+    def raise_solve_error():
+        raise RuntimeError("native IK review unavailable")
+
+    host = SimpleNamespace(
+        _robotSimulationPanel=panel,
+        _robotWorkflowFacade=SimpleNamespace(solveIk=raise_solve_error),
+    )
+    solve(host)
+    assert "native IK review unavailable" in panel.goalStatusLabel.text
+    assert "retained" in panel.goalStatusLabel.text
+    assert not any(event[0] == "stage" for event in events)
+    assert joint_draft == {name: -1.0 for name in JOINT_NAMES}
+    assert accepted_state == {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    assert error_messages == []
+
+
 def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity():
     panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
     facade = (HELPERS / "DENTORobotWorkflowFacade.py").read_text(encoding="utf-8")
@@ -148,7 +328,8 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert '"failure_classification": "preentry_ik_unreachable"' in facade
     assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
     assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 3
-    assert facade.count("planner_id=self._joint_planner_id") == 3
+    # Includes the clearance detour second-leg MoveIt call.
+    assert facade.count("planner_id=self._joint_planner_id") == 4
     assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
     assert "Planning policy" in panel
     assert "approximate_ik_enabled" in panel

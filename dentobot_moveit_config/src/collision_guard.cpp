@@ -77,7 +77,7 @@ std::string json_number(double value)
     return "null";
   }
   std::ostringstream output;
-  output << std::setprecision(12) << value;
+  output << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
   return output.str();
 }
 

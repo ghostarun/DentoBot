@@ -1060,10 +1060,6 @@ class BootstrapWidgetMixin:
             "clicked(bool)",
             self.onPlanTrajectoryMotion,
         )
-        self.ui.previewTrajectoryMotionButton.connect(
-            "clicked(bool)",
-            self.onPreviewTrajectoryMotion,
-        )
         self.ui.stopTrajectoryMotionButton.connect(
             "clicked(bool)",
             self.onStopTrajectoryMotion,
