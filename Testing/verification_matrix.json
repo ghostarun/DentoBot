@@ -144,7 +144,7 @@
       "evidence_level": "synthetic_slicer_and_saved_case",
       "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
       "command_template": "For the reviewed integration checkout, use the recorded-run wrapper with DENTOBOT_TEST_SHELL_ONLY=1, unchanged reviewed current FDI11 demo package (SHA 539ee7948bd97434ab4ef8b675e1540f065219a7e5250c3a422d2cfb481c371a), saved boundary, exact integration module path and native 5.10 overlay, and 900-second cap. This skips preliminary synthetic endpoint self-tests only; package validation and every shell/fusion invariant remain required. The ordinary full smoke retains its preliminary tests.",
-      "pass_condition": "DENTOBOT_FDI11_BOUNDARY, DENTOBOT_FDI11_PREVIEW_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS in explicit saved-fixture-only mode; strict current package load, source SHA unchanged, one watertight shell/fusion solid, state-matched final geometry screenshots and owned-process cleanup; report recording and shutdown separately. Preliminary Step4A markers belong to runtime.step4a_p0, not this scoped gate."
+      "pass_condition": "DENTOBOT_FDI11_BOUNDARY, DENTOBOT_FDI11_PREVIEW_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS in explicit saved-fixture-only mode; strict current package load, source SHA unchanged, one watertight shell/fusion solid, state-matched final geometry screenshots and owned-process cleanup; report recording and shutdown separately. Preliminary Step4A markers belong to runtime.step4a_pulp_display, not this scoped gate."
     },
     {
       "id": "runtime.pulp_shell_fdi31",
