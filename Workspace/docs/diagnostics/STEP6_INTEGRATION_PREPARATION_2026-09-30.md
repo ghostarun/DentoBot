@@ -80,21 +80,21 @@ The actual Git merge produced **19 conflict paths**, including add/add runner an
 
 | Source | Disposition / required behavior |
 |---|---|
-| `2c8e009` | preserve existing accepted port; reconcile against newer renovation |
-| `e27820e` | preserve existing accepted port; reconcile against newer renovation |
-| `93a6e33` | preserve existing accepted port; reconcile against newer renovation |
-| `caa155b` | preserve existing accepted port; reconcile against newer renovation |
-| `56f6c31` | preserve existing accepted port; reconcile against newer renovation |
-| `6158d90` | preserve existing accepted port; reconcile against newer renovation |
-| `5dd3b48` | preserve existing accepted port; reconcile against newer renovation |
-| `502fbb1` | preserve existing accepted port; reconcile against newer renovation |
-| `c7a5396` | preserve existing accepted port; reconcile against newer renovation |
-| `7eb9e41` | preserve existing accepted port; reconcile against newer renovation |
-| `e7b00b3` | preserve existing accepted port; reconcile against newer renovation |
-| `d47c122` | port only missing production/test hunks after frozen comparison |
-| `a533e78` | port only missing production/test hunks after frozen comparison |
-| `9f301c5` | port only missing production/test hunks after frozen comparison |
-| `9632cc7` | port only missing production/test hunks after frozen comparison |
+| `2c8e009` | already present — reviewed teardown render pause/timing retained in bridge; render cleanup checks pass |
+| `e27820e` | port required, applied — load phase reporting and NodeModify base invalidation; restore host checks pass |
+| `93a6e33` | already present — global view scan creates defaults only for dentobotOwned nodes |
+| `caa155b` | port required, applied — both latest Connect routes save/set/restore suppression; lifecycle guard retained |
+| `56f6c31` | already present — goal/motion setup render scope retained with finally cleanup |
+| `6158d90` | already present — collision-scene publication render batch retained; 31-object runtime acknowledgement passes |
+| `5dd3b48` | already present — obstacle-removal render scope retained; bounded production Disconnect passes |
+| `502fbb1` | port required, applied — queued UI events stay within outer restore generation |
+| `c7a5396` | port required, applied — one restore barrier through hydration/strict audit/recovery; restore tests and current case runtime pass |
+| `7eb9e41` | already present — working-stage save/navigation preservation retained and tested |
+| `e7b00b3` | already present — contiguous array.data hashing retained; cache tests pass |
+| `d47c122` | port required, applied — inventory evidence cache/progress/four-argument callbacks; host and bounded runtime pass |
+| `a533e78` | port required, applied — fitting fallback sampling/grid and shell progress; host geometry test passes, runtime shell remains NOT_RUN due fixture gate |
+| `9f301c5` | already present / port required, applied — cache input and restore guards retained, missing bulk refresh ported; old matrix tolerance hunk deferred in favor of exact renovation |
+| `9632cc7` | port required, applied — late docking/template teardown callbacks guarded; AST/host checks pass |
 | `edc3a2e` | equivalent newer renovation precision correction; do not replay older tolerance hypothesis |
 | `48e0f49` | retain reversal of unsupported tolerance experiment |
 | `PLAT-U-06` | deferred: no 5.12 image, full SuperBuild, release pins or native fork wholesale promotion |
@@ -114,3 +114,7 @@ The original headed runner skipped Connect with all motion opt-ins off. A narrow
 ### Combined source and early runtime checkpoint
 
 Merge `514f86e` incorporates e7cd29f. Focused host 601 PASS (one known size gate held visible), static/JSON/diff pass. Restore/Connect/Disconnect: 10 selected PASS, intentional PARTIAL workflow, clean process/recording exits, Tarun bounded verdict accepted. Inventory audit/candidate/source-mask/MRB/DentoCase PASS with clean exits. Step 5B preliminary synthetic assisted-endpoint fixture failed its current Case Foundation prerequisite before package load; shell/fusion NOT_RUN. Existing runner now has default-off saved-fixture-only mode, retaining strict package and geometry checks; another runtime needs Tarun’s direction. Detailed evidence: `data/dentobot-runs/step6-5.10-integration-20260930/diagnostics.md`. Graph overlay refreshed successfully after sandbox escalation. Final renovation, full combined acceptance, size cleanup and main remain pending.
+
+### Held Step 5B runtime boundary — final current pass
+
+Tarun authorized the saved-fixture-only trial; source `9068658` and four focused checks passed. Its fresh runtime failed strict pre-bind validation at `step6.jawOpening.motionModel` before shell/fusion, with transactional recovery, Slicer/recorder exit 1 and no remaining owned processes. Original fixture hash unchanged. Both shell failure directories are preserved. Step 5B remains unaccepted under existing W5-U-04/S6-REUSABLE-CASE-SETUP overlap; next action is a compatible reviewed fixture or explicit migration decision, then one bounded check. Source integration is checkpointed; final combined main-ready criterion is not satisfied.
