@@ -102,3 +102,44 @@ def test_saved_fixture_shell_mode_is_explicit_and_preserves_boundary(monkeypatch
         with pytest.raises(ValueError, match="saved boundary"):
             requested()
         monkeypatch.delenv(name)
+
+
+def test_shell_capture_resets_clipping_after_each_camera_move(tmp_path):
+    import ast
+    from types import SimpleNamespace
+    source = Path(__file__).with_name("run_dentobot_pulp_shell_smoke.py")
+    helper = next(n for n in ast.parse(source.read_text()).body
+                  if isinstance(n, ast.FunctionDef) and n.name == "_capture_final_dock_screenshots")
+    cube = vtk.vtkCubeSource()
+    cube.Update()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(cube.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    renderer = vtk.vtkRenderer()
+    renderer.AddActor(actor)
+    window = vtk.vtkRenderWindow()
+    window.AddRenderer(renderer)
+    camera = renderer.GetActiveCamera()
+    camera.SetClippingRange(100, 200)
+    captures = []
+    def save(path):
+        captures.append((camera.GetClippingRange(), camera.GetDistance()))
+        return True
+    noop = lambda *args: None
+    display = SimpleNamespace(**{name: noop for name in (
+        "SetVisibility", "SetColor", "SetOpacity", "SetEdgeVisibility", "SetEdgeColor")})
+    view = SimpleNamespace(mrmlViewNode=lambda: SimpleNamespace(SetAxisLabelsVisible=noop),
+        cameraNode=lambda: SimpleNamespace(GetCamera=lambda: camera), renderWindow=lambda: window,
+        forceRender=noop, grab=lambda: SimpleNamespace(save=save))
+    layout = SimpleNamespace(setLayout=noop, threeDWidget=lambda i: SimpleNamespace(threeDView=lambda: view))
+    slicer_stub = SimpleNamespace(app=SimpleNamespace(layoutManager=lambda: layout),
+        util=SimpleNamespace(getNodesByClass=lambda cls: [display], forceRenderAllViews=noop),
+        vtkMRMLLayoutNode=SimpleNamespace(SlicerLayoutOneUp3DView=0))
+    namespace = {"Path": Path, "slicer": slicer_stub}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(source), "exec"), namespace)
+    final = SimpleNamespace(GetDisplayNode=lambda: display, GetPolyData=cube.GetOutput)
+    details = {"assembly": {"targetDocking": {"docks": [
+        {"topFaceCenterRas": [0, 0, 0], "axisRas": [0, 0, 1], "label": "+X"}]}}}
+    assert len(namespace[helper.name](final, details, str(tmp_path))) == 2
+    assert all(near < distance < far for (near, far), distance in captures)

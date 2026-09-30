@@ -46,6 +46,9 @@ def _capture_final_dock_screenshots(final, details: dict, directory: str) -> lis
 
     def capture(label: str) -> None:
         path = output / f"final-fusion-{label}.png"
+        renderer = view.renderWindow().GetRenderers().GetFirstRenderer()
+        if renderer:
+            renderer.ResetCameraClippingRange()
         view.forceRender()
         slicer.util.forceRenderAllViews()
         if not view.grab().save(str(path)):
