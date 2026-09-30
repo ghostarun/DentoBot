@@ -713,8 +713,8 @@ def test_new_segmentation_completion_runs_the_read_only_inventory_check(tmp_path
             return "segmentation-run"
 
     backend_methods = _extract_methods(
-        PYTHON / "dentobot_workflow" / "widget_case_backend.py",
-        "CaseBackendWidgetMixin",
+        PYTHON / "dentobot_workflow" / "widget_backend_completion.py",
+        "BackendCompletionWidgetMixin",
         {"_completeTeethSegmentation"},
         {
             "json": json,

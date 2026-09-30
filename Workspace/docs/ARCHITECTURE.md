@@ -1997,3 +1997,7 @@ disconnects signals, and clears façade preview state. The established ROS
 adapter teardown still owns transient SlicerROS2 nodes. A developer reload
 therefore preserves case MRML and the external stack but constructs exactly one
 new interface instance and requires an explicit robot reconnect.
+
+## Integration module ownership split — 1 October 2026
+
+The reviewed integration candidate uses five additional sibling mixins to satisfy the unchanged 1600-line routine-module ceiling. `CaseBackendWidgetMixin` inherits `BackendCompletionWidgetMixin` for inference completion callbacks. `CaseBundleLogicMixin` inherits `CaseValidationLogicMixin` for robot-profile/workflow serialization and strict loaded-workflow validation. `RobotShellWidgetMixin` inherits `RobotManualWidgetMixin` for manual draft, jog, Base/Home review and recording actions. `TemplateBuildWidgetMixin` inherits `TemplateAssemblyWidgetMixin` for final assembly and build preflight. `SegmentationWidgetMixin` retains `ScanContextWidgetMixin` and adds `DisplayPresetsWidgetMixin` for scene/CBCT presets. Public entrypoint composition and public APIs remain unchanged; method bodies are mechanically relocated. Installation and API-owner checks include every extracted module. This integration-only split does not import later renovation implementation.

@@ -16,6 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "DENTOWorkflow/Resources/Python"
+ROBOT_MANUAL = PYTHON / "dentobot_workflow/widget_robot_manual.py"
 if str(PYTHON) not in sys.path:
     sys.path.insert(0, str(PYTHON))
 from DENTOStep6State import (  # noqa: E402
@@ -134,8 +135,8 @@ def _manual_record_export_harness(tmp_path, completed, active):
         )
     )
     export = _methods(
-        PYTHON / "dentobot_workflow/widget_robot_shell.py",
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onStep6ExportManualRecord"},
         {
             "Path": Path,
@@ -218,8 +219,8 @@ def _manual_record_import_harness(
         "show_manual_simulation_record_paths": show_path,
     }
     methods = _methods(
-        PYTHON / "dentobot_workflow/widget_robot_shell.py",
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {
             "_onStep6ImportManualRecord",
             "_onStep6ShowManualRecord",
@@ -359,12 +360,17 @@ def test_manual_jog_availability_accepts_taskless_current_identity_and_fails_clo
 def test_manual_jog_planning_refresh_follows_connect_sync_and_draft_checks():
     shell = PYTHON / "dentobot_workflow/widget_robot_shell.py"
     handlers = {
-        name: _method_node(shell, "RobotShellWidgetMixin", name)
-        for name in (
-            "_onShellConnectRobot",
-            "_onShellSyncCollisionScene",
+        "_onShellConnectRobot": _method_node(
+            shell, "RobotShellWidgetMixin", "_onShellConnectRobot"
+        ),
+        "_onShellSyncCollisionScene": _method_node(
+            ROBOT_MANUAL, "RobotManualWidgetMixin", "_onShellSyncCollisionScene"
+        ),
+        "_onShellCheckManualRobotDraftState": _method_node(
+            ROBOT_MANUAL,
+            "RobotManualWidgetMixin",
             "_onShellCheckManualRobotDraftState",
-        )
+        ),
     }
 
     def line_of_call(method, name):
@@ -572,8 +578,8 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
 
 def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failure_evidence():
     method = _methods(
-        PYTHON / "dentobot_workflow/widget_robot_shell.py",
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onShellGuardedManualJog"},
         {
             "JOINT_NAMES": JOINT_NAMES,
@@ -876,8 +882,8 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
     shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
     panel_path = PYTHON / "DENTORobotSimulationPanel.py"
     method = _methods(
-        shell_path,
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onShellReconcileManualRobotJog"},
         {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
     )["_onShellReconcileManualRobotJog"]
@@ -988,8 +994,8 @@ def test_manual_draft_state_check_is_read_only_and_marks_stale_results():
     shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
     panel_path = PYTHON / "DENTORobotSimulationPanel.py"
     check_method = _methods(
-        shell_path,
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onShellCheckManualRobotDraftState"},
         {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
     )["_onShellCheckManualRobotDraftState"]
@@ -1246,8 +1252,8 @@ def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
         {},
     )["onLockRobotBaseMount"]
     shell_methods = _methods(
-        PYTHON / "dentobot_workflow/widget_robot_shell.py",
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onStep6AcceptManualTaskHomeReview"},
         {
             "JOINT_NAMES": JOINT_NAMES,
@@ -1732,8 +1738,8 @@ def test_manual_base_reconcile_calls_facade_once_and_preserves_review_evidence()
     robot_path = PYTHON / "dentobot_workflow/widget_robot.py"
     error_calls = []
     callback = _methods(
-        shell_path,
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_onStep6ReconcileManualBaseAcceptance"},
         {
             "Mapping": Mapping,
@@ -2541,8 +2547,8 @@ def test_task_home_review_buttons_require_current_identity_and_matching_candidat
 
 def test_manual_task_home_stage_cancel_and_accept_delegate_without_preaccept_mutation():
     methods = _methods(
-        PYTHON / "dentobot_workflow/widget_robot_shell.py",
-        "RobotShellWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {
             "_onStep6ReviewManualTaskHome",
             "_onStep6CancelManualTaskHomeReview",
@@ -2907,7 +2913,11 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
         assert condition in drilling
 
     imported_record = ast.dump(
-        _method_node(shell_path, "RobotShellWidgetMixin", "_onStep6ImportManualRecord")
+        _method_node(
+            ROBOT_MANUAL,
+            "RobotManualWidgetMixin",
+            "_onStep6ImportManualRecord",
+        )
     )
     assert "previewApproachButton" not in imported_record
     assert "previewDrillingButton" not in imported_record

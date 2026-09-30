@@ -40,6 +40,11 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/widget_template_finalization.py
   Resources/Python/dentobot_workflow/widget_guide_build.py
   Resources/Python/dentobot_workflow/widget_case_backend.py
+  Resources/Python/dentobot_workflow/widget_backend_completion.py
+  Resources/Python/dentobot_workflow/logic_case_validation.py
+  Resources/Python/dentobot_workflow/widget_robot_manual.py
+  Resources/Python/dentobot_workflow/widget_template_assembly.py
+  Resources/Python/dentobot_workflow/widget_display_presets.py
   Resources/Python/dentobot_workflow/widget_robot_shell.py
   Resources/Python/dentobot_workflow/widget_robot_placement.py
   Resources/Python/dentobot_workflow/widget_robot_scene.py

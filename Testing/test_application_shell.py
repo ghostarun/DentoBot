@@ -141,6 +141,7 @@ def test_robot_shell_panel_is_presentation_only_and_uses_facade_callbacks():
     workflow = (
         HELPERS / "dentobot_workflow/widget_robot_shell.py"
     ).read_text(encoding="utf-8")
+    workflow += (HELPERS / "dentobot_workflow/widget_robot_manual.py").read_text(encoding="utf-8")
     assert "import DENTOROS2Bridge" not in panel
     assert "computeIK" not in panel
     assert '"solve_ik": self._onShellSolveIk' in workflow
@@ -152,6 +153,7 @@ def test_step6_cartesian_goal_requires_explicit_drag_toggle_and_has_no_plan_rout
     workflow = (
         HELPERS / "dentobot_workflow" / "widget_robot_shell.py"
     ).read_text(encoding="utf-8")
+    workflow += (HELPERS / "dentobot_workflow/widget_robot_manual.py").read_text(encoding="utf-8")
     assert '"set_tcp_drag_enabled": self._onShellSetTcpDragEnabled' in workflow
     assert '"nudge_tcp_goal": self._onShellNudgeTcpGoal' in workflow
     assert '"create_goal":' not in workflow
@@ -182,12 +184,12 @@ def test_step6_cartesian_goal_requires_explicit_drag_toggle_and_has_no_plan_rout
 
 
 def test_tcp_ik_shell_stages_only_successful_complete_finite_j1_j5_payload():
-    shell_path = HELPERS / "dentobot_workflow/widget_robot_shell.py"
+    shell_path = HELPERS / "dentobot_workflow/widget_robot_manual.py"
     tree = ast.parse(shell_path.read_text(encoding="utf-8"))
     shell_class = next(
         node
         for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "RobotShellWidgetMixin"
+        if isinstance(node, ast.ClassDef) and node.name == "RobotManualWidgetMixin"
     )
     solve_node = next(
         node

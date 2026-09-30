@@ -10,6 +10,11 @@ MANIFEST = ROOT / "Testing" / "contracts" / "dentoworkflow_api.json"
 ROUTINE_MODULE_LINE_BUDGET = 1600
 
 MIXIN_OWNERS = {
+    "BackendCompletionWidgetMixin": "DENTOWorkflowWidget",
+    "CaseValidationLogicMixin": "DENTOWorkflowLogic",
+    "RobotManualWidgetMixin": "DENTOWorkflowWidget",
+    "TemplateAssemblyWidgetMixin": "DENTOWorkflowWidget",
+    "DisplayPresetsWidgetMixin": "DENTOWorkflowWidget",
     "BootstrapWidgetMixin": "DENTOWorkflowWidget",
     "ApplicationWidgetMixin": "DENTOWorkflowWidget",
     "WorkflowPanelsWidgetMixin": "DENTOWorkflowWidget",

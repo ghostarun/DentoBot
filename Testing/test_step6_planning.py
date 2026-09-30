@@ -989,13 +989,17 @@ def test_legacy_guide_hole_fails_5b_preflight_before_cached_geometry() -> None:
         REPOSITORY_ROOT
         / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_build.py"
     ).read_text()
-    module = ast.parse(source)
-    mixin = next(
-        node for node in module.body if isinstance(node, ast.ClassDef)
-        and node.name == "TemplateBuildWidgetMixin"
-    )
+    assembly_source = (
+        REPOSITORY_ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_assembly.py"
+    ).read_text()
+    classes = [
+        node for module in (ast.parse(source), ast.parse(assembly_source))
+        for node in module.body if isinstance(node, ast.ClassDef)
+        and node.name in {"TemplateBuildWidgetMixin", "TemplateAssemblyWidgetMixin"}
+    ]
     methods = [
-        node for node in mixin.body if isinstance(node, ast.FunctionDef)
+        node for mixin in classes for node in mixin.body if isinstance(node, ast.FunctionDef)
         and node.name in {
             "_normalizedTemplateDockingParameters",
             "_completeTemplateBuildPreflight",

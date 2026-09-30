@@ -13,17 +13,17 @@ compatibility contract.
 | Module construction and signal binding | `widget_bootstrap.py`, `widget_panels.py` |
 | GUI mode, developer reload, persistent view palette | `widget_application.py` |
 | Scene close/import/save and observer cleanup | `widget_lifecycle.py` |
-| Case files and external inference controls | `widget_case_backend.py`, `logic_case_bundle.py`, `logic_backend.py` |
-| Segmentation review | `widget_segmentation.py`, `logic_segmentation.py` |
+| Case files and external inference controls | `widget_case_backend.py`, `widget_backend_completion.py`, `logic_case_bundle.py`, `logic_case_validation.py`, `logic_backend.py` |
+| Segmentation review | `widget_segmentation.py`, `widget_display_presets.py`, `logic_segmentation.py` |
 | View inventory and presets | `widget_view_catalog.py`, `widget_view_controls.py`, `widget_view_composition.py` |
 | Workflow navigation and interaction locks | `widget_navigation.py`, `logic_lineage.py` |
 | Trajectory placement and verification | `widget_trajectory_view.py`, `widget_planning_focus.py`, `widget_planning.py` |
 | Target docking | `widget_docking.py`, `logic_docking.py` |
 | Downstream planning deletion/invalidation | `logic_planning_dependencies.py`, `logic_workflow.py` |
 | Support selection and visible support surface | `widget_guide_support_setup.py`, `widget_guide_support.py`, `logic_guide_support.py` |
-| Patient shell and unified template build | `widget_template_build.py`, `logic_patient_shell.py`, `logic_guide.py` |
+| Patient shell and unified template build | `widget_template_build.py`, `widget_template_assembly.py`, `logic_patient_shell.py`, `logic_guide.py` |
 | Template finalization and verification | `widget_template_finalization.py`, `logic_finalization.py` |
-| Step 6 shell actions | `widget_robot_shell.py`, `widget_robot.py` |
+| Step 6 shell actions | `widget_robot_shell.py`, `widget_robot_manual.py`, `widget_robot.py` |
 | Case Foundation and offline robot placement | `logic_case_foundation.py`, `widget_robot_scene.py`, `widget_robot_placement.py`, `logic_robot_placement.py` |
 | Planning-scene synchronization, Step 6 jaw landmarks, and robot task state | `logic_robot_scene_sync.py`, `logic_robot.py`, `logic_step6_scene.py`, `logic_step6_landmark_review.py` |
 | Persistent typed state and stage identifiers | `parameter_state.py`, `contracts.py` |

@@ -651,7 +651,7 @@ def test_case_bundle_ui_and_install_contract_are_present() -> None:
 def test_step6_jaw_opening_readiness_is_excluded_from_lineage_equivalence() -> None:
     source = (
         ROOT
-        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py"
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_validation.py"
     ).read_text(encoding="utf-8")
     validate_start = source.index("    def validateLoadedCaseBundleWorkflow")
     validate = source[validate_start:]
@@ -798,7 +798,7 @@ def test_case_restore_suppresses_segmentation_and_template_mutations() -> None:
 def test_post_hydration_audit_allows_only_derived_environment_refresh() -> None:
     logic_source = (
         ROOT
-        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py"
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_validation.py"
     ).read_text(encoding="utf-8")
     validate_start = logic_source.index("    def validateLoadedCaseBundleWorkflow")
     validate = logic_source[validate_start:]
