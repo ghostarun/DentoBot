@@ -288,7 +288,13 @@ def test_review_parameter_joint_state_matches_existing_rehydration_units() -> No
     assert values["robotJoint3Deg"] == pytest.approx(-0.3 * 180.0 / 3.141592653589793)
     assert values["robotJoint4Mm"] == pytest.approx(40.0)
     assert values["robotJoint5Deg"] == pytest.approx(0.5 * 180.0 / 3.141592653589793)
-    assert values["robotJoint6Deg"] == 0.0
+    assert tuple(values) == (
+        "robotJoint1Deg",
+        "robotJoint2Mm",
+        "robotJoint3Deg",
+        "robotJoint4Mm",
+        "robotJoint5Deg",
+    )
     assert parameter.modify_calls == 1
     assert parameter.values == values
 

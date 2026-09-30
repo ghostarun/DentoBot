@@ -531,17 +531,8 @@ private:
     GuardResult result;
     if (requested.size() != joint_names_.size())
     {
-      if (requested.size() == joint_names_.size() + 1)
-      {
-        result.reason =
-          "Received a legacy six-joint command; the external spindle is not a "
-          "planning DOF. Send five ordered planning joint values.";
-      }
-      else
-      {
-        result.reason = "Expected " + std::to_string(joint_names_.size()) +
-                        " joint values, received " + std::to_string(requested.size()) + ".";
-      }
+      result.reason = "Expected " + std::to_string(joint_names_.size()) +
+                      " joint values, received " + std::to_string(requested.size()) + ".";
     }
     else if (!std::all_of(requested.begin(), requested.end(),
                           [](double value) { return std::isfinite(value); }))

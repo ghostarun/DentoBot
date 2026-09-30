@@ -16,9 +16,11 @@ import os
 from pathlib import Path, PurePosixPath
 import stat
 import tempfile
-from typing import Mapping
+from typing import Mapping, Sequence
 import uuid
 import zipfile
+
+from DENTOStep6State import parse_manual_simulation_record
 
 
 CASE_BUNDLE_FORMAT = "DENTOBOTCaseBundle"
@@ -33,10 +35,13 @@ ROBOT_PROFILE_MEMBER = "robot/robot-profile.json"
 SAVE_REPORT_MEMBER = "records/save-report.json"
 STUDY_INDEX_MEMBER = "study/index.json"
 STUDY_ATTEMPTS_MEMBER = "study/attempts.ndjson"
+MANUAL_SIMULATION_MEMBER = "records/manual-simulation.json"
 
 MAX_ARCHIVE_MEMBERS = 128
 MAX_METADATA_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_SCENE_MEMBER_BYTES = 64 * 1024 * 1024 * 1024
+MAX_MANUAL_SIMULATION_RECORDS = 100
+MAX_MANUAL_SIMULATION_EVENTS = 10_000
 
 
 class CaseBundleError(RuntimeError):
@@ -52,6 +57,7 @@ class CaseBundleInspection:
     save_report: dict
     study_index: dict | None = None
     study_attempts: tuple[dict, ...] = ()
+    manual_simulation_records: tuple[dict, ...] = ()
 
     @property
     def scene_sha256(self) -> str:
@@ -173,6 +179,41 @@ def _json_member(archive: zipfile.ZipFile, name: str) -> dict:
     if not isinstance(value, dict):
         raise CaseBundleError(f"Case-bundle JSON member must contain an object: {name}")
     return value
+
+
+def _validated_manual_simulation_records(
+    records: Sequence[Mapping[str, object]],
+) -> tuple[dict, ...]:
+    if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
+        raise CaseBundleError("Manual simulation records must be a sequence.")
+    if len(records) > MAX_MANUAL_SIMULATION_RECORDS:
+        raise CaseBundleError("The manual simulation record count exceeds its limit.")
+    total_events = 0
+    fingerprints = set()
+    validated = []
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise CaseBundleError("Every manual simulation record must be an object.")
+        events = record.get("events")
+        if isinstance(events, (str, bytes, Mapping)) or not isinstance(
+            events, Sequence
+        ):
+            raise CaseBundleError("Manual simulation events must be a sequence.")
+        total_events += len(events)
+        if total_events > MAX_MANUAL_SIMULATION_EVENTS:
+            raise CaseBundleError("The manual simulation event count exceeds its limit.")
+        try:
+            parsed = parse_manual_simulation_record(record)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise CaseBundleError(f"Invalid manual simulation record: {exc}") from exc
+        fingerprint = parsed["record_fingerprint"]
+        if fingerprint in fingerprints:
+            raise CaseBundleError(
+                "Manual simulation records contain a duplicate fingerprint."
+            )
+        fingerprints.add(fingerprint)
+        validated.append(parsed)
+    return tuple(validated)
 
 
 def _checksum_lines(files: Mapping[str, Mapping[str, object]]) -> bytes:
@@ -320,6 +361,63 @@ def is_additive_rrt_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
     )
 
 
+def is_five_dof_profile_upgrade(saved: Mapping, current: Mapping) -> bool:
+    """Recognize only the recorded six-to-five-DOF URDF profile transition."""
+
+    saved_identity = "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682"
+    current_identity = (
+        "cac087c6ee96258416e587e43303a0351f331a8b668daf4ff0f3929a030ae52c"
+    )
+    urdf_hashes = {
+        "description/urdf/dentobot.urdf": (
+            "c70c12e38dc12dd4798f6332426eea82a430dc882836ef31cf0ce293c1e3f3d5",
+            "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a",
+        ),
+        "description/urdf/dentobot.diagnostic-no-spindle-collision.urdf": (
+            "8345886de7ecbe359df010da37a5099d209edae41dc9fc9857a4dccbe61ace99",
+            "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995",
+        ),
+    }
+    if (
+        saved.get("schemaVersion") != "1.0"
+        or current.get("schemaVersion") != "1.0"
+        or saved.get("runtimeRestorePolicy")
+        != "verify-installed-resources-then-explicitly-connect"
+        or current.get("runtimeRestorePolicy")
+        != "verify-installed-resources-then-explicitly-connect"
+        or saved.get("identitySha256") != saved_identity
+        or current.get("identitySha256") != current_identity
+    ):
+        return False
+    before, after = saved.get("components"), current.get("components")
+    if (
+        not isinstance(before, list)
+        or not isinstance(after, list)
+        or any(not isinstance(item, dict) for item in before + after)
+        or any(set(item) != {"path", "sha256", "sizeBytes"} for item in before + after)
+        or any(not isinstance(item.get("path"), str) for item in before + after)
+    ):
+        return False
+    saved_by_path = {item["path"]: item for item in before}
+    current_by_path = {item["path"]: item for item in after}
+    if (
+        len(saved_by_path) != len(before)
+        or len(current_by_path) != len(after)
+        or saved_by_path.keys() != current_by_path.keys()
+    ):
+        return False
+    if any(
+        saved_by_path.get(path, {}).get("sha256") != hashes[0]
+        or current_by_path.get(path, {}).get("sha256") != hashes[1]
+        for path, hashes in urdf_hashes.items()
+    ):
+        return False
+    return all(
+        saved_by_path[path] == current_by_path[path]
+        for path in saved_by_path.keys() - urdf_hashes.keys()
+    )
+
+
 def create_case_bundle(
     destination: str | Path,
     scene_mrb: str | Path,
@@ -330,8 +428,9 @@ def create_case_bundle(
     application: Mapping[str, object] | None = None,
     created_at_utc: str | None = None,
     schema_version: str = CASE_BUNDLE_SCHEMA_VERSION,
+    manual_simulation_records: Sequence[Mapping[str, object]] = (),
 ) -> CaseBundleInspection:
-    """Atomically create and then validate one portable case bundle."""
+    """Create a bundle; manual records are display-only, never scene/ROS authority."""
 
     destination = Path(destination)
     if destination.suffix.lower() != CASE_BUNDLE_EXTENSION:
@@ -343,6 +442,19 @@ def create_case_bundle(
     runtime_audit = audit_mrb_runtime_separation(scene_mrb)
     if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
         raise CaseBundleError(f"Unsupported DENTOBOT case-bundle schema: {schema_version}")
+    manual_records = _validated_manual_simulation_records(manual_simulation_records)
+    if manual_records and schema_version != CASE_BUNDLE_SCHEMA_VERSION:
+        raise CaseBundleError(
+            "Manual simulation records require a schema-2 case bundle."
+        )
+    manual_records_bytes = (
+        _canonical_json_bytes(list(manual_records)) if manual_records else None
+    )
+    if (
+        manual_records_bytes is not None
+        and len(manual_records_bytes) > MAX_METADATA_MEMBER_BYTES
+    ):
+        raise CaseBundleError("The manual simulation record member is too large.")
 
     workflow_bytes = _canonical_json_bytes(dict(workflow))
     robot_bytes = _canonical_json_bytes(dict(robot_profile))
@@ -374,6 +486,8 @@ def create_case_bundle(
                 STUDY_ATTEMPTS_MEMBER: _file_record_from_bytes(study_attempts_bytes),
             }
         )
+    if manual_records_bytes is not None:
+        files[MANUAL_SIMULATION_MEMBER] = _file_record_from_bytes(manual_records_bytes)
     manifest = {
         "format": CASE_BUNDLE_FORMAT,
         "schemaVersion": schema_version,
@@ -415,6 +529,12 @@ def create_case_bundle(
             if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
                 archive.writestr(STUDY_INDEX_MEMBER, study_index_bytes, zipfile.ZIP_DEFLATED)
                 archive.writestr(STUDY_ATTEMPTS_MEMBER, study_attempts_bytes, zipfile.ZIP_DEFLATED)
+            if manual_records_bytes is not None:
+                archive.writestr(
+                    MANUAL_SIMULATION_MEMBER,
+                    manual_records_bytes,
+                    zipfile.ZIP_DEFLATED,
+                )
             archive.writestr(CHECKSUMS_MEMBER, checksum_bytes, zipfile.ZIP_DEFLATED)
         inspection = validate_case_bundle(temporary_path)
         os.replace(temporary_path, destination)
@@ -427,6 +547,7 @@ def create_case_bundle(
             save_report=inspection.save_report,
             study_index=inspection.study_index,
             study_attempts=inspection.study_attempts,
+            manual_simulation_records=inspection.manual_simulation_records,
         )
     finally:
         if temporary_path is not None:
@@ -493,12 +614,18 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
                 raise CaseBundleError(
                     "The case bundle is incomplete: " + ", ".join(missing)
                 )
-        unexpected = sorted(set(names) - required)
+        optional = (
+            {MANUAL_SIMULATION_MEMBER}
+            if schema_version == CASE_BUNDLE_SCHEMA_VERSION
+            else set()
+        )
+        unexpected = sorted(set(names) - required - optional)
         if unexpected:
             raise CaseBundleError(
                 "The case bundle contains unsupported archive members: "
                 + ", ".join(unexpected)
             )
+        required.update(set(names) & optional)
         coordinate = manifest.get("coordinateSystem")
         if not isinstance(coordinate, dict) or (
             coordinate.get("world") != "SlicerRAS"
@@ -537,6 +664,7 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
             raise CaseBundleError("The bundle save report did not pass ROS separation.")
         study_index = None
         study_attempts: tuple[dict, ...] = ()
+        manual_simulation_records: tuple[dict, ...] = ()
         if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
             study_index = _json_member(archive, STUDY_INDEX_MEMBER)
             if (
@@ -557,6 +685,22 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
                 raise CaseBundleError("Every study attempt must be a JSON object.")
             if len(study_attempts) != int(study_index["attemptCount"]):
                 raise CaseBundleError("The study attempt count does not match its ledger.")
+            if MANUAL_SIMULATION_MEMBER in names:
+                try:
+                    raw_records = json.loads(
+                        archive.read(MANUAL_SIMULATION_MEMBER).decode("utf-8")
+                    )
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise CaseBundleError(
+                        "The manual simulation record member is not valid UTF-8 JSON."
+                    ) from exc
+                if not isinstance(raw_records, list):
+                    raise CaseBundleError(
+                        "The manual simulation record member must contain an array."
+                    )
+                manual_simulation_records = _validated_manual_simulation_records(
+                    raw_records
+                )
         return CaseBundleInspection(
             path=bundle_path,
             manifest=manifest,
@@ -565,6 +709,7 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
             save_report=save_report,
             study_index=study_index,
             study_attempts=study_attempts,
+            manual_simulation_records=manual_simulation_records,
         )
 
 

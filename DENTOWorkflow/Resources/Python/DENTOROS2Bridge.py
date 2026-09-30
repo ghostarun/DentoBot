@@ -20,8 +20,6 @@ from uuid import uuid4
 
 from DENTOStep6State import (
     JOINT_NAMES,
-    LEGACY_JOINT_NAMES,
-    SPINDLE_LOCKED_VALUE_RAD,
     canonicalize_planning_joint_positions,
 )
 
@@ -83,7 +81,6 @@ ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE = (
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
 ROS2_JOINT_SI_ORDER = tuple(JOINT_NAMES)
-ROS2_LEGACY_JOINT_SI_ORDER = tuple(LEGACY_JOINT_NAMES)
 ROS2_CONTINUOUS_REVOLUTE_JOINTS = frozenset(
     {
         "link-5_Revolute-5",
@@ -275,6 +272,7 @@ _last_manual_joint_status_at = 0.0
 _configured_motion_widget = None
 _native_joint_positions = [0.0] * len(ROS2_JOINT_SI_ORDER)
 _native_goal_transform = None
+_native_tcp_drag_enabled = False
 _task_config_publisher = None
 _task_command_publisher = None
 _task_status_subscriber = None
@@ -899,12 +897,8 @@ def _restore_motion_control_positions(values: Sequence[float]) -> None:
         setter = getattr(widget, "_setJointUi_SIToSlicer", None) if widget else None
         if widget is None or not callable(setter):
             return
-        # The visual robot retains the downstream spindle branch. Keep its
-        # display angle at the reference value while the command state remains
-        # the five-joint MoveIt vector.
-        restored = [float(value) for value in values] + [SPINDLE_LOCKED_VALUE_RAD]
-        widget.jointPositionsRad = restored
-        setter(restored)
+        widget.jointPositionsRad = [float(value) for value in values]
+        setter(widget.jointPositionsRad)
     except Exception:
         return
 
@@ -1838,11 +1832,6 @@ def joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
     return [canonical[name] for name in ROS2_JOINT_SI_ORDER]
 
 
-def visual_joint_si_vector(positions_si: Mapping[str, float]) -> list[float]:
-    """Append the fixed visual spindle angle for the expert robot display."""
-    return joint_si_vector(positions_si) + [SPINDLE_LOCKED_VALUE_RAD]
-
-
 def position_axis_joint_limit_blockers(
     joint_values_si: Sequence[float],
     lower_limits_si: Sequence[float],
@@ -2069,7 +2058,7 @@ def show_moveit_joint_goal(
     if error or logic is None or robot_node is None:
         return False, error or "MoveIt goal-robot context is unavailable."
     try:
-        values = visual_joint_si_vector(joint_positions_si)
+        values = joint_si_vector(joint_positions_si)
         logic.last_ik_solution = list(values)
         logic.updategoalTransformsFromJointsKDL(robot_node, values)
     except Exception as exc:
@@ -2330,8 +2319,9 @@ def configure_dentobot_motion_control_ui(widget, parameter_node) -> bool:
     widget.ui.executeButton.visible = False
     _motion_ui_status(
         widget,
-        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tcp · J1–J5 planning only; "
-        "the pneumatic spindle is external and not planned. Plan/preview only.",
+        "MoveIt ready · group dentobot_arm · TCP dentobot_drill_tcp · five-DOF arm "
+        "positioning and axis orientation only; axial roll is unconstrained. The "
+        "physical drill is a separate future speed-controlled device. Plan/preview only.",
     )
     _configured_motion_widget = widget
     return True
@@ -2819,7 +2809,7 @@ def show_goal_robot_joint_positions(
     if robot_node.GetNumberOfNodeReferences("goal_model") == 0:
         return False, "The transient goal robot is unavailable."
     try:
-        values = visual_joint_si_vector(positions_si)
+        values = joint_si_vector(positions_si)
         motion_logic.updategoalTransformsFromJointsKDL(robot_node, values)
         for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
             model = robot_node.GetNthNodeReference("goal_model", index)
@@ -3454,9 +3444,8 @@ def _position_axis_residual_mm_degrees(
     """Return translation and drill-axis residual, leaving housing roll free.
 
     The robot has five controllable positioning joints.  Cartesian Stage 2/3
-    therefore constrain the physical burr position and its drilling axis, but
-    deliberately do not constrain rotation about that axis (the pneumatic
-    spindle is external and uncommanded).
+    therefore constrain the physical burr position and drilling axis. Axial
+    roll is unconstrained because the five-DOF arm does not control it.
     """
 
     actual_rows = _matrix4_rows(actual)
@@ -4348,7 +4337,7 @@ def plan_moveit_cartesian_path(
             recovered = [dict(seed)]
             # Try the previous arm state first, then small deterministic
             # perturbations to escape a local IK branch without changing the
-            # requested Cartesian frame or spindle policy.
+            # requested Cartesian frame or five-DOF pose contract.
             perturbations = (
                 ("link-1_Revolute-1", 0.05),
                 ("link-1_Revolute-1", -0.05),
@@ -4854,6 +4843,311 @@ def plan_moveit_cartesian_path(
     )
 
 
+def _tcp_delta_vector(name: str, values) -> tuple[float, float, float]:
+    if (
+        isinstance(values, (str, bytes))
+        or not isinstance(values, Sequence)
+        or len(values) != 3
+    ):
+        raise ValueError(f"{name} must contain exactly three finite numbers.")
+    result = []
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"{name} must contain exactly three finite numbers.")
+        number = float(value)
+        if not isfinite(number):
+            raise ValueError(f"{name} must contain exactly three finite numbers.")
+        result.append(number)
+    return tuple(result)
+
+
+def _nudged_tcp_goal_matrix(
+    current_matrix,
+    translation_ras_mm,
+    rotation_local_rpy_deg,
+) -> tuple[tuple[float, float, float, float], ...]:
+    """Apply world-RAS translation or local-frame ZYX rotation to a goal pose."""
+    translation = _tcp_delta_vector("translation_ras_mm", translation_ras_mm)
+    rotation = _tcp_delta_vector("rotation_local_rpy_deg", rotation_local_rpy_deg)
+    if any(translation) and any(rotation):
+        raise ValueError("Apply translation or orientation in one TCP nudge, not both.")
+    try:
+        if hasattr(current_matrix, "GetElement"):
+            rows = [
+                [float(current_matrix.GetElement(row, column)) for column in range(4)]
+                for row in range(4)
+            ]
+        else:
+            if (
+                isinstance(current_matrix, (str, bytes))
+                or len(current_matrix) != 4
+                or any(len(row) != 4 for row in current_matrix)
+            ):
+                raise ValueError("The current TCP goal must be a 4 by 4 matrix.")
+            rows = [[float(value) for value in row] for row in current_matrix]
+    except (IndexError, TypeError, OverflowError) as exc:
+        raise ValueError("The current TCP goal must be a finite 4 by 4 matrix.") from exc
+    if not all(isfinite(value) for row in rows for value in row):
+        raise ValueError("The current TCP goal must be a finite 4 by 4 matrix.")
+
+    roll, pitch, yaw = (radians(value) for value in rotation)
+    cr, sr = cos(roll), sin(roll)
+    cp, sp = cos(pitch), sin(pitch)
+    cy, sy = cos(yaw), sin(yaw)
+    local_rotation = (
+        (cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
+        (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
+        (-sp, cp * sr, cp * cr),
+    )
+    rotated = [
+        [
+            sum(rows[row][axis] * local_rotation[axis][column] for axis in range(3))
+            for column in range(3)
+        ]
+        for row in range(3)
+    ]
+    for row in range(3):
+        rows[row][:3] = rotated[row]
+        rows[row][3] += translation[row]
+    return tuple(tuple(value for value in row) for row in rows)
+
+
+def _ensure_native_tcp_goal_transform():
+    """Prepare the native goal transform without enabling viewport dragging."""
+    global _native_goal_transform, _native_tcp_drag_enabled
+    try:
+        import slicer
+    except ImportError:
+        return None, "Slicer is unavailable."
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    logic = get_motion_control_logic()
+    if robot_node is None or logic is None:
+        return None, "Connect DENTOBOT Motion Control first."
+    if _native_goal_transform is not None:
+        try:
+            if _native_goal_transform.GetScene() is None:
+                _native_goal_transform = None
+                _native_tcp_drag_enabled = False
+        except Exception:
+            _native_goal_transform = None
+            _native_tcp_drag_enabled = False
+    if _native_goal_transform is None:
+        try:
+            _native_goal_transform = slicer.util.getNode("ProbeSphere_Transform")
+        except Exception:
+            _native_goal_transform = None
+    if _native_goal_transform is None:
+        try:
+            _native_goal_transform = logic.createLinearTransform(showAxes=False)
+        except Exception as exc:
+            _native_goal_transform = None
+            return None, f"Could not create a native TCP goal transform: {exc}"
+    try:
+        root_and_tip = robot_node.FindRootAndTipLinks()
+        root_link = str(root_and_tip[0]) if root_and_tip else ROS2_FIXED_FRAME
+        goal_root = logic.findRobotTransforms(root_link, goal=True)
+        if goal_root is None:
+            raise RuntimeError("The native MoveIt goal root transform is unavailable.")
+        display = _native_goal_transform.GetDisplayNode()
+        if display is not None and not _native_tcp_drag_enabled:
+            display.SetEditorVisibility(False)
+        logic.setIKSourceTransforms(
+            _native_goal_transform.GetName(), goal_root.GetName()
+        )
+        _mark_node_and_storage_transient(_native_goal_transform)
+        mark_slicer_ros2_runtime_nodes_transient()
+    except Exception as exc:
+        return None, f"Could not prepare the native TCP goal transform: {exc}"
+    return _native_goal_transform, ""
+
+
+def _compute_live_tcp_kinematic_ik(
+    logic,
+    robot_node,
+    goal_node,
+    goal_root,
+    *,
+    seed_joint_positions_si=None,
+):
+    """Compute TCP position/drill-axis IK without constraining axial roll."""
+    try:
+        import slicer
+        import vtk
+
+        target_pose = vtk.vtkMatrix4x4()
+        if not slicer.vtkMRMLTransformNode.GetMatrixTransformBetweenNodes(
+            goal_node, goal_root, target_pose
+        ):
+            return False, "Could not read the probe pose in the goal robot frame.", {}
+        ik_link, ik_target_pose = logic.ConvertTipTargetToIKTarget(
+            target_pose, ROS2_TOOL_TCP_LINK
+        )
+        if seed_joint_positions_si is None:
+            try:
+                cached_seed = [
+                    float(value)
+                    for value in (getattr(logic, "last_ik_solution", ()) or ())
+                ]
+            except (TypeError, ValueError, OverflowError):
+                cached_seed = []
+            seed = (
+                cached_seed
+                if len(cached_seed) == len(ROS2_JOINT_SI_ORDER)
+                and all(isfinite(value) for value in cached_seed)
+                else []
+            )
+        else:
+            seed = joint_si_vector(seed_joint_positions_si)
+        position_axis_solver = getattr(
+            robot_node, "ComputeMoveItPositionAxisIK", None
+        )
+        if not callable(position_axis_solver):
+            return (
+                False,
+                "The loaded SlicerROS2 build lacks position-axis IK; rebuild and restart it.",
+                {},
+            )
+        solution = list(
+            position_axis_solver(
+                ik_target_pose,
+                ik_link,
+                seed,
+                0.05,
+                False,
+            )
+            or ()
+        )
+        diagnostic_parts = []
+        message_getter = getattr(
+            robot_node, "GetLastMoveItPositionAxisIKMessage", None
+        )
+        if callable(message_getter):
+            try:
+                native_message = str(message_getter() or "").strip()
+                if native_message:
+                    diagnostic_parts.append(native_message)
+            except Exception:
+                pass
+        for getter_name, label, unit in (
+            (
+                "GetLastMoveItPositionAxisIKPositionResidualMm",
+                "position residual",
+                "mm",
+            ),
+            (
+                "GetLastMoveItPositionAxisIKAxisResidualDeg",
+                "drill-axis residual",
+                "deg",
+            ),
+        ):
+            getter = getattr(robot_node, getter_name, None)
+            if callable(getter):
+                try:
+                    residual = float(getter())
+                    if isfinite(residual) and residual >= 0.0:
+                        diagnostic_parts.append(f"{label} {residual:.3f} {unit}")
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        diagnostic = (
+            " (" + "; ".join(diagnostic_parts) + ")"
+            if diagnostic_parts
+            else ""
+        )
+        if len(solution) != len(ROS2_JOINT_SI_ORDER):
+            return (
+                False,
+                "Live TCP position-axis review found no exact J1–J5 candidate; "
+                "axial tool roll is unconstrained and no candidate is available "
+                f"for static-state validation.{diagnostic}",
+                {},
+            )
+        solution = [float(value) for value in solution]
+        if not all(isfinite(value) for value in solution):
+            return (
+                False,
+                "Live TCP position-axis IK returned non-finite joint values."
+                f"{diagnostic}",
+                {},
+            )
+        positions = dict(zip(ROS2_JOINT_SI_ORDER, solution, strict=True))
+        logic.last_ik_solution = list(solution)
+        logic.updategoalTransformsFromJointsKDL(robot_node, solution)
+        return (
+            True,
+            "Live TCP position-axis review solved exact TCP position and "
+            "drill-axis direction with J1–J5; axial tool roll is unconstrained."
+            f"{diagnostic}",
+            positions,
+        )
+    except Exception as exc:
+        return False, f"Live TCP kinematic review failed: {exc}", {}
+
+
+def _install_kinematic_tcp_drag_observer(
+    logic,
+    robot_node,
+    goal_node,
+    goal_root,
+    *,
+    base_goal_color=(0.25, 0.75, 0.95),
+):
+    """Replace blocking drag callbacks with position-axis kinematic review."""
+    try:
+        import slicer
+
+        logic.removeObserver()
+        logic.setIKSourceTransforms(goal_node.GetName(), goal_root.GetName())
+        busy = [False]
+
+        def on_goal_modified(_caller=None, _event=None):
+            if busy[0]:
+                return
+            busy[0] = True
+            try:
+                success, message, _positions = _compute_live_tcp_kinematic_ik(
+                    logic, robot_node, goal_node, goal_root
+                )
+                logic._dentobotLiveTcpIkMessage = str(message)
+                logic._updateRobotColorForIKResult(
+                    robot_node,
+                    bool(success),
+                    tuple(base_goal_color),
+                )
+                if not success:
+                    print("[DENTOBOT TCP kinematic review] " + str(message))
+            except Exception as exc:
+                logic._dentobotLiveTcpIkMessage = (
+                    "Live TCP kinematic review failed: " + str(exc)
+                )
+                try:
+                    logic._updateRobotColorForIKResult(
+                        robot_node,
+                        False,
+                        tuple(base_goal_color),
+                    )
+                except Exception:
+                    pass
+                print("[DENTOBOT TCP kinematic review] " + str(exc))
+            finally:
+                busy[0] = False
+
+        event_id = slicer.vtkMRMLTransformNode.TransformModifiedEvent
+        observer_tag = goal_node.AddObserver(event_id, on_goal_modified)
+        if not observer_tag:
+            raise RuntimeError("The probe transform did not accept the IK observer.")
+        logic.obsNode = goal_node
+        logic.obsTag = observer_tag
+        logic.callback = on_goal_modified
+        logic.isInteracting = False
+        return True, "Installed the non-blocking kinematic-review observer."
+    except Exception as exc:
+        try:
+            logic.removeObserver()
+        except Exception:
+            pass
+        return False, f"Could not install live TCP kinematic review: {exc}"
+
+
 def _dentobot_native_motion_context(
     *,
     initialize_goal: bool = False,
@@ -4866,7 +5160,7 @@ def _dentobot_native_motion_context(
     performing those read-only/state-owned operations set ``require_goal`` to
     false; interactive IK callers retain the fail-closed goal requirement.
     """
-    global _native_goal_transform
+    global _native_goal_transform, _native_tcp_drag_enabled
     try:
         import slicer
     except ImportError:
@@ -4877,19 +5171,50 @@ def _dentobot_native_motion_context(
         return None, None, None, "Connect DENTOBOT Motion Control first."
     if _native_goal_transform is not None and _native_goal_transform.GetScene() is None:
         _native_goal_transform = None
-    if initialize_goal and _native_goal_transform is None:
+        _native_tcp_drag_enabled = False
+    if initialize_goal and not _native_tcp_drag_enabled:
         root_and_tip = robot_node.FindRootAndTipLinks()
         root_link = str(root_and_tip[0]) if root_and_tip else ROS2_FIXED_FRAME
+        base_goal_color = (0.25, 0.75, 0.95)
         state = logic.EnterControlMode(
             robot_node,
             root_link,
             ROS2_TOOL_TCP_LINK,
             ROS2_TOOL_TCP_LINK,
-            baseGoalColor=(0.25, 0.75, 0.95),
+            baseGoalColor=base_goal_color,
         )
         if not state:
             return logic, robot_node, None, "Could not create native TCP goal controls."
         _native_goal_transform = state.get("fromTransform")
+        goal_root = state.get("toTransform")
+        if _native_goal_transform is None or goal_root is None:
+            try:
+                logic.ExitControlMode(_native_goal_transform)
+            except Exception:
+                pass
+            _native_goal_transform = None
+            return (
+                logic,
+                robot_node,
+                None,
+                "Native TCP goal controls returned incomplete transforms.",
+            )
+        observer_ok, observer_message = _install_kinematic_tcp_drag_observer(
+            logic,
+            robot_node,
+            _native_goal_transform,
+            goal_root,
+            base_goal_color=base_goal_color,
+        )
+        if not observer_ok:
+            try:
+                logic.ExitControlMode(_native_goal_transform)
+            except Exception:
+                pass
+            _native_goal_transform = None
+            _native_tcp_drag_enabled = False
+            return logic, robot_node, None, observer_message
+        _native_tcp_drag_enabled = True
         _mark_node_and_storage_transient(_native_goal_transform)
         try:
             _mark_node_and_storage_transient(slicer.util.getNode("ProbeSphere"))
@@ -4902,7 +5227,7 @@ def _dentobot_native_motion_context(
 
 
 def ensure_moveit_tcp_goal_control():
-    """Create or reuse the draggable provisional-TCP goal transform."""
+    """Explicitly enable native MoveIt viewport dragging for the TCP goal."""
     logic, _robot, goal_node, error = _dentobot_native_motion_context(
         initialize_goal=True
     )
@@ -4910,15 +5235,81 @@ def ensure_moveit_tcp_goal_control():
         return False, error or "TCP goal control is unavailable.", None
     return (
         True,
-        "DENTOBOT TCP goal is ready. Drag the probe, then solve IK.",
+        "DENTOBOT TCP dragging is enabled. Live ghost updates review exact TCP "
+        "position and drill-axis direction; axial tool roll is unconstrained. "
+        "Click Solve IK for authoritative static-state evaluation. "
+        "Drag results never stage or accept robot state.",
         goal_node,
     )
 
 
+def ensure_moveit_tcp_goal_transform():
+    """Prepare an IK target transform without showing native drag handles."""
+    goal_node, error = _ensure_native_tcp_goal_transform()
+    if error or goal_node is None:
+        return False, error or "TCP goal transform is unavailable.", None
+    return (
+        True,
+        "Native TCP goal transform is ready; viewport dragging remains off.",
+        goal_node,
+    )
+
+
+def exit_moveit_tcp_goal_control():
+    """Use native Motion Control teardown to disable probe interaction."""
+    global _native_goal_transform, _native_tcp_drag_enabled
+    logic = get_motion_control_logic()
+    if logic is None:
+        if _native_goal_transform is None and not _native_tcp_drag_enabled:
+            return True, "TCP goal dragging is already disabled.", None
+        return (
+            False,
+            "Motion Control is unavailable; TCP drag state is unresolved.",
+            _native_goal_transform,
+        )
+    goal_node = _native_goal_transform
+    if goal_node is None:
+        try:
+            import slicer
+
+            goal_node = slicer.util.getNode("ProbeSphere_Transform")
+        except Exception:
+            pass
+    try:
+        logic.ExitControlMode(goal_node)
+    except Exception as exc:
+        try:
+            removed = goal_node is not None and goal_node.GetScene() is None
+        except Exception:
+            removed = False
+        if not removed:
+            return (
+                False,
+                f"Could not disable native TCP goal dragging: {exc}",
+                goal_node,
+            )
+    _native_goal_transform = None
+    _native_tcp_drag_enabled = False
+    return (
+        True,
+        "Native TCP goal dragging is disabled; accepted robot state is unchanged.",
+        None,
+    )
+
+
+def set_moveit_tcp_goal_drag_enabled(enabled: bool):
+    """Toggle native viewport drag controls without touching accepted state."""
+    if not isinstance(enabled, bool):
+        return False, "TCP drag state must be an explicit on/off value.", None
+    if enabled:
+        return ensure_moveit_tcp_goal_control()
+    return exit_moveit_tcp_goal_control()
+
+
 def set_moveit_tcp_goal_matrix(matrix_goal_parent):
-    """Set the generic Motion Control TCP probe without exposing its widget."""
-    ok, message, goal_node = ensure_moveit_tcp_goal_control()
-    if not ok or goal_node is None:
+    """Set a native goal pose without implicitly enabling viewport dragging."""
+    goal_node, message = _ensure_native_tcp_goal_transform()
+    if goal_node is None:
         return False, message, None
     try:
         if hasattr(matrix_goal_parent, "GetElement"):
@@ -4937,46 +5328,104 @@ def set_moveit_tcp_goal_matrix(matrix_goal_parent):
     return True, "Updated the provisional TCP goal transform.", goal_node
 
 
+def nudge_moveit_tcp_goal(translation_ras_mm, rotation_local_rpy_deg):
+    """Nudge the explicitly enabled native TCP probe and return its pose."""
+    if not _native_tcp_drag_enabled:
+        return False, "Enable TCP Drag before moving the viewport goal.", None, None
+    logic, robot_node, goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False
+    )
+    if error or logic is None or robot_node is None or goal_node is None:
+        return False, error or "TCP goal control is unavailable.", None, None
+    try:
+        import vtk
+
+        current = vtk.vtkMatrix4x4()
+        goal_node.GetMatrixTransformToParent(current)
+        updated = _nudged_tcp_goal_matrix(
+            current,
+            translation_ras_mm,
+            rotation_local_rpy_deg,
+        )
+        matrix = vtk.vtkMatrix4x4()
+        for row in range(4):
+            for column in range(4):
+                matrix.SetElement(row, column, updated[row][column])
+        ok, message, goal_node = set_moveit_tcp_goal_matrix(matrix)
+        if not ok:
+            return False, message, goal_node, None
+    except (TypeError, ValueError, IndexError, OverflowError) as exc:
+        return False, f"TCP goal nudge rejected: {exc}", goal_node, None
+    return True, message, goal_node, updated
+
+
 def solve_moveit_tcp_goal(
     *,
     seed_joint_positions_si: Optional[Mapping[str, float]] = None,
 ):
-    """Solve the current goal probe through the configured MoveIt IK plugin."""
+    """Solve the probe and require authoritative MoveIt static-state validity."""
     logic, robot_node, _goal_node, error = _dentobot_native_motion_context(
         initialize_goal=False
     )
     if error or logic is None or robot_node is None:
         return False, error or "TCP goal control is unavailable.", {}
     try:
-        kwargs = {
-            "robotmodel": robot_node,
-            "tipLink": ROS2_TOOL_TCP_LINK,
-        }
-        if seed_joint_positions_si is not None:
-            kwargs["seedJointValues"] = joint_si_vector(
-                seed_joint_positions_si
-            )
-        solution = logic.computeIKWithMoveIt(**kwargs)
+        goal_node = _goal_node
+        root_and_tip = robot_node.FindRootAndTipLinks()
+        root_link = str(root_and_tip[0]) if root_and_tip else ROS2_FIXED_FRAME
+        goal_root = logic.findRobotTransforms(root_link, goal=True)
+        if goal_node is None or goal_root is None:
+            return False, "The current native TCP goal pose is unavailable.", {}
+        solved, solve_message, positions = _compute_live_tcp_kinematic_ik(
+            logic,
+            robot_node,
+            goal_node,
+            goal_root,
+            seed_joint_positions_si=seed_joint_positions_si,
+        )
     except Exception as exc:
-        return False, f"MoveIt IK request failed: {exc}", {}
-    if not solution:
+        return False, f"MoveIt TCP IK review failed: {exc}", {}
+    if not solved:
+        return False, solve_message, {}
+
+    try:
+        valid, validity_message, authoritative = check_moveit_static_joint_state(
+            positions
+        )
+    except Exception as exc:
+        valid, validity_message, authoritative = (
+            False,
+            f"MoveIt static validity query failed: {exc}",
+            False,
+        )
+    try:
+        logic._updateRobotColorForIKResult(
+            robot_node,
+            bool(valid and authoritative),
+            (0.25, 0.75, 0.95),
+        )
+    except Exception:
+        pass
+
+    if not authoritative:
         return (
             False,
-            "MoveIt found no collision-aware IK solution for the requested TCP pose.",
+            "TCP IK candidate is unresolved because authoritative MoveIt static "
+            f"validity is unavailable: {validity_message}",
             {},
         )
-    # MoveIt returns the variables in the configured planning-group order.
-    # The group is now J1–J5; the visual KDL chain may still expose the
-    # downstream six-joint branch, so do not derive this mapping from GetJoints().
-    if len(solution) != len(ROS2_JOINT_SI_ORDER):
-        return False, "MoveIt IK returned a planning-group joint-count mismatch.", {}
-    ordered = canonicalize_planning_joint_positions(
-        dict(zip(ROS2_JOINT_SI_ORDER, map(float, solution)))
-    )
+    if not valid:
+        return (
+            False,
+            f"TCP IK candidate rejected by MoveIt static validity: {validity_message}",
+            {},
+        )
     return (
         True,
-        f"MoveIt IK solved {ROS2_TOOL_TCP_LINK} with {len(ordered)} joints.",
-        ordered,
+        "TCP position/drill-axis IK passed authoritative MoveIt static validity "
+        "(axial tool roll is unconstrained): "
+        f"{validity_message}",
+        positions,
     )
 
 
@@ -5091,7 +5540,23 @@ def solve_moveit_tcp_position_axis_goal(
     return True, message or "MoveIt position-axis IK solved the canonical TCP.", ordered, diagnostic
 
 
+def _release_moveit_vtk_result(value) -> None:
+    unregister = getattr(value, "UnRegister", None) if value is not None else None
+    if callable(unregister):
+        try:
+            unregister(None)
+        except Exception:
+            pass
+
+
 def _moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
+    try:
+        return _copy_moveit_trajectory_result(trajectory)
+    finally:
+        _release_moveit_vtk_result(trajectory)
+
+
+def _copy_moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
     ok, message = _trajectory_motion_summary(trajectory)
     if not ok:
         return MoveItCartesianResult(False, message)
@@ -5539,6 +6004,7 @@ def compute_moveit_static_tcp_pose_base_mm(
             "rebuild/restart it before Step 6.3.",
             None,
         )
+    matrix = None
     try:
         matrix = compute_fk(
             ROS2_PLANNING_GROUP,
@@ -5553,6 +6019,8 @@ def compute_moveit_static_tcp_pose_base_mm(
         position = tuple(float(matrix.GetElement(index, 3)) for index in range(3))
     except Exception as exc:
         return False, f"MoveIt FK query failed: {exc}", None
+    finally:
+        _release_moveit_vtk_result(matrix)
     if len(position) != 3 or not all(isfinite(value) for value in position):
         return False, "MoveIt FK returned a non-finite TCP position.", None
     return True, message, position
@@ -5981,7 +6449,7 @@ def disconnect_dentobot_motion_control(
     mrml_robot_models: Optional[list] = None,
     progress=None,
 ) -> Tuple[bool, str]:
-    global _native_goal_transform
+    global _native_goal_transform, _native_tcp_drag_enabled
     try:
         import slicer
     except ImportError:
@@ -6001,6 +6469,7 @@ def disconnect_dentobot_motion_control(
         except Exception:
             pass
         _native_goal_transform = None
+        _native_tcp_drag_enabled = False
     if motion_logic is not None and robot_node is not None:
         proxies = [
             node for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
@@ -6016,7 +6485,7 @@ def disconnect_dentobot_motion_control(
                 pause_render()
                 rendering_paused = True
             for index, node in enumerate(proxies, 1):
-                # Publish the removal synchronously. RemoveMoveItObstacle queues a
+                # Publish the removal synchronously.  RemoveMoveItObstacle queues a
                 # second callback holding native wrappers, which is unsafe across
                 # scene clear or scripted-module replacement.
                 try:
@@ -6201,3 +6670,4 @@ def shutdown_slicer_adapter() -> None:
     _last_task_status_at = 0.0
     _last_task_config_json = ""
     _native_goal_transform = None
+    _native_tcp_drag_enabled = False

@@ -1,5 +1,8 @@
 # DENTOBOT Tasks
 
+**2026-09-30 integration execution supersession (`S6-LIVE-01`, `S6-P2-03`, `S6-REUSABLE-CASE-SETUP`):** Tarun explicitly authorized committed unfinished source checkpoints and the curated-5.10 integration pass. Frozen renovation **e7cd29f** is being merged into `integration/step6-5.10-reviewed-20260927`, after preserving prior integration in **243e3a1**. This supersedes older no-current-integration/no-commit sequencing only for this plan. Four GPT-6 Luna Max scopes run within three available concurrent worker slots. 5.12 runtime (`PLAT-U-06`), main/publication, final renovation incorporation and full-cycle/operator acceptance remain deferred/pending. Preparation evidence and dispositions are in `diagnostics/STEP6_INTEGRATION_PREPARATION_2026-09-30.md`; this is not a new task or pending queue.
+
+
 Last reconciled: 2026-09-26. Case Foundation AUTO-primary GUI completion
 recorded 2026-09-18; Step 3B placement mirror source-complete 2026-09-19
 (not a second pending queue beyond `S3B-ROBOT-PLACEMENT-MIRROR`).
@@ -1482,7 +1485,7 @@ authorized the [Step 6 renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTAT
 **2026-09-26 quota-reset verification continuation:** Two Luna Max read-only workers ran the remaining disjoint host pure suites on the renovation checkout: 157 façade/state/planning and 36 UI/bridge tests passed (193 total). Eleven changed Python files compiled; launcher `bash -n`, matrix JSON parsing and `git diff --check` passed. This expands source verification only. The matrix container template points to the separate checkout and was not run; no Slicer/ROS/native/case-based check, screenshot or operator verdict followed. Fresh-case user session remains deferred by Tarun.
 **Later-reference pointer:** [Step 6 later work and adjacent ideas](diagnostics/STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md) retains FDI11/21/31 case-specific solving, planner comparison, future recovery and related Step 3–5/Studio ideas under their existing IDs. It is not a second pending queue. The [Step 6 archive index](diagnostics/archive/step6/README.md) maps superseded prose records to their historical evidence.
 **Superseding operator confirmation:** Valid workbench joint jogs advance the ROS-connected simulated robot after guard acknowledgement; rejected requests remain inspectable review states. Base/Task Home commitment is explicit through current ownership/invalidation, and recorded manual states cannot authorize preview without a fresh full guard. Renovation precedes case-specific planner solving. The first direct-display ordinary-interaction target is 60 FPS, with rendering/FK measured separately from guard/ROS/diagnostics under S6-P2-03 overlap.
-The standalone FDI11 PreEntry IK action is source-checked and its first visible report pertains to an intentionally changed base/Home; Tarun's interpretation and separate saved setup remain open. The corrected workflow-first scope is the linked plan, including shared diagnostics and required recording. Case-specific FDI21/FDI31 solving and planner comparison follow under the later-reference index and canonical P0 gates. Agent runtime, complete-route preview and milestone verdicts remain separately gated. **Hard routing:** GPT-6 Sol Medium orchestrates; use no more than two GPT-6 Luna Max bounded workers simultaneously unless Tarun overrides, with disjoint files and coordinator review.
+The standalone FDI11 PreEntry IK action is source-checked and its first visible report pertains to an intentionally changed base/Home; Tarun's interpretation and separate saved setup remain open. The corrected workflow-first scope is the linked plan, including shared diagnostics and required recording. Case-specific FDI21/FDI31 solving and planner comparison follow under the later-reference index and canonical P0 gates. Agent runtime, complete-route preview and milestone verdicts remain separately gated. **Current task routing:** GPT-6 Sol orchestrates. Tarun's 28 September override permits up to four GPT-6 Luna Max bounded workers simultaneously for the detailed headed-campaign implementation, with disjoint files and coordinator review. Use only the number justified by independent work. The current platform permits three workers beside Sol concurrently; a fourth permitted worker is sequential. Sol retains controlled records, runtime and acceptance.
 
 **2026-09-23 batch-comparison supersession:** The operator requested one
 Step 6.5 action running RRTConnect, RRT and RRT* sequentially with identical
@@ -1625,14 +1628,115 @@ own visible stop.
 
 ## Step 6 planner manual diagnosis — archived context (2026-09-20)
 
-**Bound task:** `S6-LIVE-01`. The [September 20 manual diagnosis](diagnostics/archive/step6/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md) and [implementation map](diagnostics/archive/step6/PLANNER_IMPLEMENTATION_MAP_2026-09-20.md) are preserved as dated evidence for the September 19 FDI31 P1 session. Their mandatory read order, restart statement and experiment order are superseded. For current work, read the [Step 6 renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md), this task's active row below, [backlog.md](backlog.md), and the [FDI31 P0 milestone contract](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) when its gate is implicated. Keep the five-joint/J6, exact scene/guard, manual verdict and no-hardware boundaries; the older session does not determine whether the changed-setup FDI11 PreEntry endpoint is reachable or Home-connected.
+**Bound task:** `S6-LIVE-01`. The [September 20 manual diagnosis](diagnostics/archive/step6/STEP6_PLANNER_MANUAL_DIAGNOSIS_CONTEXT_2026-09-20.md) and [implementation map](diagnostics/archive/step6/PLANNER_IMPLEMENTATION_MAP_2026-09-20.md) are preserved as dated evidence for the September 19 FDI31 P1 session. Their mandatory read order, restart statement and experiment order are superseded. For current work, read the [Step 6 renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md), this task's active row below, [backlog.md](backlog.md), and the [FDI31 P0 milestone contract](diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) when its gate is implicated. Apply the 28 September superseding five-DOF decision: the current robot model and workflow expose exactly J1–J5; the drill spindle is outside joint states and IK. Keep exact scene/guard, manual verdict and no-hardware boundaries; the older session does not determine whether the changed-setup FDI11 PreEntry endpoint is reachable or Home-connected.
 
 ## Track A acceptance contracts — migration baseline
+
+**30 September r22 bounded workbench acceptance:**19 selected headed checks passed with0fail, native exact IK solution retained in draft, real TCP drag/buttons/keys/editor suppression and default-off cleanup verified. Slicer/recorder exit0, complete503.733s bounded-run video and MP4/106-file manifest retained. Full workflow is explicitly not claimed: native rejected fixture, uncertain Base/Home, negative IK, full planner/preview/repeat, final new-case save/reopen, representative responsiveness and Tarun verdict remain open. Horizontal clipping visible with compactchrome still needs UI-P3-01 review. See current logbook and r22 diagnostics.
+
+**30 September S6-LIVE-01 r21/source update:** Case-bound completed viewport drag, Cartesian buttons, physical TCP keys, numeric/text focus suppression and opt-out cleanup passed, with accepted robot unchanged. R21 failed exact native IK-to-draft staging; panel precision correction now passes130 focused host tests with true rounded-control regression. Runtime confirmation remains pending, as do negative IK/native rejected outcomes, uncertain Base/Home, full-chain preview/repeat/final case/reopen and operator verdict. R21 video is partial, no native signal. See current logbook/run diagnostics; host checks are not full runtime acceptance.
+
+**30 September DENTO-NOTE — conditional bounded base-placement diagnostic (`S6-LIVE-01`):** Tarun requests iterative translation around the existing forehead-plane-center Base placement if planner testing fails due to IK unreachability: offsets up to ±20 mm on each of two in-plane axes only. His “XY” denotes an oblique anatomical plane parallel to the upper-teeth root↔crown direction, not an assumed world-RAS XY plane. Triage: planned conditional investigation under the existing planner/base-feasibility contract; the note itself is Unprioritized and does not change the parent Priority0. It supersedes blanket deferral only for this bounded failure-triggered diagnostic; broader sweeps, orientation search, heatmaps and robot redesign remain deferred. Prerequisites: complete the current workbench gate, capture exact current-task IK failure, and establish a reviewed plane origin/orthonormal basis and sampling budget. Root↔crown direction alone does not uniquely define a plane; do not invent its second axis or equate it to the forehead plane without review. Keep Base orientation and normal offset fixed, retain the zero-offset baseline, and freeze anatomy, task/TCP, limits and collision/phase policy. Reuse the shared five-joint evaluator, preserve each candidate transform, requested endpoint, IK/FK residuals, limit/collision evidence and identity in diagnostic records/screenshots. Candidates remain detached/display-only; no automatic Base acceptance, Home reuse, route promotion or preview. A selected candidate requires normal explicit Base review/acceptance, scene acknowledgement, fresh Home/workspace/task checks and full-chain guard before motion authority. No successful IK result or infeasibility proof is implied by this note; empty bounded search remains inconclusive beyond its evaluated coverage.
 
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. Manual request/session/policy and read-only reconciliation source gates were committed as `c1bfba0`. The later detached numeric Base review, current-case restore and taskless static review are uncommitted. On 27 September, 154 focused host checks passed after exact native double-echo and accepted-state UI mirror fixes. A bounded headed Slicer checklist on the unchanged current case passed case/robot/scene, production read-only draft, one correlated native-accepted J1 +0.1° jog with later accepted/monitored/displayed convergence, and Base stage/cancel without accepted-matrix change. Slicer exited 1 during shutdown, so the recording manifest is partial despite checklist PASS. Detached Home review/accept source and UI passed 166 combined host tests. A later exact-case headed checklist passed all 14 items, including zero-displacement Base Accept with scene resync and current-pose Task Home Accept with validated saved revision 13→14. The first opt-in attempt failed a runner evidence check and was corrected before the passing run. Both whole-process videos remain partial because Slicer exited 1 during shutdown; full recording/export/reopen, uncertain-commit reconciliation, complete route and preview remain open. User normal-window verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain bounded Base/Home happy-path runtime evidence and resolve uncertain-commit reconciliation; invalid drafts and rejected/unknown runtime paths; complete ordered records/export/reopen; two-area/full-chain integration and responsiveness. Preserve exact case/native attribution, J6 exclusion, guard boundaries and diagnostic-only partial paths. Resolve whole-process recording/shutdown semantics before claiming a complete video. See the [27 September logbook](logbook/2026-09-27.md) for commands, screenshots and evidence boundaries. |
+| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; five-DOF refactor verified.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. Manual request/session/policy and read-only reconciliation source gates were committed as `c1bfba0`. Checkpoint `84234a6` records the preceding workbench gates. The uncommitted 28 September refactor now makes URDF, guard, state, Home, limits, IK/FK, publishers, UI and current persistence exact J1–J5 while retaining fixed spindle/burr geometry and canonical TCP. Its indexed host suite passed 394 tests, both ROS packages built in an isolated overlay, and a serialized runtime passed exact five-value guard/state/static/TF/IK checks. Generic fixed-orientation Cartesian interpolation is recorded as unsupported for this five-DOF arm; Step 6 uses the separate position-plus-drill-axis continuity path. Earlier headed evidence includes Base/Home acceptance and a no-case TCP gate proving explicit default-off probe activation, real-time viewport mouse drag, Cartesian nudges, authoritative position-axis solve/stage, accepted-state separation, disable cleanup and zero route/preview authority. Physical keyboard events, case-bound rejected/unknown outcomes, representative responsiveness and positive full-chain preview/interruption remain open. User normal-window verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md) and [detailed five-DOF acceptance checklist](diagnostics/STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md): retain bounded Base/Home/TCP evidence; create and fresh-reopen the named five-DOF FDI11 case; verify uncertain-commit reconciliation, invalid drafts and accepted/rejected/unknown runtime paths; then complete ordered records/export/reopen, physical-key/responsive two-area interaction and positive full-chain preview/interruption. Preserve exact case/native attribution, guard boundaries and diagnostic-only partial paths. The clean connected shutdown path is verified; older partial videos remain failure evidence. See the [28 September logbook](logbook/2026-09-28.md) for current commands and evidence boundaries. |
+
+**2026-09-29 superseding `S6-LIVE-01` acceptance update:** Tarun resumed the
+bounded simulation runtime after the 28 September halt. Recorded headed r15
+passed 21 enabled production case/native/scene/draft/accepted J1/controlled
+unknown-reconciliation/record/Base/Home/save checks; the case-bound native
+rejection was NOT_RUN without an exact frozen candidate. It created
+`SEPT24/sept28_fdi11_step6_five_dof_acceptance.dentocase`, SHA-256
+`d5a0e7bb13ebeda00e5cf9702ce1657f63c074359c833868678805dd854ff090`.
+Read-only fresh-process r16 passed all 12 saved/offline qualification checks;
+its Slicer and recorder exited 0 and owned processes cleaned up. The saved
+FDI11 task and validated five-DOF Home remain in lineage, while live task
+confirmation is intentionally cleared and Home is `Unreviewed` until explicit
+new-session validation. The input case is unchanged. Both runs have complete
+video manifests, screenshots, JSON, diagnostics and SHA-256 manifests in
+`data/dentobot-runs/`; see the [29 September logbook](logbook/2026-09-29.md).
+The opt-in J1–J5 keyboard source and focused host checks plus recorded r19
+physical-key draft-only headed gate are complete. Next: finish the detailed
+campaign's native rejection, case-bound TCP, text-focus, responsiveness, record-persistence and
+full-chain preview/interruption gates. Do not infer planner, preview, hardware
+or Tarun's normal-window verdict from r15/r16.
+
+**2026-09-30 demonstration recovery and later case-bearing evidence
+(`S6-LIVE-01`):** Tarun's manual demonstration exposed an inaccessible
+uncertain-Base recovery path and repeat workspace/planner staleness after
+selecting the incisor-derived ROI. The visible Step 6 Base action now routes
+uncertain acceptance to reconciliation; exact saved ROI/source reuse is a
+no-op, changed ROI invalidates, and Approach/Compare require current runtime
+workspace plus reviewed limits. The facade enforces the same prerequisites.
+The 250-test host source gate passed. An r1 headed run exposed and led to
+correction of a six-decimal versus full-precision workspace identity error.
+R2/r3 then stopped on native exits. A subsequent isolated diagnostic and
+recorded r6 passed strict source-case restore, five-joint robot, ROS/MoveIt,
+31-object scene, J1 guard acceptance, historical record export/reopen,
+Base/Home review, two workspace validations and production save. It created
+`sept30_fdi11_step6_3_demo_ready.dentocase` (SHA-256
+`539ee7948bd97434ab4ef8b675e1540f065219a7e5250c3a422d2cfb481c371a`)
+with a complete zero-exit video. R7 strictly reopened it in a fresh Slicer
+process with seven robot models and exit 0. R6/r7 do not establish planner,
+TCP, preview or normal-window usability acceptance.
+
+The next case-bound TCP/full-chain trial r8 exited before either probe.
+Instrumented r9 and r10 captured `SlicerApp-real` exit 139/SIGSEGV 11
+during post-hydration validation and Task Home connectivity 12/13 respectively.
+No cgroup OOM or native stack was obtained; explicit Python faulthandler stayed
+empty. R8/r9/r10 partial videos and run-local diagnostics are retained.
+Their sequence reaches the verification protocol's three-failure stop on this
+distinct native blocker. Source-only external mouse-delivery and failure-count
+reporting refinements pass a 64-test combined host gate, compile and diff
+checks. Further autonomous Slicer retries are stopped pending a specific
+native-debugging strategy and Tarun's direction. Case-bound rejected/unknown
+guard, mouse drag, full-chain/preview, representative responsiveness and
+Tarun's normal-window robotics/usability verdict remain **PENDING**. Manual,
+reopened and partial paths have no route/preview authority. See the
+[30 September logbook](logbook/2026-09-30.md) and r6–r10 run-local diagnostics.
+
+**29 September operator PreEntry diagnosis (`S6-LIVE-01`):** Tarun's guarded
+approach screenshot shows no accepted PreEntry IK endpoint, with observed best
+residuals outside the existing 0.25 mm/0.5 degree endpoint tolerances. He
+reported that the hidden PreEntry coordinate and lack of spatial explanation
+defeat the engineering workbench's purpose. The current saved FDI11 comparison
+package yields PreEntry RAS `(-88.006688, -33.443087, 52.862497)` mm from its
+confirmed trajectory and 2 mm standoff; this is saved-case geometry, not a live
+task readback. A source-only gate now retains per-seed failed states and the
+exact diagnostic fingerprint, shortens the modal, presents current-snapshot
+PreEntry/Entry/Target RAS values, and displays transient unsaved target markers
+and a best failed J1–J5 translucent goal pose for exact-current diagnostics.
+Saved/stale PreEntry reports remain text-only and no partial result gains route
+or preview authority. The final 166-test combined host check passed; headed
+visual placement/cleanup, active-case identity and Tarun's spatial verdict
+remain pending. See today's logbook and the amended renovation plan.
+
+**2026-09-28 exact-case migration continuation:** Three recorded visible XFCE
+attempts stopped respectively at exact profile mismatch, stale cached
+parameter-node routing, and pre-audit compatibility mutation. The exact
+six-to-five-DOF profile matcher/migration, fresh-node caller and final
+post-hydration-audit ordering now pass 73 focused host tests, compile and diff
+checks. The source case is unchanged and the planned acceptance case is still
+absent. Runtime retry ceiling reached; final headed confirmation and every
+downstream checklist item remain PENDING. Evidence and hashes are in the
+[28 September logbook](logbook/2026-09-28.md); do not launch a fourth
+autonomous retry.
+
+**28 September guarded-jog completion checkpoint:** The r13 headed run passed
+the corrected case-load/workspace/native boundary, accepted one in-limit J1
+jog and an invalid reviewed-limit draft, then stopped before unknown-result
+injection because the next valid Guarded Jog was disabled. The root cause was
+completion ordering while `_workflowActionBusy` was true; the shell fix now
+clears busy before the final Step 6 availability refresh. The full Manual Jog
+UI suite passed 35 tests and the headed-runner source suite passed 44 tests,
+with compile and diff checks clean. The prepared r14 retry was rejected before
+runtime launch by the automatic approval usage limit, so this fix is not yet
+headed-runtime verified and the named acceptance case remains absent. **Operator
+halt:** do not launch r14 or any Slicer/ROS/MoveIt runtime until a later
+explicit resume; preserve r13/r14 evidence and keep native rejection/unknown,
+full-chain preview, responsiveness and Tarun's verdict pending.
 
 **27 September revised verification/integration order:** Following Tarun's
 concern that repeated GUI debugging is delaying an incomplete workbench,
@@ -1819,7 +1923,7 @@ logs are indexed from today's logbook. Next: source-check the production
 prerequisites and screenshot framing, then repeat one serialized recorded
 trial with exact provenance. Manual solver acceptance and Tarun's verdict
 remain pending.
-| 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, J1–J5 planning, J6 external-spindle boundary, narrow contact policy and failed locked-route preservation |
+| 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, exact J1–J5 state, separate spindle-speed domain, narrow contact policy and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Completed-phase reverse-history Return Home is implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result. Tarun chose **Block return** for an interrupted phase after accepted motion. | Preserve the exact accepted prefix, last accepted/monitored state and rejected requested/evaluated state with native reason when applicable; latch Incomplete/AwayFromHome and block further preview and normal Return Home. Exact-prefix guarded reversal is a separate future feature/acceptance gate. For a Complete route only, trial Approach→Drill preview→guarded Return Home→replan/route choice after the preceding planner verdict. |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
 | 6 | `S6-LIVE-05` | 0 | Historical x4 Goal-1 evidence is retained only as a negative diagnostic; clean-case acceptance is not yet run | Select a reviewed post-surgery/clean case with finalized guide/tool geometry, then complete the full guarded loop |
@@ -1988,7 +2092,22 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P2-03` | 2 | Headless load, Step 4C/5B and Step 2 progress passed; Step 6.3/6.4 source checks passed; broad root-cause acceptance open | Tarun cannot launch Slicer manually. Latest headless Connect passed in 36.558 s with 31 acknowledged objects and 4.587 s maximum Qt gap. Disconnect now reports 0–31 removals and passes in 15.488 s, but native `RemoveRobot` caused an 8.293 s UI gap. A preceding run exited abnormally during load; Slicer exit remains 1 on shutdown. | Focused façade/bridge tests passed 63/63. Treat Connect/Disconnect as headless functional passes, not full responsiveness or desktop acceptance. Next: measured native teardown/load/shutdown corrections. Step 6.4 planner remains under `S6-LIVE-01` pause. No fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
-| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. **28 September:** bounded integrated Step 6 checklist PASS, owned-process cleanup PASS, but Slicer exit 1 and partial video; the 5.10 installed native logic lacks `DisconnectPublishers` while deferred 5.12 source has it, an unproven cause. | Priority 0–3 work or a required zero-exit final recording explicitly depends on it | Stop blind repeat runs at the protocol ceiling. Diagnose the exact installed 5.10 native ownership path and produce a causal fix or discriminating test without promoting deferred 5.12 image/native changes. Preserve the open scene and close it normally when the operator is ready; verify zero owned processes and memory recovery. Require a zero-exit lifecycle run with no SlicerROS2 leaks before a whole-run video can pass. |
+| `S6-U-01` | 4 | **Completed 2026-09-28 for the reproduced no-case connected lifecycle.** Native robot removal now precedes subscription, publisher, ROS-node and ROS shutdown; each robot stops PlanningSceneMonitor activity and releases RobotModel/RobotModelLoader state. Two source-contract tests and ten Step 6 lifecycle tests pass. A final headed simulation on the isolated 5.10 build recorded connected robot, publisher release and widget cleanup, then exited Slicer `0` with no class-loader warning or fatal signal. Recorder/FFmpeg exited `0`, the 26.033 s video manifest is complete, and no owned process survived. The pinned installed package remains unchanged and the earlier partial/failure evidence is retained. | S6-LIVE-01 final whole-run recording previously depended on this gate | Accepted for the narrow reproduced shutdown condition. The final case-bearing Step 6 campaign must use the corrected reviewed native package and independently prove its own zero exit. This does not accept planner, preview, responsiveness, hardware or operator usability. See the 28 September logbook and `s6-u01-final-headed-20260928-0hCREB`. |
+
+**2026-09-30 case-bearing `S6-U-01` status:** Preserve the accepted no-case condition above.
+**R18 causal capture:** GDB located the reproduced SIGSEGV in asynchronous Python traceback dumping, with the GUI thread rendering. The watchdog scheduling owner has been removed while retaining Qt latency/phase logs; 84 focused host checks pass. R19 is the bounded recorded case-bearing confirmation. This does not attribute every earlier crash or accept unrun TCP/full-chain/save/reopen gates. See the dated logbook and r18 diagnostic package.
+**Later authorized continuation:** Tarun approved the narrow native-debugger strategy. R15 passed workspace generation returned-current and strict restore under GDB; inferior exit 0, no signal, validated 348.9 s recording. This is non-reproduction, not a native defect fix. The next approved gate is focused case-bound 6.3 workbench verification, before planner/preview. Keep intermittent stability and full-case acceptance open; r15 original report and diagnostic-finalizer limitation are explained in the dated logbook and run-local diagnostics.
+
+Case-bearing r6 and fresh offline r7 exited 0, but r8 stopped
+during workspace revalidation; direct-child r9/r10 proved intermittent
+`SlicerApp-real` SIGSEGV 11 at post-hydration and Task Home connectivity.
+Cgroup `oom_kill=0`; no native backtrace or retrievable core was obtained.
+The three-failure retry ceiling is reached for this distinct condition.
+Do not infer robust case-bearing lifecycle acceptance from r6/r7, and do not
+start another autonomous runtime trial. The next bounded diagnostic needs a
+native debugger/backtrace strategy and Tarun's direction. Final case-bearing
+acceptance still requires a complete zero-exit whole-run recording. See the
+[30 September logbook](logbook/2026-09-30.md) and r8–r10 diagnostics.
 
 ## Unprioritized task contracts — migration baseline
 
@@ -2177,3 +2296,50 @@ The source-complete pressure Config-tab live flash/Hz follow-up is retained
 under `A-037`; no new tool implementation or hardware authorization is implied.
 The stale F0/F1/F2 `.dentostudy` rows in DEVELOPMENT_PLAN.md are removed in
 favor of their already accepted `DCP-*`/`DSS-*` successor contract.
+
+### 2026-09-28 — VIEW-U-01 / S6-REUSABLE-CASE-SETUP saved-display checkpoint
+
+Tarun's `sept28_fdi11_step6.dentocase` and screenshots show a closed-mouth
+source in the Step 6 viewport after his Base/Home/jog trial. Offline MRML
+inspection found the untransformed `Post_surgery_seg` visible in 2D/3D beside
+opened proxies in both Sep27 and Sep28 packages; the jaw transform did not
+change. The existing display normalizer now runs after transient view-state
+restoration at Slicer's save boundary and after active-stage view refresh.
+Focused host checks passed 9 tests. A fresh headed open, separate production
+save and reopen of the unchanged source case passed source-hidden and
+opened-proxy-visible readbacks plus state-matched screenshots. The original
+case remained unchanged. This is bounded runtime verification of display and
+save/reopen, with Tarun's post-correction normal-window visual verdict still
+pending. No anatomy, geometry, collision or planner authority changed.
+
+`S6-LIVE-01`'s separately recorded current-case GUI checklist passed 16/16
+bounded items, including one invalid draft, acknowledged J1 jog, ordered
+historical export/reopen, Base Accept and current-pose Task Home Accept. It did
+not test native rejection/unknown, direct real-time TCP dragging, a confirmed
+task, complete-chain preview/interruption or responsiveness. The whole-process
+video remains partial because Slicer exited 1 after the functional PASS marker;
+`S6-U-01` retains that shutdown dependency and its exhausted retry ceiling.
+Run-local diagnostics and the 28 September logbook contain exact provenance,
+commands, screenshots, video and cleanup evidence. Operator robotics/usability
+verdict remains PENDING.
+
+The 28 September 6.3B Cartesian TCP slice is source and bounded-runtime
+verified. It adds a separate X/Y/Z plus pitch/yaw TCP review beside J1–J5,
+with opt-in keyboard mappings and a default-off **Enable TCP Drag** gate as the
+only native probe activation route. Enable requires a truthy native
+acknowledgement; disable or leaving 6.3 removes the probe, goal robot and
+observer. Live mouse/nudge interaction uses canonical J1–J5 position-axis IK
+as ghost review, with axial roll unconstrained by the five-DOF arm. Only
+explicit collision-aware Solve IK stages an exact J1–J5 draft; accepted state
+still requires a later Guarded Jog acknowledgement. The focused host suite
+passed 238 tests. The headed no-case package
+`data/dentobot-runs/step6-tcp-workbench-headed-20260928-9/` passed mouse drag,
+Cartesian nudges, authoritative solve/stage, accepted-state non-advancement,
+disable cleanup, zero route/preview authority, complete video, Slicer exit 0
+and owned-process cleanup. Physical key events, case-bound rejected/unknown
+guard outcomes, positive full-chain preview/interruption, measured normal-
+window responsiveness and Tarun's usability verdict remain pending.
+
+## 2026-09-30 — UI-P3-01 bounded Workflow Focus slice
+
+Tarun explicitly authorizes default Workflow Focus in the Step 6 renovation checkout alongside the active “step 6.3 final fix” chat. This advances only current-workflow space recovery; the broad Studio redesign and Priority 3 remain unchanged. Outcome: compact two-row navigation/view header, secondary actions in More, hidden logo/help/Data Probe/toolbars, reversible session-only Show Slicer tools, and exact chrome restoration on module exit/reload. Preserve existing handlers, research warning, MRML/ROS/case state and readiness gates. Header/application and lifecycle/helper ownership is disjoint from the other chat's Step 6 source/test work. Runtime resources stay with that chat. Source and host verification precede one serialized visual/lifecycle check and Tarun's verdict; doubled task-height is a visual target, not a source-only claim.

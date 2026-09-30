@@ -2485,8 +2485,8 @@ class DENTOWorkflowTestMixin:
             widget._createOrUpdateTemplateUndercuts = lambda: generated.append(
                 "blockout"
             )
-            widget._createOrUpdatePatientContactShell = lambda: generated.append(
-                "shell"
+            widget._createOrUpdatePatientContactShell = (
+                lambda progress=None: generated.append("shell")
             )
             widget._createOrUpdateFinalPrintableTemplate = lambda **kwargs: generated.append(
                 "final"
@@ -3541,7 +3541,7 @@ class DENTOWorkflowTestMixin:
         self.assertAlmostEqual(parameterNode.robotRotationStepDeg, 1.0)
         self.assertFalse(parameterNode.robotKeyboardNudgeEnabled)
 
-        zeroPositions = joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+        zeroPositions = joint_positions_si_from_display(0, 0, 0, 0, 0)
         baseTransform, models = logic.createOrUpdateRobotPlacement(
             None,
             zeroPositions,
@@ -4227,7 +4227,7 @@ class DENTOWorkflowTestMixin:
 
         base, models = logic.createOrUpdateRobotPlacement(
             None,
-            joint_positions_si_from_display(0, 0, 0, 0, 0, 0),
+            joint_positions_si_from_display(0, 0, 0, 0, 0),
         )
         base_matrix = vtk.vtkMatrix4x4()
         base_matrix.Identity()

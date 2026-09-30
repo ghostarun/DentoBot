@@ -24,16 +24,14 @@ class ApplicationWidgetMixin:
             "six-workspace DENTOBOT application shell. MRML and backend state "
             "are shared; no case data is copied."
         )
-        self.ui.workflowNavigationLayout.addWidget(
-            self._guiModeButton,
-            3,
-            0,
-            1,
-            4,
-        )
+        self._guiModeButton.visible = False
         self._guiModeButton.connect(
             "clicked(bool)",
             self.onToggleDENTOBOTGuiMode,
+        )
+        self._workflowGuiModeMenuAction.connect(
+            "triggered(bool)",
+            lambda _checked=False: self._guiModeButton.click(),
         )
         self._applicationShell = DENTOApplicationShell(
             main_window=slicer.util.mainWindow(),
@@ -73,24 +71,54 @@ class ApplicationWidgetMixin:
         mode = GUI_MODE_SHELL if mode == GUI_MODE_SHELL else GUI_MODE_LEGACY
         if persist:
             DENTOApplicationShell.storeGuiMode(mode)
-        if mode == GUI_MODE_SHELL:
-            try:
-                stage_index = int(self.ui.workflowStageComboBox.currentIndex)
-                recommended = self._recommendedWorkflowStageIndex()
-                self._applicationShell.activate(stage_index, recommended)
-                self._applicationShell.updateCaseAndRuntime(
-                    self._parameterNode.caseName if self._parameterNode else "",
-                )
-                self._guiModeButton.text = _("New GUI Active")
-            except RuntimeError as exc:
-                DENTOApplicationShell.storeGuiMode(GUI_MODE_LEGACY)
+        restoreChrome = getattr(self, "_restoreWorkflowFocusChrome", None)
+        if callable(restoreChrome):
+            restoreChrome()
+        try:
+            if mode == GUI_MODE_SHELL:
+                self._setWorkflowMoreButtonShellPlacement(True)
+                try:
+                    stage_index = int(self.ui.workflowStageComboBox.currentIndex)
+                    recommended = self._recommendedWorkflowStageIndex()
+                    self._applicationShell.activate(stage_index, recommended)
+                    self._applicationShell.updateCaseAndRuntime(
+                        self._parameterNode.caseName if self._parameterNode else "",
+                    )
+                    self._guiModeButton.text = _("New GUI Active")
+                except RuntimeError as exc:
+                    DENTOApplicationShell.storeGuiMode(GUI_MODE_LEGACY)
+                    self._applicationShell.deactivate()
+                    self._setWorkflowMoreButtonShellPlacement(False)
+                    self._guiModeButton.text = _("Try New GUI")
+                    slicer.util.errorDisplay(str(exc))
+            else:
                 self._applicationShell.deactivate()
+                self._setWorkflowMoreButtonShellPlacement(False)
+                self._restoreLegacyRobotSimulationGroups()
                 self._guiModeButton.text = _("Try New GUI")
-                slicer.util.errorDisplay(str(exc))
+        finally:
+            # DENTOApplicationShell.deactivate restores this Designer label.
+            self.ui.productTitleLabel.visible = False
+            if getattr(self, "_workflowFocusEntered", False):
+                applyChrome = getattr(self, "_applyWorkflowFocusChrome", None)
+                if callable(applyChrome):
+                    applyChrome()
+
+    def _setWorkflowMoreButtonShellPlacement(self, shellActive: bool) -> None:
+        button = getattr(self, "_workflowMoreButton", None)
+        if button is None:
+            return
+        navigationLayout = self.ui.workflowNavigationLayout
+        rootLayout = self.ui.verticalLayout
+        if shellActive:
+            navigationLayout.removeWidget(button)
+            button.setParent(self._uiWidget)
+            rootLayout.insertWidget(0, button)
         else:
-            self._applicationShell.deactivate()
-            self._restoreLegacyRobotSimulationGroups()
-            self._guiModeButton.text = _("Try New GUI")
+            rootLayout.removeWidget(button)
+            button.setParent(self.ui.workflowNavigationGroupBox)
+            navigationLayout.addWidget(button, 0, 4)
+        button.visible = True
 
     def onReloadDENTOWorkflowModule(self, checked: bool = False) -> None:
         """Reload DENTOBOT Python sources while preserving Slicer and ROS."""
@@ -174,7 +202,9 @@ class ApplicationWidgetMixin:
         """Build a compact fixed header and a reusable floating view palette."""
 
         rootLayout = self.ui.verticalLayout
-        rootLayout.setSpacing(4)
+        rootLayout.setContentsMargins(2, 2, 2, 2)
+        rootLayout.setSpacing(2)
+        self.ui.productTitleLabel.visible = False
 
         # The stage selector and the most frequent viewport actions stay fixed
         # above the independently scrolling active stage. Reuse the Designer
@@ -183,9 +213,9 @@ class ApplicationWidgetMixin:
         navigationLayout = self.ui.workflowNavigationLayout
         while self._qtLayoutCount(navigationLayout):
             navigationLayout.takeAt(0)
-        navigationLayout.setContentsMargins(4, 4, 4, 4)
-        navigationLayout.setHorizontalSpacing(4)
-        navigationLayout.setVerticalSpacing(4)
+        navigationLayout.setContentsMargins(2, 2, 2, 2)
+        navigationLayout.setHorizontalSpacing(2)
+        navigationLayout.setVerticalSpacing(2)
         self.ui.workflowNavigationGroupBox.title = ""
         self.ui.workflowNavigationGroupBox.toolTip = _(
             "Select one active workflow stage. The active stage is the only "
@@ -212,6 +242,19 @@ class ApplicationWidgetMixin:
         navigationLayout.addWidget(self.ui.workflowStageComboBox, 0, 1)
         navigationLayout.addWidget(self.ui.workflowStageStatusLabel, 0, 2)
         navigationLayout.addWidget(self.ui.nextWorkflowStageButton, 0, 3)
+        self.ui.workflowStageComboBox.setMinimumContentsLength(1)
+        self.ui.workflowStageComboBox.setMinimumWidth(0)
+        self.ui.workflowStageComboBox.setSizePolicy(
+            qt.QSizePolicy.Ignored,
+            qt.QSizePolicy.Fixed,
+        )
+        adjustPolicy = getattr(
+            qt.QComboBox,
+            "AdjustToMinimumContentsLengthWithIcon",
+            None,
+        )
+        if adjustPolicy is not None:
+            self.ui.workflowStageComboBox.setSizeAdjustPolicy(adjustPolicy)
         navigationLayout.setColumnStretch(1, 1)
 
         self.ui.workflowViewPresetFormLayout.removeWidget(
@@ -222,10 +265,14 @@ class ApplicationWidgetMixin:
             "Apply a stage-aware visibility preset. Detailed element controls "
             "are available in View Controls."
         )
+        self.ui.workflowViewPresetComboBox.setMinimumContentsLength(1)
+        self.ui.workflowViewPresetComboBox.setMinimumWidth(0)
         self.ui.workflowViewPresetComboBox.setSizePolicy(
-            qt.QSizePolicy.Expanding,
+            qt.QSizePolicy.Ignored,
             qt.QSizePolicy.Fixed,
         )
+        if adjustPolicy is not None:
+            self.ui.workflowViewPresetComboBox.setSizeAdjustPolicy(adjustPolicy)
         self._viewControlsButton = qt.QPushButton(
             _("View…"),
             self.ui.workflowNavigationGroupBox,
@@ -236,9 +283,9 @@ class ApplicationWidgetMixin:
         )
         self._viewControlsButton.setFixedWidth(50)
         self.ui.frameWorkflowViewButton.text = _("Frame")
-        self.ui.frameWorkflowViewButton.setFixedWidth(50)
         self.ui.restoreWorkflowViewButton.text = _("Restore")
-        self.ui.restoreWorkflowViewButton.setFixedWidth(58)
+        self.ui.frameWorkflowViewButton.visible = False
+        self.ui.restoreWorkflowViewButton.visible = False
         self._guidanceToolButton = qt.QToolButton(
             self.ui.workflowNavigationGroupBox
         )
@@ -251,19 +298,64 @@ class ApplicationWidgetMixin:
         self._guidanceToolButton.toolTip = _(
             "Show or hide detailed workflow guidance and safety notes."
         )
-        self._guidanceToolButton.setFixedWidth(26)
+        self._guidanceToolButton.visible = False
 
         quickActionsWidget = qt.QWidget(self.ui.workflowNavigationGroupBox)
         quickActionsWidget.objectName = "compactWorkflowViewActionsWidget"
         quickActionsLayout = qt.QHBoxLayout(quickActionsWidget)
         quickActionsLayout.setContentsMargins(0, 0, 0, 0)
-        quickActionsLayout.setSpacing(4)
+        quickActionsLayout.setSpacing(2)
         quickActionsLayout.addWidget(self.ui.workflowViewPresetComboBox, 1)
         quickActionsLayout.addWidget(self._viewControlsButton)
-        quickActionsLayout.addWidget(self.ui.frameWorkflowViewButton)
-        quickActionsLayout.addWidget(self.ui.restoreWorkflowViewButton)
-        quickActionsLayout.addWidget(self._guidanceToolButton)
-        navigationLayout.addWidget(quickActionsWidget, 1, 0, 1, 6)
+        self._workflowMoreButton = qt.QToolButton(
+            self.ui.workflowNavigationGroupBox
+        )
+        self._workflowMoreButton.objectName = "compactWorkflowMoreButton"
+        self._workflowMoreButton.text = _("More")
+        self._workflowMoreButton.popupMode = qt.QToolButton.InstantPopup
+        moreMenu = qt.QMenu(self._workflowMoreButton)
+        self._workflowFrameViewAction = moreMenu.addAction(_("Frame"))
+        self._workflowFrameViewAction.connect(
+            "triggered(bool)",
+            lambda _checked=False: self.ui.frameWorkflowViewButton.click(),
+        )
+        self._workflowRestoreViewAction = moreMenu.addAction(_("Restore"))
+        self._workflowRestoreViewAction.connect(
+            "triggered(bool)",
+            lambda _checked=False: self.ui.restoreWorkflowViewButton.click(),
+        )
+        self._workflowGuidanceAction = moreMenu.addAction(
+            _("Show guidance")
+        )
+        self._workflowGuidanceAction.checkable = True
+        self._workflowGuidanceAction.connect(
+            "toggled(bool)",
+            self.onGuidanceToolButtonToggled,
+        )
+        moreMenu.addSeparator()
+        self._workflowGuiModeMenuAction = moreMenu.addAction(_("Try New GUI"))
+        self._workflowReloadMenuAction = moreMenu.addAction(
+            _("Reload Module (Dev)")
+        )
+        self._workflowReloadMenuAction.connect(
+            "triggered(bool)",
+            lambda _checked=False: self.ui.reloadDENTOWorkflowButton.click(),
+        )
+        moreMenu.addSeparator()
+        self._workflowSlicerToolsAction = moreMenu.addAction(
+            _("Show Slicer tools")
+        )
+        self._workflowSlicerToolsAction.checkable = True
+        self._workflowSlicerToolsAction.connect(
+            "toggled(bool)",
+            lambda checked: self._setWorkflowSlicerToolsVisible(bool(checked)),
+        )
+        if not hasattr(self, "_workflowSlicerToolsVisible"):
+            self._workflowSlicerToolsVisible = False
+        self._workflowMoreButton.setMenu(moreMenu)
+        moreMenu.connect("aboutToShow()", self._syncWorkflowMoreMenu)
+        navigationLayout.addWidget(self._workflowMoreButton, 0, 4)
+        navigationLayout.addWidget(quickActionsWidget, 1, 0, 1, 5)
         self.ui.showGuidanceCheckBox.visible = False
         self.ui.reloadDENTOWorkflowButton.text = _("Reload Module (Dev)")
         self.ui.reloadDENTOWorkflowButton.toolTip = _(
@@ -273,15 +365,21 @@ class ApplicationWidgetMixin:
             "is cancelled and the SlicerROS2 robot is disconnected first."
         )
         self.ui.reloadDENTOWorkflowButton.styleSheet = "font-size: 10px;"
-        navigationLayout.addWidget(
-            self.ui.reloadDENTOWorkflowButton,
-            2,
-            0,
-            1,
-            4,
-        )
+        self.ui.reloadDENTOWorkflowButton.visible = False
         self.ui.stepTitleLabel.visible = False
         self.ui.researchStatusLabel.setMaximumHeight(18)
+        self.ui.researchStatusLabel.text = _(
+            "Research prototype — not clinically validated"
+        )
+        self.ui.researchStatusLabel.toolTip = _(
+            "RESEARCH PROTOTYPE — NOT CLINICALLY VALIDATED"
+        )
+        self.ui.researchStatusLabel.wordWrap = False
+        self.ui.researchStatusLabel.setSizePolicy(
+            qt.QSizePolicy.Ignored,
+            qt.QSizePolicy.Fixed,
+        )
+        self.ui.researchStatusLabel.visible = True
         self.ui.researchStatusLabel.styleSheet = (
             "font-size: 10px; font-weight: 600; color: #b36b00;"
         )
@@ -680,3 +778,37 @@ class ApplicationWidgetMixin:
         self._workflowContentScrollArea = scrollArea
         self._workflowContentWidget = contentWidget
         self._workflowContentLayout = contentLayout
+
+    def _syncWorkflowMoreMenu(self) -> None:
+        self._workflowFrameViewAction.enabled = bool(
+            self.ui.frameWorkflowViewButton.enabled
+        )
+        self._workflowRestoreViewAction.enabled = bool(
+            self.ui.restoreWorkflowViewButton.enabled
+        )
+        guidanceBlocked = self._workflowGuidanceAction.blockSignals(True)
+        try:
+            self._workflowGuidanceAction.checked = bool(
+                self.ui.showGuidanceCheckBox.checked
+            )
+        finally:
+            self._workflowGuidanceAction.blockSignals(guidanceBlocked)
+        guiButton = getattr(self, "_guiModeButton", None)
+        shell = getattr(self, "_applicationShell", None)
+        active = bool(shell and shell.active)
+        self._workflowGuiModeMenuAction.text = (
+            _("Return to Legacy GUI") if active else _("Try New GUI")
+        )
+        self._workflowGuiModeMenuAction.enabled = bool(
+            guiButton and getattr(guiButton, "enabled", True)
+        )
+        self._workflowReloadMenuAction.enabled = bool(
+            self.ui.reloadDENTOWorkflowButton.enabled
+        )
+        slicerToolsBlocked = self._workflowSlicerToolsAction.blockSignals(True)
+        try:
+            self._workflowSlicerToolsAction.checked = bool(
+                getattr(self, "_workflowSlicerToolsVisible", False)
+            )
+        finally:
+            self._workflowSlicerToolsAction.blockSignals(slicerToolsBlocked)

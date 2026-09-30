@@ -1,8 +1,35 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## Temporary native-debugger tools — 30 September 2026
+
+The recorded r19 confirmation also installed ephemeral `x11-utils` and `libxxf86dga1` for the indexed recorder's `xdpyinfo` display-size check: apt exited 0, two new packages and zero upgrades.
+
+The subsequent case-bound TCP mouse gate added ephemeral `xdotool` and `libxdo3` via `docker exec -u 0 dentobot-slicerros2 apt-get install -y --no-install-recommends xdotool`: exit 0, two new packages, zero upgrades. This sends X11 pointer events only to the test-owned Xvfb display; it does not grant desktop remote-control permissions or change the persistent image.
+
+The approved Step 6 native diagnostic installed GDB 15.1 and FFmpeg 6.1.1 in the running `dentobot-slicerros2` container using apt, with no upgraded packages or image rebuild. These are ephemeral diagnostic tools. Docker-detached run transactions own Xvfb, recording, ROS and GDB so chat interruption does not remove their display. Evidence stays under `data/dentobot-runs/`; normal workflow launch configuration is unchanged.
+
+## Launch the checkout you want to demonstrate
+
+Run the launcher from that checkout so its container module, backend, ROS
+package sources, and simulation handoff all resolve to the same source tree.
+For the Step 6 renovation checkout:
+
+```bash
+cd /home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-renovation
+Workspace/scripts/launch-dentoworkflow.bash
+```
+
+The GUI launcher restarts the shared `dentobot-slicerros2` container and stops
+any Slicer/ROS/MoveIt processes already running in it. Save open scenes first
+and run one checkout at a time. It rebuilds the selected description and
+MoveIt packages into the shared `ros2_ws/install`; launching another checkout
+later replaces those installed packages with that checkout's versions. The
+launcher prints the resolved DENTO Workflow module path before opening Slicer;
+confirm it names `DentoBot-step6-renovation`.
+
 ## Slicer UI stall watchdog — 2026-09-24
 
-The DENTO Workflow module starts a low-overhead event-loop watchdog on setup. While Slicer is open, a one-second Qt heartbeat rearms a five-second `faulthandler` stack timer. It records two-second UI latency, minute heartbeat summaries, five-second Python thread stacks, recovery gaps, workflow phase and normal session end. Python fatal-signal tracebacks use the same log. The normal `launch-dentoworkflow.bash` simulation handoff also starts a separate read-only five-second sampler. It records Slicer/ROS process CPU, RSS, threads, file descriptors and exits; container cgroup memory/CPU/PID/IO limits, counters and pressure; host memory/load/pressure; run-log disk space; and sampler gaps. It has no MRML or ROS calls and stops with the handoff. Logs persist in the existing bind mount at `/home/light-tarun/dentobot/data/dentobot-runs/ui-watchdog/` (container path `${DENTOBOT_RUN_ARTIFACT_ROOT}/ui-watchdog/`), as `slicer-ui-*.log` and `resources-*.jsonl`. A directly launched Slicer without the normal handoff gets the UI watchdog only. The next Slicer launch loads this source; an already open module needs a restart. The diagnostic probe that owns a separate `faulthandler` timer sets `DENTOBOT_UI_WATCHDOG_DISABLE=1`. No image rebuild, ROS setting or container limit change is required. Review logs for case-sensitive paths before external sharing; stack dumps do not include Python local-variable values. These local logs grow with session time and are retained for diagnosis; archive or remove old reviewed sessions when no longer needed.
+The DENTO Workflow module starts a low-overhead event-loop watchdog on setup. After the 30 September r18 debugger capture, its one-second Qt heartbeat records recovered UI latency, heartbeat summaries, recovery gaps, workflow phase and normal session end. It no longer schedules asynchronous Python traceback dumps or installs a process-global fatal handler; external GDB captures native crashes and hard hangs. The normal `launch-dentoworkflow.bash` simulation handoff also starts a separate read-only five-second sampler. It records Slicer/ROS process CPU, RSS, threads, file descriptors and exits; container cgroup memory/CPU/PID/IO limits, counters and pressure; host memory/load/pressure; run-log disk space; and sampler gaps. It has no MRML or ROS calls and stops with the handoff. Logs persist in the existing bind mount at `/home/light-tarun/dentobot/data/dentobot-runs/ui-watchdog/` (container path `${DENTOBOT_RUN_ARTIFACT_ROOT}/ui-watchdog/`), as `slicer-ui-*.log` and `resources-*.jsonl`. A directly launched Slicer without the normal handoff gets the UI watchdog only. The next Slicer launch loads this source; an already open module needs a restart. An explicitly instrumented probe owns its own diagnostics. No image rebuild, ROS setting or container limit change is required. Review logs for case-sensitive paths before external sharing; stack dumps do not include Python local-variable values. These local logs grow with session time and are retained for diagnosis; archive or remove old reviewed sessions when no longer needed.
 
 ## 2026-09-09 Slicer 5.12 migration status
 
@@ -1919,3 +1946,13 @@ runtime authorization. The 27 September attempt stopped at package
 post-hydration integrity before the new controls could be observed.
 For the full repeatable host/container sequence and evidence checklist, see
 [Step 6 recorded headed automation workflow](diagnostics/STEP6_RECORDED_HEADED_AUTOMATION_WORKFLOW.md).
+
+## Reviewed Step 6 / 5.10 integration runtime — 30 September 2026
+
+The integration checkout is `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-5.10-integration` (`integration/step6-5.10-reviewed-20260927`), incorporating frozen renovation source `e7cd29f`. Current container `dentobot-slicerros2` uses image `sha256:544c5b759ccef7ce6c41157bbd7bd8b602657de367f1f6b71352de054c81b019` / tag `dentobot/slicerros2:jazzy-moveit-sim-20260909`. Actual Slicer 5.12 remains deferred.
+
+Reuse `/tmp/dentobot-five-dof-20260928/install` only after exact source/config verification: all nine URDF/SRDF/YAML/launch files match integration; guard source SHA-256 `6045fbbc69241c70fc8ac38e4735d51bf18ae04466210e00908820f7c8538510`, installed binary `fcaff3a7c37507318320371a9abbbe403af8877caac26625926a38b94c331831`, installed canonical URDF `3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a`. Ament selects isolated description and MoveIt prefixes. No package rebuild or shared install replacement is needed for this matching checkpoint.
+
+SlicerROS2 is separately selected from `/tmp/dentobot-s6-u01-install/slicer_ros2_module`, built against Slicer 5.10 from reviewed shutdown source baseline `261a130` plus the dated teardown corrections. Loaded Logic `.so` SHA-256 `254ff8bd199448f4299955859c1e75896ebdd974b56e090275fbc76a1ac3c9fb`; MRML `.so` `4f3b38ca42e01df57aa24fcd8f18f9a0954110308a986f72f6efb70f900c27c1`. Host/container teardown source hashes match for Logic, RobotNode and PublisherInternals. The separate upgrade checkout is not native build provenance.
+
+Run the existing screen recorder with an explicitly bound integration module/runner path, fresh evidence directory, private Xvfb and serialized ROS domain 73. Do not invoke the normal launcher during parallel renovation: it can restart the shared container or write shared installs. `DENTOBOT_HEADED_CONNECT_ONLY=1` permits only bounded restore/Connect/Disconnect with all motion and save opt-ins off. Results require itemized evidence and owned-process cleanup; a functional PASS and shutdown result are separate.

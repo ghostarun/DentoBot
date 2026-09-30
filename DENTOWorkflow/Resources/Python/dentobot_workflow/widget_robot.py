@@ -806,9 +806,27 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.reconcileManualBaseStateButton.enabled = bool(
                     control_state["reconcile"] and not self._workflowActionBusy
                 )
-                self.ui.lockRobotBaseMountButton.enabled = control_state["accept"]
+                reconcile_base = bool(
+                    control_state["reconcile"] and not self._workflowActionBusy
+                )
+                self.ui.lockRobotBaseMountButton.text = _(
+                    "Reconcile Base State" if reconcile_base else "Accept Base"
+                )
+                self.ui.lockRobotBaseMountButton.toolTip = _(
+                    "Reconcile the accepted Base with the live ROS scene. This does not "
+                    "accept the detached candidate."
+                    if reconcile_base
+                    else "Accept the detached numeric Base candidate through the guarded "
+                    "Step 6 Base review path. An unknown lock/scene outcome blocks later "
+                    "acceptance until runtime reconciliation."
+                )
+                self.ui.lockRobotBaseMountButton.enabled = bool(
+                    (control_state["accept"] or reconcile_base)
+                    and not self._workflowActionBusy
+                )
             else:
                 panel.manualBaseReviewGroup.enabled = False
+                self.ui.lockRobotBaseMountButton.text = _("Accept Base")
             try:
                 urdf_path, _package_root = self.logic.robotDescriptionPaths()
                 mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
@@ -823,8 +841,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     j4_max=self._parameterNode.robotJoint4TaskMaxMm,
                     j5_min=self._parameterNode.robotJoint5TaskMinDeg,
                     j5_max=self._parameterNode.robotJoint5TaskMaxDeg,
-                    j6_min=self._parameterNode.robotJoint6TaskMinDeg,
-                    j6_max=self._parameterNode.robotJoint6TaskMaxDeg,
                 )
                 panel.setManualJogLimits(mechanical_limits, reviewed_limits)
                 panel.setManualJogAcceptedState(self._robotJointPositionsSi())
@@ -894,7 +910,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             ).strip():
                 panel.workspaceReviewStatusLabel.text = _(
                     "Saved workspace evidence needs live revalidation. Replay it "
-                    "without changing the reviewed envelope, or regenerate the "
+                    "without changing the reviewed envelope, or regenerate it "
                     "if replay rejects any state."
                 )
             else:
@@ -933,10 +949,19 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 confirmation_prerequisites.append(_("Apply and live-validate Task Home in 6.2."))
             if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
                 confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
+            planning_prerequisites = list(confirmation_prerequisites)
+            if not workspace_runtime_validated:
+                planning_prerequisites.append(
+                    _("Revalidate or generate workspace evidence in 6.3.")
+                )
+            if not assisted_reviewed:
+                planning_prerequisites.append(
+                    _("Review and apply assisted joint limits in 6.3.")
+                )
             panel.confirmationStatusLabel.text = (
                 _("Immutable task snapshot is current; phased plans are enabled.")
-                if task_ready
-                else " ".join(confirmation_prerequisites or task_issues)
+                if task_ready and workspace_runtime_validated and assisted_reviewed
+                else " ".join(planning_prerequisites or task_issues)
             )
             preview_active = bool(
                 self._robotWorkflowFacade
@@ -959,14 +984,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     and not getattr(self, "_workflowActionBusy", False)
                 ),
             )
-            panel.planApproachButton.enabled = bool(
+            phase_planning_ready = bool(
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
                 and home_runtime_validated
+                and workspace_runtime_validated
+                and assisted_reviewed
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
+            panel.planApproachButton.enabled = phase_planning_ready
             panel.checkPreEntryIKButton.enabled = bool(
                 planning_anatomy_ready
                 and task_ready
@@ -995,7 +1023,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.checkPlanningP3Button,
             ):
                 button.enabled = stage_diagnostic_enabled
-            panel.comparePlannersButton.enabled = panel.planApproachButton.enabled
+            panel.comparePlannersButton.enabled = phase_planning_ready
             override_active = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.templateCollisionExclusionActive
@@ -1112,7 +1140,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             (self.ui.robotJoint3SpinBox, limits.joint_3),
             (self.ui.robotJoint4SpinBox, limits.joint_4),
             (self.ui.robotJoint5SpinBox, limits.joint_5),
-            (self.ui.robotJoint6SpinBox, limits.joint_6),
         )
         for spinbox, joint_limit in pairs:
             minimum, maximum, value = apply_task_limit_range_to_value(
@@ -1122,11 +1149,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             spinbox.setMinimum(minimum)
             spinbox.setMaximum(maximum)
             spinbox.setValue(value)
-        # The pneumatic spindle is intentionally still visible in the robot
-        # model, but it is an uncontrolled air rotor—not a Step 6 commandable
-        # axis. Keep the compatibility row as a fixed explanatory value.
-        self.ui.robotJoint6SpinBox.enabled = False
-
     def _onTaskJointLimitSpinBoxChanged(self, value: float = 0.0) -> None:
         del value
         if (
@@ -1181,9 +1203,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             self._parameterNode.robotJoint5Deg = degrees(
                 joint_positions_si["link-5_Revolute-5"],
             )
-            self._parameterNode.robotJoint6Deg = degrees(
-                joint_positions_si.get("pneumatic_spindle-Copy_Revolute-6", 0.0),
-            )
         finally:
             self._parameterNode.EndModify(was_modifying)
         self._updateRobotPlacement()
@@ -1232,6 +1251,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         if self._isStep6RobotWorkflowActive():
             if not self._isStep6ManualBaseReviewActive():
+                return
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel and panel.reconcileManualBaseStateButton.enabled:
+                self._onStep6ReconcileManualBaseAcceptance()
                 return
             result = self._robotWorkflowFacade.acceptManualBaseReview()
             self._updateStep6PlanningUi(result.message, error=not result.success)
@@ -1299,6 +1322,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         self._workflowActionBusy = True
         progress = None
         workspace_status = ""
+        planning_message = ""
+        planning_error = False
         try:
             roi_draft = self._step6TaskSpaceRoiDraft()
             if roi_draft is None:
@@ -1383,8 +1408,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotSimulationPanel.taskSpaceRoiStatusLabel
             )
             self.ui.clearRobotWorkspaceButton.enabled = True
-            self._updateStep6PlanningUi(workspace_status)
+            planning_message = workspace_status
         except (RuntimeError, ValueError) as exc:
+            planning_message = str(exc)
+            planning_error = True
             self.ui.robotWorkspaceStatusLabel.text = str(exc)
             self.ui.robotWorkspaceStatusLabel.styleSheet = "color: #b00020;"
             if self._robotSimulationPanel:
@@ -1398,12 +1425,14 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 self._robotSimulationPanel.taskSpaceRoiStatusLabel.style().polish(
                     self._robotSimulationPanel.taskSpaceRoiStatusLabel
                 )
-            self._updateStep6PlanningUi(str(exc), error=True)
             slicer.util.errorDisplay(str(exc))
         finally:
-            if progress:
-                progress.close()
-            self._workflowActionBusy = False
+            try:
+                if progress:
+                    progress.close()
+            finally:
+                self._workflowActionBusy = False
+                self._updateStep6PlanningUi(planning_message, error=planning_error)
 
     def onClearRobotWorkspace(self, checked: bool = False) -> None:
         del checked

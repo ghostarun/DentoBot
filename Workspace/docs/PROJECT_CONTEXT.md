@@ -199,8 +199,9 @@ executable and testable across the `wsl` and `local` adapters.
 
 Step 6 is simulation/preview only. The existing robot façade and ROS/MoveIt
 bridge own planning/runtime orchestration; the independent phase guard owns
-acceptance. Planning uses J1–J5 and the canonical non-spinning TCP; J6 remains
-a visual/collision compatibility branch. Steps 0–5 remain independent of ROS.
+acceptance. The model and workflow use exactly J1–J5 and the canonical TCP.
+The pneumatic drill is a separate speed-controlled spindle domain with fixed
+arm geometry and no joint-state or IK slot. Steps 0–5 remain independent of ROS.
 Hardware transport, calibration and physical control remain separate gates.
 
 Historical phantom, draft-AABB and old-TCP implementations are recorded in

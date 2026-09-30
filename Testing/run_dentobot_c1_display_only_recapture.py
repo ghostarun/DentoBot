@@ -183,7 +183,7 @@ def compare_bounds(
             "available": False,
             "match": None,
             "max_abs_error_mm": None,
-            "unknown_reason": "Both six-value world bounds are required.",
+            "unknown_reason": "Both six-coordinate world bounds are required.",
         }
     return {
         "available": True,
@@ -438,9 +438,6 @@ def _set_review_parameter_joint_state(parameter, joints: Mapping[str, float]) ->
         "robotJoint3Deg": math.degrees(float(joints[JOINT_ORDER[2]])),
         "robotJoint4Mm": float(joints[JOINT_ORDER[3]]) * 1000.0,
         "robotJoint5Deg": math.degrees(float(joints[JOINT_ORDER[4]])),
-        # The retained native endpoint is the canonical non-spinning J1-J5
-        # state; keep the visual-only J6 at its existing zero value.
-        "robotJoint6Deg": 0.0,
     }
     start_modify = getattr(parameter, "StartModify", None)
     end_modify = getattr(parameter, "EndModify", None)

@@ -372,7 +372,7 @@
           "returns": "list[tuple[float, float, float]]"
         },
         "_syncCollisionAuditDisplayCopy": {
-          "arguments": "self, *, source_id: str, outgoing_id: str, outgoing_base_mm: vtk.vtkPolyData, base_world: vtk.vtkMatrix4x4, outgoing_fingerprint: str, opacity: float",
+          "arguments": "self, *, source_id: str, outgoing_id: str, outgoing_base_mm: vtk.vtkPolyData, base_transform: vtkMRMLLinearTransformNode, outgoing_fingerprint: str, opacity: float",
           "decorators": [],
           "returns": "vtkMRMLModelNode"
         },
@@ -468,7 +468,7 @@
           "returns": "str"
         },
         "activateDentoCasePreparedBranch": {
-          "arguments": "self, parameterNode, branchId: str, *, registry: dict[str, object] | None=None, invalidateRuntime: bool=True",
+          "arguments": "self, parameterNode, branchId: str, *, registry: dict[str, object] | None=None, invalidateRuntime: bool=True, _forVerification: bool=False",
           "decorators": [],
           "returns": "dict[str, object]"
         },
@@ -720,7 +720,7 @@
           "returns": "tuple[vtkMRMLModelNode, dict]"
         },
         "createOrUpdatePatientContactShell": {
-          "arguments": "self, sourceModel: vtkMRMLModelNode, visibleSupportModel: vtkMRMLModelNode, insertionDirection: vtkMRMLMarkupsLineNode, blockoutModel: vtkMRMLModelNode, *, clearanceMm: float, thicknessMm: float, samplingSpacingMm: float, blockoutSafetyMm: float=0.0, voxelClosingMm: float=0.0, shellModel: vtkMRMLModelNode | None=None",
+          "arguments": "self, sourceModel: vtkMRMLModelNode, visibleSupportModel: vtkMRMLModelNode, insertionDirection: vtkMRMLMarkupsLineNode, blockoutModel: vtkMRMLModelNode, *, clearanceMm: float, thicknessMm: float, samplingSpacingMm: float, blockoutSafetyMm: float=0.0, voxelClosingMm: float=0.0, shellModel: vtkMRMLModelNode | None=None, progress=None",
           "decorators": [],
           "returns": "tuple[vtkMRMLModelNode, dict]"
         },
@@ -735,7 +735,7 @@
           "returns": "tuple[vtkMRMLLinearTransformNode, list[vtkMRMLModelNode]]"
         },
         "createOrUpdateRobotWorkspace": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, progress=None, *, sample_result: WorkspaceSampleResult | None=None, algorithm: str='ROI3D+PositionAxisIK'",
           "decorators": [],
           "returns": "tuple[vtkMRMLModelNode, WorkspaceSampleResult]"
         },
@@ -989,7 +989,7 @@
           "returns": "dict[str, object]"
         },
         "evaluatePreparedBranchEligibility": {
-          "arguments": "self, parameterNode, branchId: str | None=None, *, registry: dict[str, object] | None=None",
+          "arguments": "self, parameterNode, branchId: str | None=None, *, registry: dict[str, object] | None=None, _forVerification: bool=False",
           "decorators": [],
           "returns": "dict[str, object]"
         },
@@ -2010,7 +2010,7 @@
           "returns": "list[vtkMRMLModelNode]"
         },
         "step6GuidanceCollisionObjectIds": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, *, allow_deferred_static_ack: bool=False",
           "decorators": [],
           "returns": "tuple[str, ...]"
         },
@@ -2074,7 +2074,7 @@
           "returns": "dict[str, object]"
         },
         "syncStep6MoveItPlanningScene": {
-          "arguments": "self, parameterNode, *, expected_policy_fingerprint: str='', require_correlated_readback: bool=False, defer_runtime_acknowledgement: bool=False",
+          "arguments": "self, parameterNode, *, expected_policy_fingerprint: str='', require_correlated_readback: bool=False, defer_runtime_acknowledgement: bool=False, progress=None",
           "decorators": [],
           "returns": "int"
         },
@@ -2166,7 +2166,7 @@
           "returns": "None"
         },
         "validateLoadedCaseBundleWorkflow": {
-          "arguments": "self, parameterNode, expected: dict[str, object], *, allowDerivedEnvironmentMismatch: bool = False",
+          "arguments": "self, parameterNode, expected: dict[str, object], *, allowDerivedEnvironmentMismatch: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -2367,7 +2367,6 @@
         "robotJoint3Deg",
         "robotJoint4Mm",
         "robotJoint5Deg",
-        "robotJoint6Deg",
         "robotTranslationStepMm",
         "robotRotationStepDeg",
         "robotKeyboardNudgeEnabled",
@@ -2417,8 +2416,6 @@
         "robotJoint4TaskMaxMm",
         "robotJoint5TaskMinDeg",
         "robotJoint5TaskMaxDeg",
-        "robotJoint6TaskMinDeg",
-        "robotJoint6TaskMaxDeg",
         "sceneDisplayPresetJson"
       ],
       "methods": {}
@@ -2970,7 +2967,7 @@
           "returns": ""
         },
         "_createOrUpdatePatientContactShell": {
-          "arguments": "self",
+          "arguments": "self, progress=None",
           "decorators": [],
           "returns": ""
         },
@@ -3190,11 +3187,6 @@
           "decorators": [],
           "returns": "None"
         },
-        "_onFacadePreviewFinished": {
-          "arguments": "self, result",
-          "decorators": [],
-          "returns": "None"
-        },
         "_onNextStep6Substep": {
           "arguments": "self, checked: bool=False",
           "decorators": [],
@@ -3275,22 +3267,12 @@
           "decorators": [],
           "returns": "None"
         },
-        "_onShellCreateTcpGoal": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
         "_onShellDisconnectRobot": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
         },
         "_onShellLoadFallbackRobot": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
-        "_onShellPlanGoal": {
           "arguments": "self",
           "decorators": [],
           "returns": "None"
@@ -3366,7 +3348,7 @@
           "returns": "None"
         },
         "_onStep6PhasePreviewFinished": {
-          "arguments": "self, label, result",
+          "arguments": "self, result",
           "decorators": [],
           "returns": "None"
         },
@@ -3415,13 +3397,8 @@
           "decorators": [],
           "returns": "None"
         },
-        "_onStep6SaveTaskHome": {
-          "arguments": "self",
-          "decorators": [],
-          "returns": "None"
-        },
         "_onStep6ShowMotionDiagnostics": {
-          "arguments": "self",
+          "arguments": "self, expected_fingerprint: str=''",
           "decorators": [],
           "returns": "None"
         },
@@ -4664,7 +4641,7 @@
           "returns": "None"
         },
         "onFinalVerificationModelSelectionChanged": {
-          "arguments": "self, modelNode",
+          "arguments": "self, index: int",
           "decorators": [],
           "returns": "None"
         },
@@ -4869,11 +4846,6 @@
           "returns": "None"
         },
         "onPlanTrajectoryMotion": {
-          "arguments": "self, checked: bool=False",
-          "decorators": [],
-          "returns": "None"
-        },
-        "onPreviewTrajectoryMotion": {
           "arguments": "self, checked: bool=False",
           "decorators": [],
           "returns": "None"

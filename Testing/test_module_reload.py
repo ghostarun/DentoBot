@@ -62,6 +62,25 @@ def test_scene_close_releases_slicer_side_ros_state_before_scene_rebind() -> Non
     assert "self._step6MotionPreviewTimer.stop()" in handler
 
 
+def test_widget_cleanup_disconnects_once_before_adapter_and_node_release() -> None:
+    source = LIFECYCLE.read_text(encoding="utf-8")
+    cleanup = source.split("def cleanup", 1)[1].split("def enter", 1)[0]
+    assert cleanup.index("if self._isCleaningUp:") < cleanup.index(
+        "self._isCleaningUp = True"
+    )
+    robot_guard = cleanup.index(
+        "if find_ros2_robot_by_name(ROS2_ROBOT_NAME) is not None:"
+    )
+    disconnect = cleanup.index("disconnect_dentobot_motion_control(", robot_guard)
+    adapter_finally = cleanup.index("finally:", disconnect)
+    adapter_shutdown = cleanup.index("shutdown_slicer_adapter()", adapter_finally)
+    node_release = cleanup.index("release_default_ros2_node_singleton()")
+    assert robot_guard < disconnect < adapter_finally < adapter_shutdown < node_release
+    assert "logging.warning(" in cleanup[disconnect:adapter_finally]
+    assert "logging.exception(" in cleanup[disconnect:adapter_finally]
+    assert cleanup.count("connect_dentobot_motion_control(") == 1
+
+
 def test_viewer_item_change_defers_tree_rebuild_and_cleanup_blocks_flush() -> None:
     controls = VIEW_CONTROLS.read_text(encoding="utf-8")
     handler = controls.split("def onWorkflowViewTreeItemChanged", 1)[1].split(
@@ -99,6 +118,12 @@ def test_ros_adapter_nodes_are_transient_across_scene_save_and_clear() -> None:
     assert '"model", "goal_model", "goal_transform", "lookup", "parameter"' in bridge_source
     assert bridge_source.count("SaveWithSceneOff()") >= 4
     assert "_remove_ros2_node_reference" in bridge_source
+    view_restore = start_save.index("self._restoreWorkflowViewState(updateUi=False)")
+    separation = start_save.index("self._enforceStep6OpenedJawDisplaySeparation()")
+    assert view_restore < separation
+    assert start_save.rstrip().endswith(
+        "self._enforceStep6OpenedJawDisplaySeparation()"
+    )
 
 
 def test_warm_lifecycle_never_queues_moveit_callbacks_with_native_wrappers() -> None:

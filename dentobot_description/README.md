@@ -21,12 +21,13 @@ The initial integration made three URDF normalizations:
   because KDL does not retain inertia on a URDF root link.
 
 On 2026-08-14 the developer selected a photographed design pose as the new
-draft zero configuration. The old manual values absorbed into the URDF joint
-origins are J1 `25.38 deg`, J2 `0 mm`, J3 `62.46 deg`, J4 `0 mm`, J5
-`1.08 deg`, and J6 `-35.28 deg`; the three finite revolute limits were shifted
-by the same offsets so their original 360-degree spans remain available around
-the new zero. The fixed root rotates link-1 by -90 degrees about X, placing its
-thin Y-normal mounting face on the RViz XY plane with the articulated chain
+draft zero configuration. The old manual arm values absorbed into the URDF
+joint origins are J1 `25.38 deg`, J2 `0 mm`, J3 `62.46 deg`, J4 `0 mm`, and J5
+`1.08 deg`; the finite revolute limits were shifted by the same offsets so
+their original 360-degree spans remain available around the new zero. The
+fixed spindle-housing-to-burr transform preserves the photographed tool
+assembly pose. The fixed root rotates link-1 by -90 degrees about X, placing
+its thin Y-normal mounting face on the RViz XY plane with the articulated chain
 above the grid. J4's axis is negated while retaining its positive `0–75 mm`
 control range, so increasing J4 now moves primarily in negative `base_link` X.
 
@@ -37,18 +38,16 @@ reverses its axis, so physical geometry is preserved by
 `q_new = 0.08 m - q_old`. DENTOWorkflow applies this exact conversion only to
 packages carrying the fingerprint of the tracked former URDF; saved Task Home
 runtime evidence and workspace samples are then required to be regenerated.
-The J1/J3/J5/J6 photographed-pose offsets above remain absorbed into their
-URDF origins, so their configured default Home values remain displayed as
-zero.
+The J1/J3/J5 photographed-pose offsets above remain absorbed into their URDF
+origins, so their configured default Home values remain displayed as zero.
 
 The same simulation-profile revision declares J5 continuous. The former
 finite interval `-1.08–358.92 deg` covered one full revolution but forced a
 pose just below zero to be represented as an almost-complete positive turn.
 MoveIt and DENTOWorkflow now use the shortest representation relative to the
-accepted start state for J5. J6 is different: it is the pneumatic air-rotor
-spindle and is not a positioning degree of freedom. Its visual/collision
-branch remains in the URDF and publishes a neutral `0 rad` display state, but
-it is absent from the MoveIt `dentobot_arm` planning group.
+accepted start state for J5. Pneumatic turbine rotation is outside the
+positioning model; the spindle housing and burr remain in the URDF as rigid
+geometry.
 
 The received source URDF remains unchanged under `data/ROS/assembly`. Mesh
 bytes, link frames/geometries, masses, inertias, and the other joint axes are
@@ -85,7 +84,7 @@ The launcher verifies the reusable container, rebuilds only this small
 description package, refuses a duplicate description launch, grants temporary
 X11 access, and opens RViz beside the package-owned manual slider window.
 
-The six controls follow URDF order. Revolute values are displayed in degrees;
+The five controls follow URDF order. Revolute values are displayed in degrees;
 prismatic values are displayed in millimetres. Published
 `sensor_msgs/msg/JointState` positions remain in ROS SI units (radians and
 metres):
@@ -97,9 +96,8 @@ metres):
 | `link-3_Revolute-3` | revolute | -62.46–297.54 deg |
 | `link-4_Slider-4` | prismatic | 0–75 mm |
 | `link-5_Revolute-5` | continuous | -180–180 deg display window |
-| `pneumatic_spindle-Copy_Revolute-6` | continuous visual spindle | fixed 0 deg in planning |
 
-All six displayed values start at zero. **Reset all joints to zero** restores
+All five displayed values start at zero. **Reset all joints to zero** restores
 the photographed pose, not the original CAD-export pose.
 
 The direct ROS equivalent is:
@@ -170,14 +168,10 @@ this package.
 
 ## Step 6 planning frame
 
-MoveIt group `dentobot_arm` plans five commandable joints (`link-1` through
-`link-5`) to the fixed `dentobot_drill_tcp` frame. The frame is a fixed sibling
-of the spindle joint at the CAD burr-tip reference pose, so its position and
-tool axis do not rotate when the uncontrolled J6 air rotor turns. The older
-`dentobot_drill_tip_provisional` and `dentobot_tool_tcp` links remain downstream
-of J6 for visual/collision compatibility and are not Step 6 planning TCPs.
-Task Home, IK, workspace samples, trajectories, phase-guard commands, and
-previews therefore use five SI values. Older six-value saved vectors are read
-at the compatibility boundary by retaining J1–J5 and discarding the historical
-spindle slot; old roll-dependent evidence is stale under the new robot-profile
-fingerprint.
+MoveIt group `dentobot_arm` plans exactly J1–J5 to the fixed
+`dentobot_drill_tcp` frame. The TCP keeps its existing burr-tip reference
+transform and physical +Z drilling axis. The spindle housing, burr, and older
+`dentobot_tool_tcp` and `dentobot_drill_tip_provisional` frames remain in the
+description at fixed physical transforms for visualization and collision
+checking. Task Home, IK, workspace samples, trajectories, phase-guard
+commands, and previews use exactly five SI joint values.

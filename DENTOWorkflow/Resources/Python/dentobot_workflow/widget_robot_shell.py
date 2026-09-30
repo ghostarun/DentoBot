@@ -27,9 +27,9 @@ class RobotShellWidgetMixin:
                 "connect": self._onShellConnectRobot,
                 "disconnect": self._onShellDisconnectRobot,
                 "load_fallback": self._onShellLoadFallbackRobot,
-                "create_goal": self._onShellCreateTcpGoal,
+                "set_tcp_drag_enabled": self._onShellSetTcpDragEnabled,
+                "nudge_tcp_goal": self._onShellNudgeTcpGoal,
                 "solve_ik": self._onShellSolveIk,
-                "plan_goal": self._onShellPlanGoal,
                 "refresh": self._refreshShellRobotCapabilities,
                 "sync_collision": self._onShellSyncCollisionScene,
                 "check_state": self._onShellCheckRobotState,
@@ -274,8 +274,6 @@ class RobotShellWidgetMixin:
             if result.success or remediationConnected:
                 self._updateRobotPlacement()
                 self._applyStep6RecommendedView()
-            else:
-                self._updateFromParameterNode()
             self._refreshShellRobotCapabilities()
         finally:
             progress.close()
@@ -329,13 +327,54 @@ class RobotShellWidgetMixin:
             slicer.util.errorDisplay(result.message)
         self._refreshShellRobotCapabilities()
 
-    def _onShellCreateTcpGoal(self) -> None:
-        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+    def _onShellSetTcpDragEnabled(self, enabled: bool) -> bool:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if panel is None:
+            return False
+        was_busy = bool(getattr(self, "_workflowActionBusy", False))
+        if facade is None or (was_busy and enabled):
+            panel.goalStatusLabel.text = (
+                "TCP drag change rejected: the façade is unavailable or another "
+                "Step 6 action is active."
+            )
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return False
+        if not was_busy:
+            self._workflowActionBusy = True
+        try:
+            result = facade.setTcpDragEnabled(bool(enabled))
+            panel.showGoalResult(result)
+            return bool(result.success)
+        except Exception as exc:
+            panel.goalStatusLabel.text = f"TCP drag change failed: {exc}"
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return False
+        finally:
+            if not was_busy:
+                self._workflowActionBusy = False
+
+    def _onShellNudgeTcpGoal(self, payload) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if panel is None:
             return
-        result = self._robotWorkflowFacade.ensureTcpGoal()
-        self._robotSimulationPanel.showGoalResult(result)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
+        if facade is None or getattr(self, "_workflowActionBusy", False):
+            panel.goalStatusLabel.text = (
+                "TCP nudge rejected: the façade is unavailable or another "
+                "Step 6 action is active."
+            )
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            return
+        self._workflowActionBusy = True
+        try:
+            result = facade.nudgeTcpGoal(payload)
+            panel.showGoalResult(result)
+        except Exception as exc:
+            panel.goalStatusLabel.text = f"TCP nudge failed: {exc}"
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+        finally:
+            self._workflowActionBusy = False
 
     def _onShellResetManualJogDraft(self) -> None:
         if self._robotSimulationPanel:
@@ -567,8 +606,11 @@ class RobotShellWidgetMixin:
                 },
             )
         finally:
-            panel.setManualJogRequestComplete()
             self._workflowActionBusy = False
+            panel.setManualJogRequestComplete()
+            # Robot-state signals can refresh Step 6 while the action is busy;
+            # recompute availability once completion has cleared that guard.
+            self._updateStep6PlanningUi()
 
     def _onShellReconcileManualRobotJog(self) -> None:
         panel = self._robotSimulationPanel
@@ -661,26 +703,88 @@ class RobotShellWidgetMixin:
                 {"manualJogReconciliationRequired": True, "error": str(exc)},
             )
         finally:
-            panel.setManualJogRequestComplete()
             self._workflowActionBusy = False
+            panel.setManualJogRequestComplete()
+            self._updateStep6PlanningUi()
 
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return
-        result = self._robotWorkflowFacade.solveIk()
-        self._robotSimulationPanel.showGoalResult(result)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
-
-    def _onShellPlanGoal(self) -> None:
-        if not self._robotSimulationPanel or not self._robotWorkflowFacade:
+        panel = self._robotSimulationPanel
+        try:
+            result = self._robotWorkflowFacade.solveIk()
+        except Exception as exc:
+            message = (
+                "TCP Solve IK could not complete; the prior J1–J5 draft and accepted "
+                "robot state are retained. "
+                + str(exc)
+            )
+            panel.goalStatusLabel.text = message
+            panel.goalStatusLabel.setProperty("dentobotState", "error")
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
             return
-        result = self._robotWorkflowFacade.planToGoal()
-        self._robotSimulationPanel.showGoalResult(result)
-        self._step6MotionPlan = result.payload if result.success else None
-        self._updateStep6PlanningUi(result.message, error=not result.success)
-        if not result.success:
-            slicer.util.errorDisplay(result.message)
+        panel.showGoalResult(result)
+        payload = getattr(result, "payload", None)
+        failure = ""
+        if result.success is not True:
+            failure = str(result.message or "Collision-aware TCP IK was not accepted.")
+        elif not isinstance(payload, Mapping) or set(payload) != set(JOINT_NAMES):
+            failure = (
+                "Successful TCP IK response did not contain exactly J1–J5; "
+                "the existing draft is retained."
+            )
+        else:
+            try:
+                payload = {name: float(payload[name]) for name in JOINT_NAMES}
+            except (TypeError, ValueError, OverflowError):
+                payload = None
+            if payload is None or not all(isfinite(value) for value in payload.values()):
+                failure = (
+                    "Successful TCP IK response contained invalid J1–J5 values; "
+                    "the existing draft is retained."
+                )
+        details = result.details if isinstance(result.details, Mapping) else {}
+        evidence = {
+            key: details[key]
+            for key in (
+                "staticValidityEvidence",
+                "failureEvidence",
+                "candidateJointPositionsSi",
+                "collisionAwareValidated",
+                "authoritativeStaticValidity",
+            )
+            if key in details
+        }
+        if failure:
+            if evidence:
+                failure += " Evidence: " + repr(evidence)
+            message = (
+                "TCP IK result was not staged; the prior J1–J5 draft and accepted "
+                "robot state are retained. "
+                + failure
+            )
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
+            return
+        try:
+            staged = panel.stageTcpIkSolution(payload)
+        except Exception as exc:
+            staged = False
+            stage_error = str(exc)
+        else:
+            stage_error = str(
+                getattr(panel, "_tcpIkStageFailureText", "")
+                or "the solution was rejected by the draft controls"
+            )
+        if not staged:
+            message = (
+                "MoveIt IK solved, but its result was not staged. The prior J1–J5 "
+                "draft is retained; no accepted robot state or route changed: "
+                + stage_error
+            )
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
 
     def _onShellSyncCollisionScene(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
@@ -1262,7 +1366,78 @@ class RobotShellWidgetMixin:
                 "idle", "Historical paths and imported records were cleared; live state is unchanged."
             )
 
-    def _onStep6ShowMotionDiagnostics(self) -> None:
+    def _clearStep6TargetConditioningFiducials(self) -> None:
+        for node in list(slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode")):
+            if node.GetAttribute("DENTOBOT.Step6TargetConditioningDisplay") == "true":
+                slicer.mrmlScene.RemoveNode(node)
+
+    def _showStep6TargetConditioningFiducials(
+        self, session, expected_fingerprint: str
+    ) -> bool:
+        """Show only exact-current saved diagnostic coordinates as transient fiducials."""
+        conditioning = session.full_task_outcome.get("target_conditioning")
+        if (
+            session.state != "Current"
+            or session.stale_reason
+            or not expected_fingerprint
+            or session.session_fingerprint != expected_fingerprint
+            or not isinstance(conditioning, Mapping)
+            or conditioning.get("world_frame") != "RAS_mm"
+        ):
+            return False
+        try:
+            points = tuple(
+                (
+                    label,
+                    tuple(float(value) for value in conditioning[field]),
+                )
+                for label, field in (
+                    ("PreEntry TCP", "pre_entry_world_ras_mm"),
+                    ("Entry TCP", "entry_world_ras_mm"),
+                    ("Target TCP", "target_world_ras_mm"),
+                )
+            )
+            if any(
+                len(point) != 3 or not all(isfinite(value) for value in point)
+                for _, point in points
+            ):
+                return False
+            marker = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsFiducialNode",
+                "[Step 6 Diagnostic Snapshot] PreEntry, Entry, Target TCP",
+            )
+            marker.SetAttribute("DENTOBOT.Step6TargetConditioningDisplay", "true")
+            marker.SetAttribute(
+                "DENTOBOT.IntendedUse", "DisplayOnlyDiagnosticSnapshot"
+            )
+            marker.SetSaveWithScene(False)
+            marker.CreateDefaultDisplayNodes()
+            for label, point in points:
+                marker.AddControlPointWorld(vtk.vtkVector3d(*point), label)
+            marker.SetLocked(True)
+            display = marker.GetDisplayNode()
+            if display is not None:
+                set_save_with_scene = getattr(display, "SetSaveWithScene", None)
+                if callable(set_save_with_scene):
+                    set_save_with_scene(False)
+                display.SetVisibility(True)
+                display.SetColor(1.0, 0.65, 0.05)
+                display.SetSelectedColor(1.0, 0.65, 0.05)
+                display.SetGlyphScale(4.0)
+        except (
+            AttributeError,
+            KeyError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
+            self._clearStep6TargetConditioningFiducials()
+            return False
+        return True
+
+    def _onStep6ShowMotionDiagnostics(self, expected_fingerprint: str = "") -> None:
+        self._clearStep6TargetConditioningFiducials()
         if not self._parameterNode or not self._robotSimulationPanel:
             return
         payload = str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
@@ -1271,6 +1446,12 @@ class RobotShellWidgetMixin:
             return
         try:
             session = parse_motion_diagnostic_session(payload)
+            exact_current_session = bool(
+                expected_fingerprint
+                and session.session_fingerprint == expected_fingerprint
+                and session.state == "Current"
+                and not session.stale_reason
+            )
             self._robotSimulationPanel.showMotionDiagnostics(
                 session,
                 self._robotWorkflowFacade.showDiagnosticCandidate
@@ -1291,7 +1472,20 @@ class RobotShellWidgetMixin:
                 self._onStep6UnlockDiagnosticCandidate
                 if self._robotWorkflowFacade
                 else None,
+                exact_current_session=exact_current_session,
             )
+            if exact_current_session:
+                fiducials_visible = self._showStep6TargetConditioningFiducials(
+                    session, expected_fingerprint
+                )
+                self._robotSimulationPanel.setMotionDiagnosticTargetFiducialStatus(
+                    fiducials_visible
+                )
+                if fiducials_visible:
+                    self._robotSimulationPanel._diagnosticDialog.connect(
+                        "finished(int)",
+                        lambda _result: self._clearStep6TargetConditioningFiducials(),
+                    )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
 
@@ -1388,6 +1582,7 @@ class RobotShellWidgetMixin:
             else ""
         )
         roi = result.payload
+        matches_saved_evidence = False
         if result.success:
             try:
                 if not isinstance(roi, Mapping):
@@ -1454,12 +1649,48 @@ class RobotShellWidgetMixin:
                         " Display draft rounded to "
                         f"{max(rounded_decimals)} decimal places."
                     )
-                panel.taskSpaceRoiStatusLabel.text = (
-                    panel._taskSpaceRoiStatusContext
-                    + " Editable local display draft; TCP samples have not been "
-                    "generated or validated."
+                display_center = tuple(value for _, value in display_values[:3])
+                display_dimensions = tuple(value for _, value in display_values[3:])
+                roi_source = {
+                    "openingRevision": opening_revision,
+                    "gapLineNodeId": gap_line_node_id,
+                }
+                matches_saved_evidence = self._robotWorkflowFacade.workspaceRoiMatchesSavedEvidence(
+                    TaskSpaceRoi(
+                        center_world_ras_mm=display_center,
+                        dimensions_mm=display_dimensions,
+                    ),
+                    roi_source,
+                    self._parameterNode,
                 )
-                panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "blocked")
+                if matches_saved_evidence:
+                    runtime_current = bool(
+                        self._robotWorkflowFacade.workspaceRuntimeValidated(
+                            self._parameterNode
+                        )
+                    )
+                    panel.taskSpaceRoiStatusLabel.text = (
+                        panel._taskSpaceRoiStatusContext
+                        + " Exact saved workspace ROI/source match; "
+                        + (
+                            "runtime validation is current."
+                            if runtime_current
+                            else "saved evidence needs runtime revalidation."
+                        )
+                    )
+                    panel.taskSpaceRoiStatusLabel.setProperty(
+                        "dentobotState",
+                        "ok" if runtime_current else "blocked",
+                    )
+                else:
+                    panel.taskSpaceRoiStatusLabel.text = (
+                        panel._taskSpaceRoiStatusContext
+                        + " Editable local display draft; TCP samples have not been "
+                        "generated or validated."
+                    )
+                    panel.taskSpaceRoiStatusLabel.setProperty(
+                        "dentobotState", "blocked"
+                    )
         if source_issue:
             panel._taskSpaceRoiStatusContext = (
                 f"Source issue: {source_issue}. Existing ROI draft is stale/unverified."
@@ -1471,7 +1702,7 @@ class RobotShellWidgetMixin:
             panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "error")
         panel.taskSpaceRoiStatusLabel.style().unpolish(panel.taskSpaceRoiStatusLabel)
         panel.taskSpaceRoiStatusLabel.style().polish(panel.taskSpaceRoiStatusLabel)
-        if not source_issue:
+        if not source_issue and not matches_saved_evidence:
             self._onStep6TaskSpaceRoiEdited()
         return not source_issue
 
@@ -1649,6 +1880,7 @@ class RobotShellWidgetMixin:
                 self._parameterNode.step6MotionDiagnosticJson = canonical_json(
                     retained.to_dict()
                 )
+                diagnostic_fingerprint = retained.session_fingerprint
         if not result.success:
             slicer.util.errorDisplay(result.message)
         if (
@@ -1656,7 +1888,12 @@ class RobotShellWidgetMixin:
             and self._parameterNode
             and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
         ):
-            qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
+            qt.QTimer.singleShot(
+                0,
+                lambda expected=diagnostic_fingerprint: self._onStep6ShowMotionDiagnostics(
+                    str(expected)
+                ),
+            )
 
     def _onStep6CheckPreEntryIK(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -1684,7 +1921,9 @@ class RobotShellWidgetMixin:
         )
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if result.success and result.details.get("motionDiagnosticSessionFingerprint"):
-            self._onStep6ShowMotionDiagnostics()
+            self._onStep6ShowMotionDiagnostics(
+                str(result.details["motionDiagnosticSessionFingerprint"])
+            )
 
     def _onStep6CheckPlanningStage(self, stage: str) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -1721,7 +1960,7 @@ class RobotShellWidgetMixin:
             except ValueError:
                 session = None
             if session and session.session_fingerprint == fingerprint:
-                self._onStep6ShowMotionDiagnostics()
+                self._onStep6ShowMotionDiagnostics(str(fingerprint))
 
     def _onStep6ComparePlanners(self) -> None:
         if getattr(self, "_plannerComparisonState", None):
@@ -2202,6 +2441,7 @@ class RobotShellWidgetMixin:
                 self._robotSimulationPanel.homeGroup,
                 self._robotSimulationPanel.workspaceReviewGroup,
                 self._robotSimulationPanel.confirmationGroup,
+                self._robotSimulationPanel.goalGroup,
                 self._robotSimulationPanel.manualJogGroup,
                 self._robotSimulationPanel.approachGroup,
                 self._robotSimulationPanel.drillingGroup,

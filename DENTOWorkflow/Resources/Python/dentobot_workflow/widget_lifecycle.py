@@ -3,11 +3,83 @@
 from __future__ import annotations
 
 from .runtime import *
+from .ui_workflow_focus import WorkflowFocusChromeController
 
 
 class LifecycleWidgetMixin:
+    def _workflowFocusController(self):
+        if not hasattr(self, "_workflowFocusChromeController"):
+            self._workflowFocusChromeController = WorkflowFocusChromeController()
+        return self._workflowFocusChromeController
+
+    def _applyWorkflowFocusChrome(self) -> None:
+        if not getattr(self, "_workflowFocusEntered", False):
+            return
+
+        controller = self._workflowFocusController()
+        shell = getattr(self, "_applicationShell", None)
+        try:
+            shellActive = bool(shell and shell.active)
+        except RuntimeError:
+            shellActive = False
+        toolsVisible = bool(getattr(self, "_workflowSlicerToolsVisible", False))
+
+        if toolsVisible:
+            controller.restore(keep_snapshot=True)
+        else:
+            mainWindow = slicer.util.mainWindow()
+            widgets = []
+            if mainWindow is not None:
+                if not shellActive:
+                    expertToolbar = getattr(self, "_step6ExpertReturnToolbar", None)
+                    try:
+                        toolbars = mainWindow.findChildren("QToolBar")
+                    except RuntimeError:
+                        toolbars = ()
+                    for toolbar in toolbars:
+                        try:
+                            if (
+                                toolbar is expertToolbar
+                                or str(toolbar.objectName)
+                                == "DENTOBOTExpertReturnToolbar"
+                            ):
+                                continue
+                        except RuntimeError:
+                            continue
+                        widgets.append(toolbar)
+
+                for objectName in (
+                    "LogoLabel",
+                    "HelpCollapsibleButton",
+                    "DataProbeCollapsibleWidget",
+                ):
+                    try:
+                        widget = slicer.util.findChild(mainWindow, objectName)
+                    except (IndexError, RuntimeError):
+                        widget = None
+                    if widget is not None:
+                        widgets.append(widget)
+            controller.apply(widgets)
+
+        if shellActive:
+            controller.set_shell_toolbars_visible(shell, toolsVisible)
+
+    def _restoreWorkflowFocusChrome(self) -> None:
+        controller = getattr(self, "_workflowFocusChromeController", None)
+        if controller is not None:
+            controller.restore()
+
+    def _setWorkflowSlicerToolsVisible(self, visible: bool) -> None:
+        self._workflowSlicerToolsVisible = bool(visible)
+        if getattr(self, "_workflowFocusEntered", False):
+            self._applyWorkflowFocusChrome()
+
     def cleanup(self) -> None:
+        if self._isCleaningUp:
+            return
         self._isCleaningUp = True
+        self._workflowFocusEntered = False
+        self._restoreWorkflowFocusChrome()
         self._caseFoundationSnapshot = None
         self._workflowViewRefreshScheduled = False
         self._step6ExpertDiagnosticHandoffActive = False
@@ -32,6 +104,24 @@ class LifecycleWidgetMixin:
         self.setParameterNode(None)
         self.removeObservers()
         self._sceneObserversActive = False
+        try:
+            mrmlRobotModels = self.logic.robotModelNodes() if self.logic else []
+            if find_ros2_robot_by_name(ROS2_ROBOT_NAME) is not None:
+                disconnected, message = disconnect_dentobot_motion_control(
+                    mrmlRobotModels,
+                )
+                if not disconnected:
+                    logging.warning(
+                        "Could not fully disconnect DENTOBOT ROS motion control "
+                        "during widget cleanup: %s",
+                        message,
+                    )
+        except Exception:
+            logging.exception(
+                "Could not disconnect DENTOBOT ROS motion control during widget cleanup"
+            )
+        finally:
+            shutdown_slicer_adapter()
         release_default_ros2_node_singleton()
         if self._viewControlsPalette:
             self._viewControlsPalette.deleteLater()
@@ -39,6 +129,10 @@ class LifecycleWidgetMixin:
             self._viewControlsTabWidget = None
 
     def enter(self) -> None:
+        self._workflowFocusEntered = True
+        self._workflowSlicerToolsVisible = getattr(
+            self, "_workflowSlicerToolsVisible", False
+        )
         self._addSceneObservers()
         self.initializeParameterNode()
         if self._applicationShell:
@@ -46,10 +140,13 @@ class LifecycleWidgetMixin:
                 DENTOApplicationShell.storedGuiMode(),
                 persist=False,
             )
+        self._applyWorkflowFocusChrome()
         self._updateRobotKeyboardShortcutState()
         qt.QTimer.singleShot(0, self._restoreViewControlsPaletteOnEnter)
 
     def exit(self) -> None:
+        self._workflowFocusEntered = False
+        self._restoreWorkflowFocusChrome()
         if self._step6ExpertDiagnosticHandoffActive:
             self._setRobotTransformInteractionVisible(False)
             self._disableRobotKeyboardShortcuts()
@@ -333,10 +430,11 @@ class LifecycleWidgetMixin:
             logging.warning(quarantineMessage)
         foundation = self.logic.evaluateCaseFoundationEligibility(self._parameterNode)
         if foundation["base"]["code"] == "ROBOT_PROFILE_MISMATCH":
-            self.logic.invalidateCaseFoundationBase(
-                self._parameterNode,
-                _("The installed robot profile changed after base review."),
-            )
+            with slicer.util.NodeModify(self._parameterNode):
+                self.logic.invalidateCaseFoundationBase(
+                    self._parameterNode,
+                    _("The installed robot profile changed after base review."),
+                )
         if not self._parameterNode.step6PlanningContextImported:
             return
         packageIssues = self.logic.step6PlanningPackageFreshnessIssues(
@@ -419,7 +517,6 @@ class LifecycleWidgetMixin:
             self._parameterNode.robotJoint3Deg,
             self._parameterNode.robotJoint4Mm,
             self._parameterNode.robotJoint5Deg,
-            self._parameterNode.robotJoint6Deg,
         )
         base, models = self.logic.createOrUpdateRobotPlacement(
             self._parameterNode.robotBaseTransform,
@@ -534,6 +631,7 @@ class LifecycleWidgetMixin:
         )
         if self._resumeWorkflowViewPriorStateAfterSave:
             self._restoreWorkflowViewState(updateUi=False)
+        self._enforceStep6OpenedJawDisplaySeparation()
 
     def onSceneEndSave(self, caller=None, event=None) -> None:
         del caller, event

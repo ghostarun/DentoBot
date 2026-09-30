@@ -1,16 +1,23 @@
 # DENTOBOT agent context
 
-Last reconciled: 2026-09-27. `S6-LIVE-01` remains Priority 0.
+Last reconciled: 2026-09-28. `S6-LIVE-01` remains Priority 0.
 
-**Current execution order:** Complete remaining Step 6 manual engineering
-workbench source with focused safety checks; avoid replaying the entire GUI
-case after each slice. Before the final broad headed campaign, curate only
-accepted 5.10 integrity/performance deltas from the separate clean
-`DentoBot-performance-5.12` checkout into a reviewed integration branch.
-Do not wholesale merge deferred 5.12 history or switch this dirty renovation
-checkout. See the active renovation plan's 27 September execution order,
-backlog `S6-LIVE-01`/`S6-P2-03`, DECISIONS and today's logbook. Tarun's
-normal-window verdict remains PENDING.
+**Current execution order:** Checkpoint commit `84234a6` records the preceding
+Step 6 engineering-workbench gates. The subsequent exact five-DOF refactor is
+source/build/runtime verified: URDF, MoveIt/native guard and current workflow
+state expose exactly J1–J5, while the fixed spindle/burr geometry and canonical
+TCP remain. The drill is a separate future speed-controlled device outside
+joint state and IK; no hardware/RPM command is authorized. Resume the remaining
+case-bound rejected/unknown/reconciliation, physical-key/responsiveness and
+positive full-chain preview/interruption gates on a newly saved five-DOF case.
+The [detailed acceptance checklist](diagnostics/STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md)
+is now the latest implementation plan for that case creation and automated
+headed GUI simulation campaign; do not create a parallel test plan. This task
+permits up to four simultaneous GPT-6 Luna Max workers where independent
+disjoint implementation/host-test work warrants them. Sol retains reasoning,
+controlled records, serialized runtime and acceptance. The present platform
+allows only three workers beside Sol concurrently, so a fourth is sequential.
+**30 September operator supersession:** Prepare the reviewed integration branch now from frozen renovation checkpoint `e7cd29f` and accepted Slicer 5.10 fixes. Actual 5.12 promotion remains deferred. Final Step 6 acceptance and normal-window verdict remain PENDING; early source integration does not accept the unfinished renovation. See [integration preparation](diagnostics/STEP6_INTEGRATION_PREPARATION_2026-09-30.md).
 
 **Newest headed Base/Home result:** The unchanged reviewed case and isolated
 native guard passed all 14 bounded in-app checklist items: case/scene,

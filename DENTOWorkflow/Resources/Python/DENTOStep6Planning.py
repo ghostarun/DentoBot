@@ -82,26 +82,23 @@ class TaskJointLimits:
     joint_3: JointLimitPair
     joint_4: JointLimitPair
     joint_5: JointLimitPair
-    joint_6: JointLimitPair
 
-    def as_display_vector(self) -> tuple[float, float, float, float, float, float]:
+    def as_display_vector(self) -> tuple[float, float, float, float, float]:
         return (
             self.joint_1.minimum,
             self.joint_2.minimum,
             self.joint_3.minimum,
             self.joint_4.minimum,
             self.joint_5.minimum,
-            self.joint_6.minimum,
         )
 
-    def as_display_max_vector(self) -> tuple[float, float, float, float, float, float]:
+    def as_display_max_vector(self) -> tuple[float, float, float, float, float]:
         return (
             self.joint_1.maximum,
             self.joint_2.maximum,
             self.joint_3.maximum,
             self.joint_4.maximum,
             self.joint_5.maximum,
-            self.joint_6.maximum,
         )
 
 
@@ -298,36 +295,14 @@ class WorkspaceAcceptedSample:
     """One accepted workspace pose with the joint vector that produced it."""
 
     tcp_base_mm: tuple[float, float, float]
-    joint_display: tuple[float, float, float, float, float, float]
+    joint_display: tuple[float, float, float, float, float]
     joint_positions_si: tuple[tuple[str, float], ...]
 
     def joint_positions_si_dict(self) -> dict[str, float]:
-        try:
-            return {
-                str(name): float(value)
-                for name, value in self.joint_positions_si
-            }
-        except (TypeError, ValueError):
-            # Compatibility for in-memory samples produced by the brief
-            # full-chain-v1 transition build, which stored ordered values
-            # instead of (joint-name, value) pairs. These samples are transient
-            # runtime evidence and are canonicalized on first use.
-            if len(self.joint_positions_si) != 6:
-                raise
-            return {
-                name: float(value)
-                for name, value in zip(
-                    (
-                        "link-1_Revolute-1",
-                        "link-2_Slider-2",
-                        "link-3_Revolute-3",
-                        "link-4_Slider-4",
-                        "link-5_Revolute-5",
-                        "pneumatic_spindle-Copy_Revolute-6",
-                    ),
-                    self.joint_positions_si,
-                )
-            }
+        return canonicalize_planning_joint_positions({
+            str(name): float(value)
+            for name, value in self.joint_positions_si
+        })
 
 
 @dataclass(frozen=True)
@@ -354,7 +329,7 @@ class WorkspaceSampleResult:
     @property
     def accepted_joint_display_vectors(
         self,
-    ) -> tuple[tuple[float, float, float, float, float, float], ...]:
+    ) -> tuple[tuple[float, float, float, float, float], ...]:
         return tuple(sample.joint_display for sample in self.accepted_samples)
 
 
@@ -470,13 +445,9 @@ def _movable_joint_specs(robot_description: str) -> list[tuple[str, str, float, 
         if lower > upper:
             lower, upper = upper, lower
         specs.append((name, unit, lower, upper))
-    specs = [
-        spec for spec in specs
-        if spec[0] != "pneumatic_spindle-Copy_Revolute-6"
-    ]
-    if len(specs) != len(JOINT_NAMES):
+    if tuple(spec[0] for spec in specs) != JOINT_NAMES:
         raise ValueError(
-            f"expected {len(JOINT_NAMES)} commandable movable joints, found {len(specs)}"
+            "robot description must contain exactly the canonical J1–J5 movable joints"
         )
     return specs
 
@@ -487,9 +458,7 @@ def default_task_joint_limits_from_urdf(urdf_path: str | Path) -> TaskJointLimit
         JointLimitPair(minimum=lo, maximum=hi, unit=unit)
         for _name, unit, lo, hi in specs
     )
-    # Keep the sixth UI row for visual compatibility, but make it a fixed
-    # display-only spindle value rather than a planning range.
-    return TaskJointLimits(*pairs, JointLimitPair(0.0, 0.0, "deg"))
+    return TaskJointLimits(*pairs)
 
 
 def build_task_joint_limits_from_parameter_values(
@@ -504,8 +473,6 @@ def build_task_joint_limits_from_parameter_values(
     j4_max: float,
     j5_min: float,
     j5_max: float,
-    j6_min: float,
-    j6_max: float,
 ) -> TaskJointLimits:
     return TaskJointLimits(
         JointLimitPair(j1_min, j1_max, "deg"),
@@ -513,7 +480,6 @@ def build_task_joint_limits_from_parameter_values(
         JointLimitPair(j3_min, j3_max, "deg"),
         JointLimitPair(j4_min, j4_max, "mm"),
         JointLimitPair(j5_min, j5_max, "deg"),
-        JointLimitPair(0.0, 0.0, "deg"),
     )
 
 
@@ -529,7 +495,6 @@ def apply_task_joint_limits_to_display_ranges(
         (limits.joint_3, urdf_limits.joint_3),
         (limits.joint_4, urdf_limits.joint_4),
         (limits.joint_5, urdf_limits.joint_5),
-        (limits.joint_6, urdf_limits.joint_6),
     ):
         lo = max(task.minimum, mechanical.minimum)
         hi = min(task.maximum, mechanical.maximum)
@@ -652,26 +617,21 @@ def deterministic_joint_workspace_samples_display(
     limits: TaskJointLimits,
     sample_count: int,
     current_display_joints: Sequence[float] | None = None,
-) -> tuple[tuple[float, float, float, float, float, float], ...]:
-    """Sample J1–J5 task ranges; retain a fixed zero J6 display slot.
+) -> tuple[tuple[float, float, float, float, float], ...]:
+    """Sample the five canonical task-joint ranges.
 
     The current pose is included first when supplied. Remaining samples use a
-    A five-dimensional Halton sequence spreads a small draft sample budget more
+    five-dimensional Halton sequence to spread a small draft sample budget more
     uniformly than a Cartesian grid or pseudorandom points.
     """
     count = int(sample_count)
     if count < 1:
         raise ValueError("workspace sample_count must be at least 1")
-    # TaskJointLimits deliberately retains a sixth display slot for the
-    # visual spindle.  The Halton sequence and its bounds are strictly the
-    # five commandable joints; J6 is appended as the fixed visual value below.
-    minimums = np.asarray(limits.as_display_vector()[: len(JOINT_NAMES)], dtype=float)
-    maximums = np.asarray(
-        limits.as_display_max_vector()[: len(JOINT_NAMES)], dtype=float
-    )
+    minimums = np.asarray(limits.as_display_vector(), dtype=float)
+    maximums = np.asarray(limits.as_display_max_vector(), dtype=float)
     if not np.all(np.isfinite(minimums + maximums)) or np.any(maximums < minimums):
         raise ValueError("workspace task limits must be finite and ordered")
-    samples: list[tuple[float, float, float, float, float, float]] = []
+    samples: list[tuple[float, float, float, float, float]] = []
     if current_display_joints is not None:
         samples.append(_clamp_display_vector(current_display_joints, limits))
     bases = (2, 3, 5, 7, 11)
@@ -682,7 +642,7 @@ def deterministic_joint_workspace_samples_display(
             dtype=float,
         )
         display = minimums + unit * (maximums - minimums)
-        samples.append(tuple(float(value) for value in (*display, 0.0)))
+        samples.append(tuple(float(value) for value in display))
         index += 1
     return tuple(samples)
 
@@ -887,12 +847,9 @@ def evaluate_motion_configuration(
 
 def _display_to_si_vector(values: Sequence[float]) -> dict[str, float]:
     values = tuple(float(value) for value in values)
-    if len(values) == len(JOINT_NAMES):
-        values = (*values, 0.0)
-    if len(values) != len(JOINT_NAMES) + 1:
+    if len(values) != len(JOINT_NAMES):
         raise ValueError(
-            f"display joint vector must contain {len(JOINT_NAMES)} planning values "
-            "or the six-value visual compatibility form"
+            f"display joint vector must contain exactly {len(JOINT_NAMES)} canonical values"
         )
     return canonicalize_planning_joint_positions(
         joint_positions_si_from_display(*values)
@@ -902,24 +859,16 @@ def _display_to_si_vector(values: Sequence[float]) -> dict[str, float]:
 def _clamp_display_vector(
     values: Sequence[float],
     limits: TaskJointLimits,
-) -> tuple[float, float, float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     values = tuple(float(value) for value in values)
-    if len(values) == len(JOINT_NAMES):
-        values = (*values, 0.0)
-    if len(values) != len(JOINT_NAMES) + 1:
+    if len(values) != len(JOINT_NAMES):
         raise ValueError(
-            f"display joint vector must contain {len(JOINT_NAMES)} planning values "
-            "or the six-value visual compatibility form"
+            f"display joint vector must contain exactly {len(JOINT_NAMES)} canonical values"
         )
     mins = limits.as_display_vector()
     maxs = limits.as_display_max_vector()
     clamped = []
-    for index, (value, lo, hi) in enumerate(zip(values, mins, maxs)):
-        if index == len(JOINT_NAMES):
-            # J6 is a visual-only, externally driven spindle.  Never let a
-            # stale UI value leak into a sampled/planned display vector.
-            clamped.append(0.0)
-            continue
+    for value, lo, hi in zip(values, mins, maxs):
         clamped.append(min(max(float(value), lo), hi))
     return tuple(clamped)  # type: ignore[return-value]
 
@@ -932,7 +881,7 @@ def _solve_position_ik_display(
     urdf_path: Path,
     package_root: Path,
     base_world_matrix: np.ndarray,
-) -> tuple[float, float, float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     from scipy.optimize import minimize
 
     base_world = np.asarray(base_world_matrix, dtype=float)

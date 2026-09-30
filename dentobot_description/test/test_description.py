@@ -1,7 +1,8 @@
 """Static integrity tests for the simulation-only DENTOBOT description."""
 
-from hashlib import sha256
+import ast
 import importlib.util
+from hashlib import sha256
 from math import isclose, isfinite, sqrt
 from pathlib import Path
 import struct
@@ -19,6 +20,14 @@ MANUAL_PUBLISHER_PATH = (
 )
 SLICER_PUBLISHER_PATH = (
     PACKAGE_ROOT / "scripts" / "slicer_joint_state_publisher.py"
+)
+RUNTIME_PROBE_PATH = PACKAGE_ROOT / "test" / "runtime_kinematics_probe.py"
+EXPECTED_PLANNING_JOINTS = (
+    "link-1_Revolute-1",
+    "link-2_Slider-2",
+    "link-3_Revolute-3",
+    "link-4_Slider-4",
+    "link-5_Revolute-5",
 )
 EXPECTED_MESH_SHA256 = {
     "burr_simulation_1mm.stl": "469c4ddc223253c534488fd00b4e31727a8ee6ffcb2be3be87c358b92a968cec",
@@ -91,6 +100,9 @@ def test_robot_tree_and_joint_contract() -> None:
     joint_names = [joint.get("name") for joint in joints]
     assert len(links) == len(set(link_names)) == 11
     assert len(joints) == len(set(joint_names)) == 10
+    assert tuple(
+        joint.get("name") for joint in joints if joint.get("type") != "fixed"
+    ) == EXPECTED_PLANNING_JOINTS
 
     parents: dict[str, str] = {}
     children: dict[str, list[str]] = {name: [] for name in link_names}
@@ -134,10 +146,10 @@ def test_robot_tree_and_joint_contract() -> None:
             assert velocity > 0.0
 
     assert joint_types == {
-        "fixed": 4,
+        "fixed": 5,
         "revolute": 2,
         "prismatic": 2,
-        "continuous": 2,
+        "continuous": 1,
     }
     roots = set(link_names) - set(parents)
     assert roots == {"base_link"}
@@ -233,13 +245,6 @@ def test_manual_joint_controls_match_urdf_order_limits_and_units() -> None:
         ("link-3_Revolute-3", "revolute", -62.46, 297.54, "deg"),
         ("link-4_Slider-4", "prismatic", 0.0, 75.0, "mm"),
         ("link-5_Revolute-5", "continuous", -180.0, 180.0, "deg"),
-        (
-            "pneumatic_spindle-Copy_Revolute-6",
-            "continuous",
-            -180.0,
-            180.0,
-            "deg",
-        ),
     ]
     assert len(observed) == len(expected)
     for actual, wanted in zip(observed, expected):
@@ -267,22 +272,15 @@ def test_slicer_joint_publisher_clamps_urdf_commands() -> None:
     module = _slicer_publisher_module()
     urdf = URDF_PATH.read_text(encoding="utf-8")
     joints = module.movable_joints_from_urdf(urdf)
-    assert [name for name, _lower, _upper in joints] == [
-        "link-1_Revolute-1",
-        "link-2_Slider-2",
-        "link-3_Revolute-3",
-        "link-4_Slider-4",
-        "link-5_Revolute-5",
-        "pneumatic_spindle-Copy_Revolute-6",
-    ]
-    zeros = module.clamp_joint_positions(joints, [0.0] * 6)
-    assert zeros == [0.0] * 6
-    over_j2 = module.clamp_joint_positions(joints, [0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    assert tuple(name for name, _lower, _upper in joints) == EXPECTED_PLANNING_JOINTS
+    zeros = module.clamp_joint_positions(joints, [0.0] * 5)
+    assert zeros == [0.0] * 5
+    over_j2 = module.clamp_joint_positions(joints, [0.0, 1.0, 0.0, 0.0, 0.0])
     assert over_j2[1] == 0.08
     try:
-        module.clamp_joint_positions(joints, [0.0] * 5)
+        module.clamp_joint_positions(joints, [0.0] * 6)
     except ValueError as exc:
-        assert "expected 6 joint positions" in str(exc)
+        assert "expected 5 joint positions" in str(exc)
     else:
         raise AssertionError("mismatched command length must raise")
 
@@ -291,8 +289,25 @@ def test_slicer_joint_publisher_immediately_relays_accepted_commands() -> None:
     source = SLICER_PUBLISHER_PATH.read_text(encoding="utf-8")
     callback = source[source.index("        def _on_command"):]
     callback = callback[:callback.index("\n        def ", 5)]
+    assert "clamp_joint_positions(self._joints, message.data)" in callback
+    assert "legacy" not in callback.lower()
     assert "self._positions =" in callback
     assert callback.index("self._positions =") < callback.index("self._publish()")
+
+
+def test_runtime_kinematics_probe_publishes_exact_planning_joints() -> None:
+    tree = ast.parse(RUNTIME_PROBE_PATH.read_text(encoding="utf-8"))
+    assignment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "JOINTS"
+            for target in node.targets
+        )
+    )
+    joints = ast.literal_eval(assignment.value)
+    assert tuple(joint[0] for joint in joints) == EXPECTED_PLANNING_JOINTS
 
 
 def test_manual_launch_and_runtime_dependencies_are_installed() -> None:

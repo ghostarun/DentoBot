@@ -478,7 +478,7 @@ class TemplateBuildWidgetMixin:
             return
 
     def _updateTemplateGuide(self) -> None:
-        if self._updatingTemplateGuideUI:
+        if self._isCleaningUp or self._updatingTemplateGuideUI:
             return
         if not self._parameterNode or not self.logic:
             self._clearTemplateGuide()
@@ -1081,9 +1081,14 @@ class TemplateBuildWidgetMixin:
 
     def onTemplateGuideInputChanged(self, *args) -> None:
         del args
-        if not self._updatingTemplateGuideUI:
-            self._updateTemplateGuide()
-            self._updateTemplateFinalization()
+        if (
+            self._isCleaningUp
+            or self._updatingTemplateGuideUI
+            or not self._parameterNode
+        ):
+            return
+        self._updateTemplateGuide()
+        self._updateTemplateFinalization()
 
     def onTemplateGuideTrajectorySelectionChanged(self, trajectoryNode) -> None:
         if (
@@ -1538,7 +1543,7 @@ class TemplateBuildWidgetMixin:
                 reusedStages.append(_("patient shell"))
             else:
                 progress.update("Building patient shell", 1, 3)
-                self._createOrUpdatePatientContactShell()
+                self._createOrUpdatePatientContactShell(progress=progress.update)
                 progress.update("Patient shell complete", 2, 3)
                 generatedStages.append(_("patient shell"))
 

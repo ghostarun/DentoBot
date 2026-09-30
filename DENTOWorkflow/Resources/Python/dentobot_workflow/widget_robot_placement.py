@@ -23,14 +23,13 @@ class RobotPlacementWidgetMixin:
 
     def _robotJointPositionsSi(self) -> dict[str, float]:
         if not self._parameterNode:
-            return joint_positions_si_from_display(0, 0, 0, 0, 0, 0)
+            return joint_positions_si_from_display(0, 0, 0, 0, 0)
         return joint_positions_si_from_display(
             self._parameterNode.robotJoint1Deg,
             self._parameterNode.robotJoint2Mm,
             self._parameterNode.robotJoint3Deg,
             self._parameterNode.robotJoint4Mm,
             self._parameterNode.robotJoint5Deg,
-            self._parameterNode.robotJoint6Deg,
         )
 
     def _setupRobotKeyboardShortcuts(self) -> None:
@@ -449,12 +448,21 @@ class RobotPlacementWidgetMixin:
         progress = WorkflowProgress("Step 6.1 connect ROS 2")
         try:
             progress.update("Connecting ROS 2 motion control", can_cancel=False)
-            result = self._robotWorkflowFacade.connect(
-                open_motion_module=False,
-                progress=lambda phase, done=None, total=None: progress.update(
-                    phase, done, total, can_cancel=False
-                ),
+            wasSuppressingParameterRefresh = getattr(
+                self, "_suppressParameterRefreshDuringRobotConnect", False
             )
+            self._suppressParameterRefreshDuringRobotConnect = True
+            try:
+                result = self._robotWorkflowFacade.connect(
+                    open_motion_module=False,
+                    progress=lambda phase, done=None, total=None: progress.update(
+                        phase, done, total, can_cancel=False
+                    ),
+                )
+            finally:
+                self._suppressParameterRefreshDuringRobotConnect = (
+                    wasSuppressingParameterRefresh
+                )
             if result.success or result.details.get("runtimeConnected", False):
                 progress.update("Refreshing connected workflow", can_cancel=False)
                 self._updateRobotPlacement()

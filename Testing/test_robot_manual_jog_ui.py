@@ -6,7 +6,7 @@ import ast
 import json
 import math
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from math import degrees, isfinite, radians
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +22,9 @@ from DENTOStep6State import (  # noqa: E402
     build_manual_simulation_record,
     parse_manual_simulation_record,
 )
+from DENTOStep6Planning import TaskSpaceRoi  # noqa: E402
 from DENTOApplicationShell import workspace_for_stage  # noqa: E402
+from DENTORobotPlacement import joint_positions_si_from_display  # noqa: E402
 
 JOINT_NAMES = (
     "link-1_Revolute-1",
@@ -303,6 +305,21 @@ class _Control:
         pass
 
 
+class _TwoDecimalSpinBox(_Control):
+    """Faithful host stand-in for the jog QDoubleSpinBox display precision."""
+
+    decimals = 2
+
+    def setRange(self, minimum, maximum):
+        self.minimum, self.maximum = float(minimum), float(maximum)
+        self.setValue(self.value)
+
+    def setValue(self, value):
+        bounded = min(self.maximum, max(self.minimum, float(value)))
+        rounded = round(bounded, self.decimals)
+        self.value = min(self.maximum, max(self.minimum, rounded))
+
+
 def _joint_limits(ranges):
     return SimpleNamespace(
         **{
@@ -408,19 +425,19 @@ def test_manual_jog_planning_refresh_follows_connect_sync_and_draft_checks():
 
 
 def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limits():
-    def to_si(j1, j2, j3, j4, j5, j6):
+    def to_si(j1, j2, j3, j4, j5):
         return {
             JOINT_NAMES[0]: radians(j1),
             JOINT_NAMES[1]: j2 / 1000.0,
             JOINT_NAMES[2]: radians(j3),
             JOINT_NAMES[3]: j4 / 1000.0,
             JOINT_NAMES[4]: radians(j5),
-            "pneumatic_spindle-Copy_Revolute-6": radians(j6),
         }
 
     names = {
         "setManualJogLimits",
         "setManualJogAvailability",
+        "_updateManualJogKeyboardControlState",
         "resetManualJogDraft",
         "_setManualJogDraftValues",
         "_onManualJogSliderChanged",
@@ -515,7 +532,6 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     panel._onManualJogSliderChanged(JOINT_NAMES[3], 0)
     assert panel.manualJogJointControls[JOINT_NAMES[3]][1].value == -2.0
     assert set(panel.manualJogJointPositionsSi()) == set(JOINT_NAMES)
-    assert "pneumatic_spindle-Copy_Revolute-6" not in panel.manualJogJointPositionsSi()
     assert len(ghost_updates) == 3
     assert all(action == "manual_draft_changed" for action, _state in ghost_updates)
 
@@ -531,7 +547,7 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     assert "J1 10.00 deg" in panel.taskHomeCurrentStateLabel.text
     assert "J2 3.00 mm" in panel.taskHomeCurrentStateLabel.text
     assert "J5 30.00 deg" in panel.taskHomeCurrentStateLabel.text
-    assert "J6 excluded" in panel.taskHomeCurrentStateLabel.text
+    assert "five-DOF arm" in panel.taskHomeCurrentStateLabel.text
     assert "pneumatic_spindle" not in panel.taskHomeCurrentStateLabel.text
     panel.resetManualJogDraft()
     assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == 10.0
@@ -603,6 +619,8 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
                 raise self.exception
             return self.result
 
+    refresh_states = []
+
     def invoke(
         details,
         *,
@@ -626,6 +644,9 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
         host._robotSimulationPanel = panel
         host._robotWorkflowFacade = facade
         host._workflowActionBusy = False
+        host._updateStep6PlanningUi = lambda: refresh_states.append(
+            host._workflowActionBusy
+        )
         host._setRobotJointsFromSi = lambda positions, *, publish_to_ros: (
             mirrors.append((dict(positions), publish_to_ros)) or (True, "")
         )
@@ -648,6 +669,7 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
     assert panel.draft == requested
     assert panel.status[0] == "ok"
     assert panel.evidence == accepted_details
+    assert refresh_states[-1] is False
 
     pending_details = {
         **accepted_details,
@@ -743,7 +765,7 @@ def test_manual_jog_mirrors_only_current_exact_guard_acceptance_and_keeps_failur
     assert panel.status[0] == "blocked"
     assert panel.evidence["manualJogReconciliationRequired"] is True
 
-    invalid_request = {**requested, "J6": 0.0}
+    invalid_request = {**requested, "unexpected_joint": 0.0}
     panel, facade, mirrors = invoke({}, request=invalid_request)
     assert facade.calls == []
     assert mirrors == []
@@ -758,6 +780,7 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
         {
             "setManualJogAvailability",
             "setManualJogStatus",
+            "_updateManualJogKeyboardControlState",
             "_formatManualJogNativeEvidence",
             "_setManualJogStatus",
         },
@@ -912,6 +935,8 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
             self.calls += 1
             return self.result
 
+    refresh_states = []
+
     def invoke(result):
         panel = Panel()
         facade = Facade(result)
@@ -920,6 +945,9 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
         host._robotSimulationPanel = panel
         host._robotWorkflowFacade = facade
         host._workflowActionBusy = False
+        host._updateStep6PlanningUi = lambda: refresh_states.append(
+            host._workflowActionBusy
+        )
         host._setRobotJointsFromSi = lambda positions, *, publish_to_ros: (
             mirrors.append((dict(positions), publish_to_ros)) or (True, "")
         )
@@ -939,6 +967,7 @@ def test_reconcile_button_only_mirrors_a_successful_query_and_preserves_draft():
     assert panel.draft == draft
     assert not panel.manualJogReconciliationRequired
     assert "Static collision validity: invalid" in panel.status[1]
+    assert refresh_states[-1] is False
 
     failure = SimpleNamespace(
         success=False,
@@ -1132,6 +1161,81 @@ def test_manual_draft_state_check_is_read_only_and_marks_stale_results():
     assert "endpoint status unknown" in unknown.manualDraftStateCheckStatusLabel.text
     assert "position residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
     assert "drilling-axis residual unavailable" in unknown.manualDraftStateCheckStatusLabel.text
+
+
+def test_workspace_generation_refreshes_planning_ui_after_busy_clears():
+    events = []
+    progress_instances = []
+
+    class Label:
+        def setProperty(self, _name, _value):
+            pass
+
+        def style(self):
+            return self
+
+        def unpolish(self, _label):
+            pass
+
+        def polish(self, _label):
+            pass
+
+    host = SimpleNamespace(
+        _parameterNode=object(),
+        logic=object(),
+        _robotWorkflowFacade=SimpleNamespace(
+            generateWorkspaceCloud=lambda **_kwargs: SimpleNamespace(
+                success=True, message="generated", details={}
+            )
+        ),
+        _workflowActionBusy=False,
+        _step6TaskSpaceRoiDraft=lambda: ("roi", "source"),
+        _robotSimulationPanel=SimpleNamespace(taskSpaceRoiStatusLabel=Label()),
+    )
+
+    class Progress:
+        def __init__(self, _title):
+            self.closed = False
+            progress_instances.append(self)
+
+        def update(self, *_args, **_kwargs):
+            pass
+
+        def close(self):
+            events.append(("close", host._workflowActionBusy))
+            self.closed = True
+
+    def refresh(message="", error=False):
+        events.append(
+            ("refresh", host._workflowActionBusy, message, error, progress_instances[0].closed)
+        )
+
+    host._updateStep6PlanningUi = refresh
+    host.ui = SimpleNamespace(
+        robotWorkspaceStatusLabel=Label(),
+        clearRobotWorkspaceButton=SimpleNamespace(enabled=False),
+    )
+    on_generate = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"onGenerateRobotWorkspace"},
+        {
+            "WorkflowProgress": Progress,
+            "_": lambda message: message,
+            "slicer": SimpleNamespace(
+                util=SimpleNamespace(errorDisplay=lambda _message: None)
+            ),
+        },
+    )["onGenerateRobotWorkspace"]
+
+    on_generate(host)
+
+    assert events == [
+        ("close", True),
+        ("refresh", False, "generated", False, True),
+    ]
+    assert host.ui.robotWorkspaceStatusLabel.text.startswith("generated")
+    assert host.ui.clearRobotWorkspaceButton.enabled is True
 
 
 def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
@@ -2244,7 +2348,6 @@ def test_set_robot_joints_from_si_converts_radians_without_publishing():
         JOINT_NAMES[2]: radians(-45),
         JOINT_NAMES[3]: 0.0035,
         JOINT_NAMES[4]: radians(90),
-        "pneumatic_spindle-Copy_Revolute-6": radians(-90),
     }
 
     assert method(host, positions, publish_to_ros=False) == (True, "")
@@ -2254,8 +2357,7 @@ def test_set_robot_joints_from_si_converts_radians_without_publishing():
         round(parameter_node.robotJoint3Deg, 6),
         parameter_node.robotJoint4Mm,
         round(parameter_node.robotJoint5Deg, 6),
-        round(parameter_node.robotJoint6Deg, 6),
-    ) == (30.0, 12.0, -45.0, 3.5, 90.0, -90.0)
+    ) == (30.0, 12.0, -45.0, 3.5, 90.0)
     assert parameter_node.modified == [17]
     assert robot_updates == [True]
     assert ros_checks == []
@@ -2328,7 +2430,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
             details={
                 "staged": True,
                 "candidateJointPositionsSi": candidate,
-                "acceptedJointPositionsSi": {**accepted, "J6": 1.0},
+                "acceptedJointPositionsSi": {**accepted, "unexpected_joint": 1.0},
                 "identityStatus": "unknown",
                 "acceptanceStatus": "unknown",
                 "failureEvidence": {"reason": "scene status unavailable"},
@@ -2612,7 +2714,7 @@ def test_manual_task_home_stage_cancel_and_accept_delegate_without_preaccept_mut
     assert panel.accepted_mirrors == [(accepted, True)]
     assert host._workflowActionBusy is False
 
-    panel.draft = {**candidate, "pneumatic_spindle-Copy_Revolute-6": 0.0}
+    panel.draft = {**candidate, "unexpected_joint": 0.0}
     stage_calls_before = sum(call[0] == "stage" for call in facade.calls)
     host._onStep6ReviewManualTaskHome()
     stage_calls_after = sum(call[0] == "stage" for call in facade.calls)
@@ -2691,6 +2793,7 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
             "return_home",
         )
     )
+
 
     shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
     shell_source = shell_path.read_text(encoding="utf-8")
@@ -2855,3 +2958,1248 @@ def test_manual_jog_action_buttons_are_split_into_narrow_rows():
     assert set.union(*action_rows) == buttons
     assert len(action_rows) >= 2
     assert max(map(len, action_rows)) <= 3
+
+
+def test_cartesian_tcp_surface_is_step6_3_owned_and_explicitly_drag_gated():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    owners = _class_constant(
+        panel_path, "DENTORobotSimulationPanel", "ACTION_OWNER_SUBSTEP"
+    )
+    assert owners["create_goal"] == -1
+    assert owners["solve_ik"] == 3
+    assert owners["set_tcp_drag_enabled"] == owners["nudge_tcp_goal"] == 3
+    assert owners["plan_goal"] == -1
+
+    source = panel_path.read_text(encoding="utf-8")
+    assert '"Enable TCP Drag"' in source
+    assert "createGoalButton" not in source
+    assert "Create / Show TCP Goal" not in source
+    assert "self.tcpDragEnabledCheckBox.checked = False" in source
+    assert "exact J1–J5 MoveIt kinematic IK" in source
+    assert "Pitch and yaw tilt the TCP/drill " in source
+    assert "Axial roll is unconstrained by the five-DOF arm." in source
+    assert '"Roll (local TCP, deg)"' not in source
+    assert "they do not check collision validity" in source
+    assert "collision-aware evaluation and stages its J1–J5 result as a draft" in source
+    assert "A failed or missing live IK pose remains visual/rejected review." in source
+    assert "Guarded Jog after authoritative guard acknowledgement advances accepted " in source
+    assert "no route or preview authority" in source
+    assert "translation_axis: int | None" in source
+    assert "rotation_axis: int | None" in source
+    assert "J1–J5 " in source
+    assert "numeric fields accept typing and focused arrow-key adjustment." in source
+
+    show_result = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"showGoalResult"},
+        {"_show_result": lambda label, result: setattr(label, "text", result.message)},
+    )["showGoalResult"]
+    status = SimpleNamespace(text="")
+    panel = SimpleNamespace(
+        goalStatusLabel=status,
+        _show_result=lambda label, result: setattr(label, "text", result.message),
+    )
+    show_result(panel, SimpleNamespace(message="IK rejected"))
+    assert "IK rejected" in status.text
+    assert "kinematic-only ghost review, not collision validity" in status.text
+    assert "Guarded Jog with authoritative guard acknowledgement" in status.text
+    assert "no route or preview authority" in status.text
+
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_tcpCartesianControlsAllowed", "_onTcpCartesianNudge"},
+        {"isfinite": isfinite},
+    )
+    panel_type = type("TcpProbe", (), methods)
+    calls = []
+    panel = panel_type()
+    panel._activeSubstep = 3
+    panel.goalGroup = SimpleNamespace(visible=True)
+    panel._tcpDragEnabled = False
+    panel.tcpDragEnabledCheckBox = SimpleNamespace(checked=False)
+    panel.tcpTranslationStepMm = SimpleNamespace(value=1.25)
+    panel.tcpRotationStepDeg = SimpleNamespace(value=4.0)
+    panel._invoke = lambda action, payload: calls.append((action, payload))
+
+    panel._onTcpCartesianNudge(0, None, 1.0)
+    assert calls == []
+
+    panel._tcpDragEnabled = True
+    panel.tcpDragEnabledCheckBox.checked = True
+    panel._onTcpCartesianNudge(0, None, -1.0)
+    assert calls == [
+        (
+            "nudge_tcp_goal",
+            {
+                "translation_ras_mm": [-1.25, 0.0, 0.0],
+                "rotation_local_rpy_deg": [0.0, 0.0, 0.0],
+                "source": "button",
+            },
+        )
+    ]
+    payload = calls[0][1]
+    assert set(payload) == {
+        "translation_ras_mm",
+        "rotation_local_rpy_deg",
+        "source",
+    }
+    assert sum(value != 0.0 for value in payload["translation_ras_mm"]) == 1
+    assert sum(value != 0.0 for value in payload["rotation_local_rpy_deg"]) == 0
+
+
+def test_tcp_keyboard_binding_mapping_and_text_editor_gate():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    bindings = _class_constant(
+        panel_path, "DENTORobotSimulationPanel", "TCP_KEY_BINDINGS"
+    )
+    assert dict(
+        (key, (translation, rotation, direction))
+        for key, translation, rotation, direction in bindings
+    ) == {
+        "Left": (0, None, -1.0),
+        "Right": (0, None, 1.0),
+        "Down": (1, None, -1.0),
+        "Up": (1, None, 1.0),
+        "PgDown": (2, None, -1.0),
+        "PgUp": (2, None, 1.0),
+        "Ctrl+Down": (None, 1, -1.0),
+        "Ctrl+Up": (None, 1, 1.0),
+        "Shift+Left": (None, 2, -1.0),
+        "Shift+Right": (None, 2, 1.0),
+    }
+    assert "Shift+Down" not in dict((key, value) for key, *value in bindings)
+    assert "Shift+Up" not in dict((key, value) for key, *value in bindings)
+    help_text = _method_node(panel_path, "DENTORobotSimulationPanel", "__init__")
+    help_source = ast.unparse(help_text)
+    assert "Axial roll is unconstrained by the five-DOF arm." in help_source
+    assert "Ctrl+↓/↑ pitch" in help_source
+    assert "Shift+←/→ yaw" in help_source
+
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_onTcpCartesianNudge", "_onTcpKeyboardNudge"},
+        {"isfinite": isfinite},
+    )
+    panel_type = type("TcpKeyboardProbe", (), methods)
+    calls = []
+    panel = panel_type()
+    panel._tcpCartesianControlsAllowed = lambda: True
+    panel.tcpKeyboardEnabledCheckBox = SimpleNamespace(checked=True)
+    panel.tcpTranslationStepMm = SimpleNamespace(value=1.0)
+    panel.tcpRotationStepDeg = SimpleNamespace(value=5.0)
+    panel._hasTcpTextEditorFocus = lambda: False
+    panel._invoke = lambda action, payload: calls.append((action, payload))
+    panel._onTcpKeyboardNudge(None, 1, -1.0)
+    assert calls[0][1] == {
+        "translation_ras_mm": [0.0, 0.0, 0.0],
+        "rotation_local_rpy_deg": [0.0, -5.0, 0.0],
+        "source": "keyboard",
+    }
+    panel._hasTcpTextEditorFocus = lambda: True
+    panel._onTcpKeyboardNudge(0, None, 1.0)
+    assert len(calls) == 1
+
+
+def test_manual_joint_keyboard_nudges_are_opt_in_draft_only_and_unit_aware():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    bindings = _class_constant(
+        panel_path, "DENTORobotSimulationPanel", "MANUAL_JOG_KEY_BINDINGS"
+    )
+    assert bindings == (
+        ("Q", 0, 1.0),
+        ("A", 0, -1.0),
+        ("W", 1, 1.0),
+        ("S", 1, -1.0),
+        ("E", 2, 1.0),
+        ("D", 2, -1.0),
+        ("R", 3, 1.0),
+        ("F", 3, -1.0),
+        ("T", 4, 1.0),
+        ("G", 4, -1.0),
+    )
+    initializer = ast.unparse(
+        _method_node(panel_path, "DENTORobotSimulationPanel", "__init__")
+    )
+    assert "Enable joint keyboard nudges" in initializer
+    assert "self.manualJogKeyboardEnabledCheckBox.checked = False" in initializer
+    assert "degrees_step:g" in initializer
+    assert "millimeters_step:g" in initializer
+    assert "((0.1, 0.1), (0.5, 0.5), (1.0, 1.0))" in initializer
+    assert "J1 Q/A, J2 W/S, J3 E/D, J4 R/F, J5 T/G" in initializer
+
+    class Signal:
+        def __init__(self):
+            self.callbacks = []
+
+        def connect(self, callback):
+            self.callbacks.append(callback)
+
+        def disconnect(self, callback):
+            self.callbacks.remove(callback)
+
+        def emit(self, *args):
+            for callback in tuple(self.callbacks):
+                callback(*args)
+
+    class KeySequence:
+        def __init__(self, key):
+            self.key = key
+
+    class Shortcut:
+        def __init__(self, sequence, parent):
+            self.sequence = sequence
+            self.parent = parent
+            self.activated = Signal()
+            self.enabled = True
+
+        def trigger(self):
+            if self.enabled:
+                self.activated.emit()
+
+    application = SimpleNamespace(focusChanged=Signal())
+    qt = SimpleNamespace(
+        QShortcut=Shortcut,
+        QKeySequence=KeySequence,
+        Qt=SimpleNamespace(WidgetWithChildrenShortcut="widget_with_children"),
+        QApplication=SimpleNamespace(instance=lambda: application),
+    )
+
+    def to_si(j1, j2, j3, j4, j5):
+        return {
+            JOINT_NAMES[0]: radians(j1),
+            JOINT_NAMES[1]: j2 / 1000.0,
+            JOINT_NAMES[2]: radians(j3),
+            JOINT_NAMES[3]: j4 / 1000.0,
+            JOINT_NAMES[4]: radians(j5),
+        }
+
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {
+            "_setupManualJogKeyboardShortcuts",
+            "_connectManualJogKeyboardFocusUpdates",
+            "_manualJogKeyboardControlsAllowed",
+            "_updateManualJogKeyboardControlState",
+            "_onManualJogKeyboardNudge",
+            "_onManualJogNumericChanged",
+            "_updateManualJogDraftFromControls",
+            "_formatManualJogDisplayValues",
+            "manualJogJointPositionsSi",
+        },
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "isfinite": math.isfinite,
+            "joint_positions_si_from_display": to_si,
+            "qt": qt,
+        },
+    )
+    panel_type = type("ManualJointKeyboardProbe", (), methods)
+    panel_type.MANUAL_JOG_KEY_BINDINGS = bindings
+    panel = panel_type()
+    panel._activeSubstep = 3
+    panel.manualJogGroup = SimpleNamespace(visible=True, destroyed=Signal())
+    panel._manualJogAvailable = True
+    panel._manualJogGuardContextAvailable = True
+    panel._manualJogBusy = False
+    panel._manualJogDraftInitialized = False
+    panel.manualJogReconciliationRequired = False
+    panel.manualJogKeyboardEnabledCheckBox = _Control()
+    panel.manualJogKeyboardEnabledCheckBox.checked = False
+    panel.manualJogKeyboardStepComboBox = SimpleNamespace(
+        currentData=(0.25, 0.75), enabled=False
+    )
+    panel._manualJogKeyboardShortcuts = []
+    text_focus = [False]
+    panel._hasTcpTextEditorFocus = lambda: text_focus[0]
+    panel._updateManualJogKeyboardControlState()
+
+    class SpinBox(_Control):
+        def __init__(self, value):
+            super().__init__(value)
+            self.minimum, self.maximum = -100.0, 100.0
+            self.on_value_changed = None
+
+        def setValue(self, value):
+            super().setValue(value)
+            if not self._signals_blocked and self.on_value_changed:
+                self.on_value_changed(self.value)
+
+    values = (10.0, 2.0, -5.0, 1.0, 30.0)
+    mechanical = ((-100.0, 100.0),) * 5
+    panel._manualJogLimits = (mechanical, mechanical)
+    panel._manualJogDisplayValues = values
+    accepted = {joint: float(index) for index, joint in enumerate(JOINT_NAMES)}
+    panel._manualJogAcceptedJointPositionsSi = accepted.copy()
+    panel.manualJogJointControls = {}
+    for index, joint in enumerate(JOINT_NAMES):
+        spinbox = SpinBox(values[index])
+        spinbox.on_value_changed = (
+            lambda value, name=joint: panel._onManualJogNumericChanged(name, value)
+        )
+        panel.manualJogJointControls[joint] = (_Control(), spinbox, _Control())
+    panel.manualJogDraftStateLabel = _Control()
+    panel.setManualJogAvailability = lambda *_args: None
+    panel._setManualJogStatus = lambda *_args: None
+    updates = []
+    panel._invoke = lambda action, state: updates.append((action, dict(state)))
+    panel._setupManualJogKeyboardShortcuts()
+    panel._updateManualJogKeyboardControlState()
+
+    shortcuts = panel._manualJogKeyboardShortcuts
+    assert [shortcut.sequence.key for shortcut in shortcuts] == [
+        key for key, _index, _direction in bindings
+    ]
+    assert all(shortcut.parent is panel.manualJogGroup for shortcut in shortcuts)
+    assert all(
+        shortcut.context == "widget_with_children" and not shortcut.autoRepeat
+        for shortcut in shortcuts
+    )
+    assert not any(shortcut.enabled for shortcut in shortcuts)
+    shortcuts[0].trigger()
+    assert updates == []
+
+    panel.manualJogKeyboardEnabledCheckBox.checked = True
+    panel._updateManualJogKeyboardControlState()
+    assert panel.manualJogKeyboardStepComboBox.enabled
+    assert all(shortcut.enabled for shortcut in shortcuts)
+    for shortcut, (_key, joint_index, direction) in zip(
+        shortcuts, bindings, strict=True
+    ):
+        before = tuple(
+            float(panel.manualJogJointControls[joint][1].value)
+            for joint in JOINT_NAMES
+        )
+        shortcut.trigger()
+        after = tuple(
+            float(panel.manualJogJointControls[joint][1].value)
+            for joint in JOINT_NAMES
+        )
+        step = 0.25 if joint_index in (0, 2, 4) else 0.75
+        assert after[joint_index] == before[joint_index] + step * direction
+        assert all(
+            after[index] == before[index]
+            for index in range(len(JOINT_NAMES))
+            if index != joint_index
+        )
+    assert len(updates) == len(bindings)
+    assert all(action == "manual_draft_changed" for action, _state in updates)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted
+
+    panel._connectManualJogKeyboardFocusUpdates()
+    text_focus[0] = True
+    application.focusChanged.emit(None, object())
+    assert not any(shortcut.enabled for shortcut in shortcuts)
+    before_focus_nudge = tuple(
+        float(panel.manualJogJointControls[joint][1].value) for joint in JOINT_NAMES
+    )
+    panel._onManualJogKeyboardNudge(0, 1.0)
+    assert tuple(
+        float(panel.manualJogJointControls[joint][1].value) for joint in JOINT_NAMES
+    ) == before_focus_nudge
+    text_focus[0] = False
+    application.focusChanged.emit(None, None)
+    assert all(shortcut.enabled for shortcut in shortcuts)
+    text_focus[0] = True
+    application.focusChanged.emit(None, object())
+    panel.manualJogGroup.destroyed.emit(None)
+    assert panel._manualJogKeyboardFocusSlot not in application.focusChanged.callbacks
+    text_focus[0] = False
+
+    blocked_states = (
+        (4, True, False, False),
+        (3, True, False, True),
+        (3, True, True, False),
+    )
+    for blocked_state in blocked_states:
+        (
+            panel._activeSubstep,
+            panel.manualJogGroup.visible,
+            panel._manualJogBusy,
+            panel.manualJogReconciliationRequired,
+        ) = blocked_state
+        panel._updateManualJogKeyboardControlState()
+        assert not panel.manualJogKeyboardEnabledCheckBox.enabled
+        assert not panel.manualJogKeyboardStepComboBox.enabled
+        assert not any(shortcut.enabled for shortcut in shortcuts)
+        assert not panel.manualJogKeyboardEnabledCheckBox.checked
+
+
+def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {
+            "_onTcpDragEnabledToggled",
+            "_setTcpKeyboardChecked",
+            "_disableTcpDragForSubstepChange",
+            "_updateTcpCartesianControlState",
+            "_tcpCartesianControlsAllowed",
+            "setActiveSubstep",
+            "_updateManualJogKeyboardControlState",
+        },
+        {},
+    )
+    panel_type = type("TcpDragGateProbe", (), methods)
+
+    class CheckBox(_Control):
+        def __init__(self, checked=False):
+            super().__init__()
+            self.checked = checked
+
+    calls = []
+    panel = panel_type()
+    panel._activeSubstep = 3
+    panel.goalGroup = SimpleNamespace(visible=True)
+    panel._tcpDragEnabled = False
+    panel.tcpDragEnabledCheckBox = CheckBox(True)
+    panel.tcpKeyboardEnabledCheckBox = CheckBox(False)
+    panel.solveIkButton = _Control()
+    panel._tcpIkAvailable = True
+    panel.tcpCartesianNudgeButtons = {"x": _Control()}
+    panel.tcpTranslationStepMm = _Control()
+    panel.tcpRotationStepDeg = _Control()
+    panel._tcpKeyboardShortcuts = [_Control()]
+    panel._callbacks = {"set_tcp_drag_enabled": lambda enabled: calls.append(enabled)}
+    panel._invoke = lambda action, enabled: calls.append(enabled) or bool(enabled)
+    panel._onTcpDragEnabledToggled(True)
+    assert panel._tcpDragEnabled
+    assert panel.solveIkButton.enabled
+    assert calls == [True]
+
+    panel.tcpDragEnabledCheckBox.checked = False
+    panel._onTcpDragEnabledToggled(False)
+    assert not panel._tcpDragEnabled
+    assert not panel.solveIkButton.enabled
+    assert calls == [True, False]
+
+    panel.tcpDragEnabledCheckBox.checked = True
+    panel._onTcpDragEnabledToggled(True)
+    assert panel._tcpDragEnabled
+    assert calls == [True, False, True]
+
+    panel.setActiveSubstep(4)
+    assert panel._activeSubstep == 4
+    assert not panel._tcpDragEnabled
+    assert not panel.solveIkButton.enabled
+    assert not panel.tcpDragEnabledCheckBox.checked
+    assert calls == [True, False, True, False]
+    panel.setActiveSubstep(1)
+    assert calls == [True, False, True, False]
+
+    failed = panel_type()
+    failed._activeSubstep = 3
+    failed.goalGroup = SimpleNamespace(visible=True)
+    failed._tcpDragEnabled = False
+    failed.tcpDragEnabledCheckBox = CheckBox(True)
+    failed.tcpKeyboardEnabledCheckBox = CheckBox(False)
+    failed.tcpCartesianNudgeButtons = {"x": _Control()}
+    failed.tcpTranslationStepMm = _Control()
+    failed.tcpRotationStepDeg = _Control()
+    failed.solveIkButton = _Control()
+    failed._tcpIkAvailable = True
+    failed._tcpKeyboardShortcuts = [_Control()]
+    failed.runtimeStatusLabel = _Control()
+    failed._callbacks = {"set_tcp_drag_enabled": lambda _enabled: False}
+    failure_calls = []
+    failed._invoke = lambda action, enabled: (
+        failure_calls.append((action, enabled)) or False
+    )
+    failed._onTcpDragEnabledToggled(True)
+    failed._updateTcpCartesianControlState()
+    assert not failed._tcpDragEnabled
+    assert not failed.tcpDragEnabledCheckBox.checked
+    assert not failed.tcpCartesianNudgeButtons["x"].enabled
+    assert not failed.tcpTranslationStepMm.enabled
+    assert not failed.tcpRotationStepDeg.enabled
+    assert not failed.solveIkButton.enabled
+    assert not failed.tcpKeyboardEnabledCheckBox.enabled
+    assert failed.runtimeStatusLabel.text.startswith("TCP drag remains disabled")
+    assert failure_calls == [
+        ("set_tcp_drag_enabled", True),
+        ("set_tcp_drag_enabled", False),
+    ]
+
+
+def test_solve_ik_stays_disabled_until_drag_ack_and_capability_refresh_respects_gate():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_tcpCartesianControlsAllowed", "_updateTcpCartesianControlState"},
+        {},
+    )
+    panel_type = type("TcpIkEnableProbe", (), methods)
+    panel = panel_type()
+    panel._activeSubstep = 3
+    panel.goalGroup = SimpleNamespace(visible=True)
+    panel._tcpDragEnabled = False
+    panel._tcpIkAvailable = True
+    panel.tcpDragEnabledCheckBox = SimpleNamespace(checked=False, enabled=False)
+    panel.tcpKeyboardEnabledCheckBox = SimpleNamespace(checked=False, enabled=False)
+    panel.solveIkButton = _Control()
+    panel.tcpCartesianNudgeButtons = {"x": _Control()}
+    panel.tcpTranslationStepMm = _Control()
+    panel.tcpRotationStepDeg = _Control()
+    panel._tcpKeyboardShortcuts = [_Control()]
+
+    panel._updateTcpCartesianControlState()
+    assert not panel.solveIkButton.enabled
+    assert not panel.tcpCartesianNudgeButtons["x"].enabled
+
+    panel._tcpDragEnabled = True
+    panel.tcpDragEnabledCheckBox.checked = True
+    panel._updateTcpCartesianControlState()
+    assert panel.solveIkButton.enabled
+    assert panel.tcpCartesianNudgeButtons["x"].enabled
+
+    update = _method_node(panel_path, "DENTORobotSimulationPanel", "updateCapabilities")
+    assignments = [
+        node
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+    ]
+    assert not any(
+        any(_attribute_name(target) == "self.solveIkButton.enabled" for target in node.targets)
+        for node in assignments
+    )
+    assert any(
+        any(_attribute_name(target) == "self._tcpIkAvailable" for target in node.targets)
+        and "capabilities.ik_available" in ast.unparse(node.value)
+        for node in assignments
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and _attribute_name(node.func) == "self._updateTcpCartesianControlState"
+        for node in ast.walk(update)
+    )
+
+
+def test_tcp_ik_solution_stages_only_complete_finite_mechanical_j1_j5_draft():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    names = {
+        "stageTcpIkSolution",
+        "_setManualJogDraftValues",
+        "_formatManualJogDisplayValues",
+        "_setManualJogStatus",
+    }
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        names,
+        {
+            "Mapping": Mapping,
+            "JOINT_NAMES": JOINT_NAMES,
+            "degrees": degrees,
+            "isfinite": isfinite,
+        },
+    )
+    panel_type = type("TcpIkStageProbe", (), methods)
+
+    class SpinBox(_Control):
+        def __init__(self, minimum, maximum):
+            super().__init__()
+            self.minimum, self.maximum = minimum, maximum
+
+    controls = {}
+    mechanical = (
+        (-180.0, 180.0),
+        (0.0, 80.0),
+        (-90.0, 300.0),
+        (0.0, 75.0),
+        (-180.0, 180.0),
+    )
+    for joint, (minimum, maximum) in zip(JOINT_NAMES, mechanical, strict=True):
+        controls[joint] = (_Control(), SpinBox(minimum, maximum), _Control())
+
+    def make_panel():
+        panel = panel_type()
+        panel._manualJogLimits = (mechanical, mechanical)
+        panel._manualJogMechanicalLimits = mechanical
+        panel._manualJogAvailable = True
+        panel._manualJogGuardContextAvailable = True
+        panel._manualJogDisplayValues = (10.0, 25.0, 30.0, 40.0, 50.0)
+        panel._manualJogAcceptedJointPositionsSi = {
+            joint: float(index) for index, joint in enumerate(JOINT_NAMES)
+        }
+        panel.manualJogJointControls = controls
+        panel.manualJogDraftStateLabel = _Control()
+        panel.manualJogStatusLabel = _Control()
+        panel.setManualJogAvailability = lambda *_args: None
+        panel._invoke_calls = []
+        panel._invoke = lambda action, state: panel._invoke_calls.append(
+            (action, dict(state))
+        )
+        panel.manualJogJointPositionsSi = lambda: {
+            JOINT_NAMES[0]: math.radians(panel._manualJogDisplayValues[0]),
+            JOINT_NAMES[1]: panel._manualJogDisplayValues[1] / 1000.0,
+            JOINT_NAMES[2]: math.radians(panel._manualJogDisplayValues[2]),
+            JOINT_NAMES[3]: panel._manualJogDisplayValues[3] / 1000.0,
+            JOINT_NAMES[4]: math.radians(panel._manualJogDisplayValues[4]),
+        }
+        return panel
+
+    panel = make_panel()
+    accepted_before = dict(panel._manualJogAcceptedJointPositionsSi)
+    candidate = {
+        JOINT_NAMES[0]: math.radians(20.0),
+        JOINT_NAMES[1]: 0.030,
+        JOINT_NAMES[2]: math.radians(45.0),
+        JOINT_NAMES[3]: 0.050,
+        JOINT_NAMES[4]: math.radians(-60.0),
+    }
+    assert panel.stageTcpIkSolution(candidate) is True
+    assert tuple(round(value, 2) for value in panel._manualJogDisplayValues) == (
+        20.0,
+        30.0,
+        45.0,
+        50.0,
+        -60.0,
+    )
+    assert panel._invoke_calls[-1][0] == "manual_draft_changed"
+    assert set(panel._invoke_calls[-1][1]) == set(JOINT_NAMES)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted_before
+    assert "not accepted robot state" in panel.manualJogDraftStateLabel.text
+
+    for invalid in (
+        {joint: value for joint, value in candidate.items() if joint != JOINT_NAMES[4]},
+        {**candidate, JOINT_NAMES[0]: math.nan},
+        {**candidate, "unexpected_joint": 0.0},
+        {**candidate, JOINT_NAMES[1]: 0.500},
+    ):
+        panel = make_panel()
+        draft_before = tuple(panel._manualJogDisplayValues)
+        assert panel.stageTcpIkSolution(invalid) is False
+        assert panel._manualJogDisplayValues == draft_before
+        assert panel._invoke_calls == []
+        assert "not staged" in panel.manualJogDraftStateLabel.text
+        assert panel.manualJogStatusLabel.text.startswith(
+            "TCP IK result rejected; draft retained."
+        )
+
+
+def test_motion_diagnostic_target_coordinates_are_display_only_and_exact_session_gated():
+    panel_method = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_motionDiagnosticTargetConditioningText"},
+        {"Mapping": Mapping, "isfinite": isfinite},
+    )["_motionDiagnosticTargetConditioningText"]
+    if isinstance(panel_method, staticmethod):
+        panel_method = panel_method.__func__
+    conditioning = {
+        "world_frame": "RAS_mm",
+        "pre_entry_world_ras_mm": (-1.23456, 2.0, 3.0),
+        "entry_world_ras_mm": (4.0, 5.0, 6.0),
+        "target_world_ras_mm": (7.0, 8.0, 9.0),
+        "standoff_mm": 2.5,
+    }
+    current = SimpleNamespace(
+        state="Current",
+        stale_reason="",
+        session_fingerprint="exact-session",
+        full_task_outcome={"target_conditioning": conditioning},
+    )
+    text = panel_method(current, exact_current_session=True)
+    assert "PreEntry (-1.235, 2.000, 3.000)" in text
+    assert "Entry (4.000, 5.000, 6.000)" in text
+    assert "Target (7.000, 8.000, 9.000)" in text
+    assert "standoff 2.500 mm" in text
+    assert "Exact current diagnostic snapshot at display time" in text
+    assert "DISPLAY ONLY — no route authority" in text
+
+    stale = SimpleNamespace(
+        state="Stale",
+        stale_reason="task identity changed",
+        session_fingerprint="exact-session",
+        full_task_outcome={"target_conditioning": conditioning},
+    )
+    stale_text = panel_method(stale, exact_current_session=True)
+    assert "Stale saved diagnostic snapshot" in stale_text
+    assert "Exact current diagnostic snapshot at display time" not in stale_text
+    assert "DISPLAY ONLY — no route authority" in stale_text
+
+    class FakeDisplay:
+        def __init__(self):
+            self.properties = {}
+
+        def __getattr__(self, name):
+            return lambda *values: self.properties.__setitem__(name, values)
+
+    class FakeMarker:
+        def __init__(self):
+            self.attributes = {}
+            self.points = []
+            self.display = FakeDisplay()
+
+        def SetAttribute(self, name, value):
+            self.attributes[name] = value
+
+        def GetAttribute(self, name):
+            return self.attributes.get(name)
+
+        def SetSaveWithScene(self, value):
+            self.saved_with_scene = value
+
+        def CreateDefaultDisplayNodes(self):
+            pass
+
+        def AddControlPointWorld(self, vector, label):
+            self.points.append((vector.coordinates, label))
+
+        def SetLocked(self, value):
+            self.locked = value
+
+        def GetDisplayNode(self):
+            return self.display
+
+    class FakeScene:
+        def __init__(self):
+            self.nodes = []
+
+        def AddNewNodeByClass(self, _class_name, _name):
+            node = FakeMarker()
+            self.nodes.append(node)
+            return node
+
+        def RemoveNode(self, node):
+            self.nodes.remove(node)
+
+    scene = FakeScene()
+    shell_methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py",
+        "RobotShellWidgetMixin",
+        {
+            "_clearStep6TargetConditioningFiducials",
+            "_showStep6TargetConditioningFiducials",
+        },
+        {
+            "Mapping": Mapping,
+            "isfinite": isfinite,
+            "slicer": SimpleNamespace(
+                mrmlScene=scene,
+                util=SimpleNamespace(getNodesByClass=lambda _class: list(scene.nodes)),
+            ),
+            "vtk": SimpleNamespace(
+                vtkVector3d=lambda *coordinates: SimpleNamespace(coordinates=coordinates)
+            ),
+        },
+    )
+    host_type = type("TargetFiducialProbe", (), shell_methods)
+    host = host_type()
+    assert host._showStep6TargetConditioningFiducials(current, "exact-session") is True
+    assert len(scene.nodes) == 1
+    marker = scene.nodes[0]
+    assert [label for _point, label in marker.points] == [
+        "PreEntry TCP",
+        "Entry TCP",
+        "Target TCP",
+    ]
+    assert marker.locked is True
+    assert marker.saved_with_scene is False
+    assert marker.attributes["DENTOBOT.IntendedUse"] == "DisplayOnlyDiagnosticSnapshot"
+    assert marker.display.properties["SetSaveWithScene"] == (False,)
+    assert not any(
+        any(word in key.lower() for word in ("collision", "guard", "route"))
+        for key in marker.attributes
+    )
+
+    host._clearStep6TargetConditioningFiducials()
+    assert scene.nodes == []
+    assert host._showStep6TargetConditioningFiducials(stale, "exact-session") is False
+    assert scene.nodes == []
+
+
+def test_motion_diagnostic_failed_preentry_candidate_callback_requires_exact_session():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    method = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_invokeMotionDiagnosticCandidate"},
+        {},
+    )["_invokeMotionDiagnosticCandidate"]
+    if isinstance(method, staticmethod):
+        method = method.__func__
+    calls = []
+
+    def show_candidate(index):
+        calls.append(index)
+        return "shown"
+
+    assert method(
+        show_candidate,
+        2,
+        exact_current_session=True,
+        preentry_ik_failure=True,
+    ) == "shown"
+    assert method(
+        show_candidate,
+        3,
+        exact_current_session=False,
+        preentry_ik_failure=True,
+    ) is None
+    assert method(
+        show_candidate,
+        4,
+        exact_current_session=False,
+        preentry_ik_failure=False,
+    ) == "shown"
+    assert calls == [2, 4]
+    source = panel_path.read_text(encoding="utf-8")
+    assert "not accepted, " in source
+    assert "not verified collision-free" in source
+    assert "route, preview, or motion authority" in source
+
+
+def test_current_incisor_roi_load_preserves_only_exact_saved_workspace_evidence():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    loader = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_onStep6UseCurrentIncisorMidpoint"},
+        {"Mapping": Mapping, "Sequence": Sequence, "TaskSpaceRoi": TaskSpaceRoi, "isfinite": isfinite},
+    )["_onStep6UseCurrentIncisorMidpoint"]
+
+    class Label:
+        def setProperty(self, *_args):
+            pass
+
+        def style(self):
+            return self
+
+        def unpolish(self, *_args):
+            pass
+
+        def polish(self, *_args):
+            pass
+
+    class Spin:
+        minimum = -1.0e9
+        maximum = 1.0e9
+        decimals = 6
+
+        def __init__(self):
+            self.value = 0.0
+            self.enabled = False
+
+    payload = {
+        "centerWorldRasMm": (10.1, 20.2, 30.3),
+        "dimensionsMm": (100.0, 100.0, 100.0),
+        "openingRevision": 7,
+        "gapLineNodeId": "gap-line-7",
+    }
+
+    def invoke(
+        matches_saved,
+        runtime_current,
+        roi_payload=payload,
+        result_success=True,
+    ):
+        invalidations = []
+        comparisons = []
+
+        class Facade:
+            def defaultTaskSpaceRoi(self):
+                return SimpleNamespace(
+                    success=result_success,
+                    message="ROI source unavailable" if not result_success else "",
+                    payload=roi_payload,
+                )
+
+            def workspaceRoiMatchesSavedEvidence(self, roi, roi_source, parameter_node):
+                comparisons.append((roi, roi_source, parameter_node))
+                return matches_saved
+
+            def workspaceRuntimeValidated(self, parameter_node):
+                return runtime_current
+
+        panel = SimpleNamespace(
+            taskSpaceRoiCenterSpinBoxes=[Spin() for _ in range(3)],
+            taskSpaceRoiDimensionsSpinBoxes=[Spin() for _ in range(3)],
+            taskSpaceRoiStatusLabel=Label(),
+            _taskSpaceRoiStatusContext="",
+            _taskSpaceRoiOpeningRevision=None,
+            _taskSpaceRoiGapLineNodeId="",
+            _taskSpaceRoiInitialized=False,
+            _loadingTaskSpaceRoi=False,
+        )
+        parameter_node = object()
+        host = SimpleNamespace(
+            _robotWorkflowFacade=Facade(),
+            _robotSimulationPanel=panel,
+            _parameterNode=parameter_node,
+            _onStep6TaskSpaceRoiEdited=lambda: invalidations.append("invalidated"),
+        )
+        loaded = loader(host)
+        assert panel._loadingTaskSpaceRoi is False
+        if (
+            result_success
+            and isinstance(roi_payload, Mapping)
+            and {"centerWorldRasMm", "dimensionsMm", "openingRevision", "gapLineNodeId"}
+            <= roi_payload.keys()
+        ):
+            assert comparisons == [
+                (
+                    TaskSpaceRoi((10.1, 20.2, 30.3), (100.0, 100.0, 100.0)),
+                    {"openingRevision": 7, "gapLineNodeId": "gap-line-7"},
+                    parameter_node,
+                )
+            ]
+        else:
+            assert comparisons == []
+        return panel, invalidations, loaded
+
+    current, invalidations, loaded = invoke(True, True)
+    assert loaded is True
+    assert invalidations == []
+    assert "exact saved workspace roi/source match" in current.taskSpaceRoiStatusLabel.text.lower()
+    assert "is current" in current.taskSpaceRoiStatusLabel.text
+
+    preserved, invalidations, loaded = invoke(True, False)
+    assert loaded is True
+    assert invalidations == []
+    assert "needs runtime revalidation" in preserved.taskSpaceRoiStatusLabel.text
+
+    _, invalidations, loaded = invoke(False, False)
+    assert loaded is True
+    assert invalidations == ["invalidated"]
+
+    unavailable, invalidations, loaded = invoke(
+        True, True, roi_payload=None, result_success=False
+    )
+    assert loaded is False
+    assert invalidations == []
+    assert "source issue" in unavailable.taskSpaceRoiStatusLabel.text.lower()
+
+    malformed, invalidations, loaded = invoke(
+        True,
+        True,
+        roi_payload={"centerWorldRasMm": (10.0, 20.0, 30.0)},
+    )
+    assert loaded is False
+    assert invalidations == []
+    assert "dimensionsmm" in malformed.taskSpaceRoiStatusLabel.text.lower()
+
+
+def test_manual_task_space_roi_spinbox_edits_still_invalidate_workspace():
+    invalidations = []
+    panel_method = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_onTaskSpaceRoiEdited"},
+        {},
+    )["_onTaskSpaceRoiEdited"]
+    workflow_method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py",
+        "RobotShellWidgetMixin",
+        {"_onStep6TaskSpaceRoiEdited"},
+        {},
+    )["_onStep6TaskSpaceRoiEdited"]
+    shell = SimpleNamespace(
+        _robotWorkflowFacade=SimpleNamespace(
+            invalidateWorkspaceRuntimeValidation=lambda **kwargs: invalidations.append(kwargs)
+        ),
+        logic=SimpleNamespace(robotWorkspaceModelNode=lambda: None),
+    )
+    panel = SimpleNamespace(
+        _loadingTaskSpaceRoi=True,
+        _taskSpaceRoiStatusContext="current source",
+        taskSpaceRoiStatusLabel=SimpleNamespace(
+            text="",
+            setProperty=lambda *_args: None,
+            style=lambda: SimpleNamespace(unpolish=lambda *_args: None, polish=lambda *_args: None),
+        ),
+        _callbacks={"roi_edited": lambda: workflow_method(shell)},
+    )
+    panel_method(panel)
+    assert invalidations == []
+    panel._loadingTaskSpaceRoi = False
+    panel_method(panel)
+    assert invalidations == [{"invalidate_motion_plan": False}]
+
+
+def test_phase_plan_buttons_require_runtime_workspace_and_reviewed_limits():
+    path = PYTHON / "dentobot_workflow/widget_robot.py"
+    update = _method_node(path, "RobotWidgetMixin", "_updateStep6PlanningUi")
+    assignments = {
+        target: node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        for target in (_attribute_name(item) for item in node.targets)
+        if target
+    }
+    readiness = next(
+        node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "phase_planning_ready" for target in node.targets)
+    )
+    names = {node.id for node in ast.walk(readiness) if isinstance(node, ast.Name)}
+    assert {"workspace_runtime_validated", "assisted_reviewed"} <= names
+    assert assignments["panel.planApproachButton.enabled"].id == "phase_planning_ready"
+    assert assignments["panel.comparePlannersButton.enabled"].id == "phase_planning_ready"
+    diagnostic = next(
+        node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "stage_diagnostic_enabled" for target in node.targets)
+    )
+    diagnostic_names = {node.id for node in ast.walk(diagnostic) if isinstance(node, ast.Name)}
+    assert not {"workspace_runtime_validated", "assisted_reviewed"}.intersection(diagnostic_names)
+
+    ready = {
+        "planning_anatomy_ready": True,
+        "task_ready": True,
+        "ros2_active": True,
+        "home_runtime_validated": True,
+        "workspace_runtime_validated": True,
+        "assisted_reviewed": True,
+        "away_from_home": False,
+        "self": SimpleNamespace(_plannerComparisonState=None),
+    }
+    expression = compile(ast.Expression(readiness), str(path), "eval")
+    assert eval(expression, ready) is True
+    for missing in ("workspace_runtime_validated", "assisted_reviewed"):
+        not_ready = dict(ready, **{missing: False})
+        assert eval(expression, not_ready) is False
+
+    source = path.read_text(encoding="utf-8")
+    assert "Revalidate or generate workspace evidence in 6.3." in source
+    assert "Review and apply assisted joint limits in 6.3." in source
+
+
+def test_unknown_base_main_action_routes_to_existing_reconciliation_owner():
+    calls = []
+    accept = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"onLockRobotBaseMount"},
+        {"slicer": SimpleNamespace(util=SimpleNamespace(errorDisplay=lambda _message: None))},
+    )["onLockRobotBaseMount"]
+    host = SimpleNamespace(
+        _parameterNode=object(),
+        logic=object(),
+        _robotWorkflowFacade=SimpleNamespace(
+            acceptManualBaseReview=lambda: calls.append("accept")
+        ),
+        _robotSimulationPanel=SimpleNamespace(
+            reconcileManualBaseStateButton=SimpleNamespace(enabled=True)
+        ),
+        _isStep6RobotWorkflowActive=lambda: True,
+        _isStep6ManualBaseReviewActive=lambda: True,
+        _onStep6ReconcileManualBaseAcceptance=lambda: calls.append("reconcile"),
+    )
+    accept(host)
+    assert calls == ["reconcile"]
+
+    source = (PYTHON / "dentobot_workflow/widget_robot.py").read_text(encoding="utf-8")
+    assert '"Reconcile Base State" if reconcile_base else "Accept Base"' in source
+    assert "(control_state[\"accept\"] or reconcile_base)" in source
+
+
+def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {
+            "setManualJogLimits",
+            "setManualJogAcceptedState",
+            "resetManualJogDraft",
+            "stageTcpIkSolution",
+            "_setManualJogDraftValues",
+            "_onManualJogSliderChanged",
+            "_onManualJogNumericChanged",
+            "_updateManualJogDraftFromControls",
+            "manualJogJointPositionsSi",
+            "_formatManualJogDisplayValues",
+            "_setManualJogStatus",
+        },
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "Mapping": Mapping,
+            "degrees": degrees,
+            "isfinite": isfinite,
+            "joint_positions_si_from_display": joint_positions_si_from_display,
+        },
+    )
+    panel = type("PanelProbe", (), methods)()
+    panel.manualJogJointControls = {
+        joint: (_Control(), _TwoDecimalSpinBox(), _Control())
+        for joint in JOINT_NAMES
+    }
+    for name in (
+        "manualJogAcceptedStateLabel",
+        "taskHomeCurrentStateLabel",
+        "manualJogDraftStateLabel",
+        "manualJogStatusLabel",
+        "manualJogDraftLimitLabel",
+    ):
+        setattr(panel, name, _Control())
+    panel._manualJogLimits = {}
+    panel._manualJogMechanicalLimits = None
+    panel._manualJogLimitsValid = False
+    panel._manualJogCommandLimitsValid = False
+    panel._manualJogAvailable = True
+    panel._manualJogGuardContextAvailable = True
+    panel._manualJogBusy = False
+    panel._manualJogDraftInitialized = False
+    panel._manualJogDisplayValues = (0.0,) * 5
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel._manualJogEvidence = None
+    panel.manualJogReconciliationRequired = False
+    panel._invoke_calls = []
+    panel._invoke = lambda action, state: panel._invoke_calls.append(
+        (action, dict(state))
+    )
+
+    def set_availability(draft_available, guard_context_available):
+        panel._manualJogAvailable = bool(draft_available)
+        panel._manualJogGuardContextAvailable = bool(guard_context_available)
+        panel._manualJogGuardAvailable = bool(
+            draft_available and guard_context_available
+        )
+
+    panel.setManualJogAvailability = set_availability
+
+    def assert_positions_close(actual, expected):
+        assert set(actual) == set(JOINT_NAMES)
+        for joint in JOINT_NAMES:
+            assert math.isclose(
+                actual[joint], expected[joint], rel_tol=0.0, abs_tol=1.0e-12
+            ), (joint, actual[joint], expected[joint])
+
+    def display_from_si(positions):
+        return (
+            degrees(positions[JOINT_NAMES[0]]),
+            positions[JOINT_NAMES[1]] * 1000.0,
+            degrees(positions[JOINT_NAMES[2]]),
+            positions[JOINT_NAMES[3]] * 1000.0,
+            degrees(positions[JOINT_NAMES[4]]),
+        )
+
+    mechanical = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 90), (-10, 50), (-180, 180))
+    )
+    reviewed = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 90), (-10, 50), (-180, 180))
+    )
+    panel.setManualJogLimits(mechanical, reviewed)
+
+    accepted_before = {
+        JOINT_NAMES[0]: radians(0.222222221),
+        JOINT_NAMES[1]: 0.011111111,
+        JOINT_NAMES[2]: radians(-0.333333333),
+        JOINT_NAMES[3]: 0.022222222,
+        JOINT_NAMES[4]: radians(0.444444444),
+    }
+    panel.setManualJogAcceptedState(accepted_before)
+    panel._invoke_calls.clear()
+
+    ik_candidate = {
+        JOINT_NAMES[0]: 0.123456789,
+        JOINT_NAMES[1]: 0.0123456789,
+        JOINT_NAMES[2]: -0.456789012,
+        JOINT_NAMES[3]: 0.0345678912,
+        JOINT_NAMES[4]: 1.23456789,
+    }
+    candidate_display = display_from_si(ik_candidate)
+    assert panel.stageTcpIkSolution(ik_candidate) is True
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, candidate_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert any(
+        not math.isclose(value, round(value, 2), rel_tol=0.0, abs_tol=1.0e-8)
+        for value in candidate_display
+    )
+    for joint, expected in zip(JOINT_NAMES, candidate_display, strict=True):
+        assert panel.manualJogJointControls[joint][1].value == round(expected, 2)
+    assert_positions_close(panel.manualJogJointPositionsSi(), ik_candidate)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted_before
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ]
+    assert_positions_close(panel._invoke_calls[-1][1], ik_candidate)
+
+    narrower_reviewed = _joint_limits(
+        ((-10, 20), (0, 20), (-40, 0), (0, 40), (60, 90))
+    )
+    panel.setManualJogLimits(mechanical, narrower_reviewed)
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, candidate_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert_positions_close(panel.manualJogJointPositionsSi(), ik_candidate)
+
+    other_values = tuple(panel._manualJogDisplayValues)
+    numeric_joint = JOINT_NAMES[1]
+    numeric_spin = panel.manualJogJointControls[numeric_joint][1]
+    numeric_spin.setValue(17.89123)
+    numeric_display = numeric_spin.value
+    panel._onManualJogNumericChanged(numeric_joint, numeric_display)
+    expected_after_numeric = list(other_values)
+    expected_after_numeric[1] = numeric_display
+    for index, (actual, expected) in enumerate(
+        zip(panel._manualJogDisplayValues, expected_after_numeric, strict=True)
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12), index
+
+    other_values = tuple(panel._manualJogDisplayValues)
+    slider_joint = JOINT_NAMES[4]
+    slider_position = 1234
+    slider_minimum, slider_maximum = panel._manualJogLimits[0][4]
+    exact_slider_value = slider_minimum + (
+        slider_maximum - slider_minimum
+    ) * slider_position / 10000.0
+    panel._onManualJogSliderChanged(slider_joint, slider_position)
+    expected_after_slider = list(other_values)
+    expected_after_slider[4] = exact_slider_value
+    for index, (actual, expected) in enumerate(
+        zip(panel._manualJogDisplayValues, expected_after_slider, strict=True)
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12), index
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ] * len(panel._invoke_calls)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted_before
+
+    reset_state = {
+        JOINT_NAMES[0]: radians(11.123456789),
+        JOINT_NAMES[1]: 0.0135792468,
+        JOINT_NAMES[2]: radians(50.23456789),
+        JOINT_NAMES[3]: 0.0246801357,
+        JOINT_NAMES[4]: radians(-66.987654321),
+    }
+    panel.setManualJogAcceptedState(reset_state)
+    panel.resetManualJogDraft()
+    reset_display = display_from_si(reset_state)
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, reset_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert_positions_close(panel.manualJogJointPositionsSi(), reset_state)
+    assert_positions_close(panel._invoke_calls[-1][1], reset_state)
+
+    narrowed_mechanical = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 50.12), (-10, 50), (-180, 180))
+    )
+    narrowed_reviewed = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 50.12), (-10, 50), (-180, 180))
+    )
+    panel.setManualJogLimits(narrowed_mechanical, narrowed_reviewed)
+    clamped_display = list(reset_display)
+    clamped_display[2] = 50.12
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, clamped_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert panel.manualJogJointControls[JOINT_NAMES[2]][1].maximum == 50.12
+    assert panel.manualJogJointControls[JOINT_NAMES[2]][1].value == 50.12
+    assert panel._manualJogAcceptedJointPositionsSi == reset_state
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ] * len(panel._invoke_calls)

@@ -8,7 +8,7 @@ import traceback
 import numpy as np
 import slicer
 
-sys.path.insert(0, "/workspace/ros2_ws/src/DentoBot/DENTOWorkflow/Resources/Python")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"))
 from DENTOCaseBundle import extract_scene_mrb  # noqa: E402
 
 

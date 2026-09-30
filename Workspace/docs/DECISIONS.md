@@ -1,5 +1,73 @@
 # Dentobot Technical Decisions
 
+## 2026-09-30 — Commit source checkpoints and integrate only accepted 5.10 changes
+
+Tarun explicitly approved implementing the integration plan: capture stable unfinished renovation source as regular commits, preserve dirty integration first, merge identified renovation commits, then port only accepted 5.10 source/test changes. Renovation supplies current five-DOF/guard/recording behavior; older equivalent repairs cannot replace it. Four GPT-6 Luna Max workers use disjoint scopes, with at most three concurrent beside the coordinator. Coordinator owns technical decisions, controlled records, Git, runtime and acceptance. Preserve 5.12 deferral and release gates; checkpoint/host verification is not full-cycle or operator acceptance.
+
+
+## 2026-09-28 — Use the five-DOF checklist as the headed-campaign implementation plan
+
+The detailed five-DOF acceptance checklist now governs implementation and
+execution of the automated headed GUI simulation campaign under `S6-LIVE-01`.
+It supersedes older campaign sequencing where they conflict without creating a
+second pending queue. The new five-DOF FDI11 package remains a planned output
+until it is saved through the current workflow and passes a fresh-process
+reopen.
+
+For this task, Tarun raised the orchestration cap from two to four simultaneous
+GPT-6 Luna Max workers. Use the smallest useful number for independent,
+disjoint implementation or host-test scopes. Sol owns reasoning, controlled
+records, integration, serialized GUI/ROS/MoveIt runtime and acceptance. Luna
+workers do not recursively delegate or own exclusive runtime resources. The
+current platform has four total slots including Sol, so only three Luna workers
+can run beside Sol at once; a fourth permitted worker can run sequentially.
+
+## 2026-09-28 — Model the robotics problem as five DOF with no J6 compatibility slot
+
+Tarun superseded the 1 September compatibility decision and the narrower
+4 September planning-only removal. The DENTOBOT positioning robot has exactly
+five commandable joints, J1–J5. The pneumatic drill is a separate speed-
+controlled spindle device; it is not a joint, positioning degree of freedom,
+IK variable, planning variable, Home/limit field, guard slot, joint-state
+element, workflow control or saved motion value.
+
+Remove the sixth movable URDF joint and attach the burr geometry to the spindle
+housing with the same fixed neutral transform. Preserve the physical spindle
+and burr links, meshes, collision geometry, canonical `dentobot_drill_tcp`,
+drill axis, five-joint order/units and all existing collision/phase policies.
+Remove six-value compatibility from current workflow definitions rather than
+silently truncating it. Historical records retain their dated meaning but do
+not establish current five-DOF state. New robot evidence must contain exactly
+J1–J5. Axial tool roll remains an unconstrained task component because the
+five-DOF arm does not control it.
+
+This source refactor does not introduce a spindle-speed controller. RPM or
+pressure command/status needs a separate simulation and hardware safety
+contract with calibrated limits and authority; it must never enter the arm's
+joint-state, IK, planner or guard interfaces.
+
+## 2026-09-28 — Refresh manual-jog availability after completion clears busy
+
+An accepted, rejected, or reconciled manual-jog action may trigger robot-state
+signals while `_workflowActionBusy` is true. The authoritative Step 6 refresh
+must therefore run only after the shell clears busy and completes the panel
+request; otherwise a valid next draft can remain disabled from a stale cached
+availability value. The completion path now uses that ordering for both Guarded
+Jog and Reconcile State. This preserves draft/accepted/unknown evidence and
+does not grant route or preview authority. Host tests pass; headed-runtime
+verification is pending because the next recorded retry was blocked by the
+account runtime-approval usage limit.
+
+## 2026-09-28 — Halt runtime retries after the r14 pre-launch block
+
+Tarun directed that runtime testing stop after the r14 recording attempt was
+rejected before launch by the account usage limit. Preserve r13's partial
+recording and r14's prepared wrapper/diagnostics as evidence. Do not launch
+Slicer, ROS/MoveIt, Docker runtime or the recorder, and do not convert the
+source/host result into headed, native rejection/unknown, full-chain preview or
+operator acceptance. Resume only after a later explicit operator instruction;
+the named five-DOF acceptance case remains absent.
+
 ## 2026-09-27 — complete-chain authority before Step 6 preview
 
 Retained partial Stage 2/3 plans are display-only diagnostics, even when their
@@ -6752,3 +6820,77 @@ design and native/runtime evidence. Step 3B's existing placement interaction
 remains separate. This implements the active Step 6 renovation plan without
 changing guard, route, preview or hardware authority; see the 27 September
 logbook for source-only verification and open operator verdict.
+
+## 2026-09-28 — Normalize the opened-jaw display at save and active-view boundaries
+
+The operator's Sep28 FDI11 save retained an untransformed closed-source
+segmentation visibly alongside current opened proxies. The same state was
+present in the preceding Sep27 package. Keep the existing
+`_enforceStep6OpenedJawDisplaySeparation` as the single display policy owner;
+reapply it after transient view restoration in `onSceneStartSave` and after
+active-stage view refresh, including its no-snapshot path. Preserve the source
+segmentation, jaw transform, opened anatomy, inspectable source views, robot,
+collision and planner policy. A headed open, separate save and reopen now
+confirm source aggregate/2D/3D hidden and both opened proxies visible for
+the exact operator case. Tarun's later normal-window verdict remains pending.
+The bounded 16-item GUI checklist passed but its video is partial because of
+the separately tracked `S6-U-01` shutdown; neither result authorizes a route,
+preview or hardware action.
+
+## 2026-09-28 — Keep the 5.10 publisher teardown port isolated pending native shutdown cause
+
+For `S6-U-01`, the installed-era SlicerROS2 publisher reference-removal index
+was out of range, and the installed quit path did not release publishers before
+ROS shutdown. An isolated four-file port of the existing `333c410` correction
+from source baseline `261a130` built against Slicer 5.10. The Step 6 widget now
+uses its existing robot-disconnect and adapter-shutdown functions during normal
+widget cleanup. These are bounded lifecycle improvements, but two connected
+no-case probes still exited 1 with class-loader warnings; the second explicitly
+released the native publisher before exit. Therefore do not replace the pinned
+installed native package or label the shutdown fixed from this port. Keep the
+5.12 branch untouched. The next runtime diagnostic needs Tarun's reviewed
+approval under the verification protocol's accumulated failure ceiling; the
+prepared signal-stack probe was rejected by automatic approval review before
+launch. Today's logbook and run-local diagnostics retain the exact source,
+build, screenshot, exit and cleanup evidence.
+
+## 2026-09-28 — Remove native ROS2 robots before module unload
+
+The operator-approved instrumented `S6-U-01` run proved Python widget cleanup
+and explicit publisher release completed before the same two class-loader
+warnings. A first robot-local cleanup stopped PlanningSceneMonitor activity and
+released cached RobotModel state, but its one post-correction run still exited
+1. That run reported the ROS2 module was registered but no longer instantiated
+when scripted cleanup executed. The installed-era native logic destroyed its
+ROS nodes without first removing their owned robot nodes, so those nodes could
+retain MoveIt loaders across plugin unload. Keep the smallest correction in the
+native owner: `vtkSlicerROS2Logic::DisconnectRobots()` copies each managed ROS
+node's robot-name list and removes each robot through its existing teardown
+route before subscriptions, publishers, ROS nodes and ROS shutdown, both from
+`aboutToQuit` and the logic destructor. Keep robot-local release as an
+idempotent destructor fallback. Source tests and isolated compilation are
+required now; a later single narrow zero-exit run remains the acceptance gate.
+Do not alter the installed package or the deferred 5.12 checkout from this
+source/build evidence.
+
+### Runtime acceptance addendum
+
+The operator-authorized final headed simulation subsequently passed the exact
+reproduced connected lifecycle: Slicer, recorder and FFmpeg exited 0, the two
+class-loader warnings disappeared, widget cleanup completed, and no owned
+process remained. Accept the native ordering correction for `S6-U-01`'s
+no-case condition. Continue to require the corrected reviewed native package
+and an independent zero-exit result in the final case-bearing Step 6 campaign;
+the narrow shutdown pass grants no planner, preview, hardware or usability
+authority.
+## 30 September 2026 — Step 6 UI diagnostic crash boundary
+
+R18 GDB captured SIGSEGV in the asynchronous Python traceback-dumping thread while the GUI rendered. The session UI watchdog will retain Qt heartbeat/gap/phase/summary logs but cease scheduling `faulthandler.dump_traceback_later` or owning the process-global fatal handler. External GDB remains the native/hard-hang evidence mechanism. This removes the reproduced crashing diagnostic path; confirmation is still required and it does not establish a common cause for every earlier crash. No robot, task, Base/Home, limit, anatomy, collision or planner policy changes. See the 30 September logbook and r18 diagnostics under S6-U-01 / S6-LIVE-01.
+
+## 2026-09-30 — conditional ±20 mm Base diagnostic after IK failure
+
+**30 September DENTO-NOTE — conditional bounded base-placement diagnostic (`S6-LIVE-01`):** Tarun requests iterative translation around the existing forehead-plane-center Base placement if planner testing fails due to IK unreachability: offsets up to ±20 mm on each of two in-plane axes only. His “XY” denotes an oblique anatomical plane parallel to the upper-teeth root↔crown direction, not an assumed world-RAS XY plane. Triage: planned conditional investigation under the existing planner/base-feasibility contract; the note itself is Unprioritized and does not change the parent Priority0. It supersedes blanket deferral only for this bounded failure-triggered diagnostic; broader sweeps, orientation search, heatmaps and robot redesign remain deferred. Prerequisites: complete the current workbench gate, capture exact current-task IK failure, and establish a reviewed plane origin/orthonormal basis and sampling budget. Root↔crown direction alone does not uniquely define a plane; do not invent its second axis or equate it to the forehead plane without review. Keep Base orientation and normal offset fixed, retain the zero-offset baseline, and freeze anatomy, task/TCP, limits and collision/phase policy. Reuse the shared five-joint evaluator, preserve each candidate transform, requested endpoint, IK/FK residuals, limit/collision evidence and identity in diagnostic records/screenshots. Candidates remain detached/display-only; no automatic Base acceptance, Home reuse, route promotion or preview. A selected candidate requires normal explicit Base review/acceptance, scene acknowledgement, fresh Home/workspace/task checks and full-chain guard before motion authority. No successful IK result or infeasibility proof is implied by this note; empty bounded search remains inconclusive beyond its evaluated coverage.
+
+## 2026-09-30 — Default Workflow Focus for current GUI
+
+Operator decision: reclaim workflow space by hiding surrounding Slicer chrome while DENTOWorkflow is active, restoring it on exit, and providing a session-only Show Slicer tools action. Reuse the shared header, authoritative callbacks and floating View Controls palette; move secondary actions into More rather than adding another shell. This supersedes the August 14 fixed-header presentation only for this bounded UI-P3-01 slice, not Studio sequencing. Keep menu/status/viewport access and the research warning. Parallel Step 6.3 work retains robot logic and runtime ownership; no reload or runtime test is authorized by source implementation.

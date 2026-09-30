@@ -32,8 +32,8 @@ VIRTUAL_FOREHEAD_PRIOR_VERSION = "1.0"
 PLACEMENT_AUTHORITY = "VirtualForeheadPriorV1"
 TCP_AIM_OPENED_LOWER_INCISOR = "OPENED_LOWER_INCISOR"
 
-# Display units: deg, mm, deg, mm, deg, deg (J1..J6).
-DEFAULT_JOINT_DISPLAY = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+# Display units: deg, mm, deg, mm, deg (J1–J5).
+DEFAULT_JOINT_DISPLAY = (0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)

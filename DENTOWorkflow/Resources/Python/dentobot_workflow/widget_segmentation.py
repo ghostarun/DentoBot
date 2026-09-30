@@ -893,12 +893,18 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         progressDialog = qt.QProgressDialog(_("Checking pulp masks for this run..."), "", 0, total, slicer.util.mainWindow())
         progressDialog.setCancelButton(None)
         progressDialog.setWindowModality(qt.Qt.WindowModal)
+        progressDialog.setAutoClose(False)
+        progressDialog.setAutoReset(False)
         progressDialog.show()
         slicer.app.processEvents()
-        def updateProgress(done, _total, fdi):
-            progressDialog.setLabelText(_("Checking FDI%1 (%2 of %3)").replace("%1", fdi or _("unknown"))
-                                        .replace("%2", str(done)).replace("%3", str(total)))
-            progressDialog.setValue(done)
+        def updateProgress(done, phaseTotal, fdi, phase):
+            phaseName = phase or _("Checking inventory")
+            if fdi:
+                phaseName = _("%1 for FDI%2").replace("%1", phaseName).replace("%2", str(fdi))
+            progressDialog.setLabelText(_("%1 (%2 of %3)").replace("%1", phaseName)
+                                        .replace("%2", str(done)).replace("%3", str(phaseTotal)))
+            progressDialog.setRange(0, max(1, int(phaseTotal)))
+            progressDialog.setValue(min(max(0, int(done)), max(1, int(phaseTotal))))
             slicer.app.processEvents()
         try:
             self._updatingSegmentationReviewUI = True
@@ -922,16 +928,32 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         progressDialog = qt.QProgressDialog(_("Preparing pulp candidates..."), "", 0, total, slicer.util.mainWindow())
         progressDialog.setCancelButton(None)
         progressDialog.setWindowModality(qt.Qt.WindowModal)
+        progressDialog.setAutoClose(False)
+        progressDialog.setAutoReset(False)
         progressDialog.show()
         def updateProgress(done, _total, fdi):
             progressDialog.setLabelText(_("Preparing FDI%1 (%2 of %3)").replace("%1", fdi)
                                         .replace("%2", str(done)).replace("%3", str(total)))
             progressDialog.setValue(done)
             slicer.app.processEvents()
+        report = None
         try:
             self._processingSegmentationContentChange = True
             self._updatingSegmentationReviewUI = True
             report = self.logic.createMissingPulpCandidates(node, progress=updateProgress)
+            if node == self._parameterNode.teethSegmentation and report["createdCount"]:
+                progressDialog.setLabelText(_("Invalidating Step 3A foundation after source segmentation changes..."))
+                slicer.app.processEvents()
+                self.logic.invalidateCaseFoundationForSourceChange(
+                    self._parameterNode,
+                    _("Derived pulp masks changed the source segmentation."),
+                )
+            progressDialog.setLabelText(_("Refreshing workflow eligibility..."))
+            progressDialog.setRange(0, 0)
+            slicer.app.processEvents()
+            self._rebuildSegmentTree()
+            self._updatePlanning()
+            self._updateTemplateModeling()
         except (TypeError, ValueError, RuntimeError) as exc:
             slicer.util.errorDisplay(str(exc))
             return
@@ -939,14 +961,8 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
             self._processingSegmentationContentChange = False
             self._updatingSegmentationReviewUI = False
             progressDialog.close()
-        self._rebuildSegmentTree()
-        self._updatePlanning()
-        self._updateTemplateModeling()
-        if node == self._parameterNode.teethSegmentation and report["createdCount"]:
-            self.logic.invalidateCaseFoundationForSourceChange(
-                self._parameterNode, _("Derived pulp masks changed the source segmentation."),
-            )
-        self._showPulpInventoryDialog(node, report)
+        if report:
+            self._showPulpInventoryDialog(node, report)
 
     def onViewPulpReport(self, checked=False) -> None:
         del checked

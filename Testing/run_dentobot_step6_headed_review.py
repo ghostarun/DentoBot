@@ -1,9 +1,9 @@
 """Headed, bounded Step 6 GUI review for an approved current checkout.
 
-The runner never saves the loaded case. ROS/scene synchronization and one
-0.1-degree J1 jog require both the explicit jog flag and an exact native build
-preflight. Unknown or rejected jog outcomes stop the run without retry. The
-taskless-draft mode stops after its read-only draft check.
+ROS/scene synchronization and manual commands require the explicit jog flag
+and exact native preflight. Saving a reviewed current case is separately
+opt-in. Rejected and unknown outcome scenarios have separate opt-ins; neither
+retries a jog. The taskless-draft mode stops after its read-only draft check.
 """
 
 from __future__ import annotations
@@ -14,12 +14,14 @@ import json
 import math
 import os
 import re
+import dataclasses
 from pathlib import Path
 import sys
 import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
+import qt
 import slicer
 import vtk
 
@@ -36,15 +38,26 @@ from DENTOCaseBundle import validate_case_bundle  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
     JOINT_DISPLAY_UNITS,
     JOINT_LIMIT_FIELDS,
+    TaskSpaceRoi,
 )
 from DENTOStep6Planning import (  # noqa: E402
     default_task_joint_limits_from_urdf,
     joint_limit_margin_evidence,
 )
-from DENTOStep6State import JOINT_NAMES  # noqa: E402
+from DENTOStep6State import JOINT_NAMES, fingerprint  # noqa: E402
 from dentobot_workflow.offline_placement_status import (  # noqa: E402
     EXPECTED_ROBOT_LINK_COUNT,
 )
+from step6_manual_jog_scenarios import (  # noqa: E402
+    fixture_identity as _fixture_identity,
+    rejection_plan as _rejection_plan,
+)
+from run_dentobot_tcp_workbench_headed import (  # noqa: E402
+    _mouse_drag_requested,
+    make_external_mouse_drag_callback,
+    run_case_bound_tcp_probe,
+)
+from step6_full_chain_probe import run_full_chain_interruption_probe  # noqa: E402
 
 
 CHECKOUT_PROFILES = {
@@ -79,7 +92,9 @@ CHECK_NAMES = (
     "base_controls_and_accepted_status",
     "draft_state_control_visible",
     "native_version_preflight",
+    "base_profile_rebind_prerequisite",
     "simulation_ros_connect_and_scene_readback",
+    "profile_migration_recovery_after_scene_ack",
     "draft_state_read_only",
     "invalid_out_of_reviewed_range_draft",
     "single_guarded_j1_jog",
@@ -87,6 +102,14 @@ CHECK_NAMES = (
     "base_stage_and_cancel",
     "base_acceptance_trial",
     "task_home_review_acceptance_trial",
+    "profile_migration_recovery_before_save",
+    "case_bound_rejected_guard",
+    "unknown_reconcile_state",
+    "save_current_case",
+    "manual_jog_keyboard_draft_check",
+    "case_bound_tcp_workbench",
+    "full_chain_interruption",
+    "simulation_ros_disconnect",
 )
 
 
@@ -102,6 +125,76 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_output_case_path(output_text: str, source_path: Path) -> Path:
+    output_path = Path(output_text)
+    if not output_path.is_absolute():
+        raise ValueError("DENTOBOT_HEADED_OUTPUT_CASE must be an absolute path.")
+    if output_path.suffix != ".dentocase":
+        raise ValueError("DENTOBOT_HEADED_OUTPUT_CASE must end in .dentocase.")
+    output_path = output_path.resolve(strict=False)
+    if output_path == source_path.resolve():
+        raise ValueError("The output case must be distinct from the source case.")
+    if output_path.exists() or output_path.is_symlink():
+        raise FileExistsError(f"Refusing to overwrite existing output: {output_path}")
+    return output_path
+
+
+def _unpassed_selected_checks(items: Mapping[str, object]) -> list[str]:
+    return [
+        name for name, item in items.items()
+        if name != "save_current_case"
+        and item.get("status") != "NOT_RUN"
+        and item.get("status") not in {"PASS", "PREFLIGHT_PASS"}
+    ]
+
+
+def _save_current_case(widget, output_path: Path, source_path: Path,
+                       source_sha256: str) -> dict[str, object]:
+    output_path = _validate_output_case_path(str(output_path), source_path)
+    source_path = source_path.resolve()
+    if _sha256_file(source_path) != source_sha256:
+        raise RuntimeError("The source case changed before the reviewed save.")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(
+        str(output_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+    )
+    try:
+        reservation = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        current = output_path.stat()
+        if (current.st_dev, current.st_ino) != (reservation.st_dev, reservation.st_ino):
+            raise FileExistsError(f"Output reservation was replaced: {output_path}")
+        inspection = widget._createCaseBundle(str(output_path))
+        if Path(inspection.path).resolve() != output_path or not output_path.is_file():
+            raise RuntimeError("The production save owner did not create the requested case.")
+        output_stat = output_path.stat()
+        if (output_stat.st_dev, output_stat.st_ino) == (reservation.st_dev, reservation.st_ino):
+            raise RuntimeError("The production save owner did not replace its reservation.")
+        if _sha256_file(source_path) != source_sha256:
+            raise RuntimeError("The source case changed during the reviewed save.")
+        return {
+            "output_path": str(output_path),
+            "size_bytes": output_stat.st_size,
+            "sha256": _sha256_file(output_path),
+            "source_relationship": {
+                "source_path": str(source_path),
+                "source_sha256": source_sha256,
+                "source_unchanged": True,
+                "saved_from_current_workflow_session": True,
+            },
+        }
+    finally:
+        try:
+            current = output_path.stat()
+        except FileNotFoundError:
+            current = None
+        if current and (current.st_dev, current.st_ino) == (reservation.st_dev, reservation.st_ino):
+            output_path.unlink()
+
+
 def _finite_vector(values) -> dict[str, float]:
     if not isinstance(values, Mapping) or set(values) != set(JOINT_NAMES):
         raise ValueError("Joint state must contain exactly J1–J5.")
@@ -109,6 +202,12 @@ def _finite_vector(values) -> dict[str, float]:
     if not all(math.isfinite(value) for value in result.values()):
         raise ValueError("Joint state contains a non-finite value.")
     return result
+
+
+def _apply_display_step_to_expected_si(before_si, joint_index: int, delta_si: float):
+    expected = dict(before_si)
+    expected[JOINT_NAMES[joint_index]] += delta_si
+    return expected
 
 
 def _exactly_matches(left, right) -> bool:
@@ -397,6 +496,30 @@ def _draft_only_requested() -> bool:
     return draft_only
 
 
+def _connect_only_requested() -> bool:
+    enabled = _exact_env_opt_in("DENTOBOT_HEADED_CONNECT_ONLY")
+    if not enabled:
+        return False
+    if os.environ.get("DENTOBOT_HEADED_PROVENANCE_MODE") != "integration":
+        raise RuntimeError("Connect-only review requires the integration provenance mode.")
+    incompatible = (
+        "DENTOBOT_HEADED_ALLOW_JOG", "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT",
+        "DENTOBOT_HEADED_DRAFT_ONLY", "DENTOBOT_HEADED_INVALID_DRAFT_REVIEW",
+        "DENTOBOT_HEADED_RECORD_REOPEN", "DENTOBOT_HEADED_JOINT_KEYBOARD",
+        "DENTOBOT_HEADED_TCP_CASE", "DENTOBOT_HEADED_FULL_CHAIN",
+        "DENTOBOT_HEADED_ALLOW_REJECTED_JOG", "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
+        "DENTOBOT_HEADED_STOP_AFTER_WORKSPACE",
+    )
+    if any(_exact_env_opt_in(name) for name in incompatible) or "DENTOBOT_HEADED_OUTPUT_CASE" in os.environ:
+        raise RuntimeError("Connect-only review cannot enable other actions or save a case.")
+    if not all(os.environ.get(name, "").strip() for name in (
+        "DENTOBOT_HEADED_NATIVE_SOURCE_SHA256", "DENTOBOT_HEADED_NATIVE_BINARY_SHA256",
+        "DENTOBOT_HEADED_NATIVE_PACKAGE_PREFIX",
+    )):
+        raise RuntimeError("Connect-only review requires exact native provenance.")
+    return True
+
+
 def _invalid_draft_review_requested() -> bool:
     value = os.environ.get("DENTOBOT_HEADED_INVALID_DRAFT_REVIEW", "")
     if value not in {"", "0", "1"}:
@@ -421,6 +544,46 @@ def _validate_record_reopen_prerequisites(record_reopen: bool, allow_jog: bool, 
             "DENTOBOT_HEADED_RECORD_REOPEN requires DENTOBOT_HEADED_ALLOW_JOG=1 "
             "and cannot be combined with taskless draft-only mode."
         )
+
+
+def _exact_env_opt_in(name: str) -> bool:
+    value = os.environ.get(name, "")
+    if value not in {"", "0", "1"}:
+        raise RuntimeError(f"{name} must be exactly '1', '0', or unset.")
+    return value == "1"
+
+
+def _validate_workspace_diagnostic_opt_in() -> bool:
+    if not _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
+        return False
+    if _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_JOG"):
+        raise RuntimeError(
+            "Workspace diagnostic mode requires DENTOBOT_HEADED_ALLOW_JOG unset or '0'."
+        )
+    if not _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT"):
+        raise RuntimeError(
+            "Workspace diagnostic mode requires DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1."
+        )
+    incompatible = (
+        "DENTOBOT_HEADED_DRAFT_ONLY",
+        "DENTOBOT_HEADED_INVALID_DRAFT_REVIEW",
+        "DENTOBOT_HEADED_RECORD_REOPEN",
+        "DENTOBOT_HEADED_JOINT_KEYBOARD",
+        "DENTOBOT_HEADED_TCP_CASE",
+        "DENTOBOT_HEADED_FULL_CHAIN",
+        "DENTOBOT_HEADED_ALLOW_REJECTED_JOG",
+        "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
+    )
+    enabled = [name for name in incompatible if _exact_env_opt_in(name)]
+    if enabled:
+        raise RuntimeError(
+            "Workspace diagnostic mode cannot be combined with: " + ", ".join(enabled)
+        )
+    if "DENTOBOT_HEADED_OUTPUT_CASE" in os.environ:
+        raise RuntimeError(
+            "Workspace diagnostic mode cannot be combined with DENTOBOT_HEADED_OUTPUT_CASE."
+        )
+    return True
 
 
 def _load_historical_record_probe():
@@ -809,6 +972,19 @@ def _record(report: dict[str, object], name: str, status: str, **details) -> Non
     _write_report(report)
 
 
+def _retain_full_chain_probe_counts(report, evidence) -> None:
+    if not isinstance(evidence, Mapping):
+        return
+    invocations = evidence.get("probe_local_button_invocations")
+    if not isinstance(invocations, Mapping):
+        return
+    report["planner_calls"] = invocations.get(
+        "plan_guarded_approach", report["planner_calls"]
+    )
+    if "preview_approach" in invocations:
+        report["preview_started"] = invocations["preview_approach"] > 0
+
+
 def _write_report(report: dict[str, object]) -> None:
     path = Path(str(report["report_path"]))
     temporary = path.with_name(path.name + ".tmp")
@@ -819,11 +995,471 @@ def _write_report(report: dict[str, object]) -> None:
     os.replace(temporary, path)
 
 
+def _finalize_workspace_diagnostic(report: dict[str, object]) -> None:
+    reason = (
+        "Intentional workspace-only diagnostic stop after current workspace generation; "
+        "downstream checks were not run."
+    )
+    for item in report["items"].values():
+        if item["status"] == "NOT_RUN":
+            item["reason"] = reason
+    report.update({
+        "status": "DIAGNOSTIC_PASS",
+        "completed_at_utc": _utc_now(),
+        "failure_or_stop_reason": reason,
+        "full_workflow_claimed": False,
+        "screenrecording": {
+            "status": "external_wrapper_required",
+            "scope": "complete Slicer process",
+        },
+    })
+    _write_report(report)
+
+
 def _capture(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str]:
     paths = _capture_screenshots(f"{run_id}-{key}", evidence_dir)
     report["screenshots"][key] = paths
     _write_report(report)
     return paths
+
+
+def _deliver_key(control, key, modifiers) -> dict[str, object]:
+    qtest = getattr(qt, "QTest", None)
+    key_click = getattr(qtest, "keyClick", None) if qtest is not None else None
+    if callable(key_click):
+        key_click(control, key, modifiers)
+        return {"method": "qt.QTest.keyClick", "delivered": True}
+    key_event = getattr(qt, "QKeyEvent", None)
+    send_event = getattr(qt.QApplication, "sendEvent", None)
+    event_type = getattr(qt, "QEvent", None)
+    if not callable(key_event) or not callable(send_event) or event_type is None:
+        raise RuntimeError("Qt physical key delivery is unavailable; refusing callback fallback.")
+    press = key_event(event_type.KeyPress, key, modifiers, "", False, 1)
+    release = key_event(event_type.KeyRelease, key, modifiers, "", False, 1)
+    send_event(control, press)
+    send_event(control, release)
+    return {"method": "QApplication.sendEvent(QKeyEvent)", "delivered": True}
+
+
+def _focus(control) -> None:
+    control.setFocus()
+    _process_events(0.05)
+    focused = qt.QApplication.focusWidget()
+    if focused is not control and focused != control:
+        raise RuntimeError("Could not focus the requested visible Step 6.3 child.")
+
+
+def _run_manual_jog_keyboard_draft_check(
+    widget, panel, facade, report, evidence_dir: Path, run_id: str
+) -> None:
+    name = "manual_jog_keyboard_draft_check"
+    checkbox = panel.manualJogKeyboardEnabledCheckBox
+    step_combo = panel.manualJogKeyboardStepComboBox
+    key_target = panel.checkManualDraftStateButton
+    original_step_index = int(step_combo.currentIndex)
+    evidence: dict[str, object] = {
+        "opt_in": "DENTOBOT_HEADED_JOINT_KEYBOARD=1",
+        "scope": "visible Step 6.3 manual-jog group",
+        "key_target": "Check Draft State button (non-editor child)",
+        "delivery": "physical Qt key events",
+        "key_events": [],
+        "screenshots": {},
+        "screenshot_framing": {},
+    }
+    accepted_before = None
+    authority_before = None
+    failure = None
+
+    def authority_state():
+        plan = facade.motionPlan
+        events = getattr(facade, "_manual_simulation_events", ())
+        records = facade.manualSimulationCompletedRecords()
+        return {
+            "jog_requests": int(report["jog_requests"]),
+            "manual_jog_in_progress": bool(getattr(facade, "_manual_jog_in_progress", False)),
+            "manual_jog_busy": bool(panel._manualJogBusy),
+            "manual_jog_reconciliation_required": bool(panel.manualJogReconciliationRequired),
+            "manual_jog_event_count": len(events),
+            "manual_jog_event_fingerprint": fingerprint(_json_safe(events)),
+            "manual_simulation_record_count": len(records),
+            "manual_simulation_records_fingerprint": fingerprint(_json_safe(records)),
+            "motion_plan_present": plan is not None,
+            "motion_plan_identity": id(plan) if plan is not None else None,
+            "preview_active": bool(
+                facade.previewActive or getattr(facade, "_guarded_preview_active", False)
+            ),
+            "return_home_required": bool(facade.returnHomeRequired),
+            "route_authority": report["route_authority"],
+            "planner_calls": int(report["planner_calls"]),
+            "preview_started": report["preview_started"],
+        }
+
+    def draft_diagnostics():
+        jog_evidence = getattr(panel, "_manualJogEvidence", None)
+        return {
+            "manual_jog_status": str(panel.manualJogStatusLabel.text),
+            "manual_jog_evidence_fingerprint": (
+                fingerprint(_json_safe(jog_evidence)) if jog_evidence is not None else None
+            ),
+        }
+
+    def capture(label: str) -> dict[str, str]:
+        frame = _scroll_to_visible(widget, panel.manualJogGroup, label)
+        paths = _capture(report, evidence_dir, run_id, f"manual-jog-keyboard-{label}")
+        evidence["screenshots"][label] = paths
+        evidence["screenshot_framing"][label] = frame
+        _record(report, name, "RUNNING", **evidence)
+        return paths
+
+    def assert_runtime_state(label: str) -> dict[str, object]:
+        state = _actual_joint_state(facade)
+        if not all(state.get(key) for key in ("accepted_si", "monitored_si", "displayed_si")):
+            raise RuntimeError(f"Accepted, monitored, or displayed state is unavailable after {label}.")
+        if not all(
+            _exactly_matches(accepted_before[key], state[key])
+            for key in ("accepted_si", "monitored_si", "displayed_si")
+        ):
+            raise RuntimeError(f"Keyboard draft input changed accepted simulation state after {label}.")
+        authority_after = authority_state()
+        if authority_after != authority_before:
+            raise RuntimeError(f"Keyboard draft input changed guard, plan, or preview state after {label}.")
+        return {"joint_state": state, "authority_unchanged": True}
+
+    try:
+        if (
+            getattr(panel, "_activeSubstep", None) != 3
+            or not _visible(panel.manualJogGroup)
+            or not _visible(checkbox)
+            or not _visible(step_combo)
+            or not _visible(key_target)
+        ):
+            raise RuntimeError("The Step 6.3 Manual Jog controls are not visible and active.")
+        if not checkbox.enabled or not step_combo.enabled:
+            raise RuntimeError("The keyboard opt-in controls are disabled in visible Step 6.3.")
+
+        accepted_before = _actual_joint_state(facade)
+        if not all(accepted_before.get(key) for key in ("accepted_si", "monitored_si", "displayed_si")):
+            raise RuntimeError("Accepted, monitored, or displayed J1–J5 state is unavailable.")
+        baseline_si = _finite_vector(panel.manualJogJointPositionsSi())
+        baseline_display = _visible_manual_draft_display_values(panel)
+        if not _representationally_matches(baseline_si, accepted_before["accepted_si"]):
+            raise RuntimeError("Keyboard draft check must begin at the accepted J1–J5 pose.")
+
+        expected_bindings = (
+            ("Q", 0, 1.0), ("A", 0, -1.0),
+            ("W", 1, 1.0), ("S", 1, -1.0),
+            ("E", 2, 1.0), ("D", 2, -1.0),
+            ("R", 3, 1.0), ("F", 3, -1.0),
+            ("T", 4, 1.0), ("G", 4, -1.0),
+        )
+        if tuple(panel.MANUAL_JOG_KEY_BINDINGS) != expected_bindings:
+            raise RuntimeError("The production J1–J5 keyboard mapping differs from Q/A W/S E/D R/F T/G.")
+        shortcuts = tuple(panel._manualJogKeyboardShortcuts)
+        if len(shortcuts) != len(expected_bindings):
+            raise RuntimeError("The production J1–J5 keyboard shortcut set is incomplete.")
+        if any(bool(shortcut.autoRepeat) for shortcut in shortcuts):
+            raise RuntimeError("Manual-jog keyboard shortcut auto-repeat is not disabled.")
+        evidence["shortcut_count"] = len(shortcuts)
+        evidence["keyboard_auto_repeat_disabled"] = True
+        evidence["accepted_state_before"] = accepted_before
+        evidence["draft_si_before"] = baseline_si
+        evidence["draft_display_before"] = baseline_display
+        authority_before = authority_state()
+        if (
+            authority_before["jog_requests"] != 0
+            or authority_before["manual_jog_in_progress"]
+            or authority_before["manual_jog_busy"]
+            or authority_before["manual_jog_reconciliation_required"]
+            or authority_before["manual_jog_event_count"] != 0
+            or authority_before["manual_simulation_record_count"] != 0
+            or authority_before["motion_plan_present"]
+            or authority_before["route_authority"] != "none"
+            or authority_before["planner_calls"] != 0
+            or authority_before["preview_started"] is not False
+            or authority_before["preview_active"]
+        ):
+            raise RuntimeError("Guard, plan, or preview activity is already present before keyboard review.")
+        evidence["authority_before"] = authority_before
+        evidence["draft_diagnostics_before"] = draft_diagnostics()
+        _record(report, name, "RUNNING", **evidence)
+
+        if checkbox.checked or any(bool(shortcut.enabled) for shortcut in shortcuts):
+            raise RuntimeError("Joint keyboard shortcuts were enabled before explicit opt-in.")
+        step_combo.currentIndex = 0
+        _process_events(0.05)
+        default_steps = tuple(float(value) for value in step_combo.currentData)
+        if len(default_steps) != 2 or not all(
+            math.isclose(value, 0.1, rel_tol=0.0, abs_tol=1e-12)
+            for value in default_steps
+        ):
+            raise RuntimeError("The default joint keyboard step is not 0.1 degree / 0.1 mm.")
+
+        _focus(key_target)
+        before_display = _visible_manual_draft_display_values(panel)
+        delivery = _deliver_key(key_target, qt.Qt.Key_Q, qt.Qt.NoModifier)
+        _process_events(0.05)
+        if not _representationally_matches(
+            _visible_manual_draft_display_values(panel), before_display
+        ):
+            raise RuntimeError("J1 Q changed the draft before explicit keyboard opt-in.")
+        unchanged = assert_runtime_state("the pre-opt-in J1 Q key")
+        evidence["pre_opt_in"] = {
+            "checkbox_checked": False,
+            "all_shortcuts_disabled": True,
+            "key": "Q",
+            "delivery": delivery,
+            "draft_unchanged": True,
+            **unchanged,
+        }
+        capture("before-opt-in")
+
+        checkbox.click()
+        _process_events(0.05)
+        if not checkbox.checked or not all(bool(shortcut.enabled) for shortcut in shortcuts):
+            raise RuntimeError("Explicit keyboard opt-in did not enable the J1–J5 shortcuts.")
+        evidence["opt_in"] = {
+            "checkbox_checked": True,
+            "step_combo_enabled": bool(step_combo.enabled),
+            "all_shortcuts_enabled": True,
+        }
+        capture("opted-in")
+
+        units = ("deg", "mm", "deg", "mm", "deg")
+        pairs = (("J1", "Q", "A"), ("J2", "W", "S"), ("J3", "E", "D"),
+                 ("J4", "R", "F"), ("J5", "T", "G"))
+        for joint_index, (joint, positive_key, negative_key) in enumerate(pairs):
+            for key_name, direction in ((positive_key, 1.0), (negative_key, -1.0)):
+                current_steps = tuple(float(value) for value in step_combo.currentData)
+                displayed_step = current_steps[0 if units[joint_index] == "deg" else 1]
+                delta = direction * displayed_step
+                before_display = _visible_manual_draft_display_values(panel)
+                before_si = _finite_vector(panel.manualJogJointPositionsSi())
+                expected_display = list(before_display)
+                expected_display[joint_index] += delta
+                _focus(key_target)
+                delivery = _deliver_key(
+                    key_target, getattr(qt.Qt, f"Key_{key_name}"), qt.Qt.NoModifier
+                )
+                _process_events(0.05)
+                after_display = _visible_manual_draft_display_values(panel)
+                if not _representationally_matches(after_display, expected_display):
+                    raise RuntimeError(
+                        f"{key_name} did not change only {joint} by {delta:g} {units[joint_index]}."
+                    )
+                expected_si = _apply_display_step_to_expected_si(
+                    before_si,
+                    joint_index,
+                    math.radians(delta) if units[joint_index] == "deg" else delta / 1000.0,
+                )
+                after_si = _finite_vector(panel.manualJogJointPositionsSi())
+                if not _representationally_matches(after_si, expected_si):
+                    raise RuntimeError(f"{key_name} draft SI value does not match its displayed-unit step.")
+                runtime = assert_runtime_state(f"{joint} {key_name}")
+                event = {
+                    "joint": joint,
+                    "key": key_name,
+                    "direction": "positive" if direction > 0 else "negative",
+                    "display_unit": units[joint_index],
+                    "displayed_step": delta,
+                    "before_display": before_display,
+                    "after_display": after_display,
+                    "before_si": before_si,
+                    "after_si": after_si,
+                    "only_selected_draft_changed": True,
+                    "draft_diagnostics_after": draft_diagnostics(),
+                    "delivery": delivery,
+                    **runtime,
+                }
+                evidence["key_events"].append(event)
+                event_label = f"{joint.lower()}-{event['direction']}"
+                event["screenshot"] = capture(event_label)
+                _record(report, name, "RUNNING", **evidence)
+
+        step_combo.currentIndex = 1
+        _process_events(0.05)
+        changed_steps = tuple(float(value) for value in step_combo.currentData)
+        if len(changed_steps) != 2 or not all(
+            math.isclose(value, 0.5, rel_tol=0.0, abs_tol=1e-12)
+            for value in changed_steps
+        ):
+            raise RuntimeError("Selecting the changed keyboard step did not display 0.5 degree / 0.5 mm.")
+        before_display = _visible_manual_draft_display_values(panel)
+        before_si = _finite_vector(panel.manualJogJointPositionsSi())
+        expected_display = list(before_display)
+        expected_display[0] += changed_steps[0]
+        _focus(key_target)
+        delivery = _deliver_key(key_target, qt.Qt.Key_Q, qt.Qt.NoModifier)
+        _process_events(0.05)
+        after_display = _visible_manual_draft_display_values(panel)
+        if not _representationally_matches(after_display, expected_display):
+            raise RuntimeError("Changed keyboard step did not move J1 draft by the displayed 0.5 degree.")
+        expected_si = _apply_display_step_to_expected_si(
+            before_si, 0, math.radians(changed_steps[0])
+        )
+        after_si = _finite_vector(panel.manualJogJointPositionsSi())
+        if not _representationally_matches(after_si, expected_si):
+            raise RuntimeError("Changed-step J1 draft SI value does not match the displayed 0.5 degree.")
+        changed_step = {
+            "key": "Q",
+            "joint": "J1",
+            "display_unit": "deg",
+            "displayed_step": changed_steps[0],
+            "before_display": before_display,
+            "after_display": after_display,
+            "before_si": before_si,
+            "after_si": after_si,
+            "only_selected_draft_changed": True,
+            "draft_diagnostics_after": draft_diagnostics(),
+            "delivery": delivery,
+            **assert_runtime_state("the changed-step J1 Q key"),
+        }
+        evidence["changed_step_size"] = changed_step
+        capture("changed-step")
+
+        editor = panel.manualJogJointControls[JOINT_NAMES[0]][1]
+        _focus(editor)
+        if any(bool(shortcut.enabled) for shortcut in shortcuts):
+            raise RuntimeError("J1–J5 shortcuts remained enabled while a numeric editor had focus.")
+        editor_before = float(editor.value)
+        draft_before_editor_key = _visible_manual_draft_display_values(panel)
+        delivery = _deliver_key(editor, qt.Qt.Key_Q, qt.Qt.NoModifier)
+        _process_events(0.05)
+        if not _representationally_matches(
+            _visible_manual_draft_display_values(panel), draft_before_editor_key
+        ):
+            raise RuntimeError("The focused numeric editor did not suppress the J1 Q shortcut.")
+        editor_step = float(editor.singleStep)
+        if editor_before + editor_step <= float(editor.maximum):
+            editor_key, editor_direction = qt.Qt.Key_Up, 1.0
+        elif editor_before - editor_step >= float(editor.minimum):
+            editor_key, editor_direction = qt.Qt.Key_Down, -1.0
+        else:
+            raise RuntimeError("The J1 numeric editor has no available arrow-key step.")
+        usable_delivery = _deliver_key(editor, editor_key, qt.Qt.NoModifier)
+        _process_events(0.05)
+        editor_after = float(editor.value)
+        if not math.isclose(
+            editor_after, editor_before + editor_direction * editor_step,
+            rel_tol=0.0, abs_tol=1e-9,
+        ):
+            raise RuntimeError("The focused J1 numeric editor did not accept its normal arrow-key input.")
+        evidence["numeric_editor_focus"] = {
+            "shortcut_suppressed": True,
+            "shortcut_delivery": delivery,
+            "editor_remained_usable": True,
+            "arrow_key_delivery": usable_delivery,
+            "editor_before": editor_before,
+            "editor_after": editor_after,
+            "editor_step": editor_step,
+            "focus_widget": "QDoubleSpinBox",
+            "draft_diagnostics_after": draft_diagnostics(),
+            **assert_runtime_state("the focused numeric editor test"),
+        }
+        capture("numeric-editor")
+
+        checkbox.click()
+        _process_events(0.05)
+        if checkbox.checked or any(bool(shortcut.enabled) for shortcut in shortcuts):
+            raise RuntimeError("Opting out did not immediately disable every J1–J5 shortcut.")
+        before_display = _visible_manual_draft_display_values(panel)
+        _focus(key_target)
+        delivery = _deliver_key(key_target, qt.Qt.Key_Q, qt.Qt.NoModifier)
+        _process_events(0.05)
+        if not _representationally_matches(
+            _visible_manual_draft_display_values(panel), before_display
+        ):
+            raise RuntimeError("J1 Q remained active after keyboard opt-out.")
+        evidence["opt_out"] = {
+            "checkbox_checked": False,
+            "all_shortcuts_disabled": True,
+            "key": "Q",
+            "delivery": delivery,
+            "draft_unchanged": True,
+            "draft_diagnostics_after": draft_diagnostics(),
+            **assert_runtime_state("the post-opt-out J1 Q key"),
+        }
+        capture("opted-out")
+        evidence["authority_after"] = authority_state()
+        evidence["no_guard_request_plan_or_preview"] = evidence["authority_after"] == authority_before
+    except Exception as exc:
+        failure = f"{type(exc).__name__}: {exc}"
+        evidence["failure"] = failure
+        try:
+            evidence["state_at_failure"] = _actual_joint_state(facade)
+            evidence["authority_at_failure"] = authority_state()
+            evidence["draft_diagnostics_at_failure"] = draft_diagnostics()
+            evidence["opt_in_at_failure"] = bool(checkbox.checked)
+            focus_widget = qt.QApplication.focusWidget()
+            evidence["focus_at_failure"] = (
+                str(focus_widget.objectName) if focus_widget is not None else None
+            )
+        except Exception as evidence_exc:
+            evidence["failure_state_capture_error"] = (
+                f"{type(evidence_exc).__name__}: {evidence_exc}"
+            )
+        try:
+            capture("failure")
+        except Exception as screenshot_exc:
+            evidence["failure_screenshot_error"] = f"{type(screenshot_exc).__name__}: {screenshot_exc}"
+    finally:
+        try:
+            if checkbox.checked:
+                checkbox.click()
+            _process_events(0.05)
+            step_combo.currentIndex = original_step_index
+            if accepted_before is not None:
+                panel._setManualJogDraftValues(
+                    _display_values(accepted_before["accepted_si"]), notify=True
+                )
+                _process_events(0.05)
+                restored_si = _finite_vector(panel.manualJogJointPositionsSi())
+                if not _representationally_matches(restored_si, accepted_before["accepted_si"]):
+                    raise RuntimeError("Could not restore the manual draft to accepted J1–J5.")
+                state_after = _actual_joint_state(facade)
+                if not all(
+                    _exactly_matches(accepted_before[key], state_after[key])
+                    for key in ("accepted_si", "monitored_si", "displayed_si")
+                ):
+                    raise RuntimeError("Cleanup changed accepted, monitored, or displayed J1–J5 state.")
+                evidence["restored_draft_si"] = restored_si
+                evidence["accepted_state_unchanged_after_cleanup"] = True
+            if checkbox.checked or any(bool(shortcut.enabled) for shortcut in panel._manualJogKeyboardShortcuts):
+                raise RuntimeError("Keyboard opt-out cleanup did not disable all shortcuts.")
+            evidence["cleanup"] = {
+                "keyboard_opted_out": True,
+                "step_index_restored": int(step_combo.currentIndex) == original_step_index,
+                "draft_restored_to_accepted": accepted_before is not None,
+            }
+            if evidence["cleanup"]["step_index_restored"] is not True:
+                raise RuntimeError("Could not restore the selected keyboard step size.")
+            if authority_before is not None:
+                authority_after_cleanup = authority_state()
+                if authority_after_cleanup != authority_before:
+                    raise RuntimeError("Cleanup changed guard, plan, or preview state.")
+                evidence["authority_after_cleanup"] = authority_after_cleanup
+                evidence["no_guard_request_plan_or_preview"] = True
+            if accepted_before is not None:
+                capture("restored")
+        except Exception as cleanup_exc:
+            cleanup_error = f"{type(cleanup_exc).__name__}: {cleanup_exc}"
+            evidence["cleanup_error"] = cleanup_error
+            failure = failure or cleanup_error
+            try:
+                evidence["state_at_cleanup_failure"] = _actual_joint_state(facade)
+                evidence["authority_at_cleanup_failure"] = authority_state()
+                evidence["draft_diagnostics_at_cleanup_failure"] = draft_diagnostics()
+                capture("cleanup-failure")
+            except Exception as screenshot_exc:
+                evidence["cleanup_failure_screenshot_error"] = (
+                    f"{type(screenshot_exc).__name__}: {screenshot_exc}"
+                )
+        status = "FAIL" if failure else "PASS"
+        if status == "FAIL":
+            evidence["failure"] = failure
+        _record(report, name, status, **evidence)
+
+    if failure:
+        raise RuntimeError(failure)
 
 
 def _base_review(facade):
@@ -842,6 +1478,172 @@ def _base_review(facade):
     return result
 
 
+def _run_base_profile_rebind_prerequisite(
+    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+    allow_base_home_accept, report, evidence_dir, run_id,
+):
+    status = str(parameter_node.step6BasePlacementStatus or "")
+    locked = bool(parameter_node.robotBaseMountLocked)
+    if not allow_base_home_accept or status != "Stale" or locked:
+        reason = "Base rebind requires the exact opt-in and a Stale, unlocked Base."
+        report["base_profile_rebind_prerequisite"] = {"status": "NOT_RUN", "reason": reason}
+        _record(report, "base_profile_rebind_prerequisite", "NOT_RUN", reason=reason)
+        return
+
+    widget._configureRobotSimulationShellSubstep(1)
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    if panel._activeSubstep != 1:
+        raise RuntimeError("Production Manual Base controls are not active for the stale Base rebind.")
+
+    review = facade.manualBaseReview()
+    before = dict(review.details or {})
+    base = parameter_node.robotBaseTransform
+    accepted_matrix = tuple(before.get("acceptedMatrixWorldRasMm") or ())
+    profile_before = str(logic.robotProfileFingerprint() or "")
+    saved_profile_before = str(base.GetAttribute("DENTOBOT.RobotProfileFingerprint") or "")
+    pose_fingerprint_before = str(logic.robotBasePoseFingerprint(base) or "")
+    base_fingerprint_before = str(logic.robotBaseFingerprint(parameter_node) or "")
+    placement_revision_before = int(parameter_node.step6BasePlacementRevision)
+    evidence = {
+        "status": "RUNNING",
+        "case_sha256_before": case_hash,
+        "base_status_before": status,
+        "base_locked_before": locked,
+        "accepted_matrix_world_ras_mm_before": accepted_matrix,
+        "base_pose_fingerprint_before": pose_fingerprint_before,
+        "base_fingerprint_before": base_fingerprint_before,
+        "saved_robot_profile_fingerprint_before": saved_profile_before,
+        "current_robot_profile_fingerprint": profile_before,
+        "placement_revision_before": placement_revision_before,
+        "native_scene_acknowledgement": "deferred_until_after_connect",
+    }
+    report["base_profile_rebind_prerequisite"] = evidence
+    _write_report(report)
+    if (
+        facade.capabilities().connected
+        or not review.success
+        or before.get("staged") is True
+        or before.get("identityStatus") != "current"
+        or before.get("acceptanceStatus") == "unknown"
+        or before.get("acceptanceUncertainty")
+        or not _valid_matrix(accepted_matrix)
+        or not profile_before
+        or not saved_profile_before
+        or saved_profile_before == profile_before
+        or not pose_fingerprint_before
+        or not base_fingerprint_before
+        or _sha256_file(case_path) != case_hash
+    ):
+        evidence.update({"status": "FAIL", "reason": "Stale Base did not satisfy profile-rebind preconditions."})
+        _write_report(report)
+        raise RuntimeError(
+            "Stale Base does not match the unlocked current-profile migration preconditions."
+        )
+
+    if panel._activeSubstep != 1 or not panel.beginManualBaseReviewButton.enabled:
+        evidence.update({"status": "FAIL", "reason": "Production Review Current Base was disabled."})
+        _write_report(report)
+        raise RuntimeError("Production Review Current Base is disabled for the stale Base rebind.")
+    panel.beginManualBaseReviewButton.click()
+    _process_events(0.1)
+    staged = facade.manualBaseReview()
+    staged_details = dict(staged.details or {})
+    if (
+        not staged.success
+        or staged_details.get("staged") is not True
+        or staged_details.get("identityStatus") != "current"
+        or not _same_matrix(staged_details.get("candidateMatrixWorldRasMm"), accepted_matrix)
+        or not _same_matrix(staged_details.get("acceptedMatrixWorldRasMm"), accepted_matrix)
+        or bool(parameter_node.robotBaseMountLocked)
+        or str(parameter_node.step6BasePlacementStatus or "") != "Stale"
+        or str(logic.robotProfileFingerprint() or "") != profile_before
+        or str(logic.robotBasePoseFingerprint(base) or "") != pose_fingerprint_before
+        or str(logic.robotBaseFingerprint(parameter_node) or "") != base_fingerprint_before
+    ):
+        evidence.update({"status": "FAIL", "stage_result": staged_details})
+        raise RuntimeError("Production Base review did not stage a detached copy of the unchanged accepted matrix.")
+    evidence["stage_result"] = staged_details
+    evidence["screenshot_staged"] = _capture(
+        report, evidence_dir, run_id, "base-profile-rebind-staged"
+    )
+    _write_report(report)
+
+    accept_owner = widget.ui.lockRobotBaseMountButton
+    if not accept_owner.enabled:
+        evidence.update({"status": "FAIL", "reason": "Existing Accept Base owner was disabled."})
+        _write_report(report)
+        raise RuntimeError("Existing Accept Base owner is disabled for the staged profile rebind.")
+    accept_owner.click()
+    _process_events(0.2)
+    evidence["screenshot_accepted"] = _capture(
+        report, evidence_dir, run_id, "base-profile-rebind-accepted"
+    )
+    after_result = facade.manualBaseReview()
+    after = dict(after_result.details or {})
+    profile_after = str(logic.robotProfileFingerprint() or "")
+    saved_profile_after = str(base.GetAttribute("DENTOBOT.RobotProfileFingerprint") or "")
+    pose_fingerprint_after = str(logic.robotBasePoseFingerprint(base) or "")
+    base_fingerprint_after = str(logic.robotBaseFingerprint(parameter_node) or "")
+    case_hash_after = _sha256_file(case_path)
+    evidence.update({
+        "status": "PASS",
+        "accept_owner": str(accept_owner.text),
+        "accept_result": after,
+        "base_status_after": str(parameter_node.step6BasePlacementStatus or ""),
+        "base_locked_after": bool(parameter_node.robotBaseMountLocked),
+        "accepted_matrix_world_ras_mm_after": after.get("acceptedMatrixWorldRasMm"),
+        "base_pose_fingerprint_after": pose_fingerprint_after,
+        "base_fingerprint_after": base_fingerprint_after,
+        "saved_robot_profile_fingerprint_after": saved_profile_after,
+        "current_robot_profile_fingerprint_after": profile_after,
+        "placement_revision_after": int(parameter_node.step6BasePlacementRevision),
+        "case_sha256_after": case_hash_after,
+        "accepted_matrix_unchanged": _same_matrix(
+            after.get("acceptedMatrixWorldRasMm"), accepted_matrix
+        ),
+        "base_pose_fingerprint_unchanged": pose_fingerprint_after == pose_fingerprint_before,
+        "current_profile_rebound": (
+            saved_profile_before != profile_before
+            and saved_profile_after == profile_before == profile_after
+        ),
+        "base_fingerprint_rebound_for_lock": (
+            base_fingerprint_after != base_fingerprint_before
+            and int(parameter_node.step6BasePlacementRevision) == placement_revision_before + 1
+        ),
+        "case_unchanged": case_hash_after == case_hash,
+    })
+    _write_report(report)
+    if (
+        not after_result.success
+        or after.get("staged") is True
+        or after.get("candidateMatrixWorldRasMm") is not None
+        or after.get("identityStatus") != "current"
+        or after.get("acceptanceStatus") == "unknown"
+        or after.get("acceptanceUncertainty")
+        or not bool(parameter_node.robotBaseMountLocked)
+        or str(parameter_node.step6BasePlacementStatus or "") == "Stale"
+        or not evidence["accepted_matrix_unchanged"]
+        or not evidence["base_pose_fingerprint_unchanged"]
+        or not evidence["current_profile_rebound"]
+        or not evidence["base_fingerprint_rebound_for_lock"]
+        or not evidence["case_unchanged"]
+        or facade.capabilities().connected
+    ):
+        evidence["status"] = "FAIL"
+        _write_report(report)
+        raise RuntimeError(
+            "Preconnect Accept Base did not prove the current-profile rebind with unchanged Base pose and case."
+        )
+    evidence["scene_acknowledgement_deferred"] = True
+    _record(
+        report,
+        "base_profile_rebind_prerequisite",
+        "PASS",
+        **{key: value for key, value in evidence.items() if key != "status"},
+    )
+
+
 def _target_j1(logic, parameter_node, accepted: dict[str, float]):
     for sign in (1, -1):
         target = dict(accepted)
@@ -851,13 +1653,801 @@ def _target_j1(logic, parameter_node, accepted: dict[str, float]):
     raise RuntimeError("J1 +/- 0.1 degree is outside a current reviewed or mechanical limit.")
 
 
+def _ensure_current_home_workspace_task(
+    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+    report, evidence_dir, run_id, *, phase, check_name, skip_reason=None,
+    workspace_diagnostic=False,
+):
+    evidence = {"phase": phase, "status": "RUNNING", "case_sha256_before": case_hash}
+    report[check_name] = evidence
+    _write_report(report)
+
+    def stop(reason):
+        evidence.update({"status": "FAIL", "reason": reason})
+        _write_report(report)
+        raise RuntimeError(reason)
+
+    if skip_reason:
+        evidence.update({"status": "NOT_RUN", "reason": skip_reason})
+        _record(report, check_name, "NOT_RUN", phase=phase, reason=skip_reason)
+        return
+
+    if _sha256_file(case_path) != case_hash:
+        stop("The source case changed before current Home/workspace/task review.")
+    confirmed = logic.confirmedTaskRecord(parameter_node)
+    task_issues = (
+        tuple(logic.confirmedTaskFreshnessIssues(parameter_node))
+        if confirmed is not None else ("Confirmed task is absent.",)
+    )
+    limits_reviewed = bool(logic.assistedTaskLimitsReviewed(parameter_node))
+    home_current = bool(facade.taskHomeRuntimeValidated(parameter_node))
+    workspace_current = bool(facade.workspaceRuntimeValidated(parameter_node))
+    current = {
+        "assisted_limits_reviewed": limits_reviewed,
+        "confirmed_task_present": confirmed is not None,
+        "confirmed_task_freshness_issues": task_issues,
+        "task_home_runtime_validated": home_current,
+        "workspace_runtime_validated": workspace_current,
+    }
+    needs_recovery = not limits_reviewed or confirmed is None or bool(task_issues)
+    if phase == "before_save":
+        needs_recovery = needs_recovery or not home_current or not workspace_current
+    if workspace_diagnostic and phase == "after_scene_ack":
+        needs_recovery = True
+    evidence["prerequisites_before"] = current
+    if not needs_recovery:
+        evidence.update({"status": "NOT_RUN", "already_current": True})
+        _record(
+            report, check_name, "NOT_RUN", phase=phase, already_current=True,
+            prerequisites=current,
+        )
+        return
+
+    authority_before = {
+        "route_authority": report["route_authority"],
+        "planner_calls": report["planner_calls"],
+        "preview_started": report["preview_started"],
+        "preview_active": bool(facade.previewActive),
+        "return_home_required": bool(facade.returnHomeRequired),
+    }
+    if (
+        authority_before["route_authority"] != "none"
+        or authority_before["planner_calls"] != 0
+        or authority_before["preview_started"] is not False
+        or authority_before["preview_active"]
+        or authority_before["return_home_required"]
+    ):
+        stop("Route or preview authority is already present; prerequisite repair stopped.")
+    evidence["route_preview_before"] = authority_before
+
+    widget._configureRobotSimulationShellSubstep(3)
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    state_before = _actual_joint_state(facade)
+    state_fields = ("accepted_si", "monitored_si", "displayed_si")
+    if (
+        not all(state_before.get(name) for name in state_fields)
+        or not all(_exactly_matches(state_before["accepted_si"], state_before[name])
+                   for name in state_fields[1:])
+    ):
+        stop("Accepted, monitored, and displayed current state must match exactly for J1–J5.")
+    accepted = _finite_vector(state_before["accepted_si"])
+    old_home_json = str(parameter_node.step6TaskHomeJson or "")
+    old_home = logic.taskHomeRecord(parameter_node)
+    old_revision = getattr(old_home, "revision", None) if old_home is not None else 0
+    if isinstance(old_revision, bool) or not isinstance(old_revision, int) or old_revision < 0:
+        stop("Saved Task Home revision is invalid; acceptance stopped before staging.")
+    old_runtime_validated = facade.taskHomeRuntimeValidated(parameter_node)
+    existing_review = facade.manualTaskHomeReview()
+    existing_details = dict(existing_review.details or {})
+    if (
+        not existing_review.success
+        or existing_details.get("identityStatus") != "current"
+        or existing_details.get("staged") is True
+        or existing_details.get("acceptanceStatus") == "unknown"
+        or existing_details.get("acceptanceUncertainty")
+    ):
+        stop("Task Home review is stale, staged, or uncertain; preserving the existing candidate.")
+
+    panel._setManualJogDraftValues(_display_values(accepted), notify=True)
+    if not _representationally_matches(panel.manualJogJointPositionsSi(), accepted):
+        stop("Visible controls cannot represent the exact current J1–J5 Home vector.")
+    widget._configureRobotSimulationShellSubstep(2)
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    if not panel.reviewTaskHomeButton.enabled:
+        stop("Production Review Draft as Task Home control is disabled.")
+    panel.reviewTaskHomeButton.click()
+    _process_events(0.1)
+    staged = facade.manualTaskHomeReview()
+    staged_details = dict(staged.details or {})
+    staged_state = _actual_joint_state(facade)
+    staged_home = logic.taskHomeRecord(parameter_node)
+    if (
+        not staged.success
+        or staged_details.get("identityStatus") != "current"
+        or staged_details.get("staged") is not True
+        or staged_details.get("acceptanceStatus") != "review"
+        or not _representationally_matches(staged_details.get("candidateJointPositionsSi"), accepted)
+        or not _representationally_matches(staged_details.get("acceptedJointPositionsSi"), accepted)
+        or str(parameter_node.step6TaskHomeJson or "") != old_home_json
+        or (getattr(staged_home, "revision", None) if staged_home is not None else None) != old_revision
+        or facade.taskHomeRuntimeValidated(parameter_node) != old_runtime_validated
+        or not all(_exactly_matches(state_before[name], staged_state.get(name)) for name in state_fields)
+    ):
+        stop("Task Home candidate was not detached from saved Home and live J1–J5 state.")
+    evidence.update({"home_candidate": staged_details, "home_state_before": state_before})
+    evidence["screenshots"] = {}
+    _write_report(report)
+    _scroll_to_visible(widget, panel.homeGroup, "profile migration Task Home candidate")
+    evidence["screenshots"]["home_staged"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-task-home-staged"
+    )
+    if not panel.acceptTaskHomeButton.enabled:
+        stop("Production Accept Task Home control is disabled for the detached candidate.")
+    report["task_home_acceptance_attempted"] = True
+    _write_report(report)
+    panel.acceptTaskHomeButton.click()
+    _process_events(0.2)
+    _scroll_to_visible(widget, panel.homeGroup, "profile migration accepted Task Home")
+    evidence["screenshots"]["home_accepted"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-task-home-accepted"
+    )
+    accepted_review = facade.manualTaskHomeReview()
+    accepted_details = dict(accepted_review.details or {})
+    saved_home = logic.taskHomeRecord(parameter_node)
+    saved_home_vector = (
+        _finite_vector(dict(zip(saved_home.joint_names, saved_home.joint_positions_si)))
+        if saved_home is not None else None
+    )
+    home_revision = getattr(saved_home, "revision", None) if saved_home is not None else None
+    accepted_state = _actual_joint_state(facade)
+    if (
+        not accepted_review.success
+        or accepted_details.get("identityStatus") != "current"
+        or accepted_details.get("acceptanceStatus") != "accepted"
+        or accepted_details.get("staged") is not False
+        or accepted_details.get("acceptanceUncertainty")
+        or not isinstance(home_revision, int)
+        or isinstance(home_revision, bool)
+        or home_revision <= old_revision
+        or saved_home is None
+        or saved_home.runtime_validation_status != "Validated"
+        or facade.taskHomeRuntimeValidated(parameter_node) is not True
+        or saved_home_vector is None
+        or not all(_representationally_matches(saved_home_vector, accepted_state.get(name))
+                   for name in state_fields)
+        or not all(_exactly_matches(state_before[name], accepted_state.get(name))
+                   for name in state_fields)
+        or not _representationally_matches(accepted_details.get("acceptedJointPositionsSi"), accepted)
+    ):
+        stop("Accepted Task Home is not a new runtime-validated record matching live J1–J5 state.")
+    evidence.update({
+        "home_revision_before": old_revision,
+        "home_revision_after": home_revision,
+        "saved_home": saved_home.to_dict(),
+        "home_state_after_accept": accepted_state,
+    })
+    _write_report(report)
+
+    widget._configureRobotSimulationShellSubstep(3)
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    saved_workspace_json_before_roi = str(
+        parameter_node.step6AssistedLimitProposalJson or ""
+    )
+    runtime_workspace_key_before_roi = str(
+        getattr(facade, "_runtime_validated_workspace_key", "") or ""
+    )
+    workspace_model = logic.robotWorkspaceModelNode()
+    workspace_model_state_before_roi = (
+        {
+            name: workspace_model.GetAttribute(name)
+            for name in (
+                "DENTOBOT.WorkspaceRuntimeValidated",
+                "DENTOBOT.WorkspaceState",
+            )
+        }
+        if workspace_model is not None
+        else None
+    )
+    roi_loaded = not bool(getattr(panel, "_taskSpaceRoiInitialized", False))
+    if roi_loaded:
+        roi_button = panel.useCurrentIncisorMidpointButton
+        roi_button_frame = _scroll_to_visible(
+            widget, roi_button, "Use current incisor midpoint"
+        )
+        if not roi_button.enabled or not _visible(roi_button):
+            stop("Production Use current incisor midpoint control is not visible and enabled.")
+        roi_button.click()
+        _process_events(0.1)
+        if not getattr(panel, "_taskSpaceRoiInitialized", False):
+            stop("Production Use current incisor midpoint did not initialize the ROI draft.")
+        roi_action = "loaded_from_current_incisor_midpoint"
+    else:
+        roi_button_frame = None
+        roi_action = "reused_current_local_draft"
+    try:
+        roi_center = tuple(float(spin.value) for spin in panel.taskSpaceRoiCenterSpinBoxes)
+        roi_dimensions = tuple(
+            float(spin.value) for spin in panel.taskSpaceRoiDimensionsSpinBoxes
+        )
+        roi_opening_revision = panel._taskSpaceRoiOpeningRevision
+        roi_gap_line_id = panel._taskSpaceRoiGapLineNodeId
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        stop(f"The displayed Task Space ROI draft is incomplete: {exc}")
+    if (
+        len(roi_center) != 3
+        or len(roi_dimensions) != 3
+        or not all(math.isfinite(value) for value in roi_center + roi_dimensions)
+        or not all(value > 0.0 for value in roi_dimensions)
+        or type(roi_opening_revision) is not int
+        or roi_opening_revision < 0
+        or not isinstance(roi_gap_line_id, str)
+        or not roi_gap_line_id.strip()
+    ):
+        stop("The displayed Task Space ROI draft or its opening source identity is invalid.")
+    displayed_roi = TaskSpaceRoi(
+        center_world_ras_mm=roi_center,
+        dimensions_mm=roi_dimensions,
+    )
+    displayed_roi_source = {
+        "openingRevision": roi_opening_revision,
+        "gapLineNodeId": roi_gap_line_id,
+    }
+    roi_matches_saved_evidence = bool(
+        facade.workspaceRoiMatchesSavedEvidence(
+            displayed_roi, displayed_roi_source, parameter_node
+        )
+    )
+    workspace_model_state_after_roi = (
+        {
+            name: workspace_model.GetAttribute(name)
+            for name in (
+                "DENTOBOT.WorkspaceRuntimeValidated",
+                "DENTOBOT.WorkspaceState",
+            )
+        }
+        if workspace_model is not None
+        else None
+    )
+    if roi_loaded and saved_workspace_json_before_roi and roi_matches_saved_evidence:
+        if (
+            str(parameter_node.step6AssistedLimitProposalJson or "")
+            != saved_workspace_json_before_roi
+            or str(getattr(facade, "_runtime_validated_workspace_key", "") or "")
+            != runtime_workspace_key_before_roi
+            or workspace_model_state_after_roi != workspace_model_state_before_roi
+            or "Exact saved workspace ROI/source match"
+            not in str(panel.taskSpaceRoiStatusLabel.text)
+        ):
+            stop(
+                "Loading the exact saved incisor ROI changed or mislabeled workspace evidence."
+            )
+    roi_frame = _scroll_to_visible(
+        widget, panel.taskSpaceRoiStatusLabel, "Task Space ROI draft evidence"
+    )
+    evidence["task_space_roi_draft"] = {
+        "action": roi_action,
+        "loaded_from_current_incisor_midpoint": roi_loaded,
+        "reused_existing_local_draft": not roi_loaded,
+        "center_world_ras_mm": roi_center,
+        "dimensions_mm": roi_dimensions,
+        "opening_revision": roi_opening_revision,
+        "gap_line_node_id": roi_gap_line_id,
+        "status_text": str(panel.taskSpaceRoiStatusLabel.text),
+        "matches_saved_evidence": roi_matches_saved_evidence,
+        "saved_evidence_preserved": bool(
+            not (roi_loaded and saved_workspace_json_before_roi and roi_matches_saved_evidence)
+            or (
+                str(parameter_node.step6AssistedLimitProposalJson or "")
+                == saved_workspace_json_before_roi
+                and str(getattr(facade, "_runtime_validated_workspace_key", "") or "")
+                == runtime_workspace_key_before_roi
+                and workspace_model_state_after_roi == workspace_model_state_before_roi
+            )
+        ),
+    }
+    evidence["task_space_roi_screenshot_framing"] = {
+        "midpoint_control": roi_button_frame,
+        "draft_status": roi_frame,
+    }
+    _write_report(report)
+    evidence["screenshots"]["task_space_roi_draft_before_generation"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-task-space-roi-before-workspace"
+    )
+    _write_report(report)
+    if not widget.ui.generateRobotWorkspaceButton.enabled:
+        stop("Production Generate Robot Workspace control is disabled after Task Home validation.")
+    evidence["last_completed_boundary"] = "before_workspace_generation_click"
+    _write_report(report)
+    widget.ui.generateRobotWorkspaceButton.click()
+    _process_events(0.1)
+    if facade.workspaceRuntimeValidated(parameter_node) is not True:
+        stop("Production workspace generation did not produce current runtime validation.")
+    evidence["workspace_runtime_validated"] = True
+    evidence["last_completed_boundary"] = "workspace_generation_returned_current"
+    _write_report(report)
+    evidence["screenshots"]["workspace_generated"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-workspace-generated"
+    )
+    if _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
+        evidence.update({
+            "status": "PASS",
+            "diagnostic_stop": "workspace_generation_returned_current",
+            "planner_preview_authority": False,
+        })
+        _record(
+            report,
+            check_name,
+            "PASS",
+            **{key: value for key, value in evidence.items() if key != "status"},
+        )
+        _finalize_workspace_diagnostic(report)
+        print("DENTOBOT_HEADED_WORKSPACE_DIAGNOSTIC_PASS", flush=True)
+        slicer.util.exit(0)
+        raise SystemExit(0)
+
+    _process_events(0.1)
+    if not panel.reviewLimitsButton.enabled:
+        stop("Production Review and Apply Suggested Limits control is disabled.")
+    evidence["last_completed_boundary"] = "before_assisted_limit_review_click"
+    _write_report(report)
+    panel.reviewLimitsButton.click()
+    _process_events(0.1)
+    if (
+        logic.assistedTaskLimitsReviewed(parameter_node) is not True
+        or facade.workspaceRuntimeValidated(parameter_node) is not True
+    ):
+        stop("Assisted limits were not explicitly reviewed against the current workspace.")
+    evidence["assisted_limits_reviewed"] = True
+    evidence["last_completed_boundary"] = "assisted_limit_review_returned_current"
+    _write_report(report)
+    evidence["screenshots"]["limits_reviewed"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-limits-reviewed"
+    )
+
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    if not panel.confirmTaskButton.enabled:
+        stop("Production Confirm Immutable Task control is disabled after current review.")
+    panel.confirmTaskButton.click()
+    _process_events(0.1)
+    evidence["screenshots"]["task_confirmed"] = _capture(
+        report, evidence_dir, run_id, f"{phase}-task-confirmed"
+    )
+    confirmed_after = logic.confirmedTaskRecord(parameter_node)
+    task_issues_after = tuple(logic.confirmedTaskFreshnessIssues(parameter_node))
+    authority_after = {
+        "route_authority": report["route_authority"],
+        "planner_calls": report["planner_calls"],
+        "preview_started": report["preview_started"],
+        "preview_active": bool(facade.previewActive),
+        "return_home_required": bool(facade.returnHomeRequired),
+    }
+    case_hash_after = _sha256_file(case_path)
+    evidence["post_confirmation_invariants"] = {
+        "confirmed_task_present": confirmed_after is not None,
+        "confirmed_task_freshness_issues": task_issues_after,
+        "assisted_limits_reviewed": bool(
+            logic.assistedTaskLimitsReviewed(parameter_node)
+        ),
+        "task_home_runtime_validated": bool(
+            facade.taskHomeRuntimeValidated(parameter_node)
+        ),
+        "workspace_runtime_validated": bool(
+            facade.workspaceRuntimeValidated(parameter_node)
+        ),
+        "route_preview_unchanged": authority_after == authority_before,
+        "source_case_unchanged": case_hash_after == case_hash,
+    }
+    _write_report(report)
+    if (
+        confirmed_after is None
+        or task_issues_after
+        or not logic.assistedTaskLimitsReviewed(parameter_node)
+        or not facade.taskHomeRuntimeValidated(parameter_node)
+        or not facade.workspaceRuntimeValidated(parameter_node)
+        or authority_after != authority_before
+        or case_hash_after != case_hash
+    ):
+        stop("Current confirmed prerequisites, unchanged source SHA, or no-route/no-preview authority failed.")
+    evidence.update({
+        "status": "PASS",
+        "confirmed_task": confirmed_after.to_dict(),
+        "confirmed_task_freshness_issues": task_issues_after,
+        "case_sha256_after": case_hash_after,
+        "source_case_unchanged": True,
+        "route_preview_after": authority_after,
+        "planner_preview_authority": False,
+    })
+    _record(
+        report, check_name, "PASS",
+        **{key: value for key, value in evidence.items() if key != "status"},
+    )
+
+
+def _manual_jog_fixture_identity(logic, parameter_node):
+    snapshot = logic.confirmedTaskRecord(parameter_node)
+    home = logic.taskHomeRecord(parameter_node)
+    if snapshot is None or home is None:
+        raise RuntimeError("A current confirmed task and saved Task Home are required.")
+    registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+    branch_id = str(registry.get("selected_branch_id") or "")
+    if not branch_id:
+        raise RuntimeError("A selected PreparedBranch is required.")
+    home_names = tuple(str(name) for name in home.joint_names)
+    home_values = tuple(float(value) for value in home.joint_positions_si)
+    if len(home_names) != len(home_values) or set(home_names) != set(JOINT_NAMES):
+        raise RuntimeError("Saved Task Home does not contain exactly J1–J5.")
+    home_positions = _finite_vector(dict(zip(home_names, home_values)))
+    task_core = {
+        "target_segment_id": str(parameter_node.targetToothSegmentId or ""),
+        "trajectory_revision": str(logic.step6TrajectoryRevision(parameter_node)),
+        "entry_ras_mm": list(snapshot.entry_ras_mm),
+        "target_ras_mm": list(snapshot.target_ras_mm),
+        "base_fingerprint": str(logic.robotBaseFingerprint(parameter_node)),
+        "limits_fingerprint": str(logic.step6TaskLimitsFingerprint(parameter_node)),
+        "robot_profile_fingerprint": str(logic.robotProfileFingerprint()),
+        "tool_frame": str(parameter_node.step6ToolFrame),
+        "corridor_radius_mm": float(parameter_node.step6TrajectoryCorridorRadiusMm),
+    }
+    scene = _scene_evidence(logic, parameter_node)
+    audit = logic.collisionSceneAuditRecord(parameter_node)
+    if audit is None:
+        raise RuntimeError("The current case collision-scene audit is unavailable.")
+    return _fixture_identity(
+        branch_id=branch_id,
+        task_core=task_core,
+        home_revision=home.revision,
+        home_joint_positions_si=home_positions,
+        scene_source_object_ids=scene["source_object_ids"],
+        scene_base_fingerprint=str(audit.base_fingerprint),
+        fingerprint_fn=fingerprint,
+    )
+
+
+def _prepare_case_bound_rejection(
+    raw_plan, case_sha256, fixture_identity, logic, parameter_node, panel, accepted_target,
+):
+    plan, reason = _rejection_plan(
+        raw_plan,
+        case_sha256=case_sha256,
+        fixture_identity_value=fixture_identity,
+        finite_vector=_finite_vector,
+    )
+    if plan is None:
+        raise RuntimeError("An exact rejection plan is required: " + reason)
+    if not _exactly_matches(plan["starting_positions_si"], accepted_target):
+        raise RuntimeError(
+            "Pre-reviewed rejection vector is not bound to the exact post-acceptance starting state."
+        )
+    if not plan["review_reference"]:
+        raise RuntimeError("Rejection plan requires a non-empty review_reference.")
+    target = plan["requested_positions_si"]
+    limits = _within_both_limits(logic, parameter_node, target)
+    if limits is None:
+        raise RuntimeError("Pre-reviewed rejection vector is outside current reviewed or mechanical limits.")
+    if _exactly_matches(target, plan["starting_positions_si"]):
+        raise RuntimeError("Pre-reviewed rejection vector must differ from its bound starting state.")
+    panel._setManualJogDraftValues(_display_values(target), notify=True)
+    visible_target = _finite_vector(panel.manualJogJointPositionsSi())
+    panel._setManualJogDraftValues(_display_values(accepted_target), notify=True)
+    restored_target = _finite_vector(panel.manualJogJointPositionsSi())
+    if not _exactly_matches(visible_target, target):
+        raise RuntimeError("Visible numeric controls cannot preserve the exact reviewed rejection vector.")
+    if not _exactly_matches(restored_target, accepted_target):
+        raise RuntimeError("Could not restore the accepted draft after rejection-plan preflight.")
+    return plan, limits
+
+
+def _run_case_bound_rejection(
+    widget, panel, logic, parameter_node, facade, case_sha256, fixture_identity,
+    scene, plan, limits, report, evidence_dir, run_id,
+):
+    target = plan["requested_positions_si"]
+    if _manual_jog_fixture_identity(logic, parameter_node) != fixture_identity:
+        raise RuntimeError("Case fixture identity changed after rejection-plan preflight.")
+    current_limits = _within_both_limits(logic, parameter_node, target)
+    if current_limits is None:
+        raise RuntimeError("Pre-reviewed rejection vector no longer fits current limits.")
+    limits = current_limits
+    if scene["source_object_ids"] != scene["acknowledged_object_ids"]:
+        raise RuntimeError("Case collision objects are not fully acknowledged before rejection review.")
+
+    panel._setManualJogDraftValues(_display_values(target), notify=True)
+    visible_target = _finite_vector(panel.manualJogJointPositionsSi())
+    if not _exactly_matches(visible_target, target):
+        raise RuntimeError("Visible numeric controls cannot preserve the exact reviewed rejection vector.")
+    if not panel.guardedManualJogButton.enabled:
+        raise RuntimeError("Production Guarded Jog is disabled before the rejected request.")
+    before = _actual_joint_state(facade)
+    if not all(_exactly_matches(before[key], plan["starting_positions_si"])
+               for key in ("accepted_si", "monitored_si", "displayed_si")):
+        raise RuntimeError("Accepted, monitored, and displayed state differ from the reviewed rejection start.")
+    identity_before = facade._manual_jog_current_identity(parameter_node)
+    ui = _guard_click(widget, panel, target)
+    report["jog_requests"] += 1
+    after = _actual_joint_state(facade)
+    identity_after = facade._manual_jog_current_identity(parameter_node)
+    evidence = dict(ui.get("evidence") or {})
+    native = evidence.get("nativeGuardEvidence") or {}
+    rejected_frame = _scroll_to_visible(widget, panel.manualJogGroup, "native rejected manual jog")
+    screenshot = _capture(report, evidence_dir, run_id, "case-bound-rejected-jog")
+    passed = bool(
+        evidence.get("manualJogStatus") == "rejected"
+        and evidence.get("guardAccepted") is False
+        and evidence.get("rawGuardOutcome") == "rejected"
+        and evidence.get("identityStatus") == "current"
+        and native.get("responseObserved") is True
+        and native.get("responseCorrelated") is True
+        and bool(native.get("requestId"))
+        and native.get("requestId") == evidence.get("requestId")
+        and bool(native.get("sessionId"))
+        and native.get("sessionId") == evidence.get("sessionId")
+        and native.get("policyId") == bridge.ROS2_MANUAL_JOINT_POLICY_ID
+        and native.get("collisionScenePolicyIdentityStatus") == "manual_policy_id_correlated"
+        and native.get("accepted") is False
+        and native.get("bridgeReturnedAccepted") is False
+        and bool(native.get("reason"))
+        and native.get("worldObjectEvidencePresent") is True
+        and native.get("worldObjectCount") == len(scene["source_object_ids"])
+        and sorted(str(value) for value in native.get("worldObjectIds") or ())
+        == scene["acknowledged_object_ids"]
+        and _exactly_matches(native.get("requestedPositionsSi"), target)
+        and _exactly_matches(native.get("acceptedPositionsSi"), before["accepted_si"])
+        and _exactly_matches(ui.get("draft_positions_si"), target)
+        and _exactly_matches(panel.manualJogJointPositionsSi(), target)
+        and _exactly_matches(ui.get("panel_accepted_positions_si"), before["accepted_si"])
+        and all(_exactly_matches(after[key], before[key])
+                for key in ("accepted_si", "monitored_si", "displayed_si"))
+        and identity_before == identity_after
+    )
+    details = {
+        "case_sha256": case_sha256,
+        "fixture_identity": fixture_identity,
+        "review_reference": plan["review_reference"],
+        "starting_positions_si": plan["starting_positions_si"],
+        "requested_positions_si": target,
+        "limit_evidence": limits,
+        "native_guard_evidence": native,
+        "ui_result": ui,
+        "identity_before": identity_before,
+        "identity_after": identity_after,
+        "accepted_monitored_displayed_before": before,
+        "accepted_monitored_displayed_after": after,
+        "accepted_monitored_displayed_unchanged": passed,
+        "draft_retained": _exactly_matches(panel.manualJogJointPositionsSi(), target),
+        "screenshot": screenshot,
+        "screenshot_framing": rejected_frame,
+        "route_authority": report["route_authority"],
+        "planner_calls": report["planner_calls"],
+        "preview_started": report["preview_started"],
+    }
+    report.setdefault("outcome_scenarios", {})["rejected"] = {
+        "status": "PASS" if passed else "FAIL",
+        **details,
+    }
+    if not passed:
+        _record(report, "case_bound_rejected_guard", "FAIL",
+                reason="The case-bound request did not produce correlated native rejection evidence with retained draft and unchanged state.",
+                **details)
+        raise RuntimeError("Case-bound native rejection evidence failed its acceptance gate.")
+    _record(report, "case_bound_rejected_guard", "PASS", **details)
+
+
+def _run_unknown_reconciliation(
+    widget, panel, logic, parameter_node, facade, scene, report, evidence_dir, run_id,
+):
+    before = _actual_joint_state(facade)
+    if not all(before.get(key) for key in ("accepted_si", "monitored_si", "displayed_si")):
+        raise RuntimeError("Accepted, monitored, or displayed state is unavailable before unknown-jog injection.")
+    identity_before = facade._manual_jog_current_identity(parameter_node)
+    target, direction = _target_j1(logic, parameter_node, before["accepted_si"])
+    panel._setManualJogDraftValues(_display_values(target), notify=True)
+    target = _finite_vector(panel.manualJogJointPositionsSi())
+    if _within_both_limits(logic, parameter_node, target) is None:
+        raise RuntimeError("Unknown-result J1 request is outside current reviewed or mechanical limits.")
+    if not panel.guardedManualJogButton.enabled:
+        raise RuntimeError("Production Guarded Jog is disabled before unknown-result injection.")
+
+    bridge_owner = facade._bridge
+    original_apply = getattr(bridge_owner, "apply_manual_joint_positions_si", None)
+    if not callable(original_apply):
+        raise RuntimeError("The correlated manual-jog bridge function is unavailable.")
+    wrapper_calls = []
+
+    def stale_acknowledgement(*args, **kwargs):
+        if wrapper_calls:
+            raise RuntimeError("Runner refuses a second native manual-jog request.")
+        call = {
+            "requested_positions_si": _finite_vector(args[0] if args else kwargs.get("positions_si")),
+            "request_id": args[1] if len(args) > 1 else kwargs.get("request_id"),
+            "session_id": args[2] if len(args) > 2 else kwargs.get("session_id"),
+        }
+        wrapper_calls.append(call)
+        result = original_apply(*args, **kwargs)
+        if not isinstance(result, (tuple, list)) or len(result) != 3 or result[2] is None:
+            call["status_correlation_altered"] = False
+            return result
+        accepted, message, status = result
+        mismatched = dataclasses.replace(
+            status,
+            request_id=f"runner-stale-{status.request_id}",
+            session_id=f"runner-stale-{status.session_id}",
+        )
+        call.update(
+            status_correlation_altered=True,
+            original_status_request_id=status.request_id,
+            original_status_session_id=status.session_id,
+            returned_status_request_id=mismatched.request_id,
+            returned_status_session_id=mismatched.session_id,
+            underlying_apply_accepted=accepted,
+            underlying_native_accepted=status.accepted,
+        )
+        return accepted, message, mismatched
+
+    setattr(bridge_owner, "apply_manual_joint_positions_si", stale_acknowledgement)
+    try:
+        ui = _guard_click(widget, panel, target)
+    finally:
+        setattr(bridge_owner, "apply_manual_joint_positions_si", original_apply)
+    wrapper_restored = getattr(bridge_owner, "apply_manual_joint_positions_si", None) is original_apply
+    report["jog_requests"] += len(wrapper_calls)
+    after_unknown = _actual_joint_state(facade)
+    identity_after_unknown = facade._manual_jog_current_identity(parameter_node)
+    unknown_evidence = dict(ui.get("evidence") or {})
+    unknown_native = unknown_evidence.get("nativeGuardEvidence") or {}
+    unknown_frame = _scroll_to_visible(widget, panel.manualJogGroup, "unknown manual-jog acknowledgement")
+    unknown_screenshot = _capture(report, evidence_dir, run_id, "unknown-reconciliation-required")
+    unknown_latched = bool(
+        unknown_evidence.get("manualJogStatus") == "unknown"
+        and unknown_evidence.get("guardAccepted") is None
+        and unknown_evidence.get("manualJogReconciliationRequired") is True
+        and panel.manualJogReconciliationRequired is True
+        and panel.manualJogStatusLabel.property("dentobotState") == "blocked"
+        and panel.guardedManualJogButton.enabled is False
+        and unknown_native.get("responseObserved") is True
+        and unknown_native.get("responseCorrelated") is False
+        and bool(wrapper_calls)
+        and len(wrapper_calls) == 1
+        and wrapper_calls[0].get("status_correlation_altered") is True
+        and wrapper_calls[0].get("requested_positions_si") == target
+        and unknown_native.get("requestId")
+        == wrapper_calls[0].get("returned_status_request_id")
+        and unknown_native.get("sessionId")
+        == wrapper_calls[0].get("returned_status_session_id")
+        and unknown_native.get("requestId") != unknown_evidence.get("requestId")
+        and unknown_native.get("sessionId") != unknown_evidence.get("sessionId")
+        and wrapper_calls[0].get("underlying_apply_accepted") is True
+        and wrapper_calls[0].get("underlying_native_accepted") is True
+        and unknown_evidence.get("acceptedStateMayHaveAdvanced") is True
+        and _exactly_matches(unknown_native.get("requestedPositionsSi"), target)
+        and _exactly_matches(unknown_native.get("acceptedPositionsSi"), target)
+        and _exactly_matches(after_unknown.get("accepted_si"), target)
+        and _exactly_matches(unknown_evidence.get("requestedJointPositionsSi"), target)
+        and _exactly_matches(ui.get("draft_positions_si"), target)
+        and _exactly_matches(ui.get("panel_accepted_positions_si"), before["accepted_si"])
+        and wrapper_restored
+        and identity_before == identity_after_unknown
+    )
+    report.setdefault("outcome_scenarios", {})["unknown"] = {
+        "status": "LATCHED" if unknown_latched else "FAIL",
+        "requested_positions_si": target,
+        "direction": direction,
+        "wrapper_calls": wrapper_calls,
+        "wrapper_restored": wrapper_restored,
+        "native_guard_evidence": unknown_native,
+        "ui_result": ui,
+        "identity_before": identity_before,
+        "identity_after_unknown": identity_after_unknown,
+        "state_before": before,
+        "state_after_unknown": after_unknown,
+        "screenshot": unknown_screenshot,
+        "screenshot_framing": unknown_frame,
+        "repeat_jog_blocked": not panel.guardedManualJogButton.enabled,
+        "route_authority": report["route_authority"],
+        "planner_calls": report["planner_calls"],
+        "preview_started": report["preview_started"],
+    }
+    _write_report(report)
+    if not unknown_latched:
+        failure_details = {
+            key: value for key, value in report["outcome_scenarios"]["unknown"].items()
+            if key != "status"
+        }
+        _record(report, "unknown_reconcile_state", "FAIL",
+                reason="The controlled mismatched acknowledgement did not preserve a blocked unknown state.",
+                **failure_details)
+        raise RuntimeError("Controlled unknown jog failed to latch for reconciliation.")
+    if not panel.reconcileManualJogButton.enabled:
+        raise RuntimeError("Production Reconcile State is not enabled for the unknown jog.")
+
+    panel.reconcileManualJogButton.click()
+    _process_events(0.2)
+    reconciliation = dict(panel._manualJogEvidence or {})
+    query_evidence = reconciliation.get("nativeGuardEvidence") or {}
+    state_after = _actual_joint_state(facade)
+    current_identity = facade._manual_jog_current_identity(parameter_node)
+    native_accepted = reconciliation.get("acceptedJointPositionsSi")
+    monitored = reconciliation.get("monitoredJointPositionsSi")
+    identity_matched = bool(
+        reconciliation.get("identityStatus") == "current"
+        and reconciliation.get("identityBefore") == identity_before
+        and reconciliation.get("identityAfter") == identity_before
+        and current_identity == identity_before
+    )
+    state_matched = bool(
+        isinstance(native_accepted, Mapping)
+        and isinstance(monitored, Mapping)
+        and _exactly_matches(state_after["accepted_si"], native_accepted)
+        and _exactly_matches(state_after["monitored_si"], monitored)
+        and _representationally_matches(state_after["monitored_si"], native_accepted)
+        and _representationally_matches(state_after["displayed_si"], native_accepted)
+        and _exactly_matches(panel._manualJogAcceptedJointPositionsSi, native_accepted)
+    )
+    reconciled = bool(
+        reconciliation.get("manualJogStatus") == "reconciled"
+        and reconciliation.get("manualJogReconciliationRequired") is False
+        and panel.manualJogReconciliationRequired is False
+        and panel.manualJogStatusLabel.property("dentobotState") == "ok"
+        and not panel.reconcileManualJogButton.enabled
+        and query_evidence.get("responseCorrelated") is True
+        and query_evidence.get("responseObserved") is True
+        and query_evidence.get("operation") == "state_query"
+        and query_evidence.get("queryOnly") is True
+        and query_evidence.get("policyId") == bridge.ROS2_MANUAL_JOINT_POLICY_ID
+        and query_evidence.get("requestId") == reconciliation.get("queryRequestId")
+        and query_evidence.get("sessionId") == reconciliation.get("sessionId")
+        and _exactly_matches(query_evidence.get("requestedPositionsSi"), target)
+        and _exactly_matches(query_evidence.get("acceptedPositionsSi"), native_accepted)
+        and query_evidence.get("worldObjectEvidencePresent") is True
+        and query_evidence.get("worldObjectCount") == len(scene["source_object_ids"])
+        and sorted(str(value) for value in query_evidence.get("worldObjectIds") or ())
+        == scene["acknowledged_object_ids"]
+        and identity_matched
+        and state_matched
+    )
+    reconcile_frame = _scroll_to_visible(widget, panel.manualJogGroup, "reconciled manual-jog state")
+    reconcile_screenshot = _capture(report, evidence_dir, run_id, "unknown-state-reconciled")
+    details = {
+        **report["outcome_scenarios"]["unknown"],
+        "status": "PASS" if reconciled else "FAIL",
+        "reconciliation_evidence": reconciliation,
+        "query_native_evidence": query_evidence,
+        "current_identity_after_reconciliation": current_identity,
+        "identity_matched_exactly": identity_matched,
+        "state_after_reconciliation": state_after,
+        "accepted_monitored_displayed_converged": state_matched,
+        "reconciliation_screenshot": reconcile_screenshot,
+        "reconciliation_screenshot_framing": reconcile_frame,
+        "reconciliation_button_invoked": True,
+        "route_authority_after": report["route_authority"],
+        "planner_calls_after": report["planner_calls"],
+        "preview_started_after": report["preview_started"],
+    }
+    report["outcome_scenarios"]["unknown"] = details
+    _write_report(report)
+    if not reconciled:
+        failure_details = {key: value for key, value in details.items() if key != "status"}
+        _record(report, "unknown_reconcile_state", "FAIL",
+                reason="Production Reconcile State did not prove exact current identity and accepted/monitored/displayed convergence.",
+                **failure_details)
+        raise RuntimeError("Production Reconcile State failed its exact identity/state gate.")
+    _record(
+        report,
+        "unknown_reconcile_state",
+        "PASS",
+        **{key: value for key, value in details.items() if key != "status"},
+    )
+
+
 def run() -> int:
+    workspace_diagnostic = _validate_workspace_diagnostic_opt_in()
     output_text = os.environ.get("DENTOBOT_HEADED_EVIDENCE_DIR", "").strip()
     if not output_text:
         raise RuntimeError("Set DENTOBOT_HEADED_EVIDENCE_DIR to a private evidence directory.")
-    allow_base_home_accept = (
-        os.environ.get("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT", "") == "1"
-    )
+    allow_base_home_accept = os.environ.get("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT", "") == "1"
     os.umask(0o077)
     evidence_dir = Path(output_text).expanduser()
     evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -891,7 +2481,19 @@ def run() -> int:
         "route_authority": "none",
         "review_mode": None,
         "taskless_draft_only": False,
+        "manual_jog_keyboard_draft_only": False,
         "historical_record_reopen_opt_in": False,
+        "scenario_opt_ins": {
+            "rejected_guard": False,
+            "unknown_reconciliation": False,
+            "joint_keyboard_draft": False,
+            "workspace_diagnostic": False,
+        },
+        "outcome_scenarios": {
+            "rejected": {"status": "NOT_RUN"},
+            "unknown": {"status": "NOT_RUN"},
+        },
+        "manual_jog_fixture_identity": None,
         "jog_requests": 0,
         "base_acceptance_attempted": False,
         "task_home_acceptance_attempted": False,
@@ -902,10 +2504,22 @@ def run() -> int:
             for name in CHECK_NAMES
         },
     }
+    output_case_text = os.environ.get("DENTOBOT_HEADED_OUTPUT_CASE")
+    output_case_path = None
+    if output_case_text is None:
+        report["items"]["save_current_case"] = {
+            "status": "NOT_RUN",
+            "reason": "DENTOBOT_HEADED_OUTPUT_CASE is unset.",
+        }
     _write_report(report)
     active_check = "checkout_and_case_provenance"
     outcome = "FAILED"
     message = ""
+    allow_rejected_guard = False
+    allow_unknown_reconciliation = False
+    manual_jog_fixture_identity = None
+    rejection_plan = None
+    rejection_limits = None
 
     def complete_not_run(names, reason):
         for item in names:
@@ -919,16 +2533,68 @@ def run() -> int:
         raise RuntimeError(reason)
 
     try:
+        connect_only = _connect_only_requested()
         report["checkout"] = _checkout_evidence()
+        report["connect_only"] = connect_only
         draft_only = _draft_only_requested()
         invalid_draft_review = _invalid_draft_review_requested()
         record_reopen = _historical_record_reopen_requested()
+        joint_keyboard_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_JOINT_KEYBOARD")
+        tcp_case_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_TCP_CASE")
+        full_chain_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_FULL_CHAIN")
+        allow_rejected_guard = _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_REJECTED_JOG")
+        allow_unknown_reconciliation = _exact_env_opt_in(
+            "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION"
+        )
         allow_jog_requested = os.environ.get("DENTOBOT_HEADED_ALLOW_JOG", "") == "1"
+        joint_keyboard_only = joint_keyboard_opt_in and not (
+            allow_jog_requested or draft_only or invalid_draft_review
+        )
+        report["scenario_opt_ins"] = {
+            "rejected_guard": allow_rejected_guard,
+            "unknown_reconciliation": allow_unknown_reconciliation,
+            "allow_jog": allow_jog_requested,
+            "joint_keyboard_draft": joint_keyboard_opt_in,
+            "case_bound_tcp": tcp_case_opt_in,
+            "full_chain_interruption": full_chain_opt_in,
+            "workspace_diagnostic": workspace_diagnostic,
+        }
+        if (tcp_case_opt_in or full_chain_opt_in) and not (
+            allow_jog_requested and allow_base_home_accept
+        ):
+            fail(
+                "case_bound_tcp_workbench" if tcp_case_opt_in else "full_chain_interruption",
+                "Case-bound 6.3 probes require the current guarded-jog and Base/Home acceptance gates.",
+            )
+        report["manual_jog_keyboard_draft_only"] = joint_keyboard_only
+        if not joint_keyboard_opt_in:
+            report["items"]["manual_jog_keyboard_draft_check"] = {
+                "status": "NOT_RUN",
+                "reason": "DENTOBOT_HEADED_JOINT_KEYBOARD is unset or '0'.",
+            }
+        if allow_rejected_guard and not allow_jog_requested:
+            fail(
+                "case_bound_rejected_guard",
+                "DENTOBOT_HEADED_ALLOW_REJECTED_JOG=1 requires DENTOBOT_HEADED_ALLOW_JOG=1.",
+            )
+        if allow_unknown_reconciliation and not allow_jog_requested:
+            fail(
+                "unknown_reconcile_state",
+                "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION=1 requires DENTOBOT_HEADED_ALLOW_JOG=1.",
+            )
+        rejection_plan_json = os.environ.get("DENTOBOT_MANUAL_JOG_REJECTION_PLAN_JSON", "")
+        if allow_rejected_guard and not rejection_plan_json.strip():
+            fail(
+                "case_bound_rejected_guard",
+                "DENTOBOT_HEADED_ALLOW_REJECTED_JOG=1 requires DENTOBOT_MANUAL_JOG_REJECTION_PLAN_JSON.",
+            )
         _validate_record_reopen_prerequisites(
             record_reopen, allow_jog_requested, draft_only
         )
         report["review_mode"] = (
-            "taskless_draft_only" if draft_only
+            "workspace_diagnostic" if workspace_diagnostic
+            else "manual_jog_keyboard_draft_only" if joint_keyboard_only
+            else "taskless_draft_only" if draft_only
             else "invalid_draft_review" if invalid_draft_review
             else "bounded_jog_base_home_review"
         )
@@ -949,6 +2615,17 @@ def run() -> int:
         case_path = Path(case_text).expanduser().resolve()
         if not case_path.is_file():
             fail(active_check, f"Saved case does not exist: {case_path}")
+        if output_case_text is not None:
+            try:
+                output_case_path = _validate_output_case_path(
+                    output_case_text, case_path
+                )
+            except Exception as exc:
+                fail(
+                    "save_current_case",
+                    f"{type(exc).__name__}: {exc}",
+                    output_path=output_case_text,
+                )
         report["case_source"] = str(case_path)
         case_hash = _sha256_file(case_path)
         validate_case_bundle(case_path)
@@ -1138,11 +2815,25 @@ def run() -> int:
             _record(report, active_check, "NOT_RUN",
                     reason="No exact native source/binary version preflight was provided.")
 
-        if (not allow_jog and not draft_only and not invalid_draft_review) or native is None:
+        if (
+            not allow_jog
+            and not draft_only
+            and not invalid_draft_review
+            and not joint_keyboard_opt_in
+            and not workspace_diagnostic
+            and not connect_only
+        ) or native is None:
             reasons = []
-            if not allow_jog and not draft_only and not invalid_draft_review:
+            if (
+                not allow_jog
+                and not draft_only
+                and not invalid_draft_review
+                and not joint_keyboard_opt_in
+                and not workspace_diagnostic
+                and not connect_only
+            ):
                 reasons.append(
-                    "No guarded-jog, taskless-draft, or invalid-draft review opt-in is enabled."
+                    "No guarded-jog, taskless-draft, invalid-draft, joint-keyboard, or workspace-diagnostic opt-in is enabled."
                 )
             if native is None:
                 reasons.append("Exact native source/binary preflight is unavailable.")
@@ -1150,7 +2841,11 @@ def run() -> int:
             complete_not_run(
                 ("simulation_ros_connect_and_scene_readback", "draft_state_read_only",
                  "invalid_out_of_reviewed_range_draft", "single_guarded_j1_jog",
-                 "historical_record_export_reopen", "base_stage_and_cancel"),
+                 "historical_record_export_reopen", "base_stage_and_cancel",
+                 "case_bound_rejected_guard", "unknown_reconcile_state",
+                 "profile_migration_recovery_after_scene_ack",
+                 "profile_migration_recovery_before_save",
+                 "manual_jog_keyboard_draft_check"),
                 reason,
             )
             _record(report, "base_acceptance_trial", "NOT_RUN",
@@ -1175,6 +2870,11 @@ def run() -> int:
                     "Taskless draft-only mode requires a case with no confirmed task; no ROS connection was started.",
                     confirmed_task_present=True,
                 )
+            active_check = "base_profile_rebind_prerequisite"
+            _run_base_profile_rebind_prerequisite(
+                widget, panel, logic, parameter_node, facade, case_path, case_hash,
+                allow_base_home_accept, report, evidence_dir, run_id,
+            )
             active_check = "simulation_ros_connect_and_scene_readback"
             widget._configureRobotSimulationShellSubstep(1)
             _process_events(0.1)
@@ -1201,6 +2901,47 @@ def run() -> int:
                 fail(active_check, "Native collision-scene object-presence readback did not match the case objects.",
                      scene=scene)
             report["simulation_scene_readback"] = scene
+            if connect_only:
+                _capture(report, evidence_dir, run_id, "ros-scene-object-readback")
+                _record(report, active_check, "PASS", connected=True, simulation_only=True,
+                        scene=scene, screenshot=report["screenshots"]["ros-scene-object-readback"])
+                active_check = "simulation_ros_disconnect"
+                if not panel.disconnectButton.enabled:
+                    fail(active_check, "Production Disconnect control is not enabled.")
+                disconnect_started = time.monotonic()
+                panel.disconnectButton.click()
+                _process_events(0.2)
+                if facade.capabilities().connected:
+                    fail(active_check, "Production Disconnect did not release the ROS session.")
+                if _sha256_file(case_path) != case_hash:
+                    fail(active_check, "Connect/Disconnect modified the source package.")
+                _capture(report, evidence_dir, run_id, "ros-disconnected")
+                _record(report, active_check, "PASS", connected=False,
+                        wall_seconds=time.monotonic() - disconnect_started,
+                        screenshot=report["screenshots"]["ros-disconnected"])
+                report["bounded_connect_disconnect"] = "PASS"
+                raise LookupError("Bounded restore/Connect/Disconnect passed; remaining workflow actions were intentionally not run.")
+            active_check = "profile_migration_recovery_after_scene_ack"
+            _ensure_current_home_workspace_task(
+                widget, panel, logic, parameter_node, facade, case_path, case_hash,
+                report, evidence_dir, run_id, phase="after_scene_ack",
+                check_name=active_check,
+                skip_reason=(
+                    "Taskless draft-only mode preserves its read-only checkpoint."
+                    if draft_only else (
+                        "Joint keyboard draft-only mode does not require Task Home or workspace recovery."
+                        if joint_keyboard_only else None
+                    )
+                ),
+                workspace_diagnostic=workspace_diagnostic,
+            )
+            confirmed_task_present = logic.confirmedTaskRecord(parameter_node) is not None
+            active_check = "simulation_ros_connect_and_scene_readback"
+            if allow_rejected_guard:
+                manual_jog_fixture_identity = _manual_jog_fixture_identity(
+                    logic, parameter_node
+                )
+                report["manual_jog_fixture_identity"] = manual_jog_fixture_identity
             _capture(report, evidence_dir, run_id, "ros-scene-object-readback")
             _record(report, active_check, "PASS", connected=True, simulation_only=True,
                     scene=scene, screenshot=report["screenshots"]["ros-scene-object-readback"])
@@ -1289,6 +3030,18 @@ def run() -> int:
                     evidence=draft_evidence,
                     screenshot=report["screenshots"]["draft-state-checked"],
                     screenshot_framing=draft_checked_frame)
+
+            if joint_keyboard_opt_in:
+                active_check = "manual_jog_keyboard_draft_check"
+                _run_manual_jog_keyboard_draft_check(
+                    widget, panel, facade, report, evidence_dir, run_id
+                )
+                if joint_keyboard_only:
+                    active_check = "single_guarded_j1_jog"
+                    raise LookupError(
+                        "Joint keyboard draft-only review completed; guarded jog, planning, "
+                        "and preview were not requested."
+                    )
 
             if invalid_draft_review:
                 active_check = "invalid_out_of_reviewed_range_draft"
@@ -1498,6 +3251,28 @@ def run() -> int:
                     or _within_both_limits(logic, parameter_node, target) is None):
                 fail(active_check, "Visible controls do not preserve one in-limit 0.1-degree J1-only request.",
                      target=target, accepted_before=accepted_before)
+            if allow_rejected_guard:
+                active_check = "case_bound_rejected_guard"
+                rejection_plan, rejection_limits = _prepare_case_bound_rejection(
+                    rejection_plan_json,
+                    case_hash,
+                    manual_jog_fixture_identity,
+                    logic,
+                    parameter_node,
+                    panel,
+                    target,
+                )
+                report.setdefault("outcome_scenarios", {})["rejected"] = {
+                    "status": "PREFLIGHT_PASS",
+                    "case_sha256": case_hash,
+                    "fixture_identity": manual_jog_fixture_identity,
+                    "review_reference": rejection_plan["review_reference"],
+                    "starting_positions_si": rejection_plan["starting_positions_si"],
+                    "requested_positions_si": rejection_plan["requested_positions_si"],
+                    "limit_evidence": rejection_limits,
+                }
+                _write_report(report)
+                active_check = "single_guarded_j1_jog"
             if not panel.guardedManualJogButton.enabled:
                 fail(active_check, "Production Guarded Jog control is not enabled.")
             jog_ui = _guard_click(widget, panel, target)
@@ -1548,6 +3323,35 @@ def run() -> int:
                     jog_requests=1, jog_ui=jog_ui, native_guard=native_guard,
                     accepted_monitored_displayed_match=True,
                     screenshot=report["screenshots"]["guarded-j1-jog-result"])
+
+            if allow_rejected_guard:
+                active_check = "case_bound_rejected_guard"
+                _run_case_bound_rejection(
+                    widget, panel, logic, parameter_node, facade, case_hash,
+                    manual_jog_fixture_identity, scene, rejection_plan,
+                    rejection_limits, report, evidence_dir, run_id,
+                )
+            else:
+                _record(
+                    report,
+                    "case_bound_rejected_guard",
+                    "NOT_RUN",
+                    reason="DENTOBOT_HEADED_ALLOW_REJECTED_JOG is unset or '0'.",
+                )
+
+            if allow_unknown_reconciliation:
+                active_check = "unknown_reconcile_state"
+                _run_unknown_reconciliation(
+                    widget, panel, logic, parameter_node, facade, scene,
+                    report, evidence_dir, run_id,
+                )
+            else:
+                _record(
+                    report,
+                    "unknown_reconcile_state",
+                    "NOT_RUN",
+                    reason="DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION is unset or '0'.",
+                )
 
             active_check = "historical_record_export_reopen"
             if record_reopen:
@@ -1997,6 +3801,122 @@ def run() -> int:
                         "accepted": task_home_accepted_frame,
                     },
                 )
+            if tcp_case_opt_in:
+                active_check = "case_bound_tcp_workbench"
+                widget._configureRobotSimulationShellSubstep(3)
+                _process_events(0.1)
+                try:
+                    tcp_evidence = run_case_bound_tcp_probe(
+                        widget, panel, facade, evidence_dir.parent,
+                        lambda stage: _capture(
+                            report, evidence_dir, run_id, f"tcp-{stage}"
+                        ),
+                        mouse_drag_callback=(
+                            make_external_mouse_drag_callback(evidence_dir.parent)
+                            if _mouse_drag_requested() else None
+                        ),
+                    )
+                except Exception as exc:
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        probe_evidence=getattr(exc, "evidence", None),
+                    )
+                _record(report, active_check, "PASS", probe_evidence=tcp_evidence)
+            else:
+                _record(report, "case_bound_tcp_workbench", "NOT_RUN",
+                        reason="DENTOBOT_HEADED_TCP_CASE is unset or '0'.")
+
+            if full_chain_opt_in:
+                active_check = "full_chain_interruption"
+                widget._configureRobotSimulationShellSubstep(3)
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                if not panel.checkPreEntryIKButton.enabled:
+                    fail(active_check, "Current PreEntry IK diagnostic control is disabled.")
+                panel.checkPreEntryIKButton.click()
+                _process_events(0.1)
+                try:
+                    chain_evidence = run_full_chain_interruption_probe(
+                        widget, panel, facade,
+                        lambda stage: _capture(
+                            report, evidence_dir, run_id, f"chain-{stage}"
+                        ),
+                        _process_events, _wait_until,
+                    )
+                except Exception as exc:
+                    _retain_full_chain_probe_counts(
+                        report, getattr(exc, "evidence", None)
+                    )
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        probe_evidence=getattr(exc, "evidence", None),
+                    )
+                _retain_full_chain_probe_counts(report, chain_evidence)
+                _record(report, active_check, "PASS", probe_evidence=chain_evidence)
+            else:
+                _record(report, "full_chain_interruption", "NOT_RUN",
+                        reason="DENTOBOT_HEADED_FULL_CHAIN is unset or '0'.")
+
+            if output_case_path is not None:
+                active_check = "profile_migration_recovery_before_save"
+                _ensure_current_home_workspace_task(
+                    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+                    report, evidence_dir, run_id, phase="before_save",
+                    check_name=active_check,
+                    skip_reason=(
+                        "Taskless draft-only mode preserves its read-only checkpoint."
+                        if draft_only else None
+                    ),
+                )
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                planning_controls = {
+                    "plan_approach_enabled": bool(panel.planApproachButton.enabled),
+                    "compare_planners_enabled": bool(panel.comparePlannersButton.enabled),
+                    "status_text": str(panel.confirmationStatusLabel.text),
+                }
+                report[active_check]["planning_controls"] = planning_controls
+                _write_report(report)
+                if not all(
+                    planning_controls[name]
+                    for name in (
+                        "plan_approach_enabled",
+                        "compare_planners_enabled",
+                    )
+                ):
+                    fail(
+                        active_check,
+                        "Current Home, workspace, reviewed limits, and task confirmation "
+                        "did not enable the phased planning controls.",
+                        planning_controls=planning_controls,
+                    )
+                active_check = "save_current_case"
+                unpassed = _unpassed_selected_checks(report["items"])
+                if unpassed:
+                    fail(
+                        active_check,
+                        "Cannot save the current case because selected checks did not pass.",
+                        output_path=str(output_case_path),
+                        unpassed_checks=unpassed,
+                    )
+                try:
+                    save_evidence = _save_current_case(
+                        widget, output_case_path, case_path, case_hash
+                    )
+                except Exception as exc:
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        output_path=str(output_case_path),
+                        source_relationship={
+                            "source_path": str(case_path),
+                            "source_sha256": case_hash,
+                        },
+                    )
+                report["saved_case"] = True
+                _record(report, active_check, "PASS", **save_evidence)
             outcome = "PASS"
 
     except LookupError as exc:

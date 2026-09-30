@@ -1496,7 +1496,6 @@ class RobotSceneWidgetMixin:
             self._parameterNode.robotJoint3Deg = 0.0
             self._parameterNode.robotJoint4Mm = 0.0
             self._parameterNode.robotJoint5Deg = 0.0
-            self._parameterNode.robotJoint6Deg = 0.0
         finally:
             self._parameterNode.EndModify(wasModifying)
         self._updateRobotPlacement()

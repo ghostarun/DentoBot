@@ -25,6 +25,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/widget_application.py
   Resources/Python/dentobot_workflow/workflow_progress.py
   Resources/Python/dentobot_workflow/ui_stall_watchdog.py
+  Resources/Python/dentobot_workflow/ui_workflow_focus.py
   Resources/Python/dentobot_workflow/widget_panels.py
   Resources/Python/dentobot_workflow/widget_lifecycle.py
   Resources/Python/dentobot_workflow/widget_segmentation.py
@@ -64,6 +65,11 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/logic_finalization.py
   Resources/Python/dentobot_workflow/logic_case_bundle.py
   Resources/Python/dentobot_workflow/logic_case_foundation.py
+  Resources/Python/dentobot_workflow/logic_step6_condyle_extraction.py
+  Resources/Python/dentobot_workflow/offline_placement_status.py
+  Resources/Python/dentobot_workflow/ui_scroll_support.py
+  Resources/Python/dentobot_workflow/virtual_forehead_mount.py
+  Resources/Python/dentobot_workflow/virtual_open_mouth_articulator.py
   Resources/Python/dentobot_workflow/logic_step6_scene.py
   Resources/Python/dentobot_workflow/logic_step6_landmark_review.py
   Resources/Python/dentobot_workflow/logic_robot_placement.py

@@ -1,6 +1,19 @@
 # DENTOBOT Development Plan
 
-Last reconciled: 2026-09-27.
+**2026-09-30 integration execution supersession (`S6-LIVE-01`, `S6-P2-03`, `S6-REUSABLE-CASE-SETUP`):** Tarun explicitly authorized committed unfinished source checkpoints and the curated-5.10 integration pass. Frozen renovation **e7cd29f** is being merged into `integration/step6-5.10-reviewed-20260927`, after preserving prior integration in **243e3a1**. This supersedes older no-current-integration/no-commit sequencing only for this plan. Four GPT-6 Luna Max scopes run within three available concurrent worker slots. 5.12 runtime (`PLAT-U-06`), main/publication, final renovation incorporation and full-cycle/operator acceptance remain deferred/pending. Preparation evidence and dispositions are in `diagnostics/STEP6_INTEGRATION_PREPARATION_2026-09-30.md`; this is not a new task or pending queue.
+
+
+Last reconciled: 2026-09-28.
+
+The [Step 6 five-DOF detailed acceptance checklist](diagnostics/STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md)
+is the latest implementation plan for the automated headed GUI simulation
+campaign under `S6-LIVE-01`. It owns the new-case qualification, uncovered
+runner work, final campaign sequence, evidence package and stopping rules.
+Tarun permits up to four simultaneous GPT-6 Luna Max workers for independent
+disjoint source/host-test scopes in this task; Sol retains reasoning,
+controlled records, serialized runtime and acceptance. Actual platform capacity
+currently limits execution to three workers beside Sol, with another permitted
+worker used sequentially.
 
 The 27 September source gates make submitted unknown/stale manual jogs fail
 closed for the current facade session and present possible simulated motion
@@ -606,9 +619,9 @@ action is implied by Step 5C acceptance.
   physical homing, powered spindle, drilling command, or patient-facing path.
 - MoveIt owns IK and path generation. MoveIt PlanningScene/FCL plus the
   independent DENTOBOT phase guard own collision and task-phase acceptance.
-- J6 remains in the six-joint visual/collision compatibility tree but is not a
-  MoveIt planning DOF; any visual compatibility slot is fixed at `0 rad`.
-  It represents an externally pressure-driven spindle, not a robot positioner.
+- The robot model, joint-state interfaces and workflow contain exactly J1–J5.
+  The pneumatic drill is a separate future speed-controlled spindle device,
+  with fixed arm geometry and no positioning/IK/planning slot.
 - Stage 1 commits the exact Entry-to-Target drill axis and an authoritative
   FK frame for display/fingerprinting. Stages 2 and 3 preserve the exact
   Entry/Target points and axis; housing roll is not a commanded task
@@ -713,15 +726,14 @@ Retain the current planner architecture:
 
 1. strict MoveIt Task Home to PreEntry;
 2. fixed-axis PreEntry to Entry;
-3. fixed-axis Entry to Target using the non-spinning canonical TCP (the
-   visual J6 compatibility slot remains fixed at zero);
+3. fixed-axis Entry to Target using the canonical five-DOF TCP;
 4. full-chain independent phase-guard validation.
 
 MoveIt's collision-off Cartesian result remains the first Stage 2/3 attempt.
 When it is partial, the existing bounded sequential-continuity IK fallback must
 solve the same sampled poses from the preceding accepted J1-J5 state, use only
 bounded deterministic perturbations, canonicalize continuous joint
-representations, keep the visual-only J6 slot at zero, and verify every recovered pose with
+representations, and verify every recovered pose with
 authoritative FK. Position residual must remain at or below `0.25 mm` and
 orientation residual at or below `0.5 deg`.
 
@@ -987,8 +999,8 @@ For **each** tooth, in a separate clean Slicer process:
 5. On the reopened case, reconstruct transient ROS/MoveIt, acknowledge the
    scene from live monitored joints, and plan Task Home→PreEntry→Entry→the
    exact requested Target. Record candidate/selected-route status, full depth,
-   FK residuals (`≤0.25 mm`, `≤0.5°`), first-invalid waypoint, J1–J5 guard,
-   J6 zero, joint limits and collision pairs. For a Complete route, exercise
+   FK residuals (`≤0.25 mm`, `≤0.5°`), first-invalid waypoint, exact J1–J5
+   guard, joint limits and collision pairs. For a Complete route, exercise
    Goal 1→Goal 2→guarded Return Home→fresh replan/route choice, playback and
    route-intent save/revalidation; otherwise leave those stages `NOT_RUN`.
 
@@ -1032,8 +1044,8 @@ must prove:
 - 100% Stage 1 to PreEntry, Stage 2 to Entry, and Stage 3 to Target;
 - one identical drill-axis/policy fingerprint across the chain (housing roll
   is not a commanded task constraint);
-- J6 equal to zero in Home and visual previews; planning and guard messages
-  contain only J1–J5 and reject any attempted spindle command;
+- Home, previews, planning and guard messages contain exactly J1–J5; spindle
+  speed/state is outside the arm motion interface;
 - every waypoint accepted by the independent phase guard;
 - correct static paths and adjustable preview speed without skipped/reordered
   commands;
@@ -1592,3 +1604,7 @@ alias mapping. This plan and TASKS.md may reference that ID but must not create
 a second queue or duplicate its running status narrative. Dated
 implementation detail belongs in the logbook and changelog, not in a second
 `Next` list.
+
+## 2026-09-30 — Bounded current-workflow space recovery
+
+Under UI-P3-01, Tarun advances default Workflow Focus independently of the deferred broad Studio redesign. Acceptance requires reachable secondary actions, narrow-width usability, preserved workflow state and gates, exact chrome restoration across enter/exit/reload and Legacy/New transitions, and before/after screenshots targeting twice the visible active-task height at the supplied window size. Agent runtime stays serialized with the active Step 6.3 final-fix campaign; host verification cannot establish visual acceptance.

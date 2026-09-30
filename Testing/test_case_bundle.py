@@ -19,7 +19,10 @@ sys.path.insert(0, str(HELPERS))
 from DENTOCaseBundle import (  # noqa: E402
     CASE_BUNDLE_SCHEMA_VERSION,
     CASE_BUNDLE_EXTENSION,
+    CHECKSUMS_MEMBER,
     CaseBundleError,
+    MANIFEST_MEMBER,
+    MANUAL_SIMULATION_MEMBER,
     ROBOT_PROFILE_MEMBER,
     SCENE_MEMBER,
     STUDY_ATTEMPTS_MEMBER,
@@ -29,10 +32,12 @@ from DENTOCaseBundle import (  # noqa: E402
     create_case_bundle,
     extract_scene_mrb,
     is_additive_rrt_profile_upgrade,
+    is_five_dof_profile_upgrade,
     lineage_snapshot_matches,
     lineage_snapshot_mismatch_path,
     validate_case_bundle,
 )
+from DENTOStep6State import JOINT_NAMES, build_manual_simulation_record  # noqa: E402
 
 
 def _saved_landmark_restore_helper():
@@ -94,6 +99,30 @@ class FakeLandmarks:
 def write_mrb(path: Path, mrml: str) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("Case/scene.mrml", mrml)
+
+
+def manual_simulation_record(label: str) -> dict:
+    return build_manual_simulation_record(
+        identity={
+            name: f"{label}-{name}"
+            for name in (
+                "prepared_branch_id",
+                "task_fingerprint",
+                "base_fingerprint",
+                "home_fingerprint",
+                "trajectory_fingerprint",
+                "robot_profile_fingerprint",
+                "scene_fingerprint",
+            )
+        },
+        events=[
+            {
+                "kind": "requested",
+                "monotonic_ns": 0,
+                "requested_joints": {name: 0.0 for name in JOINT_NAMES},
+            }
+        ],
+    )
 
 
 def test_case_foundation_landmark_positions_recovers_tiny_world_roundoff() -> None:
@@ -235,6 +264,7 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
     assert inspection.manifest["runtime"]["ros2Serialized"] is False
     assert inspection.study_index["attemptCount"] == 0
     assert inspection.study_attempts == ()
+    assert inspection.manual_simulation_records == ()
     assert inspection.robot_profile["identitySha256"] == profile["identitySha256"]
 
     extracted, validated = extract_scene_mrb(
@@ -247,6 +277,103 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
         assert ROBOT_PROFILE_MEMBER in archive.namelist()
         assert STUDY_INDEX_MEMBER in archive.namelist()
         assert STUDY_ATTEMPTS_MEMBER in archive.namelist()
+        assert MANUAL_SIMULATION_MEMBER not in archive.namelist()
+
+
+def test_case_bundle_round_trips_manual_simulation_records(tmp_path: Path) -> None:
+    scene = tmp_path / "source.mrb"
+    write_mrb(scene, "<MRML/>")
+    records = [manual_simulation_record("first"), manual_simulation_record("second")]
+    inspection = create_case_bundle(
+        tmp_path / "manual.dentocase",
+        scene,
+        case_label="ManualEvidence",
+        workflow={"schemaVersion": "1.0"},
+        robot_profile=robot_profile_fixture(tmp_path),
+        manual_simulation_records=records,
+    )
+
+    assert inspection.manual_simulation_records == tuple(records)
+    assert MANUAL_SIMULATION_MEMBER in inspection.manifest["files"]
+    with zipfile.ZipFile(inspection.path) as archive:
+        raw = archive.read(MANUAL_SIMULATION_MEMBER)
+        assert raw == (
+            json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode("utf-8")
+        checksums = archive.read("integrity/checksums.sha256").decode("ascii")
+        assert f"  {MANUAL_SIMULATION_MEMBER}\n" in checksums
+
+    assert validate_case_bundle(inspection.path).manual_simulation_records == tuple(records)
+
+
+def test_case_bundle_rejects_invalid_and_tampered_manual_simulation_records(
+    tmp_path: Path,
+) -> None:
+    scene = tmp_path / "source.mrb"
+    write_mrb(scene, "<MRML/>")
+    profile = robot_profile_fixture(tmp_path)
+    record = manual_simulation_record("valid")
+    invalid = {**record, "record_fingerprint": "forged"}
+    destination = tmp_path / "invalid.dentocase"
+    with pytest.raises(CaseBundleError, match="Invalid manual simulation record"):
+        create_case_bundle(
+            destination,
+            scene,
+            case_label="ManualEvidence",
+            workflow={"schemaVersion": "1.0"},
+            robot_profile=profile,
+            manual_simulation_records=[invalid],
+        )
+    assert not destination.exists()
+
+    bundle = create_case_bundle(
+        tmp_path / "tampered.dentocase",
+        scene,
+        case_label="ManualEvidence",
+        workflow={"schemaVersion": "1.0"},
+        robot_profile=profile,
+        manual_simulation_records=[record],
+    ).path
+    with zipfile.ZipFile(bundle) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    members[MANUAL_SIMULATION_MEMBER] += b" "
+    tampered = tmp_path / "tampered-copy.dentocase"
+
+    def write_members(path: Path) -> None:
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, payload in members.items():
+                archive.writestr(name, payload)
+
+    write_members(tampered)
+    with pytest.raises(CaseBundleError, match="integrity check failed"):
+        validate_case_bundle(tampered)
+
+    members[MANUAL_SIMULATION_MEMBER] = json.dumps(
+        [{**record, "record_fingerprint": "forged"}],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    manifest = json.loads(members[MANIFEST_MEMBER])
+    manifest["files"][MANUAL_SIMULATION_MEMBER] = {
+        "sha256": hashlib.sha256(members[MANUAL_SIMULATION_MEMBER]).hexdigest(),
+        "sizeBytes": len(members[MANUAL_SIMULATION_MEMBER]),
+    }
+    members[MANIFEST_MEMBER] = json.dumps(
+        manifest,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    members[CHECKSUMS_MEMBER] = "".join(
+        f"{file_record['sha256']}  {name}\n"
+        for name, file_record in sorted(manifest["files"].items())
+    ).encode("ascii")
+    invalid_copy = tmp_path / "invalid-record-copy.dentocase"
+    write_members(invalid_copy)
+    with pytest.raises(CaseBundleError, match="Invalid manual simulation record"):
+        validate_case_bundle(invalid_copy)
 
 
 def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: Path) -> None:
@@ -262,7 +389,9 @@ def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: P
         schema_version="1.0",
         created_at_utc="2026-09-09T00:00:00+00:00",
     )
-    assert validate_case_bundle(legacy.path).manifest["schemaVersion"] == "1.0"
+    legacy_inspection = validate_case_bundle(legacy.path)
+    assert legacy_inspection.manifest["schemaVersion"] == "1.0"
+    assert legacy_inspection.manual_simulation_records == ()
     with zipfile.ZipFile(legacy.path) as archive:
         assert STUDY_INDEX_MEMBER not in archive.namelist()
         assert STUDY_ATTEMPTS_MEMBER not in archive.namelist()
@@ -370,6 +499,68 @@ def test_only_known_additive_rrt_profile_upgrade_is_compatible() -> None:
         saved, profile([urdf, {**new_ompl, "sha256": "c" * 64}])
     )
     assert not is_additive_rrt_profile_upgrade(saved, {**current, "identitySha256": "forged"})
+
+
+def test_only_known_five_dof_profile_upgrade_is_compatible() -> None:
+    saved_identity = "e73acf9bb6ca29a30707a99ad104235376ef0a579bf0bf71ac117608bb2fe682"
+    current_identity = (
+        "cac087c6ee96258416e587e43303a0351f331a8b668daf4ff0f3929a030ae52c"
+    )
+
+    def profile(identity, components):
+        return {
+            "schemaVersion": "1.0",
+            "runtimeRestorePolicy": "verify-installed-resources-then-explicitly-connect",
+            "identitySha256": identity,
+            "components": components,
+        }
+
+    old_canonical = {
+        "path": "description/urdf/dentobot.urdf",
+        "sha256": "c70c12e38dc12dd4798f6332426eea82a430dc882836ef31cf0ce293c1e3f3d5",
+        "sizeBytes": 100,
+    }
+    new_canonical = {
+        **old_canonical,
+        "sha256": "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a",
+        "sizeBytes": 101,
+    }
+    old_diagnostic = {
+        "path": "description/urdf/dentobot.diagnostic-no-spindle-collision.urdf",
+        "sha256": "8345886de7ecbe359df010da37a5099d209edae41dc9fc9857a4dccbe61ace99",
+        "sizeBytes": 90,
+    }
+    new_diagnostic = {
+        **old_diagnostic,
+        "sha256": "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995",
+        "sizeBytes": 91,
+    }
+    mesh = {"path": "description/meshes/link.stl", "sha256": "a" * 64, "sizeBytes": 12}
+    saved_components = [old_canonical, old_diagnostic, mesh]
+    current_components = [new_canonical, new_diagnostic, mesh]
+    saved = profile(saved_identity, saved_components)
+    current = profile(current_identity, current_components)
+
+    assert is_five_dof_profile_upgrade(saved, current)
+    assert not is_five_dof_profile_upgrade(
+        saved, profile(current_identity, current_components[:-1])
+    )
+    assert not is_five_dof_profile_upgrade(
+        saved,
+        profile(
+            current_identity,
+            current_components + [{"path": "extra", "sha256": "b" * 64, "sizeBytes": 1}],
+        ),
+    )
+    mutated = [{**item} for item in current_components]
+    mutated[2]["sha256"] = "b" * 64
+    assert not is_five_dof_profile_upgrade(saved, profile(current_identity, mutated))
+    wrong_urdf = [{**item} for item in current_components]
+    wrong_urdf[0]["sha256"] = "c" * 64
+    assert not is_five_dof_profile_upgrade(saved, profile(current_identity, wrong_urdf))
+    assert not is_five_dof_profile_upgrade(
+        saved, profile(saved_identity, current_components)
+    )
 
 
 def test_lineage_snapshot_accepts_append_only_schema_v1_extensions() -> None:
@@ -488,26 +679,43 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     outer_begin = open_case.index(
         "restoreGeneration = self._beginCaseBundleRestore()"
     )
+    bind_validation = open_case.index(
+        "self._bindAndValidateRestoredCase(inspection.workflow"
+    )
     bind = open_case.index("self.setParameterNode(self.logic.getParameterNode())")
     pre_hydration_events = open_case.index("slicer.app.processEvents()", bind)
     hydrate = open_case.index("self.logic.hydrateDentoCaseStateAfterLoad(", bind)
-    post_hydration_events = open_case.index("slicer.app.processEvents()", hydrate)
-    audit = open_case.index("self._validateHydratedCaseBundle(inspection.workflow)")
-    revalidate = open_case.index("self._revalidateImportedStep6ContextAfterLoad()")
-    stage_restore = open_case.index("self._setWorkflowStage(savedStage", revalidate)
-    display_restore = open_case.index("self._enforceStep6OpenedJawDisplaySeparation()", stage_restore)
+    update = open_case.index("self._updateFromParameterNodeOnce()", hydrate)
+    post_hydration_events = open_case.index("slicer.app.processEvents()", update)
+    hydrated_validation = open_case.index(
+        "self._validateHydratedCaseBundle(inspection.workflow)", post_hydration_events
+    )
+    profile_migration = open_case.index(
+        "self.logic._migrateLegacyJ2ZeroRobotProfile(", hydrated_validation
+    )
+    revalidation = open_case.index(
+        "self._revalidateImportedStep6ContextAfterLoad()", profile_migration
+    )
+    stage_restore = open_case.index("self._setWorkflowStage(savedStage", revalidation)
+    display_restore = open_case.index(
+        "self._enforceStep6OpenedJawDisplaySeparation()", stage_restore
+    )
     outer_finally = open_case.index("\n        finally:\n", display_restore)
     outer_end = open_case.index(
         "self._endCaseBundleRestore(restoreGeneration)", outer_finally
     )
-    assert outer_begin < bind < pre_hydration_events < hydrate
-    assert hydrate < post_hydration_events < audit < revalidate
+    assert outer_begin < bind_validation < bind < pre_hydration_events < hydrate
+    assert hydrate < update < post_hydration_events < hydrated_validation
+    assert hydrated_validation < profile_migration < revalidation
     assert stage_restore < display_restore < outer_finally < outer_end
     assert open_case.count("self._beginCaseBundleRestore()") == 1
     assert open_case.count("self._endCaseBundleRestore(") == 1
-    assert "self._updateFromParameterNodeOnce()" in open_case[bind:outer_finally]
     assert "_beginCaseBundleRestore(" not in open_case[bind:outer_finally]
     assert "_endCaseBundleRestore(" not in open_case[bind:outer_finally]
+    assert (
+        "self.logic._migrateLegacyJ2ZeroRobotProfile(\n"
+        "                            self.logic.getParameterNode(),"
+    ) in open_case
     validation = open_case.index(
         "self._validateHydratedCaseBundle(inspection.workflow)"
     )
@@ -565,7 +773,9 @@ def test_case_restore_suppresses_segmentation_and_template_mutations() -> None:
     content_end = segmentation_source.index("\n    def ", content_start + 5)
     content_changed = segmentation_source[content_start:content_end]
     restore_guard = content_changed.index("if self._caseBundleRestoreDepth > 0:")
-    invalidation = content_changed.index("self.logic.invalidateCaseFoundationForSourceChange(")
+    invalidation = content_changed.index(
+        "self.logic.invalidateCaseFoundationForSourceChange("
+    )
     planning_refresh = content_changed.index("self._updatePlanning()", invalidation)
     assert restore_guard < invalidation < planning_refresh
 

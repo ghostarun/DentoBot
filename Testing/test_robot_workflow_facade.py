@@ -119,7 +119,6 @@ def test_guide_allowlist_uses_acknowledged_or_explicit_deferred_static_audit():
 from DENTOROS2Bridge import ROS2_JOINT_SI_ORDER  # noqa: E402
 from DENTOStep6Planning import TaskSpaceRoi  # noqa: E402
 from DENTOStep6State import (  # noqa: E402
-    SPINDLE_JOINT_NAME,
     fingerprint,
     parse_manual_simulation_record,
 )
@@ -199,7 +198,6 @@ class FakeParameterNode:
         self.robotJoint3Deg = 0.0
         self.robotJoint4Mm = 0.0
         self.robotJoint5Deg = 0.0
-        self.robotJoint6Deg = 0.0
         self.end_modify_callback = None
 
     def StartModify(self):
@@ -227,6 +225,19 @@ class FakeBridge:
         self.accepted = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
         self.phase_calls = []
         self.task_status = None
+        self.tcp_drag_enabled = False
+        self.tcp_nudges = []
+
+    def set_moveit_tcp_goal_drag_enabled(self, enabled):
+        self.tcp_drag_enabled = bool(enabled)
+        return True, "enabled" if enabled else "disabled", object() if enabled else None
+
+    def ensure_moveit_tcp_goal_transform(self):
+        return True, "goal transform ready", object()
+
+    def nudge_moveit_tcp_goal(self, translation, rotation):
+        self.tcp_nudges.append((translation, rotation))
+        return True, "nudged", object(), ((1.0, 0.0, 0.0, 1.0),)
 
     @staticmethod
     def simulation_stack_status():
@@ -369,6 +380,17 @@ class FakeLogic:
         return bool(base and base.active)
 
     @staticmethod
+    def assistedTaskLimitsReviewed(parameter_node):
+        try:
+            return bool(
+                json.loads(parameter_node.step6AssistedLimitProposalJson or "").get(
+                    "reviewed"
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    @staticmethod
     def getTaskJointLimits(parameter_node):
         del parameter_node
         pair = lambda lo, hi: SimpleNamespace(minimum=lo, maximum=hi)
@@ -378,7 +400,6 @@ class FakeLogic:
             joint_3=pair(-90.0, 90.0),
             joint_4=pair(0.0, 75.0),
             joint_5=pair(-90.0, 90.0),
-            joint_6=pair(-360.0, 360.0),
         )
 
     def updateRobotJointPoses(self, positions):
@@ -425,6 +446,93 @@ def make_facade():
         bridge=bridge,
     )
     return facade, parameter_node, logic, bridge
+
+
+def test_tcp_ik_facade_requires_authoritative_success_and_complete_finite_j1_j5():
+    facade, _parameter_node, _logic, bridge = make_facade()
+    valid = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
+    accepted_before = dict(bridge.accepted)
+
+    bridge.solve_moveit_tcp_goal = lambda: (True, "valid", valid)
+    result = facade.solveIk()
+    assert result.success is True
+    assert result.code == "ik_solved"
+    assert result.payload == valid
+    assert result.details["collisionAwareValidated"] is True
+    assert result.details["authoritativeStaticValidity"] is True
+
+    bridge.solve_moveit_tcp_goal = lambda: (False, "static validity unknown", valid)
+    result = facade.solveIk()
+    assert result.success is False
+    assert result.payload is None
+    assert result.details["collisionAwareValidated"] is False
+    assert result.details["authoritativeStaticValidity"] is False
+    assert result.details["candidateJointPositionsSi"] == valid
+
+    for invalid in (
+        {name: value for name, value in valid.items() if name != ROS2_JOINT_SI_ORDER[-1]},
+        {**valid, ROS2_JOINT_SI_ORDER[0]: float("nan")},
+        {**valid, "unexpected_joint": 0.0},
+    ):
+        bridge.solve_moveit_tcp_goal = lambda invalid=invalid: (
+            True,
+            "bridge reported valid",
+            invalid,
+        )
+        result = facade.solveIk()
+        assert result.success is False
+        assert result.payload is None
+        assert result.details["authoritativeStaticValidity"] is False
+
+    bridge.solve_moveit_tcp_goal = lambda: (_ for _ in ()).throw(
+        RuntimeError("validation unavailable")
+    )
+    result = facade.solveIk()
+    assert result.success is False
+    assert result.payload is None
+    assert result.details["authoritativeStaticValidity"] is False
+    assert bridge.accepted == accepted_before
+
+
+def test_tcp_drag_facade_is_explicit_and_nudge_is_display_only():
+    facade, _parameter_node, _logic, bridge = make_facade()
+
+    prepared = facade.ensureTcpGoal()
+    assert prepared.success and prepared.code == "tcp_goal_ready"
+    assert not bridge.tcp_drag_enabled
+
+    invalid_toggle = facade.setTcpDragEnabled(1)
+    assert not invalid_toggle.success
+    assert not bridge.tcp_drag_enabled
+
+    enabled = facade.setTcpDragEnabled(True)
+    assert enabled.success and enabled.code == "tcp_drag_enabled"
+    assert enabled.details == {"dragEnabled": True}
+    assert bridge.tcp_drag_enabled
+
+    goal = facade.nudgeTcpGoal(
+        {
+            "translation_ras_mm": (1.0, 0.0, 0.0),
+            "rotation_local_rpy_deg": (0.0, 0.0, 0.0),
+            "source": "keyboard",
+        }
+    )
+    assert goal.success and goal.code == "tcp_goal_nudged"
+    assert goal.details["acceptedRobotStateChanged"] is False
+    assert goal.details["routeAuthority"] is False
+    assert goal.payload["currentPoseParent"][0][3] == 1.0
+    assert bridge.tcp_nudges == [((1.0, 0.0, 0.0), (0.0, 0.0, 0.0))]
+    assert bridge.applied == [] and bridge.phase_calls == []
+
+    invalid_nudge = facade.nudgeTcpGoal(
+        {"translation_ras_mm": (1.0, 0.0, 0.0), "source": "keyboard"}
+    )
+    assert not invalid_nudge.success
+    assert len(bridge.tcp_nudges) == 1
+
+    disabled = facade.setTcpDragEnabled(False)
+    assert disabled.success and disabled.code == "tcp_drag_disabled"
+    assert not bridge.tcp_drag_enabled
 
 
 class FakePreviewTimer:
@@ -488,7 +596,6 @@ def test_incomplete_preview_blocks_home_and_manual_joint_motion_paths():
         parameter_node.robotJoint3Deg,
         parameter_node.robotJoint4Mm,
         parameter_node.robotJoint5Deg,
-        parameter_node.robotJoint6Deg,
     )
 
     def forbidden_context_access():
@@ -517,7 +624,6 @@ def test_incomplete_preview_blocks_home_and_manual_joint_motion_paths():
         parameter_node.robotJoint3Deg,
         parameter_node.robotJoint4Mm,
         parameter_node.robotJoint5Deg,
-        parameter_node.robotJoint6Deg,
     )
 
 
@@ -850,6 +956,13 @@ def test_manual_base_reconciliation_resyncs_only_the_accepted_baseline():
         f"obstacle-{index}" for index in range(4)
     )
     assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["acceptedMatrixWorldRasMm"] == (
+        facade._manual_simulation_base_matrix(parameter_node)
+    )
+    assert result.details["acceptedBaselineMatrixWorldRasMm"] == result.details[
+        "acceptedMatrixWorldRasMm"
+    ]
+    assert result.details["acceptedMatrixWorldRasMm"] != candidate
     assert result.details["failureEvidence"] == failure_evidence
     assert result.details["staged"]
     assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
@@ -1550,6 +1663,53 @@ def test_workspace_runtime_validity_requires_current_roi_source_and_trajectory()
     facade._runtime_validated_workspace_key = fingerprint(payload)
 
     assert facade.workspaceRuntimeValidated(parameter_node)
+    saved_proposal = parameter_node.step6AssistedLimitProposalJson
+    saved_runtime_key = facade._runtime_validated_workspace_key
+    assert facade.workspaceRoiMatchesSavedEvidence(roi, current_source, parameter_node)
+    assert facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        TaskSpaceRoi((3.0, 3.0, 4.0), roi.dimensions_mm),
+        current_source,
+        parameter_node,
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        roi,
+        {**current_source, "openingRevision": current_source["openingRevision"] + 1},
+        parameter_node,
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        roi, {"openingRevision": True, "gapLineNodeId": "gap-line-current"}, parameter_node
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence("malformed", current_source, parameter_node)
+    saved_payload = json.loads(saved_proposal)
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(
+        {**saved_payload, "roi_source_fingerprint": "stale"}
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(
+        {**saved_payload, "roi_fingerprint": "stale"}
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = "malformed"
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = saved_proposal
+    assert parameter_node.step6AssistedLimitProposalJson == saved_proposal
+    assert facade._runtime_validated_workspace_key == saved_runtime_key
+
+    active_source = {
+        "centerWorldRasMm": (2.0000004, 3.0000004, 4.0000004),
+        "dimensionsMm": (200.0, 200.0, 200.0),
+        **current_source,
+    }
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        TaskSpaceRoi(
+            active_source["centerWorldRasMm"],
+            active_source["dimensionsMm"],
+        ),
+        current_source,
+        parameter_node,
+    )
+    assert facade.workspaceRuntimeValidated(parameter_node)
 
     active_source = {
         **active_source,
@@ -1564,6 +1724,293 @@ def test_workspace_runtime_validity_requires_current_roi_source_and_trajectory()
     }
     active_trajectory[0] = "trajectory-changed"
     assert not facade.workspaceRuntimeValidated(parameter_node)
+
+
+def test_approach_planning_requires_reviewed_workspace_limits_before_guard_or_planner():
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    parameter_node.step6MotionDiagnosticJson = ""
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.assistedTaskLimitsReviewed = lambda _node: False
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    facade.workspaceRuntimeValidated = lambda _node=None: True
+    calls = []
+    facade._prepare_phase_guard = lambda *_args, **_kwargs: calls.append("guard")
+    facade._goal1_pre_entry_ik_candidates = lambda *_args, **_kwargs: calls.append(
+        "planner"
+    )
+
+    result = facade.planApproachPhase()
+
+    assert not result.success and result.code == "approach_plan_failed"
+    assert "Review the assisted workspace limits" in result.message
+    assert calls == []
+    assert bridge.phase_calls == []
+
+
+def _provisional_workspace_confirmation_fixture():
+    facade, parameter_node, logic, bridge = make_facade()
+    home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    home = SimpleNamespace(
+        joint_names=ROS2_JOINT_SI_ORDER,
+        joint_positions_si=tuple(home_positions.values()),
+        to_dict=lambda: dict(home_positions),
+    )
+    entry, target = (1.0, 2.0, 3.0), (1.0, 2.0, 13.0)
+    trajectory_revision = "trajectory-current"
+    snapshot = SimpleNamespace(
+        snapshot_fingerprint="task-confirmed-current",
+        trajectory_revision=trajectory_revision,
+        entry_ras_mm=entry,
+        target_ras_mm=target,
+    )
+    current_snapshot = [None]
+    workspace_checks = []
+    workspace_state_at_confirmation = []
+
+    parameter_node.robotBaseTransform.active = True
+    facade._planning_scene_synchronized = True
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    logic.taskHomeRecord = lambda _node: home
+    logic.collisionSceneAuditRecord = lambda _node: SimpleNamespace(
+        audit_fingerprint="scene-current"
+    )
+    logic.step6PlanningContextFreshnessIssues = lambda _node: ()
+    logic.step6TrajectorySummary = lambda _node: {
+        "isValid": True,
+        "entryRas": entry,
+        "targetRas": target,
+    }
+    logic.step6TrajectoryRevision = lambda _node: trajectory_revision
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: current_snapshot[0]
+    facade.defaultTaskSpaceRoi = lambda: RobotActionResult(
+        True,
+        "workspace_roi_ready",
+        "ready",
+        payload={
+            "centerWorldRasMm": (2.0, 3.0, 4.0),
+            "dimensionsMm": (20.0, 24.0, 28.0),
+            "openingRevision": 8,
+            "gapLineNodeId": "gap-line-current",
+        },
+    )
+
+    roi_source = {
+        "openingRevision": 8,
+        "gapLineNodeId": "gap-line-current",
+    }
+    roi_center, roi_dimensions = (2.0, 3.0, 4.0), (20.0, 24.0, 28.0)
+    roi_source_fingerprint = fingerprint(roi_source)
+    task_axis_fingerprint = fingerprint({
+        "status": "ProvisionalSelectedTrajectory",
+        "entry_ras_mm": entry,
+        "target_ras_mm": target,
+        "trajectory_fingerprint": trajectory_revision,
+        "task_fingerprint": "",
+    })
+    payload = {
+        "runtime_validation_status": "MoveItStaticStateValidity+BoundedHomeConnectivity",
+        "runtime_evidence_schema_version": "2.0",
+        "runtime_valid_sample_count": 1,
+        "home_connectivity_evaluated_sample_count": 1,
+        "home_connected_sample_count": 1,
+        "home_connectivity_status": "BoundedSubsetEvaluated",
+        "accepted_sample_evidence": [
+            {
+                "static_state_validity": {"status": "Valid"},
+                "home_connectivity": {"status": "HomeConnected"},
+                "joint_positions_si": home_positions,
+            }
+        ],
+        "candidate_counts": {"roiCandidateCount": 1, "homeConnectedCount": 1},
+        "reviewed": True,
+        "task_home_fingerprint": fingerprint(home.to_dict()),
+        "collision_audit_fingerprint": "scene-current",
+        "workspace_validation_policy_fingerprint": (
+            facade._workspace_validation_policy_fingerprint()
+        ),
+        "roi_source": roi_source,
+        "roi_source_fingerprint": roi_source_fingerprint,
+        "roi": {
+            "center_world_ras_mm": roi_center,
+            "dimensions_mm": roi_dimensions,
+        },
+        "roi_fingerprint": fingerprint({
+            "center_world_ras_mm": roi_center,
+            "dimensions_mm": roi_dimensions,
+            "source_fingerprint": roi_source_fingerprint,
+        }),
+        "trajectory_fingerprint": trajectory_revision,
+        "task_axis_status": "ProvisionalSelectedTrajectory",
+        "task_axis_fingerprint": task_axis_fingerprint,
+        "task_fingerprint": "",
+    }
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(payload)
+    facade._runtime_validated_workspace_key = fingerprint(payload)
+
+    workspace_runtime_validated = facade.workspaceRuntimeValidated
+
+    def track_workspace_validation(node=None):
+        result = workspace_runtime_validated(node)
+        workspace_checks.append(result)
+        return result
+
+    facade.workspaceRuntimeValidated = track_workspace_validation
+
+    def confirm_step6_task(_node):
+        workspace_state_at_confirmation.append(
+            workspace_checks[-1] if workspace_checks else None
+        )
+        current_snapshot[0] = snapshot
+        return snapshot
+
+    logic.confirmStep6Task = confirm_step6_task
+    planner_calls = []
+    facade.planApproachPhase = lambda: planner_calls.append(True)
+    return (
+        facade,
+        parameter_node,
+        logic,
+        bridge,
+        snapshot,
+        payload,
+        workspace_checks,
+        workspace_state_at_confirmation,
+        planner_calls,
+    )
+
+
+def _workspace_evidence_without_task_identity(payload):
+    identity_fields = {"task_axis_status", "task_axis_fingerprint", "task_fingerprint"}
+    return json.dumps(
+        {key: value for key, value in payload.items() if key not in identity_fields},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _assert_task_confirmation_has_no_motion_authority(facade, bridge, planner_calls):
+    assert facade._motion_plan is None
+    assert not facade.previewActive
+    assert not facade._guarded_preview_active
+    assert facade._preview_timer is None
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert planner_calls == []
+
+
+def test_confirm_task_rebinds_current_workspace_to_confirmed_snapshot():
+    (
+        facade,
+        parameter_node,
+        _logic,
+        bridge,
+        snapshot,
+        before,
+        workspace_checks,
+        workspace_state_at_confirmation,
+        planner_calls,
+    ) = _provisional_workspace_confirmation_fixture()
+    assert facade.workspaceRuntimeValidated(parameter_node)
+    workspace_checks.clear()
+    before_evidence = _workspace_evidence_without_task_identity(before)
+
+    result = facade.confirmTask()
+
+    assert result.success and result.code == "task_confirmed"
+    assert workspace_state_at_confirmation == [True]
+    after = json.loads(parameter_node.step6AssistedLimitProposalJson)
+    assert after["task_axis_status"] == "ConfirmedCurrent"
+    assert after["task_axis_fingerprint"] == fingerprint({
+        "status": "ConfirmedCurrent",
+        "entry_ras_mm": snapshot.entry_ras_mm,
+        "target_ras_mm": snapshot.target_ras_mm,
+        "trajectory_fingerprint": snapshot.trajectory_revision,
+        "task_fingerprint": snapshot.snapshot_fingerprint,
+    })
+    assert after["task_fingerprint"] == snapshot.snapshot_fingerprint
+    assert _workspace_evidence_without_task_identity(after) == before_evidence
+    assert facade.workspaceRuntimeValidated(parameter_node)
+    _assert_task_confirmation_has_no_motion_authority(facade, bridge, planner_calls)
+
+
+def test_confirm_task_does_not_rebind_workspace_that_was_not_current():
+    (
+        facade,
+        parameter_node,
+        _logic,
+        bridge,
+        _snapshot,
+        before,
+        workspace_checks,
+        workspace_state_at_confirmation,
+        planner_calls,
+    ) = _provisional_workspace_confirmation_fixture()
+    facade._runtime_validated_workspace_key = "stale-workspace-key"
+    before_json = parameter_node.step6AssistedLimitProposalJson
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    workspace_checks.clear()
+
+    result = facade.confirmTask()
+
+    assert result.success and result.code == "task_confirmed"
+    assert workspace_state_at_confirmation == [False]
+    assert parameter_node.step6AssistedLimitProposalJson == before_json
+    assert json.loads(before_json)["task_axis_status"] == "ProvisionalSelectedTrajectory"
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    _assert_task_confirmation_has_no_motion_authority(facade, bridge, planner_calls)
+
+
+def test_confirm_task_does_not_rebind_malformed_workspace_identity_or_payload():
+    (
+        facade,
+        parameter_node,
+        _logic,
+        bridge,
+        _snapshot,
+        payload,
+        workspace_checks,
+        workspace_state_at_confirmation,
+        planner_calls,
+    ) = _provisional_workspace_confirmation_fixture()
+    payload["task_axis_fingerprint"] = "malformed-axis-fingerprint"
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(payload)
+    facade._runtime_validated_workspace_key = fingerprint(payload)
+    malformed_identity_json = parameter_node.step6AssistedLimitProposalJson
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    workspace_checks.clear()
+    identity_result = facade.confirmTask()
+    assert identity_result.success and identity_result.code == "task_confirmed"
+    assert workspace_state_at_confirmation == [False]
+    assert parameter_node.step6AssistedLimitProposalJson == malformed_identity_json
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    _assert_task_confirmation_has_no_motion_authority(facade, bridge, planner_calls)
+
+    (
+        facade,
+        parameter_node,
+        _logic,
+        bridge,
+        _snapshot,
+        _payload,
+        workspace_checks,
+        workspace_state_at_confirmation,
+        planner_calls,
+    ) = _provisional_workspace_confirmation_fixture()
+    malformed_payload = "{not-json"
+    parameter_node.step6AssistedLimitProposalJson = malformed_payload
+    facade._runtime_validated_workspace_key = "malformed-workspace-payload"
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    workspace_checks.clear()
+
+    payload_result = facade.confirmTask()
+
+    assert payload_result.success and payload_result.code == "task_confirmed"
+    assert workspace_state_at_confirmation == [None]
+    assert parameter_node.step6AssistedLimitProposalJson == malformed_payload
+    assert not facade.workspaceRuntimeValidated(parameter_node)
+    _assert_task_confirmation_has_no_motion_authority(facade, bridge, planner_calls)
 
 
 def test_disconnect_forwards_progress_without_changing_bridge_result():
@@ -1595,6 +2042,7 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
 
     facade, parameter_node, logic, bridge = make_facade()
     parameter_node.robotBaseTransform.active = True
+    parameter_node.step6ApproachStandoffMm = 2.0
     parameter_node.step6AssistedLimitProposalJson = ""
     parameter_node.step6MotionDiagnosticJson = ""
     home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
@@ -1724,6 +2172,7 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
     assert session.full_task_outcome["stage1_p1_status"] == "NotRun"
     assert session.full_task_outcome["stage2_status"] == "NotRun"
     assert session.full_task_outcome["stage3_status"] == "NotRun"
+    assert session.full_task_outcome["target_conditioning"]["standoff_mm"] == 2.0
     assert record["success"] is False
     assert record["waypoint_count"] == 0
     assert record["solver_success"] is False
@@ -1742,6 +2191,191 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
     assert effects == []
     assert bridge.applied == []
     assert bridge.phase_calls == []
+
+
+def test_best_failed_preentry_ik_state_is_display_only(monkeypatch):
+    facade, parameter_node, _logic, bridge = make_facade()
+    parameter_node.step6MotionDiagnosticJson = "diagnostic"
+    records = []
+    session = SimpleNamespace(candidate_records=records, full_task_outcome={})
+    monkeypatch.setattr(
+        workflow_facade_module,
+        "parse_motion_diagnostic_session",
+        lambda _payload: session,
+    )
+    shown = []
+    bridge.show_goal_robot_joint_positions = lambda positions: (
+        shown.append(dict(positions)) or (True, "displayed")
+    )
+    evidence_calls = []
+    bridge.show_motion_diagnostic_evidence = lambda **kwargs: (
+        evidence_calls.append(kwargs) or (True, "evidence shown")
+    )
+    valid = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
+    records.append(
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": valid,
+        }
+    )
+
+    result = facade.showDiagnosticCandidate(0)
+
+    assert result.success and result.code == "diagnostic_candidate_shown"
+    assert "Best failed PreEntry IK state" in result.message
+    assert "visualization only" in result.message
+    assert "Static validity and collision may be unverified" in result.message
+    assert "no accepted-state, guard, or route authority" in result.message
+    assert shown == [valid]
+    assert len(evidence_calls) == 1
+
+    session.full_task_outcome = {"diagnostic_kind": "preentry_ik"}
+    records[:] = [{"solver_success": False, "best_joint_positions_si": valid}]
+    standalone_result = facade.showDiagnosticCandidate(0)
+    assert standalone_result.success
+    assert "Best failed PreEntry IK state" in standalone_result.message
+    assert shown == [valid, valid]
+    assert len(evidence_calls) == 2
+
+    records[:] = [{"solver_success": True, "best_joint_positions_si": valid}]
+    successful_seed = facade.showDiagnosticCandidate(0)
+    assert not successful_seed.success
+    assert successful_seed.code == "diagnostic_state_unavailable"
+
+    session.full_task_outcome = {}
+    malformed_records = (
+        {"full_chain_failure_stage": "preentry_ik"},
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": {
+                **valid,
+                "unexpected_joint": 0.0,
+            },
+        },
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": {
+                **valid,
+                ROS2_JOINT_SI_ORDER[0]: float("nan"),
+            },
+        },
+        {
+            "full_chain_failure_stage": "stage1_free_space",
+            "best_joint_positions_si": valid,
+        },
+    )
+    for record in malformed_records:
+        records[:] = [record]
+        rejected = facade.showDiagnosticCandidate(0)
+        assert not rejected.success
+        assert rejected.code == "diagnostic_state_unavailable"
+
+    assert shown == [valid, valid]
+    assert len(evidence_calls) == 2
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_goal1_preentry_failure_retains_geometry_and_session_fingerprint():
+    from DENTOStep6State import parse_motion_diagnostic_session
+
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    parameter_node.step6ApproachStandoffMm = 4.5
+    parameter_node.step6MotionDiagnosticJson = ""
+    home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    home = SimpleNamespace(
+        joint_names=tuple(ROS2_JOINT_SI_ORDER),
+        joint_positions_si=tuple(
+            home_positions[name] for name in ROS2_JOINT_SI_ORDER
+        ),
+    )
+    snapshot = SimpleNamespace(
+        snapshot_fingerprint="task-fingerprint",
+        entry_ras_mm=(10.0, 20.0, 30.0),
+        target_ras_mm=(10.0, 20.0, 20.0),
+    )
+    audit = SimpleNamespace(audit_fingerprint="audit-fingerprint")
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: snapshot
+    logic.taskHomeRecord = lambda _node: home
+    logic.collisionSceneAuditRecord = lambda _node: audit
+    logic.robotBaseFingerprint = lambda _node: "base-fingerprint"
+    logic.step6TrajectoryRevision = lambda _node: "trajectory-fingerprint"
+    logic.robotProfileFingerprint = lambda: "profile-fingerprint"
+    logic.step6ApproachPoints = lambda _node, _snapshot: (
+        (10.0, 20.0, 33.5),
+        (10.0, 20.0, 30.0),
+    )
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    facade.workspaceRuntimeValidated = lambda _node=None: True
+    parameter_node.step6AssistedLimitProposalJson = json.dumps({"reviewed": True})
+    facade._guide_fit_evidence = lambda _node: {}
+    facade._tool_insertion_evidence = lambda *_args: {"planningAllowed": True}
+    facade._prepare_phase_guard = lambda *_args, **_kwargs: (True, "prepared")
+
+    seed_records = [
+        {
+            "candidate_index": index,
+            "seed_provenance": "task_home" if index == 0 else "workspace_seed",
+            "seed_joint_positions_si": dict(home_positions),
+            "failure_classification": "position_axis_ik_failed",
+            "solver_message": f"seed {index} failed",
+            "position_residual_mm": position,
+            "drilling_axis_residual_deg": axis,
+        }
+        for index, (position, axis) in enumerate(((0.6, 1.0), (0.4, 0.8)))
+    ]
+
+    def no_ik(_node, _pre_entry, _entry, _target, _home, *, seed_collector=None, **_kwargs):
+        for record in seed_records:
+            seed_collector(dict(record))
+        return [], [
+            "full seed 0 failure",
+            "additional failure from seed 0",
+            "full seed 1 failure",
+        ]
+
+    facade._goal1_pre_entry_ik_candidates = no_ik
+
+    result = facade.planApproachPhase()
+
+    assert not result.success
+    assert result.code == "approach_plan_failed"
+    assert "Best observed position/axis residual: 0.400 mm / 0.800°" in result.message
+    assert "tolerances: 0.250 mm / 0.500°" in result.message
+    assert "Full per-seed evidence is in Motion Diagnostics." in result.message
+    assert "full seed 0 failure" not in result.message
+    assert result.details["motionDiagnosticSessionFingerprint"]
+    assert result.payload is None
+    assert facade._motion_plan is None
+    assert bridge.phase_calls == []
+
+    session = parse_motion_diagnostic_session(parameter_node.step6MotionDiagnosticJson)
+    assert session.session_fingerprint == result.details[
+        "motionDiagnosticSessionFingerprint"
+    ]
+    outcome = session.full_task_outcome
+    assert outcome["target_conditioning"] == {
+        "world_frame": "RAS_mm",
+        "pre_entry_world_ras_mm": [10.0, 20.0, 33.5],
+        "entry_world_ras_mm": [10.0, 20.0, 30.0],
+        "target_world_ras_mm": [10.0, 20.0, 20.0],
+        "standoff_mm": 4.5,
+    }
+    assert outcome["blocked_stage"] == "preentry_ik"
+    assert session.candidate_records[0]["message"] == "seed 0 failed"
+    assert session.candidate_records[1]["message"] == "seed 1 failed"
+    assert all(
+        "additional failure from seed 0" not in record["message"]
+        for record in session.candidate_records
+    )
+    assert all(
+        record["success"] is False
+        and record["waypoint_count"] == 0
+        and record["full_chain_candidate_status"] == "Blocked"
+        for record in session.candidate_records
+    )
 
 
 def _ready_stage_diagnostic_fixture(facade, parameter_node, monkeypatch):
@@ -2047,16 +2681,15 @@ def test_legacy_joint_request_preserves_unknown_manual_jog_latch():
     assert bridge.phase_calls == []
 
 
-def test_legacy_joint_request_keeps_external_spindle_exclusion():
+def test_unrecognized_joint_request_is_rejected_without_runtime_access():
     facade, _parameter_node, logic, bridge = make_facade()
 
     def forbidden_context_access():
-        raise AssertionError("J6 exclusion accessed workflow context")
+        raise AssertionError("unrecognized joint request accessed workflow context")
 
     facade._require_context = forbidden_context_access
-    result = facade.requestJointValue(SPINDLE_JOINT_NAME, 20.0)
+    result = facade.requestJointValue("unexpected_joint", 20.0)
     assert not result.success
-    assert result.code == "external_spindle"
     assert logic.updated == []
     assert bridge.applied == []
     assert bridge.phase_calls == []
@@ -2350,7 +2983,7 @@ def test_approach_preview_rejects_stale_preflight_identity():
     assert bridge.phase_calls == []
 
 
-def test_complete_approach_reaches_existing_home_guard_and_excludes_j6(monkeypatch):
+def test_complete_approach_reaches_existing_home_guard_with_five_joints(monkeypatch):
     facade, _logic, bridge, positions, _plan = _complete_approach_preview_fixture()
     monitored = dict(positions)
     monitored[ROS2_JOINT_SI_ORDER[0]] = 0.1
@@ -2364,7 +2997,7 @@ def test_complete_approach_reaches_existing_home_guard_and_excludes_j6(monkeypat
     assert bridge.phase_calls == []
 
     monitored = dict(positions)
-    monitored[SPINDLE_JOINT_NAME] = 0.5
+    monitored["unexpected_joint"] = 0.5
     bridge.monitored_joint_positions_si = lambda: monitored
     original_import = __import__
 
@@ -2374,11 +3007,10 @@ def test_complete_approach_reaches_existing_home_guard_and_excludes_j6(monkeypat
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", import_without_qt)
-    spindle_only = facade.previewPhase("approach")
+    extra_joint = facade.previewPhase("approach")
 
-    assert not spindle_only.success
-    assert spindle_only.code == "phase_preview_failed"
-    assert "stop after preview authority checks" in spindle_only.message
+    assert not extra_joint.success
+    assert extra_joint.code == "guarded_motion_history_home_mismatch"
     assert bridge.phase_calls == []
 
 
@@ -2478,7 +3110,7 @@ def test_stage1_selects_one_fixed_frame_after_full_chain_preflight():
     assert "selected_roll_deg" in approach
 
 
-def test_stage1_uses_every_bounded_home_connected_seed_without_j6():
+def test_stage1_uses_every_bounded_home_connected_seed():
     class SeedBridge(FakeBridge):
         def __init__(self):
             super().__init__()
@@ -2745,7 +3377,6 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
             joint_3=pair(-90.0, 90.0),
             joint_4=pair(0.0, 75.0),
             joint_5=pair(-90.0, 90.0),
-            joint_6=pair(-360.0, 360.0),
         )
 
     logic.robotDescriptionPaths = lambda: ("fixture.urdf", None)
@@ -2910,7 +3541,6 @@ def test_manual_draft_reports_reviewed_joint_limit_before_static_or_fk(monkeypat
         joint_3=SimpleNamespace(minimum=-90.0, maximum=90.0),
         joint_4=SimpleNamespace(minimum=0.0, maximum=75.0),
         joint_5=SimpleNamespace(minimum=-90.0, maximum=90.0),
-        joint_6=SimpleNamespace(minimum=-360.0, maximum=360.0),
     )
     logic.getTaskJointLimits = lambda _node: task_limits
     request = dict(zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03)))
@@ -2958,7 +3588,6 @@ def test_manual_draft_reports_mechanical_limit_before_static_or_fk(monkeypatch):
         joint_3=SimpleNamespace(minimum=-90.0, maximum=90.0),
         joint_4=SimpleNamespace(minimum=0.0, maximum=75.0),
         joint_5=SimpleNamespace(minimum=-90.0, maximum=90.0),
-        joint_6=SimpleNamespace(minimum=-360.0, maximum=360.0),
     )
     logic.getTaskJointLimits = lambda _node: reviewed_limits
     request = dict(zip(ROS2_JOINT_SI_ORDER, (0.6, 0.001, 0.02, 0.002, 0.03)))
@@ -3387,7 +4016,7 @@ def test_manual_draft_state_rejects_invalid_vectors_without_authority(monkeypatc
         zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
     )
     invalid_vectors = (
-        {**request, SPINDLE_JOINT_NAME: 0.0},
+        {**request, "unexpected_joint": 0.0},
         {name: value for name, value in request.items() if name != ROS2_JOINT_SI_ORDER[0]},
         {**request, ROS2_JOINT_SI_ORDER[0]: True},
         {**request, ROS2_JOINT_SI_ORDER[0]: float("nan")},
@@ -3481,14 +4110,13 @@ def test_stage1_orientation_commitment_fingerprints_axis_and_complete_rotation()
     assert first["fingerprint"] == second["fingerprint"]
 
 
-def test_post_preentry_motion_cost_ignores_external_spindle_rotation():
+def test_post_preentry_motion_cost_uses_only_canonical_arm_joints():
     first = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
     spindle_only = dict(first)
-    spindle_only[SPINDLE_JOINT_NAME] = 2.0
-    arm_move = dict(spindle_only)
+    arm_move = dict(first)
     arm_move[ROS2_JOINT_SI_ORDER[0]] = 0.5
     assert DENTORobotWorkflowFacade._arm_path_motion_cost(
-        SimpleNamespace(waypoint_joint_vectors_si=(first, spindle_only))
+        SimpleNamespace(waypoint_joint_vectors_si=(first, dict(first)))
     ) == 0.0
     assert DENTORobotWorkflowFacade._arm_path_motion_cost(
         SimpleNamespace(waypoint_joint_vectors_si=(first, arm_move))
@@ -3569,7 +4197,6 @@ def test_collision_guard_uses_group_joint_count_and_supports_validate_only():
     source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text(
         encoding="utf-8"
     )
-    assert "SPINDLE_LOCKED_VALUE_RAD" not in source
     assert "validate_only" in source
     assert "preflight_positions_" in source
 
@@ -3770,8 +4397,82 @@ def _manual_task_home_review_probe(monkeypatch):
     return facade, parameter_node, logic, bridge
 
 
+def _unreviewed_taskless_home_review_probe(monkeypatch):
+    facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    logic.assistedTaskLimitsReviewed = lambda _node: False
+    return facade, parameter_node, logic, bridge
+
+
 def _manual_task_home_candidate(values=(0.01, 0.001, 0.02, 0.002, 0.03)):
     return dict(zip(ROS2_JOINT_SI_ORDER, values))
+
+
+def test_unreviewed_taskless_home_review_reads_and_stages_detached_current_candidate(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge = _unreviewed_taskless_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    accepted_before = bridge.last_accepted_joint_positions_si()
+    monitored_before = bridge.monitored_joint_positions_si()
+    applied_before = list(bridge.applied)
+    home_json_before = parameter_node.step6TaskHomeJson
+
+    current = facade.manualTaskHomeReview()
+    staged = facade.stageManualTaskHomeReview(candidate)
+    state = facade.manualTaskHomeReview()
+
+    assert logic.confirmedTaskRecord(parameter_node) is None
+    assert not logic.assistedTaskLimitsReviewed(parameter_node)
+    assert current.success and current.details["identityStatus"] == "current"
+    assert staged.success and staged.details["identityStatus"] == "current"
+    assert staged.details["candidateJointPositionsSi"] == candidate
+    assert staged.details["acceptedJointPositionsSi"] == accepted_before
+    assert state.success and state.details["candidateJointPositionsSi"] == candidate
+    assert bridge.last_accepted_joint_positions_si() == accepted_before
+    assert bridge.monitored_joint_positions_si() == monitored_before
+    assert bridge.accepted == accepted_before and bridge.applied == applied_before
+    assert bridge.manual_requests == [] and bridge.phase_calls == []
+    assert parameter_node.step6TaskHomeJson == home_json_before
+
+
+def test_ordinary_manual_identity_still_requires_reviewed_limits_for_taskless_case(
+    monkeypatch,
+):
+    facade, parameter_node, _logic, bridge = _unreviewed_taskless_home_review_probe(monkeypatch)
+    accepted_before = bridge.last_accepted_joint_positions_si()
+    monitored_before = bridge.monitored_joint_positions_si()
+
+    try:
+        facade._manual_jog_current_identity(parameter_node)
+    except ValueError as exc:
+        assert "Review the current assisted joint limits" in str(exc)
+    else:
+        raise AssertionError("unreviewed limits allowed ordinary manual identity")
+
+    assert bridge.last_accepted_joint_positions_si() == accepted_before
+    assert bridge.monitored_joint_positions_si() == monitored_before
+    assert bridge.manual_requests == [] and bridge.phase_calls == []
+
+
+def test_taskless_home_review_candidate_stales_when_limits_fingerprint_changes(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge = _unreviewed_taskless_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    accepted_before = bridge.last_accepted_joint_positions_si()
+    monitored_before = bridge.monitored_joint_positions_si()
+    assert facade.stageManualTaskHomeReview(candidate).success
+
+    logic.step6TaskLimitsFingerprint = lambda _node: "limits-changed"
+    stale = facade.manualTaskHomeReview()
+
+    assert not stale.success and stale.details["identityStatus"] == "stale"
+    assert stale.details["staged"]
+    assert stale.details["candidateJointPositionsSi"] == candidate
+    assert bridge.last_accepted_joint_positions_si() == accepted_before
+    assert bridge.monitored_joint_positions_si() == monitored_before
+    assert bridge.manual_requests == [] and bridge.phase_calls == []
 
 
 def test_detached_task_home_review_stage_and_cancel_do_not_mutate_accepted_state(
@@ -3809,11 +4510,11 @@ def test_detached_task_home_review_stage_and_cancel_do_not_mutate_accepted_state
     assert parameter_node.step6TaskHomeJson == home_json_before
 
 
-def test_detached_task_home_review_rejects_j6_and_nonfinite_values(monkeypatch):
+def test_detached_task_home_review_rejects_extra_joint_and_nonfinite_values(monkeypatch):
     facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
     candidate = _manual_task_home_candidate()
     results = (
-        facade.stageManualTaskHomeReview({**candidate, "joint_6": 0.0}),
+        facade.stageManualTaskHomeReview({**candidate, "unexpected_joint": 0.0}),
         facade.stageManualTaskHomeReview(tuple(candidate.values()) + (0.0,)),
         facade.stageManualTaskHomeReview(
             {**candidate, ROS2_JOINT_SI_ORDER[0]: float("nan")}
@@ -4224,7 +4925,7 @@ def test_manual_jog_reconciliation_reads_native_state_and_allows_static_failure(
     assert result.details["nativeGuardEvidence"]["operation"] == "state_query"
     assert result.details["nativeGuardEvidence"]["queryOnly"] is True
     assert bridge.query_requests[0][0] == request
-    assert len(bridge.query_requests[0][0]) == 5  # J6 never enters the query.
+    assert len(bridge.query_requests[0][0]) == 5  # Query uses the canonical joint vector.
     assert bridge.accepted == request and bridge.accepted != accepted_before
     assert len(bridge.manual_requests) == 1
     assert (len(bridge.applied), len(bridge.phase_calls)) == motion_calls_before
@@ -4581,16 +5282,16 @@ def test_manual_jog_latches_when_post_submit_state_read_raises(monkeypatch):
     assert bridge.accepted == accepted_after_failure
 
 
-def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch):
+def test_manual_jog_rejects_extra_joint_and_blocks_out_of_limits(monkeypatch):
     facade, _node, logic, bridge, request, limits, task, mechanical = (
         _manual_jog_probe(monkeypatch)
     )
-    with_j6 = {**request, SPINDLE_JOINT_NAME: 0.0}
+    with_extra_joint = {**request, "unexpected_joint": 0.0}
 
-    rejected_j6 = facade.guardManualRobotJog(with_j6)
-    assert rejected_j6.details["rawGuardOutcome"] == "not_submitted"
-    assert rejected_j6.details["manualJogStatus"] == "rejected"
-    assert rejected_j6.details["manualJogReconciliationRequired"] is False
+    rejected_extra = facade.guardManualRobotJog(with_extra_joint)
+    assert rejected_extra.details["rawGuardOutcome"] == "not_submitted"
+    assert rejected_extra.details["manualJogStatus"] == "rejected"
+    assert rejected_extra.details["manualJogReconciliationRequired"] is False
     assert bridge.raw_requests == []
 
     narrowed = limits(-1.0, 1.0)

@@ -21,6 +21,7 @@
     ],
     "step6-restore": [
       "pure.step6_restore",
+      "pure.step6_opened_view",
       "runtime.step6_restore",
       "runtime.step6_view_integrity",
       "manual.step6_normal_window"
@@ -49,6 +50,12 @@
       "runtime.pulp_shell_fdi31",
       "manual.w5u04_normal_window"
     ],
+    "workflow-focus": [
+      "static.git_diff_check",
+      "pure.workflow_focus",
+      "runtime.slicer_reload",
+      "manual.step6_normal_window"
+    ],
     "lifecycle": [
       "static.git_diff_check",
       "runtime.slicer_reload",
@@ -58,12 +65,26 @@
     "step6-headed-review": [
       "static.git_diff_check",
       "static.step6_pycompile",
+      "pure.step6_opened_view",
       "pure.screen_recorder",
       "runtime.step6_headed_review",
       "manual.step6_normal_window"
     ]
   },
   "checks": [
+    {
+      "id": "pure.step6_opened_view",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_workflow_view_refresh.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_workflow_view_refresh.py Testing/test_module_reload.py",
+      "pass_condition": "exit_code_zero; active-stage view refresh reaches opened-source normalizer without a prior snapshot, inspection stages remain separate, and save-boundary normalization follows transient view restoration"
+    },
     {
       "id": "runtime.w5u04_bore_safe_template",
       "execution_kind": "container_slicer",
@@ -137,6 +158,18 @@
       "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
       "command_template": "docker exec dentobot-slicerros2 sh -lc 'DENTOBOT_CASE_SOURCE=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/run2-dentobot-case-step6x5.dentocase DENTOBOT_EXPECTED_FDI=31 timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
       "pass_condition": "DENTOBOT_FDI31_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "pure.workflow_focus",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": ["static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "pure_test",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_workflow_focus.py Testing/test_application_shell.py Testing/test_modular_structure.py",
+      "pass_condition": "exit_code_zero; explicit chrome visibility restoration, repeat entry, deleted widgets and header/lifecycle contracts pass; visual task-height and operator verdict remain separate"
     },
     {
       "id": "pure.support_boundary_bridge",
@@ -259,6 +292,52 @@
       "pass_condition": "exit_code_zero"
     },
     {
+      "id": "pure.step6_manual_tcp_workbench",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "pure_test",
+      "entrypoint": "Testing/test_robot_manual_jog_ui.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_robot_manual_jog_ui.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_application_shell.py",
+      "pass_condition": "exit_code_zero; TCP drag remains explicit-enable only; keyboard and Cartesian nudge gating, exact five-DOF position-axis IK, stage validation, accepted-state separation and no route/preview authority pass"
+    },
+    {
+      "id": "pure.five_dof_robot_contract",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 180,
+      "evidence_level": "pure_test",
+      "entrypoint": "dentobot_description/test/test_description.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider dentobot_description/test/test_description.py Testing/test_moveit_config.py Testing/test_step6_state.py Testing/test_step6_planning.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_robot_manual_jog_ui.py Testing/test_application_shell.py",
+      "pass_condition": "exit_code_zero; URDF and workflow expose exactly five movable joints J1-J5; burr/spindle geometry and canonical TCP remain fixed; Home, limits, FK/IK, guard, persistence and UI contain no sixth joint slot; manual paths retain no route or preview authority"
+    },
+    {
+      "id": "build.five_dof_robot_model",
+      "execution_kind": "container_colcon",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.five_dof_robot_contract"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "build",
+      "entrypoint": "dentobot_moveit_config",
+      "command_template": "In an isolated install overlay, source ROS Jazzy and run colcon build --packages-select dentobot_description dentobot_moveit_config, then record source/install provenance and verify the generated robot model reports exactly J1-J5 as movable/planning variables.",
+      "pass_condition": "exit_code_zero; both packages build in the isolated overlay; selected model and guard derive exactly five ordered arm joints; no installed package outside the overlay is replaced"
+    },
+    {
       "id": "build.slicer_ros2_if_changed",
       "execution_kind": "container_colcon",
       "parallel_safe": false,
@@ -355,6 +434,30 @@
       "entrypoint": "Testing/run_dentobot_step6_headed_review.py",
       "command_template": "From the exact renovation checkout, or the exact reviewed integration worktree with DENTOBOT_HEADED_PROVENANCE_MODE=integration, verify no other Slicer/ROS owner, select a current reviewed DentoCase by SHA-256 and an isolated native overlay, and start a private Xvfb display. Use Testing/record_slicer_screen.py --command to wrap one ROS simulation-stack plus headed Slicer invocation of Testing/run_dentobot_step6_headed_review.py. Supply exact host Git/checkout and native source/binary/prefix provenance via DENTOBOT_HEADED_* variables. Optional DENTOBOT_HEADED_INVALID_DRAFT_REVIEW=1 checks a safe invalid draft; DENTOBOT_HEADED_RECORD_REOPEN=1 requires DENTOBOT_HEADED_ALLOW_JOG=1 and checks production export/reopen after accepted jog. Save fresh video/manifest, itemized JSON, state-matched screenshots and logs; stop on the first fatal or unknown result and tear down only owned processes. --until-enter is opt-in manual capture and issues no robot commands.",
       "pass_condition": "current case opens; headed Step 6 controls visible; exact native and case identity; acknowledged simulation scene; read-only draft unchanged; at most one correlated in-limit J1 jog accepted and monitored; optional invalid draft is inspectable without guard submission; optional historical export/reopen has ordered events, unchanged accepted state and display-only authority; detached Base stage/cancel leaves accepted matrix unchanged. With DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1 only, a zero-displacement Base acceptance and current-pose Task Home acceptance must use production owners and produce separate state-matched evidence; otherwise those checks are NOT_RUN. Video manifest complete, screenshots and JSON present; no planner, preview, case save or hardware action. A precondition failure yields partial/failed evidence, not workflow acceptance."
+    },
+    {
+      "id": "runtime.step6_integration_connect_disconnect",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.screen_recorder",
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/run_dentobot_step6_headed_review.py",
+      "command_template": "From the reviewed integration checkout set DENTOBOT_HEADED_PROVENANCE_MODE=integration and DENTOBOT_HEADED_CONNECT_ONLY=1. Leave every jog, draft, Base/Home, workspace, keyboard, record, TCP, full-chain and output-case opt-in off. Supply exact host Git, native source/binary/package and unchanged current case provenance. Serialize a private Xvfb-headed Slicer/ROS simulation process under Testing/record_slicer_screen.py with fresh evidence and owned-process cleanup.",
+      "pass_condition": "Strict case hydration, opened anatomy, exact native identity, production Connect with acknowledged current object inventory and production Disconnect PASS; source package unchanged. Runner PARTIAL denotes intentionally unexecuted motion/planner/preview/save acceptance. Report timing, exit codes and complete recording separately; no hardware actions."
     },
     {
       "id": "runtime.step6_integration_taskless_draft",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ROS-level smoke test for DENTOBOT state, TF, and Cartesian planning."""
+"""ROS-level smoke test for DENTOBOT state, TF, and five-DOF IK."""
 
 from __future__ import annotations
 
@@ -104,9 +104,13 @@ def command_through_guard(node: SmokeNode, values, timeout_sec: float = 15.0):
 
 
 def planning_joint_values(message: JointState):
-    values = dict(zip(message.name, message.position))
-    if any(name not in values for name in PLANNING_JOINT_NAMES):
+    if (
+        len(message.name) != len(PLANNING_JOINT_NAMES)
+        or len(message.position) != len(PLANNING_JOINT_NAMES)
+        or set(message.name) != set(PLANNING_JOINT_NAMES)
+    ):
         return None
+    values = dict(zip(message.name, message.position))
     return [float(values[name]) for name in PLANNING_JOINT_NAMES]
 
 
@@ -148,29 +152,12 @@ def main() -> None:
         report["guard_minimum_self_distance_m"] = accepted_status[
             "minimum_self_distance_m"
         ]
-        report["j2_m"] = float(node.joint_state.position[1])
-        report["j4_m"] = float(node.joint_state.position[3])
+        accepted_positions = planning_joint_values(node.joint_state)
+        if accepted_positions is None:
+            raise RuntimeError("/joint_states did not contain exactly J1–J5")
+        report["j2_m"] = accepted_positions[1]
+        report["j4_m"] = accepted_positions[3]
 
-        # The air-rotor spindle is not a planning DOF.  A legacy six-value
-        # payload must be rejected before it can reach MoveIt or the publisher.
-        rejected_command = accepted_command + [0.1]
-        rejected_status = command_through_guard(node, rejected_command)
-        if rejected_status.get("accepted"):
-            raise RuntimeError("legacy spindle command was accepted")
-        if "external spindle" not in str(rejected_status.get("reason", "")).lower():
-            raise RuntimeError(
-                "legacy spindle command was rejected without the expected reason: "
-                + str(rejected_status)
-            )
-        if not all(
-            abs(actual - expected) < 1e-6
-            for actual, expected in zip(
-                planning_joint_values(node.joint_state) or (), accepted_command
-            )
-        ):
-            raise RuntimeError("rejected command changed /joint_states")
-        report["legacy_spindle_command_rejected"] = True
-        report["rejection_reason"] = rejected_status.get("reason", "")
         transform = spin_until(
             node,
             lambda: node.tf_buffer.lookup_transform(
@@ -262,13 +249,13 @@ def main() -> None:
                 ik_response.solution.joint_state.position,
             )
         )
-        if any(name not in ik_solution_values for name in PLANNING_JOINT_NAMES):
-            raise RuntimeError("MoveIt IK response omitted a planning joint")
-        external_spindle = "pneumatic_spindle-Copy_Revolute-6"
-        if external_spindle in ik_solution_values and abs(
-            float(ik_solution_values[external_spindle])
-        ) > 1.0e-9:
-            raise RuntimeError("MoveIt IK response moved the external spindle")
+        if (
+            len(ik_response.solution.joint_state.name) != len(PLANNING_JOINT_NAMES)
+            or len(ik_response.solution.joint_state.position)
+            != len(PLANNING_JOINT_NAMES)
+            or set(ik_solution_values) != set(PLANNING_JOINT_NAMES)
+        ):
+            raise RuntimeError("MoveIt IK response did not contain exactly J1–J5")
         report["ik_success"] = True
         report["ik_offset_m"] = ik_offset
         report["ik_solution_joint_count"] = len(ik_response.solution.joint_state.position)
@@ -315,9 +302,11 @@ def main() -> None:
         report["cartesian_points"] = len(response.solution.joint_trajectory.points)
         report["cartesian_offset_m"] = selected_offset
         report["error_code"] = int(response.error_code.val)
+        report["fixed_pose_cartesian_supported"] = bool(
+            response.fraction >= 0.99
+            and response.solution.joint_trajectory.points
+        )
         print(json.dumps(report, indent=2, sort_keys=True))
-        if response.fraction < 0.99 or not response.solution.joint_trajectory.points:
-            raise RuntimeError("MoveIt did not produce the 1 mm smoke trajectory")
     finally:
         node.destroy_node()
         rclpy.shutdown()

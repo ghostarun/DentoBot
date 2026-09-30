@@ -332,3 +332,7 @@ python3 Testing/record_slicer_screen.py --display :0 \
 Press Enter to finalize. This records pixels only. The Step 6 manual JSON
 record remains the authoritative requested/guarded/accepted motion evidence;
 the video is its optional companion and never restores live state on reopen.
+
+## Bounded integration Connect/Disconnect — 30 September
+
+Use matrix `runtime.step6_integration_connect_disconnect` with integration provenance and `DENTOBOT_HEADED_CONNECT_ONLY=1`. Every motion/draft/Base/Home/workspace/record/TCP/full-chain/save opt-in stays off. The existing headed runner validates native identity, opens the current case, uses production Connect and collision-scene readback, uses production Disconnect, checks the unchanged source hash, then stops before workspace recovery. Bounded items may PASS while the whole workflow remains PARTIAL. Preserve timing, complete video, screenshots, itemized report, process exit and owned-process cleanup separately. Final acceptance still requires Tarun’s verdict.

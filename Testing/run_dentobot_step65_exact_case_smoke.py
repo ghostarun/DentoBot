@@ -1,8 +1,8 @@
-"""Explicit saved-case simulation check, with opt-in historical x4 diagnosis.
+"""Explicit saved-case simulation runner with opt-in diagnostics.
 
-This test restores the operator's x4 case, reconstructs only transient ROS 2
-state, and exercises planning plus guarded preview.  It never exposes or calls
-hardware execution.
+Campaigns set DENTOBOT_EXPECTED_FDI to fail closed on the selected target. The
+interruption-only mode requires a fresh FDI11 process and never claims a full
+preview/Return/repeat cycle. This runner never calls hardware execution.
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ from DENTOStep6State import (  # noqa: E402
     DENTOCASE_STATE_SCHEMA_VERSION,
     ROBOT_ENVIRONMENT_SCHEMA_VERSION,
     SIMULATION_TOOL_PROVENANCE,
-    SPINDLE_JOINT_NAME,
     TRAJECTORY_REGISTRY_SCHEMA_VERSION,
     build_task_snapshot,
     fingerprint,
@@ -57,6 +56,120 @@ from run_dentobot_fdi31_recovery_diagnostic import (  # noqa: E402
     collision_scene_acknowledgement_evidence,
     corrected_native_build_identity,
 )
+
+
+def require_expected_fdi(actual_fdi: str, expected_fdi: str) -> None:
+    expected = str(expected_fdi or "").strip().removeprefix("FDI")
+    if expected and str(actual_fdi or "") != expected:
+        raise RuntimeError(
+            f"expected FDI {expected_fdi}, restored trajectory is FDI {actual_fdi or 'unknown'}"
+        )
+
+
+def parse_expected_guide_clearance_warning_count(value: str):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        count = int(text)
+    except ValueError as exc:
+        raise ValueError(
+            "DENTOBOT_EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT must be a non-negative integer"
+        ) from exc
+    if count < 0:
+        raise ValueError(
+            "DENTOBOT_EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT must be a non-negative integer"
+        )
+    return count
+
+
+def require_expected_guide_clearance_warning_count(
+    actual_count: int, expected_count
+) -> None:
+    if expected_count is not None and int(actual_count) != int(expected_count):
+        raise RuntimeError(
+            "unexpected preflight guide-clearance warning count: "
+            f"expected {expected_count}, observed {actual_count}"
+        )
+
+
+def validate_interruption_evidence(
+    evidence,
+    accepted_after_stop,
+    accepted_after_blocked_actions,
+    return_result,
+    retry_result,
+) -> dict[str, object]:
+    def same_positions(left, right) -> bool:
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        if set(left) != set(right):
+            return False
+        try:
+            return all(
+                math.isclose(
+                    float(left[name]), float(right[name]), rel_tol=0.0, abs_tol=1.0e-9
+                )
+                for name in left
+            )
+        except (TypeError, ValueError):
+            return False
+
+    if not isinstance(evidence, dict) or evidence.get("status") != "Incomplete":
+        raise RuntimeError("production Stop did not latch incomplete-preview evidence")
+    if evidence.get("endpointVerified") is not False:
+        raise RuntimeError("interrupted preview incorrectly claims endpoint verification")
+    prefix = evidence.get("acceptedPrefix")
+    if (
+        not isinstance(prefix, list)
+        or int(evidence.get("acceptedWaypointCount", 0)) < 1
+        or len(prefix) < 2
+    ):
+        raise RuntimeError("production Stop did not retain an accepted preview prefix")
+    pending = evidence.get("pendingRequest")
+    last = prefix[-1]
+    if (
+        not isinstance(pending, dict)
+        or pending.get("phase") != last.get("phase")
+        or not same_positions(
+            pending.get("requestedPositionsSi"), last.get("positionsSi")
+        )
+    ):
+        raise RuntimeError("stopped preview request does not match its accepted prefix")
+    if not same_positions(accepted_after_stop, last.get("positionsSi")):
+        raise RuntimeError("accepted state after Stop does not match the retained prefix")
+    if return_result.success or return_result.code != "guarded_return_partial_phase":
+        raise RuntimeError("normal Return Home was not blocked after interrupted preview")
+    if retry_result.success or retry_result.code != "incomplete_preview_blocks_motion":
+        raise RuntimeError("a repeat preview was not blocked after interrupted preview")
+    if not same_positions(accepted_after_blocked_actions, accepted_after_stop):
+        raise RuntimeError("a blocked follow-up action changed the accepted joint state")
+    return {
+        "status": str(evidence.get("status")),
+        "endpoint_verified": False,
+        "accepted_waypoint_count": int(evidence.get("acceptedWaypointCount", 0)),
+        "accepted_prefix": evidence.get("acceptedPrefix"),
+        "captured_home_positions_si": evidence.get("capturedHomePositionsSi"),
+        "pending_request": pending,
+        "pending_request_outcome": evidence.get("pendingRequestOutcome"),
+        "first_rejected": evidence.get("firstRejected"),
+        "last_accepted_positions_si": accepted_after_stop,
+        "accepted_after_blocked_actions": accepted_after_blocked_actions,
+        "return_home": {
+            "blocked": True,
+            "success": bool(return_result.success),
+            "code": str(return_result.code),
+            "message": str(return_result.message),
+        },
+        "repeat_preview": {
+            "blocked": True,
+            "success": bool(retry_result.success),
+            "code": str(retry_result.code),
+            "message": str(retry_result.message),
+        },
+        "accepted_state_unchanged_after_blocked_actions": True,
+        "no_home_teleport": True,
+    }
 
 
 if EXPLICIT_CASE and any(os.environ.get(name, "") == "1" for name in (
@@ -78,6 +191,13 @@ BASE_LOCAL_Z_OFFSET_MM = float(
     os.environ.get("DENTOBOT_BASE_LOCAL_Z_OFFSET_MM", "0")
 )
 EXPECTED_FDI = str(os.environ.get("DENTOBOT_EXPECTED_FDI", "")).strip()
+# Campaigns for the saved five-DOF FDI11 case set DENTOBOT_EXPECTED_FDI=11.
+EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT = parse_expected_guide_clearance_warning_count(
+    os.environ.get("DENTOBOT_EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT", "")
+)
+INTERRUPTION_ONLY = os.environ.get("DENTOBOT_STEP65_INTERRUPTION_ONLY", "") == "1"
+if os.environ.get("DENTOBOT_STEP65_INTERRUPTION_ONLY", "") not in ("", "1"):
+    raise RuntimeError("DENTOBOT_STEP65_INTERRUPTION_ONLY must be unset or exactly 1.")
 P3_REVALIDATION_INPUT = str(
     os.environ.get("DENTOBOT_P3_REVALIDATION_INPUT", "")
 ).strip()
@@ -118,6 +238,37 @@ if sum(bool(value) for value in (
     P5_APPROACH_INPUT,
 )) > 1:
     raise RuntimeError("P3 static revalidation, P4 insertion, and P5 approach modes are mutually exclusive.")
+if INTERRUPTION_ONLY:
+    incompatible_flags = (
+        "DENTOBOT_PLAN_ONLY",
+        "DENTOBOT_GOAL1_ONLY",
+        "DENTOBOT_DIAG_APPROACH_ENDPOINT",
+        "DENTOBOT_AUDIT_ACTUAL_CONTACT_ONLY",
+        "DENTOBOT_CAPTURE_FDI21_BOTTOM",
+        "DENTOBOT_ENDPOINT_ONLY",
+    )
+    incompatible = [
+        name for name in incompatible_flags if os.environ.get(name, "") == "1"
+    ]
+    if any((P3_REVALIDATION_INPUT, P4_INSERTION_INPUT, P5_APPROACH_INPUT)):
+        incompatible.append("P3/P4/P5 diagnostic input")
+    if incompatible:
+        raise RuntimeError(
+            "Interruption-only mode is a separate fresh-process run and cannot "
+            "combine with: " + ", ".join(incompatible)
+        )
+    if not EXPLICIT_CASE:
+        raise RuntimeError(
+            "Interruption-only mode requires DENTOBOT_EXACT_CASE for the reviewed FDI11 package."
+        )
+    if EXPECTED_FDI.removeprefix("FDI") != "11":
+        raise RuntimeError(
+            "Interruption-only mode requires DENTOBOT_EXPECTED_FDI=11 (or FDI11)."
+        )
+    if OUTPUT_CASE or REOPEN_SAVED_CASE or LOCK_SELECTED_ROUTE or abs(BASE_LOCAL_Z_OFFSET_MM) > 1.0e-12:
+        raise RuntimeError(
+            "Interruption-only mode cannot save/reopen a case, lock a route, or offset the base."
+        )
 
 
 def process_events(seconds: float = 0.25) -> None:
@@ -218,7 +369,7 @@ def _p3_runtime_joint_ranges(robot_node) -> tuple[dict[str, object], ...]:
     lower = tuple(float(value) for value in robot_node.GetJointLowerPositionLimits())
     upper = tuple(float(value) for value in robot_node.GetJointUpperPositionLimits())
     types = tuple(str(value) for value in robot_node.GetJointTypes())
-    expected_names = set(bridge.ROS2_JOINT_SI_ORDER) | {SPINDLE_JOINT_NAME}
+    expected_names = set(bridge.ROS2_JOINT_SI_ORDER)
     if (
         len(names) != len(lower)
         or len(names) != len(upper)
@@ -3554,10 +3705,7 @@ def run() -> dict[str, object]:
     if parameter_node is None or logic is None or facade is None:
         raise RuntimeError("restored Step 6 workflow services are unavailable")
     actual_fdi = target_fdi(parameter_node)
-    if EXPECTED_FDI and actual_fdi != EXPECTED_FDI.removeprefix("FDI"):
-        raise RuntimeError(
-            f"expected FDI {EXPECTED_FDI}, restored trajectory is FDI {actual_fdi or 'unknown'}"
-        )
+    require_expected_fdi(actual_fdi, EXPECTED_FDI)
     guide_bore = require_trajectory_guide_bore(parameter_node)
     if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
         raise RuntimeError("the package serialized a transient ROS robot")
@@ -4154,6 +4302,197 @@ def run() -> dict[str, object]:
                 facade.templateCollisionExclusionActive
             ),
         }
+    preflight_warning_count = int(
+        approach.details.get("guideClearanceWarningCount", 0)
+    )
+    require_expected_guide_clearance_warning_count(
+        preflight_warning_count,
+        EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT,
+    )
+    preflight_warning_details = _p3_jsonable(
+        approach.details.get("guideClearanceWarnings", ())
+    )
+    if INTERRUPTION_ONLY:
+        full_task_status = str(approach.details.get("fullTaskStatus") or "")
+        chain_ready = bool(facade.drillingPreflightReady)
+        common_report = {
+            "package": PACKAGE.name,
+            "targetFdi": actual_fdi,
+            "mode": "interruption_only",
+            "interruption_only": True,
+            "full_workflow_claimed": False,
+            "current_complete_guarded_chain": {
+                "full_task_status": full_task_status,
+                "drilling_preflight_ready": chain_ready,
+                "task_fingerprint": snapshot.snapshot_fingerprint,
+                "guard_session_id": str(facade._phase_guard_session_id or ""),
+            },
+            "preview_started": False,
+            "stop_invoked_after_accepted_prefix": False,
+            "guarded_preview_complete": False,
+            "guarded_return_home_complete": False,
+            "repeat_guarded_preview_complete": False,
+            "preflight_guide_clearance_warning_count": preflight_warning_count,
+            "preflight_guide_clearance_warnings": preflight_warning_details,
+            "expected_preflight_guide_clearance_warning_count": (
+                EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT
+            ),
+            "hardware_execution_enabled": False,
+        }
+
+        def interruption_failure(reason, *, result=None, evidence=None):
+            report = dict(common_report)
+            report.update(
+                {
+                    "interruption_only_verified": False,
+                    "failure": str(reason),
+                    "preview_result": (
+                        {
+                            "success": bool(result.success),
+                            "code": str(result.code),
+                            "message": str(result.message),
+                            "details": _p3_jsonable(result.details),
+                        }
+                        if result is not None
+                        else None
+                    ),
+                    "incomplete_preview_evidence": _p3_jsonable(evidence),
+                    "last_task_guard_status": _p3_jsonable(
+                        bridge.last_task_joint_status()
+                    ),
+                }
+            )
+            Path(DIAGNOSTIC_OUTPUT).parent.mkdir(parents=True, exist_ok=True)
+            Path(DIAGNOSTIC_OUTPUT).write_text(
+                json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+            )
+            return report
+
+        if full_task_status not in {"Complete", "CompletedWithWarnings"} or not chain_ready:
+            return interruption_failure(
+                "Current complete guarded preflight chain is unavailable."
+            )
+        stop_triggered = []
+        preview_progress = []
+        preview_finished = []
+
+        def interrupt_after_first_accepted_sample(index, total):
+            preview_progress.append((int(index), int(total)))
+            if int(index) > 0 and not stop_triggered:
+                stop_triggered.append({"accepted_index": int(index), "total": int(total)})
+                # Exercise the same production callback connected to the Stop button.
+                widget._onStep6StopPreview()
+
+        started = facade.previewPhase(
+            "approach",
+            interval_ms=50,
+            on_progress=interrupt_after_first_accepted_sample,
+            on_finished=preview_finished.append,
+        )
+        if not started.success:
+            return interruption_failure(
+                "Guarded preview did not start: " + str(started.message),
+                result=started,
+                evidence=facade.incompletePreviewEvidence,
+            )
+        common_report["preview_started"] = True
+        event = wait_until(
+            lambda: bool(stop_triggered or preview_finished), PREVIEW_TIMEOUT_SEC
+        )
+        if event is None:
+            if facade.previewActive:
+                widget._onStep6StopPreview()
+                wait_until(
+                    lambda: not facade.previewActive
+                    and not facade._preview_waypoint_in_flight,
+                    5.0,
+                )
+            return interruption_failure(
+                "No accepted preview sample arrived before timeout.",
+                evidence=facade.incompletePreviewEvidence,
+            )
+        if not stop_triggered:
+            result = preview_finished[-1]
+            return interruption_failure(
+                "Guarded preview ended before the first accepted sample could be interrupted.",
+                result=result,
+                evidence=(
+                    facade.incompletePreviewEvidence
+                    or result.details.get("incompletePreview")
+                ),
+            )
+        if wait_until(
+            lambda: not facade.previewActive
+            and not facade._preview_waypoint_in_flight,
+            5.0,
+        ) is None:
+            return interruption_failure(
+                "Production Stop did not settle the in-flight preview request.",
+                evidence=facade.incompletePreviewEvidence,
+            )
+        incomplete_evidence = facade.incompletePreviewEvidence
+        if not isinstance(incomplete_evidence, dict) or incomplete_evidence.get(
+            "status"
+        ) != "Incomplete":
+            return interruption_failure(
+                "Production Stop did not latch incomplete-preview evidence.",
+                evidence=incomplete_evidence,
+            )
+        accepted_after_stop = bridge.last_accepted_joint_positions_si()
+        return_result = facade.returnToTaskHome()
+        if return_result.success:
+            return interruption_failure(
+                "Normal Return Home unexpectedly succeeded after interrupted preview.",
+                result=return_result,
+                evidence=incomplete_evidence,
+            )
+        retry_result = facade.previewPhase("approach", interval_ms=50)
+        accepted_after_blocked_actions = bridge.last_accepted_joint_positions_si()
+        try:
+            interruption = validate_interruption_evidence(
+                incomplete_evidence,
+                accepted_after_stop,
+                accepted_after_blocked_actions,
+                return_result,
+                retry_result,
+            )
+        except RuntimeError as exc:
+            report = interruption_failure(
+                str(exc), result=retry_result, evidence=incomplete_evidence
+            )
+            report.update(
+                {
+                    "stop_invoked_after_accepted_prefix": True,
+                    "accepted_progress": preview_progress,
+                    "return_home_result": _p3_jsonable(return_result),
+                    "accepted_after_stop": _p3_jsonable(accepted_after_stop),
+                    "accepted_after_blocked_actions": _p3_jsonable(
+                        accepted_after_blocked_actions
+                    ),
+                }
+            )
+            Path(DIAGNOSTIC_OUTPUT).write_text(
+                json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+            )
+            return report
+        report = dict(common_report)
+        report.update(
+            {
+                "interruption_only_verified": True,
+                "stop_invoked_after_accepted_prefix": True,
+                "stop_action": "DENTOWorkflow._onStep6StopPreview",
+                "accepted_progress": preview_progress,
+                "interruption": interruption,
+                "last_task_guard_status": _p3_jsonable(
+                    bridge.last_task_joint_status()
+                ),
+            }
+        )
+        Path(DIAGNOSTIC_OUTPUT).parent.mkdir(parents=True, exist_ok=True)
+        Path(DIAGNOSTIC_OUTPUT).write_text(
+            json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        return report
     approach_finished = []
     approach_progress = []
     require_success(
@@ -4380,13 +4719,6 @@ def run() -> dict[str, object]:
     )
     if not final_return.details.get("axialRetractionCompleted"):
         raise RuntimeError("final guarded return did not complete axial retraction")
-    preflight_warning_count = int(
-        approach.details.get("guideClearanceWarningCount", 0)
-    )
-    if preflight_warning_count <= 0:
-        raise RuntimeError(
-            "the exact case did not persist its expected guide-clearance warning"
-        )
     saved_case_report = {}
     if OUTPUT_CASE:
         output_case = Path(OUTPUT_CASE)
@@ -4417,11 +4749,7 @@ def run() -> dict[str, object]:
             if slicer.util.getNodesByClass("vtkMRMLROS2RobotNode"):
                 raise RuntimeError("saved Stage 6 case restored a live ROS robot")
             restored_fdi = target_fdi(restored_parameter_node)
-            if EXPECTED_FDI and restored_fdi != EXPECTED_FDI.removeprefix("FDI"):
-                raise RuntimeError(
-                    "reopened case restored the wrong target FDI: "
-                    f"{restored_fdi or 'unknown'}"
-                )
+            require_expected_fdi(restored_fdi, EXPECTED_FDI)
             restored_guide_bore = require_trajectory_guide_bore(
                 restored_parameter_node
             )
@@ -4473,6 +4801,10 @@ def run() -> dict[str, object]:
             drilling_outcome.details.get("suppressedToolContactSampleCount", 0)
         ),
         "preflight_guide_clearance_warning_count": preflight_warning_count,
+        "preflight_guide_clearance_warnings": preflight_warning_details,
+        "expected_preflight_guide_clearance_warning_count": (
+            EXPECTED_GUIDE_CLEARANCE_WARNING_COUNT
+        ),
         "preflight_minimum_guide_clearance_warning_m": approach.details.get(
             "minimumGuideClearanceWarningM"
         ),
@@ -4544,7 +4876,11 @@ def run() -> dict[str, object]:
 try:
     report = run()
     print(
-        "DENTOBOT_P5_APPROACH_COMPLETE"
+        "DENTOBOT_STEP65_INTERRUPTION_ONLY_PASS"
+        if INTERRUPTION_ONLY and report.get("interruption_only_verified")
+        else "DENTOBOT_STEP65_INTERRUPTION_ONLY_FAILED"
+        if INTERRUPTION_ONLY
+        else "DENTOBOT_P5_APPROACH_COMPLETE"
         if APPROACH_ONLY
         else "DENTOBOT_P4_INSERTION_COMPLETE"
         if INSERTION_ONLY
@@ -4562,7 +4898,11 @@ try:
     bridge.shutdown_slicer_adapter()
     slicer.mrmlScene.Clear(0)
     slicer.app.processEvents()
-    slicer.util.exit(0)
+    slicer.util.exit(
+        1
+        if INTERRUPTION_ONLY and not report.get("interruption_only_verified")
+        else 0
+    )
 except Exception as exc:
     print(f"DENTOBOT_STEP65_EXACT_CASE_FAILED: {exc}", file=sys.stderr, flush=True)
     traceback.print_exc(file=sys.stderr)

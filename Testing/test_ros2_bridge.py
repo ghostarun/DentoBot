@@ -31,6 +31,9 @@ from DENTOROS2Bridge import (  # noqa: E402
     ROS2_TOOL_TCP_LINK,
     RuntimeState,
     _pose_residual_mm_degrees,
+    _nudged_tcp_goal_matrix,
+    _compute_live_tcp_kinematic_ik,
+    _install_kinematic_tcp_drag_observer,
     _rigid_pose_world_to_reference_rows,
     _trajectory_motion_summary,
     align_ros2_goal_to_base_transform,
@@ -45,6 +48,7 @@ from DENTOROS2Bridge import (  # noqa: E402
     parse_task_joint_status,
     position_axis_joint_limit_blockers,
     query_manual_joint_state_si,
+    set_moveit_tcp_goal_drag_enabled,
 )
 import DENTOROS2Bridge as bridge_module  # noqa: E402
 
@@ -61,6 +65,553 @@ def status_payload(**overrides) -> str:
     }
     data.update(overrides)
     return json.dumps(data)
+
+
+def test_tcp_goal_nudge_applies_ras_translation_and_local_rotation():
+    identity = (
+        (1.0, 0.0, 0.0, 10.0),
+        (0.0, 1.0, 0.0, 20.0),
+        (0.0, 0.0, 1.0, 30.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    translated = _nudged_tcp_goal_matrix(
+        identity, (2.0, -3.0, 4.0), (0.0, 0.0, 0.0)
+    )
+    assert tuple(row[3] for row in translated[:3]) == (12.0, 17.0, 34.0)
+    assert tuple(row[:3] for row in translated[:3]) == tuple(
+        row[:3] for row in identity[:3]
+    )
+
+    rotated = _nudged_tcp_goal_matrix(
+        identity, (0.0, 0.0, 0.0), (0.0, 0.0, 90.0)
+    )
+    assert rotated[0][:3] == pytest.approx((0.0, -1.0, 0.0), abs=1e-12)
+    assert rotated[1][:3] == pytest.approx((1.0, 0.0, 0.0), abs=1e-12)
+    assert rotated[2][:3] == pytest.approx((0.0, 0.0, 1.0), abs=1e-12)
+    assert tuple(row[3] for row in rotated[:3]) == (10.0, 20.0, 30.0)
+
+    current_rotated = _nudged_tcp_goal_matrix(
+        identity, (0.0, 0.0, 0.0), (0.0, 0.0, 90.0)
+    )
+    parent_translated = _nudged_tcp_goal_matrix(
+        current_rotated, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+    )
+    assert tuple(row[3] for row in parent_translated[:3]) == (11.0, 20.0, 30.0)
+    assert tuple(row[:3] for row in parent_translated[:3]) == tuple(
+        row[:3] for row in current_rotated[:3]
+    )
+    local_roll = _nudged_tcp_goal_matrix(
+        current_rotated, (0.0, 0.0, 0.0), (90.0, 0.0, 0.0)
+    )
+    for actual, expected in zip(
+        (row[:3] for row in local_roll[:3]),
+        ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        strict=True,
+    ):
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+
+@pytest.mark.parametrize(
+    "matrix, translation, rotation",
+    [
+        (((1.0, 0.0),), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        (
+            ((1.0, 0.0, 0.0, float("nan")),) * 4,
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+        ),
+        (
+            ((1.0, 0.0, 0.0, 0.0),) * 4,
+            (1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ),
+    ],
+)
+def test_tcp_goal_nudge_rejects_invalid_matrix_and_mixed_delta(
+    matrix, translation, rotation
+):
+    with pytest.raises(ValueError):
+        _nudged_tcp_goal_matrix(matrix, translation, rotation)
+
+
+@pytest.mark.parametrize(
+    "translation, rotation",
+    [
+        ((1.0, 2.0), (0.0, 0.0, 0.0)),
+        ((float("inf"), 0.0, 0.0), (0.0, 0.0, 0.0)),
+        ((0.0, 0.0, 0.0), (0.0, float("nan"), 0.0)),
+    ],
+)
+def test_tcp_goal_nudge_rejects_malformed_or_nonfinite_delta(translation, rotation):
+    with pytest.raises(ValueError):
+        _nudged_tcp_goal_matrix(
+            ((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0),
+             (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 0.0, 1.0)),
+            translation,
+            rotation,
+        )
+
+
+def test_tcp_drag_toggle_routes_only_to_native_enter_or_exit(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        bridge_module,
+        "ensure_moveit_tcp_goal_control",
+        lambda: (calls.append("enable") or True, "enabled", object()),
+    )
+    monkeypatch.setattr(
+        bridge_module,
+        "exit_moveit_tcp_goal_control",
+        lambda: (calls.append("disable") or True, "disabled", None),
+    )
+    assert not set_moveit_tcp_goal_drag_enabled("on")[0]
+    assert set_moveit_tcp_goal_drag_enabled(True)[0]
+    assert set_moveit_tcp_goal_drag_enabled(False)[0]
+    assert calls == ["enable", "disable"]
+
+
+def test_enable_and_disable_use_native_control_mode_entry_and_exit(monkeypatch):
+    goal = object()
+    enter_calls = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **kwargs: (
+            enter_calls.append(kwargs) or object(),
+            object(),
+            goal,
+            "",
+        ),
+    )
+    enabled, _message, enabled_goal = bridge_module.ensure_moveit_tcp_goal_control()
+    assert enabled and enabled_goal is goal
+    assert enter_calls == [{"initialize_goal": True}]
+
+    class NativeMotionLogic:
+        def __init__(self):
+            self.exited = []
+
+        def ExitControlMode(self, transform):
+            self.exited.append(transform)
+
+    native_logic = NativeMotionLogic()
+    monkeypatch.setattr(bridge_module, "get_motion_control_logic", lambda: native_logic)
+    monkeypatch.setattr(bridge_module, "_native_goal_transform", goal)
+    monkeypatch.setattr(bridge_module, "_native_tcp_drag_enabled", True)
+    disabled, _message, disabled_goal = bridge_module.exit_moveit_tcp_goal_control()
+    assert disabled and disabled_goal is None
+    assert native_logic.exited == [goal]
+    assert bridge_module._native_goal_transform is None
+    assert bridge_module._native_tcp_drag_enabled is False
+
+
+def test_tcp_goal_nudge_is_blocked_when_explicit_drag_mode_is_off(monkeypatch):
+    monkeypatch.setattr(bridge_module, "_native_tcp_drag_enabled", False)
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: pytest.fail("a disabled nudge must not enter native control"),
+    )
+    ok, message, goal_node, pose = bridge_module.nudge_moveit_tcp_goal(
+        (1.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+    )
+    assert not ok and "Enable TCP Drag" in message
+    assert goal_node is None and pose is None
+
+
+def test_matrix_goal_setter_does_not_activate_native_viewport_drag():
+    source = inspect.getsource(bridge_module.set_moveit_tcp_goal_matrix)
+    assert "_ensure_native_tcp_goal_transform()" in source
+    assert "ensure_moveit_tcp_goal_control()" not in source
+
+
+class _FakePoseMatrix:
+    def __init__(self):
+        self.values = [[float(row == column) for column in range(4)] for row in range(4)]
+
+
+class _FakeGoalTransform:
+    def __init__(self, *, fail_add=False):
+        self.name = "ProbeSphere_Transform"
+        self.observer = None
+        self.removed = []
+        self.fail_add = fail_add
+
+    def GetName(self):
+        return self.name
+
+    def AddObserver(self, event_id, callback):
+        if self.fail_add:
+            raise RuntimeError("observer rejected")
+        self.observer = (event_id, callback)
+        return 41
+
+    def RemoveObserver(self, tag):
+        self.removed.append(tag)
+        self.observer = None
+
+
+class _FakeLiveRobot:
+    def __init__(self):
+        self.position_axis_ik_calls = []
+        self.full_pose_ik_calls = []
+        self.solution = [0.1, 0.02, 0.2, 0.03, 0.4]
+        self.on_ik = None
+
+    def ComputeMoveItPositionAxisIK(self, pose, link, seed, timeout, avoid_collisions):
+        self.position_axis_ik_calls.append(
+            (pose, link, seed, timeout, avoid_collisions)
+        )
+        if self.on_ik:
+            self.on_ik()
+        return self.solution
+
+    def ComputeMoveItIK(self, *args, **kwargs):
+        self.full_pose_ik_calls.append((args, kwargs))
+        raise AssertionError("TCP review must leave axial tool roll unconstrained")
+
+    def GetLastMoveItPositionAxisIKMessage(self):
+        return "position-axis candidate available"
+
+    def GetLastMoveItPositionAxisIKPositionResidualMm(self):
+        return 0.2
+
+    def GetLastMoveItPositionAxisIKAxisResidualDeg(self):
+        return 0.3
+
+    def FindRootAndTipLinks(self):
+        return "BaseLink", ROS2_TOOL_TCP_LINK
+
+
+class _FakeLiveMotionLogic:
+    def __init__(self):
+        self.obsNode = None
+        self.obsTag = None
+        self.callback = None
+        self.viewObserverTags = []
+        self.last_ik_solution = []
+        self.updated_goal_positions = []
+        self.color_results = []
+        self.removed_old = []
+
+    def removeObserver(self):
+        if self.obsNode is not None and self.obsTag is not None:
+            self.obsNode.RemoveObserver(self.obsTag)
+            self.removed_old.append(self.obsTag)
+        for observed, tag in self.viewObserverTags:
+            observed.RemoveObserver(tag)
+        self.viewObserverTags = []
+        self.obsNode = None
+        self.obsTag = None
+        self.callback = None
+        self.isInteracting = False
+
+    def setIKSourceTransforms(self, source_name, target_name):
+        assert source_name == "ProbeSphere_Transform"
+        assert target_name == "GoalRoot"
+
+    def findRobotTransforms(self, root_link, *, goal):
+        assert root_link == "BaseLink"
+        assert goal is True
+        return SimpleNamespace(GetName=lambda: "GoalRoot")
+
+    def computeIKWithMoveIt(self, **_kwargs):
+        raise AssertionError("Solve IK must not enter the native collision callback")
+
+    def ConvertTipTargetToIKTarget(self, pose, tip_link):
+        assert tip_link == ROS2_TOOL_TCP_LINK
+        return "ik-link", ("converted-pose", pose)
+
+    def updategoalTransformsFromJointsKDL(self, robot, values):
+        self.updated_goal_positions.append((robot, tuple(values)))
+
+    def _updateRobotColorForIKResult(self, robot, success, base_color):
+        self.color_results.append((robot, bool(success), tuple(base_color)))
+
+    def ExitControlMode(self, _goal_node):
+        self.removeObserver()
+
+
+def _install_fake_slicer_vtk(monkeypatch):
+    slicer_module = SimpleNamespace(
+        vtkMRMLTransformNode=SimpleNamespace(TransformModifiedEvent=77),
+        vtkMRMLTransformNodeAPI=SimpleNamespace(),
+    )
+    slicer_module.vtkMRMLTransformNode.GetMatrixTransformBetweenNodes = (
+        lambda _source, _target, matrix: True
+    )
+    monkeypatch.setitem(sys.modules, "slicer", slicer_module)
+    monkeypatch.setitem(sys.modules, "vtk", SimpleNamespace(vtkMatrix4x4=_FakePoseMatrix))
+
+
+def test_live_tcp_ik_uses_exact_j1_j5_moveit_kinematics_without_collisions(monkeypatch):
+    _install_fake_slicer_vtk(monkeypatch)
+    logic = _FakeLiveMotionLogic()
+    robot = _FakeLiveRobot()
+    logic.last_ik_solution = [0.0] * len(ROS2_JOINT_SI_ORDER)
+
+    success, message, positions = _compute_live_tcp_kinematic_ik(
+        logic, robot, _FakeGoalTransform(), SimpleNamespace(name="GoalRoot")
+    )
+
+    assert success and "position-axis review" in message
+    assert "axial tool roll is unconstrained" in message
+    assert "position residual 0.200 mm" in message
+    assert "drill-axis residual 0.300 deg" in message
+    assert tuple(positions) == ROS2_JOINT_SI_ORDER
+    assert tuple(positions.values()) == tuple(robot.solution)
+    assert robot.position_axis_ik_calls[0][1:] == (
+        "ik-link",
+        [0.0] * len(ROS2_JOINT_SI_ORDER),
+        0.05,
+        False,
+    )
+    assert logic.last_ik_solution == robot.solution
+    assert robot.full_pose_ik_calls == []
+    assert logic.updated_goal_positions == [(robot, tuple(robot.solution))]
+
+
+@pytest.mark.parametrize(
+    "cached_seed",
+    [
+        [0.0] * 6,
+        [0.0, 0.0, float("nan"), 0.0, 0.0],
+    ],
+)
+def test_live_tcp_ik_discards_invalid_cached_seed(monkeypatch, cached_seed):
+    _install_fake_slicer_vtk(monkeypatch)
+    logic = _FakeLiveMotionLogic()
+    logic.last_ik_solution = list(cached_seed)
+    robot = _FakeLiveRobot()
+
+    success, _message, _positions = _compute_live_tcp_kinematic_ik(
+        logic, robot, _FakeGoalTransform(), SimpleNamespace(name="GoalRoot")
+    )
+
+    assert success
+    assert robot.position_axis_ik_calls[0][2] == []
+
+
+@pytest.mark.parametrize(
+    "solution",
+    [
+        [0.1, 0.02, 0.2, 0.03],
+        [0.1, 0.02, float("nan"), 0.03, 0.4],
+    ],
+)
+def test_live_tcp_position_axis_ik_rejects_nonfive_or_nonfinite_solution(
+    monkeypatch, solution
+):
+    _install_fake_slicer_vtk(monkeypatch)
+    logic = _FakeLiveMotionLogic()
+    previous_seed = [0.03] * len(ROS2_JOINT_SI_ORDER)
+    logic.last_ik_solution = list(previous_seed)
+    robot = _FakeLiveRobot()
+    robot.solution = solution
+
+    success, message, positions = _compute_live_tcp_kinematic_ik(
+        logic, robot, _FakeGoalTransform(), SimpleNamespace(name="GoalRoot")
+    )
+
+    assert not success
+    assert positions == {}
+    assert "position-axis" in message
+    assert logic.last_ik_solution == previous_seed
+    assert logic.updated_goal_positions == []
+    assert robot.full_pose_ik_calls == []
+
+
+def test_live_tcp_drag_observer_is_reentrant_safe_and_native_exit_cleans_it(monkeypatch):
+    _install_fake_slicer_vtk(monkeypatch)
+    goal = _FakeGoalTransform()
+    goal_root = SimpleNamespace(name="GoalRoot", GetName=lambda: "GoalRoot")
+    logic = _FakeLiveMotionLogic()
+    old_node = _FakeGoalTransform()
+    logic.obsNode, logic.obsTag, logic.callback = old_node, 9, object()
+    robot = _FakeLiveRobot()
+
+    ok, message = _install_kinematic_tcp_drag_observer(
+        logic, robot, goal, goal_root
+    )
+    assert ok, message
+    assert logic.removed_old == [9]
+    assert logic.obsNode is goal and logic.obsTag == 41
+    assert logic.callback is not None and goal.observer[0] == 77
+    robot.on_ik = lambda: goal.observer[1](goal, 77)
+    goal.observer[1](goal, 77)
+    assert len(robot.position_axis_ik_calls) == 1
+    assert robot.full_pose_ik_calls == []
+    assert logic.color_results == [(robot, True, (0.25, 0.75, 0.95))]
+
+    logic.ExitControlMode(goal)
+    assert goal.removed == [41]
+    assert logic.obsNode is None and logic.obsTag is None and logic.callback is None
+
+
+def test_failed_live_tcp_observer_install_clears_native_observer_fields(monkeypatch):
+    _install_fake_slicer_vtk(monkeypatch)
+    goal = _FakeGoalTransform(fail_add=True)
+    logic = _FakeLiveMotionLogic()
+    logic.obsNode, logic.obsTag, logic.callback = goal, 8, object()
+    robot = _FakeLiveRobot()
+
+    ok, message = _install_kinematic_tcp_drag_observer(
+        logic,
+        robot,
+        goal,
+        SimpleNamespace(name="GoalRoot", GetName=lambda: "GoalRoot"),
+    )
+    assert not ok and "Could not install" in message
+    assert logic.obsNode is None and logic.obsTag is None and logic.callback is None
+
+
+def test_drag_activation_failure_uses_native_exit_and_stays_disabled(monkeypatch):
+    _install_fake_slicer_vtk(monkeypatch)
+    monkeypatch.setattr(
+        bridge_module,
+        "find_ros2_robot_by_name",
+        lambda _name: SimpleNamespace(FindRootAndTipLinks=lambda: ("base", "tip")),
+    )
+    goal = _FakeGoalTransform()
+    goal_root = SimpleNamespace(name="GoalRoot")
+
+    class Logic(_FakeLiveMotionLogic):
+        def __init__(self):
+            super().__init__()
+            self.exit_calls = []
+
+        def EnterControlMode(self, *_args, **_kwargs):
+            return {"fromTransform": goal, "toTransform": goal_root}
+
+        def ExitControlMode(self, transform):
+            self.exit_calls.append(transform)
+            self.removeObserver()
+
+    logic = Logic()
+    monkeypatch.setattr(bridge_module, "get_motion_control_logic", lambda: logic)
+    monkeypatch.setattr(bridge_module, "_mark_node_and_storage_transient", lambda _node: None)
+    monkeypatch.setattr(bridge_module, "mark_slicer_ros2_runtime_nodes_transient", lambda: 0)
+    monkeypatch.setattr(
+        bridge_module,
+        "_install_kinematic_tcp_drag_observer",
+        lambda *_args, **_kwargs: (False, "observer install failed"),
+    )
+    monkeypatch.setattr(bridge_module, "_native_goal_transform", None)
+    monkeypatch.setattr(bridge_module, "_native_tcp_drag_enabled", False)
+
+    _logic, _robot, failed_goal, error = bridge_module._dentobot_native_motion_context(
+        initialize_goal=True
+    )
+
+    assert failed_goal is None and "observer install failed" in error
+    assert logic.exit_calls == [goal]
+    assert bridge_module._native_goal_transform is None
+    assert bridge_module._native_tcp_drag_enabled is False
+
+
+def _tcp_solve_fixture(monkeypatch, static_result):
+    _install_fake_slicer_vtk(monkeypatch)
+    logic = _FakeLiveMotionLogic()
+    robot = _FakeLiveRobot()
+    goal = _FakeGoalTransform()
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, robot, goal, ""),
+    )
+    queried = []
+
+    def check_static(positions):
+        queried.append(dict(positions))
+        return static_result
+
+    monkeypatch.setattr(
+        bridge_module,
+        "check_moveit_static_joint_state",
+        check_static,
+    )
+    return logic, robot, goal, queried
+
+
+def test_explicit_tcp_solve_requires_authoritative_static_validity(monkeypatch):
+    logic, robot, _goal, queried = _tcp_solve_fixture(
+        monkeypatch, (True, "state is clear", True)
+    )
+
+    ok, message, positions = bridge_module.solve_moveit_tcp_goal()
+
+    assert ok and "authoritative MoveIt static validity" in message
+    assert "axial tool roll is unconstrained" in message
+    assert tuple(positions) == ROS2_JOINT_SI_ORDER
+    assert queried == [positions]
+    assert robot.position_axis_ik_calls[0][1:] == (
+        "ik-link",
+        [],
+        0.05,
+        False,
+    )
+    assert robot.full_pose_ik_calls == []
+    assert logic.last_ik_solution == robot.solution
+    assert logic.updated_goal_positions == [(robot, tuple(robot.solution))]
+    assert logic.color_results == [(robot, True, (0.25, 0.75, 0.95))]
+
+
+def test_explicit_tcp_solve_rejects_authoritatively_invalid_candidate(monkeypatch):
+    logic, robot, _goal, queried = _tcp_solve_fixture(
+        monkeypatch, (False, "self collision", True)
+    )
+
+    ok, message, positions = bridge_module.solve_moveit_tcp_goal()
+
+    assert not ok and "rejected by MoveIt static validity" in message
+    assert "self collision" in message
+    assert positions == {}
+    assert queried and tuple(queried[0]) == ROS2_JOINT_SI_ORDER
+    assert logic.last_ik_solution == robot.solution
+    assert logic.updated_goal_positions == [(robot, tuple(robot.solution))]
+    assert logic.color_results == [(robot, False, (0.25, 0.75, 0.95))]
+
+
+def test_explicit_tcp_solve_rejects_nonauthoritative_validity(monkeypatch):
+    logic, robot, _goal, queried = _tcp_solve_fixture(
+        monkeypatch, (True, "service unavailable", False)
+    )
+
+    ok, message, positions = bridge_module.solve_moveit_tcp_goal()
+
+    assert not ok and "unresolved" in message
+    assert "service unavailable" in message
+    assert positions == {}
+    assert queried and tuple(queried[0]) == ROS2_JOINT_SI_ORDER
+    assert logic.last_ik_solution == robot.solution
+    assert logic.updated_goal_positions == [(robot, tuple(robot.solution))]
+    assert logic.color_results == [(robot, False, (0.25, 0.75, 0.95))]
+    assert robot.full_pose_ik_calls == []
+
+
+def test_failed_live_tcp_ik_is_visible_without_staging_or_advancing_state(monkeypatch):
+    _install_fake_slicer_vtk(monkeypatch)
+    goal = _FakeGoalTransform()
+    logic = _FakeLiveMotionLogic()
+    logic.last_ik_solution = [0.03] * len(ROS2_JOINT_SI_ORDER)
+    robot = _FakeLiveRobot()
+    robot.solution = []
+    ok, message = _install_kinematic_tcp_drag_observer(
+        logic,
+        robot,
+        goal,
+        SimpleNamespace(name="GoalRoot", GetName=lambda: "GoalRoot"),
+    )
+    assert ok, message
+
+    goal.observer[1](goal, 77)
+
+    assert logic._dentobotLiveTcpIkMessage.startswith(
+        "Live TCP position-axis review found no exact J1–J5 candidate"
+    )
+    assert logic.color_results == [(robot, False, (0.25, 0.75, 0.95))]
+    assert logic.last_ik_solution == [0.03] * len(ROS2_JOINT_SI_ORDER)
+    assert logic.updated_goal_positions == []
 
 
 def manual_joint_status_payload(**overrides) -> str:
@@ -998,7 +1549,21 @@ def test_preflight_start_is_canonical_read_only_and_rejects_malformed_mapping(mo
     canonical = dict(
         zip(ROS2_JOINT_SI_ORDER, (1.0, 2.0, 3.0, 4.0, 5.0))
     )
-    canonical["pneumatic_spindle"] = 99.0
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="task",
+        target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth"],
+        base_transform=None,
+        entry_ras_mm=(0, 0, 0),
+        target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75,
+        approach_standoff_mm=5,
+        preflight_start_positions_si={**canonical, "unexpected_joint": 99.0},
+    )
+    assert not ok
+    assert "exactly the canonical J1–J5 joints" in reason
+    assert config_publisher.messages == []
+    assert command_publisher.messages == []
     ok, reason = configure_task_phase_guard(
         task_fingerprint="task",
         target_object_id="selected-tooth",
@@ -1230,3 +1795,186 @@ def test_robot_facade_exposes_moveit_goal_without_hardware_execute_path():
     assert "def solveIk" in facade
     assert "def planToGoal" in facade
     assert "def execute" not in facade
+
+
+def _joint_goal_result_with_fake(monkeypatch, *, mode="success", track_release=True):
+    events = []
+    names = list(ROS2_JOINT_SI_ORDER)
+    vectors = ([0.0] * len(names), [0.1] + [0.0] * (len(names) - 1))
+    if mode == "malformed":
+        vectors = ([0.0] * (len(names) - 1), [0.1] + [0.0] * (len(names) - 2))
+
+    points = []
+    for index, positions in enumerate(vectors):
+        def get_positions(index=index, positions=positions):
+            events.append(("positions", index))
+            if mode == "exception":
+                raise RuntimeError("joint point read failed")
+            return positions
+
+        points.append(
+            SimpleNamespace(
+                GetPositions=get_positions,
+                GetTimeFromStart=lambda index=index: float(index),
+            )
+        )
+    joint_trajectory = SimpleNamespace(
+        GetJointNames=lambda: names,
+        GetPoints=lambda: points,
+    )
+    trajectory = SimpleNamespace(GetJointTrajectory=lambda: joint_trajectory)
+    if track_release:
+        trajectory.UnRegister = lambda value: events.append(("unregister", value))
+
+    authority_calls = {"plan": 0, "preview": 0, "execute": 0}
+
+    class MotionNode:
+        def PlanMoveItTrajectory(self, *_args):
+            authority_calls["plan"] += 1
+            return trajectory
+
+        def PreviewMoveItTrajectory(self, *_args):
+            authority_calls["preview"] += 1
+
+        def ExecuteMoveItTrajectory(self, *_args):
+            authority_calls["execute"] += 1
+
+        def GetLastJointPlanMessage(self):
+            return ""
+
+        def GetLastJointPlannerId(self):
+            return ""
+
+    motion_node = MotionNode()
+    parameter_node = SimpleNamespace(motionControlNodeID="motion")
+    logic = SimpleNamespace(
+        last_ik_solution=[0.0] * len(names),
+        getParameterNode=lambda: parameter_node,
+    )
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, object(), None, None),
+    )
+    monkeypatch.setattr(bridge_module, "monitored_joint_positions_si", lambda: {})
+    monkeypatch.setitem(
+        sys.modules,
+        "slicer",
+        SimpleNamespace(mrmlScene=SimpleNamespace(GetNodeByID=lambda _node_id: motion_node)),
+    )
+    result = bridge_module.plan_moveit_joint_goal(
+        refresh_planning_scene=False,
+        planning_attempts=1,
+    )
+    return result, events, authority_calls
+
+
+@pytest.mark.parametrize(
+    ("mode", "success", "message"),
+    [
+        ("success", True, "Plan ready"),
+        ("malformed", False, "malformed joint point"),
+        ("exception", False, "joint point read failed"),
+    ],
+)
+def test_joint_goal_planning_releases_trajectory_once_after_conversion(
+    monkeypatch, mode, success, message
+):
+    result, events, authority_calls = _joint_goal_result_with_fake(
+        monkeypatch, mode=mode
+    )
+
+    assert result.success is success
+    assert message in result.message
+    assert events.count(("unregister", None)) == 1
+    assert events[-1] == ("unregister", None)
+    assert any(event[0] == "positions" for event in events)
+    assert authority_calls == {"plan": 1, "preview": 0, "execute": 0}
+
+
+def _static_fk_result_with_fake(monkeypatch, *, values, fail_at=None, track_release=True):
+    events = []
+
+    def get_element(row, column):
+        events.append(("element", row, column))
+        if row == fail_at:
+            raise RuntimeError("matrix element read failed")
+        return values[row] if column == 3 else float(row == column)
+
+    matrix = SimpleNamespace(GetElement=get_element)
+    if track_release:
+        matrix.UnRegister = lambda value: events.append(("unregister", value))
+
+    class MotionNode:
+        def ComputeMoveItForwardKinematics(self, *_args):
+            return matrix
+
+        def GetLastForwardKinematicsMessage(self):
+            return "MoveIt FK returned an authoritative pose."
+
+        def PreviewMoveItTrajectory(self, *_args):
+            pytest.fail("static FK must not start preview")
+
+        def ExecuteMoveItTrajectory(self, *_args):
+            pytest.fail("static FK must not execute a trajectory")
+
+    motion_node = MotionNode()
+    parameter_node = SimpleNamespace(motionControlNodeID="motion")
+    logic = SimpleNamespace(getParameterNode=lambda: parameter_node)
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, None, None, None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "slicer",
+        SimpleNamespace(mrmlScene=SimpleNamespace(GetNodeByID=lambda _node_id: motion_node)),
+    )
+    positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    result = bridge_module.compute_moveit_static_tcp_pose_base_mm(positions)
+    return result, events
+
+
+@pytest.mark.parametrize(
+    ("values", "fail_at", "success", "rows_read"),
+    [
+        ((1.0, 2.0, 3.0), None, True, (0, 1, 2)),
+        ((1.0, 2.0, 3.0), 1, False, (0, 1)),
+        ((1.0, float("nan"), 3.0), None, False, (0, 1, 2)),
+    ],
+)
+def test_static_fk_releases_matrix_after_copy_on_success_and_failure(
+    monkeypatch, values, fail_at, success, rows_read
+):
+    result, events = _static_fk_result_with_fake(
+        monkeypatch,
+        values=values,
+        fail_at=fail_at,
+    )
+
+    assert result[0] is success
+    assert events.count(("unregister", None)) == 1
+    assert events[-1] == ("unregister", None)
+    assert tuple(event[1] for event in events if event[0] == "element") == rows_read
+    if success:
+        assert result[2] == (1.0, 2.0, 3.0)
+    else:
+        assert result[2] is None
+
+
+def test_vtk_result_fakes_without_unregister_remain_supported(monkeypatch):
+    result, events, _authority_calls = _joint_goal_result_with_fake(
+        monkeypatch,
+        track_release=False,
+    )
+    assert result.success
+    assert not any(event[0] == "unregister" for event in events)
+
+    result, events = _static_fk_result_with_fake(
+        monkeypatch,
+        values=(1.0, 2.0, 3.0),
+        track_release=False,
+    )
+    assert result[0]
+    assert not any(event[0] == "unregister" for event in events)

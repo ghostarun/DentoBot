@@ -30,13 +30,44 @@ def test_urdf_has_non_spinning_tcp_sibling_and_retains_visual_burr_branch():
     robot = ElementTree.parse(
         ROOT / "dentobot_description/urdf/dentobot.urdf"
     ).getroot()
+    movable_joints = [
+        joint.get("name")
+        for joint in robot.findall("joint")
+        if joint.get("type") != "fixed"
+    ]
+    assert movable_joints == [
+        "link-1_Revolute-1",
+        "link-2_Slider-2",
+        "link-3_Revolute-3",
+        "link-4_Slider-4",
+        "link-5_Revolute-5",
+    ]
     assert robot.find("link[@name='dentobot_tool_tcp']") is not None
     assert robot.find("link[@name='dentobot_drill_tip_provisional']") is not None
     assert robot.find("link[@name='dentobot_drill_tcp']") is not None
-    planning_tcp = robot.find("joint[@name='pneumatic_spindle-Copy_to_dentobot_drill_tcp']")
+    burr_joint = robot.find("joint[@name='pneumatic_spindle-Copy_to_burr_fixed']")
+    assert burr_joint is not None
+    assert burr_joint.get("type") == "fixed"
+    assert burr_joint.find("parent").get("link") == "pneumatic_spindle-Copy"
+    assert burr_joint.find("child").get("link") == "burr"
+    assert burr_joint.find("origin").get("xyz") == (
+        "0.035401760000000004 0.0029788100000000027 0.04568638"
+    )
+    assert burr_joint.find("origin").get("rpy") == (
+        "0.9502765943544816 1.0092142015761 -1.935369066862216"
+    )
+    planning_tcp = robot.find(
+        "joint[@name='pneumatic_spindle-Copy_to_dentobot_drill_tcp']"
+    )
     assert planning_tcp is not None
     assert planning_tcp.get("type") == "fixed"
     assert planning_tcp.find("parent").get("link") == "pneumatic_spindle-Copy"
+    assert planning_tcp.find("origin").get("xyz") == (
+        "0.041042122156006 -0.000048165096147 0.042853759920214"
+    )
+    assert planning_tcp.find("origin").get("rpy") == (
+        "-2.224555444403231 0.842809592516694 -2.582877942399306"
+    )
     joint = robot.find("joint[@name='burr_to_dentobot_tool_tcp']")
     assert joint is not None
     assert joint.get("type") == "fixed"
@@ -52,6 +83,15 @@ def test_srdf_group_is_base_to_tcp_chain_and_only_adjacent_pairs_are_disabled():
     assert chain is not None
     assert chain.get("base_link") == "base_link"
     assert chain.get("tip_link") == "dentobot_drill_tcp"
+    group_state = robot.find("group_state[@name='draft_zero']")
+    assert group_state is not None
+    assert [joint.get("name") for joint in group_state.findall("joint")] == [
+        "link-1_Revolute-1",
+        "link-2_Slider-2",
+        "link-3_Revolute-3",
+        "link-4_Slider-4",
+        "link-5_Revolute-5",
+    ]
     for collision in robot.findall("disable_collisions"):
         assert collision.get("reason") == "Adjacent"
 
@@ -95,6 +135,12 @@ def test_collision_guard_gates_raw_commands_before_joint_states():
     assert "start.interpolate" in guard
     assert "maximum_prismatic_step_m" in guard
     assert "pad_self_collisions = false" in guard
+    raw_command = guard.split("void on_command", 1)[1].split(
+        "void on_manual_command", 1
+    )[0]
+    assert "requested.size() != joint_names_.size()" in raw_command
+    assert "joint_names_.size() + 1" not in raw_command
+    assert "legacy" not in raw_command.lower()
     heartbeat = guard.split("void publish_last_status()", 1)[1].split(
         "std::string group_name_", 1
     )[0]

@@ -805,12 +805,11 @@ class RobotPlacementLogicMixin:
             float(parameterNode.robotJoint3Deg),
             float(parameterNode.robotJoint4Mm),
             float(parameterNode.robotJoint5Deg),
-            float(parameterNode.robotJoint6Deg),
         )
         seating["joints"] = joints
         seating["copyLine"] = (
             f"{seating['copyLine']} joints={joints[0]:.4f},{joints[1]:.4f},"
-            f"{joints[2]:.4f},{joints[3]:.4f},{joints[4]:.4f},{joints[5]:.4f}"
+            f"{joints[2]:.4f},{joints[3]:.4f},{joints[4]:.4f}"
         )
         return seating
 
@@ -986,7 +985,6 @@ class RobotPlacementLogicMixin:
         parameterNode.robotJoint3Deg = DEFAULT_JOINT_DISPLAY[2]
         parameterNode.robotJoint4Mm = DEFAULT_JOINT_DISPLAY[3]
         parameterNode.robotJoint5Deg = DEFAULT_JOINT_DISPLAY[4]
-        parameterNode.robotJoint6Deg = DEFAULT_JOINT_DISPLAY[5]
         self.updateRobotJointPoses(joints_si)
         for model in self.robotModelNodes():
             display = model.GetDisplayNode() if model else None

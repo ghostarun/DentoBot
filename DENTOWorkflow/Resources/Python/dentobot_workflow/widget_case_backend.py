@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 
 from .runtime import *
+
+from DENTOROS2Bridge import clear_manual_simulation_record_paths
+from DENTOStep6State import parse_manual_simulation_record
 
 
 def _restore_saved_case_foundation_landmarks(landmarks, saved_positions) -> bool:
@@ -144,9 +148,92 @@ class CaseBackendWidgetMixin:
                         int(self.ui.workflowStageComboBox.currentIndex)
                     )
 
+    def _caseManualSimulationRecords(self) -> tuple[dict[str, object], ...]:
+        """Capture validated historical Step 6 evidence without live-state reads."""
+
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        if facade is None:
+            raise CaseBundleError(
+                _("Could not save the case because the Step 6 recording façade is unavailable.")
+            )
+        try:
+            completed = facade.manualSimulationCompletedRecords()
+            if not isinstance(completed, (tuple, list)):
+                raise ValueError(
+                    "The façade returned an invalid completed-record collection."
+                )
+            records = []
+            fingerprints = set()
+            for record in completed:
+                if not isinstance(record, Mapping):
+                    raise ValueError(
+                        "The façade returned an invalid manual simulation record."
+                    )
+                parsed = parse_manual_simulation_record(record)
+                fingerprint = parsed["record_fingerprint"]
+                if fingerprint not in fingerprints:
+                    records.append(parsed)
+                    fingerprints.add(fingerprint)
+            try:
+                active = facade.manualSimulationRecord()
+            except RuntimeError as exc:
+                if not completed and str(exc).startswith(
+                    "Manual simulation recording is unavailable: no event-bearing "
+                ):
+                    return tuple(records)
+                raise
+            if not isinstance(active, Mapping):
+                raise ValueError(
+                    "The façade returned an invalid manual simulation record."
+                )
+            parsed = parse_manual_simulation_record(active)
+            if parsed["record_fingerprint"] not in fingerprints:
+                records.append(parsed)
+            return tuple(records)
+        except (AttributeError, RuntimeError, TypeError, ValueError, OverflowError) as exc:
+            raise CaseBundleError(
+                _("Could not validate manual simulation records for the case: %1").replace(
+                    "%1", str(exc)
+                )
+            ) from exc
+
+    def _showCaseManualSimulationRecords(self, inspection) -> None:
+        """Replace prior historical selection only after a case passed its load audit."""
+
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if panel:
+            panel.clearManualSimulationRecords()
+        try:
+            clear_manual_simulation_record_paths()
+        except Exception as exc:
+            message = (
+                "The case loaded, but historical manual simulation paths could not "
+                "be cleared, so its records were not displayed: " + str(exc)
+            )
+            if panel:
+                panel.setManualRecordImportStatus("error", message)
+            slicer.util.errorDisplay(message)
+            return
+        if not panel:
+            return
+        records = tuple(inspection.manual_simulation_records)
+        if records:
+            panel.setManualSimulationRecords(records)
+            panel.setManualRecordImportStatus(
+                "ok",
+                f"Loaded {len(records)} historical/display-only manual simulation "
+                "record(s) from this case. Live robot state was not read or changed.",
+            )
+        else:
+            panel.setManualRecordImportStatus(
+                "idle",
+                "This case contains no historical manual simulation records.",
+            )
+
     def _createCaseBundle(self, destination: str | Path):
         if not self._parameterNode or not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow state is unavailable."))
+        manualSimulationRecords = self._caseManualSimulationRecords()
         cancelledPlacement = (
             self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
                 self._parameterNode
@@ -181,6 +268,7 @@ class CaseBackendWidgetMixin:
                     case_label=self._parameterNode.caseName,
                     workflow=workflowSummary,
                     robot_profile=self.logic.caseBundleRobotProfile(),
+                    manual_simulation_records=manualSimulationRecords,
                     application={
                         "name": "DENTOBOT",
                         "module": "DENTOWorkflow",
@@ -431,12 +519,6 @@ class CaseBackendWidgetMixin:
                         )
                     phase("Validating imported scene", can_cancel=False)
                     self._bindAndValidateRestoredCase(inspection.workflow, phase=phase)
-                    profileMigration = (
-                        self.logic._migrateLegacyJ2ZeroRobotProfile(
-                            self._parameterNode,
-                            inspection.robot_profile,
-                        )
-                    )
                     phase("Binding restored workflow", can_cancel=False)
                 except Exception as loadError:
                     logging.exception(
@@ -469,8 +551,8 @@ class CaseBackendWidgetMixin:
                 # Compatibility migrations and Step 6 freshness review are
                 # allowed only after package integrity has passed, and the
                 # recovery MRB must remain available until that audit passes.
-                # Keep the restore barrier through queued events and hydration
-                # so callbacks cannot mutate saved state before its audit.
+                # Keep the restore barrier through binding, queued UI events,
+                # hydration, and post-hydration identity validation.
                 try:
                     self.setParameterNode(self.logic.getParameterNode())
                     slicer.app.processEvents()
@@ -492,6 +574,12 @@ class CaseBackendWidgetMixin:
                     slicer.app.processEvents()
                     phase("Validating hydrated case", can_cancel=False)
                     self._validateHydratedCaseBundle(inspection.workflow)
+                    profileMigration = (
+                        self.logic._migrateLegacyJ2ZeroRobotProfile(
+                            self.logic.getParameterNode(),
+                            inspection.robot_profile,
+                        )
+                    )
                     step6Workflow = inspection.workflow.get("step6")
                     environment = (
                         step6Workflow.get("environment")
@@ -511,9 +599,8 @@ class CaseBackendWidgetMixin:
                             )
                     else:
                         environment = {}
-                    # MRML serialization can perturb pose values. Only after
-                    # strict package audits and identity checks may the
-                    # validated environment restore exact saved values.
+                    # Restore validated precise MRML state only after strict
+                    # package audits and exact pose-fingerprint agreement.
                     transform = self._parameterNode.step6CaseJawTransform
                     values = environment.get("jaw_transform_matrix", [])
                     if (
@@ -547,6 +634,7 @@ class CaseBackendWidgetMixin:
                                     landmarks, savedLandmarks
                                 )
                     self._revalidateImportedStep6ContextAfterLoad()
+                    phase("Revalidating restored planning context", can_cancel=False)
                     savedStage = int(self._parameterNode.workflowStageIndex)
                     if savedStage < 0 and self._parameterNode.step6MotionDiagnosticJson:
                         # Older packages did not persist navigation; a saved
@@ -554,12 +642,15 @@ class CaseBackendWidgetMixin:
                         savedStage = len(self._workflowStageEntries()) - 1
                     if savedStage >= 0:
                         self._setWorkflowStage(savedStage, ensureVisible=False)
+                        phase("Restoring workflow stage", can_cancel=False)
                         if (
                             savedStage in {3, len(self._workflowStageEntries()) - 1}
                             and not self.logic.step6CaseJawOpeningFreshnessIssues(self._parameterNode)
                         ):
                             self._applyWorkflowViewPreset("recommended", updateStatus=False)
+                            phase("Restoring recommended view", can_cancel=False)
                     self._enforceStep6OpenedJawDisplaySeparation()
+                    phase("Finalizing jaw display", can_cancel=False)
                 except Exception as hydrationError:
                     logging.exception(
                         "DENTOBOT post-hydration package audit failed; "
@@ -647,6 +738,7 @@ class CaseBackendWidgetMixin:
             progress.close()
         if inspection is None:
             return
+        self._showCaseManualSimulationRecords(inspection)
         foundation = self.logic.evaluateCaseFoundationEligibility(
             self._parameterNode
         )
@@ -1476,10 +1568,13 @@ class CaseBackendWidgetMixin:
             # the operator's Step 2 Check Pulp Masks action.
             self._setBackendStatus(_("Checking pulp masks for detected teeth..."), "working")
             slicer.app.processEvents()
-            def updatePulpCheck(done, total, fdi):
+            def updatePulpCheck(done, total, fdi, phase):
+                phaseName = phase or _("Checking inventory")
+                if fdi:
+                    phaseName = _("%1 for FDI%2").replace("%1", phaseName).replace("%2", str(fdi))
                 self._setBackendStatus(
-                    _("Checking pulp masks: FDI%1 (%2 of %3)...")
-                    .replace("%1", fdi or _("unknown"))
+                    _("Checking pulp masks: %1 (%2 of %3)...")
+                    .replace("%1", phaseName)
                     .replace("%2", str(done)).replace("%3", str(total)), "working",
                 )
                 slicer.app.processEvents()
