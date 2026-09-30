@@ -6906,3 +6906,7 @@ Tarun requests proceeding with the recommended compatible-fixture path and expli
 ### 30 September — distinguish shell numeric evidence from failed capture
 
 Current reviewed fixture validates and rebuilds shell/fusion with unchanged policy. The saved PNGs show only viewport background. Preserve functional/numeric PASS and complete recording separately from PENDING visual evidence. Correct camera clipping in the test runner using the already established renderer reset pattern; no geometry, production validation or clinical acceptance changes. Five host tests pass; another runtime requires Tarun's requested verdict.
+
+### 30 September — hold further renovation integration until verified
+
+Operator explicitly directs no further Step6 implementation transfer until fully implemented, tested and verified. Existing frozen e7cd29f integration remains preserved; future unfinished source checkpoint merges are no longer authorized by the earlier refresh strategy. Await identified completed/verified renovation commit and evidence before refresh. Current integration needs corrected-capture runtime/visual evidence and the unchanged inherited module-size gate remains open for main readiness. Synthetic fixture setup stays explicitly deferred. Final combined acceptance follows the verified renovation transfer; no new runtime is implied by this status request.
