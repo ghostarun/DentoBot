@@ -143,7 +143,7 @@
       "timeout_sec": 900,
       "evidence_level": "synthetic_slicer_and_saved_case",
       "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
-      "command_template": "docker exec dentobot-slicerros2 sh -lc 'timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
+      "command_template": "For the reviewed integration checkout, use the recorded-run wrapper with DENTOBOT_TEST_SHELL_ONLY=1, unchanged SHA-locked FDI11 package, saved boundary, exact integration module path and native 5.10 overlay, and 900-second cap. This skips preliminary synthetic endpoint self-tests only; package validation and every shell/fusion invariant remain required. The ordinary full smoke retains its preliminary tests.",
       "pass_condition": "DENTOBOT_STEP4A_DISPLAY_PASS, DENTOBOT_ASSISTED_PULP_PASS, DENTOBOT_FDI11_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
     },
     {

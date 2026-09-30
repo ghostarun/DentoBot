@@ -26,6 +26,8 @@ not promotions into the current development sequence.
 
 ## P0 planner recovery — source renovation active; runtime gated
 
+**Integration checkpoint `514f86e`:** Accepted 5.10 source ports and frozen renovation incorporated. Focused host 601 PASS with pre-existing size-budget gate retained; bounded restore/Connect/Disconnect and inventory runtime PASS with clean exits; Tarun accepts bounded Connect result. Step 5B is blocked before package load by stale preliminary synthetic Case Foundation setup; fixture-only mode is prepared and runtime direction requested. Full renovation/final combined acceptance/main promotion remain pending. See current logbook/integration preparation record.
+
 **Integration source gate, 30 September:** Frozen `e7cd29f` integration retains a pre-existing modular-size failure: case backend 1688→1683 lines, case bundle 1769 unchanged, robot shell 2560→2569, template build 1640→1645, segmentation 1661→1680, against the unchanged 1600-line budget. Keep this source-maintainability cleanup under the existing renovation/integration contract; do not treat the focused functional pass as a clean whole-suite gate. No safety or restore threshold is relaxed. Final main readiness remains pending.
 
 

@@ -78,3 +78,27 @@ def test_patient_shell_fallback_progress_skips_hollow_candidate():
         ("Patient-shell distance field: anatomy clearance", 1, 2),
         ("Patient-shell distance field: fitting surface", 2, 2),
     ]
+
+
+def test_saved_fixture_shell_mode_is_explicit_and_preserves_boundary(monkeypatch):
+    import ast
+    import os
+    source = Path(__file__).with_name("run_dentobot_pulp_shell_smoke.py")
+    helper = next(n for n in ast.parse(source.read_text()).body
+                  if isinstance(n, ast.FunctionDef) and n.name == "_shell_only_requested")
+    namespace = {"os": os}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(source), "exec"), namespace)
+    requested = namespace["_shell_only_requested"]
+    for name in ("DENTOBOT_TEST_SHELL_ONLY", "DENTOBOT_TEST_AUTO_BOUNDARY", "DENTOBOT_TEST_STEP4A_ONLY"):
+        monkeypatch.delenv(name, raising=False)
+    assert requested() is False
+    monkeypatch.setenv("DENTOBOT_TEST_SHELL_ONLY", "yes")
+    with pytest.raises(ValueError, match="exactly"):
+        requested()
+    monkeypatch.setenv("DENTOBOT_TEST_SHELL_ONLY", "1")
+    assert requested() is True
+    for name in ("DENTOBOT_TEST_AUTO_BOUNDARY", "DENTOBOT_TEST_STEP4A_ONLY"):
+        monkeypatch.setenv(name, "1")
+        with pytest.raises(ValueError, match="saved boundary"):
+            requested()
+        monkeypatch.delenv(name)

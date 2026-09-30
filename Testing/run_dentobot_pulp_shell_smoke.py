@@ -72,12 +72,24 @@ def _capture_final_dock_screenshots(final, details: dict, directory: str) -> lis
     return paths
 
 
+def _shell_only_requested() -> bool:
+    value = os.environ.get("DENTOBOT_TEST_SHELL_ONLY", "")
+    if value not in {"", "0", "1"}:
+        raise ValueError("DENTOBOT_TEST_SHELL_ONLY must be exactly 1, 0, or unset.")
+    if value == "1" and any(os.environ.get(name) == "1" for name in (
+        "DENTOBOT_TEST_AUTO_BOUNDARY", "DENTOBOT_TEST_STEP4A_ONLY",
+    )):
+        raise ValueError("Shell-only review requires the saved boundary and no preliminary-only mode.")
+    return value == "1"
+
+
 def run():
     stage = "step4a-display"
     try:
         automatic_boundary = os.environ.get("DENTOBOT_TEST_AUTO_BOUNDARY") == "1"
         step4a_only = os.environ.get("DENTOBOT_TEST_STEP4A_ONLY") == "1"
-        if not automatic_boundary:
+        shell_only = _shell_only_requested()
+        if not automatic_boundary and not shell_only:
             from DENTOWorkflow import DENTOWorkflowTest
             test = DENTOWorkflowTest()
             test.delayDisplay = lambda *args, **kwargs: None

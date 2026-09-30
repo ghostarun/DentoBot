@@ -6894,3 +6894,7 @@ R18 GDB captured SIGSEGV in the asynchronous Python traceback-dumping thread whi
 ## 2026-09-30 — Default Workflow Focus for current GUI
 
 Operator decision: reclaim workflow space by hiding surrounding Slicer chrome while DENTOWorkflow is active, restoring it on exit, and providing a session-only Show Slicer tools action. Reuse the shared header, authoritative callbacks and floating View Controls palette; move secondary actions into More rather than adding another shell. This supersedes the August 14 fixed-header presentation only for this bounded UI-P3-01 slice, not Studio sequencing. Keep menu/status/viewport access and the research warning. Parallel Step 6.3 work retains robot logic and runtime ownership; no reload or runtime test is authorized by source implementation.
+
+### 30 September — isolate reviewed Step 5B integration fixture
+
+After the old runner's preliminary synthetic endpoint fixture failed the current Case Foundation gate before package load, Tarun explicitly authorized one saved-fixture-only check. `DENTOBOT_TEST_SHELL_ONLY=1` skips only unrelated preliminary self-tests, requires saved boundary/no preliminary-only mode, and retains production strict package load and shell/fusion/source invariance checks. This does not accept or relax the stale synthetic fixture or Case Foundation policy.
