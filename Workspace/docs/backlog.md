@@ -5,7 +5,7 @@
 **2026-09-30 integration execution supersession (`S6-LIVE-01`, `S6-P2-03`, `S6-REUSABLE-CASE-SETUP`):** Tarun explicitly authorized committed unfinished source checkpoints and the curated-5.10 integration pass. Frozen renovation **e7cd29f** is being merged into `integration/step6-5.10-reviewed-20260927`, after preserving prior integration in **243e3a1**. This supersedes older no-current-integration/no-commit sequencing only for this plan. Four GPT-6 Luna Max scopes run within three available concurrent worker slots. 5.12 runtime (`PLAT-U-06`), main/publication, final renovation incorporation and full-cycle/operator acceptance remain deferred/pending. Preparation evidence and dispositions are in `diagnostics/STEP6_INTEGRATION_PREPARATION_2026-09-30.md`; this is not a new task or pending queue.
 
 
-Last reconciled: 2026-09-30. **Check this file before every plan or new task.**
+Last reconciled: 2026-10-01. **Check this file before every plan or new task.**
 This is the sole pending-work queue: active, blocked, planned, deferred and
 unaccepted work, including every open DENTO-NOTE. Detailed contracts live in
 [TASKS.md](TASKS.md) and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md); process and
@@ -27,10 +27,6 @@ not override later local decisions. Tracker priorities are source metadata,
 not promotions into the current development sequence.
 
 ## P0 planner recovery — source renovation active; runtime gated
-
-**Integration checkpoint `514f86e`:** Accepted 5.10 source ports and frozen renovation incorporated. Focused host 601 PASS with pre-existing size-budget gate retained; bounded restore/Connect/Disconnect and inventory runtime PASS with clean exits; Tarun accepts bounded Connect result. Step 5B first stopped in stale synthetic Case Foundation setup. Tarun approved a saved-fixture-only trial (`9068658`); it stopped strict package validation at `step6.jawOpening.motionModel`, before shell/fusion. Current reviewed demo fixture subsequently passed strict restore and shell/fusion numeric gates with clean exits; background-only capture PNGs prevent visual acceptance. Existing camera clipping reset correction is prepared; one capture-verification trial requested under W5-U-04 / S6-REUSABLE-CASE-SETUP. Historical fixture failures remain retained. Full renovation/final combined acceptance/main promotion remain pending. See current logbook/integration preparation record.
-
-**1 October current integration gates:** Module-size cleanup is source-verified and committed in a09fa02; focused538hostchecks pass with size/API/install checks included and no deselection. The corrected current-fixture Step5B trial passes strict restore/shell/fusion with visible overview/all4bores and clean complete recording. Required Tarun bounded visual verdict is PENDING; this is the only open current-pass acceptance item. No newer renovation changes imported. Synthetic setup repair remains deferred; finalStep6/full combined/main promotion remain separate future gates.
 
 
 **30 September r22 bounded workbench acceptance:**19 selected headed checks passed with0fail, native exact IK solution retained in draft, real TCP drag/buttons/keys/editor suppression and default-off cleanup verified. Slicer/recorder exit0, complete503.733s bounded-run video and MP4/106-file manifest retained. Full workflow is explicitly not claimed: native rejected fixture, uncertain Base/Home, negative IK, full planner/preview/repeat, final new-case save/reopen, representative responsiveness and Tarun verdict remain open. Horizontal clipping visible with compactchrome still needs UI-P3-01 review. See current logbook and r22 diagnostics.
