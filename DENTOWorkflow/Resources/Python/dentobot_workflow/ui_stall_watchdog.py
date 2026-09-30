@@ -1,6 +1,5 @@
-"""Low-overhead UI stall evidence for normal Slicer sessions."""
+"""Qt logs recovered UI stalls; use external GDB for hard hangs and native stacks."""
 
-import faulthandler
 import atexit
 import logging
 import os
@@ -30,21 +29,15 @@ class UiStallWatchdog:
         self.last_phase_log = 0.0
         self.phase = "Slicer UI"
         self._write("SESSION_START")
-        faulthandler.enable(file=self.log, all_threads=True)
         self.timer = qt.QTimer()
         self.timer.setInterval(int(interval_seconds * 1000))
         self.timer.timeout.connect(self.tick)
-        self.arm()
         self.timer.start()
         atexit.register(self.close)
 
     def _write(self, event, **fields):
         details = " ".join(f"{key}={value}" for key, value in fields.items())
         self.log.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {event} {details}\n")
-
-    def arm(self):
-        faulthandler.cancel_dump_traceback_later()
-        faulthandler.dump_traceback_later(self.stall_seconds, file=self.log)
 
     def tick(self):
         now = time.monotonic()
@@ -62,7 +55,6 @@ class UiStallWatchdog:
             self.maximum_gap = 0.0
             self.heartbeat_count = 0
         self.last_tick = now
-        self.arm()
 
     def note_phase(self, phase, done=None, total=None):
         now = time.monotonic()
@@ -74,7 +66,6 @@ class UiStallWatchdog:
     def close(self):
         if not self.log.closed:
             self.timer.stop()
-            faulthandler.cancel_dump_traceback_later()
             self._write("SESSION_END")
             self.log.close()
 

@@ -17,6 +17,8 @@ import step6_manual_jog_scenarios as manual_jog_scenarios
 RUNNER = Path(__file__).with_name("run_dentobot_step6_headed_review.py")
 SOURCE = RUNNER.read_text(encoding="utf-8")
 TREE = ast.parse(SOURCE)
+TCP_WORKBENCH = RUNNER.with_name("run_dentobot_tcp_workbench_headed.py")
+TCP_WORKBENCH_TREE = ast.parse(TCP_WORKBENCH.read_text(encoding="utf-8"))
 JOINT_NAMES = ("J1", "J2", "J3", "J4", "J5")
 
 
@@ -42,6 +44,18 @@ def _extract_helper(name, extra_globals=None):
     namespace.update(extra_globals or {})
     module = ast.Module(body=[helper], type_ignores=[])
     exec(compile(ast.fix_missing_locations(module), str(RUNNER), "exec"), namespace)
+    return namespace[name]
+
+
+def _extract_tcp_workbench_helper(name, extra_globals=None):
+    helper = next(
+        node for node in TCP_WORKBENCH_TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+    namespace = {"os": os}
+    namespace.update(extra_globals or {})
+    module = ast.Module(body=[helper], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(module), str(TCP_WORKBENCH), "exec"), namespace)
     return namespace[name]
 
 
@@ -211,7 +225,8 @@ def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     )
     assert ast.unparse(native_gate.test) == (
         "not allow_jog and (not draft_only) and (not invalid_draft_review) "
-        "and (not joint_keyboard_opt_in) or native is None"
+        "and (not joint_keyboard_opt_in) and (not workspace_diagnostic) "
+        "or native is None"
     )
     assert "get_package_prefix" in SOURCE
     assert 're.fullmatch(r"[0-9a-fA-F]{64}", value)' in SOURCE
@@ -296,6 +311,63 @@ def test_manual_outcome_opt_ins_are_exact_and_require_the_existing_jog_gate(monk
     assert "DENTOBOT_HEADED_ALLOW_REJECTED_JOG=1 requires DENTOBOT_HEADED_ALLOW_JOG=1" in run_source
     assert "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION=1 requires DENTOBOT_HEADED_ALLOW_JOG=1" in run_source
     assert "DENTOBOT_MANUAL_JOG_REJECTION_PLAN_JSON" in run_source
+
+
+def test_workspace_diagnostic_admission_requires_home_opt_in_and_excludes_actions(monkeypatch):
+    exact_opt_in = _extract_helper("_exact_env_opt_in", {"os": os})
+    validate = _extract_helper(
+        "_validate_workspace_diagnostic_opt_in",
+        {"os": os, "_exact_env_opt_in": exact_opt_in},
+    )
+    incompatible = (
+        "DENTOBOT_HEADED_DRAFT_ONLY",
+        "DENTOBOT_HEADED_INVALID_DRAFT_REVIEW",
+        "DENTOBOT_HEADED_RECORD_REOPEN",
+        "DENTOBOT_HEADED_JOINT_KEYBOARD",
+        "DENTOBOT_HEADED_TCP_CASE",
+        "DENTOBOT_HEADED_FULL_CHAIN",
+        "DENTOBOT_HEADED_ALLOW_REJECTED_JOG",
+        "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
+        "DENTOBOT_HEADED_ALLOW_JOG",
+        "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT",
+        "DENTOBOT_HEADED_STOP_AFTER_WORKSPACE",
+        "DENTOBOT_HEADED_OUTPUT_CASE",
+    )
+    for name in incompatible:
+        monkeypatch.delenv(name, raising=False)
+    assert validate() is False
+
+    monkeypatch.setenv("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE", "yes")
+    with pytest.raises(RuntimeError, match="DENTOBOT_HEADED_STOP_AFTER_WORKSPACE must be exactly"):
+        validate()
+    monkeypatch.setenv("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE", "1")
+    with pytest.raises(RuntimeError, match="requires DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1"):
+        validate()
+
+    monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT", "1")
+    assert validate() is True
+    assert os.environ.get("DENTOBOT_HEADED_ALLOW_JOG") is None
+
+    monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_JOG", "1")
+    with pytest.raises(RuntimeError, match="requires DENTOBOT_HEADED_ALLOW_JOG"):
+        validate()
+    monkeypatch.setenv("DENTOBOT_HEADED_ALLOW_JOG", "0")
+    for name in incompatible:
+        if name in {
+            "DENTOBOT_HEADED_ALLOW_JOG",
+            "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT",
+            "DENTOBOT_HEADED_STOP_AFTER_WORKSPACE",
+            "DENTOBOT_HEADED_OUTPUT_CASE",
+        }:
+            continue
+        monkeypatch.setenv(name, "1")
+        with pytest.raises(RuntimeError, match="cannot be combined"):
+            validate()
+        monkeypatch.setenv(name, "0")
+
+    monkeypatch.setenv("DENTOBOT_HEADED_OUTPUT_CASE", "")
+    with pytest.raises(RuntimeError, match="cannot be combined with DENTOBOT_HEADED_OUTPUT_CASE"):
+        validate()
 
 
 def test_shared_rejection_plan_binds_case_fixture_and_exact_start_vectors():
@@ -1501,6 +1573,89 @@ def test_checklist_records_three_verdicts_and_no_case_save():
     assert '"preview_started": False' in SOURCE
 
 
+def test_case_tcp_external_mouse_drag_is_exact_opt_in_and_case_bound(monkeypatch):
+    run = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    call = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "run_case_bound_tcp_probe"
+    )
+    assert ast.unparse(call.args[3]) == "evidence_dir.parent"
+    callback = next(
+        keyword.value for keyword in call.keywords
+        if keyword.arg == "mouse_drag_callback"
+    )
+    assert ast.unparse(callback) == (
+        "make_external_mouse_drag_callback(evidence_dir.parent) "
+        "if _mouse_drag_requested() else None"
+    )
+    assert "from run_dentobot_tcp_workbench_headed import (" in SOURCE
+    assert "_mouse_drag_requested," in SOURCE
+    assert "make_external_mouse_drag_callback," in SOURCE
+
+    requested = _extract_tcp_workbench_helper("_mouse_drag_requested")
+    monkeypatch.delenv("DENTOBOT_TCP_WORKBENCH_MOUSE_DRAG", raising=False)
+    assert requested() is False
+    monkeypatch.setenv("DENTOBOT_TCP_WORKBENCH_MOUSE_DRAG", "0")
+    assert requested() is False
+    monkeypatch.setenv("DENTOBOT_TCP_WORKBENCH_MOUSE_DRAG", "1")
+    assert requested() is True
+    for value in ("yes", "true", "01", " "):
+        monkeypatch.setenv("DENTOBOT_TCP_WORKBENCH_MOUSE_DRAG", value)
+        with pytest.raises(RuntimeError, match="must be '1', '0', or unset"):
+            requested()
+
+
+def test_full_chain_probe_counts_follow_exception_evidence_without_false_preview():
+    run = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    chain_call = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "run_full_chain_interruption_probe"
+    )
+    handler = next(
+        item for node in ast.walk(run) if isinstance(node, ast.Try)
+        for item in node.handlers
+        if item.name == "exc"
+        and ast.unparse(item.type) == "Exception"
+        and "_retain_full_chain_probe_counts" in ast.unparse(item)
+    )
+    handler_source = ast.unparse(handler)
+    assert "_retain_full_chain_probe_counts(report, getattr(exc, 'evidence', None))" in handler_source
+    assert handler_source.index("_retain_full_chain_probe_counts") < handler_source.index("fail(")
+    assert '"PASS"' not in handler_source
+
+    retain = _extract_helper("_retain_full_chain_probe_counts", {"Mapping": Mapping})
+    report = {"planner_calls": 0, "preview_started": False}
+    failed_before_preview = RuntimeError("preview not reached")
+    failed_before_preview.evidence = {
+        "probe_local_button_invocations": {
+            "plan_guarded_approach": 1,
+            "preview_approach": 0,
+        }
+    }
+    retain(report, failed_before_preview.evidence)
+    assert report == {"planner_calls": 1, "preview_started": False}
+
+    failed_after_preview = RuntimeError("preview interrupted")
+    failed_after_preview.evidence = {
+        "probe_local_button_invocations": {
+            "plan_guarded_approach": 1,
+            "preview_approach": 1,
+        }
+    }
+    retain(report, failed_after_preview.evidence)
+    assert report == {"planner_calls": 1, "preview_started": True}
+
+
 def test_unconfirmed_draft_review_is_itemized_as_static_only_without_target_evidence():
     run = next(
         node for node in TREE.body
@@ -2186,3 +2341,93 @@ def test_keyboard_expected_si_uses_the_canonical_joint_name_at_each_display_inde
     assert len(calls) == 2
     assert ast.unparse(calls[0].args[1]) == "joint_index"
     assert ast.literal_eval(calls[1].args[1]) == 0
+
+
+def test_workspace_diagnostic_finalizer_marks_scope_and_preserves_existing_verdicts():
+    writes = []
+
+    def retain_write(report):
+        writes.append(json.loads(json.dumps(report)))
+
+    finalize = _extract_helper("_finalize_workspace_diagnostic", {
+        "_utc_now": lambda: "2026-09-30T00:00:00Z",
+        "_write_report": retain_write,
+    })
+    report = {
+        "status": "RUNNING",
+        "items": {
+            "workspace": {"status": "PASS", "reason": "workspace is current"},
+            "scene": {"status": "NOT_RUN", "reason": "Not reached."},
+            "save": {"status": "NOT_RUN", "reason": "Output case unset."},
+            "earlier_failure": {"status": "FAIL", "reason": "existing failure"},
+        },
+    }
+
+    finalize(report)
+
+    assert report["status"] == "DIAGNOSTIC_PASS"
+    assert report["completed_at_utc"] == "2026-09-30T00:00:00Z"
+    assert "workspace-only diagnostic stop" in report["failure_or_stop_reason"]
+    assert report["full_workflow_claimed"] is False
+    assert report["items"]["workspace"] == {
+        "status": "PASS",
+        "reason": "workspace is current",
+    }
+    assert report["items"]["earlier_failure"] == {
+        "status": "FAIL",
+        "reason": "existing failure",
+    }
+    for name in ("scene", "save"):
+        assert report["items"][name]["status"] == "NOT_RUN"
+        assert "workspace-only diagnostic stop" in report["items"][name]["reason"]
+    assert writes == [report]
+
+
+def test_workspace_debugger_stop_precedes_later_actions():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    ensure = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_ensure_current_home_workspace_task")
+    source = RUNNER.read_text(encoding="utf-8")
+    assert ast.unparse(run.body[0]) == (
+        "workspace_diagnostic = _validate_workspace_diagnostic_opt_in()"
+    )
+    native_gate = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.If) and "native is None" in ast.unparse(node.test)
+    )
+    assert "workspace_diagnostic" in ast.unparse(native_gate.test)
+    assert "or native is None" in ast.unparse(run)
+    ensure_call = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_ensure_current_home_workspace_task"
+        and any(keyword.arg == "phase"
+                and ast.literal_eval(keyword.value) == "after_scene_ack"
+                for keyword in node.keywords)
+    )
+    assert any(keyword.arg == "workspace_diagnostic"
+               and ast.unparse(keyword.value) == "workspace_diagnostic"
+               for keyword in ensure_call.keywords)
+    force_diagnostic = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "workspace_diagnostic and phase == 'after_scene_ack'"
+    )
+    assert any(
+        isinstance(statement, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "needs_recovery"
+                for target in statement.targets)
+        and ast.unparse(statement.value) == "True"
+        for statement in force_diagnostic.body
+    )
+    stop = source.index('if _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):')
+    limits = source.index("if not panel.reviewLimitsButton.enabled:", stop)
+    block = source[stop:limits]
+    assert "DENTOBOT_HEADED_WORKSPACE_DIAGNOSTIC_PASS" in block
+    assert "_finalize_workspace_diagnostic(report)" in block
+    assert "slicer.util.exit(0)" in block
+    assert "raise SystemExit(0)" in block
+    assert ".click()" not in block

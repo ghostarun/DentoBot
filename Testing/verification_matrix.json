@@ -50,6 +50,12 @@
       "runtime.pulp_shell_fdi31",
       "manual.w5u04_normal_window"
     ],
+    "workflow-focus": [
+      "static.git_diff_check",
+      "pure.workflow_focus",
+      "runtime.slicer_reload",
+      "manual.step6_normal_window"
+    ],
     "lifecycle": [
       "static.git_diff_check",
       "runtime.slicer_reload",
@@ -152,6 +158,18 @@
       "entrypoint": "Testing/run_dentobot_pulp_shell_smoke.py",
       "command_template": "docker exec dentobot-slicerros2 sh -lc 'DENTOBOT_CASE_SOURCE=/workspace/data/Slicer_Saved/SampleStudy1/FDI31/run2-dentobot-case-step6x5.dentocase DENTOBOT_EXPECTED_FDI=31 timeout 900s xvfb-run -a /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_pulp_shell_smoke.py'",
       "pass_condition": "DENTOBOT_FDI31_SHELL_PASS and DENTOBOT_PULP_SHELL_PASS; report shutdown exit separately"
+    },
+    {
+      "id": "pure.workflow_focus",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": ["static.git_diff_check"],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "pure_test",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_workflow_focus.py Testing/test_application_shell.py Testing/test_modular_structure.py",
+      "pass_condition": "exit_code_zero; explicit chrome visibility restoration, repeat entry, deleted widgets and header/lifecycle contracts pass; visual task-height and operator verdict remain separate"
     },
     {
       "id": "pure.support_boundary_bridge",

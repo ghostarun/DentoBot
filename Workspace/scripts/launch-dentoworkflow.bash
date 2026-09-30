@@ -7,13 +7,23 @@ script_directory="$(cd -- "$(dirname -- "${canonical_script}")" && pwd -P)"
 repository_root="$(cd -- "${script_directory}/../.." && pwd -P)"
 default_workspace_root="$(cd -- "${repository_root}/../../.." && pwd -P)"
 workspace_root="${DENTOBOT_WORKSPACE_ROOT:-${default_workspace_root}}"
+workspace_root="$(cd -- "${workspace_root}" && pwd -P)"
+ros2_workspace_root="${workspace_root}/ros2_ws"
+if [[ ${repository_root} != "${ros2_workspace_root}/"* ]]; then
+  printf '%s\n' \
+    "Repository checkout is outside the mounted ros2_ws directory: ${repository_root}" \
+    "Workspace root: ${ros2_workspace_root}" >&2
+  exit 2
+fi
+repository_relative_path="${repository_root#"${ros2_workspace_root}/"}"
+container_repository_root="/workspace/ros2_ws/${repository_relative_path}"
 workspace_config="${DENTOBOT_WORKSPACE_CONFIG:-${workspace_root}/.dentobot.env}"
 compose_file="${repository_root}/Workspace/compose.yaml"
 compose_override_file="${workspace_root}/compose.override.yaml"
 container_name="dentobot-slicerros2"
 
-backend_source="/workspace/ros2_ws/src/DentoBot/Inference/src"
-module_path="/workspace/ros2_ws/src/DentoBot/DENTOWorkflow"
+backend_source="${container_repository_root}/Inference/src"
+module_path="${container_repository_root}/DENTOWorkflow"
 endoplanner_module_path="/workspace/data/SlicerEndoPlanner-main/PulpChamberOpenPlanning"
 slicer_module_paths="${module_path}"
 # Selected after DENTOBOT_BACKEND_DEVICE is resolved.
@@ -531,7 +541,9 @@ fi
 if [[ ${graphics_mode} == "mesa" ]]; then
   docker exec "${container_name}" test -c "${render_device}"
 fi
-docker exec "${container_name}" bash -lc '
+docker exec \
+  -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}" \
+  "${container_name}" bash -lc '
   set +u
   source /opt/ros/jazzy/setup.bash
   set -u
@@ -540,8 +552,8 @@ docker exec "${container_name}" bash -lc '
   cd /workspace/ros2_ws
   colcon build --symlink-install \
     --base-paths \
-      /workspace/ros2_ws/src/DentoBot/dentobot_description \
-      /workspace/ros2_ws/src/DentoBot/dentobot_moveit_config \
+      "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_description" \
+      "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_moveit_config" \
       /workspace/ros2_ws/src/slicer_ros2_module \
     --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
     --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
@@ -671,6 +683,8 @@ if [[ -t 0 && -t 1 ]]; then
 fi
 docker_exec_env=(
   -e "DISPLAY=${DISPLAY}"
+  -e "DENTOBOT_BACKEND_SOURCE=${backend_source}"
+  -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}"
   -e "DENTOBOT_SLICER_MODULE_PATHS=${slicer_module_paths}"
   -e "DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION=${diagnostic_no_spindle_collision}"
   -e "PYTHONNOUSERSITE=1"
@@ -698,7 +712,7 @@ docker exec "${docker_exec_options[@]}" \
     source /opt/ros/jazzy/setup.bash
     source /workspace/ros2_ws/install/setup.bash
     set -u
-    export PYTHONPATH=/workspace/ros2_ws/src/DentoBot/Inference/src${PYTHONPATH:+:${PYTHONPATH}}
+    export PYTHONPATH="${DENTOBOT_BACKEND_SOURCE}${PYTHONPATH:+:${PYTHONPATH}}"
     # Merge DENTO Workflow into the SlicerROS2 launch path list. A second
     # --additional-module-paths in slicer_args can leave ROS2 undiscovered
     # while DENTOWorkflow still loads.
@@ -710,7 +724,7 @@ docker exec "${docker_exec_options[@]}" \
       export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
     fi
 
-    exec bash /workspace/ros2_ws/src/DentoBot/Workspace/scripts/dentobot-simulation-slicer-handoff.bash \
+    exec bash "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/Workspace/scripts/dentobot-simulation-slicer-handoff.bash" \
       --stack-log /tmp/dentobot-simulation-stack.log \
       -- \
       ros2 launch slicer_ros2_module slicer.launch.py \

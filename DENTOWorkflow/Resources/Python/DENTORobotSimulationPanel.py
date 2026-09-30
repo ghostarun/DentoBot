@@ -2683,7 +2683,7 @@ class DENTORobotSimulationPanel:
         spinbox.blockSignals(True)
         spinbox.setValue(value)
         spinbox.blockSignals(False)
-        self._updateManualJogDraftFromControls()
+        self._updateManualJogDraftFromControls(joint, value)
 
     def _onManualJogNumericChanged(self, joint: str, value: float) -> None:
         if not self._manualJogLimits:
@@ -2697,13 +2697,24 @@ class DENTORobotSimulationPanel:
             * 10000
         ) if maximum > minimum else 0
         slider.blockSignals(False)
-        self._updateManualJogDraftFromControls()
+        self._updateManualJogDraftFromControls(joint, value)
 
-    def _updateManualJogDraftFromControls(self) -> None:
-        values = tuple(
-            float(self.manualJogJointControls[joint][1].value)
-            for joint in JOINT_NAMES
-        )
+    def _updateManualJogDraftFromControls(
+        self, joint: str | None = None, value: float | None = None
+    ) -> None:
+        if joint is None:
+            values = tuple(
+                float(self.manualJogJointControls[name][1].value)
+                for name in JOINT_NAMES
+            )
+        else:
+            updated = list(self._manualJogDisplayValues)
+            index = JOINT_NAMES.index(joint)
+            updated[index] = float(
+                self.manualJogJointControls[joint][1].value
+                if value is None else value
+            )
+            values = tuple(updated)
         self._manualJogDisplayValues = values
         self._manualJogDraftInitialized = True
         self.manualJogDraftStateLabel.text = (
@@ -2719,25 +2730,34 @@ class DENTORobotSimulationPanel:
         self._invoke("manual_draft_changed", self.manualJogJointPositionsSi())
 
     def _setManualJogDraftValues(self, values, *, notify: bool) -> None:
-        if not self._manualJogLimits:
+        if not self._manualJogLimits or not self._manualJogMechanicalLimits:
             return
+        try:
+            requested = tuple(float(value) for value in values)
+        except (TypeError, ValueError, OverflowError):
+            return
+        if len(requested) != len(JOINT_NAMES) or not all(
+            isfinite(value) for value in requested
+        ):
+            return
+        bounded = tuple(
+            min(max(value, self._manualJogMechanicalLimits[index][0]),
+                self._manualJogMechanicalLimits[index][1])
+            for index, value in enumerate(requested)
+        )
         for index, joint in enumerate(JOINT_NAMES):
             slider, spinbox, _label = self.manualJogJointControls[joint]
             minimum, maximum = self._manualJogLimits[0][index]
             spinbox.blockSignals(True)
             slider.blockSignals(True)
-            spinbox.setValue(float(values[index]))
-            current = float(spinbox.value)
+            spinbox.setValue(bounded[index])
             slider.value = round(
-                min(1.0, max(0.0, (current - minimum) / (maximum - minimum)))
+                min(1.0, max(0.0, (bounded[index] - minimum) / (maximum - minimum)))
                 * 10000
             ) if maximum > minimum else 0
             spinbox.blockSignals(False)
             slider.blockSignals(False)
-        self._manualJogDisplayValues = tuple(
-            float(self.manualJogJointControls[joint][1].value)
-            for joint in JOINT_NAMES
-        )
+        self._manualJogDisplayValues = bounded
         self._manualJogDraftInitialized = True
         self.manualJogDraftStateLabel.text = (
             "Draft state: "
@@ -3111,6 +3131,70 @@ class DENTORobotSimulationPanel:
             )
         return "\n".join(lines)
 
+    @staticmethod
+    def _motionDiagnosticTargetConditioningText(
+        session, exact_current_session: bool = False
+    ) -> str:
+        conditioning = session.full_task_outcome.get("target_conditioning")
+        if (
+            not isinstance(conditioning, Mapping)
+            or conditioning.get("world_frame") != "RAS_mm"
+        ):
+            return ""
+        try:
+            points = {
+                label: tuple(float(value) for value in conditioning[field])
+                for label, field in (
+                    ("PreEntry", "pre_entry_world_ras_mm"),
+                    ("Entry", "entry_world_ras_mm"),
+                    ("Target", "target_world_ras_mm"),
+                )
+            }
+            if any(
+                len(point) != 3 or not all(isfinite(value) for value in point)
+                for point in points.values()
+            ):
+                return ""
+            standoff = conditioning.get("standoff_mm")
+            standoff_text = (
+                f"{float(standoff):.3f} mm"
+                if standoff is not None and isfinite(float(standoff))
+                else "not recorded"
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return ""
+        state = str(getattr(session, "state", ""))
+        stale_reason = str(getattr(session, "stale_reason", ""))
+        is_current = exact_current_session and state == "Current" and not stale_reason
+        if is_current:
+            provenance = "Exact current diagnostic snapshot at display time"
+        elif state == "Stale" or stale_reason:
+            provenance = "Stale saved diagnostic snapshot"
+        else:
+            provenance = "Saved diagnostic snapshot; currentness not confirmed"
+        coordinate_text = " | ".join(
+            f"{label} ({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f})"
+            for label, point in points.items()
+        )
+        return (
+            f"TCP target coordinates — {coordinate_text} RAS mm | "
+            f"standoff {standoff_text}. {provenance}. DISPLAY ONLY — no route authority."
+        )
+
+    @staticmethod
+    def _invokeMotionDiagnosticCandidate(
+        on_candidate_selected,
+        candidate_index: int,
+        *,
+        exact_current_session: bool,
+        preentry_ik_failure: bool,
+    ):
+        if not on_candidate_selected or (
+            preentry_ik_failure and not exact_current_session
+        ):
+            return None
+        return on_candidate_selected(int(candidate_index))
+
     def showMotionDiagnostics(
         self,
         session,
@@ -3120,6 +3204,7 @@ class DENTORobotSimulationPanel:
         on_candidate_preview=None,
         on_candidate_apply=None,
         on_candidate_unlock=None,
+        exact_current_session: bool = False,
     ) -> None:
         """Open the bounded operator-facing diagnostic candidate inspector."""
         if self._diagnosticDialog is not None:
@@ -3148,6 +3233,30 @@ class DENTORobotSimulationPanel:
         )
         summary.wordWrap = True
         layout.addWidget(summary)
+        target_conditioning_text = self._motionDiagnosticTargetConditioningText(
+            session, exact_current_session=exact_current_session
+        )
+        self._motionDiagnosticTargetConditioningLabel = None
+        if target_conditioning_text:
+            target_conditioning_label = qt.QLabel(target_conditioning_text, dialog)
+            target_conditioning_label.objectName = (
+                "DENTOBOTMotionDiagnosticTargetCoordinates"
+            )
+            target_conditioning_label.wordWrap = True
+            target_conditioning_label.setProperty(
+                "dentobotRole",
+                "status"
+                if "Exact current diagnostic snapshot at display time"
+                in target_conditioning_text
+                else "warning",
+            )
+            target_conditioning_label.setStyleSheet(
+                "font-size: 14pt; font-weight: 700; padding: 6px;"
+            )
+            self._motionDiagnosticTargetConditioningLabel = (
+                target_conditioning_label
+            )
+            layout.addWidget(target_conditioning_label)
         identity_label = qt.QLabel(
             "Evidence identity — "
             f"task {session.task_fingerprint[:12]}; "
@@ -3157,7 +3266,22 @@ class DENTORobotSimulationPanel:
         )
         identity_label.wordWrap = True
         layout.addWidget(identity_label)
-        if str(session.full_task_outcome.get("diagnostic_kind") or "") == "preentry_ik":
+        diagnostic_kind = str(
+            session.full_task_outcome.get("diagnostic_kind") or ""
+        )
+        preentry_ik_failure = (
+            diagnostic_kind == "preentry_ik"
+            or str(session.full_task_outcome.get("blocked_stage") or "")
+            == "preentry_ik"
+        )
+        if preentry_ik_failure and diagnostic_kind != "preentry_ik":
+            summary.text = (
+                "Guarded planning stopped at PreEntry IK. Selecting a seed shows only "
+                "its translucent best failed J1–J5 pose; that pose is not accepted, "
+                "not verified collision-free, and has no route, preview, or motion authority."
+            )
+            summary.setProperty("dentobotRole", "warning")
+        if diagnostic_kind == "preentry_ik":
             outcome = session.full_task_outcome
             summary.text = (
                 "PreEntry IK endpoint diagnostic only. P1/Stage 1, Stage 2, Stage 3, "
@@ -3186,6 +3310,21 @@ class DENTORobotSimulationPanel:
             )
             identity_notes.wordWrap = True
             layout.addWidget(identity_notes)
+            candidate_display_status = qt.QLabel(
+                (
+                    "Select a seed to show its translucent best failed J1–J5 pose. "
+                    "This is not accepted robot state and is not verified collision-free."
+                    if exact_current_session
+                    else "Saved/stale report is text-only. Re-run this diagnostic to "
+                    "display a seed; no current robot pose is shown."
+                ),
+                dialog,
+            )
+            candidate_display_status.wordWrap = True
+            candidate_display_status.setProperty(
+                "dentobotRole", "warning" if exact_current_session else "status"
+            )
+            layout.addWidget(candidate_display_status)
             records = tuple(session.candidate_records)
             headers = (
                 "Seed",
@@ -3295,6 +3434,35 @@ class DENTORobotSimulationPanel:
                         indent=2,
                         sort_keys=True,
                     )
+                    result = self._invokeMotionDiagnosticCandidate(
+                        on_candidate_selected,
+                        int(row),
+                        exact_current_session=exact_current_session,
+                        preentry_ik_failure=True,
+                    )
+                    if result is not None:
+                        details.appendPlainText(
+                            "\n\nCandidate display: " + result.message
+                        )
+                        candidate_display_status.text = (
+                            f"Translucent best failed J1–J5 from seed {int(row) + 1} "
+                            "is displayed. This is not accepted robot state and is "
+                            "not verified collision-free."
+                            if result.success
+                            else "Diagnostic display was incomplete: "
+                            f"{result.message} No accepted robot state or "
+                            "collision-free claim was made."
+                        )
+                    elif exact_current_session:
+                        candidate_display_status.text = (
+                            "The translucent best failed J1–J5 pose is unavailable; "
+                            "no accepted robot state or collision-free claim was made."
+                        )
+                    else:
+                        candidate_display_status.text = (
+                            "Saved/stale report is text-only. Re-run this diagnostic "
+                            "to display a seed; no current robot pose is shown."
+                        )
 
             table.currentCellChanged.connect(show_seed)
             close_button = qt.QPushButton("Close", dialog)
@@ -3409,6 +3577,23 @@ class DENTORobotSimulationPanel:
         feedback_label.wordWrap = True
         feedback_label.setProperty("dentobotRole", "status")
         layout.addWidget(feedback_label)
+        candidate_display_status = None
+        if preentry_ik_failure:
+            candidate_display_status = qt.QLabel(
+                (
+                    "Selecting a seed shows its translucent best failed J1–J5 pose. "
+                    "This is not accepted robot state and is not verified collision-free."
+                    if exact_current_session
+                    else "Saved/stale report is text-only. Re-run this diagnostic to "
+                    "display a seed; no current robot pose is shown."
+                ),
+                dialog,
+            )
+            candidate_display_status.wordWrap = True
+            candidate_display_status.setProperty(
+                "dentobotRole", "warning" if exact_current_session else "status"
+            )
+            layout.addWidget(candidate_display_status)
         operator_error = str(session.full_task_outcome.get("operator_error_message") or "")
         if operator_error:
             error_text = qt.QPlainTextEdit(dialog)
@@ -3555,16 +3740,22 @@ class DENTORobotSimulationPanel:
 
         path_button.clicked.connect(show_selected_path)
         preview_button.clicked.connect(preview_selected_leg)
-        path_button.enabled = bool(on_candidate_path)
-        preview_button.enabled = bool(on_candidate_preview)
+        path_button.enabled = bool(on_candidate_path and not preentry_ik_failure)
+        preview_button.enabled = bool(on_candidate_preview and not preentry_ik_failure)
 
         def update_plan_buttons(index: int) -> None:
             record = records[index]
             complete = str(record.get("full_chain_candidate_status") or "") == "Complete"
             locked = plan_selection_state == "locked"
-            apply_button.enabled = bool(on_candidate_apply and complete and not locked)
-            lock_button.enabled = bool(on_candidate_apply and complete and not locked)
-            unlock_button.enabled = bool(on_candidate_unlock and locked)
+            apply_button.enabled = bool(
+                on_candidate_apply and complete and not locked and not preentry_ik_failure
+            )
+            lock_button.enabled = bool(
+                on_candidate_apply and complete and not locked and not preentry_ik_failure
+            )
+            unlock_button.enabled = bool(
+                on_candidate_unlock and locked and not preentry_ik_failure
+            )
 
         def select_candidate(index: int) -> None:
             index = max(0, min(len(records) - 1, int(index)))
@@ -3576,9 +3767,34 @@ class DENTORobotSimulationPanel:
             feedback_label.text = self._motionPlannerFeedback(session, index)
             details.plainText = json.dumps(record, indent=2, sort_keys=True)
             update_plan_buttons(index)
-            if on_candidate_selected:
-                result = on_candidate_selected(index)
+            result = self._invokeMotionDiagnosticCandidate(
+                on_candidate_selected,
+                index,
+                exact_current_session=exact_current_session,
+                preentry_ik_failure=preentry_ik_failure,
+            )
+            if result is not None:
                 details.appendPlainText("\n\nDisplay result: " + result.message)
+                if candidate_display_status is not None:
+                    candidate_display_status.text = (
+                        f"Translucent best failed J1–J5 from seed {index + 1} "
+                        "is displayed. This is not accepted robot state and is "
+                        "not verified collision-free."
+                        if result.success
+                        else "Diagnostic display was incomplete: "
+                        f"{result.message} No accepted robot state or "
+                        "collision-free claim was made."
+                    )
+            elif candidate_display_status is not None and not exact_current_session:
+                candidate_display_status.text = (
+                    "Saved/stale report is text-only. Re-run this diagnostic to "
+                    "display a seed; no current robot pose is shown."
+                )
+            elif candidate_display_status is not None:
+                candidate_display_status.text = (
+                    "The translucent best failed J1–J5 pose is unavailable; no "
+                    "accepted robot state or collision-free claim was made."
+                )
 
         def apply_selected(lock: bool) -> None:
             nonlocal plan_selection_state
@@ -3619,6 +3835,15 @@ class DENTORobotSimulationPanel:
         self._diagnosticDialog = dialog
         select_candidate(int(session.selected_candidate_index))
         dialog.show()
+
+    def setMotionDiagnosticTargetFiducialStatus(self, visible: bool) -> None:
+        label = self._motionDiagnosticTargetConditioningLabel
+        if label is not None:
+            label.text += (
+                " Viewport fiducials show these diagnostic snapshot coordinates."
+                if visible
+                else " Viewport fiducials could not be shown; use the coordinates above."
+            )
 
     @staticmethod
     def _set_boolean(label, available: bool, yes: str = "Available", no: str = "Unavailable") -> None:

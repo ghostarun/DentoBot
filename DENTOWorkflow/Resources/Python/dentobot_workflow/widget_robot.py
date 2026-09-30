@@ -806,9 +806,27 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.reconcileManualBaseStateButton.enabled = bool(
                     control_state["reconcile"] and not self._workflowActionBusy
                 )
-                self.ui.lockRobotBaseMountButton.enabled = control_state["accept"]
+                reconcile_base = bool(
+                    control_state["reconcile"] and not self._workflowActionBusy
+                )
+                self.ui.lockRobotBaseMountButton.text = _(
+                    "Reconcile Base State" if reconcile_base else "Accept Base"
+                )
+                self.ui.lockRobotBaseMountButton.toolTip = _(
+                    "Reconcile the accepted Base with the live ROS scene. This does not "
+                    "accept the detached candidate."
+                    if reconcile_base
+                    else "Accept the detached numeric Base candidate through the guarded "
+                    "Step 6 Base review path. An unknown lock/scene outcome blocks later "
+                    "acceptance until runtime reconciliation."
+                )
+                self.ui.lockRobotBaseMountButton.enabled = bool(
+                    (control_state["accept"] or reconcile_base)
+                    and not self._workflowActionBusy
+                )
             else:
                 panel.manualBaseReviewGroup.enabled = False
+                self.ui.lockRobotBaseMountButton.text = _("Accept Base")
             try:
                 urdf_path, _package_root = self.logic.robotDescriptionPaths()
                 mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
@@ -892,7 +910,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             ).strip():
                 panel.workspaceReviewStatusLabel.text = _(
                     "Saved workspace evidence needs live revalidation. Replay it "
-                    "without changing the reviewed envelope, or regenerate the "
+                    "without changing the reviewed envelope, or regenerate it "
                     "if replay rejects any state."
                 )
             else:
@@ -931,10 +949,19 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 confirmation_prerequisites.append(_("Apply and live-validate Task Home in 6.2."))
             if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
                 confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
+            planning_prerequisites = list(confirmation_prerequisites)
+            if not workspace_runtime_validated:
+                planning_prerequisites.append(
+                    _("Revalidate or generate workspace evidence in 6.3.")
+                )
+            if not assisted_reviewed:
+                planning_prerequisites.append(
+                    _("Review and apply assisted joint limits in 6.3.")
+                )
             panel.confirmationStatusLabel.text = (
                 _("Immutable task snapshot is current; phased plans are enabled.")
-                if task_ready
-                else " ".join(confirmation_prerequisites or task_issues)
+                if task_ready and workspace_runtime_validated and assisted_reviewed
+                else " ".join(planning_prerequisites or task_issues)
             )
             preview_active = bool(
                 self._robotWorkflowFacade
@@ -957,14 +984,17 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     and not getattr(self, "_workflowActionBusy", False)
                 ),
             )
-            panel.planApproachButton.enabled = bool(
+            phase_planning_ready = bool(
                 planning_anatomy_ready
                 and task_ready
                 and ros2_active
                 and home_runtime_validated
+                and workspace_runtime_validated
+                and assisted_reviewed
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
+            panel.planApproachButton.enabled = phase_planning_ready
             panel.checkPreEntryIKButton.enabled = bool(
                 planning_anatomy_ready
                 and task_ready
@@ -993,7 +1023,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.checkPlanningP3Button,
             ):
                 button.enabled = stage_diagnostic_enabled
-            panel.comparePlannersButton.enabled = panel.planApproachButton.enabled
+            panel.comparePlannersButton.enabled = phase_planning_ready
             override_active = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.templateCollisionExclusionActive
@@ -1221,6 +1251,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         if self._isStep6RobotWorkflowActive():
             if not self._isStep6ManualBaseReviewActive():
+                return
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel and panel.reconcileManualBaseStateButton.enabled:
+                self._onStep6ReconcileManualBaseAcceptance()
                 return
             result = self._robotWorkflowFacade.acceptManualBaseReview()
             self._updateStep6PlanningUi(result.message, error=not result.success)

@@ -1520,6 +1520,93 @@ class DENTORobotWorkflowFacade:
             )
         )
 
+    def workspaceRoiMatchesSavedEvidence(
+        self,
+        roi: TaskSpaceRoi,
+        roi_source: Mapping[str, object],
+        parameter_node=None,
+    ) -> bool:
+        """Check saved workspace ROI identity without changing workflow state."""
+
+        try:
+            parameter_node = parameter_node or self._parameter_node()
+            if (
+                parameter_node is None
+                or not isinstance(roi, TaskSpaceRoi)
+                or not isinstance(roi_source, Mapping)
+            ):
+                return False
+            fields = {"openingRevision", "gapLineNodeId"}
+            if set(roi_source) != fields:
+                return False
+            revision = roi_source["openingRevision"]
+            gap_line_id = roi_source["gapLineNodeId"]
+            if (
+                isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or revision < 0
+                or not isinstance(gap_line_id, str)
+                or not gap_line_id.strip()
+                or gap_line_id != gap_line_id.strip()
+            ):
+                return False
+            source = {
+                "openingRevision": revision,
+                "gapLineNodeId": gap_line_id,
+            }
+            payload = json.loads(
+                str(parameter_node.step6AssistedLimitProposalJson or "")
+            )
+            if not isinstance(payload, Mapping):
+                return False
+            saved_source = payload.get("roi_source")
+            saved_roi_payload = payload.get("roi")
+            if (
+                not isinstance(saved_source, Mapping)
+                or set(saved_source) != fields
+                or not isinstance(saved_roi_payload, Mapping)
+                or set(saved_roi_payload)
+                != {"center_world_ras_mm", "dimensions_mm"}
+            ):
+                return False
+            saved_revision = saved_source["openingRevision"]
+            saved_gap_line_id = saved_source["gapLineNodeId"]
+            if (
+                isinstance(saved_revision, bool)
+                or not isinstance(saved_revision, int)
+                or saved_revision < 0
+                or not isinstance(saved_gap_line_id, str)
+                or not saved_gap_line_id.strip()
+                or saved_gap_line_id != saved_gap_line_id.strip()
+                or dict(saved_source) != source
+            ):
+                return False
+            source_fingerprint = fingerprint(source)
+            if payload.get("roi_source_fingerprint") != source_fingerprint:
+                return False
+            saved_roi = TaskSpaceRoi(
+                center_world_ras_mm=saved_roi_payload["center_world_ras_mm"],
+                dimensions_mm=saved_roi_payload["dimensions_mm"],
+            )
+            if saved_roi_payload != {
+                "center_world_ras_mm": list(saved_roi.center_world_ras_mm),
+                "dimensions_mm": list(saved_roi.dimensions_mm),
+            }:
+                return False
+            expected_roi_fingerprint = fingerprint(
+                {
+                    "center_world_ras_mm": roi.center_world_ras_mm,
+                    "dimensions_mm": roi.dimensions_mm,
+                    "source_fingerprint": source_fingerprint,
+                }
+            )
+            return (
+                saved_roi == roi
+                and payload.get("roi_fingerprint") == expected_roi_fingerprint
+            )
+        except Exception:
+            return False
+
     def workspaceRuntimeValidated(self, parameter_node=None) -> bool:
         parameter_node = parameter_node or self._parameter_node()
         if (
@@ -7486,18 +7573,56 @@ class DENTORobotWorkflowFacade:
                 raise ValueError("Diagnostic candidate index is out of range.")
             record = session.candidate_records[index]
             positions = record.get("last_valid_joint_positions_si")
+            display_only_best_failed_ik = False
             if not isinstance(positions, dict):
-                return RobotActionResult(
-                    False,
-                    "diagnostic_state_unavailable",
-                    "This candidate did not return a last-valid joint state.",
-                    details=record,
+                preentry_ik_session = (
+                    isinstance(session.full_task_outcome, Mapping)
+                    and session.full_task_outcome.get("diagnostic_kind")
+                    == "preentry_ik"
                 )
+                if (
+                    record.get("full_chain_failure_stage") != "preentry_ik"
+                    and not preentry_ik_session
+                ) or record.get("solver_success") is True:
+                    return RobotActionResult(
+                        False,
+                        "diagnostic_state_unavailable",
+                        "This candidate did not return a displayable failed PreEntry IK state.",
+                        details=record,
+                    )
+                positions = record.get("best_joint_positions_si")
+                try:
+                    valid_best_state = (
+                        isinstance(positions, Mapping)
+                        and set(positions) == set(JOINT_NAMES)
+                        and all(
+                            isinstance(positions[name], Real)
+                            and not isinstance(positions[name], bool)
+                            and isfinite(float(positions[name]))
+                            for name in JOINT_NAMES
+                        )
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    valid_best_state = False
+                if not valid_best_state:
+                    return RobotActionResult(
+                        False,
+                        "diagnostic_state_unavailable",
+                        "This PreEntry IK diagnostic has no exact finite best J1–J5 state to display.",
+                        details=record,
+                    )
+                display_only_best_failed_ik = True
             ok, message = self._bridge.show_goal_robot_joint_positions(positions)
             evidence_ok, evidence_message = self._bridge.show_motion_diagnostic_evidence(
                 first_invalid_ras_mm=record.get("first_invalid_ras_mm"),
                 collision_pairs=record.get("first_invalid_collision_pairs", ()),
             )
+            if display_only_best_failed_ik:
+                message = (
+                    "Best failed PreEntry IK state displayed on the translucent goal robot for visualization only. "
+                    "Static validity and collision may be unverified; this has no accepted-state, guard, or route authority."
+                    + (" " + message if not ok else "")
+                )
             return RobotActionResult(
                 ok and evidence_ok,
                 (
@@ -8635,6 +8760,7 @@ class DENTORobotWorkflowFacade:
                 "pre_entry_world_ras_mm": tuple(float(v) for v in pre_entry),
                 "entry_world_ras_mm": tuple(float(v) for v in entry),
                 "target_world_ras_mm": tuple(float(v) for v in target),
+                "standoff_mm": float(parameter_node.step6ApproachStandoffMm),
                 "pre_entry_base_m": base_points["pre_entry"],
                 "entry_base_m": base_points["entry"],
                 "target_base_m": base_points["target"],
@@ -10354,6 +10480,16 @@ class DENTORobotWorkflowFacade:
         full_task_reason: str = "",
     ):
         collision_audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        pre_entry, entry = self._logic.step6ApproachPoints(parameter_node, snapshot)
+        target_conditioning = {
+            "world_frame": "RAS_mm",
+            "pre_entry_world_ras_mm": tuple(float(value) for value in pre_entry),
+            "entry_world_ras_mm": tuple(float(value) for value in entry),
+            "target_world_ras_mm": tuple(
+                float(value) for value in snapshot.target_ras_mm
+            ),
+            "standoff_mm": float(parameter_node.step6ApproachStandoffMm),
+        }
         selected = records[int(selected_index)]
         full_task_reason = _bounded_text(full_task_reason)
         failure_stage = str(selected.get("full_chain_failure_stage") or "")
@@ -10541,6 +10677,7 @@ class DENTORobotWorkflowFacade:
                 "stage3_waypoint_count": int(
                     selected.get("stage3_waypoint_count", 0)
                 ),
+                "target_conditioning": target_conditioning,
                 "template_collision_exclusion_active": bool(
                     self._template_collision_exclusion_active
                 ),
@@ -10771,6 +10908,10 @@ class DENTORobotWorkflowFacade:
                     "session. Return to 6.3, regenerate it, review its envelope, "
                     "and confirm the task again."
                 )
+            if not self._logic.assistedTaskLimitsReviewed(parameter_node):
+                raise ValueError(
+                    "Review the assisted workspace limits in 6.3 before planning Approach."
+                )
             snapshot = self._logic.confirmedTaskRecord(parameter_node)
             guide_fit = self._guide_fit_evidence(parameter_node)
             tool_insertion = self._tool_insertion_evidence(
@@ -10829,45 +10970,118 @@ class DENTORobotWorkflowFacade:
                 raise RuntimeError("Approach PreEntry and Entry points are coincident.")
             if progress:
                 progress("Searching collision-aware PreEntry IK")
-            ik_candidates, ik_failures = self._goal1_pre_entry_ik_candidates(
+            ik_seed_records: list[dict[str, object]] = []
+            ik_candidates, _ik_failures = self._goal1_pre_entry_ik_candidates(
                 parameter_node,
                 pre_entry,
                 entry,
                 snapshot.target_ras_mm,
                 home_positions,
                 progress=progress,
+                seed_collector=ik_seed_records.append,
             )
             if not ik_candidates:
+                position_tolerance_mm = float(
+                    _default_bridge.CARTESIAN_START_POSITION_TOLERANCE_MM
+                )
+                axis_tolerance_deg = float(
+                    _default_bridge.CARTESIAN_START_ORIENTATION_TOLERANCE_DEG
+                )
+                observed_residuals = []
+                for index, record in enumerate(ik_seed_records):
+                    position = record.get("position_residual_mm")
+                    axis = record.get("drilling_axis_residual_deg")
+                    if position is None:
+                        position = record.get("authoritative_position_residual_mm")
+                    if axis is None:
+                        axis = record.get(
+                            "authoritative_drilling_axis_residual_deg"
+                        )
+                    try:
+                        position = float(position)
+                        axis = float(axis)
+                    except (TypeError, ValueError):
+                        continue
+                    if isfinite(position) and isfinite(axis):
+                        observed_residuals.append((index, position, axis))
+                best_residual = min(
+                    observed_residuals,
+                    key=lambda values: max(
+                        values[1] / position_tolerance_mm,
+                        values[2] / axis_tolerance_deg,
+                    ),
+                    default=None,
+                )
+                residual_summary = (
+                    f"Best observed position/axis residual: {best_residual[1]:.3f} mm / "
+                    f"{best_residual[2]:.3f}°; tolerances: {position_tolerance_mm:.3f} mm / "
+                    f"{axis_tolerance_deg:.3f}°."
+                    if best_residual is not None
+                    else "Position/axis residuals are unavailable; tolerances: "
+                    f"{position_tolerance_mm:.3f} mm / {axis_tolerance_deg:.3f}°."
+                )
                 failure_message = (
                     "Approach planning found no collision-aware PreEntry IK endpoint for "
                     "the canonical non-spinning drill TCP. "
-                    + "; ".join(ik_failures)
+                    + residual_summary
+                    + " Full per-seed evidence is in Motion Diagnostics."
                 )
-                self._persist_goal1_diagnostic(
+                diagnostic_records = [
+                    {
+                        **record,
+                        "candidate_index": int(record.get("candidate_index", index)),
+                        "axial_roll_deg": LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG,
+                        "success": False,
+                        "message": _bounded_text(
+                            record.get("solver_message")
+                            or record.get("failure_classification")
+                        ),
+                        "completion_fraction": 0.0,
+                        "completed_distance_mm": 0.0,
+                        "requested_distance_mm": 0.0,
+                        "waypoint_count": 0,
+                        "failure_classification": str(
+                            record.get("failure_classification")
+                            or "preentry_ik_unreachable"
+                        ),
+                        "full_chain_candidate_status": "Blocked",
+                        "full_chain_failure_stage": "preentry_ik",
+                    }
+                    for index, record in enumerate(ik_seed_records)
+                ] or [
+                    {
+                        "candidate_index": 0,
+                        "axial_roll_deg": LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG,
+                        "success": False,
+                        "message": failure_message,
+                        "completion_fraction": 0.0,
+                        "completed_distance_mm": 0.0,
+                        "requested_distance_mm": 0.0,
+                        "waypoint_count": 0,
+                        "failure_classification": "preentry_ik_unreachable",
+                        "full_chain_candidate_status": "Blocked",
+                        "full_chain_failure_stage": "preentry_ik",
+                    }
+                ]
+                diagnostic = self._persist_goal1_diagnostic(
                     parameter_node,
                     snapshot,
-                    (
-                        {
-                            "candidate_index": 0,
-                            "stage": "preentry_ik",
-                            "planner_leg": "preentry_ik",
-                            "route_type": "bounded-ik-search",
-                            "axial_roll_deg": LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG,
-                            "success": False,
-                            "message": _bounded_text(failure_message),
-                            "completion_fraction": 0.0,
-                            "completed_distance_mm": 0.0,
-                            "requested_distance_mm": 0.0,
-                            "waypoint_count": 0,
-                            "failure_classification": "preentry_ik_unreachable",
-                            "full_chain_candidate_status": "Blocked",
-                            "full_chain_failure_stage": "preentry_ik",
-                        },
-                    ),
-                    0,
+                    diagnostic_records,
+                    best_residual[0] if best_residual is not None else 0,
                     full_task_reason=failure_message,
                 )
-                raise RuntimeError(failure_message)
+                self._clear_phase_session()
+                details = {}
+                if diagnostic is not None and diagnostic.session_fingerprint:
+                    details["motionDiagnosticSessionFingerprint"] = (
+                        diagnostic.session_fingerprint
+                    )
+                return RobotActionResult(
+                    False,
+                    "approach_plan_failed",
+                    failure_message,
+                    details=details,
+                )
             strict_plan = None
             selected_candidate = None
             selected_axis_plan = None

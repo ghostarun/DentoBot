@@ -3,13 +3,83 @@
 from __future__ import annotations
 
 from .runtime import *
+from .ui_workflow_focus import WorkflowFocusChromeController
 
 
 class LifecycleWidgetMixin:
+    def _workflowFocusController(self):
+        if not hasattr(self, "_workflowFocusChromeController"):
+            self._workflowFocusChromeController = WorkflowFocusChromeController()
+        return self._workflowFocusChromeController
+
+    def _applyWorkflowFocusChrome(self) -> None:
+        if not getattr(self, "_workflowFocusEntered", False):
+            return
+
+        controller = self._workflowFocusController()
+        shell = getattr(self, "_applicationShell", None)
+        try:
+            shellActive = bool(shell and shell.active)
+        except RuntimeError:
+            shellActive = False
+        toolsVisible = bool(getattr(self, "_workflowSlicerToolsVisible", False))
+
+        if toolsVisible:
+            controller.restore(keep_snapshot=True)
+        else:
+            mainWindow = slicer.util.mainWindow()
+            widgets = []
+            if mainWindow is not None:
+                if not shellActive:
+                    expertToolbar = getattr(self, "_step6ExpertReturnToolbar", None)
+                    try:
+                        toolbars = mainWindow.findChildren("QToolBar")
+                    except RuntimeError:
+                        toolbars = ()
+                    for toolbar in toolbars:
+                        try:
+                            if (
+                                toolbar is expertToolbar
+                                or str(toolbar.objectName)
+                                == "DENTOBOTExpertReturnToolbar"
+                            ):
+                                continue
+                        except RuntimeError:
+                            continue
+                        widgets.append(toolbar)
+
+                for objectName in (
+                    "LogoLabel",
+                    "HelpCollapsibleButton",
+                    "DataProbeCollapsibleWidget",
+                ):
+                    try:
+                        widget = slicer.util.findChild(mainWindow, objectName)
+                    except (IndexError, RuntimeError):
+                        widget = None
+                    if widget is not None:
+                        widgets.append(widget)
+            controller.apply(widgets)
+
+        if shellActive:
+            controller.set_shell_toolbars_visible(shell, toolsVisible)
+
+    def _restoreWorkflowFocusChrome(self) -> None:
+        controller = getattr(self, "_workflowFocusChromeController", None)
+        if controller is not None:
+            controller.restore()
+
+    def _setWorkflowSlicerToolsVisible(self, visible: bool) -> None:
+        self._workflowSlicerToolsVisible = bool(visible)
+        if getattr(self, "_workflowFocusEntered", False):
+            self._applyWorkflowFocusChrome()
+
     def cleanup(self) -> None:
         if self._isCleaningUp:
             return
         self._isCleaningUp = True
+        self._workflowFocusEntered = False
+        self._restoreWorkflowFocusChrome()
         self._caseFoundationSnapshot = None
         self._workflowViewRefreshScheduled = False
         self._step6ExpertDiagnosticHandoffActive = False
@@ -59,6 +129,10 @@ class LifecycleWidgetMixin:
             self._viewControlsTabWidget = None
 
     def enter(self) -> None:
+        self._workflowFocusEntered = True
+        self._workflowSlicerToolsVisible = getattr(
+            self, "_workflowSlicerToolsVisible", False
+        )
         self._addSceneObservers()
         self.initializeParameterNode()
         if self._applicationShell:
@@ -66,10 +140,13 @@ class LifecycleWidgetMixin:
                 DENTOApplicationShell.storedGuiMode(),
                 persist=False,
             )
+        self._applyWorkflowFocusChrome()
         self._updateRobotKeyboardShortcutState()
         qt.QTimer.singleShot(0, self._restoreViewControlsPaletteOnEnter)
 
     def exit(self) -> None:
+        self._workflowFocusEntered = False
+        self._restoreWorkflowFocusChrome()
         if self._step6ExpertDiagnosticHandoffActive:
             self._setRobotTransformInteractionVisible(False)
             self._disableRobotKeyboardShortcuts()

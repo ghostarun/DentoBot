@@ -43,11 +43,11 @@ def test_normal_gui_launch_restarts_the_dedicated_container():
         encoding="utf-8"
     )
     reset = launcher.split('if docker inspect "${container_name}"', 1)[1].split(
-        "container_runtime_safeguards", 1
+        "\nfi\n\nprintf 'Starting the DENTOBOT development container...", 1
     )[0]
-    assert "if [[ ${check_only} == false ]]" in reset
-    assert 'docker restart --timeout 30 "${container_name}"' in reset
-    assert '"${compose_command[@]}" up -d' in reset
+    assert 'if [[ ${check_only} == false && ${backend_device} != "cuda:0" ]]' in reset
+    assert 'docker restart -t 30 "${container_name}"' in reset
+    assert '"${compose_command[@]}" up -d' in launcher
     assert "--force-recreate" not in reset
     assert "Existing DENTOBOT Slicer, ROS, MoveIt, and test processes" in reset
     assert "Save open Slicer scenes first" in reset
@@ -87,6 +87,19 @@ def test_gui_launcher_bounds_simulation_process_group_cleanup():
     assert "readiness_attempts=60" in handoff
     assert "readiness_interval=0.5" in handoff
     assert "set -x" not in handoff
+
+
+def test_gui_launcher_uses_the_checkout_it_was_run_from():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "Workspace/scripts/launch-dentoworkflow.bash").read_text(
+        encoding="utf-8"
+    )
+    assert 'ros2_workspace_root="${workspace_root}/ros2_ws"' in launcher
+    assert 'repository_relative_path="${repository_root#"${ros2_workspace_root}/"}"' in launcher
+    assert 'container_repository_root="/workspace/ros2_ws/${repository_relative_path}"' in launcher
+    assert 'module_path="${container_repository_root}/DENTOWorkflow"' in launcher
+    assert '"${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/Workspace/scripts/dentobot-simulation-slicer-handoff.bash"' in launcher
+    assert "/workspace/ros2_ws/src/DentoBot/" not in launcher
 
 
 def test_gui_launcher_ensures_docker_daemon_before_compose():

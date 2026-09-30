@@ -1357,7 +1357,78 @@ class RobotShellWidgetMixin:
                 "idle", "Historical paths and imported records were cleared; live state is unchanged."
             )
 
-    def _onStep6ShowMotionDiagnostics(self) -> None:
+    def _clearStep6TargetConditioningFiducials(self) -> None:
+        for node in list(slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode")):
+            if node.GetAttribute("DENTOBOT.Step6TargetConditioningDisplay") == "true":
+                slicer.mrmlScene.RemoveNode(node)
+
+    def _showStep6TargetConditioningFiducials(
+        self, session, expected_fingerprint: str
+    ) -> bool:
+        """Show only exact-current saved diagnostic coordinates as transient fiducials."""
+        conditioning = session.full_task_outcome.get("target_conditioning")
+        if (
+            session.state != "Current"
+            or session.stale_reason
+            or not expected_fingerprint
+            or session.session_fingerprint != expected_fingerprint
+            or not isinstance(conditioning, Mapping)
+            or conditioning.get("world_frame") != "RAS_mm"
+        ):
+            return False
+        try:
+            points = tuple(
+                (
+                    label,
+                    tuple(float(value) for value in conditioning[field]),
+                )
+                for label, field in (
+                    ("PreEntry TCP", "pre_entry_world_ras_mm"),
+                    ("Entry TCP", "entry_world_ras_mm"),
+                    ("Target TCP", "target_world_ras_mm"),
+                )
+            )
+            if any(
+                len(point) != 3 or not all(isfinite(value) for value in point)
+                for _, point in points
+            ):
+                return False
+            marker = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsFiducialNode",
+                "[Step 6 Diagnostic Snapshot] PreEntry, Entry, Target TCP",
+            )
+            marker.SetAttribute("DENTOBOT.Step6TargetConditioningDisplay", "true")
+            marker.SetAttribute(
+                "DENTOBOT.IntendedUse", "DisplayOnlyDiagnosticSnapshot"
+            )
+            marker.SetSaveWithScene(False)
+            marker.CreateDefaultDisplayNodes()
+            for label, point in points:
+                marker.AddControlPointWorld(vtk.vtkVector3d(*point), label)
+            marker.SetLocked(True)
+            display = marker.GetDisplayNode()
+            if display is not None:
+                set_save_with_scene = getattr(display, "SetSaveWithScene", None)
+                if callable(set_save_with_scene):
+                    set_save_with_scene(False)
+                display.SetVisibility(True)
+                display.SetColor(1.0, 0.65, 0.05)
+                display.SetSelectedColor(1.0, 0.65, 0.05)
+                display.SetGlyphScale(4.0)
+        except (
+            AttributeError,
+            KeyError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ):
+            self._clearStep6TargetConditioningFiducials()
+            return False
+        return True
+
+    def _onStep6ShowMotionDiagnostics(self, expected_fingerprint: str = "") -> None:
+        self._clearStep6TargetConditioningFiducials()
         if not self._parameterNode or not self._robotSimulationPanel:
             return
         payload = str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
@@ -1366,6 +1437,12 @@ class RobotShellWidgetMixin:
             return
         try:
             session = parse_motion_diagnostic_session(payload)
+            exact_current_session = bool(
+                expected_fingerprint
+                and session.session_fingerprint == expected_fingerprint
+                and session.state == "Current"
+                and not session.stale_reason
+            )
             self._robotSimulationPanel.showMotionDiagnostics(
                 session,
                 self._robotWorkflowFacade.showDiagnosticCandidate
@@ -1386,7 +1463,20 @@ class RobotShellWidgetMixin:
                 self._onStep6UnlockDiagnosticCandidate
                 if self._robotWorkflowFacade
                 else None,
+                exact_current_session=exact_current_session,
             )
+            if exact_current_session:
+                fiducials_visible = self._showStep6TargetConditioningFiducials(
+                    session, expected_fingerprint
+                )
+                self._robotSimulationPanel.setMotionDiagnosticTargetFiducialStatus(
+                    fiducials_visible
+                )
+                if fiducials_visible:
+                    self._robotSimulationPanel._diagnosticDialog.connect(
+                        "finished(int)",
+                        lambda _result: self._clearStep6TargetConditioningFiducials(),
+                    )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
 
@@ -1483,6 +1573,7 @@ class RobotShellWidgetMixin:
             else ""
         )
         roi = result.payload
+        matches_saved_evidence = False
         if result.success:
             try:
                 if not isinstance(roi, Mapping):
@@ -1549,12 +1640,48 @@ class RobotShellWidgetMixin:
                         " Display draft rounded to "
                         f"{max(rounded_decimals)} decimal places."
                     )
-                panel.taskSpaceRoiStatusLabel.text = (
-                    panel._taskSpaceRoiStatusContext
-                    + " Editable local display draft; TCP samples have not been "
-                    "generated or validated."
+                display_center = tuple(value for _, value in display_values[:3])
+                display_dimensions = tuple(value for _, value in display_values[3:])
+                roi_source = {
+                    "openingRevision": opening_revision,
+                    "gapLineNodeId": gap_line_node_id,
+                }
+                matches_saved_evidence = self._robotWorkflowFacade.workspaceRoiMatchesSavedEvidence(
+                    TaskSpaceRoi(
+                        center_world_ras_mm=display_center,
+                        dimensions_mm=display_dimensions,
+                    ),
+                    roi_source,
+                    self._parameterNode,
                 )
-                panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "blocked")
+                if matches_saved_evidence:
+                    runtime_current = bool(
+                        self._robotWorkflowFacade.workspaceRuntimeValidated(
+                            self._parameterNode
+                        )
+                    )
+                    panel.taskSpaceRoiStatusLabel.text = (
+                        panel._taskSpaceRoiStatusContext
+                        + " Exact saved workspace ROI/source match; "
+                        + (
+                            "runtime validation is current."
+                            if runtime_current
+                            else "saved evidence needs runtime revalidation."
+                        )
+                    )
+                    panel.taskSpaceRoiStatusLabel.setProperty(
+                        "dentobotState",
+                        "ok" if runtime_current else "blocked",
+                    )
+                else:
+                    panel.taskSpaceRoiStatusLabel.text = (
+                        panel._taskSpaceRoiStatusContext
+                        + " Editable local display draft; TCP samples have not been "
+                        "generated or validated."
+                    )
+                    panel.taskSpaceRoiStatusLabel.setProperty(
+                        "dentobotState", "blocked"
+                    )
         if source_issue:
             panel._taskSpaceRoiStatusContext = (
                 f"Source issue: {source_issue}. Existing ROI draft is stale/unverified."
@@ -1566,7 +1693,7 @@ class RobotShellWidgetMixin:
             panel.taskSpaceRoiStatusLabel.setProperty("dentobotState", "error")
         panel.taskSpaceRoiStatusLabel.style().unpolish(panel.taskSpaceRoiStatusLabel)
         panel.taskSpaceRoiStatusLabel.style().polish(panel.taskSpaceRoiStatusLabel)
-        if not source_issue:
+        if not source_issue and not matches_saved_evidence:
             self._onStep6TaskSpaceRoiEdited()
         return not source_issue
 
@@ -1744,6 +1871,7 @@ class RobotShellWidgetMixin:
                 self._parameterNode.step6MotionDiagnosticJson = canonical_json(
                     retained.to_dict()
                 )
+                diagnostic_fingerprint = retained.session_fingerprint
         if not result.success:
             slicer.util.errorDisplay(result.message)
         if (
@@ -1751,7 +1879,12 @@ class RobotShellWidgetMixin:
             and self._parameterNode
             and str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
         ):
-            qt.QTimer.singleShot(0, self._onStep6ShowMotionDiagnostics)
+            qt.QTimer.singleShot(
+                0,
+                lambda expected=diagnostic_fingerprint: self._onStep6ShowMotionDiagnostics(
+                    str(expected)
+                ),
+            )
 
     def _onStep6CheckPreEntryIK(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -1779,7 +1912,9 @@ class RobotShellWidgetMixin:
         )
         self._updateStep6PlanningUi(result.message, error=not result.success)
         if result.success and result.details.get("motionDiagnosticSessionFingerprint"):
-            self._onStep6ShowMotionDiagnostics()
+            self._onStep6ShowMotionDiagnostics(
+                str(result.details["motionDiagnosticSessionFingerprint"])
+            )
 
     def _onStep6CheckPlanningStage(self, stage: str) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:
@@ -1816,7 +1951,7 @@ class RobotShellWidgetMixin:
             except ValueError:
                 session = None
             if session and session.session_fingerprint == fingerprint:
-                self._onStep6ShowMotionDiagnostics()
+                self._onStep6ShowMotionDiagnostics(str(fingerprint))
 
     def _onStep6ComparePlanners(self) -> None:
         if getattr(self, "_plannerComparisonState", None):

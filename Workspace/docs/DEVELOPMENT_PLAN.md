@@ -1601,3 +1601,7 @@ alias mapping. This plan and TASKS.md may reference that ID but must not create
 a second queue or duplicate its running status narrative. Dated
 implementation detail belongs in the logbook and changelog, not in a second
 `Next` list.
+
+## 2026-09-30 — Bounded current-workflow space recovery
+
+Under UI-P3-01, Tarun advances default Workflow Focus independently of the deferred broad Studio redesign. Acceptance requires reachable secondary actions, narrow-width usability, preserved workflow state and gates, exact chrome restoration across enter/exit/reload and Legacy/New transitions, and before/after screenshots targeting twice the visible active-task height at the supplied window size. Agent runtime stays serialized with the active Step 6.3 final-fix campaign; host verification cannot establish visual acceptance.

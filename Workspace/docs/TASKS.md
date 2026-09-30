@@ -1629,6 +1629,12 @@ own visible stop.
 
 ## Track A acceptance contracts — migration baseline
 
+**30 September r22 bounded workbench acceptance:**19 selected headed checks passed with0fail, native exact IK solution retained in draft, real TCP drag/buttons/keys/editor suppression and default-off cleanup verified. Slicer/recorder exit0, complete503.733s bounded-run video and MP4/106-file manifest retained. Full workflow is explicitly not claimed: native rejected fixture, uncertain Base/Home, negative IK, full planner/preview/repeat, final new-case save/reopen, representative responsiveness and Tarun verdict remain open. Horizontal clipping visible with compactchrome still needs UI-P3-01 review. See current logbook and r22 diagnostics.
+
+**30 September S6-LIVE-01 r21/source update:** Case-bound completed viewport drag, Cartesian buttons, physical TCP keys, numeric/text focus suppression and opt-out cleanup passed, with accepted robot unchanged. R21 failed exact native IK-to-draft staging; panel precision correction now passes130 focused host tests with true rounded-control regression. Runtime confirmation remains pending, as do negative IK/native rejected outcomes, uncertain Base/Home, full-chain preview/repeat/final case/reopen and operator verdict. R21 video is partial, no native signal. See current logbook/run diagnostics; host checks are not full runtime acceptance.
+
+**30 September DENTO-NOTE — conditional bounded base-placement diagnostic (`S6-LIVE-01`):** Tarun requests iterative translation around the existing forehead-plane-center Base placement if planner testing fails due to IK unreachability: offsets up to ±20 mm on each of two in-plane axes only. His “XY” denotes an oblique anatomical plane parallel to the upper-teeth root↔crown direction, not an assumed world-RAS XY plane. Triage: planned conditional investigation under the existing planner/base-feasibility contract; the note itself is Unprioritized and does not change the parent Priority0. It supersedes blanket deferral only for this bounded failure-triggered diagnostic; broader sweeps, orientation search, heatmaps and robot redesign remain deferred. Prerequisites: complete the current workbench gate, capture exact current-task IK failure, and establish a reviewed plane origin/orthonormal basis and sampling budget. Root↔crown direction alone does not uniquely define a plane; do not invent its second axis or equate it to the forehead plane without review. Keep Base orientation and normal offset fixed, retain the zero-offset baseline, and freeze anatomy, task/TCP, limits and collision/phase policy. Reuse the shared five-joint evaluator, preserve each candidate transform, requested endpoint, IK/FK residuals, limit/collision evidence and identity in diagnostic records/screenshots. Candidates remain detached/display-only; no automatic Base acceptance, Home reuse, route promotion or preview. A selected candidate requires normal explicit Base review/acceptance, scene acknowledgement, fresh Home/workspace/task checks and full-chain guard before motion authority. No successful IK result or infeasibility proof is implied by this note; empty bounded search remains inconclusive beyond its evaluated coverage.
+
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
@@ -1653,6 +1659,56 @@ physical-key draft-only headed gate are complete. Next: finish the detailed
 campaign's native rejection, case-bound TCP, text-focus, responsiveness, record-persistence and
 full-chain preview/interruption gates. Do not infer planner, preview, hardware
 or Tarun's normal-window verdict from r15/r16.
+
+**2026-09-30 demonstration recovery and later case-bearing evidence
+(`S6-LIVE-01`):** Tarun's manual demonstration exposed an inaccessible
+uncertain-Base recovery path and repeat workspace/planner staleness after
+selecting the incisor-derived ROI. The visible Step 6 Base action now routes
+uncertain acceptance to reconciliation; exact saved ROI/source reuse is a
+no-op, changed ROI invalidates, and Approach/Compare require current runtime
+workspace plus reviewed limits. The facade enforces the same prerequisites.
+The 250-test host source gate passed. An r1 headed run exposed and led to
+correction of a six-decimal versus full-precision workspace identity error.
+R2/r3 then stopped on native exits. A subsequent isolated diagnostic and
+recorded r6 passed strict source-case restore, five-joint robot, ROS/MoveIt,
+31-object scene, J1 guard acceptance, historical record export/reopen,
+Base/Home review, two workspace validations and production save. It created
+`sept30_fdi11_step6_3_demo_ready.dentocase` (SHA-256
+`539ee7948bd97434ab4ef8b675e1540f065219a7e5250c3a422d2cfb481c371a`)
+with a complete zero-exit video. R7 strictly reopened it in a fresh Slicer
+process with seven robot models and exit 0. R6/r7 do not establish planner,
+TCP, preview or normal-window usability acceptance.
+
+The next case-bound TCP/full-chain trial r8 exited before either probe.
+Instrumented r9 and r10 captured `SlicerApp-real` exit 139/SIGSEGV 11
+during post-hydration validation and Task Home connectivity 12/13 respectively.
+No cgroup OOM or native stack was obtained; explicit Python faulthandler stayed
+empty. R8/r9/r10 partial videos and run-local diagnostics are retained.
+Their sequence reaches the verification protocol's three-failure stop on this
+distinct native blocker. Source-only external mouse-delivery and failure-count
+reporting refinements pass a 64-test combined host gate, compile and diff
+checks. Further autonomous Slicer retries are stopped pending a specific
+native-debugging strategy and Tarun's direction. Case-bound rejected/unknown
+guard, mouse drag, full-chain/preview, representative responsiveness and
+Tarun's normal-window robotics/usability verdict remain **PENDING**. Manual,
+reopened and partial paths have no route/preview authority. See the
+[30 September logbook](logbook/2026-09-30.md) and r6–r10 run-local diagnostics.
+
+**29 September operator PreEntry diagnosis (`S6-LIVE-01`):** Tarun's guarded
+approach screenshot shows no accepted PreEntry IK endpoint, with observed best
+residuals outside the existing 0.25 mm/0.5 degree endpoint tolerances. He
+reported that the hidden PreEntry coordinate and lack of spatial explanation
+defeat the engineering workbench's purpose. The current saved FDI11 comparison
+package yields PreEntry RAS `(-88.006688, -33.443087, 52.862497)` mm from its
+confirmed trajectory and 2 mm standoff; this is saved-case geometry, not a live
+task readback. A source-only gate now retains per-seed failed states and the
+exact diagnostic fingerprint, shortens the modal, presents current-snapshot
+PreEntry/Entry/Target RAS values, and displays transient unsaved target markers
+and a best failed J1–J5 translucent goal pose for exact-current diagnostics.
+Saved/stale PreEntry reports remain text-only and no partial result gains route
+or preview authority. The final 166-test combined host check passed; headed
+visual placement/cleanup, active-case identity and Tarun's spatial verdict
+remain pending. See today's logbook and the amended renovation plan.
 
 **2026-09-28 exact-case migration continuation:** Three recorded visible XFCE
 attempts stopped respectively at exact profile mismatch, stale cached
@@ -2035,6 +2091,21 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
 | `S6-U-01` | 4 | **Completed 2026-09-28 for the reproduced no-case connected lifecycle.** Native robot removal now precedes subscription, publisher, ROS-node and ROS shutdown; each robot stops PlanningSceneMonitor activity and releases RobotModel/RobotModelLoader state. Two source-contract tests and ten Step 6 lifecycle tests pass. A final headed simulation on the isolated 5.10 build recorded connected robot, publisher release and widget cleanup, then exited Slicer `0` with no class-loader warning or fatal signal. Recorder/FFmpeg exited `0`, the 26.033 s video manifest is complete, and no owned process survived. The pinned installed package remains unchanged and the earlier partial/failure evidence is retained. | S6-LIVE-01 final whole-run recording previously depended on this gate | Accepted for the narrow reproduced shutdown condition. The final case-bearing Step 6 campaign must use the corrected reviewed native package and independently prove its own zero exit. This does not accept planner, preview, responsiveness, hardware or operator usability. See the 28 September logbook and `s6-u01-final-headed-20260928-0hCREB`. |
 
+**2026-09-30 case-bearing `S6-U-01` status:** Preserve the accepted no-case condition above.
+**R18 causal capture:** GDB located the reproduced SIGSEGV in asynchronous Python traceback dumping, with the GUI thread rendering. The watchdog scheduling owner has been removed while retaining Qt latency/phase logs; 84 focused host checks pass. R19 is the bounded recorded case-bearing confirmation. This does not attribute every earlier crash or accept unrun TCP/full-chain/save/reopen gates. See the dated logbook and r18 diagnostic package.
+**Later authorized continuation:** Tarun approved the narrow native-debugger strategy. R15 passed workspace generation returned-current and strict restore under GDB; inferior exit 0, no signal, validated 348.9 s recording. This is non-reproduction, not a native defect fix. The next approved gate is focused case-bound 6.3 workbench verification, before planner/preview. Keep intermittent stability and full-case acceptance open; r15 original report and diagnostic-finalizer limitation are explained in the dated logbook and run-local diagnostics.
+
+Case-bearing r6 and fresh offline r7 exited 0, but r8 stopped
+during workspace revalidation; direct-child r9/r10 proved intermittent
+`SlicerApp-real` SIGSEGV 11 at post-hydration and Task Home connectivity.
+Cgroup `oom_kill=0`; no native backtrace or retrievable core was obtained.
+The three-failure retry ceiling is reached for this distinct condition.
+Do not infer robust case-bearing lifecycle acceptance from r6/r7, and do not
+start another autonomous runtime trial. The next bounded diagnostic needs a
+native debugger/backtrace strategy and Tarun's direction. Final case-bearing
+acceptance still requires a complete zero-exit whole-run recording. See the
+[30 September logbook](logbook/2026-09-30.md) and r8–r10 diagnostics.
+
 ## Unprioritized task contracts — migration baseline
 
 | ID | State | Next bounded action |
@@ -2265,3 +2336,7 @@ disable cleanup, zero route/preview authority, complete video, Slicer exit 0
 and owned-process cleanup. Physical key events, case-bound rejected/unknown
 guard outcomes, positive full-chain preview/interruption, measured normal-
 window responsiveness and Tarun's usability verdict remain pending.
+
+## 2026-09-30 — UI-P3-01 bounded Workflow Focus slice
+
+Tarun explicitly authorizes default Workflow Focus in the Step 6 renovation checkout alongside the active “step 6.3 final fix” chat. This advances only current-workflow space recovery; the broad Studio redesign and Priority 3 remain unchanged. Outcome: compact two-row navigation/view header, secondary actions in More, hidden logo/help/Data Probe/toolbars, reversible session-only Show Slicer tools, and exact chrome restoration on module exit/reload. Preserve existing handlers, research warning, MRML/ROS/case state and readiness gates. Header/application and lifecycle/helper ownership is disjoint from the other chat's Step 6 source/test work. Runtime resources stay with that chat. Source and host verification precede one serialized visual/lifecycle check and Tarun's verdict; doubled task-height is a visual target, not a source-only claim.

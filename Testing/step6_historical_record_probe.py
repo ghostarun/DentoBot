@@ -240,12 +240,15 @@ def run_step6_historical_record_probe(widget, panel, run_dir: Path, capture_call
             for index, record in enumerate(records)
             if isinstance(record, Mapping)
             and isinstance(record.get("events"), list)
-            and record["events"]
+            and any(
+                isinstance(event, Mapping) and event.get("tcp_point_ras_mm") is not None
+                for event in record["events"]
+            )
         ),
         None,
     )
     if event_record_index is None:
-        raise HistoricalRecordProbeError("export contains no event-bearing manual record")
+        raise HistoricalRecordProbeError("export contains no manual record with a TCP sample")
     selected_record = records[event_record_index]
     if not selected_record.get("record_fingerprint") or not selected_record.get("schema_version"):
         raise HistoricalRecordProbeError("event-bearing record lacks schema provenance")

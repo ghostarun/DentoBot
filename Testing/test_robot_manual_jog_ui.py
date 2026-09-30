@@ -6,7 +6,7 @@ import ast
 import json
 import math
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from math import degrees, isfinite, radians
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +22,9 @@ from DENTOStep6State import (  # noqa: E402
     build_manual_simulation_record,
     parse_manual_simulation_record,
 )
+from DENTOStep6Planning import TaskSpaceRoi  # noqa: E402
 from DENTOApplicationShell import workspace_for_stage  # noqa: E402
+from DENTORobotPlacement import joint_positions_si_from_display  # noqa: E402
 
 JOINT_NAMES = (
     "link-1_Revolute-1",
@@ -301,6 +303,21 @@ class _Control:
 
     def setProperty(self, _key, _value):
         pass
+
+
+class _TwoDecimalSpinBox(_Control):
+    """Faithful host stand-in for the jog QDoubleSpinBox display precision."""
+
+    decimals = 2
+
+    def setRange(self, minimum, maximum):
+        self.minimum, self.maximum = float(minimum), float(maximum)
+        self.setValue(self.value)
+
+    def setValue(self, value):
+        bounded = min(self.maximum, max(self.minimum, float(value)))
+        rounded = round(bounded, self.decimals)
+        self.value = min(self.maximum, max(self.minimum, rounded))
 
 
 def _joint_limits(ranges):
@@ -3563,3 +3580,626 @@ def test_tcp_ik_solution_stages_only_complete_finite_mechanical_j1_j5_draft():
         assert panel.manualJogStatusLabel.text.startswith(
             "TCP IK result rejected; draft retained."
         )
+
+
+def test_motion_diagnostic_target_coordinates_are_display_only_and_exact_session_gated():
+    panel_method = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_motionDiagnosticTargetConditioningText"},
+        {"Mapping": Mapping, "isfinite": isfinite},
+    )["_motionDiagnosticTargetConditioningText"]
+    if isinstance(panel_method, staticmethod):
+        panel_method = panel_method.__func__
+    conditioning = {
+        "world_frame": "RAS_mm",
+        "pre_entry_world_ras_mm": (-1.23456, 2.0, 3.0),
+        "entry_world_ras_mm": (4.0, 5.0, 6.0),
+        "target_world_ras_mm": (7.0, 8.0, 9.0),
+        "standoff_mm": 2.5,
+    }
+    current = SimpleNamespace(
+        state="Current",
+        stale_reason="",
+        session_fingerprint="exact-session",
+        full_task_outcome={"target_conditioning": conditioning},
+    )
+    text = panel_method(current, exact_current_session=True)
+    assert "PreEntry (-1.235, 2.000, 3.000)" in text
+    assert "Entry (4.000, 5.000, 6.000)" in text
+    assert "Target (7.000, 8.000, 9.000)" in text
+    assert "standoff 2.500 mm" in text
+    assert "Exact current diagnostic snapshot at display time" in text
+    assert "DISPLAY ONLY — no route authority" in text
+
+    stale = SimpleNamespace(
+        state="Stale",
+        stale_reason="task identity changed",
+        session_fingerprint="exact-session",
+        full_task_outcome={"target_conditioning": conditioning},
+    )
+    stale_text = panel_method(stale, exact_current_session=True)
+    assert "Stale saved diagnostic snapshot" in stale_text
+    assert "Exact current diagnostic snapshot at display time" not in stale_text
+    assert "DISPLAY ONLY — no route authority" in stale_text
+
+    class FakeDisplay:
+        def __init__(self):
+            self.properties = {}
+
+        def __getattr__(self, name):
+            return lambda *values: self.properties.__setitem__(name, values)
+
+    class FakeMarker:
+        def __init__(self):
+            self.attributes = {}
+            self.points = []
+            self.display = FakeDisplay()
+
+        def SetAttribute(self, name, value):
+            self.attributes[name] = value
+
+        def GetAttribute(self, name):
+            return self.attributes.get(name)
+
+        def SetSaveWithScene(self, value):
+            self.saved_with_scene = value
+
+        def CreateDefaultDisplayNodes(self):
+            pass
+
+        def AddControlPointWorld(self, vector, label):
+            self.points.append((vector.coordinates, label))
+
+        def SetLocked(self, value):
+            self.locked = value
+
+        def GetDisplayNode(self):
+            return self.display
+
+    class FakeScene:
+        def __init__(self):
+            self.nodes = []
+
+        def AddNewNodeByClass(self, _class_name, _name):
+            node = FakeMarker()
+            self.nodes.append(node)
+            return node
+
+        def RemoveNode(self, node):
+            self.nodes.remove(node)
+
+    scene = FakeScene()
+    shell_methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py",
+        "RobotShellWidgetMixin",
+        {
+            "_clearStep6TargetConditioningFiducials",
+            "_showStep6TargetConditioningFiducials",
+        },
+        {
+            "Mapping": Mapping,
+            "isfinite": isfinite,
+            "slicer": SimpleNamespace(
+                mrmlScene=scene,
+                util=SimpleNamespace(getNodesByClass=lambda _class: list(scene.nodes)),
+            ),
+            "vtk": SimpleNamespace(
+                vtkVector3d=lambda *coordinates: SimpleNamespace(coordinates=coordinates)
+            ),
+        },
+    )
+    host_type = type("TargetFiducialProbe", (), shell_methods)
+    host = host_type()
+    assert host._showStep6TargetConditioningFiducials(current, "exact-session") is True
+    assert len(scene.nodes) == 1
+    marker = scene.nodes[0]
+    assert [label for _point, label in marker.points] == [
+        "PreEntry TCP",
+        "Entry TCP",
+        "Target TCP",
+    ]
+    assert marker.locked is True
+    assert marker.saved_with_scene is False
+    assert marker.attributes["DENTOBOT.IntendedUse"] == "DisplayOnlyDiagnosticSnapshot"
+    assert marker.display.properties["SetSaveWithScene"] == (False,)
+    assert not any(
+        any(word in key.lower() for word in ("collision", "guard", "route"))
+        for key in marker.attributes
+    )
+
+    host._clearStep6TargetConditioningFiducials()
+    assert scene.nodes == []
+    assert host._showStep6TargetConditioningFiducials(stale, "exact-session") is False
+    assert scene.nodes == []
+
+
+def test_motion_diagnostic_failed_preentry_candidate_callback_requires_exact_session():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    method = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_invokeMotionDiagnosticCandidate"},
+        {},
+    )["_invokeMotionDiagnosticCandidate"]
+    if isinstance(method, staticmethod):
+        method = method.__func__
+    calls = []
+
+    def show_candidate(index):
+        calls.append(index)
+        return "shown"
+
+    assert method(
+        show_candidate,
+        2,
+        exact_current_session=True,
+        preentry_ik_failure=True,
+    ) == "shown"
+    assert method(
+        show_candidate,
+        3,
+        exact_current_session=False,
+        preentry_ik_failure=True,
+    ) is None
+    assert method(
+        show_candidate,
+        4,
+        exact_current_session=False,
+        preentry_ik_failure=False,
+    ) == "shown"
+    assert calls == [2, 4]
+    source = panel_path.read_text(encoding="utf-8")
+    assert "not accepted, " in source
+    assert "not verified collision-free" in source
+    assert "route, preview, or motion authority" in source
+
+
+def test_current_incisor_roi_load_preserves_only_exact_saved_workspace_evidence():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    loader = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_onStep6UseCurrentIncisorMidpoint"},
+        {"Mapping": Mapping, "Sequence": Sequence, "TaskSpaceRoi": TaskSpaceRoi, "isfinite": isfinite},
+    )["_onStep6UseCurrentIncisorMidpoint"]
+
+    class Label:
+        def setProperty(self, *_args):
+            pass
+
+        def style(self):
+            return self
+
+        def unpolish(self, *_args):
+            pass
+
+        def polish(self, *_args):
+            pass
+
+    class Spin:
+        minimum = -1.0e9
+        maximum = 1.0e9
+        decimals = 6
+
+        def __init__(self):
+            self.value = 0.0
+            self.enabled = False
+
+    payload = {
+        "centerWorldRasMm": (10.1, 20.2, 30.3),
+        "dimensionsMm": (100.0, 100.0, 100.0),
+        "openingRevision": 7,
+        "gapLineNodeId": "gap-line-7",
+    }
+
+    def invoke(
+        matches_saved,
+        runtime_current,
+        roi_payload=payload,
+        result_success=True,
+    ):
+        invalidations = []
+        comparisons = []
+
+        class Facade:
+            def defaultTaskSpaceRoi(self):
+                return SimpleNamespace(
+                    success=result_success,
+                    message="ROI source unavailable" if not result_success else "",
+                    payload=roi_payload,
+                )
+
+            def workspaceRoiMatchesSavedEvidence(self, roi, roi_source, parameter_node):
+                comparisons.append((roi, roi_source, parameter_node))
+                return matches_saved
+
+            def workspaceRuntimeValidated(self, parameter_node):
+                return runtime_current
+
+        panel = SimpleNamespace(
+            taskSpaceRoiCenterSpinBoxes=[Spin() for _ in range(3)],
+            taskSpaceRoiDimensionsSpinBoxes=[Spin() for _ in range(3)],
+            taskSpaceRoiStatusLabel=Label(),
+            _taskSpaceRoiStatusContext="",
+            _taskSpaceRoiOpeningRevision=None,
+            _taskSpaceRoiGapLineNodeId="",
+            _taskSpaceRoiInitialized=False,
+            _loadingTaskSpaceRoi=False,
+        )
+        parameter_node = object()
+        host = SimpleNamespace(
+            _robotWorkflowFacade=Facade(),
+            _robotSimulationPanel=panel,
+            _parameterNode=parameter_node,
+            _onStep6TaskSpaceRoiEdited=lambda: invalidations.append("invalidated"),
+        )
+        loaded = loader(host)
+        assert panel._loadingTaskSpaceRoi is False
+        if (
+            result_success
+            and isinstance(roi_payload, Mapping)
+            and {"centerWorldRasMm", "dimensionsMm", "openingRevision", "gapLineNodeId"}
+            <= roi_payload.keys()
+        ):
+            assert comparisons == [
+                (
+                    TaskSpaceRoi((10.1, 20.2, 30.3), (100.0, 100.0, 100.0)),
+                    {"openingRevision": 7, "gapLineNodeId": "gap-line-7"},
+                    parameter_node,
+                )
+            ]
+        else:
+            assert comparisons == []
+        return panel, invalidations, loaded
+
+    current, invalidations, loaded = invoke(True, True)
+    assert loaded is True
+    assert invalidations == []
+    assert "exact saved workspace roi/source match" in current.taskSpaceRoiStatusLabel.text.lower()
+    assert "is current" in current.taskSpaceRoiStatusLabel.text
+
+    preserved, invalidations, loaded = invoke(True, False)
+    assert loaded is True
+    assert invalidations == []
+    assert "needs runtime revalidation" in preserved.taskSpaceRoiStatusLabel.text
+
+    _, invalidations, loaded = invoke(False, False)
+    assert loaded is True
+    assert invalidations == ["invalidated"]
+
+    unavailable, invalidations, loaded = invoke(
+        True, True, roi_payload=None, result_success=False
+    )
+    assert loaded is False
+    assert invalidations == []
+    assert "source issue" in unavailable.taskSpaceRoiStatusLabel.text.lower()
+
+    malformed, invalidations, loaded = invoke(
+        True,
+        True,
+        roi_payload={"centerWorldRasMm": (10.0, 20.0, 30.0)},
+    )
+    assert loaded is False
+    assert invalidations == []
+    assert "dimensionsmm" in malformed.taskSpaceRoiStatusLabel.text.lower()
+
+
+def test_manual_task_space_roi_spinbox_edits_still_invalidate_workspace():
+    invalidations = []
+    panel_method = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_onTaskSpaceRoiEdited"},
+        {},
+    )["_onTaskSpaceRoiEdited"]
+    workflow_method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py",
+        "RobotShellWidgetMixin",
+        {"_onStep6TaskSpaceRoiEdited"},
+        {},
+    )["_onStep6TaskSpaceRoiEdited"]
+    shell = SimpleNamespace(
+        _robotWorkflowFacade=SimpleNamespace(
+            invalidateWorkspaceRuntimeValidation=lambda **kwargs: invalidations.append(kwargs)
+        ),
+        logic=SimpleNamespace(robotWorkspaceModelNode=lambda: None),
+    )
+    panel = SimpleNamespace(
+        _loadingTaskSpaceRoi=True,
+        _taskSpaceRoiStatusContext="current source",
+        taskSpaceRoiStatusLabel=SimpleNamespace(
+            text="",
+            setProperty=lambda *_args: None,
+            style=lambda: SimpleNamespace(unpolish=lambda *_args: None, polish=lambda *_args: None),
+        ),
+        _callbacks={"roi_edited": lambda: workflow_method(shell)},
+    )
+    panel_method(panel)
+    assert invalidations == []
+    panel._loadingTaskSpaceRoi = False
+    panel_method(panel)
+    assert invalidations == [{"invalidate_motion_plan": False}]
+
+
+def test_phase_plan_buttons_require_runtime_workspace_and_reviewed_limits():
+    path = PYTHON / "dentobot_workflow/widget_robot.py"
+    update = _method_node(path, "RobotWidgetMixin", "_updateStep6PlanningUi")
+    assignments = {
+        target: node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        for target in (_attribute_name(item) for item in node.targets)
+        if target
+    }
+    readiness = next(
+        node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "phase_planning_ready" for target in node.targets)
+    )
+    names = {node.id for node in ast.walk(readiness) if isinstance(node, ast.Name)}
+    assert {"workspace_runtime_validated", "assisted_reviewed"} <= names
+    assert assignments["panel.planApproachButton.enabled"].id == "phase_planning_ready"
+    assert assignments["panel.comparePlannersButton.enabled"].id == "phase_planning_ready"
+    diagnostic = next(
+        node.value
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "stage_diagnostic_enabled" for target in node.targets)
+    )
+    diagnostic_names = {node.id for node in ast.walk(diagnostic) if isinstance(node, ast.Name)}
+    assert not {"workspace_runtime_validated", "assisted_reviewed"}.intersection(diagnostic_names)
+
+    ready = {
+        "planning_anatomy_ready": True,
+        "task_ready": True,
+        "ros2_active": True,
+        "home_runtime_validated": True,
+        "workspace_runtime_validated": True,
+        "assisted_reviewed": True,
+        "away_from_home": False,
+        "self": SimpleNamespace(_plannerComparisonState=None),
+    }
+    expression = compile(ast.Expression(readiness), str(path), "eval")
+    assert eval(expression, ready) is True
+    for missing in ("workspace_runtime_validated", "assisted_reviewed"):
+        not_ready = dict(ready, **{missing: False})
+        assert eval(expression, not_ready) is False
+
+    source = path.read_text(encoding="utf-8")
+    assert "Revalidate or generate workspace evidence in 6.3." in source
+    assert "Review and apply assisted joint limits in 6.3." in source
+
+
+def test_unknown_base_main_action_routes_to_existing_reconciliation_owner():
+    calls = []
+    accept = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"onLockRobotBaseMount"},
+        {"slicer": SimpleNamespace(util=SimpleNamespace(errorDisplay=lambda _message: None))},
+    )["onLockRobotBaseMount"]
+    host = SimpleNamespace(
+        _parameterNode=object(),
+        logic=object(),
+        _robotWorkflowFacade=SimpleNamespace(
+            acceptManualBaseReview=lambda: calls.append("accept")
+        ),
+        _robotSimulationPanel=SimpleNamespace(
+            reconcileManualBaseStateButton=SimpleNamespace(enabled=True)
+        ),
+        _isStep6RobotWorkflowActive=lambda: True,
+        _isStep6ManualBaseReviewActive=lambda: True,
+        _onStep6ReconcileManualBaseAcceptance=lambda: calls.append("reconcile"),
+    )
+    accept(host)
+    assert calls == ["reconcile"]
+
+    source = (PYTHON / "dentobot_workflow/widget_robot.py").read_text(encoding="utf-8")
+    assert '"Reconcile Base State" if reconcile_base else "Accept Base"' in source
+    assert "(control_state[\"accept\"] or reconcile_base)" in source
+
+
+def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {
+            "setManualJogLimits",
+            "setManualJogAcceptedState",
+            "resetManualJogDraft",
+            "stageTcpIkSolution",
+            "_setManualJogDraftValues",
+            "_onManualJogSliderChanged",
+            "_onManualJogNumericChanged",
+            "_updateManualJogDraftFromControls",
+            "manualJogJointPositionsSi",
+            "_formatManualJogDisplayValues",
+            "_setManualJogStatus",
+        },
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "Mapping": Mapping,
+            "degrees": degrees,
+            "isfinite": isfinite,
+            "joint_positions_si_from_display": joint_positions_si_from_display,
+        },
+    )
+    panel = type("PanelProbe", (), methods)()
+    panel.manualJogJointControls = {
+        joint: (_Control(), _TwoDecimalSpinBox(), _Control())
+        for joint in JOINT_NAMES
+    }
+    for name in (
+        "manualJogAcceptedStateLabel",
+        "taskHomeCurrentStateLabel",
+        "manualJogDraftStateLabel",
+        "manualJogStatusLabel",
+        "manualJogDraftLimitLabel",
+    ):
+        setattr(panel, name, _Control())
+    panel._manualJogLimits = {}
+    panel._manualJogMechanicalLimits = None
+    panel._manualJogLimitsValid = False
+    panel._manualJogCommandLimitsValid = False
+    panel._manualJogAvailable = True
+    panel._manualJogGuardContextAvailable = True
+    panel._manualJogBusy = False
+    panel._manualJogDraftInitialized = False
+    panel._manualJogDisplayValues = (0.0,) * 5
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel._manualJogEvidence = None
+    panel.manualJogReconciliationRequired = False
+    panel._invoke_calls = []
+    panel._invoke = lambda action, state: panel._invoke_calls.append(
+        (action, dict(state))
+    )
+
+    def set_availability(draft_available, guard_context_available):
+        panel._manualJogAvailable = bool(draft_available)
+        panel._manualJogGuardContextAvailable = bool(guard_context_available)
+        panel._manualJogGuardAvailable = bool(
+            draft_available and guard_context_available
+        )
+
+    panel.setManualJogAvailability = set_availability
+
+    def assert_positions_close(actual, expected):
+        assert set(actual) == set(JOINT_NAMES)
+        for joint in JOINT_NAMES:
+            assert math.isclose(
+                actual[joint], expected[joint], rel_tol=0.0, abs_tol=1.0e-12
+            ), (joint, actual[joint], expected[joint])
+
+    def display_from_si(positions):
+        return (
+            degrees(positions[JOINT_NAMES[0]]),
+            positions[JOINT_NAMES[1]] * 1000.0,
+            degrees(positions[JOINT_NAMES[2]]),
+            positions[JOINT_NAMES[3]] * 1000.0,
+            degrees(positions[JOINT_NAMES[4]]),
+        )
+
+    mechanical = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 90), (-10, 50), (-180, 180))
+    )
+    reviewed = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 90), (-10, 50), (-180, 180))
+    )
+    panel.setManualJogLimits(mechanical, reviewed)
+
+    accepted_before = {
+        JOINT_NAMES[0]: radians(0.222222221),
+        JOINT_NAMES[1]: 0.011111111,
+        JOINT_NAMES[2]: radians(-0.333333333),
+        JOINT_NAMES[3]: 0.022222222,
+        JOINT_NAMES[4]: radians(0.444444444),
+    }
+    panel.setManualJogAcceptedState(accepted_before)
+    panel._invoke_calls.clear()
+
+    ik_candidate = {
+        JOINT_NAMES[0]: 0.123456789,
+        JOINT_NAMES[1]: 0.0123456789,
+        JOINT_NAMES[2]: -0.456789012,
+        JOINT_NAMES[3]: 0.0345678912,
+        JOINT_NAMES[4]: 1.23456789,
+    }
+    candidate_display = display_from_si(ik_candidate)
+    assert panel.stageTcpIkSolution(ik_candidate) is True
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, candidate_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert any(
+        not math.isclose(value, round(value, 2), rel_tol=0.0, abs_tol=1.0e-8)
+        for value in candidate_display
+    )
+    for joint, expected in zip(JOINT_NAMES, candidate_display, strict=True):
+        assert panel.manualJogJointControls[joint][1].value == round(expected, 2)
+    assert_positions_close(panel.manualJogJointPositionsSi(), ik_candidate)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted_before
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ]
+    assert_positions_close(panel._invoke_calls[-1][1], ik_candidate)
+
+    narrower_reviewed = _joint_limits(
+        ((-10, 20), (0, 20), (-40, 0), (0, 40), (60, 90))
+    )
+    panel.setManualJogLimits(mechanical, narrower_reviewed)
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, candidate_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert_positions_close(panel.manualJogJointPositionsSi(), ik_candidate)
+
+    other_values = tuple(panel._manualJogDisplayValues)
+    numeric_joint = JOINT_NAMES[1]
+    numeric_spin = panel.manualJogJointControls[numeric_joint][1]
+    numeric_spin.setValue(17.89123)
+    numeric_display = numeric_spin.value
+    panel._onManualJogNumericChanged(numeric_joint, numeric_display)
+    expected_after_numeric = list(other_values)
+    expected_after_numeric[1] = numeric_display
+    for index, (actual, expected) in enumerate(
+        zip(panel._manualJogDisplayValues, expected_after_numeric, strict=True)
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12), index
+
+    other_values = tuple(panel._manualJogDisplayValues)
+    slider_joint = JOINT_NAMES[4]
+    slider_position = 1234
+    slider_minimum, slider_maximum = panel._manualJogLimits[0][4]
+    exact_slider_value = slider_minimum + (
+        slider_maximum - slider_minimum
+    ) * slider_position / 10000.0
+    panel._onManualJogSliderChanged(slider_joint, slider_position)
+    expected_after_slider = list(other_values)
+    expected_after_slider[4] = exact_slider_value
+    for index, (actual, expected) in enumerate(
+        zip(panel._manualJogDisplayValues, expected_after_slider, strict=True)
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12), index
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ] * len(panel._invoke_calls)
+    assert panel._manualJogAcceptedJointPositionsSi == accepted_before
+
+    reset_state = {
+        JOINT_NAMES[0]: radians(11.123456789),
+        JOINT_NAMES[1]: 0.0135792468,
+        JOINT_NAMES[2]: radians(50.23456789),
+        JOINT_NAMES[3]: 0.0246801357,
+        JOINT_NAMES[4]: radians(-66.987654321),
+    }
+    panel.setManualJogAcceptedState(reset_state)
+    panel.resetManualJogDraft()
+    reset_display = display_from_si(reset_state)
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, reset_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert_positions_close(panel.manualJogJointPositionsSi(), reset_state)
+    assert_positions_close(panel._invoke_calls[-1][1], reset_state)
+
+    narrowed_mechanical = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 50.12), (-10, 50), (-180, 180))
+    )
+    narrowed_reviewed = _joint_limits(
+        ((-180, 180), (-10, 50), (-90, 50.12), (-10, 50), (-180, 180))
+    )
+    panel.setManualJogLimits(narrowed_mechanical, narrowed_reviewed)
+    clamped_display = list(reset_display)
+    clamped_display[2] = 50.12
+    for actual, expected in zip(
+        panel._manualJogDisplayValues, clamped_display, strict=True
+    ):
+        assert math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-12)
+    assert panel.manualJogJointControls[JOINT_NAMES[2]][1].maximum == 50.12
+    assert panel.manualJogJointControls[JOINT_NAMES[2]][1].value == 50.12
+    assert panel._manualJogAcceptedJointPositionsSi == reset_state
+    assert [action for action, _state in panel._invoke_calls] == [
+        "manual_draft_changed"
+    ] * len(panel._invoke_calls)

@@ -119,7 +119,7 @@ def _record(events=None):
         "record_fingerprint": "fingerprint-001",
         "identity": {"task_fingerprint": "task-001", "prepared_branch_id": "branch-001"},
         "events": list(events if events is not None else (
-            {"kind": "guard_accepted", "monotonic_ns": 100},
+            {"kind": "guard_accepted", "monotonic_ns": 100, "tcp_point_ras_mm": [1.0, 2.0, 3.0]},
             {"kind": "diagnostic", "monotonic_ns": 200},
         )),
     }
@@ -134,7 +134,7 @@ class _Widget:
     def _onStep6ExportManualRecord(self):
         destination = qt.QFileDialog.getSaveFileName(None, "", "", "")
         json_path = Path(destination)
-        json_path.write_text(json.dumps([self.record]), encoding="utf-8")
+        json_path.write_text(json.dumps(self.record if isinstance(self.record, list) else [self.record]), encoding="utf-8")
         json_path.with_suffix(".report.txt").write_text("Readable record report\n", encoding="utf-8")
 
     def _onStep6ImportManualRecord(self):
@@ -193,9 +193,16 @@ class HistoricalRecordProbeTests(unittest.TestCase):
 
     def test_no_event_bearing_record_fails_closed_and_restores_dialogs(self):
         original_dialogs = qt.QFileDialog
-        with self.assertRaisesRegex(probe.HistoricalRecordProbeError, "no event-bearing"):
+        with self.assertRaisesRegex(probe.HistoricalRecordProbeError, "no manual record with a TCP sample"):
             self._run(_record(events=[]))
         self.assertIs(qt.QFileDialog, original_dialogs)
+
+    def test_selects_jog_record_after_task_home_record_without_tcp(self):
+        review = _record(events=[{"kind": "accept_task_home", "monotonic_ns": 50}])
+        review["record_fingerprint"] = "review-only"
+        result, _, panel, _ = self._run([review, _record()])
+        self.assertEqual(result["record"]["schema_fingerprint"], "fingerprint-001")
+        self.assertEqual(panel.manualSimulationRecordComboBox.currentIndex, 1)
 
     def test_accepted_joint_change_fails_closed(self):
         def mutate(stage, panel, _facade):

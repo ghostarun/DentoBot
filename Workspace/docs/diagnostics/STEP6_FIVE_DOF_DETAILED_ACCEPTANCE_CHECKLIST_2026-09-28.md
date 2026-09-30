@@ -15,7 +15,27 @@ does not create a second pending-work queue. Update `Workspace/docs/backlog.md`,
 `TASKS.md` and the dated logbook with resulting evidence. Do not infer Tarun's
 robotics or usability verdict from an automated run.
 
+**30 September checkpoint:** Recorded r6 passed the bounded Base/Home,
+workspace, one guarded J1, history and save slice, creating
+`sept30_fdi11_step6_3_demo_ready.dentocase` (SHA-256
+`539ee7948bd97434ab4ef8b675e1540f065219a7e5250c3a422d2cfb481c371a`)
+with complete zero-exit video. Fresh-process r7 strictly reopened that case
+and seven robot models with exit 0. Neither run exercised case-bound TCP,
+planner or preview. The subsequent r8 campaign stopped before those checks;
+instrumented r9/r10 recorded intermittent native Slicer SIGSEGV 11. Their
+partial videos and diagnostics are retained. The three-failure ceiling stops
+further autonomous case-bearing runtime retries pending a specific native
+debugging strategy and Tarun's direction. The checkboxes below remain the
+representative final-campaign acceptance list; the r6/r7 slice does not mark
+unreached items complete. Source-only mouse delivery and failed-probe report
+accounting pass 64 focused host tests. Tarun's normal-window verdict remains
+PENDING. See the [30 September logbook](../logbook/2026-09-30.md).
+
 ## 0. Orchestration for this campaign
+
+**R18/r19 continuation:** R18 captured the asynchronous Python traceback-dump crash; the watchdog scheduling owner was removed and 84 host checks passed. R19 completed workspace and ordinary Base/Home without SIGSEGV, then passed real case-bound TCP drag, ten Cartesian buttons and three key nudges. Its first failure was the text-editor focus fixture; cleanup also misclassified the preexisting passive target. The partial recording/diagnostics remain evidence. Valid/invalid IK, complete TCP cleanup/reentry and full-chain gates remain unaccepted until the corrected bounded run passes.
+
+**30 September approved continuation:** One GDB-instrumented workspace-only r15 passed, with Slicer exit 0 and validated whole-process recording. The earlier SIGSEGV was not reproduced or fixed. Proceed through the approved focused case-bound workbench gate and then full-chain gate only as prerequisites pass. Remaining checkboxes retain their evidence requirements; the original diagnostic report's unfinished top-level status is documented separately and does not imply a full checklist pass.
 
 - Sol owns requirements, architecture, task splitting, runtime strategy,
   controlled records, integration, diff review, serialized Slicer/ROS/MoveIt
@@ -449,3 +469,11 @@ Use `Testing/verification_matrix.json`; do not invent an alternate suite.
 4. Run one serialized recorded campaign on the qualified case.
 5. Diagnose only the first causal failure, or finalize the evidence package and
    controlled records if every gate passes.
+
+## 30 September r21 bounded interaction and precision checkpoint
+
+Recorded case-bound r21 passed completed viewport drag, ten Cartesian position/orientation buttons, TCP physical keys, numeric/text editor suppression and opt-out/default-off cleanup. Accepted/monitored/displayed state remained unchanged. Exact IK staging failed; full-precision draft backing correction is host-verified (130 focused tests), headed confirmation pending GUI-compaction source freeze. No full planner/preview/new-case/reopen acceptance. R21 diagnostics and partial recording retained; Tarun verdict PENDING.
+
+## 30 September r22 runtime precision confirmation
+
+Exact native five-joint IK draft staging and all selected TCP interaction checks now pass in the recorded case-bearing run:19PASS/0FAIL/6NOT_RUN, Slicer/recorder0, complete bounded video+MP4. Acceptedrobotunchanged, no full taskplan/preview or final newpackage. r22 diagnostics/106-file manifest retained. NegativeIK/native rejected fixture/uncertainBaseHome/fullchain/previewrepeat/finalcase and Tarun verdict remain open.

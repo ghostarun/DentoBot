@@ -1,6 +1,6 @@
 # Step 6 renovation — working implementation plan
 
-**Date:** 2026-09-25. **Priority:** renovate Step 6 before case-specific planner solving. Owners are S6-WORKSPACE-PURPOSE, S6-LIVE-01, S6-LIVE-03/04 and S6-P2-03. [Backlog](../backlog.md) is the sole pending queue; [TASKS](../TASKS.md) holds task contracts; the [FDI31 P0 contract](FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) retains its milestone and safety gates. The [base-pose feasibility plan](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) is an **active technical reference for shared diagnostic metrics**. Its automated sweep and robot-design comparisons remain later work in the [reference index](STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md).
+**Date:** 2026-09-25. **Priority:** renovate Step 6 before case-specific planner solving. Owners are S6-WORKSPACE-PURPOSE, S6-LIVE-01, S6-LIVE-03/04 and S6-P2-03. [Backlog](../backlog.md) is the sole pending queue; [TASKS](../TASKS.md) holds task contracts; the [FDI31 P0 contract](FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) retains its milestone and safety gates. The [base-pose feasibility plan](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) is an **active technical reference for shared diagnostic metrics**. The 30 September DENTO-NOTE below adds a conditional ±20 mm translation diagnostic after IK failure; broader automated sweeps and robot-design comparisons remain later work in the [reference index](STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md).
 
 **29 September execution checkpoint:** Tarun explicitly resumed bounded
 simulation runtime. A new recorded headed production run passed the case
@@ -21,6 +21,10 @@ is the current execution order; older checkpoints below are dated evidence,
 not current halt instructions. Tarun's robotics/usability verdict is PENDING.
 
 ## 27 September execution order after the operator's testing review
+
+**30 September DENTO-NOTE — conditional bounded base-placement diagnostic (`S6-LIVE-01`):** Tarun requests iterative translation around the existing forehead-plane-center Base placement if planner testing fails due to IK unreachability: offsets up to ±20 mm on each of two in-plane axes only. His “XY” denotes an oblique anatomical plane parallel to the upper-teeth root↔crown direction, not an assumed world-RAS XY plane. Triage: planned conditional investigation under the existing planner/base-feasibility contract; the note itself is Unprioritized and does not change the parent Priority0. It supersedes blanket deferral only for this bounded failure-triggered diagnostic; broader sweeps, orientation search, heatmaps and robot redesign remain deferred. Prerequisites: complete the current workbench gate, capture exact current-task IK failure, and establish a reviewed plane origin/orthonormal basis and sampling budget. Root↔crown direction alone does not uniquely define a plane; do not invent its second axis or equate it to the forehead plane without review. Keep Base orientation and normal offset fixed, retain the zero-offset baseline, and freeze anatomy, task/TCP, limits and collision/phase policy. Reuse the shared five-joint evaluator, preserve each candidate transform, requested endpoint, IK/FK residuals, limit/collision evidence and identity in diagnostic records/screenshots. Candidates remain detached/display-only; no automatic Base acceptance, Home reuse, route promotion or preview. A selected candidate requires normal explicit Base review/acceptance, scene acknowledgement, fresh Home/workspace/task checks and full-chain guard before motion authority. No successful IK result or infeasibility proof is implied by this note; empty bounded search remains inconclusive beyond its evaluated coverage.
+
+**30 September debugger continuation:** The operator-approved r15 workspace-only GDB trial passed strict restore and current workspace validation with inferior exit 0 and a validated 348.9 s recording. The intermittent native SIGSEGV is not declared fixed. Continue through the focused case-bound workbench gate before the complete planner/preview campaign; stop and retain diagnostics at the first causal failure. The detailed five-DOF checklist remains the execution plan. R15 diagnostics document its original report-finalizer limitation; the subsequent source correction passes 67 focused host tests. No commit or push is authorized.
 
 The 14-item exact-case headed trial has already checked case restore, one
 correlated guarded J1 jog, Base stage/cancel/accept and Task Home accept. Do
@@ -351,6 +355,8 @@ Both navigators must share the same action ownership and locked-action reasons. 
 This is an **interactive robot simulation solver** for an engineer to discover feasible motion by direct trial and error. It is not a static ghost viewer, a screenshot tool, a renamed planner button, or merely an offline proposal form. The operator can adjust the robot's world base pose and inspect the change against CBCT, forehead mount, target tooth and scene; jog each of J1–J5 individually; adjust and compare a prospective Task Home; guide TCP position/orientation and explore the approach and axial drilling direction; inspect both valid and invalid states; and manually assemble a time-ordered candidate motion. The same URDF/SRDF, TCP transform, robot limits, scene objects and phase contact policy used by the automatic planner must explain each result. A review representation may show rejected or speculative poses, but the accepted simulated robot is a distinct, monitored state.
 
 The GUI needs viewport transform handles for base and review poses, per-axis base translation/rotation controls, J1–J5 sliders and numeric values, keyboard increments with selectable step sizes, clear current/review/accepted pose labels, and an obvious way to select the next manually inspected state. Existing SlicerROS2 goal robot, joint sliders and path display are starting points, subject to measured latency and ownership checks. The workbench must keep the relevant tooth, trajectory line, tool axis, collision pair and accepted/rejected path visible while exploring, so a numerical failure can be understood spatially. It must show when the authoritative ROS/MoveIt/guard answer is pending, current, stale or unavailable. No `valid` badge may come solely from a fast display update or empty collision-pair list.
+
+**29 September operator visualization requirement:** When PreEntry IK blocks a guarded approach, show the exact diagnostic-snapshot PreEntry, Entry and Target world-RAS coordinates and standoff prominently, mark these points in the viewport, and let the engineer inspect each available best failed J1–J5 pose on the translucent goal robot. Show numerical residuals beside the pose and distinguish solver failure, static validity and collision-check status. A saved or stale report remains text-only until a fresh exact-current diagnostic is run. These markers and failed poses are display-only snapshots; they never change accepted robot state, satisfy a collision check or grant route/preview authority. The headed acceptance gate must verify marker placement, visibility, cleanup and its relation to the selected tooth/trajectory, not just the text or a host mock.
 
 For joint jogging, render a requested review pose promptly, then issue the exact requested J1–J5 state to the existing simulation guard in order. Only an acknowledged accepted state updates the live simulated robot and accepted history; a rejected state stays in the review layer with its request, evaluated state and native reason. This does not silently turn a rejected step into a smaller or different move. Base and Home exploration are review operations until the operator invokes **Accept Base** or **Accept Task Home**. Accept Base uses the existing base placement/scene resynchronization and invalidates dependent Home, task, workspace and route evidence. Accept Task Home uses the existing monitored-state, limit, static collision and scene checks and invalidates dependent task/route evidence. Neither acceptance can be inferred from merely dragging a transform or saving a recording.
 
@@ -751,6 +757,65 @@ chain preview, or Tarun's verdict. **Operator halt, 28 September:** do not
 launch r14, Slicer, ROS/MoveIt or the recorder until a later explicit resume
 instruction. Preserve the itemized source/runtime evidence and keep the next
 runtime gate pending.
+
+### 30 September demonstration-blocker checkpoint
+
+The operator demonstration exposed two user-visible source defects under
+`S6-LIVE-01`: uncertain Base acceptance left the primary visible action greyed
+although reconciliation existed elsewhere, and exact reuse of the saved
+incisor-derived ROI invalidated workspace evidence and returned the planner UI
+to a stale loop. The Step 6 Base action now invokes the existing reconciliation
+owner while uncertain; normal Step 3B placement/lock is unchanged. Exact saved
+ROI/source reuse preserves evidence, changed ROI still invalidates it, and the
+primary Approach/Compare actions require runtime workspace validation plus
+reviewed limits. Facade planning enforces the same prerequisite before guard or
+planner invocation. The final combined host check passes 250 tests; compilation
+and diff checks pass.
+
+Recorded headed recovery r1 proved strict fresh restore of
+`sept30_fdi11_step6_manual_record_persistence.dentocase`, five-joint robot,
+ROS/MoveIt, 31-object scene, detached Task Home accept and exact ROI display.
+It then exposed a separate precision bug: the UI no-op helper had been reused
+for runtime workspace identity, comparing a six-decimal editable ROI with the
+full-precision default midpoint. Runtime identity is corrected to use current
+source identity and the saved proposal's own ROI fingerprint. The public
+comparison helper remains only for UI no-op detection.
+
+The next two early retries r2/r3 exited `SlicerApp-real` before planner
+execution. An isolated native child diagnostic showed that the generic
+launcher wording was insufficient to assign a signal. Recorded r6 subsequently
+completed the Base/Home/workspace/J1/history/save campaign with Slicer and
+FFmpeg exit 0; its new `sept30_fdi11_step6_3_demo_ready.dentocase` SHA-256
+is `539ee7948bd97434ab4ef8b675e1540f065219a7e5250c3a422d2cfb481c371a`.
+Fresh-process r7 strictly reopened the case and seven robot models with exit 0.
+R6 made no planner call and started no preview.
+
+The next case-bound TCP/full-chain campaign r8 stopped before those probes.
+Direct-child r9/r10 captured native `SlicerApp-real` **SIGSEGV 11** during
+post-hydration validation and Task Home connectivity 12/13 respectively.
+Neither cgroup OOM nor a native backtrace was found; Python faulthandler
+remained empty. The three-failure retry ceiling is reached on this distinct
+case-bearing `S6-U-01` condition. Retain r8–r10 videos as partial/failure
+evidence. The isolated no-case shutdown result remains accepted for its
+narrow condition; the successful r6/r7 case checks do not establish native
+reliability across repeated loads. The case-bound TCP, rejected/unknown guard,
+full-chain preview/interruption and operator verdict remain open.
+
+Resume only after a specific native-debugging strategy and Tarun's direction
+under the retry-stop rule:
+
+1. Capture a native crashing-thread backtrace on a narrow case-bearing
+   simulation trial without changing robot geometry, tolerance or policy.
+2. Correct the demonstrated native cause, then use one isolated fresh
+   case-load/robot check as the cheapest sufficient regression.
+3. Run one recorded complete campaign covering valid/invalid manual review,
+   accepted/rejected/unknown and reconciliation, case-bound TCP mouse/keys/
+   Cartesian/IK, record export/reopen, two-area authority, full-chain
+   interruption and responsiveness. Use the saved demonstration case only
+   after rechecking exact case/native provenance.
+4. Require zero native/recorder exits, complete hashes/screenshots/JSON/logs,
+   owned-process cleanup and a run-local planned/observed diagnostic.
+   Tarun's normal-window robotics/usability verdict stays **PENDING**.
 
 ### Ownership and completion rule
 

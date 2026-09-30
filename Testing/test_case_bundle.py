@@ -19,7 +19,10 @@ sys.path.insert(0, str(HELPERS))
 from DENTOCaseBundle import (  # noqa: E402
     CASE_BUNDLE_SCHEMA_VERSION,
     CASE_BUNDLE_EXTENSION,
+    CHECKSUMS_MEMBER,
     CaseBundleError,
+    MANIFEST_MEMBER,
+    MANUAL_SIMULATION_MEMBER,
     ROBOT_PROFILE_MEMBER,
     SCENE_MEMBER,
     STUDY_ATTEMPTS_MEMBER,
@@ -34,6 +37,7 @@ from DENTOCaseBundle import (  # noqa: E402
     lineage_snapshot_mismatch_path,
     validate_case_bundle,
 )
+from DENTOStep6State import JOINT_NAMES, build_manual_simulation_record  # noqa: E402
 
 
 def _saved_landmark_restore_helper():
@@ -95,6 +99,30 @@ class FakeLandmarks:
 def write_mrb(path: Path, mrml: str) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("Case/scene.mrml", mrml)
+
+
+def manual_simulation_record(label: str) -> dict:
+    return build_manual_simulation_record(
+        identity={
+            name: f"{label}-{name}"
+            for name in (
+                "prepared_branch_id",
+                "task_fingerprint",
+                "base_fingerprint",
+                "home_fingerprint",
+                "trajectory_fingerprint",
+                "robot_profile_fingerprint",
+                "scene_fingerprint",
+            )
+        },
+        events=[
+            {
+                "kind": "requested",
+                "monotonic_ns": 0,
+                "requested_joints": {name: 0.0 for name in JOINT_NAMES},
+            }
+        ],
+    )
 
 
 def test_case_foundation_landmark_positions_recovers_tiny_world_roundoff() -> None:
@@ -236,6 +264,7 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
     assert inspection.manifest["runtime"]["ros2Serialized"] is False
     assert inspection.study_index["attemptCount"] == 0
     assert inspection.study_attempts == ()
+    assert inspection.manual_simulation_records == ()
     assert inspection.robot_profile["identitySha256"] == profile["identitySha256"]
 
     extracted, validated = extract_scene_mrb(
@@ -248,6 +277,103 @@ def test_case_bundle_round_trip_and_integrity(tmp_path: Path) -> None:
         assert ROBOT_PROFILE_MEMBER in archive.namelist()
         assert STUDY_INDEX_MEMBER in archive.namelist()
         assert STUDY_ATTEMPTS_MEMBER in archive.namelist()
+        assert MANUAL_SIMULATION_MEMBER not in archive.namelist()
+
+
+def test_case_bundle_round_trips_manual_simulation_records(tmp_path: Path) -> None:
+    scene = tmp_path / "source.mrb"
+    write_mrb(scene, "<MRML/>")
+    records = [manual_simulation_record("first"), manual_simulation_record("second")]
+    inspection = create_case_bundle(
+        tmp_path / "manual.dentocase",
+        scene,
+        case_label="ManualEvidence",
+        workflow={"schemaVersion": "1.0"},
+        robot_profile=robot_profile_fixture(tmp_path),
+        manual_simulation_records=records,
+    )
+
+    assert inspection.manual_simulation_records == tuple(records)
+    assert MANUAL_SIMULATION_MEMBER in inspection.manifest["files"]
+    with zipfile.ZipFile(inspection.path) as archive:
+        raw = archive.read(MANUAL_SIMULATION_MEMBER)
+        assert raw == (
+            json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode("utf-8")
+        checksums = archive.read("integrity/checksums.sha256").decode("ascii")
+        assert f"  {MANUAL_SIMULATION_MEMBER}\n" in checksums
+
+    assert validate_case_bundle(inspection.path).manual_simulation_records == tuple(records)
+
+
+def test_case_bundle_rejects_invalid_and_tampered_manual_simulation_records(
+    tmp_path: Path,
+) -> None:
+    scene = tmp_path / "source.mrb"
+    write_mrb(scene, "<MRML/>")
+    profile = robot_profile_fixture(tmp_path)
+    record = manual_simulation_record("valid")
+    invalid = {**record, "record_fingerprint": "forged"}
+    destination = tmp_path / "invalid.dentocase"
+    with pytest.raises(CaseBundleError, match="Invalid manual simulation record"):
+        create_case_bundle(
+            destination,
+            scene,
+            case_label="ManualEvidence",
+            workflow={"schemaVersion": "1.0"},
+            robot_profile=profile,
+            manual_simulation_records=[invalid],
+        )
+    assert not destination.exists()
+
+    bundle = create_case_bundle(
+        tmp_path / "tampered.dentocase",
+        scene,
+        case_label="ManualEvidence",
+        workflow={"schemaVersion": "1.0"},
+        robot_profile=profile,
+        manual_simulation_records=[record],
+    ).path
+    with zipfile.ZipFile(bundle) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    members[MANUAL_SIMULATION_MEMBER] += b" "
+    tampered = tmp_path / "tampered-copy.dentocase"
+
+    def write_members(path: Path) -> None:
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, payload in members.items():
+                archive.writestr(name, payload)
+
+    write_members(tampered)
+    with pytest.raises(CaseBundleError, match="integrity check failed"):
+        validate_case_bundle(tampered)
+
+    members[MANUAL_SIMULATION_MEMBER] = json.dumps(
+        [{**record, "record_fingerprint": "forged"}],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    manifest = json.loads(members[MANIFEST_MEMBER])
+    manifest["files"][MANUAL_SIMULATION_MEMBER] = {
+        "sha256": hashlib.sha256(members[MANUAL_SIMULATION_MEMBER]).hexdigest(),
+        "sizeBytes": len(members[MANUAL_SIMULATION_MEMBER]),
+    }
+    members[MANIFEST_MEMBER] = json.dumps(
+        manifest,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    members[CHECKSUMS_MEMBER] = "".join(
+        f"{file_record['sha256']}  {name}\n"
+        for name, file_record in sorted(manifest["files"].items())
+    ).encode("ascii")
+    invalid_copy = tmp_path / "invalid-record-copy.dentocase"
+    write_members(invalid_copy)
+    with pytest.raises(CaseBundleError, match="Invalid manual simulation record"):
+        validate_case_bundle(invalid_copy)
 
 
 def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: Path) -> None:
@@ -263,7 +389,9 @@ def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: P
         schema_version="1.0",
         created_at_utc="2026-09-09T00:00:00+00:00",
     )
-    assert validate_case_bundle(legacy.path).manifest["schemaVersion"] == "1.0"
+    legacy_inspection = validate_case_bundle(legacy.path)
+    assert legacy_inspection.manifest["schemaVersion"] == "1.0"
+    assert legacy_inspection.manual_simulation_records == ()
     with zipfile.ZipFile(legacy.path) as archive:
         assert STUDY_INDEX_MEMBER not in archive.namelist()
         assert STUDY_ATTEMPTS_MEMBER not in archive.namelist()

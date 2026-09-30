@@ -380,6 +380,17 @@ class FakeLogic:
         return bool(base and base.active)
 
     @staticmethod
+    def assistedTaskLimitsReviewed(parameter_node):
+        try:
+            return bool(
+                json.loads(parameter_node.step6AssistedLimitProposalJson or "").get(
+                    "reviewed"
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    @staticmethod
     def getTaskJointLimits(parameter_node):
         del parameter_node
         pair = lambda lo, hi: SimpleNamespace(minimum=lo, maximum=hi)
@@ -945,6 +956,13 @@ def test_manual_base_reconciliation_resyncs_only_the_accepted_baseline():
         f"obstacle-{index}" for index in range(4)
     )
     assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["acceptedMatrixWorldRasMm"] == (
+        facade._manual_simulation_base_matrix(parameter_node)
+    )
+    assert result.details["acceptedBaselineMatrixWorldRasMm"] == result.details[
+        "acceptedMatrixWorldRasMm"
+    ]
+    assert result.details["acceptedMatrixWorldRasMm"] != candidate
     assert result.details["failureEvidence"] == failure_evidence
     assert result.details["staged"]
     assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
@@ -1645,6 +1663,53 @@ def test_workspace_runtime_validity_requires_current_roi_source_and_trajectory()
     facade._runtime_validated_workspace_key = fingerprint(payload)
 
     assert facade.workspaceRuntimeValidated(parameter_node)
+    saved_proposal = parameter_node.step6AssistedLimitProposalJson
+    saved_runtime_key = facade._runtime_validated_workspace_key
+    assert facade.workspaceRoiMatchesSavedEvidence(roi, current_source, parameter_node)
+    assert facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        TaskSpaceRoi((3.0, 3.0, 4.0), roi.dimensions_mm),
+        current_source,
+        parameter_node,
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        roi,
+        {**current_source, "openingRevision": current_source["openingRevision"] + 1},
+        parameter_node,
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        roi, {"openingRevision": True, "gapLineNodeId": "gap-line-current"}, parameter_node
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence("malformed", current_source, parameter_node)
+    saved_payload = json.loads(saved_proposal)
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(
+        {**saved_payload, "roi_source_fingerprint": "stale"}
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = json.dumps(
+        {**saved_payload, "roi_fingerprint": "stale"}
+    )
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = "malformed"
+    assert not facade.workspaceRoiMatchesSavedEvidence(roi, current_source)
+    parameter_node.step6AssistedLimitProposalJson = saved_proposal
+    assert parameter_node.step6AssistedLimitProposalJson == saved_proposal
+    assert facade._runtime_validated_workspace_key == saved_runtime_key
+
+    active_source = {
+        "centerWorldRasMm": (2.0000004, 3.0000004, 4.0000004),
+        "dimensionsMm": (200.0, 200.0, 200.0),
+        **current_source,
+    }
+    assert not facade.workspaceRoiMatchesSavedEvidence(
+        TaskSpaceRoi(
+            active_source["centerWorldRasMm"],
+            active_source["dimensionsMm"],
+        ),
+        current_source,
+        parameter_node,
+    )
+    assert facade.workspaceRuntimeValidated(parameter_node)
 
     active_source = {
         **active_source,
@@ -1659,6 +1724,28 @@ def test_workspace_runtime_validity_requires_current_roi_source_and_trajectory()
     }
     active_trajectory[0] = "trajectory-changed"
     assert not facade.workspaceRuntimeValidated(parameter_node)
+
+
+def test_approach_planning_requires_reviewed_workspace_limits_before_guard_or_planner():
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    parameter_node.step6MotionDiagnosticJson = ""
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.assistedTaskLimitsReviewed = lambda _node: False
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    facade.workspaceRuntimeValidated = lambda _node=None: True
+    calls = []
+    facade._prepare_phase_guard = lambda *_args, **_kwargs: calls.append("guard")
+    facade._goal1_pre_entry_ik_candidates = lambda *_args, **_kwargs: calls.append(
+        "planner"
+    )
+
+    result = facade.planApproachPhase()
+
+    assert not result.success and result.code == "approach_plan_failed"
+    assert "Review the assisted workspace limits" in result.message
+    assert calls == []
+    assert bridge.phase_calls == []
 
 
 def _provisional_workspace_confirmation_fixture():
@@ -1955,6 +2042,7 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
 
     facade, parameter_node, logic, bridge = make_facade()
     parameter_node.robotBaseTransform.active = True
+    parameter_node.step6ApproachStandoffMm = 2.0
     parameter_node.step6AssistedLimitProposalJson = ""
     parameter_node.step6MotionDiagnosticJson = ""
     home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
@@ -2084,6 +2172,7 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
     assert session.full_task_outcome["stage1_p1_status"] == "NotRun"
     assert session.full_task_outcome["stage2_status"] == "NotRun"
     assert session.full_task_outcome["stage3_status"] == "NotRun"
+    assert session.full_task_outcome["target_conditioning"]["standoff_mm"] == 2.0
     assert record["success"] is False
     assert record["waypoint_count"] == 0
     assert record["solver_success"] is False
@@ -2102,6 +2191,191 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
     assert effects == []
     assert bridge.applied == []
     assert bridge.phase_calls == []
+
+
+def test_best_failed_preentry_ik_state_is_display_only(monkeypatch):
+    facade, parameter_node, _logic, bridge = make_facade()
+    parameter_node.step6MotionDiagnosticJson = "diagnostic"
+    records = []
+    session = SimpleNamespace(candidate_records=records, full_task_outcome={})
+    monkeypatch.setattr(
+        workflow_facade_module,
+        "parse_motion_diagnostic_session",
+        lambda _payload: session,
+    )
+    shown = []
+    bridge.show_goal_robot_joint_positions = lambda positions: (
+        shown.append(dict(positions)) or (True, "displayed")
+    )
+    evidence_calls = []
+    bridge.show_motion_diagnostic_evidence = lambda **kwargs: (
+        evidence_calls.append(kwargs) or (True, "evidence shown")
+    )
+    valid = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
+    records.append(
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": valid,
+        }
+    )
+
+    result = facade.showDiagnosticCandidate(0)
+
+    assert result.success and result.code == "diagnostic_candidate_shown"
+    assert "Best failed PreEntry IK state" in result.message
+    assert "visualization only" in result.message
+    assert "Static validity and collision may be unverified" in result.message
+    assert "no accepted-state, guard, or route authority" in result.message
+    assert shown == [valid]
+    assert len(evidence_calls) == 1
+
+    session.full_task_outcome = {"diagnostic_kind": "preentry_ik"}
+    records[:] = [{"solver_success": False, "best_joint_positions_si": valid}]
+    standalone_result = facade.showDiagnosticCandidate(0)
+    assert standalone_result.success
+    assert "Best failed PreEntry IK state" in standalone_result.message
+    assert shown == [valid, valid]
+    assert len(evidence_calls) == 2
+
+    records[:] = [{"solver_success": True, "best_joint_positions_si": valid}]
+    successful_seed = facade.showDiagnosticCandidate(0)
+    assert not successful_seed.success
+    assert successful_seed.code == "diagnostic_state_unavailable"
+
+    session.full_task_outcome = {}
+    malformed_records = (
+        {"full_chain_failure_stage": "preentry_ik"},
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": {
+                **valid,
+                "unexpected_joint": 0.0,
+            },
+        },
+        {
+            "full_chain_failure_stage": "preentry_ik",
+            "best_joint_positions_si": {
+                **valid,
+                ROS2_JOINT_SI_ORDER[0]: float("nan"),
+            },
+        },
+        {
+            "full_chain_failure_stage": "stage1_free_space",
+            "best_joint_positions_si": valid,
+        },
+    )
+    for record in malformed_records:
+        records[:] = [record]
+        rejected = facade.showDiagnosticCandidate(0)
+        assert not rejected.success
+        assert rejected.code == "diagnostic_state_unavailable"
+
+    assert shown == [valid, valid]
+    assert len(evidence_calls) == 2
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_goal1_preentry_failure_retains_geometry_and_session_fingerprint():
+    from DENTOStep6State import parse_motion_diagnostic_session
+
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    parameter_node.step6ApproachStandoffMm = 4.5
+    parameter_node.step6MotionDiagnosticJson = ""
+    home_positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    home = SimpleNamespace(
+        joint_names=tuple(ROS2_JOINT_SI_ORDER),
+        joint_positions_si=tuple(
+            home_positions[name] for name in ROS2_JOINT_SI_ORDER
+        ),
+    )
+    snapshot = SimpleNamespace(
+        snapshot_fingerprint="task-fingerprint",
+        entry_ras_mm=(10.0, 20.0, 30.0),
+        target_ras_mm=(10.0, 20.0, 20.0),
+    )
+    audit = SimpleNamespace(audit_fingerprint="audit-fingerprint")
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: snapshot
+    logic.taskHomeRecord = lambda _node: home
+    logic.collisionSceneAuditRecord = lambda _node: audit
+    logic.robotBaseFingerprint = lambda _node: "base-fingerprint"
+    logic.step6TrajectoryRevision = lambda _node: "trajectory-fingerprint"
+    logic.robotProfileFingerprint = lambda: "profile-fingerprint"
+    logic.step6ApproachPoints = lambda _node, _snapshot: (
+        (10.0, 20.0, 33.5),
+        (10.0, 20.0, 30.0),
+    )
+    facade.taskHomeRuntimeValidated = lambda _node=None: True
+    facade.workspaceRuntimeValidated = lambda _node=None: True
+    parameter_node.step6AssistedLimitProposalJson = json.dumps({"reviewed": True})
+    facade._guide_fit_evidence = lambda _node: {}
+    facade._tool_insertion_evidence = lambda *_args: {"planningAllowed": True}
+    facade._prepare_phase_guard = lambda *_args, **_kwargs: (True, "prepared")
+
+    seed_records = [
+        {
+            "candidate_index": index,
+            "seed_provenance": "task_home" if index == 0 else "workspace_seed",
+            "seed_joint_positions_si": dict(home_positions),
+            "failure_classification": "position_axis_ik_failed",
+            "solver_message": f"seed {index} failed",
+            "position_residual_mm": position,
+            "drilling_axis_residual_deg": axis,
+        }
+        for index, (position, axis) in enumerate(((0.6, 1.0), (0.4, 0.8)))
+    ]
+
+    def no_ik(_node, _pre_entry, _entry, _target, _home, *, seed_collector=None, **_kwargs):
+        for record in seed_records:
+            seed_collector(dict(record))
+        return [], [
+            "full seed 0 failure",
+            "additional failure from seed 0",
+            "full seed 1 failure",
+        ]
+
+    facade._goal1_pre_entry_ik_candidates = no_ik
+
+    result = facade.planApproachPhase()
+
+    assert not result.success
+    assert result.code == "approach_plan_failed"
+    assert "Best observed position/axis residual: 0.400 mm / 0.800°" in result.message
+    assert "tolerances: 0.250 mm / 0.500°" in result.message
+    assert "Full per-seed evidence is in Motion Diagnostics." in result.message
+    assert "full seed 0 failure" not in result.message
+    assert result.details["motionDiagnosticSessionFingerprint"]
+    assert result.payload is None
+    assert facade._motion_plan is None
+    assert bridge.phase_calls == []
+
+    session = parse_motion_diagnostic_session(parameter_node.step6MotionDiagnosticJson)
+    assert session.session_fingerprint == result.details[
+        "motionDiagnosticSessionFingerprint"
+    ]
+    outcome = session.full_task_outcome
+    assert outcome["target_conditioning"] == {
+        "world_frame": "RAS_mm",
+        "pre_entry_world_ras_mm": [10.0, 20.0, 33.5],
+        "entry_world_ras_mm": [10.0, 20.0, 30.0],
+        "target_world_ras_mm": [10.0, 20.0, 20.0],
+        "standoff_mm": 4.5,
+    }
+    assert outcome["blocked_stage"] == "preentry_ik"
+    assert session.candidate_records[0]["message"] == "seed 0 failed"
+    assert session.candidate_records[1]["message"] == "seed 1 failed"
+    assert all(
+        "additional failure from seed 0" not in record["message"]
+        for record in session.candidate_records
+    )
+    assert all(
+        record["success"] is False
+        and record["waypoint_count"] == 0
+        and record["full_chain_candidate_status"] == "Blocked"
+        for record in session.candidate_records
+    )
 
 
 def _ready_stage_diagnostic_fixture(facade, parameter_node, monkeypatch):

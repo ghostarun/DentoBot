@@ -38,6 +38,7 @@ from DENTOCaseBundle import validate_case_bundle  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
     JOINT_DISPLAY_UNITS,
     JOINT_LIMIT_FIELDS,
+    TaskSpaceRoi,
 )
 from DENTOStep6Planning import (  # noqa: E402
     default_task_joint_limits_from_urdf,
@@ -51,6 +52,12 @@ from step6_manual_jog_scenarios import (  # noqa: E402
     fixture_identity as _fixture_identity,
     rejection_plan as _rejection_plan,
 )
+from run_dentobot_tcp_workbench_headed import (  # noqa: E402
+    _mouse_drag_requested,
+    make_external_mouse_drag_callback,
+    run_case_bound_tcp_probe,
+)
+from step6_full_chain_probe import run_full_chain_interruption_probe  # noqa: E402
 
 
 CHECKOUT_PROFILES = {
@@ -100,6 +107,8 @@ CHECK_NAMES = (
     "unknown_reconcile_state",
     "save_current_case",
     "manual_jog_keyboard_draft_check",
+    "case_bound_tcp_workbench",
+    "full_chain_interruption",
 )
 
 
@@ -519,6 +528,39 @@ def _exact_env_opt_in(name: str) -> bool:
     return value == "1"
 
 
+def _validate_workspace_diagnostic_opt_in() -> bool:
+    if not _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
+        return False
+    if _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_JOG"):
+        raise RuntimeError(
+            "Workspace diagnostic mode requires DENTOBOT_HEADED_ALLOW_JOG unset or '0'."
+        )
+    if not _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT"):
+        raise RuntimeError(
+            "Workspace diagnostic mode requires DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1."
+        )
+    incompatible = (
+        "DENTOBOT_HEADED_DRAFT_ONLY",
+        "DENTOBOT_HEADED_INVALID_DRAFT_REVIEW",
+        "DENTOBOT_HEADED_RECORD_REOPEN",
+        "DENTOBOT_HEADED_JOINT_KEYBOARD",
+        "DENTOBOT_HEADED_TCP_CASE",
+        "DENTOBOT_HEADED_FULL_CHAIN",
+        "DENTOBOT_HEADED_ALLOW_REJECTED_JOG",
+        "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
+    )
+    enabled = [name for name in incompatible if _exact_env_opt_in(name)]
+    if enabled:
+        raise RuntimeError(
+            "Workspace diagnostic mode cannot be combined with: " + ", ".join(enabled)
+        )
+    if "DENTOBOT_HEADED_OUTPUT_CASE" in os.environ:
+        raise RuntimeError(
+            "Workspace diagnostic mode cannot be combined with DENTOBOT_HEADED_OUTPUT_CASE."
+        )
+    return True
+
+
 def _load_historical_record_probe():
     helper_path = TESTING / "step6_historical_record_probe.py"
     spec = importlib.util.spec_from_file_location(
@@ -905,6 +947,19 @@ def _record(report: dict[str, object], name: str, status: str, **details) -> Non
     _write_report(report)
 
 
+def _retain_full_chain_probe_counts(report, evidence) -> None:
+    if not isinstance(evidence, Mapping):
+        return
+    invocations = evidence.get("probe_local_button_invocations")
+    if not isinstance(invocations, Mapping):
+        return
+    report["planner_calls"] = invocations.get(
+        "plan_guarded_approach", report["planner_calls"]
+    )
+    if "preview_approach" in invocations:
+        report["preview_started"] = invocations["preview_approach"] > 0
+
+
 def _write_report(report: dict[str, object]) -> None:
     path = Path(str(report["report_path"]))
     temporary = path.with_name(path.name + ".tmp")
@@ -913,6 +968,27 @@ def _write_report(report: dict[str, object]) -> None:
         encoding="utf-8",
     )
     os.replace(temporary, path)
+
+
+def _finalize_workspace_diagnostic(report: dict[str, object]) -> None:
+    reason = (
+        "Intentional workspace-only diagnostic stop after current workspace generation; "
+        "downstream checks were not run."
+    )
+    for item in report["items"].values():
+        if item["status"] == "NOT_RUN":
+            item["reason"] = reason
+    report.update({
+        "status": "DIAGNOSTIC_PASS",
+        "completed_at_utc": _utc_now(),
+        "failure_or_stop_reason": reason,
+        "full_workflow_claimed": False,
+        "screenrecording": {
+            "status": "external_wrapper_required",
+            "scope": "complete Slicer process",
+        },
+    })
+    _write_report(report)
 
 
 def _capture(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str]:
@@ -1555,6 +1631,7 @@ def _target_j1(logic, parameter_node, accepted: dict[str, float]):
 def _ensure_current_home_workspace_task(
     widget, panel, logic, parameter_node, facade, case_path, case_hash,
     report, evidence_dir, run_id, *, phase, check_name, skip_reason=None,
+    workspace_diagnostic=False,
 ):
     evidence = {"phase": phase, "status": "RUNNING", "case_sha256_before": case_hash}
     report[check_name] = evidence
@@ -1590,6 +1667,8 @@ def _ensure_current_home_workspace_task(
     needs_recovery = not limits_reviewed or confirmed is None or bool(task_issues)
     if phase == "before_save":
         needs_recovery = needs_recovery or not home_current or not workspace_current
+    if workspace_diagnostic and phase == "after_scene_ack":
+        needs_recovery = True
     evidence["prerequisites_before"] = current
     if not needs_recovery:
         evidence.update({"status": "NOT_RUN", "already_current": True})
@@ -1729,6 +1808,24 @@ def _ensure_current_home_workspace_task(
     widget._configureRobotSimulationShellSubstep(3)
     widget._updateStep6PlanningUi()
     _process_events(0.1)
+    saved_workspace_json_before_roi = str(
+        parameter_node.step6AssistedLimitProposalJson or ""
+    )
+    runtime_workspace_key_before_roi = str(
+        getattr(facade, "_runtime_validated_workspace_key", "") or ""
+    )
+    workspace_model = logic.robotWorkspaceModelNode()
+    workspace_model_state_before_roi = (
+        {
+            name: workspace_model.GetAttribute(name)
+            for name in (
+                "DENTOBOT.WorkspaceRuntimeValidated",
+                "DENTOBOT.WorkspaceState",
+            )
+        }
+        if workspace_model is not None
+        else None
+    )
     roi_loaded = not bool(getattr(panel, "_taskSpaceRoiInitialized", False))
     if roi_loaded:
         roi_button = panel.useCurrentIncisorMidpointButton
@@ -1765,6 +1862,43 @@ def _ensure_current_home_workspace_task(
         or not roi_gap_line_id.strip()
     ):
         stop("The displayed Task Space ROI draft or its opening source identity is invalid.")
+    displayed_roi = TaskSpaceRoi(
+        center_world_ras_mm=roi_center,
+        dimensions_mm=roi_dimensions,
+    )
+    displayed_roi_source = {
+        "openingRevision": roi_opening_revision,
+        "gapLineNodeId": roi_gap_line_id,
+    }
+    roi_matches_saved_evidence = bool(
+        facade.workspaceRoiMatchesSavedEvidence(
+            displayed_roi, displayed_roi_source, parameter_node
+        )
+    )
+    workspace_model_state_after_roi = (
+        {
+            name: workspace_model.GetAttribute(name)
+            for name in (
+                "DENTOBOT.WorkspaceRuntimeValidated",
+                "DENTOBOT.WorkspaceState",
+            )
+        }
+        if workspace_model is not None
+        else None
+    )
+    if roi_loaded and saved_workspace_json_before_roi and roi_matches_saved_evidence:
+        if (
+            str(parameter_node.step6AssistedLimitProposalJson or "")
+            != saved_workspace_json_before_roi
+            or str(getattr(facade, "_runtime_validated_workspace_key", "") or "")
+            != runtime_workspace_key_before_roi
+            or workspace_model_state_after_roi != workspace_model_state_before_roi
+            or "Exact saved workspace ROI/source match"
+            not in str(panel.taskSpaceRoiStatusLabel.text)
+        ):
+            stop(
+                "Loading the exact saved incisor ROI changed or mislabeled workspace evidence."
+            )
     roi_frame = _scroll_to_visible(
         widget, panel.taskSpaceRoiStatusLabel, "Task Space ROI draft evidence"
     )
@@ -1777,6 +1911,17 @@ def _ensure_current_home_workspace_task(
         "opening_revision": roi_opening_revision,
         "gap_line_node_id": roi_gap_line_id,
         "status_text": str(panel.taskSpaceRoiStatusLabel.text),
+        "matches_saved_evidence": roi_matches_saved_evidence,
+        "saved_evidence_preserved": bool(
+            not (roi_loaded and saved_workspace_json_before_roi and roi_matches_saved_evidence)
+            or (
+                str(parameter_node.step6AssistedLimitProposalJson or "")
+                == saved_workspace_json_before_roi
+                and str(getattr(facade, "_runtime_validated_workspace_key", "") or "")
+                == runtime_workspace_key_before_roi
+                and workspace_model_state_after_roi == workspace_model_state_before_roi
+            )
+        ),
     }
     evidence["task_space_roi_screenshot_framing"] = {
         "midpoint_control": roi_button_frame,
@@ -1801,6 +1946,22 @@ def _ensure_current_home_workspace_task(
     evidence["screenshots"]["workspace_generated"] = _capture(
         report, evidence_dir, run_id, f"{phase}-workspace-generated"
     )
+    if _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
+        evidence.update({
+            "status": "PASS",
+            "diagnostic_stop": "workspace_generation_returned_current",
+            "planner_preview_authority": False,
+        })
+        _record(
+            report,
+            check_name,
+            "PASS",
+            **{key: value for key, value in evidence.items() if key != "status"},
+        )
+        _finalize_workspace_diagnostic(report)
+        print("DENTOBOT_HEADED_WORKSPACE_DIAGNOSTIC_PASS", flush=True)
+        slicer.util.exit(0)
+        raise SystemExit(0)
 
     _process_events(0.1)
     if not panel.reviewLimitsButton.enabled:
@@ -2257,12 +2418,11 @@ def _run_unknown_reconciliation(
 
 
 def run() -> int:
+    workspace_diagnostic = _validate_workspace_diagnostic_opt_in()
     output_text = os.environ.get("DENTOBOT_HEADED_EVIDENCE_DIR", "").strip()
     if not output_text:
         raise RuntimeError("Set DENTOBOT_HEADED_EVIDENCE_DIR to a private evidence directory.")
-    allow_base_home_accept = (
-        os.environ.get("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT", "") == "1"
-    )
+    allow_base_home_accept = os.environ.get("DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT", "") == "1"
     os.umask(0o077)
     evidence_dir = Path(output_text).expanduser()
     evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -2302,6 +2462,7 @@ def run() -> int:
             "rejected_guard": False,
             "unknown_reconciliation": False,
             "joint_keyboard_draft": False,
+            "workspace_diagnostic": False,
         },
         "outcome_scenarios": {
             "rejected": {"status": "NOT_RUN"},
@@ -2352,6 +2513,8 @@ def run() -> int:
         invalid_draft_review = _invalid_draft_review_requested()
         record_reopen = _historical_record_reopen_requested()
         joint_keyboard_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_JOINT_KEYBOARD")
+        tcp_case_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_TCP_CASE")
+        full_chain_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_FULL_CHAIN")
         allow_rejected_guard = _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_REJECTED_JOG")
         allow_unknown_reconciliation = _exact_env_opt_in(
             "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION"
@@ -2365,7 +2528,17 @@ def run() -> int:
             "unknown_reconciliation": allow_unknown_reconciliation,
             "allow_jog": allow_jog_requested,
             "joint_keyboard_draft": joint_keyboard_opt_in,
+            "case_bound_tcp": tcp_case_opt_in,
+            "full_chain_interruption": full_chain_opt_in,
+            "workspace_diagnostic": workspace_diagnostic,
         }
+        if (tcp_case_opt_in or full_chain_opt_in) and not (
+            allow_jog_requested and allow_base_home_accept
+        ):
+            fail(
+                "case_bound_tcp_workbench" if tcp_case_opt_in else "full_chain_interruption",
+                "Case-bound 6.3 probes require the current guarded-jog and Base/Home acceptance gates.",
+            )
         report["manual_jog_keyboard_draft_only"] = joint_keyboard_only
         if not joint_keyboard_opt_in:
             report["items"]["manual_jog_keyboard_draft_check"] = {
@@ -2392,7 +2565,8 @@ def run() -> int:
             record_reopen, allow_jog_requested, draft_only
         )
         report["review_mode"] = (
-            "manual_jog_keyboard_draft_only" if joint_keyboard_only
+            "workspace_diagnostic" if workspace_diagnostic
+            else "manual_jog_keyboard_draft_only" if joint_keyboard_only
             else "taskless_draft_only" if draft_only
             else "invalid_draft_review" if invalid_draft_review
             else "bounded_jog_base_home_review"
@@ -2619,6 +2793,7 @@ def run() -> int:
             and not draft_only
             and not invalid_draft_review
             and not joint_keyboard_opt_in
+            and not workspace_diagnostic
         ) or native is None:
             reasons = []
             if (
@@ -2626,9 +2801,10 @@ def run() -> int:
                 and not draft_only
                 and not invalid_draft_review
                 and not joint_keyboard_opt_in
+                and not workspace_diagnostic
             ):
                 reasons.append(
-                    "No guarded-jog, taskless-draft, invalid-draft, or joint-keyboard review opt-in is enabled."
+                    "No guarded-jog, taskless-draft, invalid-draft, joint-keyboard, or workspace-diagnostic opt-in is enabled."
                 )
             if native is None:
                 reasons.append("Exact native source/binary preflight is unavailable.")
@@ -2708,6 +2884,7 @@ def run() -> int:
                         if joint_keyboard_only else None
                     )
                 ),
+                workspace_diagnostic=workspace_diagnostic,
             )
             confirmed_task_present = logic.confirmedTaskRecord(parameter_node) is not None
             active_check = "simulation_ros_connect_and_scene_readback"
@@ -3575,6 +3752,64 @@ def run() -> int:
                         "accepted": task_home_accepted_frame,
                     },
                 )
+            if tcp_case_opt_in:
+                active_check = "case_bound_tcp_workbench"
+                widget._configureRobotSimulationShellSubstep(3)
+                _process_events(0.1)
+                try:
+                    tcp_evidence = run_case_bound_tcp_probe(
+                        widget, panel, facade, evidence_dir.parent,
+                        lambda stage: _capture(
+                            report, evidence_dir, run_id, f"tcp-{stage}"
+                        ),
+                        mouse_drag_callback=(
+                            make_external_mouse_drag_callback(evidence_dir.parent)
+                            if _mouse_drag_requested() else None
+                        ),
+                    )
+                except Exception as exc:
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        probe_evidence=getattr(exc, "evidence", None),
+                    )
+                _record(report, active_check, "PASS", probe_evidence=tcp_evidence)
+            else:
+                _record(report, "case_bound_tcp_workbench", "NOT_RUN",
+                        reason="DENTOBOT_HEADED_TCP_CASE is unset or '0'.")
+
+            if full_chain_opt_in:
+                active_check = "full_chain_interruption"
+                widget._configureRobotSimulationShellSubstep(3)
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                if not panel.checkPreEntryIKButton.enabled:
+                    fail(active_check, "Current PreEntry IK diagnostic control is disabled.")
+                panel.checkPreEntryIKButton.click()
+                _process_events(0.1)
+                try:
+                    chain_evidence = run_full_chain_interruption_probe(
+                        widget, panel, facade,
+                        lambda stage: _capture(
+                            report, evidence_dir, run_id, f"chain-{stage}"
+                        ),
+                        _process_events, _wait_until,
+                    )
+                except Exception as exc:
+                    _retain_full_chain_probe_counts(
+                        report, getattr(exc, "evidence", None)
+                    )
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        probe_evidence=getattr(exc, "evidence", None),
+                    )
+                _retain_full_chain_probe_counts(report, chain_evidence)
+                _record(report, active_check, "PASS", probe_evidence=chain_evidence)
+            else:
+                _record(report, "full_chain_interruption", "NOT_RUN",
+                        reason="DENTOBOT_HEADED_FULL_CHAIN is unset or '0'.")
+
             if output_case_path is not None:
                 active_check = "profile_migration_recovery_before_save"
                 _ensure_current_home_workspace_task(
@@ -3586,6 +3821,28 @@ def run() -> int:
                         if draft_only else None
                     ),
                 )
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                planning_controls = {
+                    "plan_approach_enabled": bool(panel.planApproachButton.enabled),
+                    "compare_planners_enabled": bool(panel.comparePlannersButton.enabled),
+                    "status_text": str(panel.confirmationStatusLabel.text),
+                }
+                report[active_check]["planning_controls"] = planning_controls
+                _write_report(report)
+                if not all(
+                    planning_controls[name]
+                    for name in (
+                        "plan_approach_enabled",
+                        "compare_planners_enabled",
+                    )
+                ):
+                    fail(
+                        active_check,
+                        "Current Home, workspace, reviewed limits, and task confirmation "
+                        "did not enable the phased planning controls.",
+                        planning_controls=planning_controls,
+                    )
                 active_check = "save_current_case"
                 unpassed = _unpassed_selected_checks(report["items"])
                 if unpassed:
