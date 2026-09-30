@@ -7,6 +7,56 @@ import time
 from .runtime import *
 
 
+def _restore_saved_case_foundation_landmarks(landmarks, saved_positions) -> bool:
+    """Restore exact saved RAS values after package lineage has been audited."""
+
+    if saved_positions is None or (
+        isinstance(saved_positions, (list, tuple)) and not saved_positions
+    ):
+        return False
+    if not isinstance(saved_positions, (list, tuple)) or len(saved_positions) != 12:
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        )
+    try:
+        saved = tuple(float(value) for value in saved_positions)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        ) from exc
+    if not all(math.isfinite(value) for value in saved):
+        raise CaseBundleError(
+            "Saved Case Foundation landmarks must contain four finite RAS points."
+        )
+    if landmarks is None or landmarks.GetNumberOfDefinedControlPoints() != 4:
+        raise CaseBundleError(
+            "The restored Case Foundation landmark set does not match the package."
+        )
+
+    current = []
+    for index in range(4):
+        point = [0.0, 0.0, 0.0]
+        landmarks.GetNthControlPointPositionWorld(index, point)
+        current.extend(float(value) for value in point)
+    if (
+        not all(math.isfinite(value) for value in current)
+        or any(
+            abs(actual - expected) > 1e-6
+            or round(actual, 9) != round(expected, 9)
+            for actual, expected in zip(current, saved)
+        )
+    ):
+        raise CaseBundleError(
+            "The restored Case Foundation landmarks materially differ from the package."
+        )
+
+    for index in range(4):
+        landmarks.SetNthControlPointPositionWorld(
+            index, *saved[index * 3:index * 3 + 3]
+        )
+    return True
+
+
 class CaseBackendWidgetMixin:
     def _setMetadataPlaceholders(self) -> None:
         for label in (
@@ -110,7 +160,9 @@ class CaseBackendWidgetMixin:
         self._enforceStep6OpenedJawDisplaySeparation()
         self._restoreStageExclusiveInteractionLocks()
         try:
-            self._parameterNode.workflowStageIndex = int(self.ui.workflowStageComboBox.currentIndex)
+            currentStage = int(self.ui.workflowStageComboBox.currentIndex)
+            if currentStage > 0 or int(self._parameterNode.workflowStageIndex) < 0:
+                self._parameterNode.workflowStageIndex = currentStage
             self.logic.prepareDentoCaseSchema2ForSave(self._parameterNode)
             # Capture lineage while Markups carry the same intrinsic
             # interaction state that will be serialized into the MRB.
@@ -356,7 +408,6 @@ class CaseBackendWidgetMixin:
         }
         recoveryLocationState = self._sceneLocationState()
         restoreGeneration = self._beginCaseBundleRestore()
-        restoreEnded = False
         try:
             with tempfile.TemporaryDirectory(
                 prefix="dentobot-case-open-",
@@ -418,61 +469,83 @@ class CaseBackendWidgetMixin:
                 # Compatibility migrations and Step 6 freshness review are
                 # allowed only after package integrity has passed, and the
                 # recovery MRB must remain available until that audit passes.
-                # Keep the restore barrier through parameter-node binding so
-                # the first GUI refresh cannot recompute serialized target
-                # bounds before the post-hydration identity audit.
+                # Keep the restore barrier through queued events and hydration
+                # so callbacks cannot mutate saved state before its audit.
                 try:
                     self.setParameterNode(self.logic.getParameterNode())
-                    self._endCaseBundleRestore(restoreGeneration)
-                    restoreEnded = True
                     slicer.app.processEvents()
-                    hydrationGeneration = self._beginCaseBundleRestore()
+                    phase("Hydrating saved workflow", can_cancel=False)
+                    self.logic.hydrateDentoCaseStateAfterLoad(
+                        self._parameterNode,
+                        str(self._parameterNode.dentoCaseSchemaVersion or inspection.manifest.get("schemaVersion") or ""),
+                    )
+                    phase("Updating restored workflow controls", can_cancel=False)
+                    wasUpdating = self._updatingFromParameterNode
+                    self._updatingFromParameterNode = True
                     try:
-                        phase("Hydrating saved workflow", can_cancel=False)
-                        self.logic.hydrateDentoCaseStateAfterLoad(
-                            self._parameterNode,
-                            str(self._parameterNode.dentoCaseSchemaVersion or inspection.manifest.get("schemaVersion") or ""),
-                        )
-                        phase("Updating restored workflow controls", can_cancel=False)
-                        wasUpdating = self._updatingFromParameterNode
-                        self._updatingFromParameterNode = True
-                        try:
-                            # _updatePlanning observes the restore barrier and
-                            # reports saved ROI bounds without regenerating
-                            # them; this is still a full UI hydration pass.
-                            self._updateFromParameterNodeOnce()
-                        finally:
-                            self._updatingFromParameterNode = wasUpdating
-                        phase("Delivering restored scene events", can_cancel=False)
-                        slicer.app.processEvents()
-                        phase("Validating hydrated case", can_cancel=False)
-                        self._validateHydratedCaseBundle(inspection.workflow)
-                        # MRML rounds matrices to six significant digits. Only
-                        # after all strict package audits may the validated
-                        # environment restore the exact saved pose matrix.
-                        transform = self._parameterNode.step6CaseJawTransform
-                        environment = inspection.workflow.get("step6", {}).get("environment") or {}
-                        values = environment.get("jaw_transform_matrix", [])
-                        if (
-                            transform
-                            and self._parameterNode.step6CaseJawPreparationMode == "CaseFoundationCurrent"
-                            and transform.GetAttribute("DENTOBOT.GeometryState") == "Current"
-                            and len(values) == 16
-                            and environment.get("planning_pose_fingerprint")
-                            == transform.GetAttribute("DENTOBOT.PlanningPoseFingerprint")
-                        ):
-                            matrix = vtk.vtkMatrix4x4()
-                            transform.GetMatrixTransformToParent(matrix)
-                            if all(
-                                abs(matrix.GetElement(row, col) - float(f"{float(values[row * 4 + col]):.6g}")) < 1e-8
-                                for row in range(4) for col in range(4)
-                            ):
-                                for row in range(4):
-                                    for col in range(4):
-                                        matrix.SetElement(row, col, float(values[row * 4 + col]))
-                                transform.SetMatrixTransformToParent(matrix)
+                        # _updatePlanning observes the restore barrier and
+                        # reports saved ROI bounds without regenerating them.
+                        self._updateFromParameterNodeOnce()
                     finally:
-                        self._endCaseBundleRestore(hydrationGeneration)
+                        self._updatingFromParameterNode = wasUpdating
+                    phase("Delivering restored scene events", can_cancel=False)
+                    slicer.app.processEvents()
+                    phase("Validating hydrated case", can_cancel=False)
+                    self._validateHydratedCaseBundle(inspection.workflow)
+                    step6Workflow = inspection.workflow.get("step6")
+                    environment = (
+                        step6Workflow.get("environment")
+                        if isinstance(step6Workflow, dict) else None
+                    )
+                    if isinstance(environment, dict):
+                        try:
+                            parse_robot_environment_snapshot(environment)
+                        except (TypeError, ValueError, OverflowError):
+                            logging.warning(
+                                "Ignoring invalid saved Step 6 environment after hydration audit"
+                            )
+                            environment = {}
+                        else:
+                            self._parameterNode.step6EnvironmentJson = canonical_json(
+                                environment
+                            )
+                    else:
+                        environment = {}
+                    # MRML serialization can perturb pose values. Only after
+                    # strict package audits and identity checks may the
+                    # validated environment restore exact saved values.
+                    transform = self._parameterNode.step6CaseJawTransform
+                    values = environment.get("jaw_transform_matrix", [])
+                    if (
+                        transform
+                        and self._parameterNode.step6CaseJawPreparationMode == "CaseFoundationCurrent"
+                        and transform.GetAttribute("DENTOBOT.GeometryState") == "Current"
+                        and len(values) == 16
+                        and environment.get("planning_pose_fingerprint")
+                        == transform.GetAttribute("DENTOBOT.PlanningPoseFingerprint")
+                    ):
+                        matrix = vtk.vtkMatrix4x4()
+                        transform.GetMatrixTransformToParent(matrix)
+                        if all(
+                            abs(matrix.GetElement(row, col) - float(f"{float(values[row * 4 + col]):.6g}")) < 1e-8
+                            for row in range(4) for col in range(4)
+                        ):
+                            for row in range(4):
+                                for col in range(4):
+                                    matrix.SetElement(row, col, float(values[row * 4 + col]))
+                            transform.SetMatrixTransformToParent(matrix)
+                            savedLandmarks = environment.get(
+                                "landmark_positions_ras_mm"
+                            )
+                            if savedLandmarks not in (None, [], ()):
+                                landmarks = self._parameterNode.step6CaseJawLandmarks
+                                if not self.logic.isStep6CaseJawLandmarksNode(landmarks):
+                                    raise CaseBundleError(
+                                        _("The restored Case Foundation landmarks do not match the package.")
+                                    )
+                                _restore_saved_case_foundation_landmarks(
+                                    landmarks, savedLandmarks
+                                )
                     self._revalidateImportedStep6ContextAfterLoad()
                     savedStage = int(self._parameterNode.workflowStageIndex)
                     if savedStage < 0 and self._parameterNode.step6MotionDiagnosticJson:
@@ -493,7 +566,6 @@ class CaseBackendWidgetMixin:
                         "restoring recovery scene"
                     )
                     recoveryError = ""
-                    recoveryGeneration = self._beginCaseBundleRestore()
                     try:
                         if not slicer.util.loadScene(
                             str(recoveryPath), {"clear": True}
@@ -516,14 +588,11 @@ class CaseBackendWidgetMixin:
                         recoveryError = _(
                             " Recovery scene restoration failed: %1"
                         ).replace("%1", str(exc))
-                    finally:
-                        self._endCaseBundleRestore(recoveryGeneration)
                     raise CaseBundleError(
                         f"{hydrationError}{recoveryError}"
                     ) from hydrationError
         finally:
-            if not restoreEnded:
-                self._endCaseBundleRestore(restoreGeneration)
+            self._endCaseBundleRestore(restoreGeneration)
 
         # The extracted MRB is deleted with the temporary directory. Do not
         # leave it as Slicer's apparent save target, and do not use the outer

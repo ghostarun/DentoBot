@@ -1428,6 +1428,20 @@ host pure checks passed (6 facade, 4 UI). Current draft controls still use the
 reviewed-limit range; native static failures lack structured collision-pair
 evidence. Runtime and Tarun's verdict remain pending.
 
+**2026-09-27 recorded manual prerequisite:** The unchanged newer case has
+`confirmedTask=null`. A 120-second headed recording passed checkout/case/native
+provenance, production robot/context import, simulation Connect and 31-object
+readback, then Check Draft State returned `not_reached` before a static query.
+No jog was submitted. The task-independent manual exploration branch is the
+next `S6-LIVE-01` source gate: freeze branch/Base/limits/profile/scene/ROS
+identity, mark absent or stale Home unconfirmed, and permit static review and
+guarded jog without asserting task-target
+evidence, and invalidate this identity when a task becomes confirmed. Preserve
+the exact native acknowledgement and accepted-state ordering. A new Home or
+confirmed target must not be chosen just to make this diagnostic pass. The
+run-local video/JSON/screenshot diagnostics and commands are in today's
+logbook; source, runtime and operator acceptance remain open.
+
 **2026-09-27 manual acknowledgement source gate:** After commit `407fde4`,
 the native guard and Python bridge/facade gained a separate one-shot,
 simulation-only manual request/status pair with unique request/session and
@@ -1618,7 +1632,193 @@ own visible stop.
 | Order | ID | Priority | State | Next bounded action |
 |---:|---|---:|---|---|
 | 1 | `S6-LIVE-00` | 0 | Documentation checkpoint recorded; source baseline `ea504349f99f` preserved; scoped static/pure checks, rebuild, runtime marker, and graph refresh recorded | Keep the checkpoint boundary explicit while reconciling the remaining Stage-3 reachability issue |
-| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. The 27 September source gates add an uncertainty latch and read-only Check Draft State; combined current host pure checks passed 73 tests. The paired manual request/session/policy and read-only reconciliation source gates passed 118 combined host pure tests. Earlier broader host coverage passed 193 tests. The latest legacy-case runtime stopped before jog; scenarios NOT_RUN. User simulation trial and visible verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain the corrected unknown-state display and native-check the source-implemented request/policy correlation and monitored reconciliation; complete detached Base/Home review and expand the read-only draft check beyond reviewed-limit controls; deliver visible ordered manual exploration and complete motion records; finish two-area/full-chain integration; then focused current-case automation, measurements and operator acceptance. Preserve fresh-case deferral, guard boundaries and diagnostic-only partial paths. See the [27 September logbook](logbook/2026-09-27.md) and [26 September review](logbook/2026-09-26.md) for evidence. |
+| 2 | `S6-LIVE-01` | 0 | **Engineering solver partial; renovation source work active.** Baseline `40ad290` includes ROI-first sampling, shared endpoint evaluation, diagnostic P1/P2/P3, draft/guarded J1–J5 controls and initial schema-1.0 JSON records. Manual request/session/policy and read-only reconciliation source gates were committed as `c1bfba0`. The later detached numeric Base review, current-case restore and taskless static review are uncommitted. On 27 September, 154 focused host checks passed after exact native double-echo and accepted-state UI mirror fixes. A bounded headed Slicer checklist on the unchanged current case passed case/robot/scene, production read-only draft, one correlated native-accepted J1 +0.1° jog with later accepted/monitored/displayed convergence, and Base stage/cancel without accepted-matrix change. Slicer exited 1 during shutdown, so the recording manifest is partial despite checklist PASS. Detached Home review/accept source and UI passed 166 combined host tests. A later exact-case headed checklist passed all 14 items, including zero-displacement Base Accept with scene resync and current-pose Task Home Accept with validated saved revision 13→14. The first opt-in attempt failed a runner evidence check and was corrected before the passing run. Both whole-process videos remain partial because Slicer exited 1 during shutdown; full recording/export/reopen, uncertain-commit reconciliation, complete route and preview remain open. User normal-window verdict PENDING. Case-specific FDI11/21/31 solving remains downstream. | Follow the [reconciled renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): retain bounded Base/Home happy-path runtime evidence and resolve uncertain-commit reconciliation; invalid drafts and rejected/unknown runtime paths; complete ordered records/export/reopen; two-area/full-chain integration and responsiveness. Preserve exact case/native attribution, J6 exclusion, guard boundaries and diagnostic-only partial paths. Resolve whole-process recording/shutdown semantics before claiming a complete video. See the [27 September logbook](logbook/2026-09-27.md) for commands, screenshots and evidence boundaries. |
+
+**27 September revised verification/integration order:** Following Tarun's
+concern that repeated GUI debugging is delaying an incomplete workbench,
+finish `S6-LIVE-01` source slices with focused guard/identity/preview tests;
+run a narrow native check only where source evidence is insufficient. Before
+the final representative headed campaign, curate the proven accepted-5.10
+integrity and performance delta from the clean parallel checkout into a new
+reviewed integration branch. Compare overlaps with this dirty Step 6 tree;
+do not wholesale merge the branch containing deferred 5.12 history. Keep
+`S6-P2-03` load/performance, `S6-REUSABLE-CASE-SETUP` restore, `S6-U-01`
+shutdown and `PLAT-U-06` 5.12 under their existing owners. This is sequencing,
+not source/runtime/operator acceptance or permission to commit/push.
+
+**27 September source closure and curated integration evidence:** The guarded
+J1–J5/unknown/reconciliation, Base/Home, ordered recording and historical
+display, five-page two-area UI, complete-chain-only preview, legacy API
+closure and isolated Base candidate ghost source gates pass 225 combined host
+tests in the renovation checkout. A fresh uncommitted integration worktree
+`integration/step6-5.10-reviewed-20260927` adopted reviewed 5.10 case
+restore/fingerprint/stage-save and Connect rendering changes without the
+deferred 5.12 image/native history; 251 combined host tests pass there. The
+strict Step 6 saved environment/landmark validation remains intact. One narrow
+Slicer 5.10 integrated run on the unchanged current FDI11 case passed strict
+reopen, 31-object scene acknowledgement and Connect/Disconnect, with UI and
+viewport screenshots; Slicer still exited 1 on shutdown, so no complete
+recording. A first stack-present load exited abnormally during control
+refresh; a later offline trace and stack-present retry passed. The case has no
+confirmed task, hence no current positive full-chain preview fixture. Keep
+negative-state GUI, export/reopen, interruption, measured responsiveness,
+whole-run video and Tarun's normal-window verdict pending. Exact commands,
+hashes, attempts and evidence are in the [27 September logbook](logbook/2026-09-27.md)
+and the run-local `step6-integration-narrow-fvnSqgdA/diagnostics.md`.
+
+**28 September recording preparation:** In the reviewed integration worktree,
+the 14-item headed runner gained an exact integration-checkout provenance
+profile and a read-only taskless-draft stop. It deliberately exits `PARTIAL`
+before jog/Base/Home, planner or preview. A new run-local diagnostics helper
+requires an explicit full-workflow claim, all applicable item passes, complete
+hashed video with zero command/recorder/FFmpeg exits, screenshot evidence and
+a wrapper attestation of zero remaining owned processes before claiming whole-
+run completion. The focused runner/helper/recorder host suite passed 33 tests
+and four subtests; compilation and diff check passed. This does not complete
+the final campaign runner, positive confirmed-task authority fixture, native
+shutdown, representative video or operator review. See the [28 September
+logbook](logbook/2026-09-28.md) for exact commands and evidence boundaries.
+The next opt-in source slice adds a live-displayed-limit invalid-draft check
+to the bounded runner and a separate callable production export/import/replay
+probe. After Sol corrected a display/SI and joint-label/native-name mismatch,
+the combined host suite passed 43 tests and four subtests. Both remain
+source/host verified only; the historical helper is not in a complete headed
+campaign, and genuine native rejected/unknown outcomes cannot be inferred
+from injected host tests.
+
+**28 September bounded headed evidence:** The opt-in historical probe is
+joined to the integration runner after accepted jog. One recorded attempt
+stopped at the runner's wrong substep 5 (Manual Jog is substep 3); its partial
+video and failed checklist are retained. After the mapping correction and
+50 focused tests plus four subtests, a fresh current-case attempt passed
+read-only invalid J2 limit diagnostics, 31-object scene readback, correlated
+accepted J1 +0.1° jog, ordered event JSON/report export, historical
+display-only reopen/event step without accepted-state or route/preview
+change, and detached Base stage/cancel. Base/Home acceptance was `NOT_RUN`
+by opt-in, and planner/preview calls were zero. The case was not saved.
+Slicer still exited 1 with native class-loader warnings, so its video
+remains partial under `S6-U-01`. The final complete campaign, strict-current
+confirmed-task positive chain, interruption and Tarun verdict remain open;
+see the [28 September logbook](logbook/2026-09-28.md) and run-local diagnostics.
+
+**28 September source and fixture follow-up:** Manual Jog actions now use
+two shorter rows and the screenshot helper records actual pane/scroll geometry
+with oversized-control limitations; 80 combined focused host tests and four
+subtests passed. Headed readability and responsiveness remain unaccepted.
+Read-only inventory of all three `SEPT24` cases found only the older
+`fdi11_step6.dentocase` has a confirmed task, but its selected branch is
+saved Stale with a Step 4C freshness issue. The two other cases lack a
+confirmed task. No package was changed or promoted; positive full-chain
+preview still requires a newly reviewed strict-current fixture and actual
+complete guarded route.
+
+**27 September invalid-draft source gate:** Read-only mechanical/reviewed
+limit diagnostics and mechanical-range numeric review now let an engineer
+inspect an out-of-reviewed-limit J1–J5 candidate while Guarded Jog is
+disabled and Check Draft State remains available. Exact J1–J5/J6, missing-
+limit/identity and accepted-state boundaries remain fail-closed. Two Luna Max
+workers used disjoint façade/test and panel/test ownership. Focused checks
+passed 15 façade draft tests and 16 UI tests; the final combined suite passed
+114 tests, with Python compilation and diff checks passing. This is
+**Implemented / Unit Verified** only. The final integrated headed campaign
+must show the invalid candidate, explanation and unchanged accepted robot;
+recording/export/reopen, two-area UI and full-chain boundaries remain open.
+
+**27 September recording source gate:** Failed current manual identity
+preparation now freezes the prior active ledger before another Base/Home
+event can be appended. A successfully committed Base/Home action reports its
+record unavailable if current identity preparation failed. Export retains all
+completed sessions in order plus a distinct active record, validates each
+schema-1.0 fingerprint and writes JSON with a readable companion report.
+Two Luna Max workers owned disjoint facade/test and shell/test files. Focused
+checks passed 13 facade and 4 export tests; their combined host suite passed
+120 tests, with compilation and diff check passing. This is **Implemented /
+Unit Verified** only. Per-sample TCP/axis/native evidence, display-only
+reopen/replay, uncertain Base commit reconciliation and representative GUI
+acceptance remain open under `S6-LIVE-01`.
+
+**27 September uncertain Base source gate:** `reconcileManualBaseAcceptance`
+reuses the current simulation scene-sync owner to re-establish the restored
+accepted Base baseline. It clears the uncertainty latch only after current
+identity, unlocked baseline, acknowledged audit/Base fingerprint/object IDs
+and unchanged post-sync state agree. Candidate and failure evidence remain;
+cancel/restage are blocked while unknown. The explicit UI control never
+mirrors or accepts the draft. Two GPT-6 Luna Max workers owned disjoint
+façade/test and panel/widget/test files. Focused façade checks passed 14 tests,
+focused UI checks passed 3 tests, and the stable combined host suite passed
+128 tests with compilation and diff check passing. This is **Implemented /
+Unit Verified** only; live native reconciliation and Home uncertain-commit
+closure remained open at that checkpoint.
+
+**27 September uncertain Task Home source gate:** An ambiguous post-save Home
+result now freezes the pre-save record/revision and non-Home manual identity.
+`reconcileManualTaskHomeAcceptance` clears uncertainty only after proving the
+expected new validated Home, current Base/profile/strict guard and audit,
+correlated read-only native J1–J5 state with complete scene objects, fresh ROS
+monitor and displayed state. It performs no second save or jog; failure
+retains the staged candidate, latch and failure evidence. The dedicated UI
+action disables Accept/Cancel while unknown. Two GPT-6 Luna Max workers owned
+disjoint facade/test and panel/widget/test files. Focused façade checks
+passed 10 tests, focused UI checks passed 4 tests, and the stable combined
+host suite passed 132 tests with compilation and diff check passing. This is
+**Implemented / Unit Verified** only. Native uncertain-commit proof, complete
+motion evidence/reopen, two-area/full-chain integration and Tarun's verdict
+remain open under `S6-LIVE-01`.
+
+**27 September ordered motion-sample source gate:** Schema 1.0 now accepts
+optional exact monitored joints, TCP world pose/point and unit drill axis
+while preserving older records and historical-only status. The façade records
+ordered requested/accepted/rejected/unknown jog evidence with native guard
+facts, threshold and measured distances separately, and identity-checked FK
+only when available. Rejected geometry remains labeled as a rejected
+candidate; unknown events do not infer accepted TCP or route authority. Two
+disjoint Luna Max workers owned schema/test and facade/test files. The schema
+suite passed 53 tests; the stable combined state/facade/UI host suite passed
+186 tests, compilation and diff check passed. This is **Implemented / Unit
+Verified** only; path display, historical reopen/replay, native GUI samples
+and final operator acceptance remain pending under `S6-LIVE-01`.
+
+**27 September historical manual record source gate:** Validated JSON import
+and event-by-event historical display now reopen one record or an exported
+array without restoring live state. A transient renderer shows accepted TCP
+segments broken by rejected/unknown outcomes and distinct candidate markers;
+no phase-path nodes, guard, robot joints, Home, route or preview are touched.
+Two disjoint Luna Max workers owned bridge/new path test and panel/shell/UI
+test files. The bridge path suite passed 3 tests, UI suite passed 25 tests,
+and the stable state/facade/UI/path suite passed 194 tests with compilation
+and diff check passing. The event list is bounded to 10,000 imported events.
+This is **Implemented / Unit Verified** only; headed visual replay, two-area
+UI/full-chain authority and Tarun's verdict remain pending under `S6-LIVE-01`.
+
+**27 September two-area/full-chain source gate:** Shared Step 6 navigator
+labels and visibility now present Planning & Diagnostics and Preview & Control
+without a second action owner. Partial Stage 2/3 path evidence cannot populate
+the active motion plan. Preview Approach and Drill each require their exact
+current complete-chain guard/plan binding; manual and reopened records remain
+display-only. The interrupted-preview Block Return latch is retained. Two
+disjoint Luna Max workers owned facade/test and application-shell/panel/widget/
+UI-test files. Final stable five-file host suite passed 219 tests, compile and
+diff check passed. This is **Implemented / Unit Verified** only. Native GUI
+full-chain/interruption, responsive rendering, curated 5.10 integration,
+whole-process recording and Tarun's verdict remain open under `S6-LIVE-01`
+and `S6-LIVE-03/04`.
+
+**2026-09-27 recorded headed gate:** Under Tarun's runtime authorization, the
+first isolated native/exact-checkout Slicer checklist failed strict hydrated
+final-template validation; its 27.033-second partial recording remains indexed
+as failure evidence. Restore-time UI mutation was fixed without relaxing that
+validator. A subsequent audited landmark roundoff/restore-order correction
+passed 21 focused host tests and a fresh Slicer reopen of the unchanged case:
+Case Foundation pose, Base and PreparedBranch were all `VALID`, and stored and
+rebuilt pose fingerprints matched. The saved/current task-limits fingerprint
+still differs. A second 37.676-second partial recording opened the case and
+captured checklist screenshots, then stopped at disabled production Connect;
+the runner had omitted Load Robot and Import Planning Context. Neither run
+submitted a jog. Run-local diagnostics, video manifests, checklist JSON and
+logs are indexed from today's logbook. Next: source-check the production
+prerequisites and screenshot framing, then repeat one serialized recorded
+trial with exact provenance. Manual solver acceptance and Tarun's verdict
+remain pending.
 | 3 | `S6-LIVE-02` | 0 | **Completed 2026-09-23:** independent full-chain guard implementation and native evidence are retained; the backlog row was removed because no acceptance action remains under this ID | Preserve as an invariant for later routes: strict bounds/phase/identity, J1–J5 planning, J6 external-spindle boundary, narrow contact policy and failed locked-route preservation |
 | 4 | `S6-LIVE-03` | 0 | Completed-phase reverse-history Return Home is implemented; FDI31 repeat-loop acceptance is `NOT_RUN` because Packet E stopped at its first-invalid Stage-3 result. Tarun chose **Block return** for an interrupted phase after accepted motion. | Preserve the exact accepted prefix, last accepted/monitored state and rejected requested/evaluated state with native reason when applicable; latch Incomplete/AwayFromHome and block further preview and normal Return Home. Exact-prefix guarded reversal is a separate future feature/acceptance gate. For a Complete route only, trial Approach→Drill preview→guarded Return Home→replan/route choice after the preceding planner verdict. |
 | 5 | `S6-LIVE-04` | 0 | Implemented; FDI31 playback/restore acceptance is `NOT_RUN` because Packet E did not complete | Confirm speed, ordered acknowledgements, visible stage paths, route lock state and current re-plan only for an accepted Complete target package |
@@ -1788,7 +1988,7 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 | `S6-P2-03` | 2 | Headless load, Step 4C/5B and Step 2 progress passed; Step 6.3/6.4 source checks passed; broad root-cause acceptance open | Tarun cannot launch Slicer manually. Latest headless Connect passed in 36.558 s with 31 acknowledged objects and 4.587 s maximum Qt gap. Disconnect now reports 0–31 removals and passes in 15.488 s, but native `RemoveRobot` caused an 8.293 s UI gap. A preceding run exited abnormally during load; Slicer exit remains 1 on shutdown. | Focused façade/bridge tests passed 63/63. Treat Connect/Disconnect as headless functional passes, not full responsiveness or desktop acceptance. Next: measured native teardown/load/shutdown corrections. Step 6.4 planner remains under `S6-LIVE-01` pause. No fake percentage or ETA |
 | `W4B-P2-SUPPORT-AUTO` | 2 | Source suggestion and pure boundary checks complete (2026-09-15); normal-window UI/runtime acceptance pending | Current P0 PreparedBranch correction accepted; preserve Step 4B ownership | Auto-suggest the four nearest same-jaw support teeth—two on each side in dental-arch order—then require ordinary Step 4B review/lock. Verify the current arch selector in a normal window, with manual editing for edge, missing, or unsuitable teeth; the one-row selected-jaw layout remains part of `UI-P3-01` |
 | `UI-P3-01` | 3 | Planned; broad revamp deferred | Studio functional acceptance and Priority 1–2 correctness | Design the final functional GUI/UX wrapper around settled behavior, prove Legacy parity, incorporate the `W4B-P2-SUPPORT-AUTO` single-row jaw requirement, and add no new MRML/ROS side effects; current-workflow fixes stay with existing owners |
-| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. | Priority 0–3 work or an observed runtime regression no longer blocks it | Preserve the open scene and close it normally when the operator is ready; then verify that the owned Slicer/ROS/MoveIt tree is gone and host memory recovers. Only if retained memory/processes remain, centralize native shutdown, release robot/parameter/pub-sub/MoveIt wrappers before library unload, correct lifecycle cleanup, and require a zero-exit lifecycle run with no SlicerROS2 leaks. |
+| `S6-U-01` | 4 | Deferred reliability DENTO-NOTE. Functional connect/reload/reconnect/New Case/reconnect/save-reopen passes after the native ownership repair; only application shutdown still reports retained SlicerROS2/MoveIt VTK objects and class-loader warnings. **Observed 2026-09-22:** a single live 3-hour session uses 4.80 GiB (Slicer 3.2 GiB, MoveIt 0.86 GiB, guard 0.43 GiB); short sampling was stable with no orphaned duplicate tree. **28 September:** bounded integrated Step 6 checklist PASS, owned-process cleanup PASS, but Slicer exit 1 and partial video; the 5.10 installed native logic lacks `DisconnectPublishers` while deferred 5.12 source has it, an unproven cause. | Priority 0–3 work or a required zero-exit final recording explicitly depends on it | Stop blind repeat runs at the protocol ceiling. Diagnose the exact installed 5.10 native ownership path and produce a causal fix or discriminating test without promoting deferred 5.12 image/native changes. Preserve the open scene and close it normally when the operator is ready; verify zero owned processes and memory recovery. Require a zero-exit lifecycle run with no SlicerROS2 leaks before a whole-run video can pass. |
 
 ## Unprioritized task contracts — migration baseline
 

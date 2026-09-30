@@ -10,17 +10,41 @@ dependencies and pass conditions. Its entries do not record latest results.
 
 ## 26 September renovation-checkout addendum
 
+**27 September headed capture addendum:** The renovation checkout adds
+`Testing/record_slicer_screen.py` (whole-display X11/FFmpeg recorder for an
+automated command or opt-in operator session), its focused pure tests, and
+`Testing/run_dentobot_step6_headed_review.py` for an itemized simulation-only
+Step 6 GUI review. Matrix checks `pure.screen_recorder` and
+`runtime.step6_headed_review` plus profile `step6-headed-review` index them;
+the [recorded headed automation workflow](STEP6_RECORDED_HEADED_AUTOMATION_WORKFLOW.md)
+gives the complete repeatable host/container/evidence procedure for agents
+and a later operator manual;
+the matrix now has **39 checks and 7 profiles**, including the bounded
+`runtime.step6_integration_taskless_draft` checkpoint. The first recorded
+current-case attempt was **blocked at package post-hydration validation**;
+a later 27 September narrow integrated run reopened the corrected current
+case and passed Connect/Disconnect but exited 1 on shutdown. Both are
+partial evidence, not a whole-run recording. See the 27 September logbook
+and the linked run diagnostics; video startup frames are not a case/UI
+verdict. `Testing/summarize_step6_evidence.py` generates a run-local
+planned-versus-observed report from runner JSON, video manifest and explicit
+owned-process cleanup evidence, and fails closed on bounded/partial runs.
+The recorder's `--until-enter`
+mode lets an operator opt into screen capture of a manual simulation session.
+The workbench's JSON manual-state record remains separate and authoritative
+for motion/guard data; video alone never proves accepted robot state.
+
 The inventory counts below are the 24 September snapshot. The current renovation
 matrix includes `runtime.manual_jog_headless` (36 total checks): reuse
 `Testing/run_dentobot_manual_jog_headless.bash` and `.py` for the bounded
 simulation-only manual-jog check. It uses Xvfb-rendered Slicer and can capture
 screenshots; without a reviewed rejection vector its result is at most PARTIAL.
-It is not a planner/full-workbench or operator usability check. The launcher pins
-`45a38d9`, now older than renovation HEAD `40ad290`; fix exact revision/provenance
-binding before another approved run. Generic matrix container commands naming
-`DentoBot` must not be mistaken for this renovation checkout. Current runtime is
-deferred for a newly saved representative case; no execution follows from this
-index. See the [reconciled plan](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+It is not a planner/full-workbench or operator usability check. That older
+launcher pins `45a38d9`, older than renovation HEAD `40ad290`; its exact
+revision/provenance binding remains stale. Generic matrix container commands
+naming `DentoBot` must not be mistaken for this renovation checkout. The later
+headed review used the new exact-checkout entry above and stopped at
+current-case integrity. See the [reconciled plan](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
 
 ## Inventory boundary and decision rule
 

@@ -269,6 +269,7 @@ class TemplateBuildWidgetMixin:
 
     def _updateFinalPrintableTemplateControls(self, patientShell, sourceModel) -> None:
         targetDockingAssembly = self._parameterNode.targetDockingAssemblyModel
+        restoringCaseBundle = bool(self._caseBundleRestoreDepth)
         selectedTrajectories = self.logic.getSelectedTemplateGuideTrajectories()
         if not selectedTrajectories and self._parameterNode.trajectoryLine:
             selectedTrajectories = [self._parameterNode.trajectoryLine]
@@ -349,7 +350,7 @@ class TemplateBuildWidgetMixin:
                 targetDockingAssembly.GetAttribute("DENTOBOT.UpdatedUtc") or ""
             ):
                 staleReason = _("The Step 4C docking assembly was regenerated.")
-            if staleReason:
+            if staleReason and not restoringCaseBundle:
                 self.logic.markFinalPrintableTemplateStale(finalModel, staleReason)
                 finalSummary = self.logic.getFinalPrintableTemplateSummary(finalModel)
 

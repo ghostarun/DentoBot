@@ -53,19 +53,25 @@ def test_workspace_mapping_preserves_segmentation_and_guide_substeps():
     assert workspace_for_stage(5).workspace_id == "guide_design"
     assert workspace_for_stage(9).workspace_id == "guide_design"
     assert workspace_for_stage(10).workspace_id == "robot_simulation"
-    assert len(workspace_for_stage(10).substep_titles) == 7
+    assert workspace_for_stage(10).substep_titles == (
+        "6.0 Activate Verified PreparedBranch",
+        "6.1A–6.1B Offline Base and ROS Gate",
+        "6.2 Validated Task Home",
+        "Planning & Diagnostics",
+        "Preview & Control",
+    )
     assert workspace_index_for_stage(999) == 0
 
 
 def test_step6_navigation_and_primary_actions_use_phase_names():
     assert workspace_for_stage(10).substep_titles[-2:] == (
-        "6.5 Approach",
-        "6.6 Drill Preview",
+        "Planning & Diagnostics",
+        "Preview & Control",
     )
     panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
-    assert 'QPushButton("Preview Approach"' in panel
+    assert '"Preview Approach", self.previewControlGroup' in panel
     assert 'QPushButton("Prepare Drill Preview"' in panel
-    assert 'QPushButton("Preview Drill"' in panel
+    assert '"Preview Drill", self.previewControlGroup' in panel
     assert "Goal 1" not in panel and "Goal 2" not in panel
 
 
@@ -148,7 +154,8 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert '"failure_classification": "preentry_ik_unreachable"' in facade
     assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
     assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 3
-    assert facade.count("planner_id=self._joint_planner_id") == 3
+    # Includes the clearance detour second-leg MoveIt call.
+    assert facade.count("planner_id=self._joint_planner_id") == 4
     assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
     assert "Planning policy" in panel
     assert "approximate_ik_enabled" in panel

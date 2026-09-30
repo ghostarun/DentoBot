@@ -31,39 +31,48 @@ class DENTORobotSimulationPanel:
         "cbct_preset": 1,
         "create_proxy": 1,
         "placement_review": 1,
+        "begin_manual_base_review": 1,
+        "cancel_manual_base_review": 1,
+        "reconcile_manual_base": 1,
         "appearance_changed": 1,
         "expert_diagnostics": 1,
-        "save_home": 2,
+        "review_task_home": (2, 3),
+        "cancel_task_home_review": (2, 3),
+        "accept_task_home_review": (2, 3),
+        "reconcile_task_home": (2, 3),
         "apply_home": 2,
         "roi_from_incisors": 3,
         "revalidate_workspace": 3,
         "review_limits": 3,
-        "confirm_task": 4,
-        "reset_manual_draft": 5,
-        "manual_draft_changed": 5,
-        "check_manual_draft_state": 5,
-        "reconcile_manual_jog": 5,
-        "guarded_manual_jog": 5,
-        "export_manual_record": 5,
-        "plan_approach": 5,
-        "check_preentry_ik": 5,
-        "check_planning_p1": 5,
-        "check_planning_p2": 5,
-        "check_planning_p3": 5,
-        "compare_planners": 5,
-        "cancel_planner_comparison": 5,
-        "show_planner_comparison": 5,
-        "template_collision_override": 5,
-        "begin_anatomy_review": 5,
-        "edit_anatomy_review": 5,
-        "activate_anatomy_review": 5,
-        "discard_anatomy_review": 5,
-        "preview_approach": 5,
-        "show_motion_diagnostics": 5,
-        "plan_drilling": 6,
-        "preview_drilling": 6,
-        "stop_preview": (5, 6),
-        "return_home": (5, 6),
+        "confirm_task": 3,
+        "reset_manual_draft": 3,
+        "manual_draft_changed": 3,
+        "check_manual_draft_state": 3,
+        "reconcile_manual_jog": 3,
+        "guarded_manual_jog": 3,
+        "export_manual_record": 3,
+        "import_manual_record": 3,
+        "show_manual_record": 3,
+        "clear_manual_record": 3,
+        "plan_approach": 3,
+        "check_preentry_ik": 3,
+        "check_planning_p1": 3,
+        "check_planning_p2": 3,
+        "check_planning_p3": 3,
+        "compare_planners": 3,
+        "cancel_planner_comparison": 3,
+        "show_planner_comparison": 3,
+        "template_collision_override": 3,
+        "begin_anatomy_review": 3,
+        "edit_anatomy_review": 3,
+        "activate_anatomy_review": 3,
+        "discard_anatomy_review": 3,
+        "preview_approach": 4,
+        "show_motion_diagnostics": 3,
+        "plan_drilling": 3,
+        "preview_drilling": 4,
+        "stop_preview": 4,
+        "return_home": 4,
         "create_goal": -1,
         "solve_ik": -1,
         "plan_goal": -1,
@@ -85,16 +94,22 @@ class DENTORobotSimulationPanel:
         self._placementSurfaceActive = False
         self._diagnosticDialog = None
         self._manualJogLimits = {}
+        self._manualJogMechanicalLimits = None
         self._manualJogLimitsValid = False
+        self._manualJogCommandLimitsValid = False
         self._manualJogAcceptedJointPositionsSi = None
         self._manualJogDraftInitialized = False
         self._manualJogBusy = False
         self._manualJogAvailable = False
         self._manualJogGuardAvailable = False
+        self._manualJogGuardContextAvailable = False
+        self._manualJogDraftWithinCommandLimits = False
+        self._manualJogLimitViolations = ()
         self.manualJogReconciliationRequired = False
         self._manualJogEvidence = None
         self._manualDraftStateCheckEvidence = None
         self._manualDraftStateCheckRequested = None
+        self._manualSimulationRecords = ()
         settings = qt.QSettings()
         self._plannerId = "RRTConnectkConfigDefault"
         self._planningAttempts = max(
@@ -185,6 +200,53 @@ class DENTORobotSimulationPanel:
             "Robot + CBCT Placement Review", self.visualizationGroup
         )
         visualization_layout.addWidget(self.placementReviewButton)
+        self.manualBaseReviewGroup = qt.QGroupBox(
+            "Detached Manual Base Review", self.visualizationGroup
+        )
+        base_review_layout = qt.QVBoxLayout(self.manualBaseReviewGroup)
+        self.manualBaseReviewStatusLabel = qt.QLabel(
+            "The staged candidate appears as a cyan translucent ghost. The solid robot "
+            "shows the accepted Base; the ghost remains unaccepted until Accept Base. "
+            "During an uncertain outcome, the solid model may have advanced.",
+            self.manualBaseReviewGroup,
+        )
+        self.manualBaseReviewStatusLabel.objectName = (
+            "DENTOBOTManualBaseReviewStatusLabel"
+        )
+        self.manualBaseReviewStatusLabel.wordWrap = True
+        self.manualBaseReviewStatusLabel.toolTip = (
+            "The cyan translucent ghost is the detached Base candidate. The solid "
+            "robot normally shows the accepted Base; after an uncertain native result "
+            "it may have advanced until reconciliation. A ghost is display-only and "
+            "never means the candidate was accepted."
+        )
+        base_review_layout.addWidget(self.manualBaseReviewStatusLabel)
+        base_review_buttons = qt.QHBoxLayout()
+        self.beginManualBaseReviewButton = qt.QPushButton(
+            "Review Current Base", self.manualBaseReviewGroup
+        )
+        self.beginManualBaseReviewButton.toolTip = (
+            "Stage a detached Base candidate, shown as a cyan translucent ghost; "
+            "the solid robot shows the accepted Base. The ghost is display-only and "
+            "does not change the accepted robot or ROS scene."
+        )
+        self.cancelManualBaseReviewButton = qt.QPushButton(
+            "Cancel Review", self.manualBaseReviewGroup
+        )
+        self.cancelManualBaseReviewButton.enabled = False
+        self.reconcileManualBaseStateButton = qt.QPushButton(
+            "Reconcile Base State", self.manualBaseReviewGroup
+        )
+        self.reconcileManualBaseStateButton.toolTip = (
+            "Reconcile the accepted Base with the live ROS scene. This does not "
+            "accept the detached candidate."
+        )
+        self.reconcileManualBaseStateButton.enabled = False
+        base_review_buttons.addWidget(self.beginManualBaseReviewButton)
+        base_review_buttons.addWidget(self.cancelManualBaseReviewButton)
+        base_review_buttons.addWidget(self.reconcileManualBaseStateButton)
+        base_review_layout.addLayout(base_review_buttons)
+        visualization_layout.addWidget(self.manualBaseReviewGroup)
         self.visualizationStatusLabel = qt.QLabel(
             "No CBCT renderer or provisional proxy is created automatically.",
             self.visualizationGroup,
@@ -193,47 +255,87 @@ class DENTORobotSimulationPanel:
         self.visualizationStatusLabel.setProperty("dentobotRole", "status")
         visualization_layout.addWidget(self.visualizationStatusLabel)
 
-        self.homeGroup = qt.QGroupBox("6.2 — Live-Validated Task Home", parent)
+        self.homeGroup = qt.QGroupBox("6.2 — Task Home Review", parent)
         self.homeGroup.objectName = "DENTOBOTTaskHomeGroupBox"
         home_layout = qt.QVBoxLayout(self.homeGroup)
         home_description = qt.QLabel(
-            "Review the current accepted J1–J5 candidate below, then explicitly "
-            "accept it as the case/base-specific Task Home. Acceptance uses the "
-            "existing live guard, monitored-state, limit, and synchronized-scene "
-            "checks. Applying a saved Home plans from the monitored current state "
-            "in MoveIt, then sends every plan waypoint through the strict simulation "
-            "guard. This is not physical actuator homing; hardware homing remains unavailable.",
+            "Review Draft as Task Home stages the current manual J1–J5 draft only; "
+            "staging does not change the accepted Home, robot, or ROS scene. Accept "
+            "Task Home uses the live facade checks and never sends motion. If the "
+            "candidate differs from the current accepted robot state, use Guarded "
+            "Manual Jog separately, then review again. J6 is excluded. Plan + Apply "
+            "uses the saved Home and its existing live gate; this is not physical "
+            "actuator homing.",
             self.homeGroup,
         )
         home_description.wordWrap = True
         home_layout.addWidget(home_description)
-        home_buttons = qt.QHBoxLayout()
-        self.saveTaskHomeButton = qt.QPushButton("Accept Task Home", self.homeGroup)
-        self.saveTaskHomeButton.toolTip = (
-            "Accept the displayed current J1–J5 candidate through the existing "
-            "saveTaskHome checks. A stale monitored state, failed live guard, "
-            "limit conflict, or unsynchronized scene leaves Task Home unaccepted."
+        review_buttons = qt.QHBoxLayout()
+        self.reviewTaskHomeButton = qt.QPushButton(
+            "Review Draft as Task Home", self.homeGroup
         )
+        self.cancelTaskHomeReviewButton = qt.QPushButton(
+            "Cancel Home Review", self.homeGroup
+        )
+        self.cancelTaskHomeReviewButton.enabled = False
+        review_buttons.addWidget(self.reviewTaskHomeButton)
+        review_buttons.addWidget(self.cancelTaskHomeReviewButton)
+        home_layout.addLayout(review_buttons)
+        home_buttons = qt.QHBoxLayout()
+        self.acceptTaskHomeButton = qt.QPushButton(
+            "Accept Task Home", self.homeGroup
+        )
+        self.acceptTaskHomeButton.enabled = False
+        self.reconcileTaskHomeButton = qt.QPushButton(
+            "Reconcile Task Home State", self.homeGroup
+        )
+        self.reconcileTaskHomeButton.toolTip = (
+            "Reconcile the live Task Home after an uncertain save outcome. The "
+            "result reflects façade evidence; this action issues no Home save or jog."
+        )
+        self.reconcileTaskHomeButton.enabled = False
         self.applyTaskHomeButton = qt.QPushButton(
             "Plan + Apply Task Home", self.homeGroup
         )
-        home_buttons.addWidget(self.saveTaskHomeButton)
+        home_buttons.addWidget(self.acceptTaskHomeButton)
+        home_buttons.addWidget(self.reconcileTaskHomeButton)
         home_buttons.addWidget(self.applyTaskHomeButton)
         home_layout.addLayout(home_buttons)
+        self.taskHomeCurrentStateLabel = qt.QLabel(
+            "Current accepted robot J1–J5: unavailable; J6 is excluded.",
+            self.homeGroup,
+        )
+        self.taskHomeCurrentStateLabel.objectName = (
+            "DENTOBOTTaskHomeCurrentStateLabel"
+        )
+        self.taskHomeCurrentStateLabel.wordWrap = True
+        home_layout.addWidget(self.taskHomeCurrentStateLabel)
         self.taskHomeCandidateLabel = qt.QLabel(
-            "Candidate Task Home: current accepted J1–J5 state unavailable; J6 is excluded.",
+            "Staged Task Home candidate: none.",
             self.homeGroup,
         )
         self.taskHomeCandidateLabel.objectName = "DENTOBOTTaskHomeCandidateLabel"
         self.taskHomeCandidateLabel.wordWrap = True
         home_layout.addWidget(self.taskHomeCandidateLabel)
-        self.homeStatusLabel = qt.QLabel("Task Home has not been saved.", self.homeGroup)
+        self.taskHomeReviewStatusLabel = qt.QLabel(
+            "Home review status: unknown; no facade review is available.",
+            self.homeGroup,
+        )
+        self.taskHomeReviewStatusLabel.objectName = (
+            "DENTOBOTTaskHomeReviewStatusLabel"
+        )
+        self.taskHomeReviewStatusLabel.wordWrap = True
+        self.taskHomeReviewStatusLabel.setProperty("dentobotRole", "status")
+        home_layout.addWidget(self.taskHomeReviewStatusLabel)
+        self.homeStatusLabel = qt.QLabel(
+            "Saved Task Home: not accepted.", self.homeGroup
+        )
         self.homeStatusLabel.wordWrap = True
         self.homeStatusLabel.setProperty("dentobotRole", "status")
         home_layout.addWidget(self.homeStatusLabel)
 
         self.workspaceReviewGroup = qt.QGroupBox(
-            "6.3 — ROS Workspace and Assisted-Limit Review", parent
+            "Workspace and Assisted-Limit Review", parent
         )
         self.workspaceReviewGroup.objectName = "DENTOBOTAssistedLimitReviewGroupBox"
         workspace_review_layout = qt.QVBoxLayout(self.workspaceReviewGroup)
@@ -360,14 +462,14 @@ class DENTORobotSimulationPanel:
         runtime_layout.addWidget(self.runtimeStatusLabel)
 
         self.confirmationGroup = qt.QGroupBox(
-            "6.4 — Immutable Task Confirmation", parent
+            "Task Confirmation", parent
         )
         self.confirmationGroup.objectName = "DENTOBOTTaskConfirmationGroupBox"
         confirmation_layout = qt.QVBoxLayout(self.confirmationGroup)
         confirmation_description = qt.QLabel(
             "Review the already-active ROS/MoveIt runtime, acknowledged collision "
             "scene, live-validated Task Home, and reviewed workspace evidence. "
-            "6.4 only freezes one immutable task snapshot; runtime connection and "
+            "Confirmation freezes one immutable task snapshot; runtime connection and "
             "collision-scene repair belong exclusively to 6.1.",
             self.confirmationGroup,
         )
@@ -378,7 +480,7 @@ class DENTORobotSimulationPanel:
         )
         confirmation_layout.addWidget(self.confirmTaskButton)
         self.confirmationStatusLabel = qt.QLabel(
-            "Complete and validate 6.1–6.3 before confirming the task.",
+            "Complete runtime, Task Home, and workspace validation before confirming the task.",
             self.confirmationGroup,
         )
         self.confirmationStatusLabel.objectName = (
@@ -445,7 +547,7 @@ class DENTORobotSimulationPanel:
         goal_layout.addWidget(self.goalStatusLabel)
 
         self.manualJogGroup = qt.QGroupBox(
-            "6.3B — Manual Robot Simulation Solver: Joint Jog", parent
+            "Manual Robot Simulation Solver: Joint Jog", parent
         )
         self.manualJogGroup.objectName = "DENTOBOTManualJogGroupBox"
         manual_jog_layout = qt.QVBoxLayout(self.manualJogGroup)
@@ -472,6 +574,13 @@ class DENTORobotSimulationPanel:
         self.manualJogDraftStateLabel.objectName = "DENTOBOTManualJogDraftStateLabel"
         self.manualJogDraftStateLabel.wordWrap = True
         manual_jog_layout.addWidget(self.manualJogDraftStateLabel)
+        self.manualJogDraftLimitLabel = qt.QLabel(
+            "Draft limits: unavailable.", self.manualJogGroup
+        )
+        self.manualJogDraftLimitLabel.objectName = "DENTOBOTManualJogDraftLimitLabel"
+        self.manualJogDraftLimitLabel.wordWrap = True
+        self.manualJogDraftLimitLabel.setProperty("dentobotRole", "status")
+        manual_jog_layout.addWidget(self.manualJogDraftLimitLabel)
         self.manualJogJointControls = {}
         self._manualJogDisplayValues = (0.0, 0.0, 0.0, 0.0, 0.0)
         units = ("deg", "mm", "deg", "mm", "deg")
@@ -511,7 +620,8 @@ class DENTORobotSimulationPanel:
         )
         self.manualJogJ6Label.objectName = "DENTOBOTManualJogJ6FixedLabel"
         manual_jog_layout.addWidget(self.manualJogJ6Label)
-        manual_jog_actions = qt.QHBoxLayout()
+        manual_jog_primary_actions = qt.QHBoxLayout()
+        manual_jog_secondary_actions = qt.QHBoxLayout()
         self.resetManualJogDraftButton = qt.QPushButton(
             "Reset Draft to Accepted Current State", self.manualJogGroup
         )
@@ -549,12 +659,13 @@ class DENTORobotSimulationPanel:
             "Export the validated manual simulation record as historical, "
             "display-only JSON. It cannot restore live state or authorize a route or preview."
         )
-        manual_jog_actions.addWidget(self.resetManualJogDraftButton)
-        manual_jog_actions.addWidget(self.checkManualDraftStateButton)
-        manual_jog_actions.addWidget(self.reconcileManualJogButton)
-        manual_jog_actions.addWidget(self.guardedManualJogButton)
-        manual_jog_actions.addWidget(self.exportManualRecordButton)
-        manual_jog_layout.addLayout(manual_jog_actions)
+        manual_jog_primary_actions.addWidget(self.resetManualJogDraftButton)
+        manual_jog_primary_actions.addWidget(self.checkManualDraftStateButton)
+        manual_jog_primary_actions.addWidget(self.reconcileManualJogButton)
+        manual_jog_secondary_actions.addWidget(self.guardedManualJogButton)
+        manual_jog_secondary_actions.addWidget(self.exportManualRecordButton)
+        manual_jog_layout.addLayout(manual_jog_primary_actions)
+        manual_jog_layout.addLayout(manual_jog_secondary_actions)
         self.manualJogStatusLabel = qt.QLabel(
             "Guard status: unknown — no jog has been requested.",
             self.manualJogGroup,
@@ -581,6 +692,88 @@ class DENTORobotSimulationPanel:
         self.manualRecordExportStatusLabel.wordWrap = True
         self.manualRecordExportStatusLabel.setProperty("dentobotRole", "status")
         manual_jog_layout.addWidget(self.manualRecordExportStatusLabel)
+        history_group = qt.QGroupBox(
+            "Historical Manual Simulation Records — Display Only", self.manualJogGroup
+        )
+        history_layout = qt.QVBoxLayout(history_group)
+        history_description = qt.QLabel(
+            "Open a validated JSON record to inspect its saved identity and ordered "
+            "events. Selecting a record may draw its historical TCP path; stepping "
+            "events only changes this display. No imported evidence restores live "
+            "state or authorizes motion or preview.",
+            history_group,
+        )
+        history_description.wordWrap = True
+        history_layout.addWidget(history_description)
+        history_controls = qt.QHBoxLayout()
+        self.importManualRecordButton = qt.QPushButton(
+            "Open Historical Record…", history_group
+        )
+        self.importManualRecordButton.objectName = (
+            "DENTOBOTImportManualSimulationRecordButton"
+        )
+        self.clearManualRecordButton = qt.QPushButton(
+            "Clear Historical Display", history_group
+        )
+        self.clearManualRecordButton.objectName = (
+            "DENTOBOTClearManualSimulationRecordButton"
+        )
+        self.clearManualRecordButton.enabled = False
+        self.manualSimulationRecordComboBox = qt.QComboBox(history_group)
+        self.manualSimulationRecordComboBox.objectName = (
+            "DENTOBOTManualSimulationRecordSelector"
+        )
+        self.manualSimulationRecordComboBox.enabled = False
+        history_controls.addWidget(self.importManualRecordButton)
+        history_controls.addWidget(self.manualSimulationRecordComboBox, 1)
+        history_controls.addWidget(self.clearManualRecordButton)
+        history_layout.addLayout(history_controls)
+        self.manualSimulationRecordIdentityLabel = qt.QLabel(
+            "No historical record loaded.", history_group
+        )
+        self.manualSimulationRecordIdentityLabel.objectName = (
+            "DENTOBOTManualSimulationRecordIdentityLabel"
+        )
+        self.manualSimulationRecordIdentityLabel.wordWrap = True
+        history_layout.addWidget(self.manualSimulationRecordIdentityLabel)
+        self.manualSimulationEventList = qt.QListWidget(history_group)
+        self.manualSimulationEventList.objectName = (
+            "DENTOBOTManualSimulationEventList"
+        )
+        self.manualSimulationEventList.setMinimumHeight(110)
+        history_layout.addWidget(self.manualSimulationEventList)
+        event_controls = qt.QHBoxLayout()
+        self.previousManualSimulationEventButton = qt.QPushButton(
+            "‹ Previous Event", history_group
+        )
+        self.nextManualSimulationEventButton = qt.QPushButton(
+            "Next Event ›", history_group
+        )
+        self.previousManualSimulationEventButton.enabled = False
+        self.nextManualSimulationEventButton.enabled = False
+        event_controls.addWidget(self.previousManualSimulationEventButton)
+        event_controls.addWidget(self.nextManualSimulationEventButton)
+        history_layout.addLayout(event_controls)
+        self.manualSimulationEventDetailsText = qt.QPlainTextEdit(history_group)
+        self.manualSimulationEventDetailsText.objectName = (
+            "DENTOBOTManualSimulationEventDetails"
+        )
+        self.manualSimulationEventDetailsText.readOnly = True
+        self.manualSimulationEventDetailsText.setMaximumHeight(220)
+        self.manualSimulationEventDetailsText.setPlainText(
+            "Select a record event to inspect its saved evidence."
+        )
+        history_layout.addWidget(self.manualSimulationEventDetailsText)
+        self.manualRecordImportStatusLabel = qt.QLabel(
+            "Import status: no historical record loaded.", history_group
+        )
+        self.manualRecordImportStatusLabel.objectName = (
+            "DENTOBOTManualRecordImportStatusLabel"
+        )
+        self.manualRecordImportStatusLabel.wordWrap = True
+        self.manualRecordImportStatusLabel.setProperty("dentobotRole", "status")
+        history_layout.addWidget(self.manualRecordImportStatusLabel)
+        manual_jog_layout.addWidget(history_group)
 
         self.collisionGroup = qt.QGroupBox("6.1 — Planning-Scene Audit", parent)
         self.collisionGroup.objectName = "DENTOBOTCollisionSceneGroupBox"
@@ -620,7 +813,88 @@ class DENTORobotSimulationPanel:
         self.collisionStatusLabel.setProperty("dentobotRole", "status")
         collision_layout.addWidget(self.collisionStatusLabel)
 
-        self.approachGroup = qt.QGroupBox("6.5 — Approach", parent)
+        self.previewControlGroup = qt.QGroupBox("Preview & Control", parent)
+        self.previewControlGroup.objectName = "DENTOBOTPreviewControlGroupBox"
+        preview_layout = qt.QVBoxLayout(self.previewControlGroup)
+        preview_description = qt.QLabel(
+            "Run only the current complete guarded plan in simulation. Stop and "
+            "guarded Return Home stay here with the preview lock status.",
+            self.previewControlGroup,
+        )
+        preview_description.wordWrap = True
+        preview_layout.addWidget(preview_description)
+        preview_actions = qt.QHBoxLayout()
+        self.previewApproachButton = qt.QPushButton(
+            "Preview Approach", self.previewControlGroup
+        )
+        self.previewDrillingButton = qt.QPushButton(
+            "Preview Drill", self.previewControlGroup
+        )
+        preview_actions.addWidget(self.previewApproachButton)
+        preview_actions.addWidget(self.previewDrillingButton)
+        preview_layout.addLayout(preview_actions)
+        preview_controls = qt.QHBoxLayout()
+        self.stopPreviewButton = qt.QPushButton(
+            "Stop Preview", self.previewControlGroup
+        )
+        self.returnHomeButton = qt.QPushButton(
+            "Guarded Return Home", self.previewControlGroup
+        )
+        self.stopPreviewDrillingButton = self.stopPreviewButton
+        self.returnHomeDrillingButton = self.returnHomeButton
+        preview_controls.addWidget(self.stopPreviewButton)
+        preview_controls.addWidget(self.returnHomeButton)
+        preview_layout.addLayout(preview_controls)
+        preview_settings = qt.QHBoxLayout()
+        preview_settings.addWidget(
+            qt.QLabel("Preview speed:", self.previewControlGroup)
+        )
+        self.previewSpeedCombo = qt.QComboBox(self.previewControlGroup)
+        for label, multiplier in (
+            ("0.25×", 0.25),
+            ("0.5×", 0.5),
+            ("1×", 1.0),
+            ("2×", 2.0),
+            ("4×", 4.0),
+            ("8×", 8.0),
+        ):
+            self.previewSpeedCombo.addItem(label, multiplier)
+        saved_speed = float(qt.QSettings().value("DENTOBOT/Step6PreviewSpeed", 8.0))
+        speed_index = min(
+            range(self.previewSpeedCombo.count),
+            key=lambda index: abs(float(self.previewSpeedCombo.itemData(index)) - saved_speed),
+        )
+        self.previewSpeedCombo.currentIndex = speed_index
+        self.previewSpeedCombo.currentIndexChanged.connect(
+            lambda _index=0: qt.QSettings().setValue(
+                "DENTOBOT/Step6PreviewSpeed", self.previewSpeedMultiplier()
+            )
+        )
+        preview_settings.addWidget(self.previewSpeedCombo)
+        preview_settings.addStretch(1)
+        preview_layout.addLayout(preview_settings)
+        self.previewProgressBar = qt.QProgressBar(self.previewControlGroup)
+        self.previewProgressBar.minimum = 0
+        self.previewProgressBar.maximum = 1
+        self.previewProgressBar.value = 0
+        self.previewProgressBar.format = "Preview: 0/0"
+        preview_layout.addWidget(self.previewProgressBar)
+        self.previewProgressLabel = qt.QLabel(
+            "No guarded preview is running.", self.previewControlGroup
+        )
+        self.previewProgressLabel.wordWrap = True
+        self.previewProgressLabel.setProperty("dentobotRole", "status")
+        preview_layout.addWidget(self.previewProgressLabel)
+        execution_disabled = qt.QLabel(
+            "EXECUTE DISABLED — guarded simulation preview only. Hardware homing, "
+            "drilling, and controller execution are blocked.",
+            self.previewControlGroup,
+        )
+        execution_disabled.wordWrap = True
+        execution_disabled.setProperty("dentobotRole", "warning")
+        preview_layout.addWidget(execution_disabled)
+
+        self.approachGroup = qt.QGroupBox("Approach Planning & Diagnostics", parent)
         self.approachGroup.objectName = "DENTOBOTApproachPhaseGroupBox"
         approach_layout = qt.QVBoxLayout(self.approachGroup)
         approach_description = qt.QLabel(
@@ -636,11 +910,11 @@ class DENTORobotSimulationPanel:
             "burr-to-task contact while retaining every other collision rule. The translucent "
             "goal robot and the orange TCP phase path show the planned waypoints; "
             "the goal robot endpoint alone does not mean "
-            "the terminal path has planned successfully. During exploratory "
-            "terminal preview, only configured burr-to-task-object collisions "
-            "may be suppressed and every suppression is reported. Approach planning is "
-            "enabled only after the complete Entry-to-Target line passes a "
-            "bounded reachability preflight. A failed preflight retains "
+            "the terminal path has planned successfully. "
+            "Partial diagnostic paths remain display-only. Preview Approach and "
+            "Preview Drill require the current complete guarded plan. Approach "
+            "planning is enabled only after the complete Entry-to-Target line "
+            "passes a bounded reachability preflight. A failed preflight retains "
             "last-valid/first-invalid evidence without assigning its cause.",
             self.approachGroup,
         )
@@ -751,14 +1025,12 @@ class DENTORobotSimulationPanel:
             "Check P3 Entry→Target", self.approachGroup
         )
         self.checkPlanningP3Button.objectName = "DENTOBOTCheckPlanningP3Button"
-        self.previewApproachButton = qt.QPushButton("Preview Approach", self.approachGroup)
         self.motionDiagnosticsButton = qt.QPushButton(
             "Inspect Motion Diagnostics", self.approachGroup
         )
         self.motionDiagnosticsButton.enabled = False
         approach_buttons.addWidget(self.planApproachButton)
         approach_buttons.addWidget(self.checkPreEntryIKButton)
-        approach_buttons.addWidget(self.previewApproachButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
         stage_diagnostic_buttons = qt.QHBoxLayout()
@@ -786,56 +1058,11 @@ class DENTORobotSimulationPanel:
             "Planning Parameters…", self.approachGroup
         )
         approach_layout.addWidget(self.approachPlanningPolicyButton)
-        preview_controls = qt.QHBoxLayout()
-        self.stopPreviewButton = qt.QPushButton("Stop Preview", self.approachGroup)
-        self.returnHomeButton = qt.QPushButton("Guarded Return Home", self.approachGroup)
-        preview_controls.addWidget(self.stopPreviewButton)
-        preview_controls.addWidget(self.returnHomeButton)
-        approach_layout.addLayout(preview_controls)
-        preview_settings = qt.QHBoxLayout()
-        preview_settings.addWidget(qt.QLabel("Preview speed:", self.approachGroup))
-        self.previewSpeedCombo = qt.QComboBox(self.approachGroup)
-        for label, multiplier in (
-            ("0.25×", 0.25),
-            ("0.5×", 0.5),
-            ("1×", 1.0),
-            ("2×", 2.0),
-            ("4×", 4.0),
-            ("8×", 8.0),
-        ):
-            self.previewSpeedCombo.addItem(label, multiplier)
-        saved_speed = float(qt.QSettings().value("DENTOBOT/Step6PreviewSpeed", 8.0))
-        speed_index = min(
-            range(self.previewSpeedCombo.count),
-            key=lambda index: abs(float(self.previewSpeedCombo.itemData(index)) - saved_speed),
-        )
-        self.previewSpeedCombo.currentIndex = speed_index
-        self.previewSpeedCombo.currentIndexChanged.connect(
-            lambda _index=0: qt.QSettings().setValue(
-                "DENTOBOT/Step6PreviewSpeed", self.previewSpeedMultiplier()
-            )
-        )
-        preview_settings.addWidget(self.previewSpeedCombo)
-        preview_settings.addStretch(1)
-        approach_layout.addLayout(preview_settings)
         self.approachStatusLabel = qt.QLabel("No Approach plan.", self.approachGroup)
         self.approachStatusLabel.wordWrap = True
         self.approachStatusLabel.setProperty("dentobotRole", "status")
         approach_layout.addWidget(self.approachStatusLabel)
-        self.previewProgressBar = qt.QProgressBar(self.approachGroup)
-        self.previewProgressBar.minimum = 0
-        self.previewProgressBar.maximum = 1
-        self.previewProgressBar.value = 0
-        self.previewProgressBar.format = "Preview: 0/0"
-        approach_layout.addWidget(self.previewProgressBar)
-        self.previewProgressLabel = qt.QLabel(
-            "No guarded preview is running.", self.approachGroup
-        )
-        self.previewProgressLabel.wordWrap = True
-        self.previewProgressLabel.setProperty("dentobotRole", "status")
-        approach_layout.addWidget(self.previewProgressLabel)
-
-        self.drillingGroup = qt.QGroupBox("6.6 — Drill Preview", parent)
+        self.drillingGroup = qt.QGroupBox("Drill Planning Diagnostics", parent)
         self.drillingGroup.objectName = "DENTOBOTDrillingPhaseGroupBox"
         drilling_layout = qt.QVBoxLayout(self.drillingGroup)
         drilling_description = qt.QLabel(
@@ -852,36 +1079,16 @@ class DENTORobotSimulationPanel:
         drilling_layout.addWidget(drilling_description)
         drilling_buttons = qt.QHBoxLayout()
         self.planDrillingButton = qt.QPushButton("Prepare Drill Preview", self.drillingGroup)
-        self.previewDrillingButton = qt.QPushButton("Preview Drill", self.drillingGroup)
         drilling_buttons.addWidget(self.planDrillingButton)
-        drilling_buttons.addWidget(self.previewDrillingButton)
         drilling_layout.addLayout(drilling_buttons)
         self.drillingPlanningPolicyButton = qt.QPushButton(
             "Planning Parameters…", self.drillingGroup
         )
         drilling_layout.addWidget(self.drillingPlanningPolicyButton)
-        drilling_controls = qt.QHBoxLayout()
-        self.stopPreviewDrillingButton = qt.QPushButton(
-            "Stop Preview", self.drillingGroup
-        )
-        self.returnHomeDrillingButton = qt.QPushButton(
-            "Guarded Return Home", self.drillingGroup
-        )
-        drilling_controls.addWidget(self.stopPreviewDrillingButton)
-        drilling_controls.addWidget(self.returnHomeDrillingButton)
-        drilling_layout.addLayout(drilling_controls)
         self.drillingStatusLabel = qt.QLabel("No Drill preview plan.", self.drillingGroup)
         self.drillingStatusLabel.wordWrap = True
         self.drillingStatusLabel.setProperty("dentobotRole", "status")
         drilling_layout.addWidget(self.drillingStatusLabel)
-        blocked = qt.QLabel(
-            "EXECUTE DISABLED — guarded simulation preview only. Hardware homing, drilling, and controller execution are blocked.",
-            self.drillingGroup,
-        )
-        blocked.wordWrap = True
-        blocked.setProperty("dentobotRole", "warning")
-        drilling_layout.addWidget(blocked)
-
         self.createGoalButton.clicked.connect(
             lambda checked=False: self._invoke("create_goal")
         )
@@ -921,8 +1128,26 @@ class DENTORobotSimulationPanel:
         self.placementReviewButton.clicked.connect(
             lambda checked=False: self._invoke("placement_review")
         )
-        self.saveTaskHomeButton.clicked.connect(
-            lambda checked=False: self._invoke("save_home")
+        self.beginManualBaseReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("begin_manual_base_review")
+        )
+        self.cancelManualBaseReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("cancel_manual_base_review")
+        )
+        self.reconcileManualBaseStateButton.clicked.connect(
+            lambda checked=False: self._invoke("reconcile_manual_base")
+        )
+        self.reviewTaskHomeButton.clicked.connect(
+            lambda checked=False: self._invoke("review_task_home")
+        )
+        self.cancelTaskHomeReviewButton.clicked.connect(
+            lambda checked=False: self._invoke("cancel_task_home_review")
+        )
+        self.acceptTaskHomeButton.clicked.connect(
+            lambda checked=False: self._invoke("accept_task_home_review")
+        )
+        self.reconcileTaskHomeButton.clicked.connect(
+            lambda checked=False: self._invoke("reconcile_task_home")
         )
         self.applyTaskHomeButton.clicked.connect(
             lambda checked=False: self._invoke("apply_home")
@@ -976,6 +1201,24 @@ class DENTORobotSimulationPanel:
         self.exportManualRecordButton.clicked.connect(
             lambda checked=False: self._invoke("export_manual_record")
         )
+        self.importManualRecordButton.clicked.connect(
+            lambda checked=False: self._invoke("import_manual_record")
+        )
+        self.clearManualRecordButton.clicked.connect(
+            lambda checked=False: self._invoke("clear_manual_record")
+        )
+        self.manualSimulationRecordComboBox.currentIndexChanged.connect(
+            self._onManualSimulationRecordChanged
+        )
+        self.manualSimulationEventList.currentRowChanged.connect(
+            self._onManualSimulationEventChanged
+        )
+        self.previousManualSimulationEventButton.clicked.connect(
+            lambda checked=False: self._stepManualSimulationEvent(-1)
+        )
+        self.nextManualSimulationEventButton.clicked.connect(
+            lambda checked=False: self._stepManualSimulationEvent(1)
+        )
         self.comparePlannersButton.clicked.connect(
             lambda checked=False: self._invoke("compare_planners")
         )
@@ -1024,12 +1267,6 @@ class DENTORobotSimulationPanel:
         self.returnHomeButton.clicked.connect(
             lambda checked=False: self._invoke("return_home")
         )
-        self.stopPreviewDrillingButton.clicked.connect(
-            lambda checked=False: self._invoke("stop_preview")
-        )
-        self.returnHomeDrillingButton.clicked.connect(
-            lambda checked=False: self._invoke("return_home")
-        )
         self.visualizationGroup.visible = False
         self.homeGroup.visible = False
         self.workspaceReviewGroup.visible = False
@@ -1040,6 +1277,7 @@ class DENTORobotSimulationPanel:
         self.collisionGroup.visible = False
         self.approachGroup.visible = False
         self.drillingGroup.visible = False
+        self.previewControlGroup.visible = False
 
     def setAnatomyReviewCandidates(
         self,
@@ -1148,46 +1386,80 @@ class DENTORobotSimulationPanel:
             )
         )
         allowed = []
-        limits_valid = True
+        mechanical_ranges = []
+        mechanical_limits_valid = True
+        command_limits_valid = True
         for mechanical_pair, reviewed_pair in zip(mechanical, reviewed, strict=True):
-            minimum = max(mechanical_pair[0], reviewed_pair[0])
-            maximum = min(mechanical_pair[1], reviewed_pair[1])
-            if not all(
-                isfinite(bound)
-                for bound in (*mechanical_pair, *reviewed_pair)
-            ) or maximum < minimum:
-                limits_valid = False
+            mechanical_valid = bool(
+                all(isfinite(bound) for bound in mechanical_pair)
+                and mechanical_pair[1] >= mechanical_pair[0]
+            )
+            reviewed_valid = bool(
+                all(isfinite(bound) for bound in reviewed_pair)
+                and reviewed_pair[1] >= reviewed_pair[0]
+            )
+            if not mechanical_valid:
+                mechanical_limits_valid = False
+                command_limits_valid = False
+                mechanical_range = (0.0, 0.0)
                 minimum = maximum = 0.0
+            elif not reviewed_valid:
+                command_limits_valid = False
+                mechanical_range = mechanical_pair
+                minimum = maximum = mechanical_pair[0]
+            else:
+                mechanical_range = mechanical_pair
+                minimum = max(mechanical_pair[0], reviewed_pair[0])
+                maximum = min(mechanical_pair[1], reviewed_pair[1])
+                if maximum < minimum:
+                    command_limits_valid = False
+                    minimum = maximum = mechanical_pair[0]
             allowed.append((minimum, maximum))
+            mechanical_ranges.append(mechanical_range)
         limits = (tuple(allowed), reviewed)
-        if self._manualJogLimits == limits:
+        mechanical_ranges = tuple(mechanical_ranges)
+        if (
+            self._manualJogLimits == limits
+            and getattr(self, "_manualJogMechanicalLimits", None)
+            == mechanical_ranges
+        ):
             return
         self._manualJogLimits = limits
-        self._manualJogLimitsValid = limits_valid
+        self._manualJogMechanicalLimits = mechanical_ranges
+        self._manualJogLimitsValid = mechanical_limits_valid
+        self._manualJogCommandLimitsValid = command_limits_valid
         for index, joint in enumerate(JOINT_NAMES):
             slider, value, _label = self.manualJogJointControls[joint]
             minimum, maximum = allowed[index]
+            mechanical_minimum, mechanical_maximum = mechanical_ranges[index]
             reviewed_minimum, reviewed_maximum = reviewed[index]
             slider.blockSignals(True)
             value.blockSignals(True)
-            value.setRange(minimum, maximum)
-            enabled = bool(
+            value.setRange(mechanical_minimum, mechanical_maximum)
+            slider.enabled = bool(
                 maximum > minimum
                 and self._manualJogAvailable
                 and not self._manualJogBusy
             )
-            slider.enabled = enabled
-            value.enabled = enabled
+            value.enabled = bool(
+                self._manualJogAvailable and not self._manualJogBusy
+            )
             value.blockSignals(False)
             slider.blockSignals(False)
             label = ("J1", "J2", "J3", "J4", "J5")[index]
             unit = ("deg", "mm", "deg", "mm", "deg")[index]
             self.manualJogJointControls[joint][2].text = (
-                f"{label} ({unit}); allowed: {minimum:.2f} to {maximum:.2f} {unit}; "
+                f"{label} ({unit}); slider allowed: {minimum:.2f} to {maximum:.2f} {unit}; "
+                f"numeric mechanical: {mechanical_minimum:.2f} to "
+                f"{mechanical_maximum:.2f} {unit}; "
                 f"reviewed: {reviewed_minimum:.2f} to {reviewed_maximum:.2f} {unit}"
             )
         if self._manualJogDraftInitialized:
             self._setManualJogDraftValues(self._manualJogDisplayValues, notify=True)
+        else:
+            self.setManualJogAvailability(
+                self._manualJogAvailable, self._manualJogGuardContextAvailable
+            )
 
     def setManualJogAcceptedState(self, positions_si, *, preserve_draft=False) -> None:
         try:
@@ -1198,10 +1470,11 @@ class DENTORobotSimulationPanel:
             isfinite(value) for value in values.values()
         ):
             self._manualJogAcceptedJointPositionsSi = None
-            self.manualJogAcceptedStateLabel.text = "Accepted state: unavailable."
-            self.taskHomeCandidateLabel.text = (
-                "Candidate Task Home: current accepted J1–J5 state unavailable; "
-                "J6 is excluded."
+            self.manualJogAcceptedStateLabel.text = (
+                "Current accepted robot state: unavailable."
+            )
+            self.taskHomeCurrentStateLabel.text = (
+                "Current accepted robot J1–J5: unavailable; J6 is excluded."
             )
             return
         self._manualJogAcceptedJointPositionsSi = values
@@ -1213,26 +1486,216 @@ class DENTORobotSimulationPanel:
             degrees(values[JOINT_NAMES[4]]),
         )
         self.manualJogAcceptedStateLabel.text = (
-            "Accepted state: " + self._formatManualJogDisplayValues(display)
+            "Current accepted robot state: "
+            + self._formatManualJogDisplayValues(display)
+        )
+        self.taskHomeCurrentStateLabel.text = (
+            "Current accepted robot J1–J5 (J6 excluded): "
+            + self._formatManualJogDisplayValues(display)
+        )
+        if (
+            not preserve_draft
+            and not self._manualJogDraftInitialized
+            and self._manualJogLimitsValid
+        ):
+            self._setManualJogDraftValues(display, notify=False)
+
+    def setManualTaskHomeReviewResult(self, result) -> None:
+        details = getattr(result, "details", None)
+        if not isinstance(details, Mapping):
+            details = {}
+        staged = details.get("staged") is True
+        identity_status = str(details.get("identityStatus") or "unknown")
+        acceptance_status = str(details.get("acceptanceStatus") or "unknown")
+
+        def positions_text(label, positions):
+            if (
+                not isinstance(positions, Mapping)
+                or set(positions) != set(JOINT_NAMES)
+            ):
+                return f"{label}: unavailable; J6 is excluded."
+            try:
+                values = {joint: float(positions[joint]) for joint in JOINT_NAMES}
+            except (TypeError, ValueError, OverflowError):
+                return f"{label}: unavailable; J6 is excluded."
+            if not all(isfinite(value) for value in values.values()):
+                return f"{label}: unavailable; J6 is excluded."
+            display = (
+                degrees(values[JOINT_NAMES[0]]),
+                values[JOINT_NAMES[1]] * 1000.0,
+                degrees(values[JOINT_NAMES[2]]),
+                values[JOINT_NAMES[3]] * 1000.0,
+                degrees(values[JOINT_NAMES[4]]),
+            )
+            return (
+                f"{label} (J6 excluded): "
+                + self._formatManualJogDisplayValues(display)
+            )
+
+        accepted = details.get("acceptedJointPositionsSi")
+        candidate = details.get("candidateJointPositionsSi")
+        self.taskHomeCurrentStateLabel.text = positions_text(
+            "Current accepted robot J1–J5", accepted
         )
         self.taskHomeCandidateLabel.text = (
-            "Candidate Task Home (current accepted J1–J5; J6 excluded): "
-            + self._formatManualJogDisplayValues(display)
-            + ". Review only until Accept Task Home passes the live checks."
+            positions_text("Staged Task Home candidate", candidate)
+            if staged
+            else "Staged Task Home candidate: none."
         )
-        if not preserve_draft and not self._manualJogDraftInitialized and self._manualJogLimits:
-            self._setManualJogDraftValues(display, notify=False)
+        success = bool(getattr(result, "success", False))
+        message = str(getattr(result, "message", "") or "").strip()
+        status = (
+            f"Home review: {acceptance_status}; identity: {identity_status}."
+        )
+        if message:
+            status += " " + message
+        failure = details.get("failureEvidence")
+        if not success and failure:
+            status += " Failure evidence: " + str(failure)
+        elif not success and not message:
+            status += " Review failed or is unavailable."
+        uncertainty = details.get("acceptanceUncertainty")
+        if uncertainty:
+            status += " Acceptance uncertainty: " + str(uncertainty)
+
+        if staged:
+            try:
+                matches = (
+                    isinstance(accepted, Mapping)
+                    and isinstance(candidate, Mapping)
+                    and set(accepted) == set(JOINT_NAMES)
+                    and set(candidate) == set(JOINT_NAMES)
+                    and all(
+                        isfinite(float(accepted[joint]))
+                        and isfinite(float(candidate[joint]))
+                        and abs(
+                            float(accepted[joint]) - float(candidate[joint])
+                        ) <= 1.0e-12
+                        for joint in JOINT_NAMES
+                    )
+                )
+            except (TypeError, ValueError, OverflowError):
+                matches = False
+            if not matches:
+                status += (
+                    " Candidate differs from the current accepted robot state; "
+                    "use Guarded Manual Jog separately. Home review sends no motion."
+                )
+        review_current = bool(
+            success
+            and identity_status == "current"
+            and acceptance_status in {"review", "accepted"}
+        )
+        self.taskHomeReviewStatusLabel.text = status
+        self.taskHomeReviewStatusLabel.setProperty(
+            "dentobotState",
+            "ok" if review_current else (
+                "error" if acceptance_status == "rejected" else "blocked"
+            ),
+        )
+        self.taskHomeReviewStatusLabel.style().unpolish(
+            self.taskHomeReviewStatusLabel
+        )
+        self.taskHomeReviewStatusLabel.style().polish(
+            self.taskHomeReviewStatusLabel
+        )
 
     def setManualJogAvailability(
         self, draft_available: bool, jog_available: bool
     ) -> None:
-        limits_available = bool(self._manualJogLimits and self._manualJogLimitsValid)
-        self._manualJogAvailable = bool(draft_available and limits_available)
-        self._manualJogGuardAvailable = bool(
-            self._manualJogAvailable and jog_available
+        limits_available = bool(
+            self._manualJogMechanicalLimits and self._manualJogLimitsValid
         )
-        for slider, value, _label in self.manualJogJointControls.values():
-            slider.enabled = self._manualJogAvailable and not self._manualJogBusy
+        self._manualJogAvailable = bool(draft_available and limits_available)
+        self._manualJogGuardContextAvailable = bool(jog_available)
+        violations = []
+        if self._manualJogAvailable:
+            reviewed = self._manualJogLimits[1]
+            for index, joint in enumerate(JOINT_NAMES):
+                label = ("J1", "J2", "J3", "J4", "J5")[index]
+                unit = ("deg", "mm", "deg", "mm", "deg")[index]
+                value = float(self._manualJogDisplayValues[index])
+                mechanical_minimum, mechanical_maximum = (
+                    self._manualJogMechanicalLimits[index]
+                )
+                reviewed_minimum, reviewed_maximum = reviewed[index]
+                if not isfinite(value):
+                    violations.append(f"{label}: numeric draft is unavailable")
+                elif value < mechanical_minimum:
+                    violations.append(
+                        f"{label} {value:.2f} {unit} is below mechanical minimum "
+                        f"{mechanical_minimum:.2f} {unit}"
+                    )
+                elif value > mechanical_maximum:
+                    violations.append(
+                        f"{label} {value:.2f} {unit} exceeds mechanical maximum "
+                        f"{mechanical_maximum:.2f} {unit}"
+                    )
+                elif not all(isfinite(bound) for bound in (reviewed_minimum, reviewed_maximum)) or reviewed_maximum < reviewed_minimum:
+                    violations.append(
+                        f"{label}: reviewed task limits are unavailable or invalid"
+                    )
+                elif value < reviewed_minimum:
+                    violations.append(
+                        f"{label} {value:.2f} {unit} is below reviewed task minimum "
+                        f"{reviewed_minimum:.2f} {unit}"
+                    )
+                elif value > reviewed_maximum:
+                    violations.append(
+                        f"{label} {value:.2f} {unit} exceeds reviewed task maximum "
+                        f"{reviewed_maximum:.2f} {unit}"
+                    )
+        self._manualJogLimitViolations = tuple(violations)
+        self._manualJogDraftWithinCommandLimits = bool(
+            self._manualJogCommandLimitsValid
+            and self._manualJogAvailable
+            and not violations
+        )
+        if not self._manualJogAvailable:
+            limit_message = "Draft limits: unavailable."
+        elif self._manualJogDraftWithinCommandLimits:
+            limit_message = "Draft limits: within mechanical and reviewed task limits."
+        elif violations:
+            limit_message = (
+                "Draft limit violation: "
+                + "; ".join(violations)
+                + ". Guarded Jog is disabled; Check Draft State remains available."
+            )
+        else:
+            limit_message = (
+                "Draft limits: reviewed task limits do not form a valid command range "
+                "within the mechanical bounds. Guarded Jog is disabled; Check Draft "
+                "State remains available."
+            )
+        self.manualJogDraftLimitLabel.text = limit_message
+        self.manualJogDraftLimitLabel.setProperty(
+            "dentobotState",
+            "ok" if self._manualJogDraftWithinCommandLimits else "blocked",
+        )
+        self.manualJogDraftLimitLabel.style().unpolish(self.manualJogDraftLimitLabel)
+        self.manualJogDraftLimitLabel.style().polish(self.manualJogDraftLimitLabel)
+        self._manualJogGuardAvailable = bool(
+            self._manualJogAvailable
+            and self._manualJogGuardContextAvailable
+            and self._manualJogCommandLimitsValid
+            and self._manualJogDraftWithinCommandLimits
+        )
+        allowed_limits = (
+            self._manualJogLimits[0]
+            if isinstance(self._manualJogLimits, tuple)
+            and self._manualJogLimits
+            else ()
+        )
+        for joint, (slider, value, _label) in self.manualJogJointControls.items():
+            index = JOINT_NAMES.index(joint)
+            minimum, maximum = (
+                allowed_limits[index] if index < len(allowed_limits) else (0.0, 0.0)
+            )
+            slider.enabled = bool(
+                self._manualJogAvailable
+                and maximum > minimum
+                and not self._manualJogBusy
+            )
             value.enabled = self._manualJogAvailable and not self._manualJogBusy
         self.resetManualJogDraftButton.enabled = bool(
             self._manualJogAvailable
@@ -1253,9 +1716,12 @@ class DENTORobotSimulationPanel:
             and not self._manualJogBusy
         )
 
+
     def setManualJogLimitsUnavailable(self, message: str) -> None:
         self._manualJogLimits = {}
+        self._manualJogMechanicalLimits = None
         self._manualJogLimitsValid = False
+        self._manualJogCommandLimitsValid = False
         self.setManualJogAvailability(False, False)
         self._setManualJogStatus(
             "blocked",
@@ -1266,7 +1732,7 @@ class DENTORobotSimulationPanel:
     def setManualJogRequestPending(self) -> None:
         self._manualJogBusy = True
         self.setManualJogAvailability(
-            self._manualJogAvailable, self._manualJogGuardAvailable
+            self._manualJogAvailable, self._manualJogGuardContextAvailable
         )
         self._setManualJogStatus(
             "pending", "Guard status: pending — waiting for the simulation guard."
@@ -1275,7 +1741,7 @@ class DENTORobotSimulationPanel:
     def setManualJogRequestComplete(self) -> None:
         self._manualJogBusy = False
         self.setManualJogAvailability(
-            self._manualJogAvailable, self._manualJogGuardAvailable
+            self._manualJogAvailable, self._manualJogGuardContextAvailable
         )
 
     def setManualJogStatus(self, state: str, message: str, evidence=None) -> None:
@@ -1359,9 +1825,68 @@ class DENTORobotSimulationPanel:
             marker = "Draft-state check: unknown — no evaluator result was received."
         else:
             marker = "Draft-state check: complete."
+        command_limits = details.get("draftWithinCommandLimits")
+        if command_limits is None:
+            command_limits = evaluation.get("draftWithinCommandLimits")
+        limit_authoritative = details.get("limitAssessmentAuthoritative")
+        if limit_authoritative is None:
+            limit_authoritative = evaluation.get("limitAssessmentAuthoritative")
+        limit_violations = details.get("limitViolations")
+        if not isinstance(limit_violations, (list, tuple)):
+            limit_violations = evaluation.get("limitViolations")
+        if not isinstance(limit_violations, (list, tuple)):
+            limit_violations = ()
+        limit_status = (
+            "within command limits"
+            if command_limits is True
+            else "outside command limits"
+            if command_limits is False
+            else "command-limit assessment unavailable"
+        )
+        authority_status = (
+            "authoritative"
+            if limit_authoritative is True
+            else "not authoritative"
+            if limit_authoritative is False
+            else "authority unavailable"
+        )
+        violation_text = []
+        for violation in limit_violations:
+            if not isinstance(violation, Mapping):
+                continue
+            joint = str(violation.get("jointLabel") or violation.get("jointName") or "Joint")
+            source = str(violation.get("limitSource") or "command")
+            bound = str(violation.get("bound") or "limit")
+            unit = str(violation.get("unit") or "")
+            candidate = violation.get("candidateDisplayValue")
+            bound_value = violation.get("boundDisplayValue")
+            margin = violation.get("margin")
+            try:
+                candidate = float(candidate)
+                candidate_text = f"{candidate:.2f} {unit}".strip() if isfinite(candidate) else "unavailable"
+            except (TypeError, ValueError, OverflowError):
+                candidate_text = "unavailable"
+            try:
+                bound_value = float(bound_value)
+                bound_text = f"{bound_value:.2f} {unit}".strip() if isfinite(bound_value) else "unavailable"
+            except (TypeError, ValueError, OverflowError):
+                bound_text = "unavailable"
+            rendered = (
+                f"{joint} {candidate_text} violates {source} {bound} {bound_text}"
+            )
+            try:
+                margin = float(margin)
+                if isfinite(margin):
+                    rendered += f" (margin {margin:.2f} {unit})"
+            except (TypeError, ValueError, OverflowError):
+                pass
+            violation_text.append(rendered)
         self.manualDraftStateCheckStatusLabel.text = "\n".join(
             (
                 marker,
+                f"Command limits: {limit_status}; assessment {authority_status}.",
+                "Limit violations: "
+                + ("; ".join(violation_text) if violation_text else "none reported"),
                 f"Static verdict: {verdict}; identity status: {status_text(identity)}.",
                 "Target diagnostics: endpoint status "
                 + status_text(target_status)
@@ -1445,6 +1970,162 @@ class DENTORobotSimulationPanel:
             self.manualRecordExportStatusLabel
         )
 
+    def setManualRecordImportStatus(self, state: str, message: str) -> None:
+        self.manualRecordImportStatusLabel.text = message
+        self.manualRecordImportStatusLabel.setProperty("dentobotState", state)
+        self.manualRecordImportStatusLabel.style().unpolish(
+            self.manualRecordImportStatusLabel
+        )
+        self.manualRecordImportStatusLabel.style().polish(
+            self.manualRecordImportStatusLabel
+        )
+
+    def setManualSimulationRecords(self, records) -> None:
+        self._manualSimulationRecords = tuple(records)
+        selector = self.manualSimulationRecordComboBox
+        selector.blockSignals(True)
+        selector.clear()
+        for index, record in enumerate(self._manualSimulationRecords, start=1):
+            fingerprint = str(record.get("record_fingerprint") or "")
+            selector.addItem(
+                f"Record {index} — {record.get('record_status', 'unknown')} — "
+                f"{fingerprint[:12]}"
+            )
+        selector.enabled = bool(self._manualSimulationRecords)
+        selector.setCurrentIndex(0 if self._manualSimulationRecords else -1)
+        selector.blockSignals(False)
+        self.clearManualRecordButton.enabled = bool(self._manualSimulationRecords)
+        if self._manualSimulationRecords:
+            self._onManualSimulationRecordChanged(0)
+        else:
+            self.manualSimulationRecordIdentityLabel.text = (
+                "No historical record loaded."
+            )
+            self.manualSimulationEventList.clear()
+            self.manualSimulationEventDetailsText.setPlainText(
+                "Select a record event to inspect its saved evidence."
+            )
+            self.previousManualSimulationEventButton.enabled = False
+            self.nextManualSimulationEventButton.enabled = False
+
+    def clearManualSimulationRecords(self) -> None:
+        self._manualSimulationRecords = ()
+        selector = self.manualSimulationRecordComboBox
+        selector.blockSignals(True)
+        selector.clear()
+        selector.setCurrentIndex(-1)
+        selector.blockSignals(False)
+        selector.enabled = False
+        self.clearManualRecordButton.enabled = False
+        self.manualSimulationEventList.blockSignals(True)
+        self.manualSimulationEventList.clear()
+        self.manualSimulationEventList.blockSignals(False)
+        self.manualSimulationRecordIdentityLabel.text = (
+            "No historical record loaded."
+        )
+        self.manualSimulationEventDetailsText.setPlainText(
+            "Select a record event to inspect its saved evidence."
+        )
+        self.previousManualSimulationEventButton.enabled = False
+        self.nextManualSimulationEventButton.enabled = False
+        self.setManualRecordImportStatus(
+            "idle",
+            "Historical record display cleared. Live simulation state was not read or changed.",
+        )
+
+    def _onManualSimulationRecordChanged(self, index: int) -> None:
+        if index < 0 or index >= len(self._manualSimulationRecords):
+            return
+        record = self._manualSimulationRecords[index]
+        identity = {
+            "schema_version": record["schema_version"],
+            "record_status": record["record_status"],
+            "record_fingerprint": record["record_fingerprint"],
+            "identity": record["identity"],
+            "current_identity": "unknown (historical fingerprints are not compared to live state)",
+        }
+        self.manualSimulationRecordIdentityLabel.text = json.dumps(
+            identity, indent=2, sort_keys=True, allow_nan=False
+        )
+        events = record["events"]
+        self.manualSimulationEventList.blockSignals(True)
+        self.manualSimulationEventList.clear()
+        first_time = events[0]["monotonic_ns"] if events else 0
+        for event_index, event in enumerate(events, start=1):
+            elapsed = (event["monotonic_ns"] - first_time) / 1_000_000_000.0
+            kind = str(event["kind"])
+            status = {
+                "requested": "REQUESTED",
+                "guard_accepted": "ACCEPTED",
+                "guard_rejected": "REJECTED",
+                "diagnostic": "DIAGNOSTIC",
+            }.get(kind, kind.replace("_", " ").upper())
+            self.manualSimulationEventList.addItem(
+                f"{event_index:04d} · {status} · t+{elapsed:.6f} s "
+                f"({event['monotonic_ns']} monotonic ns)"
+            )
+        self.manualSimulationEventList.setCurrentRow(0 if events else -1)
+        self.manualSimulationEventList.blockSignals(False)
+        self._onManualSimulationEventChanged(0 if events else -1)
+        self._invoke("show_manual_record", record)
+
+    def _onManualSimulationEventChanged(self, index: int) -> None:
+        if not self._manualSimulationRecords:
+            return
+        record_index = self.manualSimulationRecordComboBox.currentIndex
+        if record_index < 0 or record_index >= len(self._manualSimulationRecords):
+            return
+        events = self._manualSimulationRecords[record_index]["events"]
+        self.previousManualSimulationEventButton.enabled = index > 0
+        self.nextManualSimulationEventButton.enabled = 0 <= index < len(events) - 1
+        if index < 0 or index >= len(events):
+            self.manualSimulationEventDetailsText.setPlainText(
+                "This record contains no events. No live state was changed."
+            )
+            return
+        event = events[index]
+        first_time = events[0]["monotonic_ns"]
+        evidence_fields = (
+            "requested_joints",
+            "evaluated_joints",
+            "accepted_joints",
+            "monitored_joints",
+            "native_failure_evidence",
+            "collision_evidence",
+            "tcp_point_ras_mm",
+            "tcp_pose_world_ras_mm",
+            "drill_axis_world_ras_unit",
+            "tcp_path_ras_mm",
+            "diagnostic",
+            "details",
+        )
+        shown_event = dict(event)
+        for field in evidence_fields:
+            shown_event.setdefault(field, "unknown (not recorded)")
+        elapsed = (event["monotonic_ns"] - first_time) / 1_000_000_000.0
+        heading = (
+            f"Historical event {index + 1} of {len(events)}: "
+            f"{event['kind']} — source monotonic timestamp "
+            f"{event['monotonic_ns']} ns (t+{elapsed:.6f} s).\n"
+            "Step-through selection only; no motion, guard, FK, or preview call.\n\n"
+        )
+        self.manualSimulationEventDetailsText.setPlainText(
+            heading
+            + json.dumps(shown_event, indent=2, sort_keys=True, allow_nan=False)
+        )
+
+    def _stepManualSimulationEvent(self, step: int) -> None:
+        record_index = self.manualSimulationRecordComboBox.currentIndex
+        if not 0 <= record_index < len(self._manualSimulationRecords):
+            return
+        event_count = len(self._manualSimulationRecords[record_index]["events"])
+        if not event_count:
+            return
+        current = self.manualSimulationEventList.currentRow
+        self.manualSimulationEventList.setCurrentRow(
+            min(event_count - 1, max(0, current + int(step)))
+        )
+
     def setManualJogDraftDisplayResult(self, success: bool, message: str) -> None:
         if success:
             self.manualJogDraftStateLabel.text = (
@@ -1526,6 +2207,9 @@ class DENTORobotSimulationPanel:
             "unknown",
             "Guard status: unknown for this draft — no request has been sent.",
         )
+        self.setManualJogAvailability(
+            self._manualJogAvailable, self._manualJogGuardContextAvailable
+        )
         self._invoke("manual_draft_changed", self.manualJogJointPositionsSi())
 
     def _setManualJogDraftValues(self, values, *, notify: bool) -> None:
@@ -1552,6 +2236,9 @@ class DENTORobotSimulationPanel:
         self.manualJogDraftStateLabel.text = (
             "Draft state: "
             + self._formatManualJogDisplayValues(self._manualJogDisplayValues)
+        )
+        self.setManualJogAvailability(
+            self._manualJogAvailable, self._manualJogGuardContextAvailable
         )
         if notify:
             self._setManualJogStatus(
@@ -1602,7 +2289,7 @@ class DENTORobotSimulationPanel:
             callback(key, bool(visible.checked), float(opacity.value) / 100.0)
 
     def setActiveSubstep(self, substep_index: int) -> None:
-        self._activeSubstep = max(0, min(int(substep_index), 6))
+        self._activeSubstep = max(0, min(int(substep_index), 4))
 
     def setPlacementSurfaceActive(self, active: bool) -> None:
         self._placementSurfaceActive = bool(active)
@@ -1621,7 +2308,7 @@ class DENTORobotSimulationPanel:
         }
 
     def showPlanningPolicyDialog(self) -> None:
-        if self._activeSubstep not in (5, 6):
+        if self._activeSubstep != 3:
             return
         dialog = qt.QDialog(self.approachGroup)
         dialog.windowTitle = "DENTOBOT Step 6 Planning Parameters"
@@ -1844,7 +2531,7 @@ class DENTORobotSimulationPanel:
         )
         route = str(record.get("route_type") or "direct")
         seed = record.get("ik_seed_sample_index")
-        seed_text = "Task Home" if seed is None else f"6.3 sample {int(seed)}"
+        seed_text = "Task Home" if seed is None else f"workspace sample {int(seed)}"
         lines = [
             f"Planner attempt {index + 1}: {route}, IK seed {seed_text}; "
             f"full chain {chain_status}.",
@@ -1887,7 +2574,7 @@ class DENTORobotSimulationPanel:
         elif failure_stage == "stage1_free_space":
             lines.append(
                 "Next: inspect the reported self/world collision pair, then adjust "
-                "Task Home/base placement or use a distinct Home-connected 6.3 route. "
+                "Task Home/base placement or use a distinct Home-connected workspace route. "
                 "A valid PreEntry endpoint alone is not a connecting path."
             )
         elif failure_stage == "stage2_fixed_axis_terminal":
@@ -2281,7 +2968,7 @@ class DENTORobotSimulationPanel:
                 (
                     "Task Home"
                     if record.get("ik_seed_sample_index") is None
-                    else f"6.3 sample {int(record['ik_seed_sample_index'])}"
+                    else f"workspace sample {int(record['ik_seed_sample_index'])}"
                 ),
                 (
                     "direct"

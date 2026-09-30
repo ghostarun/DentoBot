@@ -6,6 +6,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ManualJointCommandSourceTest(unittest.TestCase):
+    def test_manual_status_positions_use_round_trip_precision(self):
+        source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text(
+            encoding="utf-8"
+        )
+        number = source.split("std::string json_number(double value)", 1)[1].split(
+            "std::string json_array", 1
+        )[0]
+        array = source.split("std::string json_array(", 1)[1].split(
+            "std::string json_size_or_null", 1
+        )[0]
+        status = source.split("std::string status_json(", 1)[1].split(
+            "void publish_task_status(", 1
+        )[0]
+
+        self.assertIn(
+            "std::setprecision(std::numeric_limits<double>::max_digits10)", number
+        )
+        self.assertIn("json_number(values[index])", array)
+        self.assertIn(r'\"requested_positions\":', status)
+        self.assertIn("json_array(requested)", status)
+        self.assertIn(r'\"accepted_positions\":', status)
+        self.assertIn("json_array(accepted)", status)
+
     def test_manual_protocol_is_separate_and_fail_closed(self):
         source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text(
             encoding="utf-8"

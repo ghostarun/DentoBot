@@ -187,6 +187,171 @@ class RobotPlacementLogicMixin:
             if node.GetAttribute("DENTOBOT.TransformRole") == cls.ROBOT_LINK_POSE_ROLE
         ]
 
+    def clearManualBaseCandidateGhost(self) -> None:
+        """Remove only transient nodes owned by the manual Base candidate preview."""
+
+        scene = slicer.mrmlScene
+        marker = "DENTOBOT.ManualBaseCandidateGhost"
+        for class_name in (
+            "vtkMRMLModelNode",
+            "vtkMRMLModelDisplayNode",
+            "vtkMRMLLinearTransformNode",
+        ):
+            nodes = list(slicer.util.getNodesByClass(class_name))
+            if class_name == "vtkMRMLLinearTransformNode":
+                # Remove link children before their candidate Base parent.
+                nodes.sort(
+                    key=lambda node: node.GetAttribute(
+                        "DENTOBOT.ManualBaseCandidateGhostNodeType"
+                    )
+                    == "CandidateBase"
+                )
+            for node in nodes:
+                if (
+                    node.GetAttribute(marker) == "true"
+                    and scene.IsNodePresent(node)
+                ):
+                    scene.RemoveNode(node)
+
+    def showManualBaseCandidateGhost(
+        self, candidate_matrix_world_ras_mm
+    ) -> tuple[bool, str]:
+        """Display an isolated robot copy at a candidate world-RAS Base pose."""
+
+        self.clearManualBaseCandidateGhost()
+        try:
+            values = np.asarray(candidate_matrix_world_ras_mm)
+            if values.size != 16 or np.iscomplexobj(values):
+                raise ValueError
+            candidate = np.asarray(values, dtype=float).reshape((4, 4))
+            if not np.isfinite(candidate).all() or not np.array_equal(
+                candidate[3], (0.0, 0.0, 0.0, 1.0)
+            ):
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return False, _(
+                "Candidate Base pose must be a finite row-major affine matrix with 16 values."
+            )
+
+        marker = "DENTOBOT.ManualBaseCandidateGhost"
+        models = self.robotModelNodes()
+        transforms = self.robotLinkTransformNodes()
+        models_by_name = {
+            node.GetAttribute("DENTOBOT.RobotLinkName"): node for node in models
+        }
+        transforms_by_name = {
+            node.GetAttribute("DENTOBOT.RobotLinkName"): node for node in transforms
+        }
+        if (
+            len(models) != 7
+            or len(models_by_name) != 7
+            or len(transforms) != 7
+            or len(transforms_by_name) != 7
+            or models_by_name.keys() != transforms_by_name.keys()
+        ):
+            return False, _(
+                "The seven local robot link models and poses are not available."
+            )
+
+        try:
+            base_ids = {node.GetTransformNodeID() for node in transforms}
+            base_id = next(iter(base_ids)) if len(base_ids) == 1 else None
+            base_transform = (
+                slicer.mrmlScene.GetNodeByID(base_id) if base_id else None
+            )
+            if (
+                not base_transform
+                or base_transform.GetAttribute(marker) == "true"
+                or not self.isRobotBaseTransformNode(base_transform)
+            ):
+                return False, _(
+                    "The seven local robot link models and poses are not available."
+                )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return False, _(
+                "The seven local robot link models and poses are not available."
+            )
+
+        sources = []
+        try:
+            for link_name, model in models_by_name.items():
+                transform = transforms_by_name[link_name]
+                polydata = model.GetPolyData()
+                if (
+                    polydata is None
+                    or polydata.GetNumberOfPoints() == 0
+                    or polydata.GetNumberOfCells() == 0
+                    or model.GetTransformNodeID() != transform.GetID()
+                ):
+                    return False, _(
+                        "The seven local robot link models and poses are not available."
+                    )
+                local_matrix = vtk.vtkMatrix4x4()
+                transform.GetMatrixTransformToParent(local_matrix)
+                sources.append((link_name, polydata, local_matrix))
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return False, _(
+                "The seven local robot link models and poses are not available."
+            )
+
+        def own(node, node_type=None):
+            if not node:
+                raise RuntimeError(_("Slicer could not create the candidate ghost."))
+            node.SetAttribute(marker, "true")
+            node.SetSaveWithScene(False)
+            hide = getattr(node, "SetHideFromEditors", None)
+            if hide:
+                hide(True)
+            if node_type:
+                node.SetAttribute(
+                    "DENTOBOT.ManualBaseCandidateGhostNodeType", node_type
+                )
+            return node
+
+        try:
+            scene = slicer.mrmlScene
+            candidate_base = own(
+                scene.AddNewNodeByClass(
+                    "vtkMRMLLinearTransformNode",
+                    "[Step 6] Manual Base Candidate Ghost",
+                ),
+                "CandidateBase",
+            )
+            candidate_base.SetAndObserveTransformNodeID(None)
+            candidate_base.SetMatrixTransformToParent(
+                self._vtkFromNumpyMatrix(candidate)
+            )
+            for link_name, source_polydata, local_matrix in sources:
+                link_transform = own(
+                    scene.AddNewNodeByClass(
+                        "vtkMRMLLinearTransformNode",
+                        f"[Step 6] Manual Base Candidate Ghost {link_name} Pose",
+                    ),
+                    "LinkTransform",
+                )
+                link_transform.SetMatrixTransformToParent(local_matrix)
+                link_transform.SetAndObserveTransformNodeID(candidate_base.GetID())
+
+                model = own(
+                    scene.AddNewNodeByClass(
+                        "vtkMRMLModelNode",
+                        f"[Step 6] Manual Base Candidate Ghost {link_name}",
+                    )
+                )
+                ghost_polydata = vtk.vtkPolyData()
+                ghost_polydata.DeepCopy(source_polydata)
+                model.SetAndObservePolyData(ghost_polydata)
+                model.SetAndObserveTransformNodeID(link_transform.GetID())
+                model.CreateDefaultDisplayNodes()
+                display = own(model.GetDisplayNode())
+                display.SetVisibility(True)
+                display.SetColor(0.0, 1.0, 1.0)
+                display.SetOpacity(0.25)
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            self.clearManualBaseCandidateGhost()
+            return False, str(exc) or _("Could not show the candidate robot ghost.")
+        return True, ""
+
     @classmethod
     def robotWorkspaceModelNode(cls) -> vtkMRMLModelNode | None:
         nodes = [

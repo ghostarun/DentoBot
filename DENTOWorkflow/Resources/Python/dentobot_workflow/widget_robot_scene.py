@@ -1381,6 +1381,42 @@ class RobotSceneWidgetMixin:
                 float(direction) * self._parameterNode.robotRotationStepDeg
             )
         try:
+            if self._isStep6RobotWorkflowActive():
+                if not self._isStep6ManualBaseReviewActive():
+                    return
+                if not self._robotWorkflowFacade:
+                    raise RuntimeError("Manual Base review façade is unavailable.")
+                review = self._robotWorkflowFacade.manualBaseReview()
+                details = getattr(review, "details", {}) or {}
+                if (
+                    not review.success
+                    or details.get("identityStatus") != "current"
+                ):
+                    raise RuntimeError(
+                        "Base review identity is stale or unknown; its evidence was retained."
+                    )
+                matrix_values = details.get(
+                    "candidateMatrixWorldRasMm"
+                    if details.get("staged")
+                    else "acceptedMatrixWorldRasMm"
+                )
+                matrix = np.asarray(matrix_values, dtype=float)
+                if matrix.size != 16 or not np.isfinite(matrix).all():
+                    raise ValueError(
+                        "Accepted Base matrix evidence is unavailable; no Base changed."
+                    )
+                nudged = local_nudge_matrix(
+                    matrix.reshape((4, 4)),
+                    translation_local_mm=tuple(translation),
+                    rotation_local_deg=tuple(rotation),
+                )
+                result = self._robotWorkflowFacade.stageManualBaseReview(
+                    tuple(float(value) for value in nudged.reshape(-1))
+                )
+                self._updateStep6PlanningUi(
+                    result.message, error=not result.success
+                )
+                return
             self.logic.nudgeRobotBase(
                 self._parameterNode.robotBaseTransform,
                 translationLocalMm=tuple(translation),
@@ -1412,6 +1448,15 @@ class RobotSceneWidgetMixin:
 
     def onRobotBaseTransformSelectionChanged(self, transformNode) -> None:
         if self._updatingRobotPlacementUI or not self._parameterNode:
+            return
+        if self._isStep6RobotWorkflowActive():
+            self._updatingRobotPlacementUI = True
+            try:
+                self.ui.robotBaseTransformSelector.setCurrentNode(
+                    self._parameterNode.robotBaseTransform
+                )
+            finally:
+                self._updatingRobotPlacementUI = False
             return
         self._parameterNode.robotBaseTransform = transformNode
         self._updateRobotPlacement()
@@ -1460,6 +1505,26 @@ class RobotSceneWidgetMixin:
     def onResetRobotBase(self, checked: bool = False) -> None:
         del checked
         if not self._parameterNode or not self.logic:
+            return
+        if self._isStep6RobotWorkflowActive():
+            if not self._robotWorkflowFacade:
+                slicer.util.errorDisplay(_("Manual Base review façade is unavailable."))
+                return
+            review = self._robotWorkflowFacade.manualBaseReview()
+            details = getattr(review, "details", {}) or {}
+            if (
+                not review.success
+                or details.get("identityStatus") != "current"
+            ):
+                self._updateStep6PlanningUi(
+                    "Base review identity is stale or unknown; reset was not staged and its evidence was retained.",
+                    error=True,
+                )
+                return
+            result = self._robotWorkflowFacade.stageManualBaseReview(
+                tuple(float(value) for value in np.eye(4).reshape(-1))
+            )
+            self._updateStep6PlanningUi(result.message, error=not result.success)
             return
         baseTransform = self._parameterNode.robotBaseTransform
         if not self.logic.isRobotBaseTransformNode(baseTransform):

@@ -173,6 +173,8 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
         event=None,
     ) -> None:
         del event
+        if self._caseBundleRestoreDepth > 0:
+            return
         if (
             self._processingSegmentationContentChange
             or not self.logic
@@ -195,11 +197,11 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
             self._syncScanContext()
             return
         self._validTrajectoryPointsByNodeId.clear()
-        self._updatePlanning()
         self.logic.invalidateCaseFoundationForSourceChange(
             self._parameterNode,
             _("Source segmentation content changed."),
         )
+        self._updatePlanning()
         self._updateTemplateModeling()
         self.ui.segmentationReviewStatusLabel.text = (
             _(
@@ -727,6 +729,7 @@ class SegmentationWidgetMixin(ScanContextWidgetMixin):
             not self._parameterNode
             or self._restoringTrajectoryAssociation
             or self._updatingFromParameterNode
+            or self._caseBundleRestoreDepth > 0
         ):
             return
         currentNode = self._parameterNode.teethSegmentation

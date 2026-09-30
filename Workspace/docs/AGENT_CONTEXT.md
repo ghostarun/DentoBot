@@ -2,6 +2,43 @@
 
 Last reconciled: 2026-09-27. `S6-LIVE-01` remains Priority 0.
 
+**Current execution order:** Complete remaining Step 6 manual engineering
+workbench source with focused safety checks; avoid replaying the entire GUI
+case after each slice. Before the final broad headed campaign, curate only
+accepted 5.10 integrity/performance deltas from the separate clean
+`DentoBot-performance-5.12` checkout into a reviewed integration branch.
+Do not wholesale merge deferred 5.12 history or switch this dirty renovation
+checkout. See the active renovation plan's 27 September execution order,
+backlog `S6-LIVE-01`/`S6-P2-03`, DECISIONS and today's logbook. Tarun's
+normal-window verdict remains PENDING.
+
+**Newest headed Base/Home result:** The unchanged reviewed case and isolated
+native guard passed all 14 bounded in-app checklist items: case/scene,
+guarded J1, Base stage/cancel and zero-displacement Accept Base, then review/
+accept of the current J1–J5 as runtime-validated Task Home revision 13→14.
+The first opt-in run exposed a runner evidence-check defect; a Luna Max
+source/test pair corrected it and 23 focused host tests passed before the
+successful second run. Both whole-process videos are `partial` because Slicer
+exited 1 on shutdown. [Run-local diagnostics](/home/light-tarun/dentobot/data/dentobot-runs/s6-live-01-base-home-accept-20260927T131832Z-r2/diagnostics.md)
+link JSON, screenshots and video. This is bounded happy-path simulation
+evidence, not full workbench/recording/preview or Tarun's normal-window
+verdict; the latter remains PENDING. The dated paragraph below records the
+earlier stage/cancel checkpoint.
+
+**Earlier Step 6 renovation checkpoint (27 September):** The unchanged current
+FDI11 package now reopens; exact native double status echo and accepted-state
+UI mirror defects are fixed in the dirty renovation checkout. A bounded
+headed checklist passed case/robot/31-object scene, production read-only
+static/FK draft, one correlated native-accepted J1 +0.1° jog with later
+accepted/monitored/displayed convergence, and detached Base stage/cancel with
+no accepted-matrix change. Slicer exited 1 during shutdown, so that run's
+video manifest remains `partial` even though checklist JSON says PASS.
+Detached Task Home review/accept source and UI subsequently passed 166 host
+pure tests; headed Home acceptance, Base Accept/reconciliation, invalid-state
+and ordered-record/export/reopen gates remain open. Tarun's normal-window
+robotics/usability verdict is **PENDING**. See today's logbook, backlog and
+active renovation plan; earlier paragraphs below are dated checkpoints.
+
 **27 September source continuation:** Unknown/stale submitted manual jogs now
 latch the facade and block later publishes; UI wording shows possible native
 advancement and displays attributed guard distances with correct threshold vs
@@ -22,6 +59,36 @@ query and explicit UI reconciliation source path; 118 combined host pure tests
 passed. Native C++ build, current-case ROS/Slicer exchange, screenshots and
 Tarun's verdict remain pending. Detached Base/Home exploration is next source
 work under the same Step 6 plan.
+Commit `c1bfba0` captured that manual attribution/reconciliation checkpoint.
+The subsequent uncommitted source slice implements detached **numeric** Base
+review and passed 86 combined host pure/UI tests. No Base ghost, native/Qt
+runtime proof or operator verdict exists. Detached Home and the broader
+engineering solver remain open under `S6-LIVE-01`.
+The 27 September authorized recorded headed run used the exact renovation
+checkout, isolated native package and a newer FDI11 case. Its first partial
+recording stopped at strict post-hydration final-template validation. Audited
+restore-order and landmark-roundoff corrections now reopen the unchanged case
+with Case Foundation pose, Base and PreparedBranch all `VALID` in fresh Slicer;
+21 focused host tests passed. A second partial recording opened the case and
+captured UI/viewport PNGs but stopped at disabled Connect: the runner omitted
+production Load Robot and Import Planning Context actions. The saved/current
+task-limits fingerprint still differs. Both partial videos, itemized JSON,
+screenshots and logs have run-local diagnostics indexed in today's logbook.
+Preserve strict validation, finish the runner's production prerequisites and
+visual scroll framing, then repeat the serialized recorded trial. No guarded
+jog was submitted; Tarun's visible verdict remains pending.
+Later same-day runs passed production robot load, planning-context import,
+simulation Connect, 31-object scene readback and the corrected J2 display
+roundoff comparison. The latest partial recording stopped at the production
+Check Draft State action because the newer case has no confirmed task;
+static validity and guarded jog were not reached. The active next source gate
+is task-independent manual static review and exact raw guarded-jog identity
+under current branch/Base/limits/profile/scene/ROS, with absent or stale Home
+marked unconfirmed and target evidence
+unavailable until confirmation. See today's logbook and run-local diagnostics.
+For a future approved repeat, use the separate
+[recorded headed automation workflow](diagnostics/STEP6_RECORDED_HEADED_AUTOMATION_WORKFLOW.md)
+with the matrix and protocol; do not reuse the prior case, hashes or result.
 
 **2026-09-26 engineering-outcome review (supersedes intermediate status summaries):**
 Baseline `40ad290` contains ROI-first sampling, shared endpoint evaluation,

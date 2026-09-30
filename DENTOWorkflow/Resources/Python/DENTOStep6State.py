@@ -333,7 +333,8 @@ def build_manual_simulation_record(
         raise ValueError("manual simulation recording exceeds its event bound")
     allowed_fields = {
         "kind", "monotonic_ns", "requested_joints", "evaluated_joints",
-        "accepted_joints", "tcp_point_ras_mm", "tcp_path_ras_mm",
+        "accepted_joints", "monitored_joints", "tcp_point_ras_mm",
+        "tcp_pose_world_ras_mm", "drill_axis_world_ras_unit", "tcp_path_ras_mm",
         "native_failure_evidence", "collision_evidence", "diagnostic", "details",
     }
     joint_fields = ("requested_joints", "evaluated_joints", "accepted_joints")
@@ -366,10 +367,30 @@ def build_manual_simulation_record(
                 event[field] = _manual_simulation_joint_state(
                     raw[field], f"event {index} {field}"
                 )
+        if "monitored_joints" in raw:
+            event["monitored_joints"] = _manual_simulation_joint_state(
+                raw["monitored_joints"], f"event {index} monitored_joints"
+            )
         if "tcp_point_ras_mm" in raw:
             event["tcp_point_ras_mm"] = _manual_simulation_tcp_point(
                 raw["tcp_point_ras_mm"], f"event {index} TCP point"
             )
+        if "tcp_pose_world_ras_mm" in raw:
+            event["tcp_pose_world_ras_mm"] = _manual_simulation_matrix(
+                raw["tcp_pose_world_ras_mm"],
+                f"event {index} world RAS TCP pose",
+            )
+        if "drill_axis_world_ras_unit" in raw:
+            axis = _manual_simulation_tcp_point(
+                raw["drill_axis_world_ras_unit"],
+                f"event {index} world RAS drill axis",
+            )
+            axis_norm = sqrt(sum(value * value for value in axis))
+            if not isfinite(axis_norm) or abs(axis_norm - 1.0) > 1.0e-6:
+                raise ValueError(
+                    f"event {index} world RAS drill axis must be a finite nonzero unit vector"
+                )
+            event["drill_axis_world_ras_unit"] = axis
         if "tcp_path_ras_mm" in raw:
             path = raw["tcp_path_ras_mm"]
             if isinstance(path, (str, bytes, Mapping)) or not isinstance(path, Sequence):

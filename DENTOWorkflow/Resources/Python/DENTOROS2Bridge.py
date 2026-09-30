@@ -8,6 +8,7 @@ joint positions, and requests plans. It never starts, kills, or shells into ROS.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -76,6 +77,9 @@ ROS2_OBSTACLE_PROXY_ATTRIBUTE = "DENTOBOT.MoveItObstacleProxy"
 ROS2_OBSTACLE_SOURCE_ATTRIBUTE = "DENTOBOT.MoveItObstacleSource"
 ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE = "DENTOBOT.MoveItObstaclePublishedId"
 ROS2_PHASE_PATH_ATTRIBUTE = "DENTOBOT.Step6PhasePlanPath"
+ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE = (
+    "DENTOBOT.ManualSimulationHistoricalPath"
+)
 ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE = "ROS2MotionControl.MoveItObstacle"
 ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE = "ROS2MotionControl.MoveItObstacleFrame"
 ROS2_JOINT_SI_ORDER = tuple(JOINT_NAMES)
@@ -2946,6 +2950,175 @@ def show_phase_plan_tcp_path(
     )
 
 
+def clear_manual_simulation_record_paths() -> None:
+    """Remove only the transient nodes owned by historical record display."""
+    try:
+        import slicer
+    except ImportError:
+        return
+    for class_name in ("vtkMRMLModelNode", "vtkMRMLMarkupsFiducialNode"):
+        for node in list(slicer.util.getNodesByClass(class_name)):
+            if node.GetAttribute(ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE) == "true":
+                slicer.mrmlScene.RemoveNode(node)
+
+
+def show_manual_simulation_record_paths(
+    record: Mapping[str, object],
+) -> Tuple[bool, str]:
+    """Show schema-validated historical TCP samples without querying or moving the robot."""
+    from DENTOStep6State import parse_manual_simulation_record
+
+    try:
+        parsed = parse_manual_simulation_record(record)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        clear_manual_simulation_record_paths()
+        return False, f"Historical manual simulation record is invalid: {exc}"
+
+    accepted_points: list[tuple[float, float, float]] = []
+    accepted_segments: list[list[int]] = []
+    active_segment: list[int] = []
+    requested_points: list[tuple[float, float, float]] = []
+    rejected_points: list[tuple[float, float, float]] = []
+    unknown_points: list[tuple[float, float, float]] = []
+
+    def break_accepted_segment() -> None:
+        if len(active_segment) > 1:
+            accepted_segments.append(active_segment.copy())
+        active_segment.clear()
+
+    for event in parsed["events"]:
+        kind = event["kind"]
+        point = event.get("tcp_point_ras_mm")
+        if kind == "guard_accepted":
+            if point is None:
+                break_accepted_segment()
+                continue
+            active_segment.append(len(accepted_points))
+            accepted_points.append(tuple(point))
+        elif kind == "requested":
+            if point is not None:
+                requested_points.append(tuple(point))
+        else:
+            break_accepted_segment()
+            if point is not None:
+                if kind == "guard_rejected":
+                    rejected_points.append(tuple(point))
+                else:
+                    unknown_points.append(tuple(point))
+    break_accepted_segment()
+
+    if not (accepted_points or requested_points or rejected_points or unknown_points):
+        clear_manual_simulation_record_paths()
+        return False, "This historical record has no recorded TCP points; path display is unavailable."
+
+    try:
+        import slicer
+        import vtk
+    except ImportError:
+        return False, "Slicer VTK is unavailable for historical path display."
+
+    clear_manual_simulation_record_paths()
+    try:
+        def prepare_node(node, name: str) -> None:
+            node.SetName(name)
+            node.SetAttribute(ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE, "true")
+            node.SetAttribute("DENTOBOT.IntendedUse", "HistoricalDisplayOnly")
+            node.SaveWithSceneOff()
+
+        if accepted_points:
+            markers = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsFiducialNode", "[Manual Record] Accepted TCP Samples"
+            )
+            prepare_node(markers, "[Manual Record] Accepted TCP Samples")
+            markers.CreateDefaultDisplayNodes()
+            for index, point in enumerate(accepted_points, 1):
+                markers.AddControlPointWorld(vtk.vtkVector3d(*point), f"Accepted {index}")
+            markers.SetLocked(True)
+            display = markers.GetDisplayNode()
+            if display is not None:
+                display.SetVisibility(True)
+                display.SetColor(0.10, 0.85, 0.20)
+                display.SetSelectedColor(0.10, 0.85, 0.20)
+                display.SetGlyphScale(3.0)
+
+        if accepted_segments:
+            points = vtk.vtkPoints()
+            for point in accepted_points:
+                points.InsertNextPoint(*point)
+            lines = vtk.vtkCellArray()
+            for segment in accepted_segments:
+                polyline = vtk.vtkPolyLine()
+                polyline.GetPointIds().SetNumberOfIds(len(segment))
+                for local_index, point_index in enumerate(segment):
+                    polyline.GetPointIds().SetId(local_index, point_index)
+                lines.InsertNextCell(polyline)
+            polydata = vtk.vtkPolyData()
+            polydata.SetPoints(points)
+            polydata.SetLines(lines)
+            path = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLModelNode", "[Manual Record] Accepted TCP Path"
+            )
+            prepare_node(path, "[Manual Record] Accepted TCP Path")
+            path.SetAndObservePolyData(polydata)
+            path.CreateDefaultDisplayNodes()
+            display = path.GetDisplayNode()
+            if display is not None:
+                display.SetVisibility(True)
+                display.SetColor(0.10, 0.85, 0.20)
+                display.SetOpacity(0.95)
+                set_line_width = getattr(display, "SetLineWidth", None)
+                if set_line_width is not None:
+                    set_line_width(4.0)
+
+        def add_candidate_markers(
+            name: str,
+            label: str,
+            candidate_points: Sequence[tuple[float, float, float]],
+            color: tuple[float, float, float],
+        ) -> None:
+            if not candidate_points:
+                return
+            node = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLMarkupsFiducialNode", name
+            )
+            prepare_node(node, name)
+            node.CreateDefaultDisplayNodes()
+            for index, point in enumerate(candidate_points, 1):
+                node.AddControlPointWorld(vtk.vtkVector3d(*point), f"{label} {index}")
+            node.SetLocked(True)
+            display = node.GetDisplayNode()
+            if display is not None:
+                display.SetVisibility(True)
+                display.SetColor(*color)
+                display.SetSelectedColor(*color)
+                display.SetGlyphScale(3.0)
+
+        add_candidate_markers(
+            "[Manual Record] Requested TCP Candidates",
+            "Requested candidate",
+            requested_points,
+            (1.0, 0.65, 0.05),
+        )
+        add_candidate_markers(
+            "[Manual Record] Rejected TCP Candidates",
+            "Rejected candidate",
+            rejected_points,
+            (1.0, 0.12, 0.10),
+        )
+        add_candidate_markers(
+            "[Manual Record] Unresolved TCP Samples",
+            "Unresolved sample",
+            unknown_points,
+            (0.85, 0.20, 0.85),
+        )
+    except Exception as exc:
+        clear_manual_simulation_record_paths()
+        return False, f"Could not display historical TCP samples: {exc}"
+
+    count = len(accepted_points) + len(requested_points) + len(rejected_points) + len(unknown_points)
+    return True, f"Showing {count} recorded TCP samples from historical manual simulation evidence."
+
+
 def show_motion_diagnostic_evidence(
     *,
     first_invalid_ras_mm: Optional[Sequence[float]],
@@ -3058,17 +3231,27 @@ def connect_dentobot_motion_control(
     if not align_ros2_robot_to_base_transform(robot_node, base_transform):
         return None, "Could not align base_link with the Step 6 base transform."
 
-    parameter_node = motion_logic.getParameterNode()
-    parameter_node.robotNodeID = robot_node.GetID()
-    parameter_node.jointStateTopic = ROS2_JOINT_STATES_TOPIC
-    parameter_node.moveGroupExists = True
-    parameter_node.planningGroup = ROS2_PLANNING_GROUP
-    if not motion_logic.SetupRobotForMotionControl(parameter_node):
-        return None, "SetupRobotForMotionControl failed."
-    if not align_ros2_goal_to_base_transform(robot_node, base_transform):
-        return None, "Could not align the goal robot with the Step 6 base transform."
-    if not motion_logic.SetupMoveItPlanningGroup(robot_node, ROS2_PLANNING_GROUP):
-        return None, "MoveIt planning group dentobot_arm could not be initialized."
+    pause_render = getattr(slicer.app, "pauseRender", None)
+    resume_render = getattr(slicer.app, "resumeRender", None)
+    rendering_paused = False
+    try:
+        if callable(pause_render) and callable(resume_render):
+            pause_render()
+            rendering_paused = True
+        parameter_node = motion_logic.getParameterNode()
+        parameter_node.robotNodeID = robot_node.GetID()
+        parameter_node.jointStateTopic = ROS2_JOINT_STATES_TOPIC
+        parameter_node.moveGroupExists = True
+        parameter_node.planningGroup = ROS2_PLANNING_GROUP
+        if not motion_logic.SetupRobotForMotionControl(parameter_node):
+            return None, "SetupRobotForMotionControl failed."
+        if not align_ros2_goal_to_base_transform(robot_node, base_transform):
+            return None, "Could not align the goal robot with the Step 6 base transform."
+        if not motion_logic.SetupMoveItPlanningGroup(robot_node, ROS2_PLANNING_GROUP):
+            return None, "MoveIt planning group dentobot_arm could not be initialized."
+    finally:
+        if rendering_paused:
+            resume_render()
 
     if initial_joint_positions_si is not None:
         try:
@@ -5825,29 +6008,39 @@ def disconnect_dentobot_motion_control(
         ]
         if progress:
             progress("Removing collision objects", 0, len(proxies))
-        for index, node in enumerate(proxies, 1):
-            # Publish the removal synchronously.  RemoveMoveItObstacle queues a
-            # second callback holding native wrappers, which is unsafe across
-            # scene clear or scripted-module replacement.
-            try:
-                publisher = motion_logic._getCollisionObjectPublisher(
-                    robot_node, create=False
-                )
-                if publisher is not None:
-                    publisher.SetFrameId(
-                        node.GetAttribute(
-                            ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE
-                        )
-                        or ROS2_FIXED_FRAME
+        pause_render = getattr(slicer.app, "pauseRender", None)
+        resume_render = getattr(slicer.app, "resumeRender", None)
+        rendering_paused = False
+        try:
+            if callable(pause_render) and callable(resume_render):
+                pause_render()
+                rendering_paused = True
+            for index, node in enumerate(proxies, 1):
+                # Publish the removal synchronously. RemoveMoveItObstacle queues a
+                # second callback holding native wrappers, which is unsafe across
+                # scene clear or scripted-module replacement.
+                try:
+                    publisher = motion_logic._getCollisionObjectPublisher(
+                        robot_node, create=False
                     )
-                    publisher.PublishRemove(node)
-            except Exception:
-                pass
-            node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE)
-            node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE)
-            slicer.mrmlScene.RemoveNode(node)
-            if progress:
-                progress("Removing collision objects", index, len(proxies))
+                    if publisher is not None:
+                        publisher.SetFrameId(
+                            node.GetAttribute(
+                                ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE
+                            )
+                            or ROS2_FIXED_FRAME
+                        )
+                        publisher.PublishRemove(node)
+                except Exception:
+                    pass
+                node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_ATTRIBUTE)
+                node.RemoveAttribute(ROS2_MOTION_CONTROL_OBSTACLE_FRAME_ATTRIBUTE)
+                slicer.mrmlScene.RemoveNode(node)
+                if progress:
+                    progress("Removing collision objects", index, len(proxies))
+        finally:
+            if rendering_paused:
+                resume_render()
     if motion_logic is not None:
         if progress:
             progress("Releasing ROS 2 subscriptions")
@@ -5892,7 +6085,25 @@ def disconnect_dentobot_motion_control(
     if robot_node is not None:
         if progress:
             progress("Removing ROS 2 robot")
-        ros_logic.RemoveRobot(ROS2_ROBOT_NAME)
+        pause_render = getattr(slicer.app, "pauseRender", None)
+        resume_render = getattr(slicer.app, "resumeRender", None)
+        render_pause_available = callable(pause_render) and callable(resume_render)
+        rendering_paused = False
+        remove_started = None
+        try:
+            if render_pause_available:
+                pause_render()
+                rendering_paused = True
+            remove_started = time.perf_counter()
+            ros_logic.RemoveRobot(ROS2_ROBOT_NAME)
+        finally:
+            if remove_started is not None:
+                logging.info(
+                    "DENTOBOT RemoveRobot took %.3f wall seconds",
+                    time.perf_counter() - remove_started,
+                )
+            if rendering_paused:
+                resume_render()
     for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode"):
         if node.GetAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE) == "true":
             node.RemoveAttribute(ROS2_MOTION_ACTIVE_ATTRIBUTE)

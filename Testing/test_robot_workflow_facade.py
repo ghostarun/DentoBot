@@ -140,15 +140,29 @@ class FakeBase:
         self.node_id = "base"
         self.active = False
         self.matrix = None
+        self.parent_id = None
+        self.attributes = {}
 
     def GetID(self):
         return self.node_id
 
     def SetAndObserveTransformNodeID(self, node_id):
-        assert node_id is None
+        self.parent_id = node_id
+
+    def GetTransformNodeID(self):
+        return self.parent_id
 
     def SetMatrixTransformToParent(self, matrix):
         self.matrix = matrix
+
+    def GetAttribute(self, name):
+        return self.attributes.get(name)
+
+    def SetAttribute(self, name, value):
+        if value is None:
+            self.attributes.pop(name, None)
+        else:
+            self.attributes[name] = str(value)
 
 
 class FakePoseMatrix:
@@ -177,6 +191,9 @@ class FakeParameterNode:
         self.step6PlanningContextImported = True
         self.robotBaseTransform = FakeBase()
         self.robotBaseMountLocked = False
+        self.step6BasePlacementStatus = "Unlocked"
+        self.step6BasePlacementSource = "test"
+        self.step6BasePlacementRevision = 0
         self.robotJoint1Deg = 0.0
         self.robotJoint2Mm = 0.0
         self.robotJoint3Deg = 0.0
@@ -317,6 +334,11 @@ def test_guarded_return_reverses_accepted_contact_history_before_home_check():
 
 
 class FakeLogic:
+    ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = "DENTOBOT.RobotBasePlacementAuthority"
+    ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
+    ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
+    ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "QuarantinedCircularMountPlane"
+
     def __init__(self, parameter_node):
         self.parameter_node = parameter_node
         self.updated = []
@@ -364,6 +386,28 @@ class FakeLogic:
 
     def setRobotBaseMountLocked(self, parameter_node, locked):
         parameter_node.robotBaseMountLocked = bool(locked)
+        parameter_node.robotBaseTransform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY
+            if locked
+            else self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+        )
+
+    @staticmethod
+    def isRobotBaseTransformNode(base):
+        return isinstance(base, FakeBase)
+
+    @staticmethod
+    def _worldMatrixFromTransform(base):
+        return base.matrix or FakePoseMatrix(
+            ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        )
+
+    @staticmethod
+    def _vtkFromNumpyMatrix(matrix):
+        result = FakePoseMatrix(((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+        result.values = [[float(value) for value in row] for row in matrix]
+        return result
 
     def syncStep6MoveItPlanningScene(self, parameter_node):
         del parameter_node
@@ -455,6 +499,7 @@ def test_incomplete_preview_blocks_home_and_manual_joint_motion_paths():
         facade.applyTaskHome(),
         facade.saveTaskHome(),
         facade.requestJointValue(1, 15.0),
+        facade.previewPlan(),
         facade.requestCurrentJointState(),
     )
 
@@ -464,6 +509,7 @@ def test_incomplete_preview_blocks_home_and_manual_joint_motion_paths():
                for result in results)
     assert bridge.applied == []
     assert bridge.phase_calls == []
+    assert facade._preview_timer is None
     assert logic.updated == []
     assert original_display == (
         parameter_node.robotJoint1Deg,
@@ -503,6 +549,386 @@ def test_incomplete_preview_blocks_base_pose_and_lock_changes():
     assert logic.synced == 0
     assert bridge.applied == []
     assert bridge.phase_calls == []
+
+
+def _manual_base_test_matrix(x_mm=0.0):
+    return [
+        1.0, 0.0, 0.0, float(x_mm),
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+
+
+def test_detached_manual_base_stage_and_cancel_leave_accepted_state_unchanged():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    facade._completed_phase = "approach"
+    facade._phase_sequence = 4
+    result = facade.stageManualBaseReview(_manual_base_test_matrix(12.5))
+
+    assert result.success and result.code == "manual_base_review_staged"
+    assert result.details["staged"]
+    assert result.details["candidateMatrixWorldRasMm"] == _manual_base_test_matrix(12.5)
+    assert result.details["acceptedMatrixWorldRasMm"] == _manual_base_test_matrix()
+    assert parameter_node.robotBaseTransform.matrix is None
+    assert not parameter_node.robotBaseMountLocked
+    assert facade._completed_phase == "approach"
+    assert facade._phase_sequence == 4
+    assert facade._manual_simulation_events == []
+
+    state = facade.manualBaseReview()
+    assert state.success and state.details["staged"]
+    assert state.details["candidateMatrixWorldRasMm"] == _manual_base_test_matrix(12.5)
+    cancelled = facade.cancelManualBaseReview()
+    assert cancelled.success and not cancelled.details["staged"]
+    assert cancelled.details["candidateMatrixWorldRasMm"] is None
+    assert parameter_node.robotBaseTransform.matrix is None
+    assert not parameter_node.robotBaseMountLocked
+    assert facade._completed_phase == "approach"
+    assert facade._phase_sequence == 4
+
+
+def test_detached_manual_base_rejects_nonrigid_or_nonfinite_matrix():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    scaled = _manual_base_test_matrix()
+    scaled[0] = 2.0
+    reflected = _manual_base_test_matrix()
+    reflected[0] = -1.0
+    nonfinite = _manual_base_test_matrix()
+    nonfinite[3] = float("nan")
+
+    results = tuple(
+        facade.stageManualBaseReview(matrix)
+        for matrix in (scaled, reflected, nonfinite, _manual_base_test_matrix()[:-1])
+    )
+
+    assert all(not result.success for result in results)
+    assert all(result.code == "manual_base_review_rejected" for result in results)
+    assert facade.manualBaseReview().details["staged"] is False
+    assert parameter_node.robotBaseTransform.matrix is None
+    assert not parameter_node.robotBaseMountLocked
+
+
+def test_detached_manual_base_candidate_rejects_changed_case_identity():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    staged = facade.stageManualBaseReview(_manual_base_test_matrix(7.0))
+    assert staged.success
+    parameter_node.teethSegmentation = object()
+
+    restage = facade.stageManualBaseReview(_manual_base_test_matrix(11.0))
+    assert not restage.success and restage.code == "manual_base_review_stale"
+    assert restage.details["candidateMatrixWorldRasMm"] == _manual_base_test_matrix(7.0)
+    assert restage.details["restageRejection"]["code"] == "manual_base_review_stale"
+
+    result = facade.acceptManualBaseReview()
+
+    assert not result.success and result.code == "manual_base_review_stale"
+    assert result.details["staged"]
+    assert result.details["identityStatus"] == "case_or_base_identity_changed"
+    assert result.details["candidateMatrixWorldRasMm"] == _manual_base_test_matrix(7.0)
+    assert parameter_node.robotBaseTransform.matrix is None
+    assert not parameter_node.robotBaseMountLocked
+
+
+def test_manual_base_candidate_cannot_be_replaced_while_acceptance_is_uncertain():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(18.0)
+    assert facade.stageManualBaseReview(candidate).success
+    failure_evidence = {
+        "code": "manual_base_acceptance_unknown",
+        "stage": "lock",
+    }
+    facade._manual_base_review_failure = dict(failure_evidence)
+    facade._manual_base_acceptance_uncertain = "native state is unknown"
+
+    result = facade.stageManualBaseReview(_manual_base_test_matrix(24.0))
+
+    assert not result.success and result.code == "manual_base_acceptance_unknown"
+    assert result.details["staged"]
+    assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["failureEvidence"] == failure_evidence
+    assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
+    assert facade._manual_base_review_failure == failure_evidence
+    assert facade._manual_base_acceptance_uncertain
+    assert facade._manual_simulation_base_matrix(parameter_node) == _manual_base_test_matrix()
+
+
+def test_manual_base_review_identity_handles_host_stubs_and_slicer_node_methods():
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    base = FakeBase()
+
+    host_identity = facade._manual_base_review_identity(SimpleNamespace(), base)
+
+    assert host_identity["inputVolume"] == "none"
+    assert host_identity["teethSegmentation"] == "none"
+    assert host_identity["caseNodeRevisions"] == {
+        "inputVolume": None,
+        "teethSegmentation": None,
+    }
+
+    class FakeSlicerNode:
+        def __init__(self, node_id, mtime):
+            self.node_id = node_id
+            self.mtime = mtime
+
+        def GetID(self):
+            return self.node_id
+
+        def GetScene(self):
+            return None
+
+        def GetMTime(self):
+            return self.mtime
+
+    slicer_parameter_node = SimpleNamespace(
+        inputVolume=FakeSlicerNode("volume", 12),
+        teethSegmentation=FakeSlicerNode("segmentation", 34),
+        step6BasePlacementRevision=5,
+    )
+    slicer_identity = facade._manual_base_review_identity(slicer_parameter_node, base)
+
+    assert slicer_identity["inputVolume"] == "volume"
+    assert slicer_identity["teethSegmentation"] == "segmentation"
+    assert slicer_identity["caseNodeRevisions"] == {
+        "inputVolume": 12,
+        "teethSegmentation": 34,
+    }
+    assert slicer_identity["placementRevision"] == 5
+
+
+def test_detached_manual_base_accept_uses_existing_pose_and_lock_owners():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(18.0)
+    assert facade.stageManualBaseReview(candidate).success
+
+    result = facade.acceptManualBaseReview()
+
+    assert result.success and result.code == "base_locked"
+    assert result.details["acceptanceStatus"] == "accepted"
+    assert result.details["candidateMatrixWorldRasMm"] is None
+    assert result.details["acceptedMatrixWorldRasMm"] == candidate
+    assert parameter_node.robotBaseMountLocked
+    assert facade._manual_simulation_base_matrix(parameter_node) == candidate
+    assert facade.manualBaseReview().details["staged"] is False
+
+
+def test_detached_manual_base_failed_lock_restores_base_and_latches_unknown():
+    facade, parameter_node, logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(21.0)
+    assert facade.stageManualBaseReview(candidate).success
+
+    def fail_after_lock_attempt(node, locked):
+        node.robotBaseMountLocked = bool(locked)
+        node.robotBaseTransform.SetAttribute(
+            logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            logic.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY,
+        )
+        raise RuntimeError("simulated lock-side failure")
+
+    logic.setRobotBaseMountLocked = fail_after_lock_attempt
+    result = facade.acceptManualBaseReview()
+
+    assert not result.success and result.code == "manual_base_acceptance_unknown"
+    assert result.details["staged"]
+    assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["failureEvidence"]["stage"] == "lock"
+    assert result.details["failureEvidence"]["rollbackStatus"] == "unknown"
+    assert parameter_node.robotBaseTransform.matrix is not None
+    assert facade._manual_simulation_base_matrix(parameter_node) == _manual_base_test_matrix()
+    assert not parameter_node.robotBaseMountLocked
+    assert parameter_node.robotBaseTransform.GetAttribute(
+        logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+    ) is None
+    blocked = facade.acceptManualBaseReview()
+    assert not blocked.success and blocked.code == "manual_base_acceptance_unknown"
+    assert facade.manualBaseReview().details["failureEvidence"]["stage"] == "lock"
+    cancelled = facade.cancelManualBaseReview()
+    assert not cancelled.success and cancelled.code == "manual_base_acceptance_unknown"
+    assert cancelled.details["staged"]
+    assert cancelled.details["candidateMatrixWorldRasMm"] == candidate
+    assert cancelled.details["failureEvidence"]["stage"] == "lock"
+
+
+def test_manual_base_review_cannot_be_cancelled_while_acceptance_is_uncertain():
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(18.0)
+    assert facade.stageManualBaseReview(candidate).success
+    facade._manual_base_acceptance_uncertain = "native state is unknown"
+    facade._manual_base_review_failure = {
+        "code": "manual_base_acceptance_unknown",
+        "stage": "lock",
+    }
+
+    result = facade.cancelManualBaseReview()
+
+    assert not result.success and result.code == "manual_base_acceptance_unknown"
+    assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["failureEvidence"] == facade._manual_base_review_failure
+    assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
+
+
+def _manual_base_reconciliation_probe(
+    *, include_audit=True, acknowledgement_status="Acknowledged", acknowledged_object_ids=None
+):
+    facade, parameter_node, logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(21.0)
+    assert facade.stageManualBaseReview(candidate).success
+    failure_evidence = {
+        "code": "manual_base_acceptance_unknown",
+        "stage": "lock",
+        "rollbackStatus": "unknown",
+    }
+    facade._manual_base_review_failure = dict(failure_evidence)
+    facade._manual_base_acceptance_uncertain = "native scene state is unknown"
+    parameter_node.robotBaseTransform.active = True
+
+    object_ids = tuple(f"obstacle-{index}" for index in range(4))
+    audit = (
+        SimpleNamespace(
+            status=(
+                "Acknowledged"
+                if acknowledgement_status == "Acknowledged"
+                else "RuntimeAcknowledgementFailed"
+            ),
+            base_fingerprint="base-current",
+            object_records=tuple(
+                {"outgoing_collision_object_id": object_id}
+                for object_id in object_ids
+            ),
+            runtime_acknowledgement={
+                "status": acknowledgement_status,
+                "acknowledged_object_ids": (
+                    object_ids
+                    if acknowledged_object_ids is None
+                    else acknowledged_object_ids
+                ),
+            },
+            audit_fingerprint="audit-current",
+        )
+        if include_audit
+        else None
+    )
+    audit_state = {"synced": False, "audit": audit, "reads": []}
+
+    def sync_scene(_parameter_node):
+        logic.synced += 1
+        audit_state["synced"] = True
+        return len(object_ids)
+
+    def read_audit(_parameter_node):
+        audit_state["reads"].append(audit_state["synced"])
+        return audit_state["audit"] if audit_state["synced"] else None
+
+    logic.syncStep6MoveItPlanningScene = sync_scene
+    logic.collisionSceneAuditRecord = read_audit
+    logic.robotBaseFingerprint = lambda _node: "base-current"
+    facade.taskHomeRuntimeValidated = lambda _node: False
+    return facade, parameter_node, logic, candidate, failure_evidence, audit_state
+
+
+def test_manual_base_reconciliation_resyncs_only_the_accepted_baseline():
+    (
+        facade,
+        parameter_node,
+        logic,
+        candidate,
+        failure_evidence,
+        audit_state,
+    ) = _manual_base_reconciliation_probe()
+    facade._runtime_validated_task_home_key = "old-home"
+    facade._runtime_task_home_evidence = {"old": True}
+    facade._runtime_validated_workspace_key = "old-workspace"
+
+    result = facade.reconcileManualBaseAcceptance()
+
+    assert result.success and result.code == "manual_base_acceptance_reconciled"
+    assert audit_state["reads"] == [True, True]
+    assert logic.synced == 1
+    assert result.details["reconciliationStatus"] == "acknowledged"
+    assert result.details["obstacleCount"] == 4
+    assert result.details["acknowledgedObjectIds"] == tuple(
+        f"obstacle-{index}" for index in range(4)
+    )
+    assert result.details["candidateMatrixWorldRasMm"] == candidate
+    assert result.details["failureEvidence"] == failure_evidence
+    assert result.details["staged"]
+    assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
+    assert not facade._manual_base_acceptance_uncertain
+    assert facade._manual_base_review_failure == failure_evidence
+    assert facade._manual_simulation_base_matrix(parameter_node) == _manual_base_test_matrix()
+    assert not parameter_node.robotBaseMountLocked
+    assert facade._planning_scene_synchronized
+    assert facade._runtime_validated_task_home_key == ""
+    assert facade._runtime_task_home_evidence == {}
+    assert facade._runtime_validated_workspace_key == ""
+
+
+def test_manual_base_reconciliation_rejects_stale_case_identity_without_sync():
+    facade, parameter_node, logic, _candidate, _failure, audit_state = (
+        _manual_base_reconciliation_probe()
+    )
+    parameter_node.teethSegmentation = object()
+
+    result = facade.reconcileManualBaseAcceptance()
+
+    assert not result.success and result.code == "manual_base_review_stale"
+    assert logic.synced == 0
+    assert audit_state["reads"] == []
+    assert facade._manual_base_acceptance_uncertain
+    blocked = facade.acceptManualBaseReview()
+    assert not blocked.success and blocked.code == "manual_base_acceptance_unknown"
+
+
+def test_manual_base_reconciliation_requires_complete_acknowledged_native_readback():
+    for options in (
+        {"include_audit": False},
+        {"acknowledgement_status": "NotAcknowledged"},
+        {"acknowledged_object_ids": ("obstacle-0", "obstacle-1")},
+    ):
+        facade, _parameter_node, logic, _candidate, _failure, audit_state = (
+            _manual_base_reconciliation_probe(**options)
+        )
+
+        result = facade.reconcileManualBaseAcceptance()
+
+        assert not result.success
+        assert result.code == "manual_base_reconciliation_unacknowledged"
+        assert logic.synced == 1
+        assert audit_state["reads"] == [True, True]
+        assert facade._manual_base_acceptance_uncertain
+        assert not facade._planning_scene_synchronized
+        assert facade._planning_scene_object_count == 0
+        blocked = facade.acceptManualBaseReview()
+        assert not blocked.success and blocked.code == "manual_base_acceptance_unknown"
+
+
+def test_manual_base_reconciliation_keeps_latch_if_accepted_matrix_changes_during_sync():
+    facade, parameter_node, logic, candidate, _failure, _audit_state = (
+        _manual_base_reconciliation_probe()
+    )
+    original_sync = logic.syncStep6MoveItPlanningScene
+
+    def sync_then_change_base(node):
+        count = original_sync(node)
+        changed = _manual_base_test_matrix(1.0)
+        node.robotBaseTransform.SetMatrixTransformToParent(
+            logic._vtkFromNumpyMatrix(
+                [changed[row * 4 : row * 4 + 4] for row in range(4)]
+            )
+        )
+        return count
+
+    logic.syncStep6MoveItPlanningScene = sync_then_change_base
+
+    result = facade.reconcileManualBaseAcceptance()
+
+    assert not result.success
+    assert result.code == "manual_base_reconciliation_stale"
+    assert facade._manual_base_acceptance_uncertain
+    assert facade._manual_base_review["candidateMatrixWorldRasMm"] == candidate
+    assert not facade._planning_scene_synchronized
+    blocked = facade.acceptManualBaseReview()
+    assert not blocked.success and blocked.code == "manual_base_acceptance_unknown"
 
 
 def test_guard_rejection_latches_identity_matched_evaluated_waypoint():
@@ -1584,23 +2010,85 @@ def test_current_state_uses_operator_units_and_ros_si_values():
     assert state.joint_positions_si[ROS2_JOINT_SI_ORDER[1]] == 0.025
 
 
-def test_local_joint_request_updates_fk_through_logic():
-    facade, parameter_node, logic, _bridge = make_facade()
+def test_legacy_joint_request_fails_closed_without_mutating_pose():
+    facade, parameter_node, logic, bridge = make_facade()
+
+    def forbidden_context_access():
+        raise AssertionError("legacy joint request accessed workflow context")
+
+    facade._require_context = forbidden_context_access
     result = facade.requestJointValue(1, 12.5)
-    assert result.success
-    assert parameter_node.robotJoint1Deg == 12.5
-    assert len(logic.updated) == 1
+    assert not result.success
+    assert result.code == "guarded_manual_jog_required"
+    assert parameter_node.robotJoint1Deg == 0.0
+    assert logic.updated == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
 
 
-def test_ros_rejection_restores_last_accepted_operator_values():
-    facade, parameter_node, _logic, bridge = make_facade()
-    parameter_node.robotBaseTransform.active = True
-    parameter_node.robotJoint1Deg = 5.0
-    bridge.reject = True
+def test_legacy_joint_request_preserves_unknown_manual_jog_latch():
+    facade, parameter_node, logic, bridge = make_facade()
+    facade._manual_jog_reconciliation_required = True
+    facade._manual_jog_uncertainty = {"requestId": "unknown-request"}
+
+    def forbidden_context_access():
+        raise AssertionError("unknown-jog latch accessed workflow context")
+
+    facade._require_context = forbidden_context_access
     result = facade.requestJointValue(1, 20.0)
     assert not result.success
-    assert result.code == "joint_rejected"
+    assert result.code == "manual_jog_reconciliation_required"
+    assert result.details["manualJogReconciliationRequired"] is True
+    assert result.details["manualJogStatus"] == "unknown"
+    assert result.details["manualJogUncertainty"] == {"requestId": "unknown-request"}
     assert parameter_node.robotJoint1Deg == 0.0
+    assert logic.updated == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_legacy_joint_request_keeps_external_spindle_exclusion():
+    facade, _parameter_node, logic, bridge = make_facade()
+
+    def forbidden_context_access():
+        raise AssertionError("J6 exclusion accessed workflow context")
+
+    facade._require_context = forbidden_context_access
+    result = facade.requestJointValue(SPINDLE_JOINT_NAME, 20.0)
+    assert not result.success
+    assert result.code == "external_spindle"
+    assert logic.updated == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+
+
+def test_legacy_preview_rejects_generic_plan_before_runtime(monkeypatch):
+    facade, parameter_node, logic, bridge = make_facade()
+    facade._motion_plan = SimpleNamespace(
+        success=True,
+        waypoint_joint_vectors_si=({name: 0.1 for name in ROS2_JOINT_SI_ORDER},),
+    )
+
+    def forbidden_context_access():
+        raise AssertionError("legacy preview accessed workflow context")
+
+    class ForbiddenTimer:
+        def __init__(self):
+            raise AssertionError("legacy preview created a Qt timer")
+
+    monkeypatch.setitem(sys.modules, "qt", SimpleNamespace(QTimer=ForbiddenTimer))
+    facade._require_context = forbidden_context_access
+    finished = []
+    result = facade.previewPlan(on_finished=finished.append)
+
+    assert not result.success
+    assert result.code == "guarded_phase_preview_required"
+    assert finished == []
+    assert facade._preview_timer is None
+    assert parameter_node.robotJoint1Deg == 0.0
+    assert logic.updated == []
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
 
 
 def test_programmatic_display_sync_does_not_publish_or_clear_guard_session():
@@ -1655,15 +2143,6 @@ def test_target_switch_preserves_task_home_and_return_home_state():
     assert facade.returnHomeRequired
     assert not facade.capabilities().planning_scene_synchronized
     assert facade._runtime_validated_workspace_key == ""
-
-
-def test_joint_limit_rejection_does_not_mutate_parameter_node():
-    facade, parameter_node, logic, _bridge = make_facade()
-    result = facade.requestJointValue(1, 45.0)
-    assert not result.success
-    assert result.code == "joint_limit"
-    assert parameter_node.robotJoint1Deg == 0.0
-    assert logic.updated == []
 
 
 def test_independent_moveit_stage_times_are_joined_monotonically():
@@ -1759,6 +2238,197 @@ def test_phase_preview_keeps_one_monotonic_sequence_across_both_goals():
     assert "sequence=self._phase_sequence" in preview
     assert "self._phase_sequence += 1" in preview
     assert "phase_session_consumed" in preview
+
+
+def _complete_approach_preview_fixture():
+    facade, _parameter_node, logic, bridge = make_facade()
+    task_fingerprint = "current-task"
+    session_id = "guard-session"
+    policy_fingerprint = "guard-policy"
+    orientation_fingerprint = "tool-orientation"
+    positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    plan = workflow_facade_module.PhasePlan(
+        success=True,
+        message="complete route",
+        task_fingerprint=task_fingerprint,
+        requested_phase="approach",
+        waypoint_joint_vectors_si=(dict(positions), dict(positions)),
+        waypoint_phases=("approach", "terminal_contact"),
+        strict_waypoint_count=1,
+        contact_waypoint_count=1,
+        source_waypoint_count=2,
+        tool_orientation_fingerprint=orientation_fingerprint,
+    )
+    preflight = SimpleNamespace(
+        success=True,
+        waypoint_joint_vectors_si=(dict(positions), dict(positions)),
+        waypoint_times_sec=(0.0, 1.0),
+        fraction=1.0,
+        coordinate_frame="base_link",
+        start_position_error_mm=0.0,
+        start_orientation_error_deg=0.0,
+        axial_roll_deg=0.0,
+    )
+    last_sequence = (
+        int(bridge.ROS2_TASK_GUARD_INITIAL_SEQUENCE)
+        + plan.source_waypoint_count
+        + len(preflight.waypoint_joint_vectors_si)
+        - 1
+    )
+    snapshot = SimpleNamespace(snapshot_fingerprint=task_fingerprint)
+    home = SimpleNamespace(
+        joint_names=tuple(ROS2_JOINT_SI_ORDER),
+        joint_positions_si=tuple(positions[name] for name in ROS2_JOINT_SI_ORDER),
+    )
+    logic.confirmedTaskFreshnessIssues = lambda _node: ()
+    logic.confirmedTaskRecord = lambda _node: snapshot
+    logic.taskHomeRecord = lambda _node: home
+    bridge.monitored_joint_positions_si = lambda: dict(positions)
+    bridge.current_task_guard_identity = lambda: {
+        "task_fingerprint": task_fingerprint,
+        "guard_session_id": session_id,
+        "collision_scene_policy_fingerprint": policy_fingerprint,
+    }
+    bridge.last_task_joint_status = lambda: SimpleNamespace(
+        task_fingerprint=task_fingerprint,
+        guard_session_id=session_id,
+        phase="drilling",
+        sequence=last_sequence,
+        accepted=True,
+        validate_only=True,
+    )
+    facade._strict_guard_policy_fingerprint = lambda: policy_fingerprint
+    facade._motion_plan = plan
+    facade._phase_guard_task_fingerprint = task_fingerprint
+    facade._phase_guard_session_id = session_id
+    facade._phase_sequence = bridge.ROS2_TASK_GUARD_INITIAL_SEQUENCE
+    facade._preflight_drilling_plan = preflight
+    facade._preflight_task_fingerprint = task_fingerprint
+    facade._preflight_orientation_commitment = {
+        "policy": workflow_facade_module.DRILL_TOOL_FRAME_POLICY,
+        "fingerprint": orientation_fingerprint,
+        "toolAxisRas": (0.0, 0.0, 1.0),
+    }
+    facade._preflight_complete_approach_evidence = {
+        "plan": plan,
+        "taskFingerprint": task_fingerprint,
+        "guardSessionId": session_id,
+        "lastSequence": last_sequence,
+        "policyFingerprint": policy_fingerprint,
+    }
+    return facade, logic, bridge, positions, plan
+
+
+def test_blocked_stage2_and_stage3_approach_plans_cannot_preview():
+    for failed_preflight in (None, SimpleNamespace(
+        success=False, waypoint_joint_vectors_si=({"partial": True},)
+    )):
+        facade, _logic, bridge, _positions, _plan = (
+            _complete_approach_preview_fixture()
+        )
+        facade._preflight_drilling_plan = failed_preflight
+        facade._preflight_task_fingerprint = "current-task"
+        facade._preflight_complete_approach_evidence = None
+
+        result = facade.previewPhase("approach")
+
+        assert not result.success
+        assert result.code == "approach_full_chain_required"
+        assert not facade.drillingPreflightReady
+        assert bridge.phase_calls == []
+
+
+def test_approach_preview_rejects_stale_preflight_identity():
+    facade, _logic, bridge, _positions, _plan = _complete_approach_preview_fixture()
+    facade._preflight_task_fingerprint = "old-task"
+
+    result = facade.previewPhase("approach")
+
+    assert not result.success
+    assert result.code == "approach_full_chain_required"
+    assert not facade.drillingPreflightReady
+    assert bridge.phase_calls == []
+
+
+def test_complete_approach_reaches_existing_home_guard_and_excludes_j6(monkeypatch):
+    facade, _logic, bridge, positions, _plan = _complete_approach_preview_fixture()
+    monitored = dict(positions)
+    monitored[ROS2_JOINT_SI_ORDER[0]] = 0.1
+    bridge.monitored_joint_positions_si = lambda: monitored
+
+    rejected_home = facade.previewPhase("approach")
+
+    assert not rejected_home.success
+    assert rejected_home.code == "guarded_motion_history_home_mismatch"
+    assert facade.drillingPreflightReady
+    assert bridge.phase_calls == []
+
+    monitored = dict(positions)
+    monitored[SPINDLE_JOINT_NAME] = 0.5
+    bridge.monitored_joint_positions_si = lambda: monitored
+    original_import = __import__
+
+    def import_without_qt(name, *args, **kwargs):
+        if name == "qt":
+            raise ImportError("stop after preview authority checks")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", import_without_qt)
+    spindle_only = facade.previewPhase("approach")
+
+    assert not spindle_only.success
+    assert spindle_only.code == "phase_preview_failed"
+    assert "stop after preview authority checks" in spindle_only.message
+    assert bridge.phase_calls == []
+
+
+def test_drilling_preflight_ready_survives_drilling_plan_replacement():
+    facade, _logic, _bridge, _positions, _approach_plan = (
+        _complete_approach_preview_fixture()
+    )
+    parameter_node = facade._require_context()
+    parameter_node.robotBaseTransform.active = True
+    facade._completed_phase = "approach"
+    facade._guide_fit_evidence = lambda _node: {"message": "guide current"}
+
+    result = facade.planDrillingPhase()
+
+    assert result.success and result.code == "drilling_plan_ready"
+    assert facade._motion_plan is result.payload
+    assert result.payload.requested_phase == "drilling"
+    assert facade.drillingPreflightReady
+    assert facade._phase_guard_task_fingerprint == "current-task"
+    assert facade._phase_guard_session_id == "guard-session"
+    assert (
+        facade._preflight_complete_approach_evidence["drillingPlan"]
+        is result.payload
+    )
+
+
+def test_drilling_preview_rejects_unbound_success_looking_plan():
+    facade, _logic, bridge, positions, _approach_plan = (
+        _complete_approach_preview_fixture()
+    )
+    facade._completed_phase = "approach"
+    facade._motion_history_task_fingerprint = "current-task"
+    facade._accepted_motion_history = [
+        {"positions": dict(positions), "phase": "home"}
+    ]
+    facade._motion_plan = workflow_facade_module.PhasePlan(
+        success=True,
+        message="unbound drilling route",
+        task_fingerprint="current-task",
+        requested_phase="drilling",
+        waypoint_joint_vectors_si=(dict(positions),),
+        waypoint_phases=("drilling",),
+        tool_orientation_fingerprint="tool-orientation",
+    )
+
+    result = facade.previewPhase("drilling")
+
+    assert not result.success
+    assert result.code == "drilling_preflight_required"
+    assert bridge.phase_calls == []
 
 
 def test_terminal_and_drilling_keep_dense_cartesian_samples_uncompacted():
@@ -2027,6 +2697,7 @@ def test_shared_endpoint_evaluator_records_clear_scene_and_pose_residuals():
 
 def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
     facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.step6TaskHomeJson = ""
     parameter_node.robotBaseTransform.active = True
     parameter_node.step6PlanningContextImported = True
     parameter_node.step6TrajectoryRegistryJson = json.dumps(
@@ -2036,6 +2707,7 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
     parameter_node.targetToothSegmentId = "tooth-segment"
     parameter_node.step6MotionDiagnosticJson = "preserve-this-record"
     facade._planning_scene_synchronized = True
+    facade._planning_scene_object_count = 1
 
     snapshot = SimpleNamespace(
         snapshot_fingerprint="task-a",
@@ -2046,7 +2718,13 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
         trajectory_revision="trajectory-a",
         robot_profile_fingerprint="robot-a",
     )
-    audit = SimpleNamespace(runtime_acknowledgement={"status": "Acknowledged"})
+    audit = SimpleNamespace(
+        status="Acknowledged",
+        runtime_acknowledgement={
+            "status": "Acknowledged",
+            "acknowledged_object_ids": ["jaw"],
+        },
+    )
     home = SimpleNamespace(to_dict=lambda: {"home": "home-a"})
     logic.step6AnatomyReviewFreshnessIssues = lambda _node: ()
     logic.step6CaseJawOpeningFreshnessIssues = lambda _node: ()
@@ -2058,6 +2736,26 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
     logic.step6TrajectoryRevision = lambda _node: "trajectory-a"
     logic.robotBaseFingerprint = lambda _node: "base-a"
     logic.step6TaskLimitsFingerprint = lambda _node: "limits-a"
+    logic.assistedTaskLimitsReviewed = lambda _node: True
+    def joint_limits(joint_1_min=-30.0, joint_1_max=30.0):
+        pair = lambda low, high: SimpleNamespace(minimum=low, maximum=high)
+        return SimpleNamespace(
+            joint_1=pair(joint_1_min, joint_1_max),
+            joint_2=pair(0.0, 80.0),
+            joint_3=pair(-90.0, 90.0),
+            joint_4=pair(0.0, 75.0),
+            joint_5=pair(-90.0, 90.0),
+            joint_6=pair(-360.0, 360.0),
+        )
+
+    logic.robotDescriptionPaths = lambda: ("fixture.urdf", None)
+    logic.getTaskJointLimits = lambda _node: joint_limits()
+    mechanical_limits = joint_limits()
+    monkeypatch.setattr(
+        workflow_facade_module,
+        "default_task_joint_limits_from_urdf",
+        lambda _path: mechanical_limits,
+    )
     logic.robotProfileFingerprint = lambda: "robot-a"
     logic.evaluatePreparedBranchEligibility = (
         lambda _node, _branch_id, *, registry: {"eligible": True}
@@ -2124,10 +2822,31 @@ def _manual_endpoint_probe(monkeypatch, *, identity_changes=False):
     return facade, parameter_node, logic, bridge, checked_positions, fk_positions
 
 
+def _set_manual_test_home(parameter_node, logic, payload):
+    parameter_node.step6TaskHomeJson = "" if payload is None else json.dumps(payload)
+    home = (
+        None
+        if payload is None
+        else SimpleNamespace(
+            base_fingerprint=payload["base_fingerprint"],
+            to_dict=lambda: payload,
+        )
+    )
+    logic.taskHomeRecord = lambda _node: home
+    logic.taskHomeFreshnessIssues = lambda _node: (
+        ("Save a case/base-specific Task Home.",)
+        if home is None
+        else ("Task Home belongs to a different base pose.",)
+        if home.base_fingerprint != "base-a"
+        else ()
+    )
+    return home
+
+
 def test_manual_draft_state_evaluates_supplied_vector_read_only(monkeypatch):
     facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
     request = dict(
-        zip(ROS2_JOINT_SI_ORDER, (0.6, 0.001, 0.02, 0.002, 0.03))
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
     )
     accepted_before = dict(bridge.accepted)
     state_reads = []
@@ -2153,6 +2872,10 @@ def test_manual_draft_state_evaluates_supplied_vector_read_only(monkeypatch):
     assert evaluation["input_joint_positions_si"] == request
     assert evaluation["input_joint_positions_si_after"] is None
     assert evaluation["requestedJointPositionsSi"] == request
+    assert evaluation["draftWithinCommandLimits"] is True
+    assert evaluation["limitAssessmentAuthoritative"] is True
+    assert result.details["draftWithinCommandLimits"] is True
+    assert result.details["limitMargins"] == evaluation["limitMargins"]
     assert evaluation["status"] == "passed"
     assert evaluation["target_endpoint_status"] == "failed"
     assert evaluation["identity_status"] == "current"
@@ -2179,6 +2902,147 @@ def test_manual_draft_state_evaluates_supplied_vector_read_only(monkeypatch):
     assert facade._accepted_motion_history == history_before
 
 
+def test_manual_draft_reports_reviewed_joint_limit_before_static_or_fk(monkeypatch):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    task_limits = SimpleNamespace(
+        joint_1=SimpleNamespace(minimum=-0.2, maximum=0.2),
+        joint_2=SimpleNamespace(minimum=0.0, maximum=80.0),
+        joint_3=SimpleNamespace(minimum=-90.0, maximum=90.0),
+        joint_4=SimpleNamespace(minimum=0.0, maximum=75.0),
+        joint_5=SimpleNamespace(minimum=-90.0, maximum=90.0),
+        joint_6=SimpleNamespace(minimum=-360.0, maximum=360.0),
+    )
+    logic.getTaskJointLimits = lambda _node: task_limits
+    request = dict(zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03)))
+    accepted_before = dict(bridge.accepted)
+    diagnostic_before = _node.step6MotionDiagnosticJson
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    endpoint = evaluation["endpoint_evaluation"]
+    assert not result.success and result.code == "manual_draft_state_invalid"
+    assert result.details["draftWithinCommandLimits"] is False
+    assert result.details["limitAssessmentAuthoritative"] is True
+    assert evaluation["draftWithinCommandLimits"] is False
+    assert evaluation["status"] == "failed"
+    assert evaluation["identity_status"] == "current"
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert endpoint["status"] == "not_reached"
+    assert endpoint["static_state_validity"]["status"] == "not_reached"
+    assert endpoint["static_state_validity"]["authoritative"] is False
+    assert endpoint["fk"]["status"] == "not_reached"
+    assert len(result.details["limitViolations"]) == 1
+    violation = result.details["limitViolations"][0]
+    assert violation["jointLabel"] == "J1"
+    assert violation["jointName"] == ROS2_JOINT_SI_ORDER[0]
+    assert violation["limitSource"] == "reviewed_task"
+    assert violation["bound"] == "maximum"
+    assert violation["boundDisplayValue"] == 0.2
+    assert violation["unit"] == "deg"
+    assert abs(violation["candidateDisplayValue"] - 0.5729577951308232) < 1.0e-12
+    assert abs(violation["margin"] + 0.3729577951308232) < 1.0e-12
+    assert "J1" in result.message and "reviewed_task maximum bound 0.2 deg" in result.message
+    assert checked == [] and fk == []
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+    assert logic.updated == []
+    assert _node.step6MotionDiagnosticJson == diagnostic_before
+
+
+def test_manual_draft_reports_mechanical_limit_before_static_or_fk(monkeypatch):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    reviewed_limits = SimpleNamespace(
+        joint_1=SimpleNamespace(minimum=-40.0, maximum=40.0),
+        joint_2=SimpleNamespace(minimum=0.0, maximum=80.0),
+        joint_3=SimpleNamespace(minimum=-90.0, maximum=90.0),
+        joint_4=SimpleNamespace(minimum=0.0, maximum=75.0),
+        joint_5=SimpleNamespace(minimum=-90.0, maximum=90.0),
+        joint_6=SimpleNamespace(minimum=-360.0, maximum=360.0),
+    )
+    logic.getTaskJointLimits = lambda _node: reviewed_limits
+    request = dict(zip(ROS2_JOINT_SI_ORDER, (0.6, 0.001, 0.02, 0.002, 0.03)))
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success
+    assert result.details["draftWithinCommandLimits"] is False
+    assert result.details["limitViolations"][0]["limitSource"] == "mechanical"
+    assert result.details["limitViolations"][0]["bound"] == "maximum"
+    assert result.details["limitViolations"][0]["boundDisplayValue"] == 30.0
+    assert evaluation["endpoint_evaluation"]["static_state_validity"]["status"] == "not_reached"
+    assert checked == [] and fk == []
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+    assert logic.updated == []
+
+
+def test_manual_draft_limit_inputs_unavailable_are_unknown_before_static_or_fk(
+    monkeypatch,
+):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    request = dict(zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03)))
+    accepted_before = dict(bridge.accepted)
+    current_task_limits = logic.getTaskJointLimits
+    current_mechanical_limits = workflow_facade_module.default_task_joint_limits_from_urdf
+
+    for missing_source in ("reviewed_task", "mechanical"):
+        logic.getTaskJointLimits = (
+            (lambda _node: None)
+            if missing_source == "reviewed_task"
+            else current_task_limits
+        )
+        monkeypatch.setattr(
+            workflow_facade_module,
+            "default_task_joint_limits_from_urdf",
+            (lambda _path: None)
+            if missing_source == "mechanical"
+            else current_mechanical_limits,
+        )
+        result = facade.checkManualRobotDraftState(request)
+
+        evaluation = result.details["manual_state_evaluation"]
+        assert not result.success
+        assert result.code == "manual_draft_evaluation_incomplete"
+        assert evaluation["status"] == "unknown"
+        assert evaluation["identity_status"] == "current"
+        assert evaluation["target_endpoint_status"] == "not_reached"
+        assert evaluation["draftWithinCommandLimits"] is None
+        assert result.details["draftWithinCommandLimits"] is None
+        assert evaluation["endpoint_evaluation"]["static_state_validity"]["status"] == "not_reached"
+        assert checked == [] and fk == []
+        assert bridge.accepted == accepted_before
+        assert bridge.applied == [] and bridge.phase_calls == []
+
+
+def test_manual_draft_identity_unavailable_is_unknown_before_limit_or_static_check(
+    monkeypatch,
+):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    facade._manual_jog_current_identity = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        RuntimeError("identity unknown")
+    )
+    limit_calls = []
+    logic.getTaskJointLimits = lambda _node: limit_calls.append(True)
+    request = dict(zip(ROS2_JOINT_SI_ORDER, (0.6, 0.001, 0.02, 0.002, 0.03)))
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success and result.code == "manual_draft_evaluation_incomplete"
+    assert evaluation["status"] == "unknown"
+    assert evaluation["identity_status"] == "unknown"
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert result.details["draftWithinCommandLimits"] is None
+    assert limit_calls == []
+    assert checked == [] and fk == []
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+
+
 def test_manual_draft_state_suppresses_evidence_when_identity_becomes_stale(
     monkeypatch,
 ):
@@ -2194,17 +3058,295 @@ def test_manual_draft_state_suppresses_evidence_when_identity_becomes_stale(
 
     evaluation = result.details["manual_state_evaluation"]
     assert not result.success
-    assert evaluation["stale"] is True
-    assert evaluation["identity_status"] == "stale"
+    assert evaluation["stale"] is None
+    assert evaluation["identity_status"] == "unknown"
     assert evaluation["input_status"] == "captured_review"
     assert evaluation["status"] == "unknown"
-    assert evaluation["target_endpoint_status"] == "unknown"
-    assert evaluation["endpoint_evaluation"]["static_state_validity"]["status"] == "passed"
-    assert len(checked) == len(fk) == 1
-    assert checked[0] == fk[0][0] == request
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert evaluation["endpoint_evaluation"]["static_state_validity"]["status"] == "not_reached"
+    assert checked == fk == []
     assert bridge.accepted == accepted_before
     assert bridge.applied == []
     assert bridge.phase_calls == []
+
+
+def test_taskless_manual_draft_uses_authoritative_static_review_only(monkeypatch):
+    facade, parameter_node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    _set_manual_test_home(
+        parameter_node,
+        logic,
+        {"base_fingerprint": "base-old", "joint_positions_si": [0.0] * 5},
+    )
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+    events_before = list(facade._manual_simulation_events)
+    history_before = list(facade._accepted_motion_history)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    identity = evaluation["identity_before"]
+    endpoint = evaluation["endpoint_evaluation"]
+    assert result.success and result.code == "manual_draft_evaluated"
+    assert evaluation["status"] == "passed"
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert evaluation["identity_status"] == "current"
+    assert identity["branch_id"] == "branch-a"
+    assert identity["task"].startswith("unconfirmed:")
+    assert identity["base"] == "base-a"
+    assert identity["home"].startswith("unconfirmed_home:")
+    assert identity["trajectory"] == "trajectory-a"
+    assert identity["robot_profile"] == "robot-a"
+    assert identity["collision_audit"] == "scene-a"
+    assert identity["limits"] == "limits-a"
+    assert endpoint["static_state_validity"] == {
+        "status": "passed",
+        "authoritative": True,
+        "message": "static state clear",
+    }
+    assert evaluation["target_ras_mm"] is None
+    assert endpoint["position_residual_mm"] is None
+    assert endpoint["drilling_axis_residual_deg"] is None
+    assert checked == [request]
+    assert fk[0][0] == request
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert logic.updated == []
+    assert facade._manual_simulation_events == events_before
+    assert facade._accepted_motion_history == history_before
+    assert not parameter_node.robotBaseMountLocked
+
+
+def test_taskless_manual_draft_rejects_authoritative_static_failure(monkeypatch):
+    facade, parameter_node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    _set_manual_test_home(parameter_node, logic, None)
+    bridge.check_moveit_static_joint_state = lambda positions: (
+        checked.append(dict(positions)) or (False, "static collision", True)
+    )
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    endpoint = evaluation["endpoint_evaluation"]
+    assert not result.success and result.code == "manual_draft_state_invalid"
+    assert evaluation["status"] == "failed"
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert evaluation["identity_before"]["home"].startswith("unconfirmed_home:")
+    assert evaluation["identity_status"] == "current"
+    assert endpoint["static_state_validity"] == {
+        "status": "failed",
+        "authoritative": True,
+        "message": "static collision",
+    }
+    assert "static collision" in result.message
+    assert "FK was not reached" in result.message
+    assert checked == [request]
+    assert fk == []
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert logic.updated == []
+
+
+def test_taskless_manual_draft_passes_without_a_home_record(monkeypatch):
+    facade, parameter_node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    _set_manual_test_home(parameter_node, logic, None)
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert result.success and result.details["authoritative"] is True
+    assert evaluation["identity_before"]["home"].startswith("unconfirmed_home:")
+    assert evaluation["status"] == "passed"
+    assert evaluation["target_endpoint_status"] == "not_reached"
+    assert evaluation["endpoint_evaluation"]["static_state_validity"]["authoritative"]
+    assert checked == [request] and fk[0][0] == request
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == [] and logic.updated == []
+
+
+def test_taskless_manual_draft_becomes_unknown_when_home_is_created_during_query(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    _set_manual_test_home(parameter_node, logic, None)
+    original_static_check = bridge.check_moveit_static_joint_state
+
+    def check_then_create_home(positions):
+        result = original_static_check(positions)
+        _set_manual_test_home(
+            parameter_node,
+            logic,
+            {"base_fingerprint": "base-a", "joint_positions_si": [0.1] * 5},
+        )
+        return result
+
+    bridge.check_moveit_static_joint_state = check_then_create_home
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success
+    assert evaluation["identity_before"]["home"].startswith("unconfirmed_home:")
+    assert evaluation["identity_after"]["home"].startswith("unconfirmed_home:")
+    assert evaluation["identity_before"]["home"] != evaluation["identity_after"]["home"]
+    assert evaluation["stale"] is True and evaluation["identity_status"] == "stale"
+    assert evaluation["status"] == "unknown"
+    assert evaluation["target_endpoint_status"] == "unknown"
+    assert evaluation["endpoint_evaluation"]["static_state_validity"] == {
+        "status": "passed",
+        "authoritative": True,
+        "message": "static state clear",
+    }
+    assert checked == [request] and fk[0][0] == request
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+
+
+def test_confirmed_manual_draft_and_jog_still_require_fresh_home(monkeypatch):
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    for payload in (
+        {"base_fingerprint": "base-old", "joint_positions_si": [0.0] * 5},
+        None,
+    ):
+        facade, parameter_node, logic, bridge, checked, fk = _manual_endpoint_probe(
+            monkeypatch
+        )
+        _set_manual_test_home(parameter_node, logic, payload)
+        draft = facade.checkManualRobotDraftState(request)
+        evaluation = draft.details["manual_state_evaluation"]
+        assert not draft.success
+        if payload is None:
+            assert draft.code == "manual_draft_evaluation_incomplete"
+            assert "Task Home" in evaluation["reason"]
+            assert evaluation["status"] == "unknown"
+            assert evaluation["identity_status"] == "unknown"
+            assert evaluation["target_endpoint_status"] == "not_reached"
+        else:
+            assert evaluation["status"] == "unknown"
+            assert evaluation["identity_status"] == "unknown"
+            assert evaluation["target_endpoint_status"] == "not_reached"
+        assert evaluation["endpoint_evaluation"]["static_state_validity"][
+            "status"
+        ] == "not_reached"
+        assert checked == [] and fk == [] and bridge.applied == []
+
+        facade, parameter_node, logic, bridge, request, *_rest = _manual_jog_probe(
+            monkeypatch
+        )
+        _set_manual_test_home(parameter_node, logic, payload)
+        jog = facade.guardManualRobotJog(request)
+        assert not jog.success
+        assert jog.details["guardAccepted"] is None
+        assert jog.details["identityStatus"] == "unknown"
+        assert jog.details["manualJogStatus"] == "unknown"
+        assert bridge.raw_requests == [] and bridge.accepted != request
+
+
+def test_taskless_manual_draft_becomes_unknown_when_limits_identity_changes(
+    monkeypatch,
+):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    limits_identity = ["limits-a"]
+    logic.step6TaskLimitsFingerprint = lambda _node: limits_identity[0]
+    original_static_check = bridge.check_moveit_static_joint_state
+
+    def check_then_change_identity(positions):
+        result = original_static_check(positions)
+        limits_identity[0] = "limits-b"
+        return result
+
+    bridge.check_moveit_static_joint_state = check_then_change_identity
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success
+    assert evaluation["stale"] is True
+    assert evaluation["identity_status"] == "stale"
+    assert evaluation["status"] == "unknown"
+    assert evaluation["target_endpoint_status"] == "unknown"
+    assert evaluation["identity_before"] != evaluation["identity_after"]
+    assert checked == [request]
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert logic.updated == []
+
+
+def test_taskless_manual_draft_discards_attribution_if_task_appears_during_query(
+    monkeypatch,
+):
+    facade, _node, logic, bridge, checked, fk = _manual_endpoint_probe(monkeypatch)
+    task = SimpleNamespace(
+        snapshot_fingerprint="task-a",
+        entry_ras_mm=(0.0, 0.0, 0.0),
+        target_ras_mm=(0.0, 0.0, 10.0),
+        base_fingerprint="base-a",
+        home_fingerprint="home-a",
+        trajectory_revision="trajectory-a",
+        robot_profile_fingerprint="robot-a",
+    )
+    current_task = [None]
+    logic.confirmedTaskRecord = lambda _node: current_task[0]
+    original_static_check = bridge.check_moveit_static_joint_state
+
+    def check_then_confirm_task(positions):
+        result = original_static_check(positions)
+        current_task[0] = task
+        return result
+
+    bridge.check_moveit_static_joint_state = check_then_confirm_task
+    request = dict(
+        zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
+    )
+    accepted_before = dict(bridge.accepted)
+    events_before = list(facade._manual_simulation_events)
+    history_before = list(facade._accepted_motion_history)
+
+    result = facade.checkManualRobotDraftState(request)
+
+    evaluation = result.details["manual_state_evaluation"]
+    assert not result.success
+    assert evaluation["identity_before"]["task"].startswith("unconfirmed:")
+    assert evaluation["identity_after"]["task"] == "task-a"
+    assert evaluation["stale"] is True
+    assert evaluation["identity_status"] == "stale"
+    assert evaluation["status"] == "unknown"
+    assert evaluation["target_endpoint_status"] == "unknown"
+    assert checked == [request]
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == []
+    assert bridge.phase_calls == []
+    assert logic.updated == []
+    assert facade._manual_simulation_events == events_before
+    assert facade._accepted_motion_history == history_before
 
 
 def test_manual_draft_static_rejection_is_not_reported_as_success(monkeypatch):
@@ -2434,6 +3576,7 @@ def test_collision_guard_uses_group_joint_count_and_supports_validate_only():
 
 def _manual_jog_probe(monkeypatch):
     facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.step6TaskHomeJson = ""
     parameter_node.robotBaseTransform.active = True
     parameter_node.step6PlanningContextImported = True
     parameter_node.step6TrajectoryRegistryJson = json.dumps(
@@ -2459,6 +3602,7 @@ def _manual_jog_probe(monkeypatch):
     home = SimpleNamespace(to_dict=lambda: {"home": "home-a"})
     logic.confirmedTaskRecord = lambda _node: snapshot
     logic.taskHomeRecord = lambda _node: home
+    logic.taskHomeFreshnessIssues = lambda _node: ()
     logic.collisionSceneAuditRecord = lambda _node: audit
     logic.robotBaseFingerprint = lambda _node: "base-a"
     logic.robotProfileFingerprint = lambda: "robot-a"
@@ -2468,7 +3612,9 @@ def _manual_jog_probe(monkeypatch):
         lambda *_args, **_kwargs: {"eligible": True}
     )
     logic.robotDescriptionPaths = lambda: ("fake.urdf", "fake-root")
-    facade._step6_read_only_freshness_issues = lambda _node: ()
+    facade._step6_read_only_freshness_issues = lambda _node, *, include_home=True: (
+        logic.taskHomeFreshnessIssues(_node) if include_home else ()
+    )
     monkeypatch.setattr(
         workflow_facade_module,
         "task_snapshot_invalidation_reasons",
@@ -2541,6 +3687,7 @@ def _manual_jog_probe(monkeypatch):
     bridge.query_session_id = None
     bridge.query_policy_id = None
     bridge.query_object_ids = None
+    bridge.query_static_valid = False
     bridge.query_monitor_matches = True
     bridge.query_commit_fails = False
     bridge.query_commit_calls = []
@@ -2579,7 +3726,9 @@ def _manual_jog_probe(monkeypatch):
         echo = {name: float(echo[name]) for name in ROS2_JOINT_SI_ORDER}
         bridge.query_requests.append((echo, request_id, session_id))
         accepted = bridge.query_accepted or bridge.accepted
-        status = raw_status(False, echo, accepted, "static collision")
+        status = raw_status(
+            bridge.query_static_valid, echo, accepted, "static collision"
+        )
         ids = bridge.query_object_ids or ["jaw", "tooth"]
         status_values = dict(status.__dict__)
         status_values.update(
@@ -2614,6 +3763,444 @@ def _manual_jog_probe(monkeypatch):
         zip(ROS2_JOINT_SI_ORDER, (0.01, 0.001, 0.02, 0.002, 0.03))
     )
     return facade, parameter_node, logic, bridge, request, limits, task, mechanical
+
+
+def _manual_task_home_review_probe(monkeypatch):
+    facade, parameter_node, logic, bridge, *_rest = _manual_jog_probe(monkeypatch)
+    return facade, parameter_node, logic, bridge
+
+
+def _manual_task_home_candidate(values=(0.01, 0.001, 0.02, 0.002, 0.03)):
+    return dict(zip(ROS2_JOINT_SI_ORDER, values))
+
+
+def test_detached_task_home_review_stage_and_cancel_do_not_mutate_accepted_state(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    accepted_before = dict(bridge.accepted)
+    applied_before = list(bridge.applied)
+    updated_before = list(logic.updated)
+    home_json_before = parameter_node.step6TaskHomeJson
+
+    staged = facade.stageManualTaskHomeReview(candidate)
+
+    assert staged.success and staged.code == "manual_task_home_review_staged"
+    assert staged.details["staged"]
+    assert staged.details["candidateJointPositionsSi"] == candidate
+    assert staged.details["acceptedJointPositionsSi"] == accepted_before
+    assert staged.details["identityStatus"] == "current"
+    assert staged.details["acceptanceStatus"] == "review"
+    assert bridge.accepted == accepted_before and bridge.applied == applied_before
+    assert bridge.manual_requests == [] and bridge.phase_calls == []
+    assert logic.updated == updated_before and logic.synced == 0
+    assert parameter_node.step6TaskHomeJson == home_json_before
+
+    state = facade.manualTaskHomeReview()
+    assert state.success and state.details["candidateJointPositionsSi"] == candidate
+    cancelled = facade.cancelManualTaskHomeReview()
+    assert cancelled.success and not cancelled.details["staged"]
+    assert cancelled.details["candidateJointPositionsSi"] is None
+    assert cancelled.details["acceptedJointPositionsSi"] == accepted_before
+    assert bridge.accepted == accepted_before and bridge.applied == applied_before
+    assert bridge.manual_requests == [] and bridge.phase_calls == []
+    assert logic.updated == updated_before and logic.synced == 0
+    assert parameter_node.step6TaskHomeJson == home_json_before
+
+
+def test_detached_task_home_review_rejects_j6_and_nonfinite_values(monkeypatch):
+    facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    results = (
+        facade.stageManualTaskHomeReview({**candidate, "joint_6": 0.0}),
+        facade.stageManualTaskHomeReview(tuple(candidate.values()) + (0.0,)),
+        facade.stageManualTaskHomeReview(
+            {**candidate, ROS2_JOINT_SI_ORDER[0]: float("nan")}
+        ),
+    )
+
+    assert all(not result.success for result in results)
+    assert all(result.code == "manual_task_home_review_rejected" for result in results)
+    assert all("J1–J5" in result.message for result in results)
+    assert facade.manualTaskHomeReview().details["staged"] is False
+    assert bridge.accepted == {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_detached_task_home_review_retains_candidate_when_identity_goes_stale(
+    monkeypatch,
+):
+    facade, _node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    logic.step6TaskLimitsFingerprint = lambda _node: "limits-changed"
+    facade.saveTaskHome = lambda: (_ for _ in ()).throw(
+        AssertionError("stale candidate reached the Home owner")
+    )
+
+    state = facade.manualTaskHomeReview()
+    result = facade.acceptManualTaskHomeReview()
+
+    assert not state.success and state.details["identityStatus"] == "stale"
+    assert not result.success and result.code == "manual_task_home_review_stale"
+    assert result.details["identityStatus"] == "stale"
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert result.details["staged"]
+    assert bridge.accepted == {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_task_home_accept_rejects_candidate_different_from_accepted_pose(monkeypatch):
+    facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    facade.saveTaskHome = lambda: (_ for _ in ()).throw(
+        AssertionError("a noncurrent candidate reached the Home owner")
+    )
+
+    result = facade.acceptManualTaskHomeReview()
+
+    assert not result.success and result.code == "manual_task_home_review_rejected"
+    assert "separately guarded individual jog first" in result.message
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert result.details["acceptedJointPositionsSi"] == bridge.accepted
+    assert result.details["acceptanceStatus"] == "rejected"
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_task_home_accept_blocks_unresolved_manual_jog(monkeypatch):
+    facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert facade.stageManualTaskHomeReview(candidate).success
+    facade._manual_jog_reconciliation_required = True
+    facade.saveTaskHome = lambda: (_ for _ in ()).throw(
+        AssertionError("unresolved manual jog reached the Home owner")
+    )
+
+    result = facade.acceptManualTaskHomeReview()
+
+    assert not result.success and result.details["acceptanceStatus"] == "rejected"
+    assert result.details["staged"]
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_task_home_accept_requires_monitored_and_displayed_pose_match(monkeypatch):
+    for mismatch in ("monitored", "displayed"):
+        facade, parameter_node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+        candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+        assert facade.stageManualTaskHomeReview(candidate).success
+        if mismatch == "monitored":
+            bridge.monitored_joint_positions_si = lambda: {
+                name: 0.1 if name == ROS2_JOINT_SI_ORDER[0] else 0.0
+                for name in ROS2_JOINT_SI_ORDER
+            }
+        else:
+            parameter_node.robotJoint1Deg = 1.0
+        facade.saveTaskHome = lambda: (_ for _ in ()).throw(
+            AssertionError("a nonmatching state reached the Home owner")
+        )
+
+        result = facade.acceptManualTaskHomeReview()
+
+        assert not result.success and result.code == "manual_task_home_review_rejected"
+        assert result.details["acceptanceStatus"] == "rejected"
+        assert result.details["staged"] and result.details["candidateJointPositionsSi"] == candidate
+        assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_task_home_review_clears_only_after_owner_acknowledges_save(monkeypatch):
+    facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert facade.stageManualTaskHomeReview(candidate).success
+    owner_results = [
+        RobotActionResult(False, "task_home_state_invalid", "validation unavailable"),
+        RobotActionResult(True, "task_home_saved", "owner saved Home", details={"revision": 8}),
+    ]
+    calls = []
+
+    def save_home():
+        calls.append(True)
+        return owner_results.pop(0)
+
+    facade.saveTaskHome = save_home
+    rejected = facade.acceptManualTaskHomeReview()
+    assert not rejected.success and rejected.details["staged"]
+    assert rejected.details["candidateJointPositionsSi"] == candidate
+    assert rejected.details["acceptanceStatus"] == "rejected"
+    assert rejected.details["failureEvidence"]["code"] == "task_home_state_invalid"
+
+    accepted = facade.acceptManualTaskHomeReview()
+
+    assert accepted.success and accepted.code == "manual_task_home_review_accepted"
+    assert len(calls) == 2
+    assert accepted.details["acceptanceStatus"] == "accepted"
+    assert not accepted.details["staged"]
+    assert accepted.details["candidateJointPositionsSi"] is None
+    assert accepted.details["acceptedJointPositionsSi"] == candidate
+    assert accepted.details["homeAcceptanceResult"]["code"] == "task_home_saved"
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_task_home_review_retains_candidate_on_owner_exception_without_commit(
+    monkeypatch,
+):
+    facade, _node, _logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert facade.stageManualTaskHomeReview(candidate).success
+    facade.saveTaskHome = lambda: (_ for _ in ()).throw(RuntimeError("precommit failure"))
+
+    result = facade.acceptManualTaskHomeReview()
+
+    assert not result.success and result.code == "manual_task_home_review_rejected"
+    assert result.details["staged"]
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert result.details["acceptanceStatus"] == "rejected"
+    assert result.details["failureEvidence"]["code"] == "task_home_failed"
+    assert bridge.accepted == candidate and bridge.applied == []
+
+
+def test_task_home_review_latches_uncertain_owner_commit(monkeypatch):
+    facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    logic.confirmedTaskRecord = lambda _node: None
+    logic.assistedTaskLimitsReviewed = lambda _node: True
+    candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert facade.stageManualTaskHomeReview(candidate).success
+    calls = []
+
+    def save_home_then_raise():
+        calls.append(True)
+        parameter_node.step6TaskHomeJson = "new-home-record"
+        raise RuntimeError("postcommit reporting failed")
+
+    facade.saveTaskHome = save_home_then_raise
+    result = facade.acceptManualTaskHomeReview()
+    blocked_retry = facade.acceptManualTaskHomeReview()
+
+    assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+    assert result.details["staged"]
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert result.details["acceptanceStatus"] == "unknown"
+    assert result.details["acceptanceUncertainty"]
+    assert not blocked_retry.success
+    assert blocked_retry.code == "manual_task_home_acceptance_unknown"
+    assert blocked_retry.details["staged"] and len(calls) == 1
+    blocked_cancel = facade.cancelManualTaskHomeReview()
+    assert not blocked_cancel.success
+    assert blocked_cancel.code == "manual_task_home_acceptance_unknown"
+    assert blocked_cancel.details["staged"]
+    assert blocked_cancel.details["candidateJointPositionsSi"] == candidate
+    assert blocked_cancel.details["acceptanceStatus"] == "unknown"
+    assert blocked_cancel.details["failureEvidence"]["homeIdentityBefore"] != (
+        blocked_cancel.details["failureEvidence"]["homeIdentityAfter"]
+    )
+    assert bridge.accepted == candidate and bridge.applied == []
+
+
+def _uncertain_committed_task_home_review(monkeypatch):
+    facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    candidate = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    facade._strict_guard_policy_fingerprint = lambda: "guard-current"
+    logic.confirmedTaskRecord = lambda _node: None
+    logic.assistedTaskLimitsReviewed = lambda _node: True
+    audit = SimpleNamespace(
+        status="Acknowledged",
+        audit_fingerprint="audit-current",
+        runtime_acknowledgement={
+            "status": "Acknowledged",
+            "acknowledged_object_ids": ["jaw", "tooth"],
+        },
+    )
+    logic.collisionSceneAuditRecord = lambda _node: audit
+    previous_home = SimpleNamespace(revision=13, to_dict=lambda: {"revision": 13})
+    parameter_node.step6TaskHomeJson = '{"revision":13}'
+    logic.taskHomeRecord = lambda _node: previous_home
+    home_payload = {
+        "revision": 14,
+        "joint_names": list(ROS2_JOINT_SI_ORDER),
+        "joint_positions_si": [0.0] * len(ROS2_JOINT_SI_ORDER),
+        "base_fingerprint": "base-a",
+        "robot_profile_fingerprint": "robot-a",
+        "runtime_validation_status": "Validated",
+        "collision_audit_fingerprint": "audit-current",
+        "guard_policy_fingerprint": "guard-current",
+        "minimum_clearance_mm": 1.0,
+        "world_object_count": 2,
+    }
+    current_home = SimpleNamespace(
+        revision=14,
+        joint_names=tuple(ROS2_JOINT_SI_ORDER),
+        joint_positions_si=tuple(candidate[name] for name in ROS2_JOINT_SI_ORDER),
+        base_fingerprint="base-a",
+        robot_profile_fingerprint="robot-a",
+        runtime_validation_status="Validated",
+        collision_audit_fingerprint="audit-current",
+        guard_policy_fingerprint="guard-current",
+        minimum_clearance_mm=1.0,
+        world_object_count=2,
+        to_dict=lambda: dict(home_payload),
+    )
+    saves = []
+
+    def save_home_then_raise():
+        saves.append(True)
+        parameter_node.step6TaskHomeJson = json.dumps(home_payload, sort_keys=True)
+        logic.taskHomeRecord = lambda _node: current_home
+        raise RuntimeError("post-save report failed")
+
+    facade.saveTaskHome = save_home_then_raise
+    assert facade.stageManualTaskHomeReview(candidate).success
+    result = facade.acceptManualTaskHomeReview()
+    assert not result.success
+    assert result.code == "manual_task_home_acceptance_unknown"
+    assert len(saves) == 1
+    return facade, parameter_node, logic, bridge, candidate, current_home, saves
+
+
+def test_home_reconciliation_accepts_exact_committed_native_state_without_second_save_or_motion(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge, candidate, current_home, saves = (
+        _uncertain_committed_task_home_review(monkeypatch)
+    )
+    bridge.query_static_valid = True
+    bridge.query_accepted = dict(candidate)
+    freeze = facade._manual_task_home_review_failure["reconciliationFreeze"]
+    assert freeze["homeBefore"]["revision"] == 13
+    assert freeze["expectedRevision"] == 14
+    assert freeze["candidateJointPositionsSi"] == candidate
+    assert set(freeze["nonHomeIdentity"]) == {
+        "branch_id", "base", "trajectory", "robot_profile", "collision_audit", "limits"
+    }
+    del facade.saveTaskHome
+    native_query = bridge.query_manual_joint_state_si
+    reentrant_results = []
+
+    def query_while_locked(positions, request_id, session_id):
+        reentrant_results.extend(
+            (
+                facade.saveTaskHome(),
+                facade.guardManualRobotJog(candidate),
+                facade.applyTaskHome(),
+                facade.planApproachPhase(),
+                facade.planDrillingPhase(),
+                facade.previewPhase("approach"),
+            )
+        )
+        return native_query(positions, request_id, session_id)
+
+    bridge.query_manual_joint_state_si = query_while_locked
+    applied_before = list(bridge.applied)
+    requests_before = list(bridge.manual_requests)
+    phases_before = list(bridge.phase_calls)
+    updated_before = list(logic.updated)
+
+    result = facade.reconcileManualTaskHomeAcceptance()
+
+    request_id, session_id = bridge.query_requests[0][1:]
+    assert result.success and result.code == "manual_task_home_reconciled"
+    assert result.details["acceptanceStatus"] == "reconciled"
+    assert not result.details["staged"]
+    assert result.details["candidateJointPositionsSi"] is None
+    assert result.details["acceptedJointPositionsSi"] == candidate
+    assert result.details["homeRevision"] == 14
+    assert result.details["nativeGuardEvidence"]["operation"] == "state_query"
+    assert result.details["nativeGuardEvidence"]["queryOnly"] is True
+    assert result.details["nativeGuardEvidence"]["staticStateValid"] is True
+    assert result.details["nativeGuardEvidence"]["requestId"] == request_id
+    assert result.details["nativeGuardEvidence"]["sessionId"] == session_id
+    assert request_id and session_id and request_id != session_id
+    assert bridge.query_commit_calls and len(bridge.query_commit_calls) == 1
+    assert len(saves) == 1
+    assert len(reentrant_results) == 6
+    assert all(not action.success for action in reentrant_results)
+    assert all(action.code == "manual_task_home_review_busy" for action in reentrant_results)
+    assert bridge.applied == applied_before
+    assert bridge.manual_requests == requests_before
+    assert bridge.phase_calls == phases_before
+    assert logic.updated == updated_before
+    assert parameter_node.step6TaskHomeJson == json.dumps(
+        current_home.to_dict(), sort_keys=True
+    )
+    assert facade._runtime_validated_task_home_key == facade._task_home_runtime_key(
+        current_home
+    )
+    assert facade._runtime_task_home_evidence["jointPositionsSi"] == candidate
+
+
+def test_task_home_reconciliation_keeps_unknown_when_saved_record_is_unchanged(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge, candidate, _home, _saves = (
+        _uncertain_committed_task_home_review(monkeypatch)
+    )
+    original_record = SimpleNamespace(revision=13, to_dict=lambda: {"revision": 13})
+    parameter_node.step6TaskHomeJson = '{"revision":13}'
+    logic.taskHomeRecord = lambda _node: original_record
+    uncertainty = facade._manual_task_home_acceptance_uncertain
+
+    result = facade.reconcileManualTaskHomeAcceptance()
+
+    assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+    assert result.details["acceptanceStatus"] == "unknown"
+    assert result.details["candidateJointPositionsSi"] == candidate
+    assert facade._manual_task_home_acceptance_uncertain == uncertainty
+    assert bridge.query_requests == [] and bridge.query_commit_calls == []
+
+
+def test_task_home_reconciliation_keeps_unknown_for_stale_identity_or_scene(
+    monkeypatch,
+):
+    for stale in ("identity", "scene"):
+        facade, _node, logic, bridge, candidate, _home, _saves = (
+            _uncertain_committed_task_home_review(monkeypatch)
+        )
+        bridge.query_static_valid = True
+        if stale == "identity":
+            logic.step6TaskLimitsFingerprint = lambda _node: "limits-changed"
+        else:
+            bridge.query_object_ids = ["jaw"]
+
+        result = facade.reconcileManualTaskHomeAcceptance()
+
+        assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+        assert result.details["candidateJointPositionsSi"] == candidate
+        assert facade._manual_task_home_acceptance_uncertain
+        assert result.details["failureEvidence"]["reconciliationFailure"]
+        assert bridge.query_commit_calls == []
+        assert bool(bridge.query_requests) is (stale == "scene")
+
+
+def test_task_home_reconciliation_keeps_unknown_for_native_or_monitored_mismatch(
+    monkeypatch,
+):
+    for mismatch in ("native", "monitored", "displayed", "request", "session"):
+        facade, parameter_node, _logic, bridge, candidate, _home, _saves = (
+            _uncertain_committed_task_home_review(monkeypatch)
+        )
+        bridge.query_static_valid = True
+        bridge.query_accepted = dict(candidate)
+        if mismatch == "native":
+            bridge.query_accepted = {
+                **candidate,
+                ROS2_JOINT_SI_ORDER[0]: 0.01,
+            }
+        elif mismatch == "monitored":
+            bridge.query_monitor_matches = False
+        elif mismatch == "displayed":
+            parameter_node.robotJoint1Deg = 1.0
+        elif mismatch == "request":
+            bridge.query_response_id = "stale-request"
+        else:
+            bridge.query_session_id = "stale-session"
+
+        result = facade.reconcileManualTaskHomeAcceptance()
+
+        assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+        assert result.details["candidateJointPositionsSi"] == candidate
+        assert facade._manual_task_home_acceptance_uncertain
+        assert bridge.query_commit_calls == []
 
 
 def test_manual_jog_reconciliation_reads_native_state_and_allows_static_failure(monkeypatch):
@@ -2727,6 +4314,13 @@ def test_manual_jog_accepts_only_exact_correlated_guard_ack_and_retains_rejectio
     assert accepted.details["nativeGuardEvidence"]["policyId"] == (
         workflow_facade_module.MANUAL_JOINT_POLICY_ID
     )
+    request_id, session_id = bridge.manual_requests[0][1:]
+    assert accepted.details["requestId"] == request_id
+    assert accepted.details["sessionId"] == session_id == facade._manual_jog_session_id
+    assert accepted.details["nativeGuardEvidence"]["requestId"] == request_id
+    assert accepted.details["nativeGuardEvidence"]["sessionId"] == session_id
+    assert accepted.details["nativeGuardEvidence"]["worldObjectIds"] == ("jaw", "tooth")
+    assert accepted.details["nativeGuardEvidence"]["worldObjectCount"] == 2
     assert bridge.phase_calls == []
     facade.currentRobotState = lambda: SimpleNamespace(
         joint_positions_si=dict(bridge.accepted)
@@ -2755,11 +4349,117 @@ def test_manual_jog_accepts_only_exact_correlated_guard_ack_and_retains_rejectio
     assert rejected.details["acceptedJointPositionsSi"] is None
     assert not rejected.details["acceptedStateMayHaveAdvanced"]
     assert rejected.details["manualJogReconciliationRequired"] is False
+    rejected_request_id, rejected_session_id = bridge.manual_requests[0][1:]
+    assert rejected.details["requestId"] == rejected_request_id
+    assert rejected.details["sessionId"] == rejected_session_id
+    assert rejected.details["nativeGuardEvidence"]["requestId"] == rejected_request_id
+    assert rejected.details["nativeGuardEvidence"]["sessionId"] == rejected_session_id
+    assert rejected.details["nativeGuardEvidence"]["policyId"] == (
+        workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    )
+    assert rejected.details["nativeGuardEvidence"]["worldObjectIds"] == (
+        "jaw",
+        "tooth",
+    )
     bridge.raw_reject = False
     accepted_after_rejection = facade.guardManualRobotJog(request)
     assert accepted_after_rejection.success
     assert accepted_after_rejection.details["manualJogReconciliationRequired"] is False
     assert len(bridge.raw_requests) == 2
+
+
+def test_taskless_manual_jog_uses_unconfirmed_identity_and_exact_guard_ack(
+    monkeypatch,
+):
+    stale_home = {"base_fingerprint": "base-old", "joint_positions_si": [0.0] * 5}
+    for payload in (stale_home, None):
+        facade, parameter_node, logic, bridge, request, *_rest = _manual_jog_probe(
+            monkeypatch
+        )
+        logic.confirmedTaskRecord = lambda _node: None
+        logic.assistedTaskLimitsReviewed = lambda _node: True
+        _set_manual_test_home(parameter_node, logic, payload)
+
+        result = facade.guardManualRobotJog(request)
+
+        identity = result.details["identityBefore"]
+        evidence = result.details["nativeGuardEvidence"]
+        request_id, session_id = bridge.manual_requests[0][1:]
+        assert result.success and result.code == "manual_jog_accepted"
+        assert identity["branch_id"] == "branch-a"
+        assert identity["task"].startswith("unconfirmed:")
+        assert identity["base"] == "base-a"
+        assert identity["home"].startswith("unconfirmed_home:")
+        assert identity["trajectory"] == "trajectory-a"
+        assert identity["robot_profile"] == "robot-a"
+        assert identity["collision_audit"] == "scene-a"
+        assert identity["limits"] == "limits-a"
+        assert result.details["identityStatus"] == "current"
+        assert result.details["identityAfter"] == identity
+        assert result.details["requestId"] == evidence["requestId"] == request_id
+        assert result.details["sessionId"] == evidence["sessionId"] == session_id
+        assert session_id == facade._manual_jog_session_id
+        assert evidence["policyId"] == workflow_facade_module.MANUAL_JOINT_POLICY_ID
+        assert evidence["worldObjectIds"] == ("jaw", "tooth")
+        assert evidence["responseCorrelated"] is True
+        assert evidence["requestedPositionsSi"] == tuple(
+            request[name] for name in ROS2_JOINT_SI_ORDER
+        )
+        assert evidence["acceptedPositionsSi"] == tuple(
+            request[name] for name in ROS2_JOINT_SI_ORDER
+        )
+        assert result.details["guardAccepted"] is True
+        assert result.details["requestedJointPositionsSi"] == request
+        assert result.details["acceptedJointPositionsSi"] == request
+        assert bridge.phase_calls == []
+        assert logic.updated == []
+
+
+def test_taskless_manual_jog_becomes_unknown_when_home_is_edited_during_ack(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge, request, *_rest = _manual_jog_probe(
+        monkeypatch
+    )
+    logic.confirmedTaskRecord = lambda _node: None
+    logic.assistedTaskLimitsReviewed = lambda _node: True
+    _set_manual_test_home(
+        parameter_node,
+        logic,
+        {"base_fingerprint": "base-old", "revision": 1},
+    )
+    original_apply = bridge.apply_manual_joint_positions_si
+
+    def apply_then_edit_home(positions, request_id, session_id):
+        response = original_apply(positions, request_id, session_id)
+        _set_manual_test_home(
+            parameter_node,
+            logic,
+            {"base_fingerprint": "base-old", "revision": 2},
+        )
+        return response
+
+    bridge.apply_manual_joint_positions_si = apply_then_edit_home
+
+    result = facade.guardManualRobotJog(request)
+
+    evidence = result.details["nativeGuardEvidence"]
+    request_id, session_id = bridge.manual_requests[0][1:]
+    assert not result.success and result.code == "manual_jog_identity_stale"
+    assert result.details["identityBefore"]["home"].startswith("unconfirmed_home:")
+    assert result.details["identityAfter"]["home"].startswith("unconfirmed_home:")
+    assert result.details["identityBefore"]["home"] != result.details["identityAfter"]["home"]
+    assert result.details["guardAccepted"] is None
+    assert result.details["manualJogStatus"] == "unknown"
+    assert result.details["identityStatus"] == "stale"
+    assert evidence["responseCorrelated"] is True
+    assert result.details["requestId"] == evidence["requestId"] == request_id
+    assert result.details["sessionId"] == evidence["sessionId"] == session_id
+    assert evidence["policyId"] == workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    assert evidence["worldObjectIds"] == ("jaw", "tooth")
+    assert result.details["manualJogReconciliationRequired"] is True
+    assert result.details["acceptedStateMayHaveAdvanced"] is True
+    assert bridge.accepted == request
 
 
 def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
@@ -2779,6 +4479,11 @@ def test_manual_jog_preserves_unknown_and_stale_guard_evidence(monkeypatch):
     assert unknown.details["requestedJointPositionsSi"] == request
     assert unknown.details["acceptedJointPositionsSi"] is None
     assert unknown.details["manualJogReconciliationRequired"] is True
+    request_id, session_id = bridge.manual_requests[0][1:]
+    assert unknown.details["requestId"] == request_id
+    assert unknown.details["sessionId"] == session_id
+    assert unknown.details["nativeGuardEvidence"]["responseObserved"] is False
+    assert unknown.details["nativeGuardEvidence"]["worldObjectIds"] == ()
     assert bridge.accepted == accepted_before
 
     submitted_count = len(bridge.raw_requests)
@@ -2886,6 +4591,7 @@ def test_manual_jog_blocks_j6_out_of_limits_and_reentrant_submission(monkeypatch
     assert rejected_j6.details["rawGuardOutcome"] == "not_submitted"
     assert rejected_j6.details["manualJogStatus"] == "rejected"
     assert rejected_j6.details["manualJogReconciliationRequired"] is False
+    assert bridge.raw_requests == []
 
     narrowed = limits(-1.0, 1.0)
     task.joint_1 = narrowed.joint_1
@@ -2977,6 +4683,18 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
     monkeypatch,
 ):
     facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+
+    def compute_fk(positions, *, base_transform):
+        assert base_transform is _node.robotBaseTransform
+        point_x = float(positions[ROS2_JOINT_SI_ORDER[0]]) * 1000.0
+        return True, "test FK", (
+            (1.0, 0.0, 0.0, point_x),
+            (0.0, 1.0, 0.0, 20.0),
+            (0.0, 0.0, 2.0, 30.0),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+
+    bridge.compute_tcp_pose_world_ras_mm = compute_fk
     accepted = facade.guardManualRobotJog(request)
     accepted_record = parse_manual_simulation_record(facade.manualSimulationRecord())
     assert [event["kind"] for event in accepted_record["events"]] == [
@@ -2986,6 +4704,26 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
     assert accepted_record["record_status"] == "historical_display_only"
     assert accepted_record["events"][0]["requested_joints"] == request
     assert accepted_record["events"][1]["accepted_joints"] == request
+    accepted_event = accepted_record["events"][1]
+    assert accepted_event["monitored_joints"] == request
+    assert accepted_event["tcp_point_ras_mm"] == [10.0, 20.0, 30.0]
+    assert accepted_event["tcp_pose_world_ras_mm"] == [
+        1.0, 0.0, 0.0, 10.0,
+        0.0, 1.0, 0.0, 20.0,
+        0.0, 0.0, 2.0, 30.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+    assert accepted_event["drill_axis_world_ras_unit"] == [0.0, 0.0, 1.0]
+    assert accepted_event["details"]["geometry_status"] == "accepted"
+    assert accepted_event["details"]["configured_clearance_threshold_m"] == 0.001
+    assert accepted_event["details"]["measured_minimum_self_distance_m"] == 0.002
+    assert accepted_event["details"]["measured_minimum_world_distance_m"] == 0.003
+    native = accepted_event["details"]["native_guard_evidence"]
+    assert native["requestId"] == bridge.manual_requests[0][1]
+    assert native["sessionId"] == facade._manual_jog_session_id
+    assert native["policyId"] == workflow_facade_module.MANUAL_JOINT_POLICY_ID
+    assert accepted_event["details"]["identity_before"] == accepted.details["identityBefore"]
+    assert accepted_event["details"]["identity_after"] == accepted.details["identityAfter"]
     assert accepted_record["events"][1]["details"]["guard_policy_id"] == (
         workflow_facade_module.MANUAL_JOINT_POLICY_ID
     )
@@ -3011,6 +4749,16 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
     assert accepted.details["routeAuthority"] == "none"
 
     facade, _node, _logic, bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+    bridge.compute_tcp_pose_world_ras_mm = lambda positions, *, base_transform: (
+        True,
+        "test FK",
+        (
+            (1.0, 0.0, 0.0, float(positions[ROS2_JOINT_SI_ORDER[0]]) * 1000.0),
+            (0.0, 1.0, 0.0, 20.0),
+            (0.0, 0.0, 2.0, 30.0),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+    )
     bridge.raw_reject = True
     rejected = facade.guardManualRobotJog(request)
     rejected_record = parse_manual_simulation_record(facade.manualSimulationRecord())
@@ -3022,6 +4770,12 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
     assert rejected_event["accepted_joints"] == {
         name: 0.0 for name in ROS2_JOINT_SI_ORDER
     }
+    assert rejected_event["details"]["geometry_status"] == "rejected_candidate"
+    assert rejected_event["tcp_point_ras_mm"] == [10.0, 20.0, 30.0]
+    assert rejected_event["drill_axis_world_ras_unit"] == [0.0, 0.0, 1.0]
+    assert "tcp_path_ras_mm" not in rejected_event
+    assert bridge.accepted == {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    assert rejected_event["details"]["native_guard_evidence"]["accepted"] is False
     assert rejected_event["native_failure_evidence"]["native"]["reason"] == "self collision"
     assert rejected.details["guardAccepted"] is False
 
@@ -3034,7 +4788,25 @@ def test_manual_simulation_record_captures_exact_accepted_rejected_and_unknown_j
         "diagnostic",
     ]
     assert unknown_record["events"][1]["diagnostic"]["guard_accepted"] is None
+    assert unknown_record["events"][1]["details"]["geometry_status"] == "unavailable"
+    assert "tcp_pose_world_ras_mm" not in unknown_record["events"][1]
+    assert unknown_record["events"][1]["details"]["native_guard_evidence"]["responseObserved"] is False
     assert unknown.details["acceptedJointPositionsSi"] is None
+
+
+def test_manual_simulation_record_missing_fk_does_not_change_accepted_jog(monkeypatch):
+    facade, _node, _logic, _bridge, request, *_rest = _manual_jog_probe(monkeypatch)
+
+    result = facade.guardManualRobotJog(request)
+
+    record = parse_manual_simulation_record(facade.manualSimulationRecord())
+    assert result.success and result.code == "manual_jog_accepted"
+    event = record["events"][1]
+    assert [item["kind"] for item in record["events"]] == ["requested", "guard_accepted"]
+    assert event["details"]["geometry_status"] == "unavailable"
+    assert "FK helper is unavailable" in event["details"]["geometry_unavailable_reason"]
+    assert "tcp_pose_world_ras_mm" not in event
+    assert event["accepted_joints"] == request
 
 
 def test_manual_simulation_base_acceptance_freezes_the_exportable_record():
@@ -3125,6 +4897,109 @@ def test_manual_simulation_identity_change_preserves_nonempty_prior_ledger():
     assert completed[0]["events"][0]["kind"] == "requested"
     assert facade._manual_simulation_identity["task_fingerprint"] == "task-b"
     assert facade._manual_simulation_events == []
+
+
+def _seed_prior_manual_simulation_ledger(facade):
+    identity = {
+        "prepared_branch_id": "branch-a",
+        "task_fingerprint": "task-a",
+        "base_fingerprint": "base-a",
+        "home_fingerprint": "home-a",
+        "trajectory_fingerprint": "trajectory-a",
+        "robot_profile_fingerprint": "robot-a",
+        "scene_fingerprint": "scene-a",
+    }
+    event = {
+        "kind": "requested",
+        "monotonic_ns": 1,
+        "requested_joints": {name: 0.0 for name in ROS2_JOINT_SI_ORDER},
+    }
+    facade._manual_simulation_identity = identity
+    facade._manual_simulation_events = [event]
+    return event
+
+
+def _manual_identity_unavailable():
+    raise ValueError("current case identity unavailable")
+
+
+def test_manual_base_acceptance_does_not_append_to_old_ledger_on_identity_failure():
+    facade, parameter_node, logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(18.0)
+    assert facade.stageManualBaseReview(candidate).success
+    prior_event = _seed_prior_manual_simulation_ledger(facade)
+    logic.robotBaseFingerprint = lambda _node: "base-current"
+    facade._manual_jog_current_identity = _manual_identity_unavailable
+
+    result = facade.acceptManualBaseReview()
+
+    assert result.success and result.code == "base_locked"
+    assert result.details["manualSimulationRecordStatus"] == "unavailable"
+    assert parameter_node.robotBaseMountLocked
+    assert facade._manual_simulation_base_matrix(parameter_node) == candidate
+    completed = facade.manualSimulationCompletedRecords()
+    assert len(completed) == 1
+    assert completed[0]["identity"]["task_fingerprint"] == "task-a"
+    assert completed[0]["events"] == [prior_event]
+
+
+def test_manual_simulation_task_home_save_keeps_old_ledger_on_identity_failure():
+    facade, parameter_node, logic, _bridge = make_facade()
+    parameter_node.robotBaseTransform.active = True
+    facade._planning_scene_synchronized = True
+    prior_event = _seed_prior_manual_simulation_ledger(facade)
+    facade._manual_jog_current_identity = _manual_identity_unavailable
+    facade._apply_positions_si = lambda _positions: RobotActionResult(
+        True, "manual_jog_accepted", "accepted"
+    )
+    facade._checkStateValidity = lambda: RobotActionResult(
+        True,
+        "state_valid",
+        "valid",
+        details={"authoritative": True, "minimumClearanceMm": 1.0, "worldObjectCount": 2},
+    )
+    facade._strict_guard_policy_fingerprint = lambda: "guard-a"
+    logic.collisionSceneAuditRecord = lambda _node: SimpleNamespace(
+        audit_fingerprint="scene-current"
+    )
+    saved = []
+    home_record = SimpleNamespace(
+        revision=14,
+        guard_policy_fingerprint="guard-a",
+        to_dict=lambda: {"revision": 14},
+    )
+
+    def save_home(_node, *, runtime_validation):
+        saved.append(runtime_validation)
+        parameter_node.step6TaskHomeJson = '{"revision":14}'
+        return home_record
+
+    logic.saveCurrentTaskHome = save_home
+
+    result = facade.saveTaskHome()
+
+    assert result.success and result.code == "task_home_saved"
+    assert result.details["manualSimulationRecordStatus"] == "unavailable"
+    assert saved and parameter_node.step6TaskHomeJson == '{"revision":14}'
+    completed = facade.manualSimulationCompletedRecords()
+    assert len(completed) == 1
+    assert completed[0]["identity"]["task_fingerprint"] == "task-a"
+    assert completed[0]["events"] == [prior_event]
+
+
+def test_manual_base_diagnostic_is_not_appended_when_current_identity_fails():
+    facade, _node, _logic, _bridge = make_facade()
+    prior_event = _seed_prior_manual_simulation_ledger(facade)
+    facade._manual_jog_current_identity = _manual_identity_unavailable
+
+    facade._manual_base_record_acceptance_failure(
+        "manual_base_acceptance_failed", "not accepted", "lock", "proven"
+    )
+
+    completed = facade.manualSimulationCompletedRecords()
+    assert len(completed) == 1
+    assert completed[0]["identity"]["task_fingerprint"] == "task-a"
+    assert completed[0]["events"] == [prior_event]
 
 
 def test_manual_simulation_record_reports_missing_identity():
