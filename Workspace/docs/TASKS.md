@@ -1060,6 +1060,8 @@ USER_REVIEW_REQUIRED; P3/P4 paused.
 
 ## Assisted access endpoint — 2026-09-07
 
+**30 September operator deferral:** Keep the synthetic assisted-root native test; backlog its stale Case Foundation setup repair for a separate bounded slice. The current shell integration uses only the reviewed case fixture and does not claim this synthetic regression passing. Retain endpoint, focus, node-lineage, duplicate-generation and MRB persistence assertions; no production prerequisite bypass. See backlog and today's logbook.
+
 - **ID:** `S4A-PULP-ENDPOINT`; **Priority:** 0; **State:** Source and focused automated verification passed (2026-09-10); exact FDI31 normal-window anatomical review remains pending.
 - **Operator observation:** The displayed FDI31 assisted target appears inside the pulp mask in 2D but does not contact the displayed pulp surface in 3D. The operator requires the mismatch fixed now, not deferred.
 - **Exact-case finding:** The 4.23 mm line in `FDI31-step5c.mrb` belongs to a saved three-line set and has no current assisted-generation provenance; the Placement menu describes the creation action, not an existing line's origin. Slice projection also rendered off-slice Entry/Target glyphs over the mask. The saved Target is at the native voxel boundary, while the smoothed closed surface can diverge from that boundary.

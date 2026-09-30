@@ -557,6 +557,9 @@ was unavailable.
 
 ## Pending planned work — active correction and acceptance
 
+**30 September — deferred synthetic setup repair (`S4A-PULP-ENDPOINT`, overlap `S6-REUSABLE-CASE-SETUP`):** Operator explicitly requests backlog for `test_DENTOWorkflowAssistedRootTrajectoryGeneration` setup repair. Its synthetic segmentation is marked Reviewed but is not bound into a current Case Foundation before target ROI creation. Preserve the current endpoint/focus/lineage/MRB regression assertions; repair or replace setup when this deferred slice is resumed. No new priority assigned. Acceptance: fixture establishes legitimate production prerequisites, still rejects missing/stale foundation, and passes its native regression without a bypass. This repair is excluded from the present shell integration check.
+
+
 **Latest FDI31 scope — 2026-09-15:** The operator has activated the revised
 Campaign 1 execution contract. It replaces the former Astra/design-only/P4
 limit with one main orchestrator and one bounded Luna Max implementation worker.
