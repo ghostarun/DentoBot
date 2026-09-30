@@ -1,5 +1,10 @@
 # DENTOBOT agent context
 
+> **Obsolete branch, retired by Tarun on 2026-09-30.** This checkout is
+> historical. Continue on `feature/step6-workflow-renovation-20260925` in
+> `../DentoBot-step6-renovation`. See the checkout-root `BRANCH_OBSOLETE.md`;
+> summaries below must not override current renovation records.
+
 Last reconciled: 2026-09-25. `S6-LIVE-01` remains Priority 0. Tarun's
 25 September direction resumes bounded Step 6 source implementation.
 The standalone FDI11 PreEntry IK source gate passed pure checks and a native
@@ -54,6 +59,10 @@ not independent proof of a fresh FDI21 planner pass. Do not weaken stale
 evidence or implement the 96-trajectory batch proposal.
 
 **2026-09-24 FDI11 continuation:** `SEPT24/pulp-testing-fdi11.dentocase` now opens in Tarun's normal window after the stale-pose UI refresh repair; the same screenshot shows one generated Step 4A FDI11 assisted line. The 52-voxel derived candidate still needs normal-window anatomy review, and the line needs trajectory-aligned MPR review. The separate automated crown-cap Entry missed the smoothed candidate surface; do not infer that it matches Tarun's successful Entry or change the endpoint gate from this comparison. Details remain under `S3-P0-DENTAL-SEMANTICS`, `S4A-PULP-ENDPOINT`, `S6-REUSABLE-CASE-SETUP`, and today's logbook.
+
+## Model routing
+
+For qualifying implementation grunt work or mechanical bulk file handling, dispatch exactly two Luna Max workers on disjoint, non-controlled files. The Sol orchestrator (default) or Astra owns all reasoning, planning, diagnosis, specifications, verification strategy and acceptance. See [AGENTS.md](../AGENTS.md) for the binding delegation rules.
 
 ## Start here
 

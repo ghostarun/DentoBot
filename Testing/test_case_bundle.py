@@ -337,6 +337,18 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
         "self._revalidateImportedStep6ContextAfterLoad()"
     )
 
+    template_build_source = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_template_build.py"
+    ).read_text(encoding="utf-8")
+    controls_start = template_build_source.index(
+        "    def _updateFinalPrintableTemplateControls"
+    )
+    controls_end = template_build_source.index("\n    def ", controls_start + 5)
+    controls = template_build_source[controls_start:controls_end]
+    assert "restoringCaseBundle = bool(self._caseBundleRestoreDepth)" in controls
+    assert "if staleReason and not restoringCaseBundle:" in controls
+
 
 def test_post_hydration_audit_allows_only_derived_environment_refresh() -> None:
     logic_source = (

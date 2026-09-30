@@ -16,6 +16,24 @@ SOP remain active at their original paths. The Sol Medium coordinator and
 maximum two Luna Max subagents are a hard Step 6 orchestration rule unless
 Tarun overrides it.
 
+## 2026-09-25 — Two Luna Max workers for bounded development execution
+
+Tarun directs that qualifying development grunt work and mechanical bulk file
+handling use exactly two GPT-6 Luna Max subagents in parallel, split across
+independent scopes with disjoint file ownership. The GPT-6 Sol orchestrator is
+the default reasoning owner; GPT-6 Astra may orchestrate when selected by the
+operator or when a justified escalation is needed. The orchestrator retains
+task interpretation, planning, architecture, diagnosis, prioritization,
+technical and safety decisions, worker specifications, verification strategy,
+integration, review and acceptance. Luna Max workers execute settled bounded
+instructions only; they do not own reasoning, runtime/GUI work, controlled
+records or acceptance. If a task is trivial or cannot be safely divided, the
+orchestrator performs it directly rather than forcing conflicting delegation.
+If two Luna Max subagents are unavailable, report that constraint rather than
+silently substituting another model. Existing approval, serialized-runtime,
+verification and hardware boundaries remain unchanged. This supersedes the
+2026-09-23 default-solo/optional-one-worker policy.
+
 ## 2026-09-24 — Stale Case Foundation remains loadable for repair
 
 A saved `.dentocase` with a stale committed Case Foundation pose must open so the operator can repair Step 3A. UI hydration restores the saved robot-base lock's interaction state without invoking the explicit base-lock command or promoting stale pose/base evidence. Planning and any new base lock retain their existing Case Foundation eligibility checks. Tarun confirmed the FDI11 package reopened in the normal window and subsequently generated one Step 4A trajectory; the screenshot does not validate Step 6 readiness or anatomy. This decision belongs to `S6-REUSABLE-CASE-SETUP`, overlapping the pulp candidate's Step 3A invalidation.

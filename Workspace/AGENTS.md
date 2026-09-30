@@ -152,42 +152,46 @@ and model presets are project policy. See the dated sources in
 `docs/DECISIONS.md` (2026-09-09 verification economy). This update does not
 change model defaults or authorize runtime execution.
 
-## Model selection and delegation — 2026-09-23 (GPT-6)
+## Model selection and delegation — operator override 2026-09-25
 
-The operator supersedes the 2026-09-09 Sol 5.6 policy and the 2026-09-21
-`S6-LIVE-01` Terra override. **Use `gpt-6-sol` at `low` ("Sol light") as the
-default orchestrator** for development, diagnosis, planning, integration,
-controlled records and acceptance recommendations. A more intensive effort
-requires a concrete unresolved reasoning need and operator direction; a failed
-test alone is not a model-escalation reason. Do not route current work to Terra.
+This supersedes the 2026-09-23 default-solo/optional-one-worker routing and the
+older Sol 5.6 / Terra overrides. **The orchestrator owns all reasoning.** Use
+GPT-6 Sol as the default orchestrator; GPT-6 Astra may orchestrate when the
+operator selects it or a justified escalation is needed. The orchestrator owns
+task interpretation, planning, architecture, diagnosis, prioritization,
+technical decisions, safety policy, worker specifications, verification
+strategy, integration, review and acceptance. Luna Max workers execute bounded
+instructions; they do not own or decide those reasoning tasks.
 
-**`gpt-6-luna` at `xhigh` is the optional bounded implementation auxiliary**
-for a settled, fully specified code/test task. The Sol orchestrator may instead
-do local implementation directly when the work is small or inseparable. No
-mandatory worker, reviewer, or multi-model pipeline is created. Default to
-solo; honor an explicit no-subagents request. One auxiliary is the normal
-maximum. More than one needs an explicit operator request or approved
-verification plan within the protocol's worker ceiling. Workers must not
-recursively delegate, choose safety/planner policy, run GUI/ROS resources,
-declare acceptance, or edit controlled documents.
+**For qualifying development grunt work or mechanical bulk file handling,
+dispatch exactly two GPT-6 Luna Max subagents in parallel.** Split the work into
+two independent, fully specified scopes with disjoint file ownership. Examples
+include routine code implementation from an accepted design and repetitive
+mechanical edits or conversions across non-controlled files. Do not force a
+parallel split for a trivial or inseparable change; the orchestrator handles
+that work directly. If two Luna Max subagents are unavailable, report the
+constraint rather than silently substituting another model. Luna workers must
+not recursively delegate, make design or policy decisions, run GUI/ROS/runtime
+work, declare acceptance, or edit controlled project records. Verification
+workers remain read-only under the verification protocol.
 
-Before optional delegation, state the benefit, exact model/effort, worker count,
-owned files, interfaces, invariants, forbidden changes and smallest acceptance
-check. Tell the worker to preserve other worktree edits. Keep verification
-workers read-only and runtime resources serialized. Inspect the actual diff
-and evidence before acceptance. If either preset is unavailable, report it;
-do not silently substitute an older model. Markdown cannot switch a running
-task's model. Historical model decisions remain dated evidence, not active
-routing instructions.
+Before dispatch, the orchestrator states the exact model, worker count, each
+worker's owned files, objective, interfaces, invariants, forbidden changes and
+smallest acceptance check. Tell workers to preserve all other worktree edits.
+Keep runtime resources serialized and approval-gated. Inspect each actual diff
+and evidence before integration or acceptance. Markdown cannot switch a
+running task's model. Historical model decisions remain dated evidence, not
+active routing instructions.
 
 The coordinator owns controlled documents, design decisions and acceptance.
-Implementation workers may edit only explicitly assigned code/test files after
-the coordinator supplies objective, rationale, files, interfaces, invariants,
-edge cases, forbidden changes and acceptance checks. Tell them they share the
-codebase and must preserve others' work. Verification workers remain read-only;
-no checks against files being edited and no overlapping runtime resources.
-Inspect the actual diff/evidence before acceptance. Unsettled interfaces, theory
-or safety policy return to the coordinator rather than being invented by workers.
+Implementation workers may edit only explicitly assigned non-controlled
+implementation files after the coordinator supplies objective, rationale,
+files, interfaces, invariants, edge cases, forbidden changes and acceptance
+checks. Tell them they share the codebase and must preserve others' work.
+Verification workers remain read-only; no checks against files being edited and
+no overlapping runtime resources. Inspect the actual diff/evidence before
+acceptance. Unsettled interfaces, theory or safety policy return to the
+coordinator rather than being invented by workers.
 
 Follow `docs/AGENTIC_VERIFICATION_PROTOCOL.md` for approval, retry limits,
 visual escalation and serialized runtime. A specification failure calls for a
@@ -202,10 +206,11 @@ The [canonical contract](docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.m
 still governs planner scope and runtime acceptance; it no longer imposes a
 different model. Every demonstrable GUI success or failure stops for Tarun's
 manual verdict. Fatal or unresolved algorithm-specific failures pause for his
-instruction; do not enter an automatic model/retry loop. Keep the task's
-two-subagent ceiling (zero or one preferred), anti-bloat limits, serialized
-runtime and no-hardware boundary. These gates are not relaxed by the routing
-change.
+instruction; do not enter an automatic model/retry loop. Qualifying source
+grunt work uses two Luna Max workers under the routing rule above; neither runs
+runtime trials nor makes acceptance decisions. Keep anti-bloat limits,
+serialized runtime and no-hardware boundary. These gates are not relaxed by
+the routing change.
 
 ## graphify
 

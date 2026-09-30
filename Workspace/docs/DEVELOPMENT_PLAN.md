@@ -61,8 +61,11 @@ foundation with the reviewed four supports and distinct dock/guide bore roles.
 Scene correctness precedes endpoint, insertion, approach, integration and
 full-cycle acceptance.
 
-The main orchestrator owns design, evidence and acceptance; one Luna Max worker
-may implement an exact work order. The campaign originally allowed passed gates
+The original campaign used one Luna Max worker for an exact work order; that
+worker-count limit is superseded by the 2026-09-25 project routing rule in
+`AGENTS.md`. Qualifying development grunt work and mechanical bulk file handling
+now use two disjoint Luna Max workers. The orchestrator owns design, evidence
+and acceptance. The campaign originally allowed passed gates
 to continue automatically through guarded insertion, withdrawal, Task Home and
 fresh-process reproduction. The operator's 2026-09-17 checkpoint below now
 supersedes that automatic continuation: stop after P5 for GUI/operator

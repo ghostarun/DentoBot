@@ -359,6 +359,8 @@ class DENTORobotWorkflowFacade:
         self._preview_timer = None
         self._preview_index = 0
         self._preview_waypoint_in_flight = False
+        # ponytail: a facade-local flag serializes synchronous Qt re-entry; use a lock only if calls move across threads.
+        self._manual_jog_in_progress = False
         self._preview_last_display_monotonic = 0.0
         self._robot_away_from_home = False
         self._display_sync_depth = 0
@@ -1709,6 +1711,479 @@ class DENTORobotWorkflowFacade:
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "joint_update_failed", str(exc))
+
+    def guardManualRobotJog(
+        self, target_joint_positions_si: Mapping[str, float]
+    ) -> RobotActionResult:
+        """Apply one exact five-joint engineering jog through the generic guard."""
+
+        details: dict[str, Any] = {
+            "guardAccepted": None,
+            "requestedJointPositionsSi": None,
+            "acceptedJointPositionsSi": None,
+            "monitoredJointPositionsSi": None,
+            "monitoredStateStatus": "unknown",
+            "identityBefore": None,
+            "identityAfter": None,
+            "guardAcknowledgementFresh": False,
+            "guardEvidence": {
+                "reason": "",
+                "checkedSamples": None,
+                "pair": None,
+                "minimumClearanceMm": None,
+                "minimumSelfClearanceMm": None,
+                "minimumWorldClearanceMm": None,
+            },
+        }
+
+        def finish(success: bool, code: str, message: str) -> RobotActionResult:
+            return RobotActionResult(
+                success,
+                code,
+                message,
+                details={
+                    **details,
+                    "guardEvidence": dict(details["guardEvidence"]),
+                },
+            )
+
+        try:
+            if not isinstance(target_joint_positions_si, Mapping):
+                return finish(
+                    False,
+                    "manual_jog_invalid_input",
+                    "Manual jog input must be a mapping of the canonical five planning joints.",
+                )
+            if set(target_joint_positions_si) != set(JOINT_NAMES):
+                return finish(
+                    False,
+                    "manual_jog_invalid_input",
+                    "Manual jog input must contain exactly the canonical five planning joints.",
+                )
+            requested = {}
+            for name in JOINT_NAMES:
+                value = target_joint_positions_si[name]
+                if isinstance(value, bool):
+                    raise ValueError("Manual jog joint values must be finite SI numbers.")
+                value = float(value)
+                if not isfinite(value):
+                    raise ValueError("Manual jog joint values must be finite SI numbers.")
+                requested[name] = value
+            details["requestedJointPositionsSi"] = dict(requested)
+        except (TypeError, ValueError, OverflowError) as exc:
+            return finish(False, "manual_jog_invalid_input", str(exc))
+
+        if self._manual_jog_in_progress:
+            return finish(
+                False,
+                "manual_jog_busy",
+                "Another manual jog is already waiting for its guard acknowledgement.",
+            )
+
+        self._manual_jog_in_progress = True
+        try:
+            if self.previewActive or self._preview_waypoint_in_flight:
+                return finish(
+                    False,
+                    "manual_jog_preview_active",
+                    "Stop the active guarded preview before manual jogging.",
+                )
+            if (
+                self._robot_away_from_home
+                or self._accepted_motion_history
+                or self._phase_stream_paused
+            ):
+                return finish(
+                    False,
+                    "manual_jog_incomplete_preview",
+                    "Manual jogging is blocked while accepted preview motion or its return-home latch remains active.",
+                )
+
+            parameter_node = self._require_context()
+            if self._scene_kind(parameter_node) != "case":
+                return finish(
+                    False,
+                    "manual_jog_case_required",
+                    "Open the current case before manual jogging.",
+                )
+            if not bool(parameter_node.step6PlanningContextImported):
+                return finish(
+                    False,
+                    "manual_jog_prepared_branch_required",
+                    "Activate the eligible PreparedBranch for Step 6 before manual jogging.",
+                )
+            stack = self._bridge.simulation_stack_status()
+            if not (
+                bool(getattr(stack, "description_ready", False))
+                and bool(getattr(stack, "planning_ready", False))
+                and int(getattr(stack, "joint_state_publisher_count", 0)) == 1
+                and self._logic.isRos2MotionControlActive(
+                    parameter_node.robotBaseTransform
+                )
+            ):
+                return finish(
+                    False,
+                    "manual_jog_runtime_required",
+                    "Connect the simulation-only ROS/MoveIt runtime with its single joint-state source before manual jogging.",
+                )
+            if not self._planning_scene_synchronized:
+                return finish(
+                    False,
+                    "manual_jog_scene_sync_required",
+                    "Synchronize and acknowledge the current case collision scene before manual jogging.",
+                )
+            if not bool(parameter_node.robotBaseMountLocked):
+                return finish(
+                    False,
+                    "manual_jog_base_review_required",
+                    "Review and lock the current Manual Simulation Base before manual jogging.",
+                )
+
+            registry = json.loads(
+                str(parameter_node.step6TrajectoryRegistryJson or "{}")
+            )
+            selected_branch_id = str(registry.get("selected_branch_id") or "")
+            eligibility = self._logic.evaluatePreparedBranchEligibility(
+                parameter_node, registry=registry
+            )
+            if (
+                not selected_branch_id
+                or not bool(eligibility.get("eligible"))
+                or str(eligibility.get("branch_id") or "") != selected_branch_id
+            ):
+                return finish(
+                    False,
+                    "manual_jog_prepared_branch_stale",
+                    str(eligibility.get("message") or "The selected PreparedBranch is not current and eligible."),
+                )
+
+            for checker_name in (
+                "step6BasePlacementFreshnessIssues",
+                "step6AnatomyReviewFreshnessIssues",
+                "taskHomeFreshnessIssues",
+                "confirmedTaskFreshnessIssues",
+                "collisionSceneAuditFreshnessIssues",
+                "step6CaseJawOpeningFreshnessIssues",
+            ):
+                checker = getattr(self._logic, checker_name, None)
+                if not callable(checker):
+                    return finish(
+                        False,
+                        "manual_jog_freshness_unavailable",
+                        f"The current {checker_name} check is unavailable.",
+                    )
+                issues = tuple(checker(parameter_node) or ())
+                if issues:
+                    return finish(
+                        False,
+                        "manual_jog_identity_stale",
+                        "Manual jogging requires fresh base, anatomy, Task Home, confirmed task, and case-scene evidence. "
+                        + " ".join(str(issue) for issue in issues),
+                    )
+            if not self.taskHomeRuntimeValidated(parameter_node):
+                return finish(
+                    False,
+                    "manual_jog_task_home_unvalidated",
+                    "Validate Task Home in the current ROS/MoveIt session before manual jogging.",
+                )
+            reviewed = getattr(self._logic, "assistedTaskLimitsReviewed", None)
+            if not callable(reviewed) or not reviewed(parameter_node):
+                return finish(
+                    False,
+                    "manual_jog_limits_unreviewed",
+                    "Review the current assisted joint limits before manual jogging.",
+                )
+
+            def capture_identity() -> dict[str, object]:
+                identity = dict(self.plannerComparisonIdentity())
+                required = (
+                    "branch_id",
+                    "task",
+                    "base",
+                    "home",
+                    "trajectory",
+                    "robot_profile",
+                    "collision_audit",
+                )
+                if any(not str(identity.get(key) or "") for key in required):
+                    raise ValueError("Current planner/task identity is incomplete.")
+                identity["anatomy_review"] = fingerprint(
+                    dict(self.anatomyReviewState)
+                )
+                def node_identity(node) -> str:
+                    if node is None:
+                        return ""
+                    getter = getattr(node, "GetID", None)
+                    return str(getter()) if callable(getter) else str(id(node))
+                identity["case_scene"] = fingerprint(
+                    {
+                        "input_volume": node_identity(parameter_node.inputVolume),
+                        "teeth_segmentation": node_identity(
+                            parameter_node.teethSegmentation
+                        ),
+                    }
+                )
+                return identity
+
+            details["identityBefore"] = capture_identity()
+            if str(details["identityBefore"].get("branch_id") or "") != selected_branch_id:
+                return finish(
+                    False,
+                    "manual_jog_identity_stale",
+                    "The selected PreparedBranch changed while its planner identity was captured.",
+                )
+
+            monitored_reader = getattr(
+                self._bridge, "monitored_joint_positions_si", None
+            )
+            if not callable(monitored_reader):
+                return finish(
+                    False,
+                    "manual_jog_start_state_unavailable",
+                    "MoveIt monitored current joint state is unavailable.",
+                )
+
+            def complete_vector(values) -> Optional[dict[str, float]]:
+                if not isinstance(values, Mapping) or set(values) != set(JOINT_NAMES):
+                    return None
+                try:
+                    vector = {name: float(values[name]) for name in JOINT_NAMES}
+                except (TypeError, ValueError, OverflowError):
+                    return None
+                return vector if all(isfinite(value) for value in vector.values()) else None
+
+            monitored_start = complete_vector(monitored_reader())
+            if monitored_start is None:
+                return finish(
+                    False,
+                    "manual_jog_start_state_unavailable",
+                    "MoveIt did not provide a complete finite five-joint monitored start state; no jog was sent.",
+                )
+            details["monitoredJointPositionsSi"] = dict(monitored_start)
+            details["monitoredStateStatus"] = "current"
+
+            limits = self._logic.getTaskJointLimits(parameter_node)
+            requested_display = self._display_values_from_si(requested)
+            for index, name in enumerate(JOINT_NAMES):
+                limit = getattr(limits, JOINT_LIMIT_FIELDS[index], None)
+                if limit is None:
+                    return finish(
+                        False,
+                        "manual_jog_limits_unavailable",
+                        f"Mechanical/reviewed limits for {name} are unavailable.",
+                    )
+                if (
+                    requested_display[index] < float(limit.minimum)
+                    or requested_display[index] > float(limit.maximum)
+                ):
+                    return finish(
+                        False,
+                        "manual_jog_joint_limit",
+                        f"{name} is outside the current mechanical/reviewed limit interval.",
+                    )
+
+            status_reader = getattr(self._bridge, "joint_command_status", None)
+            if not callable(status_reader):
+                return finish(
+                    False,
+                    "manual_jog_guard_status_unavailable",
+                    "The raw simulation joint-guard acknowledgement is unavailable; no jog was sent.",
+                )
+            status_before = status_reader()
+            apply_ok = False
+            apply_message = ""
+            try:
+                apply_ok, apply_message = self._bridge.apply_joint_positions_si_to_motion_control(
+                    requested
+                )
+            except Exception as exc:
+                apply_message = str(exc)
+            try:
+                status_after = status_reader()
+            except Exception:
+                status_after = None
+
+            status_fresh = status_after is not None and status_after is not status_before
+            raw_requested = complete_vector(
+                {
+                    name: value
+                    for name, value in zip(
+                        JOINT_NAMES,
+                        tuple(getattr(status_after, "requested_positions", ()) or ()),
+                    )
+                }
+            ) if status_after is not None else None
+            raw_accepted = complete_vector(
+                {
+                    name: value
+                    for name, value in zip(
+                        JOINT_NAMES,
+                        tuple(getattr(status_after, "accepted_positions", ()) or ()),
+                    )
+                }
+            ) if status_after is not None else None
+            def vectors_echo(actual, expected) -> bool:
+                return bool(
+                    actual is not None
+                    and all(
+                        abs(actual[name] - expected[name]) <= 1.0e-9
+                        for name in JOINT_NAMES
+                    )
+                )
+
+            accepted_flag = getattr(status_after, "accepted", None)
+            request_matches = vectors_echo(raw_requested, requested)
+            if status_fresh and request_matches and accepted_flag is False:
+                details["guardAccepted"] = False
+            elif (
+                status_fresh
+                and request_matches
+                and accepted_flag is True
+                and vectors_echo(raw_accepted, requested)
+            ):
+                details["guardAccepted"] = True
+            details["guardAcknowledgementFresh"] = bool(status_fresh)
+            details["acceptedJointPositionsSi"] = raw_accepted
+            evidence = details["guardEvidence"]
+            evidence["reason"] = str(
+                getattr(status_after, "reason", "") or apply_message
+            ) if status_after is not None else str(apply_message)
+            evidence["checkedSamples"] = (
+                int(getattr(status_after, "checked_samples"))
+                if status_after is not None
+                and getattr(status_after, "checked_samples", None) is not None
+                else None
+            )
+            first_body = str(getattr(status_after, "first_body", "") or "")
+            second_body = str(getattr(status_after, "second_body", "") or "")
+            evidence["pair"] = (first_body, second_body) if first_body or second_body else None
+            for source, destination in (
+                ("minimum_clearance_m", "minimumClearanceMm"),
+                ("minimum_self_distance_m", "minimumSelfClearanceMm"),
+                ("minimum_world_distance_m", "minimumWorldClearanceMm"),
+            ):
+                clearance = getattr(status_after, source, None) if status_after is not None else None
+                evidence[destination] = (
+                    float(clearance) * 1000.0
+                    if clearance is not None and isfinite(float(clearance))
+                    else None
+                )
+
+            monitor_expected = (
+                raw_accepted
+                if raw_accepted is not None
+                and (bool(accepted_flag) or details["guardAccepted"] is False)
+                else requested
+                if details["guardAccepted"] is True or bool(apply_ok)
+                else None
+            )
+            monitored = None
+            monitor_message = ""
+            wait_monitored = getattr(
+                self._bridge, "wait_for_monitored_joint_positions_si", None
+            )
+            if monitor_expected is not None and callable(wait_monitored):
+                try:
+                    _matched, monitor_message, observed, _error = wait_monitored(
+                        monitor_expected, timeout_sec=1.0
+                    )
+                    monitored = complete_vector(observed)
+                except Exception as exc:
+                    monitor_message = str(exc)
+            else:
+                try:
+                    monitored = complete_vector(monitored_reader())
+                except Exception as exc:
+                    monitor_message = str(exc)
+            details["monitoredJointPositionsSi"] = monitored
+            if monitored is not None and monitor_expected is not None:
+                current, _error, _mismatched = self._joint_positions_match(
+                    monitor_expected, monitored
+                )
+                details["monitoredStateStatus"] = "current" if current else "stale"
+            elif monitored is None:
+                details["monitoredStateStatus"] = "unknown"
+            else:
+                details["monitoredStateStatus"] = "unknown"
+
+            details["identityAfter"] = capture_identity()
+            identity_current = details["identityAfter"] == details["identityBefore"]
+            post_freshness = []
+            for checker_name in (
+                "step6BasePlacementFreshnessIssues",
+                "step6AnatomyReviewFreshnessIssues",
+                "taskHomeFreshnessIssues",
+                "confirmedTaskFreshnessIssues",
+                "collisionSceneAuditFreshnessIssues",
+                "step6CaseJawOpeningFreshnessIssues",
+            ):
+                checker = getattr(self._logic, checker_name, None)
+                if not callable(checker):
+                    post_freshness.append(f"{checker_name} is unavailable")
+                else:
+                    post_freshness.extend(
+                        str(issue) for issue in (checker(parameter_node) or ())
+                    )
+            identity_current = bool(
+                identity_current
+                and not post_freshness
+                and self.taskHomeRuntimeValidated(parameter_node)
+                and self._planning_scene_synchronized
+                and self._logic.isRos2MotionControlActive(
+                    parameter_node.robotBaseTransform
+                )
+            )
+
+            if details["guardAccepted"] is True:
+                # The old executable phase plan and diagnostic stages start at the
+                # prior monitored state. Keep accepted route history untouched.
+                self._motion_plan = None
+                self._phase_sequence = 0
+                self._completed_phase = ""
+                self._phase_guard_task_fingerprint = ""
+                self._preflight_drilling_plan = None
+                self._preflight_task_fingerprint = ""
+                self._preflight_orientation_commitment = {}
+                self._diagnostic_plan_selection_override = None
+                clear_path = getattr(
+                    self._bridge, "clear_phase_plan_tcp_path", None
+                )
+                if callable(clear_path):
+                    clear_path()
+                if str(getattr(parameter_node, "step6MotionDiagnosticJson", "") or ""):
+                    self._logic.markStep6MotionDiagnosticStale(
+                        parameter_node,
+                        "Manual engineering jog changed the monitored start state; re-run planning diagnostics before route promotion.",
+                    )
+                if details["monitoredStateStatus"] != "current" or not identity_current:
+                    return finish(
+                        False,
+                        "manual_jog_state_stale",
+                        "The generic guard accepted the requested jog, but monitored state or planner/task identity is stale or unknown. "
+                        + (monitor_message or "Reconcile the reported state before further planning."),
+                    )
+                return finish(
+                    True,
+                    "manual_robot_jog_accepted",
+                    "The simulation joint guard accepted the manual jog and MoveIt monitors the accepted five-joint state.",
+                )
+            if details["guardAccepted"] is False:
+                return finish(
+                    False,
+                    "manual_robot_jog_rejected",
+                    "The simulation joint guard rejected the requested manual jog. "
+                    + str(evidence["reason"] or apply_message),
+                )
+            return finish(
+                False,
+                "manual_robot_jog_acknowledgement_unknown",
+                "No fresh raw guard acknowledgement matched both the requested and accepted five-joint vectors. "
+                + (str(evidence["reason"] or apply_message)),
+            )
+        except Exception as exc:
+            return finish(False, "manual_robot_jog_failed", str(exc))
+        finally:
+            self._manual_jog_in_progress = False
 
     def setBasePose(self, matrix_world_ras_mm) -> RobotActionResult:
         try:
