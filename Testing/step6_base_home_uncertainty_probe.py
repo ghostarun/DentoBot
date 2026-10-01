@@ -68,6 +68,7 @@ def run_base_home_uncertainty_probe(
         "calls": {
             "lockBase": 0,
             "saveTaskHome": 0,
+            "baselineSaveTaskHome": 0,
             "reconcileManualBaseAcceptance": 0,
             "reconcileManualTaskHomeAcceptance": 0,
             "guardManualRobotJog": 0,
@@ -118,6 +119,16 @@ def run_base_home_uncertainty_probe(
             evidence["restored_methods"].append(name)
 
         patches.append(restore)
+        return restore
+
+    def restore_patch(restore):
+        try:
+            restore()
+        except Exception as exc:
+            evidence.setdefault("restoration_errors", []).append(str(exc))
+            raise
+        if restore in patches:
+            patches.remove(restore)
 
     def click(button, name):
         if not bool(getattr(button, "enabled", False)):
@@ -127,8 +138,13 @@ def run_base_home_uncertainty_probe(
 
     def modal(button, expected_text, owner_evidence):
         start = len(evidence["captures"])
+        capture_stage = (
+            "base-unknown-modal"
+            if owner_evidence is evidence["base"]
+            else "home-unknown-modal"
+        )
         try:
-            observed = expected_error_dialog_callback(button, expected_text, capture)
+            observed = expected_error_dialog_callback(button, expected_text, capture_stage)
         except Exception as exc:
             abort(f"Expected error dialog was not captured and dismissed: {exc}")
         if not isinstance(observed, Mapping) or any(
@@ -137,8 +153,13 @@ def run_base_home_uncertainty_probe(
         ):
             abort("Error-dialog callback lacks positive click/capture/dismiss evidence.")
         text = str(observed.get("dialog_text") or "")
-        if expected_text not in text or not observed.get("capture_reference"):
+        capture_reference = observed.get("capture_reference")
+        if expected_text not in text or not capture_reference:
             abort("Captured error dialog omitted its expected text or screenshot reference.")
+        evidence["captures"].append({
+            "stage": capture_stage,
+            "reference": _full_chain._jsonable(capture_reference),
+        })
         owner_evidence["dialog"] = _full_chain._jsonable(observed)
         owner_evidence["dialog_capture_stages"] = evidence["captures"][start:]
         process_events(0.1)
@@ -162,6 +183,127 @@ def run_base_home_uncertainty_probe(
         result = facade.manualTaskHomeReview()
         details = result.details if isinstance(getattr(result, "details", None), Mapping) else {}
         return result, details
+
+    def reaccept_home_after_base_invalidation(home_before_details):
+        baseline = {
+            "status": "running",
+            "runtime_validated_before_base": home_runtime_before_base,
+            "runtime_validated_after_base": home_runtime_after_base,
+            "identity_status_before": home_before_details.get("identityStatus"),
+            "captures": {},
+        }
+        evidence["home"]["baseline_revalidation"] = baseline
+        try:
+            before = snapshot("before_home_runtime_revalidation")
+            accepted = before["accepted"]
+            if any(
+                not _full_chain._same_vector(accepted, before[key], tolerance=1.0e-12)
+                for key in ("monitored", "displayed")
+            ):
+                abort("Accepted, monitored, and displayed J1–J5 differ before Home revalidation.", "pending_home_prerequisite")
+            saved_before = logic.taskHomeRecord(parameter_node)
+            revision_before = getattr(saved_before, "revision", None)
+            if saved_before is None or isinstance(revision_before, bool) or not isinstance(revision_before, int) or revision_before < 0:
+                abort("Saved Task Home revision is unavailable before revalidation.", "pending_home_prerequisite")
+            baseline.update(
+                saved_revision_before=revision_before,
+                expected_saved_revision=revision_before + 1,
+                joints_before=_full_chain._jsonable(before),
+            )
+            baseline["captures"]["before"] = capture("home-runtime-revalidation-before")
+
+            set_substep(3)
+            click(panel.resetManualJogDraftButton, "Reset Draft to Accepted J1-J5")
+            draft = panel.manualJogJointPositionsSi()
+            baseline["draft_joint_positions_si"] = _full_chain._jsonable(draft)
+            baseline["captures"]["draft"] = capture("home-runtime-revalidation-draft")
+            if not _full_chain._same_vector(accepted, draft, tolerance=1.0e-12):
+                abort("GUI draft reset did not preserve the exact accepted J1–J5 pose.", "pending_home_prerequisite")
+            unchanged(before, "after_home_runtime_revalidation_draft_reset")
+
+            set_substep(2)
+            click(panel.reviewTaskHomeButton, "Review Draft as Task Home")
+            staged, staged_details = home_review()
+            candidate = staged_details.get("candidateJointPositionsSi")
+            baseline["identity_status_staged"] = staged_details.get("identityStatus")
+            baseline["candidate_joint_positions_si"] = _full_chain._jsonable(candidate)
+            baseline["staged_review"] = _result(staged)
+            baseline["captures"]["staged"] = capture("home-runtime-revalidation-staged")
+            if (
+                getattr(staged, "success", False) is not True
+                or staged_details.get("identityStatus") != "current"
+                or staged_details.get("staged") is not True
+                or staged_details.get("acceptanceStatus") != "review"
+                or not isinstance(candidate, Mapping)
+                or set(candidate) != set(names)
+                or not _full_chain._same_vector(accepted, candidate, tolerance=1.0e-12)
+            ):
+                abort("GUI Task Home review did not stage the exact current accepted pose.", "pending_home_prerequisite")
+            unchanged(before, "after_home_runtime_revalidation_review")
+
+            save_state = {"results": []}
+            original_save = facade.saveTaskHome
+
+            def tracked_baseline_save(*args, **kwargs):
+                evidence["calls"]["baselineSaveTaskHome"] += 1
+                try:
+                    result = original_save(*args, **kwargs)
+                except Exception as exc:
+                    save_state["results"].append({"raised": str(exc)})
+                    raise
+                save_state["results"].append(_result(result))
+                return result
+
+            save_restore = patch(facade, "saveTaskHome", tracked_baseline_save)
+            try:
+                click(panel.acceptTaskHomeButton, "Accept Task Home")
+            finally:
+                restore_patch(save_restore)
+
+            baseline["normal_save_result"] = save_state["results"][-1] if save_state["results"] else None
+            saved_after = logic.taskHomeRecord(parameter_node)
+            revision_after = getattr(saved_after, "revision", None)
+            runtime_after = bool(facade.taskHomeRuntimeValidated(parameter_node))
+            accepted_home, accepted_details = home_review()
+            after = snapshot("after_home_runtime_revalidation")
+            baseline.update(
+                saved_revision_after=revision_after,
+                runtime_validated_after_reaccept=runtime_after,
+                accepted_review=_result(accepted_home),
+                joints_after=_full_chain._jsonable(after),
+            )
+            baseline["identity_status_after"] = accepted_details.get("identityStatus")
+            baseline["captures"]["accepted"] = capture("home-runtime-revalidation-accepted")
+            if (
+                evidence["calls"]["baselineSaveTaskHome"] != 1
+                or not isinstance(baseline["normal_save_result"], Mapping)
+                or baseline["normal_save_result"].get("success") is not True
+                or baseline["normal_save_result"].get("code") != "task_home_saved"
+                or baseline["normal_save_result"].get("details", {}).get("runtimeValidated") is not True
+                or isinstance(revision_after, bool)
+                or not isinstance(revision_after, int)
+                or revision_after != revision_before + 1
+                or runtime_after is not True
+                or getattr(accepted_home, "success", False) is not True
+                or accepted_details.get("identityStatus") != "current"
+                or accepted_details.get("staged") is not False
+                or accepted_details.get("acceptanceStatus") != "accepted"
+                or not _full_chain._same_vector(accepted, accepted_details.get("acceptedJointPositionsSi"), tolerance=1.0e-12)
+                or any(before[key] != after[key] for key in ("accepted", "monitored", "displayed"))
+            ):
+                abort("GUI Task Home baseline reacceptance did not prove a new validated revision and unchanged current pose.", "pending_home_prerequisite")
+            baseline["status"] = "complete"
+            evidence["home"].pop("pending_prerequisite", None)
+        except BaseHomeUncertaintyProbeError as exc:
+            baseline["status"] = "failed"
+            evidence["home"]["pending_prerequisite"] = str(exc)
+            evidence["status"] = "pending_home_prerequisite"
+            raise BaseHomeUncertaintyProbeError(str(exc), evidence) from exc
+        except Exception as exc:
+            baseline["status"] = "failed"
+            reason = f"Task Home GUI revalidation could not be proven: {type(exc).__name__}: {exc}"
+            evidence["home"]["pending_prerequisite"] = reason
+            abort(reason, "pending_home_prerequisite")
 
     try:
         if len(names) != 5 or len(set(names)) != 5 or names != tuple(sorted(names)):
@@ -373,18 +515,17 @@ def run_base_home_uncertainty_probe(
             runtime_validated_after_base=home_runtime_after_base,
             review_after_base=_result(home_before),
         )
-        if home_runtime_before_base and not home_runtime_after_base:
-            evidence["home"]["pending_prerequisite"] = "Base acceptance invalidated Task Home runtime validation."
-            abort(evidence["home"]["pending_prerequisite"], "pending_home_prerequisite")
         if (
             getattr(home_before, "success", False) is not True
             or home_before_details.get("identityStatus") != "current"
             or home_before_details.get("staged") is True
-            or home_before_details.get("acceptanceStatus") == "unknown"
+            or home_before_details.get("acceptanceStatus") != "accepted"
             or home_before_details.get("acceptanceUncertainty")
         ):
             evidence["home"]["pending_prerequisite"] = "Current Task Home review identity is unavailable after Base acceptance."
             abort(evidence["home"]["pending_prerequisite"], "pending_home_prerequisite")
+        if home_runtime_before_base and not home_runtime_after_base:
+            reaccept_home_after_base_invalidation(home_before_details)
 
         home_start = snapshot("before_home_review")
         accepted_home = home_start["accepted"]
@@ -455,6 +596,10 @@ def run_base_home_uncertainty_probe(
         failure_evidence = unknown_home_details.get("failureEvidence")
         freeze = failure_evidence.get("reconciliationFreeze") if isinstance(failure_evidence, Mapping) else None
         saved_after = logic.taskHomeRecord(parameter_node)
+        saved_revision_after_lost_ack = getattr(saved_after, "revision", None)
+        evidence["home"]["unknown_review"] = _result(home_unknown)
+        evidence["home"]["failure_evidence"] = _full_chain._jsonable(failure_evidence)
+        evidence["home"]["saved_revision_after_lost_ack"] = saved_revision_after_lost_ack
         if (
             unknown_home_details.get("acceptanceStatus") != "unknown"
             or not unknown_home_details.get("acceptanceUncertainty")
@@ -463,13 +608,12 @@ def run_base_home_uncertainty_probe(
             or not _full_chain._same_vector(accepted_home, unknown_home_details["candidateJointPositionsSi"], tolerance=1.0e-12)
             or not isinstance(freeze, Mapping)
             or freeze.get("expectedRevision") != expected_revision
-            or getattr(saved_after, "revision", None) != expected_revision
-            or _HOME_ACK_LOST not in str((failure_evidence or {}).get("ownerDetails", {}).get("message", ""))
+            or saved_revision_after_lost_ack != expected_revision
+            or not isinstance(failure_evidence, Mapping)
+            or _HOME_ACK_LOST not in str(failure_evidence.get("message") or "")
             or "Task Home" not in str(home_dialog.get("dialog_text") or "")
         ):
             abort("Lost Home acknowledgement did not retain unknown state, candidate, failure, and expected saved revision.")
-        evidence["home"]["unknown_review"] = _result(home_unknown)
-        evidence["home"]["saved_revision_after_lost_ack"] = getattr(saved_after, "revision", None)
         unchanged(home_start, "after_home_lost_ack")
         widget._updateStep6PlanningUi()
         if panel.acceptTaskHomeButton.enabled or panel.cancelTaskHomeReviewButton.enabled:

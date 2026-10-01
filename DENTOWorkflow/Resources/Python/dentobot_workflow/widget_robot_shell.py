@@ -15,7 +15,11 @@ from DENTOROS2Bridge import (
     show_goal_robot_joint_positions,
     show_manual_simulation_record_paths,
 )
-from DENTOStep6State import JOINT_NAMES, parse_manual_simulation_record
+from DENTOStep6State import (
+    JOINT_NAMES,
+    parse_manual_simulation_record,
+    parse_motion_diagnostic_session,
+)
 
 
 class RobotShellWidgetMixin(RobotManualWidgetMixin):
@@ -400,7 +404,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         return True
 
     def _onStep6ShowMotionDiagnostics(self, expected_fingerprint: str = "") -> None:
-        self._clearStep6TargetConditioningFiducials()
+        self._clearStep6MotionDiagnosticDisplay()
         if not self._parameterNode or not self._robotSimulationPanel:
             return
         payload = str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
@@ -409,12 +413,10 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             return
         try:
             session = parse_motion_diagnostic_session(payload)
-            exact_current_session = bool(
-                expected_fingerprint
-                and session.session_fingerprint == expected_fingerprint
-                and session.state == "Current"
-                and not session.stale_reason
+            exact_fingerprint = self._step6ExactMotionDiagnosticDisplayFingerprint(
+                session, expected_fingerprint
             )
+            exact_current_session = bool(exact_fingerprint)
             self._robotSimulationPanel.showMotionDiagnostics(
                 session,
                 self._robotWorkflowFacade.showDiagnosticCandidate
@@ -437,18 +439,23 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 else None,
                 exact_current_session=exact_current_session,
             )
+            dialog = self._robotSimulationPanel._diagnosticDialog
+            if dialog is not None:
+                self._step6DiagnosticDisplayContext = (
+                    self._parameterNode,
+                    self._step6MotionDiagnosticGenerationIdentity(session),
+                )
+                dialog.connect(
+                    "finished(int)",
+                    lambda _result: self._clearStep6MotionDiagnosticDisplay(),
+                )
             if exact_current_session:
                 fiducials_visible = self._showStep6TargetConditioningFiducials(
-                    session, expected_fingerprint
+                    session, exact_fingerprint
                 )
                 self._robotSimulationPanel.setMotionDiagnosticTargetFiducialStatus(
                     fiducials_visible
                 )
-                if fiducials_visible:
-                    self._robotSimulationPanel._diagnosticDialog.connect(
-                        "finished(int)",
-                        lambda _result: self._clearStep6TargetConditioningFiducials(),
-                    )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
 
@@ -1354,6 +1361,14 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         if not self._robotSimulationPanel:
             return
         index = max(0, min(int(substep_index), 4))
+        if self._step6SubstepIndex == 3 and index != 3:
+            self._clearStep6MotionDiagnosticDisplay()
+            dialog = self._robotSimulationPanel._diagnosticDialog
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
         self._step6SubstepIndex = index
         self._robotSimulationPanel.setActiveSubstep(index)
         self._updatingStep6SubstepNavigation = True
@@ -1366,6 +1381,21 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 self._step6NextSubstepButton.enabled = index < 4
         finally:
             self._updatingStep6SubstepNavigation = False
+        panel = self._robotSimulationPanel
+        controls = panel.manualJogControlsGroup
+        if index == 2 and not panel._manualJogControlsInHomeGroup:
+            panel.manualJogGroup.layout().removeWidget(controls)
+            controls.setParent(panel.homeGroup)
+            controls.show()
+            panel.homeGroup.layout().insertWidget(1, controls)
+            panel._manualJogControlsInHomeGroup = True
+        elif index != 2 and panel._manualJogControlsInHomeGroup:
+            panel.homeGroup.layout().removeWidget(controls)
+            controls.setParent(panel.manualJogGroup)
+            controls.show()
+            panel.manualJogGroup.layout().insertWidget(2, controls)
+            panel._manualJogControlsInHomeGroup = False
+        panel._updateManualJogResetLabel()
         groups = (
             self.ui.step6PlanningContextGroupBox,
             self.ui.step6MountLockGroupBox,
@@ -1395,7 +1425,6 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 self._robotSimulationPanel.collisionGroup,
             ),
             2: (
-                self.ui.step6TaskJointLimitsGroupBox,
                 self._robotSimulationPanel.homeGroup,
             ),
             3: (
@@ -1430,14 +1459,16 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             and int(self.ui.workflowStageComboBox.currentIndex)
             == len(self._workflowStageEntries()) - 1
         ):
-            qt.QTimer.singleShot(
-                0,
-                lambda: self._workflowContentScrollArea.ensureWidgetVisible(
-                    self._step6SubstepNavigator,
-                    0,
-                    20,
-                ),
-            )
+            qt.QTimer.singleShot(0, self._ensureStep6SubstepNavigatorVisible)
+
+    def _ensureStep6SubstepNavigatorVisible(self) -> None:
+        try:
+            scroll_area = self._workflowContentScrollArea
+            navigator = self._step6SubstepNavigator
+            if scroll_area is not None and navigator is not None:
+                scroll_area.ensureWidgetVisible(navigator, 0, 20)
+        except (AttributeError, RuntimeError, ValueError):
+            return
 
     def _restoreLegacyRobotSimulationGroups(self) -> None:
         if not self._robotSimulationPanel:

@@ -10,6 +10,8 @@ class DENTOWorkflowParameterNode:
     """Persistent DENTOBOT workflow state stored in the MRML scene."""
 
     caseName: str = ""
+    dentoCaseId: str = ""
+    dentoCaseResumeCheckpoint: str = ""
     workflowStageIndex: int = -1
     inputVolume: vtkMRMLScalarVolumeNode
     inspectedVolume: vtkMRMLScalarVolumeNode

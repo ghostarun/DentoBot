@@ -10,6 +10,7 @@ from .workflow_progress import WorkflowProgress
 
 from DENTOROS2Bridge import (
     clear_manual_simulation_record_paths,
+    clear_motion_diagnostic_display,
     show_goal_robot_joint_positions,
     show_manual_simulation_record_paths,
 )
@@ -74,10 +75,24 @@ class RobotManualWidgetMixin:
     def _onShellManualJogDraftChanged(
         self, joint_positions_si: Mapping[str, float]
     ) -> None:
-        if not self._robotSimulationPanel:
+        panel = self._robotSimulationPanel
+        if not panel:
+            return
+        if panel._taskHomeSetupMode == "offline":
+            panel.setManualJogDraftDisplayResult(
+                False,
+                "live robot ghost visualization is unavailable offline. "
+                "Connect ROS/MoveIt in 6.1 for live display.",
+            )
+            return
+        if panel._taskHomeSetupMode != "connected":
+            panel.setManualJogDraftDisplayResult(
+                False,
+                "no live robot display was updated.",
+            )
             return
         ok, message = show_goal_robot_joint_positions(joint_positions_si)
-        self._robotSimulationPanel.setManualJogDraftDisplayResult(ok, message)
+        panel.setManualJogDraftDisplayResult(ok, message)
 
     def _onShellCheckManualRobotDraftState(
         self, joint_positions_si: Mapping[str, float]
@@ -587,6 +602,50 @@ class RobotManualWidgetMixin:
             "Applied Robot + CBCT Placement Review and framed the union of visible case, robot, goal, mount, and proxy bounds."
         )
 
+    def _manualBaseReviewControlState(
+        self, scene_prepared, robot_present, locked, review_result, ros2_active=False
+    ) -> dict[str, bool]:
+        details = getattr(review_result, "details", {}) or {}
+        staged = bool(details.get("staged"))
+        identity_current = str(details.get("identityStatus") or "unknown") == "current"
+        acceptance_unknown = (
+            str(details.get("acceptanceStatus") or "") == "unknown"
+            or bool(details.get("acceptanceUncertainty"))
+        )
+        review_success = bool(getattr(review_result, "success", False))
+        return {
+            "group": staged or bool(scene_prepared and robot_present),
+            "begin": bool(
+                scene_prepared
+                and robot_present
+                and not locked
+                and not staged
+                and identity_current
+                and not acceptance_unknown
+                and review_success
+            ),
+            "accept": bool(
+                scene_prepared
+                and robot_present
+                and not locked
+                and staged
+                and identity_current
+                and not acceptance_unknown
+                and review_success
+            ),
+            "cancel": staged and not acceptance_unknown,
+            "acceptance_unknown": acceptance_unknown,
+            "reconcile": bool(
+                scene_prepared
+                and robot_present
+                and ros2_active
+                and staged
+                and identity_current
+                and bool(getattr(review_result, "success", False))
+                and acceptance_unknown
+            ),
+        }
+
     def _onStep6BeginManualBaseReview(self) -> None:
         panel = self._robotSimulationPanel
         facade = self._robotWorkflowFacade
@@ -792,6 +851,7 @@ class RobotManualWidgetMixin:
         accepted = details.get("acceptedJointPositionsSi")
         if (
             result.success is True
+            and details.get("setupMode") == "connected"
             and details.get("identityStatus") == "current"
             and details.get("acceptanceStatus") == "accepted"
             and isinstance(accepted, Mapping)
@@ -1056,3 +1116,135 @@ class RobotManualWidgetMixin:
             panel.setManualRecordImportStatus(
                 "idle", "Historical paths and imported records were cleared; live state is unchanged."
             )
+
+    def _clearStep6MotionDiagnosticDisplay(self) -> bool:
+        self._step6DiagnosticDisplayContext = None
+        clear_errors = []
+        try:
+            self._clearStep6TargetConditioningFiducials()
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            clear_errors.append(str(exc))
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        clear_display = getattr(facade, "clearDiagnosticDisplay", None)
+        try:
+            if callable(clear_display):
+                result = clear_display()
+                success = bool(getattr(result, "success", False))
+                message = str(getattr(result, "message", ""))
+            else:
+                success, message = clear_motion_diagnostic_display()
+                success = bool(success)
+                message = str(message)
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            success, message = False, str(exc)
+        if clear_errors:
+            success = False
+            message = "; ".join(part for part in (message, *clear_errors) if part)
+        if not success:
+            report = "Motion diagnostic display cleanup failed: " + (
+                message or "the display owner did not confirm cleanup."
+            )
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel is not None and hasattr(panel, "approachStatusLabel"):
+                panel.approachStatusLabel.text = report
+                panel.approachStatusLabel.setProperty("dentobotRole", "warning")
+            slicer.util.errorDisplay(report)
+        return success
+
+    def _clearStep6MotionDiagnosticDisplayIfContextChanged(self) -> bool:
+        context = getattr(self, "_step6DiagnosticDisplayContext", None)
+        if not context:
+            return False
+        parameter_node, generation_identity = context
+        current_node = getattr(self, "_parameterNode", None)
+        current_payload = str(
+            getattr(current_node, "step6MotionDiagnosticJson", "") or ""
+        ).strip()
+        stale = current_node is not parameter_node or not current_payload
+        if not stale and current_payload:
+            try:
+                session = parse_motion_diagnostic_session(current_payload)
+                stale = bool(
+                    session.state != "Current"
+                    or session.stale_reason
+                    or self._step6MotionDiagnosticGenerationIdentity(session)
+                    != generation_identity
+                )
+            except (TypeError, ValueError):
+                stale = True
+        logic = getattr(self, "logic", None)
+        checker = getattr(logic, "motionDiagnosticFreshnessIssues", None)
+        if not stale and callable(checker):
+            try:
+                stale = bool(checker(current_node))
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                stale = True
+        if stale:
+            self._clearStep6MotionDiagnosticDisplay()
+            panel = getattr(self, "_robotSimulationPanel", None)
+            dialog = getattr(panel, "_diagnosticDialog", None)
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
+            return True
+        return False
+
+    def _step6ExactMotionDiagnosticDisplayFingerprint(
+        self, session, expected_fingerprint: str = ""
+    ) -> str:
+        """Resolve only an exact-current fingerprint for diagnostic displays."""
+        supplied_fingerprint = str(expected_fingerprint or "").strip()
+        if supplied_fingerprint:
+            candidate_fingerprint = supplied_fingerprint
+        else:
+            logic = getattr(self, "logic", None)
+            checker = getattr(logic, "motionDiagnosticFreshnessIssues", None)
+            parameter_node = getattr(self, "_parameterNode", None)
+            if not callable(checker) or parameter_node is None:
+                return ""
+            try:
+                issues = checker(parameter_node)
+                if not isinstance(issues, (list, tuple)) or issues:
+                    return ""
+            except (
+                AttributeError,
+                OSError,
+                OverflowError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ):
+                return ""
+            candidate_fingerprint = str(
+                getattr(session, "session_fingerprint", "") or ""
+            )
+        session_fingerprint = str(
+            getattr(session, "session_fingerprint", "") or ""
+        )
+        return (
+            candidate_fingerprint
+            if candidate_fingerprint
+            and candidate_fingerprint == session_fingerprint
+            and getattr(session, "state", "") == "Current"
+            and not getattr(session, "stale_reason", "")
+            else ""
+        )
+
+    @staticmethod
+    def _step6MotionDiagnosticGenerationIdentity(session) -> tuple[str, ...]:
+        """Return the immutable inputs identifying one diagnostic generation."""
+        return tuple(
+            str(getattr(session, name, "") or "")
+            for name in (
+                "schema_version",
+                "generated_at_utc",
+                "task_fingerprint",
+                "base_fingerprint",
+                "trajectory_fingerprint",
+                "robot_profile_fingerprint",
+                "collision_audit_fingerprint",
+                "planning_parameters_fingerprint",
+            )
+        )

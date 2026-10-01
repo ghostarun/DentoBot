@@ -512,3 +512,68 @@ def test_unrecognized_profile_transition_remains_incompatible_and_unchanged() ->
     assert parameter.step6CollisionSceneAuditJson == "audit"
     assert parameter.step6ConfirmedTaskJson == "confirmed"
     assert not host.invalidations
+
+
+def test_base_lock_publishes_complete_review_evidence_before_parameter_notification():
+    from DENTOStep6State import (
+        BasePlacementStatus, MANUAL_SIMULATION_BASE_SOURCE, normalize_base_status,
+    )
+
+    source = (HELPER_DIRECTORY / "dentobot_workflow/logic_robot.py").read_text()
+    robot_class = next(node for node in ast.parse(source).body
+                       if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin")
+    method = next(node for node in robot_class.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "setRobotBaseMountLocked")
+    namespace = {
+        "BasePlacementStatus": BasePlacementStatus,
+        "MANUAL_SIMULATION_BASE_SOURCE": MANUAL_SIMULATION_BASE_SOURCE,
+        "normalize_base_status": normalize_base_status,
+        "_": lambda text: text,
+    }
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
+                 "<base-lock>", "exec"), namespace)
+    attributes = {"authority": "ManualSimulationBaseUnreviewed"}
+    base = SimpleNamespace(
+        GetAttribute=attributes.get,
+        SetAttribute=lambda key, value: attributes.__setitem__(key, value),
+    )
+    notifications = []
+    invalidations = []
+    node = SimpleNamespace(
+        robotBaseTransform=base,
+        robotBaseMountLocked=False,
+        step6BasePlacementStatus="Stale",
+        step6BasePlacementSource="old-source",
+        step6BasePlacementRevision=7,
+        StartModify=lambda: 0,
+        EndModify=lambda _old: notifications.append((
+            node.robotBaseMountLocked, node.step6BasePlacementStatus,
+            node.step6BasePlacementSource, dict(attributes), list(invalidations),
+        )),
+    )
+    logic = SimpleNamespace(
+        requireCaseFoundationPose=lambda _node: {"planning_pose_fingerprint": "current-pose"},
+        isRobotBaseTransformNode=lambda value: value is base,
+        ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE="authority",
+        ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY="circular",
+        ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY="ManualSimulationBaseReviewed",
+        ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY="ManualSimulationBaseUnreviewed",
+        robotProfileFingerprint=lambda: "current-profile",
+        invalidateStep6TaskConfirmation=lambda *_args: invalidations.append("invalidated"),
+        _applyRobotBaseMountInteractionState=lambda *_args: None,
+    )
+    lock = namespace["setRobotBaseMountLocked"]
+    lock(logic, node, True)
+    assert notifications == [(True, "ProvisionalLocked", MANUAL_SIMULATION_BASE_SOURCE, {
+        "authority": "ManualSimulationBaseReviewed",
+        "DENTOBOT.CaseFoundationFingerprint": "current-pose",
+        "DENTOBOT.RobotProfileFingerprint": "current-profile",
+    }, ["invalidated"])]
+    assert node.step6BasePlacementRevision == 8
+    lock(logic, node, True)
+    assert node.step6BasePlacementRevision == 8
+    assert invalidations == ["invalidated"]
+    lock(logic, node, False)
+    assert notifications[-1][0:3] == (False, "Unlocked", "operator-unlocked")
+    assert notifications[-1][3]["authority"] == "ManualSimulationBaseUnreviewed"
+    assert node.step6BasePlacementRevision == 9

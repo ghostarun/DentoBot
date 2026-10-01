@@ -1768,7 +1768,7 @@
           "returns": "vtkMRMLModelNode | None"
         },
         "saveCurrentTaskHome": {
-          "arguments": "self, parameterNode, *, runtime_validation=None",
+          "arguments": "self, parameterNode, *, runtime_validation=None, joint_positions_si=None",
           "decorators": [],
           "returns": ""
         },

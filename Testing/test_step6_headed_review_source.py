@@ -59,6 +59,122 @@ def _extract_tcp_workbench_helper(name, extra_globals=None):
     return namespace[name]
 
 
+def _screenshot_capture_fixture(tmp_path, *, modal_mode=None):
+    events = []
+
+    class Pixmap:
+        def __init__(self, name, *, null=False, save_ok=True, empty=False):
+            self.name = name
+            self.null = null
+            self.save_ok = save_ok
+            self.empty = empty
+
+        def isNull(self):
+            return self.null
+
+        def save(self, path):
+            events.append(f"{self.name}_save")
+            if self.save_ok:
+                Path(path).write_bytes(b"" if self.empty else b"screenshot")
+            return self.save_ok
+
+    modal = None
+    if modal_mode is not None:
+        class Modal:
+            def grab(self):
+                events.append("modal_grab")
+                return Pixmap(
+                    "modal",
+                    null=modal_mode == "null",
+                    save_ok=modal_mode != "save-failure",
+                    empty=modal_mode == "empty",
+                )
+
+        modal = Modal()
+
+    class Window:
+        windowTitle = "original"
+
+        def show(self):
+            events.append("window_show")
+
+        def grab(self):
+            events.append("window_grab")
+            return Pixmap("ui")
+
+    class View:
+        def forceRender(self):
+            events.append("view_render")
+
+        def renderWindow(self):
+            return "render-window"
+
+    view = View()
+
+    class LayoutManager:
+        def threeDWidget(self, _index):
+            return self
+
+        def threeDView(self):
+            return view
+
+    class VtkImageFilter:
+        def SetInput(self, _window):
+            pass
+
+        def ReadFrontBufferOff(self):
+            pass
+
+        def Update(self):
+            pass
+
+        def GetOutputPort(self):
+            return "image-output"
+
+    class VtkPngWriter:
+        def SetFileName(self, path):
+            self.path = path
+
+        def SetInputConnection(self, _output):
+            pass
+
+        def Write(self):
+            events.append("viewport_save")
+            Path(self.path).write_bytes(b"viewport")
+
+    class SlicerUtil:
+        def mainWindow(self):
+            return window
+
+        def forceRenderAllViews(self):
+            events.append("force_render_all")
+
+    class SlicerApp:
+        def layoutManager(self):
+            return LayoutManager()
+
+    window = Window()
+    qt = type("Qt", (), {
+        "QApplication": type(
+            "QApplication", (), {"activeModalWidget": staticmethod(lambda: modal)}
+        )
+    })
+    slicer = type("Slicer", (), {"util": SlicerUtil(), "app": SlicerApp()})
+    vtk = type("Vtk", (), {
+        "vtkWindowToImageFilter": VtkImageFilter,
+        "vtkPNGWriter": VtkPngWriter,
+    })
+    capture = _extract_helper("_capture_screenshots", {
+        "Path": Path,
+        "qt": qt,
+        "slicer": slicer,
+        "vtk": vtk,
+        "_process_events": lambda _seconds: events.append("process_events"),
+        "_utc_now": lambda: "2026-09-30T00:00:00Z",
+    })
+    return capture, events
+
+
 def _module_constant(name):
     assignment = next(
         node for node in TREE.body
@@ -226,7 +342,7 @@ def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     assert ast.unparse(native_gate.test) == (
         "not allow_jog and (not draft_only) and (not invalid_draft_review) "
         "and (not joint_keyboard_opt_in) and (not workspace_diagnostic) and (not connect_only) "
-        "or native is None"
+        "and (not offline_home_setup_opt_in) or native is None"
     )
     assert "get_package_prefix" in SOURCE
     assert 're.fullmatch(r"[0-9a-fA-F]{64}", value)' in SOURCE
@@ -325,6 +441,8 @@ def test_workspace_diagnostic_admission_requires_home_opt_in_and_excludes_action
         "DENTOBOT_HEADED_RECORD_REOPEN",
         "DENTOBOT_HEADED_JOINT_KEYBOARD",
         "DENTOBOT_HEADED_TCP_CASE",
+        "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY",
+        "DENTOBOT_HEADED_COMPLETE_CYCLES",
         "DENTOBOT_HEADED_FULL_CHAIN",
         "DENTOBOT_HEADED_ALLOW_REJECTED_JOG",
         "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
@@ -979,6 +1097,7 @@ def test_base_home_acceptance_is_exactly_opt_in_and_keeps_default_checklist():
         "simulation_robot_models_loaded",
         "planning_context_imported",
         "base_controls_and_accepted_status",
+        "offline_base_home_configuration",
         "draft_state_control_visible",
         "native_version_preflight",
         "base_profile_rebind_prerequisite",
@@ -1654,6 +1773,189 @@ def test_full_chain_probe_counts_follow_exception_evidence_without_false_preview
     }
     retain(report, failed_after_preview.evidence)
     assert report == {"planner_calls": 1, "preview_started": True}
+
+
+def test_complete_cycle_runner_opt_ins_are_itemized_and_fail_closed(monkeypatch):
+    checks = _module_constant("CHECK_NAMES")
+    assert "base_home_uncertainty" in checks
+    assert "complete_cycles" in checks
+    assert 'DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY' in SOURCE
+    assert 'DENTOBOT_HEADED_COMPLETE_CYCLES' in SOURCE
+    assert 'DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY is unset or \'0\'.' in SOURCE
+    assert 'DENTOBOT_HEADED_COMPLETE_CYCLES is unset or \'0\'.' in SOURCE
+
+    exact = _extract_helper("_exact_env_opt_in", {"os": os})
+    for name in (
+        "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY",
+        "DENTOBOT_HEADED_COMPLETE_CYCLES",
+    ):
+        monkeypatch.delenv(name, raising=False)
+        assert exact(name) is False
+        monkeypatch.setenv(name, "0")
+        assert exact(name) is False
+        monkeypatch.setenv(name, "1")
+        assert exact(name) is True
+        monkeypatch.setenv(name, "true")
+        with pytest.raises(RuntimeError, match="must be exactly '1', '0', or unset"):
+            exact(name)
+
+    validate = _extract_helper("_validate_step6_live_probe_opt_ins")
+    common = {
+        "base_home_uncertainty": False,
+        "complete_cycles": False,
+        "full_chain": False,
+        "allow_jog": True,
+        "allow_base_home_accept": True,
+        "workspace_diagnostic": False,
+        "draft_only": False,
+    }
+    validate(**{**common, "base_home_uncertainty": True})
+    validate(**{**common, "complete_cycles": True})
+    with pytest.raises(RuntimeError, match="separate fresh processes"):
+        validate(**{**common, "complete_cycles": True, "full_chain": True})
+    with pytest.raises(RuntimeError, match="workspace diagnostic"):
+        validate(**{**common, "base_home_uncertainty": True, "workspace_diagnostic": True})
+    with pytest.raises(RuntimeError, match="draft-only"):
+        validate(**{**common, "complete_cycles": True, "draft_only": True})
+    with pytest.raises(RuntimeError, match="ALLOW_JOG=1"):
+        validate(**{**common, "complete_cycles": True, "allow_jog": False})
+    with pytest.raises(RuntimeError, match="ALLOW_BASE_HOME_ACCEPT=1"):
+        validate(**{**common, "base_home_uncertainty": True, "allow_base_home_accept": False})
+
+
+def test_complete_cycle_runner_orders_uncertainty_tcp_cycles_and_interruption():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    calls = {
+        node.func.id: node.lineno
+        for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {
+            "run_base_home_uncertainty_probe",
+            "run_case_bound_tcp_probe",
+            "run_complete_cycles",
+            "run_full_chain_interruption_probe",
+        }
+    }
+    assert set(calls) == {
+        "run_base_home_uncertainty_probe",
+        "run_case_bound_tcp_probe",
+        "run_complete_cycles",
+        "run_full_chain_interruption_probe",
+    }
+    assert "make_expected_error_dialog_callback" in SOURCE
+    assert _module_constant("BASE_HOME_UNCERTAINTY_DIALOG_TIMEOUT_SEC") == 180.0
+    assert "dialog_timeout_sec = BASE_HOME_UNCERTAINTY_DIALOG_TIMEOUT_SEC" in SOURCE
+    assert "timeout_sec=dialog_timeout_sec" in SOURCE
+    assert (
+        '"expected_error_dialog_combined_action_and_modal_appearance_timeout_sec"'
+        in SOURCE
+    )
+    assert (
+        "expected_error_dialog_combined_action_and_modal_appearance_timeout_sec=dialog_timeout_sec"
+        in SOURCE
+    )
+    cycle_call = next(
+        node for node in ast.walk(run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "run_complete_cycles"
+    )
+    keywords = {keyword.arg: keyword.value for keyword in cycle_call.keywords}
+    assert ast.unparse(keywords["cycles"]) == "2"
+    assert ast.unparse(keywords["process_events"]) == "_process_events"
+    assert ast.unparse(keywords["joint_names"]) == "JOINT_NAMES"
+    assert calls["run_base_home_uncertainty_probe"] < calls["run_case_bound_tcp_probe"]
+    assert calls["run_case_bound_tcp_probe"] < calls["run_complete_cycles"]
+    assert calls["run_complete_cycles"] < calls["run_full_chain_interruption_probe"]
+
+
+def test_complete_cycle_pass_gate_requires_two_fully_observed_cycles():
+    passed = _extract_helper("_complete_cycles_passed", {"Mapping": Mapping})
+
+    def valid_cycle(session, plan_id):
+        endpoint_phase = {
+            "endpoint_verified": True,
+            "completion_observation": {
+                "observed_active": True,
+                "configured_preview_speed_multiplier": 0.25,
+            },
+            "endpoint_fk": {
+                "status": "passed",
+                "observation_kind": "post_completion_observation",
+            },
+        }
+        return {
+            "route_provenance": {
+                "task_identity": "task",
+                "diagnostic_session_fingerprint": session,
+                "phase_guard_session_id": "guard-" + session,
+                "approach_plan": {"plan_instance_id": plan_id},
+            },
+            "boundaries": {
+                "approach_endpoint_verified": endpoint_phase,
+                "drill_endpoint_verified": endpoint_phase,
+                "return_home_verified": {
+                    "phase_session_cleared": True,
+                    "reverse_phase_execution_status_evidence": {
+                        "phase_destination_sequence_matches_history": True,
+                        "axial_retraction_completed": True,
+                        "production_result_details_captured_by_read_only_observer": True,
+                    },
+                    "saved_home_error": {
+                        "accepted_monitored_displayed_all_match_saved_home": True,
+                    },
+                },
+            },
+        }
+
+    evidence = {
+        "fresh_repeat_completed": True,
+        "route_fingerprint_comparison_used": False,
+        "cycles": [valid_cycle("session-1", 101), valid_cycle("session-2", 202)],
+    }
+    assert passed(evidence) is True
+    recycled_address = {
+        **evidence,
+        "cycles": [valid_cycle("session-1", 101), valid_cycle("session-2", 101)],
+    }
+    assert passed(recycled_address) is True
+    assert passed({**evidence, "cycles": evidence["cycles"][:1]}) is False
+    stale_second = dict(evidence["cycles"][1])
+    stale_second["route_provenance"] = {
+        **stale_second["route_provenance"],
+        "diagnostic_session_fingerprint": "session-1",
+    }
+    assert passed({**evidence, "cycles": [evidence["cycles"][0], stale_second]}) is False
+    bad = {**evidence, "cycles": [dict(evidence["cycles"][0]), evidence["cycles"][1]]}
+    bad["cycles"][0]["boundaries"] = dict(bad["cycles"][0]["boundaries"])
+    bad["cycles"][0]["boundaries"]["return_home_verified"] = {
+        **bad["cycles"][0]["boundaries"]["return_home_verified"],
+        "phase_session_cleared": False,
+    }
+    assert passed(bad) is False
+
+
+def test_complete_cycle_count_capture_ignores_malformed_counts_without_changing_verdict():
+    retain = _extract_helper("_retain_complete_cycle_probe_counts", {"Mapping": Mapping})
+    report = {
+        "planner_calls": 0,
+        "preview_started": False,
+        "items": {"complete_cycles": {"status": "PASS"}},
+    }
+    retain(report, {
+        "button_invocations": {
+            "plan_guarded_approach": "not-a-count",
+            "preview_approach": "NaN",
+            "preview_drill": object(),
+        },
+    })
+    assert report == {
+        "planner_calls": 0,
+        "preview_started": False,
+        "items": {"complete_cycles": {"status": "PASS"}},
+    }
 
 
 def test_unconfirmed_draft_review_is_itemized_as_static_only_without_target_evidence():
@@ -2457,3 +2759,122 @@ def test_integration_connect_only_requires_provenance_and_excludes_other_actions
         with pytest.raises(RuntimeError, match="other actions"):
             requested()
         monkeypatch.delenv("DENTOBOT_HEADED_" + name)
+
+def test_active_modal_screenshot_precedes_window_and_viewport_without_showing_window(tmp_path):
+    capture, events = _screenshot_capture_fixture(tmp_path, modal_mode="ok")
+
+    result = capture("base-error", tmp_path)
+
+    assert result["modal"] == "base-error-modal.png"
+    assert (tmp_path / result["modal"]).read_bytes() == b"screenshot"
+    assert events.index("modal_grab") < events.index("modal_save")
+    assert events.index("modal_save") < events.index("window_grab")
+    assert events.index("window_grab") < events.index("viewport_save")
+    assert "window_show" not in events
+    assert "process_events" not in events
+
+
+@pytest.mark.parametrize(
+    ("modal_mode", "message"),
+    [
+        ("null", "Could not capture active modal screenshot"),
+        ("save-failure", "Could not save active modal screenshot"),
+        ("empty", "Active modal screenshot is empty"),
+    ],
+)
+def test_active_modal_capture_failures_stop_before_main_window_activation(
+    tmp_path, modal_mode, message
+):
+    capture, events = _screenshot_capture_fixture(tmp_path, modal_mode=modal_mode)
+
+    with pytest.raises(RuntimeError, match=message):
+        capture("base-error", tmp_path)
+
+    assert "window_show" not in events
+    assert "window_grab" not in events
+
+
+def test_screenshot_capture_keeps_no_modal_window_behavior(tmp_path):
+    capture, events = _screenshot_capture_fixture(tmp_path)
+
+    result = capture("ordinary-stage", tmp_path)
+
+    assert result["modal"] is None
+    assert events.index("window_show") < events.index("process_events")
+    assert events.index("process_events") < events.index("window_grab")
+    assert "viewport_save" in events
+
+
+def test_offline_home_opt_in_requires_exact_value_and_separate_output_case(
+    tmp_path, monkeypatch
+):
+    exact_opt_in = _extract_helper("_exact_env_opt_in", {"os": os})
+    validate_output = _extract_helper("_validate_output_case_path", {"Path": Path})
+    source_case = tmp_path / "source.dentocase"
+    source_case.write_bytes(b"source")
+    output_case = tmp_path / "offline-home.dentocase"
+
+    monkeypatch.delenv("DENTOBOT_HEADED_OFFLINE_HOME_SETUP", raising=False)
+    assert exact_opt_in("DENTOBOT_HEADED_OFFLINE_HOME_SETUP") is False
+    monkeypatch.setenv("DENTOBOT_HEADED_OFFLINE_HOME_SETUP", "0")
+    assert exact_opt_in("DENTOBOT_HEADED_OFFLINE_HOME_SETUP") is False
+    monkeypatch.setenv("DENTOBOT_HEADED_OFFLINE_HOME_SETUP", "1")
+    assert exact_opt_in("DENTOBOT_HEADED_OFFLINE_HOME_SETUP") is True
+    monkeypatch.setenv("DENTOBOT_HEADED_OFFLINE_HOME_SETUP", "true")
+    with pytest.raises(RuntimeError, match="must be exactly '1', '0', or unset"):
+        exact_opt_in("DENTOBOT_HEADED_OFFLINE_HOME_SETUP")
+
+    assert validate_output(str(output_case), source_case) == output_case
+    with pytest.raises(ValueError, match="absolute path"):
+        validate_output("offline-home.dentocase", source_case)
+    with pytest.raises(ValueError, match="distinct from the source"):
+        validate_output(str(source_case), source_case)
+    output_case.write_bytes(b"existing")
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        validate_output(str(output_case), source_case)
+
+
+def test_before_planning_recovery_is_required_when_home_or_workspace_is_stale():
+    ensure = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_ensure_current_home_workspace_task"
+    )
+    phase_gate = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and ast.unparse(node.test) == "phase in {'before_save', 'before_planning'}"
+    )
+    recovery_assignment = next(
+        node for node in phase_gate.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "needs_recovery"
+            for target in node.targets
+        )
+    )
+    phase_expression = compile(
+        ast.Expression(phase_gate.test), str(RUNNER), "eval"
+    )
+    recovery_expression = compile(
+        ast.Expression(recovery_assignment.value), str(RUNNER), "eval"
+    )
+
+    for phase in ("before_save", "before_planning"):
+        assert eval(phase_expression, {"phase": phase}) is True
+    for home_current, workspace_current, expected in (
+        (True, True, False),
+        (False, True, True),
+        (True, False, True),
+        (False, False, True),
+    ):
+        actual = eval(
+            recovery_expression,
+            {
+                "needs_recovery": False,
+                "home_current": home_current,
+                "workspace_current": workspace_current,
+            },
+        )
+        assert actual is expected

@@ -1049,6 +1049,7 @@ private:
     {
       world_evidence_signature_ = world_signature.str();
       world_evidence_cache_.clear();
+      world_evidence_objects_.clear();
       for (const std::string& object_id : scene->getWorld()->getObjectIds())
       {
         const collision_detection::World::ObjectConstPtr object =
@@ -1057,6 +1058,9 @@ private:
         {
           continue;
         }
+        // Keep cache-key addresses alive: an ADD replacement must not reuse
+        // an old object/mesh address and inherit its cached bounds.
+        world_evidence_objects_.push_back(object);
         WorldObjectEvidence evidence;
         evidence.id = object_id;
         evidence.shape_count = object->shapes_.size();
@@ -2041,6 +2045,7 @@ private:
   std::vector<double> last_accepted_positions_;
   std::string world_evidence_signature_;
   std::vector<WorldObjectEvidence> world_evidence_cache_;
+  std::vector<collision_detection::World::ObjectConstPtr> world_evidence_objects_;
   TaskGuardConfig task_config_;
   std::string active_task_config_payload_;
   std::int64_t last_task_sequence_{ -1 };

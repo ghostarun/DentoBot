@@ -9,6 +9,7 @@ class BootstrapWidgetMixin:
     def __init__(self, parent=None) -> None:
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
+        self._workflowActionBusy = False
         self.logic: DENTOWorkflowLogic | None = None
         self._parameterNode: DENTOWorkflowParameterNode | None = None
         self._parameterNodeGuiTag = None
@@ -186,6 +187,7 @@ class BootstrapWidgetMixin:
         self._resumeRos2MotionActiveBaseIdsAfterSave: list[str] = []
         self._robotMountPlaneNode = None
         self._updatingRobotPlacementUI = False
+        self._caseLibraryDialog = None
         self._loadedCaseBundlePath: str = ""
         self._caseBundleRobotProfileCompatible: bool | None = None
         self._caseBundleRobotProfileMigrationMessage: str = ""
@@ -374,6 +376,11 @@ class BootstrapWidgetMixin:
                 "process it in WSL2, validate it, and import it."
             )
 
+        self._caseLibraryButton = qt.QPushButton("DentoCase Library")
+        uiWidget.findChild(qt.QGridLayout, "caseButtonGridLayout").addWidget(
+            self._caseLibraryButton, 2, 0, 1, 2
+        )
+        self._caseLibraryButton.connect("clicked(bool)", self.onOpenCaseLibrary)
         self.ui.newCaseButton.connect("clicked(bool)", self.onNewCase)
         self.ui.saveCaseBundleButton.connect(
             "clicked(bool)", self.onSaveCaseBundle

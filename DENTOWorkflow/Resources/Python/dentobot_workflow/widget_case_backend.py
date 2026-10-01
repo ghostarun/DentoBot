@@ -63,6 +63,47 @@ def _restore_saved_case_foundation_landmarks(landmarks, saved_positions) -> bool
 
 
 class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
+    def onOpenCaseLibrary(self, checked=False):
+        if self._caseLibraryDialog is not None:
+            if self._caseLibraryDialog._case_library_closed:
+                self._caseLibraryDialog.dialog.deleteLater()
+            elif self._caseLibraryDialog.dialog.visible:
+                self._caseLibraryDialog.dialog.raise_()
+                return
+        from .case_library import show_case_library
+        database = Path.home() / ".dentobot" / "DentoCase" / "catalog.sqlite"
+        database.parent.mkdir(parents=True, exist_ok=True)
+        self._caseLibraryDialog = show_case_library(
+            slicer.util.mainWindow(), database_path=str(database),
+            on_full_load=self._openLibraryFullCase,
+            on_partial_load=self._openLibraryPartialCase,
+            on_partial_save=self._saveLibraryPartialCase,
+        )
+
+    def _openLibraryFullCase(self, path):
+        with slicer.util.tryWithErrorDisplay("Could not open this case.", waitCursor=True):
+            inspection = self._openCaseBundle(path)
+            self._showCaseManualSimulationRecords(inspection)
+            self.ui.caseBundleStatusLabel.text = "Loaded case; live freshness requires workflow review."
+
+    def _saveLibraryPartialCase(self, path, target, checkpoint, branch, destination):
+        from .case_projection import project_package_offline
+        with slicer.util.tryWithErrorDisplay("Could not create the independent partial case."):
+            project_package_offline(path, destination, target, checkpoint, branch)
+            self.ui.caseBundleStatusLabel.text = "Saved independent partial case; active scene unchanged."
+
+    def _openLibraryPartialCase(self, path, target, checkpoint, branch):
+        from .case_projection import project_package_offline
+        with slicer.util.tryWithErrorDisplay("Could not load the independent partial case."):
+            with tempfile.TemporaryDirectory(prefix="dentocase-partial-load-", dir=slicer.app.temporaryPath) as directory:
+                destination = Path(directory) / "independent.dentocase"
+                project_package_offline(path, destination, target, checkpoint, branch)
+                self._openCaseBundle(destination)
+            self._loadedCaseBundlePath = ""
+            slicer.mrmlScene.SetURL("")
+            slicer.mrmlScene.Modified()
+            self.ui.caseBundleStatusLabel.text = "Independent partial case loaded; use Save Case Package (Save As). Live freshness is unverified."
+
     def _setMetadataPlaceholders(self) -> None:
         for label in (
             self.ui.volumeNameValueLabel,
@@ -234,6 +275,8 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
     def _createCaseBundle(self, destination: str | Path):
         if not self._parameterNode or not self.logic:
             raise CaseBundleError(_("DENTOBOT workflow state is unavailable."))
+        if not self._parameterNode.dentoCaseId:
+            self._parameterNode.dentoCaseId = str(uuid.uuid4())
         manualSimulationRecords = self._caseManualSimulationRecords()
         cancelledPlacement = (
             self.logic.cancelTransientStep6CaseJawLandmarkPlacement(
@@ -257,12 +300,21 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
             workflowSummary = self.logic.caseBundleWorkflowSummary(
                 self._parameterNode
             )
+            from .case_inventory import capture_inventory
+            workflowSummary["caseIdentity"] = {"id": self._parameterNode.dentoCaseId}
             with tempfile.TemporaryDirectory(
                 prefix="dentobot-case-save-",
                 dir=slicer.app.temporaryPath,
             ) as temporaryDirectory:
                 scenePath = Path(temporaryDirectory) / "case.mrb"
                 self._saveSceneSnapshotToMrb(scenePath)
+                # Saving may create persistent storage nodes. Audit the exact
+                # scene inventory serialized by that snapshot.
+                inventory, ownership = capture_inventory(
+                    self._parameterNode, slicer.mrmlScene, workflowSummary
+                )
+                workflowSummary["checkpointInventory"] = inventory
+                workflowSummary["projectionOwnership"] = ownership
                 return create_case_bundle(
                     destination,
                     scenePath,
@@ -389,6 +441,9 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         """Validate restored MRML before normal GUI hydration can mutate it."""
 
         parameterNode = self.logic.getParameterNode()
+        identity = expectedWorkflow.get("caseIdentity", {}).get("id", "")
+        if identity and parameterNode.dentoCaseId != identity:
+            raise CaseBundleError("The restored case identity differs from the package.")
         try:
             self.logic.validateLoadedCaseBundleWorkflow(
                 parameterNode,
@@ -706,6 +761,9 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         self._caseBundleRobotProfileMigrationMessage = str(
             profileMigration.get("message") or ""
         )
+        self._parameterNode.dentoCaseId = str(
+            inspection.workflow.get("caseIdentity", {}).get("id") or uuid.uuid4()
+        )
         self._loadedCaseBundlePath = str(inspection.path)
         phase("Case loaded", can_cancel=False)
         return inspection
@@ -721,6 +779,11 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         if isinstance(bundlePath, tuple):
             bundlePath = bundlePath[0]
         if not bundlePath:
+            return
+        if not slicer.util.confirmYesNoDisplay(
+            "Replace the current scene with the selected case? Unsaved changes will be lost.",
+            windowTitle="Open DentoCase",
+        ):
             return
         inspection = None
         from .workflow_progress import WorkflowProgress, WorkflowCancelled

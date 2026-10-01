@@ -38,11 +38,17 @@ class _Bridge:
 
 
 class _Facade:
-    def __init__(self, *, fail_lock=False, fail_save=False, stale_after_stage=False):
+    def __init__(
+        self, *, fail_lock=False, fail_save=False, stale_after_stage=False,
+        disable_home_accept=False,
+        home_failure_message="headed test: Home save acknowledgement lost",
+    ):
         self._bridge = _Bridge()
         self.fail_lock = fail_lock
         self.fail_save = fail_save
         self.stale_after_stage = stale_after_stage
+        self.disable_home_accept = disable_home_accept
+        self.home_failure_message = home_failure_message
         self.base_locked = False
         self.base_staged = False
         self.base_unknown = False
@@ -51,8 +57,10 @@ class _Facade:
         self.home_unknown = False
         self.home_revision = 3
         self.home_json = "saved-home-3"
+        self.home_runtime_validated = True
         self.real_lock_calls = 0
         self.real_save_calls = 0
+        self.events = []
         self.motionPlan = None
         self.previewActive = False
         self.currentPreviewPhase = ""
@@ -73,13 +81,15 @@ class _Facade:
         )
 
     def taskHomeRuntimeValidated(self, _node):
-        return True
+        return self.home_runtime_validated
 
     def lockBase(self):
         self.real_lock_calls += 1
+        self.events.append(f"lockBase_{self.real_lock_calls}")
         if self.fail_lock:
             return SimpleNamespace(success=False, code="base_lock_failed", message="Base lock rejected")
         self.base_locked = True
+        self.home_runtime_validated = False
         self._planning_scene_synchronized = True
         self._planning_scene_object_count = 2
         return SimpleNamespace(success=True, code="base_locked", message="Base locked", details={})
@@ -151,12 +161,15 @@ class _Facade:
             "acceptanceStatus": "unknown" if self.home_unknown else "review" if self.home_candidate else "accepted",
         }
         if self.home_unknown:
+            failure_evidence = {
+                "ownerDetails": {},
+                "reconciliationFreeze": {"expectedRevision": self.home_revision},
+            }
+            if self.home_failure_message is not None:
+                failure_evidence["message"] = self.home_failure_message
             details.update(
                 acceptanceUncertainty="save acknowledgement was lost",
-                failureEvidence={
-                    "ownerDetails": {"message": "headed test: Home save acknowledgement lost"},
-                    "reconciliationFreeze": {"expectedRevision": self.home_revision},
-                },
+                failureEvidence=failure_evidence,
             )
         return SimpleNamespace(success=True, code="manual_task_home_review", message="Home review", details=details)
 
@@ -166,12 +179,17 @@ class _Facade:
 
     def saveTaskHome(self):
         self.real_save_calls += 1
-        if self.fail_save:
+        self.events.append(f"saveTaskHome_{self.real_save_calls}")
+        if self.fail_save and self.real_save_calls == 2:
             return SimpleNamespace(success=False, code="task_home_failed", message="Task Home original save failed")
         self.home_revision += 1
         self.home_json = f"saved-home-{self.home_revision}"
         self.parameter_node.step6TaskHomeJson = self.home_json
-        return SimpleNamespace(success=True, code="task_home_saved", message="Task Home saved")
+        self.home_runtime_validated = True
+        return SimpleNamespace(
+            success=True, code="task_home_saved", message="Task Home saved",
+            details={"runtimeValidated": True},
+        )
 
     def acceptManualTaskHomeReview(self):
         try:
@@ -187,9 +205,11 @@ class _Facade:
         if result.success is not True:
             return SimpleNamespace(success=False, code=result.code, message=result.message, details=self.manualTaskHomeReview().details)
         self.home_candidate = None
+        self.home_runtime_validated = True
         return SimpleNamespace(success=True, code="manual_task_home_review_accepted", message="Accepted", details={})
 
     def reconcileManualTaskHomeAcceptance(self):
+        self.events.append("reconcileTaskHome")
         self.home_unknown = False
         self.home_candidate = None
         return SimpleNamespace(
@@ -255,6 +275,7 @@ class _Panel:
 class _Widget:
     def __init__(self, facade):
         self.facade = facade
+        self.home_accept_attempts = 0
         self._parameterNode = SimpleNamespace(step6TaskHomeJson="saved-home-3")
         self.logic = _Logic(facade)
         self.pending_dialog = ""
@@ -270,6 +291,7 @@ class _Widget:
         self._updateStep6PlanningUi()
 
     def accept_base(self):
+        self.facade.events.append("base_accept_owner")
         result = self.facade.acceptManualBaseReview()
         if not result.success:
             self.pending_dialog = result.message
@@ -280,6 +302,8 @@ class _Widget:
         self._updateStep6PlanningUi()
 
     def accept_home(self):
+        self.home_accept_attempts += 1
+        self.facade.events.append(f"home_accept_owner_{self.home_accept_attempts}")
         result = self.facade.acceptManualTaskHomeReview()
         if not result.success:
             self.pending_dialog = result.message or "Task Home save rejected"
@@ -312,6 +336,8 @@ class _Widget:
         p.resetManualJogDraftButton.enabled = p._activeSubstep == 3
         p.reviewTaskHomeButton.enabled = p._activeSubstep in (2, 3) and f.home_candidate is None
         p.acceptTaskHomeButton.enabled = p._activeSubstep in (2, 3) and f.home_candidate is not None and not f.home_unknown
+        if f.disable_home_accept:
+            p.acceptTaskHomeButton.enabled = False
         p.cancelTaskHomeReviewButton.enabled = f.home_candidate is not None and not f.home_unknown
         p.reconcileTaskHomeButton.enabled = f.home_candidate is not None and f.home_unknown
 
@@ -324,9 +350,11 @@ def _harness(**kwargs):
 
 def _run(widget, panel, facade, *, modal_calls):
     def modal_callback(button, expected_text, capture_stage):
+        assert isinstance(capture_stage, str)
+        assert capture_stage in ("base-unknown-modal", "home-unknown-modal")
         button.click()
         assert expected_text in widget.pending_dialog
-        reference = capture_stage(f"modal-{expected_text}")
+        reference = f"screenshot://{capture_stage}"
         text = widget.pending_dialog
         widget.pending_dialog = ""
         modal_calls.append(expected_text)
@@ -354,12 +382,108 @@ def test_success_reconciles_lost_ack_through_both_gui_owners_and_restores_method
     assert modal_calls == ["Base", "Task Home"]
     assert result["calls"]["lockBase"] == 2
     assert result["calls"]["reconcileManualBaseAcceptance"] == 1
+    assert result["calls"]["baselineSaveTaskHome"] == 1
     assert result["calls"]["saveTaskHome"] == 1
     assert result["calls"]["reconcileManualTaskHomeAcceptance"] == 1
     assert result["calls"]["guardManualRobotJog"] == 0
+    baseline = result["home"]["baseline_revalidation"]
+    assert baseline["status"] == "complete"
+    assert baseline["saved_revision_before"] == 3
+    assert baseline["saved_revision_after"] == 4
+    assert baseline["runtime_validated_before_base"] is True
+    assert baseline["runtime_validated_after_base"] is False
+    assert baseline["runtime_validated_after_reaccept"] is True
+    assert baseline["identity_status_before"] == "current"
+    assert baseline["identity_status_after"] == "current"
+    assert baseline["joints_before"] == baseline["joints_after"]
+    assert baseline["staged_review"]["success"] is True
+    assert baseline["normal_save_result"]["details"]["runtimeValidated"] is True
+    accepted_review = baseline["accepted_review"]
+    assert accepted_review["success"] is True
+    assert accepted_review["details"]["identityStatus"] == "current"
+    assert accepted_review["details"]["staged"] is False
+    assert accepted_review["details"]["acceptanceStatus"] == "accepted"
+    assert set(baseline["captures"]) == {"before", "draft", "staged", "accepted"}
+    assert all(baseline["captures"].values())
+    assert baseline["draft_joint_positions_si"] == baseline["candidate_joint_positions_si"]
+    assert baseline["draft_joint_positions_si"] == dict.fromkeys(JOINTS, 0.0)
+    assert widget.home_accept_attempts == 2
+    assert facade.real_save_calls == 2
+    assert facade.events.index("home_accept_owner_1") < facade.events.index("saveTaskHome_1")
+    assert facade.events.index("saveTaskHome_1") < facade.events.index("home_accept_owner_2")
+    assert facade.events.index("home_accept_owner_2") < facade.events.index("saveTaskHome_2")
+    assert facade.events.index("saveTaskHome_2") < facade.events.index("reconcileTaskHome")
     assert "lockBase" in result["restored_methods"] and "saveTaskHome" in result["restored_methods"]
+    assert result["base"]["dialog_capture_stages"] == [
+        {"stage": "base-unknown-modal", "reference": "screenshot://base-unknown-modal"}
+    ]
+    assert result["home"]["dialog_capture_stages"] == [
+        {"stage": "home-unknown-modal", "reference": "screenshot://home-unknown-modal"}
+    ]
+    home_failure = result["home"]["unknown_review"]["details"]["failureEvidence"]
+    assert home_failure["message"] == "headed test: Home save acknowledgement lost"
+    assert home_failure["ownerDetails"] == {}
+    assert home_failure["reconciliationFreeze"]["expectedRevision"] == 5
+    assert result["home"]["saved_revision_after_lost_ack"] == 5
     assert "lockBase" not in facade.__dict__ and "saveTaskHome" not in facade.__dict__
     assert len(result["captures"]) >= 8
+    home_start = result["joint_snapshots"]["before_home_review"]
+    home_end = result["joint_snapshots"]["after_home_reconciliation"]
+    assert home_start["accepted"] == home_end["accepted"]
+    assert home_start["monitored"] == home_end["monitored"]
+    assert home_start["displayed"] == home_end["displayed"]
+
+
+def test_disabled_baseline_home_reaccept_stops_before_uncertain_save():
+    widget, panel, facade = _harness(disable_home_accept=True)
+    modal_calls = []
+
+    with pytest.raises(BaseHomeUncertaintyProbeError) as caught:
+        _run(widget, panel, facade, modal_calls=modal_calls)
+
+    evidence = caught.value.evidence
+    assert evidence["status"] == "pending_home_prerequisite"
+    assert evidence["home"]["pending_prerequisite"]
+    baseline = evidence["home"]["baseline_revalidation"]
+    assert baseline["status"] != "complete"
+    assert baseline["runtime_validated_before_base"] is True
+    assert baseline["runtime_validated_after_base"] is False
+    assert evidence["calls"]["baselineSaveTaskHome"] == 0
+    assert evidence["calls"]["saveTaskHome"] == 0
+    assert facade.real_save_calls == 0
+    assert widget.home_accept_attempts == 0
+    assert modal_calls == ["Base"]
+
+
+@pytest.mark.parametrize(
+    "failure_message",
+    ["wrong top-level failure message", None],
+)
+def test_invalid_home_failure_message_stops_before_reconcile_and_retains_evidence(
+    failure_message,
+):
+    widget, panel, facade = _harness(home_failure_message=failure_message)
+    modal_calls = []
+
+    with pytest.raises(BaseHomeUncertaintyProbeError) as caught:
+        _run(widget, panel, facade, modal_calls=modal_calls)
+
+    evidence = caught.value.evidence
+    assert evidence["status"] == "blocked"
+    assert modal_calls == ["Base", "Task Home"]
+    assert evidence["home"]["unknown_review"]["details"]["acceptanceStatus"] == "unknown"
+    failure = evidence["home"]["unknown_review"]["details"]["failureEvidence"]
+    assert failure.get("message") == failure_message
+    assert failure["ownerDetails"] == {}
+    assert failure["reconciliationFreeze"]["expectedRevision"] == 5
+    assert evidence["home"]["saved_revision_after_lost_ack"] == 5
+    assert evidence["calls"]["baselineSaveTaskHome"] == 1
+    assert evidence["calls"]["saveTaskHome"] == 1
+    assert evidence["calls"]["reconcileManualTaskHomeAcceptance"] == 0
+    assert facade.real_save_calls == 2
+    assert facade.home_unknown is True
+    assert facade.home_candidate == dict.fromkeys(JOINTS, 0.0)
+    assert "reconcileTaskHome" not in facade.events
 
 
 def test_original_lock_failure_is_reported_without_synthetic_ack_loss():
@@ -401,7 +525,9 @@ def test_original_home_save_failure_is_not_mislabeled_as_lost_ack():
     assert caught.value.evidence["status"] == "original_failure"
     assert caught.value.evidence["home"]["underlying_save_result"]["success"] is False
     assert modal_calls == ["Base", "Task Home"]
-    assert facade.real_save_calls == 1
+    assert facade.real_save_calls == 2
+    assert caught.value.evidence["calls"]["baselineSaveTaskHome"] == 1
+    assert caught.value.evidence["calls"]["saveTaskHome"] == 1
     assert "saveTaskHome" not in facade.__dict__
 
 

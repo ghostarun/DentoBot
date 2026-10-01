@@ -78,6 +78,11 @@ class LifecycleWidgetMixin:
         if self._isCleaningUp:
             return
         self._isCleaningUp = True
+        case_library = getattr(self, "_caseLibraryDialog", None)
+        if case_library is not None:
+            if not case_library._case_library_closed:
+                case_library.dialog.close()
+            self._caseLibraryDialog = None
         self._workflowFocusEntered = False
         self._restoreWorkflowFocusChrome()
         self._caseFoundationSnapshot = None

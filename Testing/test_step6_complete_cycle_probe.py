@@ -133,6 +133,7 @@ class _Facade:
         self._phase_guard_session_id = ""
         self._phase_sequence = 0
         self._accepted_motion_history = []
+        self._motion_history_task_fingerprint = ""
         self.plan_count = 0
         self.return_action_count = 0
         self.fail_chain = False
@@ -167,6 +168,7 @@ class _Facade:
         self._bridge.accepted, self._bridge.monitored = dict(HOME), dict(HOME)
         self.widget.displayed = dict(HOME)
         self._accepted_motion_history = []
+        self._motion_history_task_fingerprint = ""
         self.motionPlan = None
         self.previewActive = False
         self.currentPreviewPhase = ""
@@ -229,7 +231,15 @@ def _plan(phase, vectors, phases, orientation):
     )
 
 
-def _harness(monkeypatch, *, fail_chain=False, fail_guard=False, endpoint_mismatch=False, reject_return=False):
+def _harness(
+    monkeypatch,
+    *,
+    fail_chain=False,
+    fail_guard=False,
+    endpoint_mismatch=False,
+    reject_return=False,
+    history_fault=None,
+):
     node = _Node()
     widget = SimpleNamespace(
         _parameterNode=node,
@@ -285,6 +295,7 @@ def _harness(monkeypatch, *, fail_chain=False, fail_guard=False, endpoint_mismat
         facade._phase_guard_session_id = guard_id
         facade._phase_sequence = 10
         facade._accepted_motion_history = [{"positions": dict(HOME), "phase": "home"}]
+        facade._motion_history_task_fingerprint = IDENTITY["task"]
         facade._bridge.identity = {
             "task_fingerprint": IDENTITY["task"],
             "guard_session_id": guard_id,
@@ -323,10 +334,22 @@ def _harness(monkeypatch, *, fail_chain=False, fail_guard=False, endpoint_mismat
         widget.displayed = endpoint
         for vector, waypoint_phase in zip(vectors, phases):
             facade._accepted_motion_history.append({"positions": dict(vector), "phase": waypoint_phase})
+        if history_fault and phase == "approach":
+            history = facade._accepted_motion_history
+            if history_fault == "missing":
+                facade._accepted_motion_history = []
+            elif history_fault == "truncated":
+                history.pop()
+            elif history_fault == "reordered":
+                history[-2:] = reversed(history[-2:])
+            elif history_fault == "wrongphase":
+                history[-1]["phase"] = "approach"
         facade._phase_sequence += len(vectors)
         facade.previewActive = False
         facade.completedPhase = phase
-        facade.previewIndex = len(vectors)
+        # Production consumes the index at completion; retained plan/history
+        # evidence proves the completed waypoint sequence instead.
+        facade.previewIndex = 0
         facade.returnHomeRequired = True
         facade._bridge.status = SimpleNamespace(
             accepted=True,
@@ -399,6 +422,7 @@ def test_two_fresh_cycles_verify_endpoint_fk_and_observe_actual_reverse(monkeypa
     result = _run(widget, panel, facade, process_events)
 
     assert result["fresh_repeat_completed"] is True
+    assert len(result["cycles"]) == 2
     assert result["route_fingerprint_comparison_used"] is False
     assert [cycle["route_provenance"]["diagnostic_session_fingerprint"] for cycle in result["cycles"]] == ["session-1", "session-2"]
     assert all(
@@ -410,14 +434,46 @@ def test_two_fresh_cycles_verify_endpoint_fk_and_observe_actual_reverse(monkeypa
         cycle["boundaries"]["drill_endpoint_verified"]["endpoint_fk"]["status"] == "passed"
         for cycle in result["cycles"]
     )
+    for cycle in result["cycles"]:
+        for boundary in ("approach_endpoint_verified", "drill_endpoint_verified"):
+            guard_evidence = cycle["boundaries"][boundary]["guard_evidence"]
+            assert guard_evidence["preview_index_observed_after_completion"] == 0
+            assert guard_evidence["verified_accepted_motion_history_waypoint_count"] == 2
     assert all(
         cycle["boundaries"]["return_home_reverse_verified"]["phase_destination_sequence_matches_history"]
         for cycle in result["cycles"]
     )
+    for cycle in result["cycles"]:
+        home_error = cycle["boundaries"]["return_home_verified"]["saved_home_error"]
+        assert home_error["accepted_monitored_displayed_all_match_saved_home"] is True
+        assert home_error["per_joint_absolute_error_si"] == {
+            key: dict.fromkeys(JOINTS, 0.0)
+            for key in ("accepted", "monitored", "displayed")
+        }
     assert facade.return_action_count == 2
     assert facade._bridge.apply_task_phase_joint_positions == original_native
     assert facade.returnToTaskHome == original_return
     assert json.loads(json.dumps(result, allow_nan=False))["cycles"]
+
+
+@pytest.mark.parametrize("history_fault", ["missing", "truncated", "reordered", "wrongphase"])
+def test_inconsistent_accepted_motion_history_stops_before_drill_or_next_cycle(
+    monkeypatch, history_fault
+):
+    widget, panel, facade, process_events = _harness(
+        monkeypatch, history_fault=history_fault
+    )
+
+    with pytest.raises(probe.CompleteCycleProbeError) as raised:
+        _run(widget, panel, facade, process_events)
+
+    assert "history" in raised.value.evidence["failure"]["message"].lower()
+    assert panel.planApproachButton.clicks == 1
+    assert panel.planDrillingButton.clicks == 0
+    assert panel.previewDrillingButton.clicks == 0
+    assert panel.returnHomeButton.clicks == 0
+    assert facade.return_action_count == 0
+    assert facade.plan_count == 1
 
 
 @pytest.mark.parametrize(

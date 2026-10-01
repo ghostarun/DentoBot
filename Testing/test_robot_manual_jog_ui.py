@@ -443,6 +443,7 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     names = {
         "setManualJogLimits",
         "setManualJogAvailability",
+        "_updateManualJogResetLabel",
         "_updateManualJogKeyboardControlState",
         "resetManualJogDraft",
         "_setManualJogDraftValues",
@@ -477,6 +478,11 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     panel._manualJogLimits = {}
     panel._manualJogMechanicalLimits = None
     panel._manualJogAvailable = True
+    panel._taskHomeSetupMode = "connected"
+    panel._taskHomeConfigurationReady = False
+    panel._taskHomeConfiguredJointPositionsSi = None
+    panel._manualJogControlsInHomeGroup = False
+    panel._manualJogLocalJointPositionsSi = None
     panel._manualJogGuardContextAvailable = True
     panel._manualJogCommandLimitsValid = False
     panel._manualJogBusy = False
@@ -809,6 +815,9 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
     panel._manualJogMechanicalLimits = mechanical
     panel._manualJogLimitsValid = True
     panel._manualJogCommandLimitsValid = True
+    panel._taskHomeSetupMode = "connected"
+    panel._taskHomeConfigurationReady = False
+    panel._taskHomeConfiguredJointPositionsSi = None
     panel._manualJogAvailable = True
     panel._manualJogGuardAvailable = True
     panel._manualJogGuardContextAvailable = True
@@ -1271,6 +1280,7 @@ def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
                 details={
                     "identityStatus": "current",
                     "acceptanceStatus": "accepted",
+                    "setupMode": "connected",
                     "acceptedJointPositionsSi": {
                         name: float(index)
                         for index, name in enumerate(JOINT_NAMES)
@@ -1330,7 +1340,8 @@ def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
     )
     assert '"Review Draft as Task Home"' in panel_source
     assert '"Cancel Home Review"' in panel_source
-    assert '"Accept Task Home"' in panel_source
+    assert '"Save Home Configuration"' in panel_source
+    assert '"Accept and Validate Task Home"' in panel_source
     assert '"save_home"' not in panel_source
     assert '"save_home"' not in (
         PYTHON / "dentobot_workflow/widget_robot_shell.py"
@@ -1656,8 +1667,8 @@ def test_step6_base_accept_mirrors_only_after_facade_acknowledgement():
 
 def test_manual_base_review_keeps_stale_cancel_available_and_blocks_unknown_acceptance():
     control_state = _methods(
-        PYTHON / "dentobot_workflow/widget_robot.py",
-        "RobotWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_manualBaseReviewControlState"},
         {},
     )["_manualBaseReviewControlState"]
@@ -1690,8 +1701,8 @@ def test_manual_base_review_keeps_stale_cancel_available_and_blocks_unknown_acce
 
 def test_manual_base_reconcile_requires_unknown_status_and_current_ros_scene():
     control_state = _methods(
-        PYTHON / "dentobot_workflow/widget_robot.py",
-        "RobotWidgetMixin",
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
         {"_manualBaseReviewControlState"},
         {},
     )["_manualBaseReviewControlState"]
@@ -2373,7 +2384,11 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
     methods = _methods(
         PYTHON / "DENTORobotSimulationPanel.py",
         "DENTORobotSimulationPanel",
-        {"_formatManualJogDisplayValues", "setManualTaskHomeReviewResult"},
+        {
+            "_formatManualJogDisplayValues",
+            "_updateManualJogResetLabel",
+            "setManualTaskHomeReviewResult",
+        },
         {
             "JOINT_NAMES": JOINT_NAMES,
             "Mapping": Mapping,
@@ -2382,9 +2397,17 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
         },
     )
     panel = type("PanelProbe", (), methods)()
+    panel.acceptTaskHomeButton = _Control()
+    panel.resetManualJogDraftButton = _Control()
     panel.taskHomeCurrentStateLabel = _Control()
+    panel.taskHomeConfiguredStateLabel = _Control()
     panel.taskHomeCandidateLabel = _Control()
     panel.taskHomeReviewStatusLabel = _Control()
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel._manualJogLocalJointPositionsSi = None
+    panel._taskHomeSetupMode = "unknown"
+    panel._taskHomeConfigurationReady = False
+    panel._taskHomeConfiguredJointPositionsSi = None
     accepted = {
         name: float(index + 1) / 10.0 for index, name in enumerate(JOINT_NAMES)
     }
@@ -2399,6 +2422,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
                 "acceptedJointPositionsSi": accepted,
                 "identityStatus": "current",
                 "acceptanceStatus": "review",
+                "setupMode": "connected",
             },
         )
     )
@@ -2424,6 +2448,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
                 "acceptedJointPositionsSi": accepted,
                 "identityStatus": "current",
                 "acceptanceStatus": "review",
+                "setupMode": "connected",
             },
         )
     )
@@ -2439,6 +2464,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
                 "acceptedJointPositionsSi": {**accepted, "unexpected_joint": 1.0},
                 "identityStatus": "unknown",
                 "acceptanceStatus": "unknown",
+                "setupMode": "connected",
                 "failureEvidence": {"reason": "scene status unavailable"},
                 "acceptanceUncertainty": "save outcome may have committed",
             },
@@ -2448,6 +2474,319 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
     assert "Failure evidence" in panel.taskHomeReviewStatusLabel.text
     assert "Acceptance uncertainty" in panel.taskHomeReviewStatusLabel.text
     assert "Current accepted robot J1–J5: unavailable" in panel.taskHomeCurrentStateLabel.text
+
+
+def test_task_home_mode_labels_and_offline_configuration_never_claim_live_acceptance():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_formatManualJogDisplayValues", "_updateManualJogResetLabel", "setManualTaskHomeReviewResult"},
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "Mapping": Mapping,
+            "degrees": degrees,
+            "isfinite": isfinite,
+        },
+    )
+    panel = type("PanelProbe", (), methods)()
+    for name in (
+        "acceptTaskHomeButton",
+        "resetManualJogDraftButton",
+        "manualJogAcceptedStateLabel",
+        "taskHomeCurrentStateLabel",
+        "taskHomeConfiguredStateLabel",
+        "taskHomeCandidateLabel",
+        "taskHomeReviewStatusLabel",
+    ):
+        setattr(panel, name, _Control())
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel._manualJogLocalJointPositionsSi = None
+    panel._taskHomeSetupMode = "unknown"
+    panel._taskHomeConfigurationReady = False
+    panel._taskHomeConfiguredJointPositionsSi = None
+
+    configured = {name: float(index + 1) / 10.0 for index, name in enumerate(JOINT_NAMES)}
+    panel.setManualTaskHomeReviewResult(
+        SimpleNamespace(
+            success=True,
+            message="offline configuration saved",
+            details={
+                "setupMode": "offline",
+                "identityStatus": "current",
+                "acceptanceStatus": "configuration_saved",
+                "configurationReady": True,
+                "runtimeValidated": False,
+                "configuredJointPositionsSi": configured,
+                "staged": True,
+                "candidateJointPositionsSi": configured,
+                "acceptedJointPositionsSi": None,
+            },
+        )
+    )
+    assert panel._taskHomeSetupMode == "offline"
+    assert panel.acceptTaskHomeButton.text == "Save Home Configuration"
+    assert panel.resetManualJogDraftButton.text == "Reset Draft to Saved Home Configuration"
+    assert panel._manualJogAcceptedJointPositionsSi is None
+    assert "unavailable while offline" in panel.taskHomeCurrentStateLabel.text
+    assert "configuration only; not live-validated" in panel.taskHomeConfiguredStateLabel.text
+    assert "use Guarded Manual Jog separately" not in panel.taskHomeReviewStatusLabel.text
+
+    panel._manualJogAcceptedJointPositionsSi = dict(configured)
+    panel.setManualTaskHomeReviewResult(
+        SimpleNamespace(
+            success=True,
+            message="setup mode unavailable",
+            details={
+                "setupMode": "unrecognized",
+                "identityStatus": "current",
+                "acceptanceStatus": "accepted",
+                "acceptedJointPositionsSi": configured,
+                "staged": False,
+            },
+        )
+    )
+    assert panel._taskHomeSetupMode == "unknown"
+    assert panel.acceptTaskHomeButton.text == "Task Home Mode Unknown"
+    assert panel.resetManualJogDraftButton.text == "Reset Draft Unavailable"
+    assert panel._manualJogAcceptedJointPositionsSi is None
+    assert "setup mode is unknown" in panel.taskHomeCurrentStateLabel.text
+
+
+def test_offline_draft_uses_mechanical_limits_and_disables_native_jog_actions():
+    def to_si(j1, j2, j3, j4, j5):
+        return {
+            JOINT_NAMES[0]: radians(j1),
+            JOINT_NAMES[1]: j2 / 1000.0,
+            JOINT_NAMES[2]: radians(j3),
+            JOINT_NAMES[3]: j4 / 1000.0,
+            JOINT_NAMES[4]: radians(j5),
+        }
+
+    names = {
+        "setManualJogLimits",
+        "setManualJogAvailability",
+        "_updateManualJogResetLabel",
+        "resetManualJogDraft",
+        "_setManualJogDraftValues",
+        "manualJogJointPositionsSi",
+        "_formatManualJogDisplayValues",
+        "_setManualJogStatus",
+    }
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        names,
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "degrees": degrees,
+            "isfinite": isfinite,
+            "joint_positions_si_from_display": to_si,
+        },
+    )
+    panel = type("PanelProbe", (), methods)()
+    panel.manualJogJointControls = {
+        name: (_Control(), _Control(), _Control()) for name in JOINT_NAMES
+    }
+    for name in (
+        "manualJogAcceptedStateLabel",
+        "taskHomeCurrentStateLabel",
+        "manualJogDraftLimitLabel",
+        "manualJogDraftStateLabel",
+        "manualJogStatusLabel",
+    ):
+        setattr(panel, name, _Control())
+    for name in (
+        "resetManualJogDraftButton",
+        "checkManualDraftStateButton",
+        "reconcileManualJogButton",
+        "guardedManualJogButton",
+    ):
+        setattr(panel, name, _Control())
+    panel._updateManualJogKeyboardControlState = lambda: None
+    panel._invoke_calls = []
+    panel._invoke = lambda action, state: panel._invoke_calls.append((action, state))
+    panel._manualJogLimits = {}
+    panel._manualJogSliderRanges = ()
+    panel._manualJogMechanicalLimits = None
+    panel._manualJogLimitsValid = False
+    panel._manualJogCommandLimitsValid = False
+    panel._manualJogAvailable = False
+    panel._manualJogGuardAvailable = False
+    panel._manualJogGuardContextAvailable = False
+    panel._manualJogBusy = False
+    panel._manualJogDraftInitialized = False
+    panel._manualJogDisplayValues = (0.0,) * 5
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel._manualJogLocalJointPositionsSi = None
+    panel._manualJogEvidence = None
+    panel._manualJogLimitViolations = ()
+    panel._manualJogDraftWithinCommandLimits = False
+    panel.manualJogReconciliationRequired = True
+    panel._taskHomeSetupMode = "offline"
+    panel._taskHomeConfigurationReady = True
+    panel._manualJogControlsInHomeGroup = False
+    panel._taskHomeConfiguredJointPositionsSi = {
+        JOINT_NAMES[0]: radians(5),
+        JOINT_NAMES[1]: 0.005,
+        JOINT_NAMES[2]: radians(-3),
+        JOINT_NAMES[3]: 0.004,
+        JOINT_NAMES[4]: radians(2),
+    }
+
+    mechanical = _joint_limits(((-10, 10),) * 5)
+    invalid_reviewed = _joint_limits(((20, 10),) * 5)
+    panel.setManualJogLimits(mechanical, invalid_reviewed)
+    panel.setManualJogAvailability(True, True)
+
+    assert panel._manualJogAvailable is True
+    assert panel._manualJogSliderRanges == ((-10.0, 10.0),) * 5
+    assert "Home configuration mechanical bounds" in panel.manualJogJointControls[JOINT_NAMES[0]][2].text
+    assert "reviewed guard limits" in panel.manualJogJointControls[JOINT_NAMES[0]][2].text
+    assert "within mechanical limits" in panel.manualJogDraftLimitLabel.text
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][0].enabled
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][1].enabled
+    assert not panel.checkManualDraftStateButton.enabled
+    assert not panel.reconcileManualJogButton.enabled
+    assert not panel.guardedManualJogButton.enabled
+    assert panel.resetManualJogDraftButton.enabled
+
+    panel._manualJogAcceptedJointPositionsSi = {
+        JOINT_NAMES[0]: radians(-8),
+        JOINT_NAMES[1]: -0.008,
+        JOINT_NAMES[2]: radians(7),
+        JOINT_NAMES[3]: -0.007,
+        JOINT_NAMES[4]: radians(-6),
+    }
+    panel.resetManualJogDraft()
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == 5.0
+    assert panel.manualJogJointControls[JOINT_NAMES[1]][1].value == 5.0
+    assert panel._invoke_calls[-1][0] == "manual_draft_changed"
+
+    panel._taskHomeSetupMode = "connected"
+    panel._manualJogControlsInHomeGroup = True
+    panel._manualJogAcceptedJointPositionsSi = None
+    panel.setManualJogAvailability(True, True)
+    panel._updateManualJogResetLabel()
+    assert panel.resetManualJogDraftButton.enabled
+    assert panel.resetManualJogDraftButton.text == "Reset Draft to Saved Home Configuration"
+    panel.resetManualJogDraft()
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == 5.0
+
+    panel._manualJogAcceptedJointPositionsSi = {
+        JOINT_NAMES[0]: radians(-8),
+        JOINT_NAMES[1]: -0.008,
+        JOINT_NAMES[2]: radians(7),
+        JOINT_NAMES[3]: -0.007,
+        JOINT_NAMES[4]: radians(-6),
+    }
+    panel._manualJogControlsInHomeGroup = False
+    panel._updateManualJogResetLabel()
+    assert panel.resetManualJogDraftButton.text == "Reset Draft to Accepted Current State"
+    panel.resetManualJogDraft()
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == -8.0
+
+    panel._taskHomeSetupMode = "unknown"
+    panel.setManualJogAvailability(True, True)
+    assert panel._manualJogAvailable is False
+    assert not panel.manualJogJointControls[JOINT_NAMES[0]][0].enabled
+    assert not panel.manualJogJointControls[JOINT_NAMES[0]][1].enabled
+    assert not panel.resetManualJogDraftButton.enabled
+    assert not panel.checkManualDraftStateButton.enabled
+    assert not panel.reconcileManualJogButton.enabled
+    assert not panel.guardedManualJogButton.enabled
+
+
+def test_tcp_native_ik_controls_require_connected_setup_mode():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_tcpCartesianControlsAllowed", "_updateTcpCartesianControlState"},
+        {},
+    )
+    panel = type("PanelProbe", (), methods)()
+    panel._activeSubstep = 3
+    panel._taskHomeSetupMode = "offline"
+    panel._tcpDragEnabled = True
+    panel._tcpIkAvailable = True
+    panel.goalGroup = _Control()
+    panel.goalGroup.visible = True
+    panel.tcpDragEnabledCheckBox = _Control()
+    panel.tcpDragEnabledCheckBox.checked = True
+    panel.tcpKeyboardEnabledCheckBox = _Control()
+    panel.tcpKeyboardEnabledCheckBox.checked = True
+    panel.solveIkButton = _Control()
+    panel.tcpCartesianNudgeButtons = {"x": _Control()}
+    panel.tcpTranslationStepMm = _Control()
+    panel.tcpRotationStepDeg = _Control()
+    panel._tcpKeyboardShortcuts = []
+
+    panel._updateTcpCartesianControlState()
+    assert not panel.tcpDragEnabledCheckBox.enabled
+    assert not panel.tcpKeyboardEnabledCheckBox.enabled
+    assert not panel.solveIkButton.enabled
+    assert not panel.tcpCartesianNudgeButtons["x"].enabled
+    assert not panel.tcpTranslationStepMm.enabled
+    assert not panel.tcpRotationStepDeg.enabled
+
+    panel._taskHomeSetupMode = "connected"
+    panel._updateTcpCartesianControlState()
+    assert panel.tcpDragEnabledCheckBox.enabled
+    assert panel.tcpKeyboardEnabledCheckBox.enabled
+    assert panel.solveIkButton.enabled
+    assert panel.tcpCartesianNudgeButtons["x"].enabled
+    assert panel.tcpTranslationStepMm.enabled
+    assert panel.tcpRotationStepDeg.enabled
+
+    panel._taskHomeSetupMode = "unknown"
+    panel._updateTcpCartesianControlState()
+    assert not panel.tcpDragEnabledCheckBox.enabled
+    assert not panel.tcpKeyboardEnabledCheckBox.enabled
+    assert not panel.solveIkButton.enabled
+
+
+def test_manual_draft_refresh_uses_live_ghost_only_when_connected():
+    bridge_calls = []
+    panel_methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_formatManualJogDisplayValues", "setManualJogDraftDisplayResult"},
+        {"JOINT_NAMES": JOINT_NAMES},
+    )
+    panel_type = type("PanelProbe", (), panel_methods)
+    method = _methods(
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
+        {"_onShellManualJogDraftChanged"},
+        {
+            "Mapping": Mapping,
+            "show_goal_robot_joint_positions": lambda positions: (
+                bridge_calls.append(dict(positions)) or (True, "ghost updated")
+            ),
+        },
+    )["_onShellManualJogDraftChanged"]
+
+    positions = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    for setup_mode, message in (
+        ("offline", "Home configuration draft retained"),
+        ("unknown", "setup mode is unknown"),
+    ):
+        panel = panel_type()
+        panel._taskHomeSetupMode = setup_mode
+        panel._manualJogDisplayValues = (1.0, 2.0, 3.0, 4.0, 5.0)
+        panel.manualJogDraftStateLabel = _Control()
+        method(SimpleNamespace(_robotSimulationPanel=panel), positions)
+        assert message in panel.manualJogDraftStateLabel.text
+        assert "ghost updated" not in panel.manualJogDraftStateLabel.text
+        assert "display-only candidate shown" not in panel.manualJogDraftStateLabel.text
+        assert bridge_calls == []
+
+    connected_panel = panel_type()
+    connected_panel._taskHomeSetupMode = "connected"
+    connected_panel._manualJogDisplayValues = (1.0, 2.0, 3.0, 4.0, 5.0)
+    connected_panel.manualJogDraftStateLabel = _Control()
+    method(SimpleNamespace(_robotSimulationPanel=connected_panel), positions)
+    assert "display-only candidate shown" in connected_panel.manualJogDraftStateLabel.text
+    assert bridge_calls == [positions]
 
 
 def test_task_home_review_buttons_require_current_identity_and_matching_candidate():
@@ -2468,6 +2807,7 @@ def test_task_home_review_buttons_require_current_identity_and_matching_candidat
         "acceptedJointPositionsSi": dict(accepted),
         "identityStatus": "current",
         "acceptanceStatus": "review",
+        "setupMode": "connected",
     }
     host = type("WidgetProbe", (), {"_manualTaskHomeReviewControlState": method})()
     assert host._manualTaskHomeReviewControlState(
@@ -2489,6 +2829,69 @@ def test_task_home_review_buttons_require_current_identity_and_matching_candidat
         "reconcile": False,
     }
 
+    unknown_mode = {
+        **details,
+        "setupMode": "unknown",
+        "acceptanceStatus": "accepted",
+    }
+    assert host._manualTaskHomeReviewControlState(
+        True, SimpleNamespace(success=True, details=unknown_mode)
+    ) == {
+        "group": True,
+        "review": False,
+        "cancel": True,
+        "accept": False,
+        "reconcile": False,
+    }
+    unknown_uncertain = {
+        **unknown_mode,
+        "acceptanceStatus": "unknown",
+        "acceptanceUncertainty": "save outcome may have committed",
+    }
+    assert host._manualTaskHomeReviewControlState(
+        True,
+        SimpleNamespace(success=True, details=unknown_uncertain),
+    )["reconcile"] is False
+
+    offline_saved = {
+        "setupMode": "offline",
+        "staged": False,
+        "candidateJointPositionsSi": None,
+        "acceptedJointPositionsSi": None,
+        "identityStatus": "current",
+        "acceptanceStatus": "configuration_saved",
+        "configurationReady": True,
+        "runtimeValidated": False,
+    }
+    assert host._manualTaskHomeReviewControlState(
+        False, SimpleNamespace(success=True, details=offline_saved)
+    ) == {
+        "group": True,
+        "review": True,
+        "cancel": False,
+        "accept": False,
+        "reconcile": False,
+    }
+    offline_staged = {
+        **offline_saved,
+        "staged": True,
+        "candidateJointPositionsSi": dict(accepted),
+        "acceptanceStatus": "review",
+    }
+    assert host._manualTaskHomeReviewControlState(
+        False, SimpleNamespace(success=True, details=offline_staged)
+    )["accept"] is True
+    assert host._manualTaskHomeReviewControlState(
+        False,
+        SimpleNamespace(
+            success=False,
+            details={
+                **offline_staged,
+                "identityStatus": "unknown",
+                "acceptanceUncertainty": "save outcome may have committed",
+            },
+        ),
+    )["accept"] is False
     for invalid in (
         {**details, "identityStatus": "stale"},
         {**details, "identityStatus": "unknown"},
@@ -2602,6 +3005,7 @@ def test_manual_task_home_stage_cancel_and_accept_delegate_without_preaccept_mut
             "acceptedJointPositionsSi": accepted,
             "identityStatus": "current",
             "acceptanceStatus": "accepted",
+            "setupMode": "connected",
         },
     )
 
@@ -2720,6 +3124,29 @@ def test_manual_task_home_stage_cancel_and_accept_delegate_without_preaccept_mut
     assert panel.accepted_mirrors == [(accepted, True)]
     assert host._workflowActionBusy is False
 
+    facade.accept_result = SimpleNamespace(
+        success=True,
+        message="offline configuration saved",
+        details={
+            **accepted_result.details,
+            "setupMode": "offline",
+            "acceptanceStatus": "configuration_saved",
+        },
+    )
+    host._onStep6AcceptManualTaskHomeReview()
+    assert panel.accepted_mirrors == [(accepted, True)]
+
+    facade.accept_result = SimpleNamespace(
+        success=True,
+        message="setup mode unavailable",
+        details={
+            **accepted_result.details,
+            "setupMode": "unknown",
+        },
+    )
+    host._onStep6AcceptManualTaskHomeReview()
+    assert panel.accepted_mirrors == [(accepted, True)]
+
     panel.draft = {**candidate, "unexpected_joint": 0.0}
     stage_calls_before = sum(call[0] == "stage" for call in facade.calls)
     host._onStep6ReviewManualTaskHome()
@@ -2832,7 +3259,17 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
         "self._robotSimulationPanel.approachGroup",
         "self._robotSimulationPanel.drillingGroup",
     } <= visible[3]
+    assert visible[2] == {"self._robotSimulationPanel.homeGroup"}
+    assert "self._robotSimulationPanel.manualJogGroup" not in visible[2]
     assert visible[4] == {"self._robotSimulationPanel.previewControlGroup"}
+    home_reparent = shell_source.index("controls.setParent(panel.homeGroup)")
+    home_show = shell_source.index("controls.show()", home_reparent)
+    home_insert = shell_source.index("panel.homeGroup.layout().insertWidget", home_show)
+    manual_reparent = shell_source.index("controls.setParent(panel.manualJogGroup)")
+    manual_show = shell_source.index("controls.show()", manual_reparent)
+    manual_insert = shell_source.index("panel.manualJogGroup.layout().insertWidget", manual_show)
+    assert home_reparent < home_show < home_insert
+    assert manual_reparent < manual_show < manual_insert
     home_action_visibility = [
         ast.unparse(node.value)
         for node in ast.walk(navigator)
@@ -2856,6 +3293,7 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
     assert "previewPlan(" not in robot_source
 
     panel_source = panel_path.read_text(encoding="utf-8")
+    assert panel_source.count("self.manualJogJointControls = {}") == 1
     for button in (
         "previewApproachButton",
         "previewDrillingButton",
@@ -2934,7 +3372,6 @@ def test_manual_jog_action_buttons_are_split_into_narrow_rows():
         "__init__",
     )
     buttons = {
-        "resetManualJogDraftButton",
         "checkManualDraftStateButton",
         "reconcileManualJogButton",
         "guardedManualJogButton",
@@ -2966,6 +3403,13 @@ def test_manual_jog_action_buttons_are_split_into_narrow_rows():
 
     action_rows = list(rows.values())
     assert set.union(*action_rows) == buttons
+    assert any(
+        isinstance(node, ast.Call)
+        and _attribute_name(node.func) == "self._manualJogControlsLayout.addWidget"
+        and node.args
+        and _attribute_name(node.args[0]) == "self.resetManualJogDraftButton"
+        for node in ast.walk(init)
+    )
     assert len(action_rows) >= 2
     assert max(map(len, action_rows)) <= 3
 
@@ -3026,6 +3470,7 @@ def test_cartesian_tcp_surface_is_step6_3_owned_and_explicitly_drag_gated():
     calls = []
     panel = panel_type()
     panel._activeSubstep = 3
+    panel._taskHomeSetupMode = "connected"
     panel.goalGroup = SimpleNamespace(visible=True)
     panel._tcpDragEnabled = False
     panel.tcpDragEnabledCheckBox = SimpleNamespace(checked=False)
@@ -3241,6 +3686,7 @@ def test_manual_joint_keyboard_nudges_are_opt_in_draft_only_and_unit_aware():
     values = (10.0, 2.0, -5.0, 1.0, 30.0)
     mechanical = ((-100.0, 100.0),) * 5
     panel._manualJogLimits = (mechanical, mechanical)
+    panel._manualJogSliderRanges = mechanical
     panel._manualJogDisplayValues = values
     accepted = {joint: float(index) for index, joint in enumerate(JOINT_NAMES)}
     panel._manualJogAcceptedJointPositionsSi = accepted.copy()
@@ -3364,6 +3810,7 @@ def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
     calls = []
     panel = panel_type()
     panel._activeSubstep = 3
+    panel._taskHomeSetupMode = "connected"
     panel.goalGroup = SimpleNamespace(visible=True)
     panel._tcpDragEnabled = False
     panel.tcpDragEnabledCheckBox = CheckBox(True)
@@ -3403,6 +3850,7 @@ def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
 
     failed = panel_type()
     failed._activeSubstep = 3
+    failed._taskHomeSetupMode = "connected"
     failed.goalGroup = SimpleNamespace(visible=True)
     failed._tcpDragEnabled = False
     failed.tcpDragEnabledCheckBox = CheckBox(True)
@@ -3446,6 +3894,7 @@ def test_solve_ik_stays_disabled_until_drag_ack_and_capability_refresh_respects_
     panel_type = type("TcpIkEnableProbe", (), methods)
     panel = panel_type()
     panel._activeSubstep = 3
+    panel._taskHomeSetupMode = "connected"
     panel.goalGroup = SimpleNamespace(visible=True)
     panel._tcpDragEnabled = False
     panel._tcpIkAvailable = True
@@ -3529,6 +3978,7 @@ def test_tcp_ik_solution_stages_only_complete_finite_mechanical_j1_j5_draft():
     def make_panel():
         panel = panel_type()
         panel._manualJogLimits = (mechanical, mechanical)
+        panel._manualJogSliderRanges = mechanical
         panel._manualJogMechanicalLimits = mechanical
         panel._manualJogAvailable = True
         panel._manualJogGuardContextAvailable = True
@@ -4018,6 +4468,7 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
         {
             "setManualJogLimits",
             "setManualJogAcceptedState",
+            "_updateManualJogResetLabel",
             "resetManualJogDraft",
             "stageTcpIkSolution",
             "_setManualJogDraftValues",
@@ -4050,6 +4501,7 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
     ):
         setattr(panel, name, _Control())
     panel._manualJogLimits = {}
+    panel._manualJogSliderRanges = ()
     panel._manualJogMechanicalLimits = None
     panel._manualJogLimitsValid = False
     panel._manualJogCommandLimitsValid = False
@@ -4059,6 +4511,10 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
     panel._manualJogDraftInitialized = False
     panel._manualJogDisplayValues = (0.0,) * 5
     panel._manualJogAcceptedJointPositionsSi = None
+    panel._taskHomeSetupMode = "connected"
+    panel._taskHomeConfigurationReady = False
+    panel._taskHomeConfiguredJointPositionsSi = None
+    panel._manualJogControlsInHomeGroup = False
     panel._manualJogEvidence = None
     panel.manualJogReconciliationRequired = False
     panel._invoke_calls = []
@@ -4175,6 +4631,7 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
     assert [action for action, _state in panel._invoke_calls] == [
         "manual_draft_changed"
     ] * len(panel._invoke_calls)
+
     assert panel._manualJogAcceptedJointPositionsSi == accepted_before
 
     reset_state = {
@@ -4213,3 +4670,784 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
     assert [action for action, _state in panel._invoke_calls] == [
         "manual_draft_changed"
     ] * len(panel._invoke_calls)
+
+def test_step6_legacy_joint_spinboxes_keep_values_and_use_mechanical_ranges():
+    path = PYTHON / "dentobot_workflow/widget_robot.py"
+    mechanical_ranges = (
+        (-180.0, 180.0),
+        (0.0, 80.0),
+        (-90.0, 90.0),
+        (0.0, 75.0),
+        (-180.0, 180.0),
+    )
+    reviewed_ranges = (
+        (-10.0, 20.0),
+        (0.0, 20.0),
+        (-40.0, 0.0),
+        (0.0, 40.0),
+        (60.0, 90.0),
+    )
+    mechanical = _joint_limits(mechanical_ranges)
+    reviewed = _joint_limits(reviewed_ranges)
+    limits_reads = []
+    urdf_reads = []
+
+    def apply_reviewed_range(value, joint_limit):
+        minimum = float(joint_limit.minimum)
+        maximum = float(joint_limit.maximum)
+        return minimum, maximum, min(maximum, max(minimum, float(value)))
+
+    method = _methods(
+        path,
+        "RobotWidgetMixin",
+        {"_applyTaskJointLimitsToJointSpinboxes"},
+        {
+            "default_task_joint_limits_from_urdf": lambda urdf_path: (
+                urdf_reads.append(urdf_path) or mechanical
+            ),
+            "apply_task_limit_range_to_value": apply_reviewed_range,
+        },
+    )["_applyTaskJointLimitsToJointSpinboxes"]
+
+    class SpinBox:
+        def __init__(self, value, *, signals_blocked=False):
+            self.value = float(value)
+            self.minimum = -1000.0
+            self.maximum = 1000.0
+            self.read_only = False
+            self._signals_blocked = bool(signals_blocked)
+            self.block_calls = []
+            self.range_calls = []
+            self.value_calls = []
+            self.events = []
+
+        def blockSignals(self, blocked):
+            previous = self._signals_blocked
+            self.block_calls.append(bool(blocked))
+            self._signals_blocked = bool(blocked)
+            return previous
+
+        def setRange(self, minimum, maximum):
+            self.minimum, self.maximum = float(minimum), float(maximum)
+            self.range_calls.append((self.minimum, self.maximum))
+            if self.value < self.minimum:
+                self.setValue(self.minimum)
+            elif self.value > self.maximum:
+                self.setValue(self.maximum)
+
+        def setMinimum(self, minimum):
+            self.minimum = float(minimum)
+
+        def setMaximum(self, maximum):
+            self.maximum = float(maximum)
+
+        def setValue(self, value):
+            self.value_calls.append(float(value))
+            self.value = min(self.maximum, max(self.minimum, float(value)))
+            if not self._signals_blocked:
+                self.events.append(self.value)
+
+        def setReadOnly(self, read_only):
+            self.read_only = bool(read_only)
+
+    values = (25.0, 35.0, 45.0, 50.0, 50.0)
+    prior_signal_states = (True, False, True, False, True)
+    spinboxes = [
+        SpinBox(value, signals_blocked=blocked)
+        for value, blocked in zip(values, prior_signal_states, strict=True)
+    ]
+    class ParameterNode:
+        def __init__(self):
+            self._track_writes = False
+            self.writes = []
+            self.robotJoint1Deg = 111.0
+            self.robotJoint2Mm = 222.0
+            self.robotJoint3Deg = 333.0
+            self.robotJoint4Mm = 444.0
+            self.robotJoint5Deg = 555.0
+            self._track_writes = True
+
+        def __setattr__(self, name, value):
+            if getattr(self, "_track_writes", False) and not name.startswith("_"):
+                self.writes.append((name, value))
+            object.__setattr__(self, name, value)
+
+    class NoNativeWrites:
+        def __getattr__(self, name):
+            raise AssertionError(f"Step 6 range setup touched native API {name}")
+
+    node = ParameterNode()
+    node_before = vars(node).copy()
+    logic = SimpleNamespace(
+        robotDescriptionPaths=lambda: ("fixture.urdf", None),
+        getTaskJointLimits=lambda _node: limits_reads.append(True) or reviewed,
+    )
+    host = SimpleNamespace(
+        _parameterNode=node,
+        logic=logic,
+        _robotWorkflowFacade=NoNativeWrites(),
+        _bridge=NoNativeWrites(),
+        ui=SimpleNamespace(
+            **{
+                f"robotJoint{index}SpinBox": spinbox
+                for index, spinbox in enumerate(spinboxes, start=1)
+            }
+        ),
+        _isStep6RobotWorkflowActive=lambda: True,
+    )
+
+    method(host)
+
+    assert urdf_reads == ["fixture.urdf"]
+    assert limits_reads == []
+    assert tuple(spinbox.value for spinbox in spinboxes) == values
+    assert tuple(spinbox.read_only for spinbox in spinboxes) == (True,) * 5
+    assert tuple(spinbox._signals_blocked for spinbox in spinboxes) == prior_signal_states
+    assert [spinbox.range_calls for spinbox in spinboxes] == [
+        [limits] for limits in mechanical_ranges
+    ]
+    assert all(spinbox.value_calls == [] and spinbox.events == [] for spinbox in spinboxes)
+    assert vars(node) == node_before
+    assert node.writes == []
+
+    host._isStep6RobotWorkflowActive = lambda: False
+    method(host)
+    assert len(limits_reads) == 1
+    assert tuple(spinbox.read_only for spinbox in spinboxes) == (False,) * 5
+    assert tuple(spinbox.value for spinbox in spinboxes) == tuple(
+        min(high, max(low, value))
+        for value, (low, high) in zip(values, reviewed_ranges, strict=True)
+    )
+    assert all(spinbox.value_calls for spinbox in spinboxes)
+
+
+def test_reset_all_joints_is_disabled_for_the_step6_robot_stage():
+    path = PYTHON / "dentobot_workflow/widget_robot.py"
+    update = _method_node(path, "RobotWidgetMixin", "_updateStep6PlanningUi")
+    reset_assignment = next(
+        node
+        for node in ast.walk(update)
+        if isinstance(node, ast.Assign)
+        and any(
+            _attribute_name(target) == "self.ui.resetRobotJointsButton.enabled"
+            for target in node.targets
+        )
+    )
+    expression = compile(ast.Expression(reset_assignment.value), str(path), "eval")
+    prerequisites = {
+        "robot_present": True,
+        "scene_prepared": True,
+        "ros2_active": True,
+    }
+
+    assert eval(expression, {**prerequisites, "robot_stage_active": True}) is False
+    assert eval(expression, {**prerequisites, "robot_stage_active": False}) is True
+
+
+def test_bootstrap_initializes_action_busy_before_first_home_action_and_refresh_does_not_reset():
+    bootstrap_path = PYTHON / "dentobot_workflow/widget_bootstrap.py"
+    base_events = []
+
+    class ScriptedBase:
+        @staticmethod
+        def __init__(widget, _parent=None):
+            base_events.append("scripted-base")
+
+    class ObservationMixin:
+        @staticmethod
+        def __init__(widget):
+            base_events.append("observation-mixin")
+
+    initialize = _methods(
+        bootstrap_path,
+        "BootstrapWidgetMixin",
+        {"__init__"},
+        {
+            "ScriptedLoadableModuleWidget": ScriptedBase,
+            "VTKObservationMixin": ObservationMixin,
+        },
+    )["__init__"]
+    widget = SimpleNamespace()
+    initialize(widget)
+
+    assert widget._workflowActionBusy is False
+    assert base_events == ["scripted-base", "observation-mixin"]
+
+    action_events = []
+    panel = SimpleNamespace(manualBaseReviewStatusLabel=SimpleNamespace(text=""))
+
+    class Facade:
+        def reconcileManualBaseAcceptance(self):
+            action_events.append(("reconcile", widget._workflowActionBusy))
+            return SimpleNamespace(success=True, message="reconciled", details={})
+
+    widget._robotSimulationPanel = panel
+    widget._robotWorkflowFacade = Facade()
+    widget._updateStep6PlanningUi = lambda message, error: action_events.append(
+        ("refresh", widget._workflowActionBusy, message, error)
+    )
+    reconcile = _methods(
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
+        {"_onStep6ReconcileManualBaseAcceptance"},
+        {"Mapping": Mapping},
+    )["_onStep6ReconcileManualBaseAcceptance"]
+    reconcile(widget)
+
+    assert action_events[0] == ("reconcile", True)
+    assert action_events[1][0:2] == ("refresh", False)
+    assert widget._workflowActionBusy is False
+
+    refresh = _method_node(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        "_updateStep6PlanningUi",
+    )
+    assert not any(
+        isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Attribute)
+            and target.attr == "_workflowActionBusy"
+            for target in node.targets
+        )
+        for node in ast.walk(refresh)
+    )
+
+
+def test_deferred_step6_navigator_scroll_handles_live_none_and_destroyed_scroll_area():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    configure = _method_node(
+        shell_path,
+        "RobotShellWidgetMixin",
+        "_configureRobotSimulationShellSubstep",
+    )
+    timer_call = next(
+        node for node in ast.walk(configure)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "singleShot"
+        and ast.unparse(node.func.value) == "qt.QTimer"
+        and len(node.args) == 2
+        and ast.unparse(node.args[1])
+        == "self._ensureStep6SubstepNavigatorVisible"
+    )
+    assert ast.literal_eval(timer_call.args[0]) == 0
+    ensure_visible = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_ensureStep6SubstepNavigatorVisible"},
+        {},
+    )["_ensureStep6SubstepNavigatorVisible"]
+    calls = []
+
+    class LiveScrollArea:
+        def ensureWidgetVisible(self, navigator, x_margin, y_margin):
+            calls.append((navigator, x_margin, y_margin))
+
+    class DestroyedScrollArea:
+        def ensureWidgetVisible(self, _navigator, _x_margin, _y_margin):
+            calls.append("destroyed")
+            raise ValueError("wrapped C++ object has been deleted")
+
+    class NoNativeFacade:
+        def __getattr__(self, name):
+            raise AssertionError(f"deferred scroll made a native call: {name}")
+
+    class Host:
+        def __init__(self, scroll_area):
+            self._workflowContentScrollArea = scroll_area
+            self._step6SubstepNavigator = "step6-navigator"
+            self._robotWorkflowFacade = NoNativeFacade()
+
+    live_host = Host(LiveScrollArea())
+    ensure_visible(live_host)
+    assert calls == [("step6-navigator", 0, 20)]
+
+    none_host = Host(None)
+    ensure_visible(none_host)
+    assert calls == [("step6-navigator", 0, 20)]
+
+    destroyed_host = Host(DestroyedScrollArea())
+    ensure_visible(destroyed_host)
+    assert calls == [("step6-navigator", 0, 20), "destroyed"]
+
+
+def test_joint_tcp_and_diagnostic_layouts_wrap_without_content_sized_widths():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    source = panel_path.read_text(encoding="utf-8")
+    initialize = _method_node(
+        panel_path, "DENTORobotSimulationPanel", "__init__"
+    )
+    initialize_source = ast.get_source_segment(source, initialize)
+    assert "joint_label.wordWrap = True" in initialize_source
+    assert "joint_label.setMinimumWidth(56)" in initialize_source
+    assert (
+        "qt.QSizePolicy.Minimum, qt.QSizePolicy.Fixed" in initialize_source
+    )
+    assert "slider.setMinimumWidth(0)" in initialize_source
+    assert "qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed" in initialize_source
+    assert "value.setMinimumWidth(0)" in initialize_source
+    assert "qt.QSizePolicy.Preferred, qt.QSizePolicy.Fixed" in initialize_source
+    assert "self.manualJogControlsGroup.setSizePolicy(" in initialize_source
+    assert "qt.QSizePolicy.Preferred, qt.QSizePolicy.Maximum" in initialize_source
+    assert "joint_rows.setHorizontalSpacing(6)" in initialize_source
+    assert "joint_rows.setVerticalSpacing(3)" in initialize_source
+    assert "joint_rows.setColumnStretch(1, 1)" in initialize_source
+    assert "linear_step_label.wordWrap = True" in initialize_source
+    assert "angular_step_label.wordWrap = True" in initialize_source
+    assert "label_widget.setMinimumWidth(0)" in initialize_source
+
+    diagnostics = _method_node(
+        panel_path, "DENTORobotSimulationPanel", "showMotionDiagnostics"
+    )
+    diagnostics_source = ast.get_source_segment(source, diagnostics)
+    assert "resizeColumnsToContents" not in diagnostics_source
+    assert "setLineWrapMode(qt.QPlainTextEdit.WidgetWidth)" in diagnostics_source
+    assert "dialog_buttons.addLayout(display_buttons)" in diagnostics_source
+    assert "dialog_buttons.addLayout(route_buttons)" in diagnostics_source
+    assert "stage_table.setMinimumWidth(0)" in diagnostics_source
+    assert "table.setMinimumWidth(0)" in diagnostics_source
+    for action in (
+        "beginManualBaseReviewButton",
+        "cancelManualBaseReviewButton",
+        "reconcileManualBaseStateButton",
+        "reviewTaskHomeButton",
+        "cancelTaskHomeReviewButton",
+        "acceptTaskHomeButton",
+        "reconcileTaskHomeButton",
+        "applyTaskHomeButton",
+    ):
+        assert f"self.{action}.toolTip = (" in initialize_source
+
+
+def test_failed_pose_inspection_summary_reports_requested_vs_actual_without_safety_claim():
+    method = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_motionDiagnosticInspectionSummary"},
+        {"Mapping": Mapping, "isfinite": isfinite},
+    )["_motionDiagnosticInspectionSummary"]
+    if isinstance(method, staticmethod):
+        method = method.__func__
+    text = method(
+        {
+            "diagnosticInspection": {
+                "status": "current",
+                "expected": {
+                    "tcp_world_ras_mm": (10.0, 20.0, 30.0),
+                    "drilling_axis_world_ras_unit": (0.0, 0.0, -1.0),
+                },
+                "fk": {
+                    "status": "passed",
+                    "message": "FK completed",
+                    "pose_world_ras_mm": (
+                        (0.0, -1.0, 0.0, 10.2),
+                        (1.0, 0.0, 0.0, 19.9),
+                        (0.0, 0.0, 1.0, 30.4),
+                        (0.0, 0.0, 0.0, 1.0),
+                    ),
+                    "drilling_axis_world_ras_unit": (0.01, 0.0, -0.9999),
+                },
+                "position_residual_mm": 0.4583,
+                "drilling_axis_residual_deg": 0.573,
+                "static_state_validity": {
+                    "status": "invalid",
+                    "authoritative": True,
+                    "message": "state validity check failed",
+                },
+                "native": {
+                    "message": "No solution",
+                    "termination_reason": "iteration limit",
+                    "collision_check_status": "not_run",
+                },
+            }
+        }
+    )
+
+    assert "Requested TCP RAS mm (10, 20, 30)" in text
+    assert "FK TCP RAS mm (10.2, 19.9, 30.4)" in text
+    assert "(0, 0, -1) / (0.01, 0, -0.9999)" in text
+    assert "0.4583 mm / 0.573 deg" in text
+    assert "Read-only static validity: invalid (authoritative: yes)" in text
+    assert "state validity check failed" in text
+    assert "No solution" in text
+    assert "termination: iteration limit" in text
+    assert "native collision-check status: not_run" in text
+    assert "not accepted or route-authorized" in text
+    assert "collision-free" not in text.lower()
+    malformed_pose = method(
+        {
+            "diagnosticInspection": {
+                "fk": {"pose_world_ras_mm": ((1.0, 2.0, 3.0),)},
+            }
+        }
+    )
+    assert "FK TCP RAS mm not reported" in malformed_pose
+
+
+def test_diagnostic_dialog_open_does_not_inspect_until_deliberate_seed_selection():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    source = panel_path.read_text(encoding="utf-8")
+    show = _method_node(
+        panel_path, "DENTORobotSimulationPanel", "showMotionDiagnostics"
+    )
+    select = next(
+        node
+        for node in ast.walk(show)
+        if isinstance(node, ast.FunctionDef) and node.name == "select_candidate"
+    )
+    invoke = next(
+        node
+        for node in ast.walk(select)
+        if isinstance(node, ast.Call)
+        and _attribute_name(node.func)
+        == "self._invokeMotionDiagnosticCandidate"
+    )
+    no_inspection_guard = next(
+        node
+        for node in ast.walk(select)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "not inspect"
+    )
+    assert no_inspection_guard.end_lineno < invoke.lineno
+    initial_selection = next(
+        node
+        for node in ast.walk(show)
+        if isinstance(node, ast.Call)
+        and _attribute_name(node.func) == "select_candidate"
+        and any(
+            keyword.arg == "inspect" and ast.literal_eval(keyword.value) is False
+            for keyword in node.keywords
+        )
+    )
+    current_cell_connection = next(
+        node
+        for node in ast.walk(show)
+        if isinstance(node, ast.Call)
+        and _attribute_name(node.func) == "table.currentCellChanged.connect"
+    )
+    cell_click_connection = next(
+        node
+        for node in ast.walk(show)
+        if isinstance(node, ast.Call)
+        and _attribute_name(node.func) == "table.cellClicked.connect"
+    )
+    assert initial_selection.lineno < current_cell_connection.lineno
+    assert initial_selection.lineno < cell_click_connection.lineno
+    assert "No pose is displayed automatically" in source
+
+
+def test_diagnostic_cleanup_preserves_same_generation_enrichment_and_clears_context_changes():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    generations = {
+        "initial": SimpleNamespace(
+            schema_version="2.3",
+            generated_at_utc="2026-10-01T00:00:00Z",
+            task_fingerprint="task-1",
+            base_fingerprint="base-1",
+            trajectory_fingerprint="trajectory-1",
+            robot_profile_fingerprint="profile-1",
+            collision_audit_fingerprint="audit-1",
+            planning_parameters_fingerprint="planning-1",
+            session_fingerprint="session-before-inspection",
+            state="Current",
+            stale_reason="",
+        ),
+        "enriched": SimpleNamespace(
+            schema_version="2.3",
+            generated_at_utc="2026-10-01T00:00:00Z",
+            task_fingerprint="task-1",
+            base_fingerprint="base-1",
+            trajectory_fingerprint="trajectory-1",
+            robot_profile_fingerprint="profile-1",
+            collision_audit_fingerprint="audit-1",
+            planning_parameters_fingerprint="planning-1",
+            session_fingerprint="session-after-inspection",
+            state="Current",
+            stale_reason="",
+        ),
+        "new-generation": SimpleNamespace(
+            schema_version="2.3",
+            generated_at_utc="2026-10-01T00:05:00Z",
+            task_fingerprint="task-1",
+            base_fingerprint="base-1",
+            trajectory_fingerprint="trajectory-1",
+            robot_profile_fingerprint="profile-1",
+            collision_audit_fingerprint="audit-1",
+            planning_parameters_fingerprint="planning-1",
+            session_fingerprint="session-new-generation",
+            state="Current",
+            stale_reason="",
+        ),
+        "stale": SimpleNamespace(
+            schema_version="2.3",
+            generated_at_utc="2026-10-01T00:00:00Z",
+            task_fingerprint="task-1",
+            base_fingerprint="base-1",
+            trajectory_fingerprint="trajectory-1",
+            robot_profile_fingerprint="profile-1",
+            collision_audit_fingerprint="audit-1",
+            planning_parameters_fingerprint="planning-1",
+            session_fingerprint="stale-session",
+            state="Stale",
+            stale_reason="base changed",
+        ),
+    }
+    clear_calls = []
+    errors = []
+    diagnostic_namespace = {
+        "parse_motion_diagnostic_session": lambda payload: generations[payload],
+        "clear_motion_diagnostic_display": lambda: (_ for _ in ()).throw(
+            AssertionError("bridge fallback used despite façade owner")
+        ),
+        "slicer": SimpleNamespace(
+            util=SimpleNamespace(
+                getNodesByClass=lambda _name: [],
+                errorDisplay=lambda message: errors.append(str(message)),
+            ),
+            mrmlScene=SimpleNamespace(),
+        ),
+    }
+    shell_methods = _methods(
+        shell_path,
+        "RobotShellWidgetMixin",
+        {"_clearStep6TargetConditioningFiducials"},
+        diagnostic_namespace,
+    )
+    shell_methods.update(
+        _methods(
+            ROBOT_MANUAL,
+            "RobotManualWidgetMixin",
+            {
+                "_step6MotionDiagnosticGenerationIdentity",
+                "_clearStep6MotionDiagnosticDisplay",
+                "_clearStep6MotionDiagnosticDisplayIfContextChanged",
+            },
+            diagnostic_namespace,
+        )
+    )
+    host_type = type("DiagnosticCleanupProbe", (), shell_methods)
+    host = host_type()
+    node = SimpleNamespace(step6MotionDiagnosticJson="initial")
+
+    class Facade:
+        def clearDiagnosticDisplay(self):
+            clear_calls.append("facade")
+            return SimpleNamespace(success=True, message="cleared")
+
+    class Dialog:
+        def __init__(self):
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    dialog = Dialog()
+    host._parameterNode = node
+    host._robotWorkflowFacade = Facade()
+    host._robotSimulationPanel = SimpleNamespace(
+        _diagnosticDialog=dialog,
+        approachStatusLabel=SimpleNamespace(
+            text="", setProperty=lambda *_args: None
+        ),
+    )
+    host.logic = SimpleNamespace(motionDiagnosticFreshnessIssues=lambda _node: ())
+    host._clearStep6TargetConditioningFiducials = (
+        lambda: clear_calls.append("no-fiducial-nodes")
+    )
+    host._step6DiagnosticDisplayContext = (
+        node,
+        host._step6MotionDiagnosticGenerationIdentity(generations["initial"]),
+    )
+    host._tcpDragEnabled = True
+    host.manualJogDraft = {"j1": 0.125}
+    host.acceptedRobotState = {"j1": 0.25}
+    host.historicalManualPaths = ["historical"]
+    host.guardedPreviewPath = ["live-preview"]
+
+    node.step6MotionDiagnosticJson = "enriched"
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is False
+    assert clear_calls == []
+    assert dialog.close_calls == 0
+
+    node.step6MotionDiagnosticJson = "new-generation"
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is True
+    assert clear_calls == ["no-fiducial-nodes", "facade"]
+    assert dialog.close_calls == 1
+    assert host._step6DiagnosticDisplayContext is None
+    assert host._tcpDragEnabled is True
+    assert host.manualJogDraft == {"j1": 0.125}
+    assert host.acceptedRobotState == {"j1": 0.25}
+    assert host.historicalManualPaths == ["historical"]
+    assert host.guardedPreviewPath == ["live-preview"]
+    assert errors == []
+
+    host._step6DiagnosticDisplayContext = (
+        node,
+        host._step6MotionDiagnosticGenerationIdentity(generations["initial"]),
+    )
+    node.step6MotionDiagnosticJson = ""
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is True
+    assert dialog.close_calls == 2
+
+    host._step6DiagnosticDisplayContext = (
+        node,
+        host._step6MotionDiagnosticGenerationIdentity(generations["initial"]),
+    )
+    node.step6MotionDiagnosticJson = "enriched"
+    host.logic.motionDiagnosticFreshnessIssues = lambda _node: (
+        "Motion diagnostic belongs to a different base pose.",
+    )
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is True
+    assert dialog.close_calls == 3
+
+    host._step6DiagnosticDisplayContext = (
+        node,
+        host._step6MotionDiagnosticGenerationIdentity(generations["initial"]),
+    )
+    host._parameterNode = SimpleNamespace(step6MotionDiagnosticJson="enriched")
+    host.logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is True
+    assert dialog.close_calls == 4
+
+    host._parameterNode = node
+    node.step6MotionDiagnosticJson = "stale"
+    host._step6DiagnosticDisplayContext = (
+        node,
+        host._step6MotionDiagnosticGenerationIdentity(generations["initial"]),
+    )
+    assert host._clearStep6MotionDiagnosticDisplayIfContextChanged() is True
+    assert dialog.close_calls == 5
+    assert clear_calls.count("no-fiducial-nodes") == 5
+    assert clear_calls.count("facade") == 5
+
+
+def test_diagnostic_cleanup_uses_bridge_fallback_and_reports_failure():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    errors = []
+    bridge_calls = []
+    cleanup = _methods(
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
+        {"_clearStep6MotionDiagnosticDisplay"},
+        {
+            "clear_motion_diagnostic_display": lambda: (
+                bridge_calls.append(True) or (False, "marker cleanup refused")
+            ),
+            "slicer": SimpleNamespace(
+                util=SimpleNamespace(errorDisplay=lambda text: errors.append(str(text)))
+            ),
+        },
+    )
+    host = type("DiagnosticBridgeCleanupProbe", (), cleanup)()
+    panel = SimpleNamespace(
+        approachStatusLabel=SimpleNamespace(
+            text="", setProperty=lambda *_args: None
+        )
+    )
+    host._robotSimulationPanel = panel
+    host._robotWorkflowFacade = None
+    host._step6DiagnosticDisplayContext = (object(), ("generation",))
+    host._tcpDragEnabled = True
+    host._manualJogDraft = {"j1": 0.125}
+    host._clearStep6TargetConditioningFiducials = lambda: None
+
+    assert host._clearStep6MotionDiagnosticDisplay() is False
+    assert bridge_calls == [True]
+    assert panel.approachStatusLabel.text == (
+        "Motion diagnostic display cleanup failed: marker cleanup refused"
+    )
+    assert errors == [panel.approachStatusLabel.text]
+    assert host._step6DiagnosticDisplayContext is None
+    assert host._tcpDragEnabled is True
+    assert host._manualJogDraft == {"j1": 0.125}
+
+
+def test_diagnostic_dialog_finish_cleans_up_independent_of_target_fiducial_visibility():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    show = _method_node(
+        shell_path, "RobotShellWidgetMixin", "_onStep6ShowMotionDiagnostics"
+    )
+    source = ast.get_source_segment(shell_path.read_text(encoding="utf-8"), show)
+    finished_connect = source.index('"finished(int)"')
+    exact_current_branch = source.index("if exact_current_session:")
+    assert finished_connect < exact_current_branch
+    assert "lambda _result: self._clearStep6MotionDiagnosticDisplay()" in source
+
+    substep = _method_node(
+        shell_path,
+        "RobotShellWidgetMixin",
+        "_configureRobotSimulationShellSubstep",
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and _attribute_name(node.func)
+        == "self._clearStep6MotionDiagnosticDisplay"
+        for node in ast.walk(substep)
+    )
+
+
+def test_direct_reopen_resolves_only_fresh_current_diagnostic_fingerprint():
+    shell_path = PYTHON / "dentobot_workflow/widget_robot_shell.py"
+    resolver = _methods(
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
+        {"_step6ExactMotionDiagnosticDisplayFingerprint"},
+        {},
+    )["_step6ExactMotionDiagnosticDisplayFingerprint"]
+    host_type = type("DiagnosticFingerprintProbe", (), {resolver.__name__: resolver})
+    host = host_type()
+    node = object()
+    checker_calls = []
+    host._parameterNode = node
+    host.logic = SimpleNamespace(
+        motionDiagnosticFreshnessIssues=lambda parameter_node: (
+            checker_calls.append(parameter_node) or ()
+        )
+    )
+    current = SimpleNamespace(
+        session_fingerprint="current-fingerprint",
+        state="Current",
+        stale_reason="",
+    )
+
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(current) == (
+        "current-fingerprint"
+    )
+    assert checker_calls == [node]
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(
+        current, "current-fingerprint"
+    ) == "current-fingerprint"
+    assert checker_calls == [node]
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(
+        current, "different-fingerprint"
+    ) == ""
+    assert checker_calls == [node]
+    host.logic.motionDiagnosticFreshnessIssues = lambda _node: []
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(current) == (
+        "current-fingerprint"
+    )
+    host.logic.motionDiagnosticFreshnessIssues = lambda _node: None
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(current) == ""
+
+    stale = SimpleNamespace(
+        session_fingerprint="stale-fingerprint",
+        state="Stale",
+        stale_reason="base changed",
+    )
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(stale) == ""
+    host.logic.motionDiagnosticFreshnessIssues = lambda _node: ("base changed",)
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(current) == ""
+    host.logic = SimpleNamespace()
+    assert host._step6ExactMotionDiagnosticDisplayFingerprint(current) == ""
+
+    show = _method_node(
+        shell_path, "RobotShellWidgetMixin", "_onStep6ShowMotionDiagnostics"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and _attribute_name(node.func)
+        == "self._step6ExactMotionDiagnosticDisplayFingerprint"
+        and len(node.args) == 2
+        and ast.unparse(node.args[1]) == "expected_fingerprint"
+        for node in ast.walk(show)
+    )

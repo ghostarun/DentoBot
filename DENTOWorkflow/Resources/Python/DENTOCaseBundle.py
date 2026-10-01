@@ -24,8 +24,9 @@ from DENTOStep6State import parse_manual_simulation_record
 
 
 CASE_BUNDLE_FORMAT = "DENTOBOTCaseBundle"
-CASE_BUNDLE_SCHEMA_VERSION = "2.0"
-SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS = ("1.0", CASE_BUNDLE_SCHEMA_VERSION)
+CASE_BUNDLE_SCHEMA_VERSION = "3.0"
+SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS = ("1.0", "2.0", CASE_BUNDLE_SCHEMA_VERSION)
+STUDY_CASE_BUNDLE_SCHEMA_VERSIONS = ("2.0", "3.0")
 CASE_BUNDLE_EXTENSION = ".dentocase"
 SCENE_MEMBER = "scene/case.mrb"
 MANIFEST_MEMBER = "manifest.json"
@@ -86,6 +87,39 @@ def sha256_file(path: str | Path) -> str:
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _validated_case_uuid(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise CaseBundleError(f"{field_name} must be a UUID string.")
+    try:
+        return str(uuid.UUID(value.strip()))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise CaseBundleError(f"{field_name} must be a UUID string.") from exc
+
+
+def _schema3_case_identity(
+    workflow: Mapping[str, object], case_id: str | None
+) -> tuple[str, dict[str, object]]:
+    copied_workflow = dict(workflow)
+    raw_identity = copied_workflow.get("caseIdentity")
+    if raw_identity is not None and not isinstance(raw_identity, Mapping):
+        raise CaseBundleError("workflow.caseIdentity must be an object.")
+    copied_identity = dict(raw_identity) if isinstance(raw_identity, Mapping) else {}
+    workflow_id = None
+    if "id" in copied_identity:
+        workflow_id = _validated_case_uuid(
+            copied_identity["id"], "workflow.caseIdentity.id"
+        )
+    supplied_id = (
+        _validated_case_uuid(case_id, "case_id") if case_id is not None else None
+    )
+    if supplied_id and workflow_id and supplied_id != workflow_id:
+        raise CaseBundleError("case_id and workflow.caseIdentity.id do not match.")
+    stable_id = supplied_id or workflow_id or str(uuid.uuid4())
+    copied_identity["id"] = stable_id
+    copied_workflow["caseIdentity"] = copied_identity
+    return stable_id, copied_workflow
 
 
 def lineage_snapshot_matches(
@@ -428,6 +462,7 @@ def create_case_bundle(
     application: Mapping[str, object] | None = None,
     created_at_utc: str | None = None,
     schema_version: str = CASE_BUNDLE_SCHEMA_VERSION,
+    case_id: str | None = None,
     manual_simulation_records: Sequence[Mapping[str, object]] = (),
 ) -> CaseBundleInspection:
     """Create a bundle; manual records are display-only, never scene/ROS authority."""
@@ -442,10 +477,16 @@ def create_case_bundle(
     runtime_audit = audit_mrb_runtime_separation(scene_mrb)
     if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
         raise CaseBundleError(f"Unsupported DENTOBOT case-bundle schema: {schema_version}")
+    workflow_payload = dict(workflow)
+    stable_case_id = None
+    if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+        stable_case_id, workflow_payload = _schema3_case_identity(workflow, case_id)
+    elif case_id is not None:
+        raise CaseBundleError("case_id is supported only for schema-3 case bundles.")
     manual_records = _validated_manual_simulation_records(manual_simulation_records)
-    if manual_records and schema_version != CASE_BUNDLE_SCHEMA_VERSION:
+    if manual_records and schema_version not in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
         raise CaseBundleError(
-            "Manual simulation records require a schema-2 case bundle."
+            "Manual simulation records require a schema-2 or schema-3 case bundle."
         )
     manual_records_bytes = (
         _canonical_json_bytes(list(manual_records)) if manual_records else None
@@ -456,7 +497,7 @@ def create_case_bundle(
     ):
         raise CaseBundleError("The manual simulation record member is too large.")
 
-    workflow_bytes = _canonical_json_bytes(dict(workflow))
+    workflow_bytes = _canonical_json_bytes(workflow_payload)
     robot_bytes = _canonical_json_bytes(dict(robot_profile))
     save_report = {
         "schemaVersion": "1.0",
@@ -479,7 +520,7 @@ def create_case_bundle(
         ROBOT_PROFILE_MEMBER: _file_record_from_bytes(robot_bytes),
         SAVE_REPORT_MEMBER: _file_record_from_bytes(save_report_bytes),
     }
-    if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+    if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
         files.update(
             {
                 STUDY_INDEX_MEMBER: _file_record_from_bytes(study_index_bytes),
@@ -494,7 +535,10 @@ def create_case_bundle(
         "packageId": str(uuid.uuid4()),
         "createdAtUtc": created_at_utc
         or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "case": {"label": str(case_label or "")},
+        "case": {
+            "label": str(case_label or ""),
+            **({"id": stable_case_id} if stable_case_id is not None else {}),
+        },
         "coordinateSystem": {
             "world": "SlicerRAS",
             "lengthUnit": "mm",
@@ -526,7 +570,7 @@ def create_case_bundle(
             archive.writestr(WORKFLOW_MEMBER, workflow_bytes, zipfile.ZIP_DEFLATED)
             archive.writestr(ROBOT_PROFILE_MEMBER, robot_bytes, zipfile.ZIP_DEFLATED)
             archive.writestr(SAVE_REPORT_MEMBER, save_report_bytes, zipfile.ZIP_DEFLATED)
-            if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+            if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
                 archive.writestr(STUDY_INDEX_MEMBER, study_index_bytes, zipfile.ZIP_DEFLATED)
                 archive.writestr(STUDY_ATTEMPTS_MEMBER, study_attempts_bytes, zipfile.ZIP_DEFLATED)
             if manual_records_bytes is not None:
@@ -607,7 +651,7 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
                 "Unsupported DENTOBOT case-bundle schema: "
                 f"{manifest.get('schemaVersion') or 'missing'}"
             )
-        if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+        if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
             required.update((STUDY_INDEX_MEMBER, STUDY_ATTEMPTS_MEMBER))
             missing = sorted(required - set(names))
             if missing:
@@ -616,7 +660,7 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
                 )
         optional = (
             {MANUAL_SIMULATION_MEMBER}
-            if schema_version == CASE_BUNDLE_SCHEMA_VERSION
+            if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS
             else set()
         )
         unexpected = sorted(set(names) - required - optional)
@@ -658,6 +702,36 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
             ):
                 raise CaseBundleError(f"Case-bundle integrity check failed: {name}")
         workflow = _json_member(archive, WORKFLOW_MEMBER)
+        if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+            case_record = manifest.get("case")
+            if not isinstance(case_record, dict) or "id" not in case_record:
+                raise CaseBundleError("Schema-3 manifest.case.id is required.")
+            manifest_case_id = _validated_case_uuid(
+                case_record["id"], "manifest.case.id"
+            )
+            case_identity = workflow.get("caseIdentity")
+            if not isinstance(case_identity, dict) or "id" not in case_identity:
+                raise CaseBundleError("Schema-3 workflow.caseIdentity.id is required.")
+            workflow_case_id = _validated_case_uuid(
+                case_identity["id"], "workflow.caseIdentity.id"
+            )
+            if workflow_case_id != manifest_case_id:
+                raise CaseBundleError(
+                    "Schema-3 manifest and workflow case IDs do not match."
+                )
+            if "checkpointInventory" in workflow:
+                checkpoint_inventory = workflow["checkpointInventory"]
+                if not isinstance(checkpoint_inventory, dict):
+                    raise CaseBundleError(
+                        "Schema-3 workflow.checkpointInventory must be an object."
+                    )
+                for field_name in ("schemaVersion", "definitionVersion"):
+                    value = checkpoint_inventory.get(field_name)
+                    if not isinstance(value, str) or not value.strip():
+                        raise CaseBundleError(
+                            "Schema-3 checkpointInventory requires non-empty "
+                            f"{field_name}."
+                        )
         robot_profile = _json_member(archive, ROBOT_PROFILE_MEMBER)
         save_report = _json_member(archive, SAVE_REPORT_MEMBER)
         if save_report.get("runtimeAudit", {}).get("ros2RuntimeNodesSerialized") is not False:
@@ -665,7 +739,7 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
         study_index = None
         study_attempts: tuple[dict, ...] = ()
         manual_simulation_records: tuple[dict, ...] = ()
-        if schema_version == CASE_BUNDLE_SCHEMA_VERSION:
+        if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
             study_index = _json_member(archive, STUDY_INDEX_MEMBER)
             if (
                 study_index.get("schemaVersion") != "1.0"

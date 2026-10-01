@@ -170,4 +170,7 @@ def test_domain_modules_add_no_process_or_network_boundary():
                 )
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported_roots.add(node.module.partition(".")[0])
-        assert imported_roots.isdisjoint(forbidden_roots), source
+        # The approved disposable offline projector is the sole new process
+        # boundary; other workflow modules still cannot add one.
+        allowed_roots = {"subprocess"} if source.name == "case_projection.py" else set()
+        assert imported_roots.isdisjoint(forbidden_roots - allowed_roots), source

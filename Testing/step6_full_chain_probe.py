@@ -423,8 +423,11 @@ def run_full_chain_interruption_probe(
         parameter_node, joint_names, identity, guard_identity, initial = _preconditions(
             widget, panel, facade, bridge
         )
+        preentry_diagnostic_session = _read_session(parameter_node)
         evidence.update({
             "identity": identity,
+            "preentry_diagnostic_session": _jsonable(preentry_diagnostic_session),
+            "diagnostic_sessions": {},
             "active_case_nodes": {
                 "input_volume_id": str(widget._parameterNode.inputVolume.GetID()),
                 "teeth_segmentation_id": str(widget._parameterNode.teethSegmentation.GetID()),
@@ -457,6 +460,7 @@ def run_full_chain_interruption_probe(
             guard_after = bridge.last_task_joint_status()
             _require_same_display_only(before, after, stage, guard_before, guard_after)
             session = _read_session(parameter_node)
+            evidence["diagnostic_sessions"][stage] = _jsonable(session)
             if (
                 session.get("state") != "Current"
                 or not _identity_matches_session(session, identity)
@@ -479,6 +483,14 @@ def run_full_chain_interruption_probe(
                 "display_only_state_unchanged": True,
             })
             evidence["diagnostics"] = diagnostics
+            if (
+                outcome.get("status") == "NotRun"
+                or outcome.get("diagnostic_status") == "not_reached"
+            ):
+                raise ValueError(
+                    f"{stage} was not reached: "
+                    f"{outcome.get('reason') or 'no diagnostic outcome was produced'}"
+                )
             if stage == "P1":
                 p1_guard_identity = bridge.current_task_guard_identity()
                 p1_guard_status = bridge.last_task_joint_status()

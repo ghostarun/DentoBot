@@ -290,8 +290,51 @@ def _verify_phase_result(
         raise ValueError(f"{phase} preview remains active after completion callback")
     if str(getattr(facade, "completedPhase", "") or "") != phase:
         raise ValueError(f"{phase} completion did not set the production completed-phase state")
-    if int(getattr(facade, "previewIndex", -1)) != plan_evidence["waypoint_count"]:
-        raise ValueError(f"{phase} preview did not acknowledge every planned waypoint")
+    preview_index_observed = getattr(facade, "previewIndex", None)
+    try:
+        preview_index_observed = int(preview_index_observed)
+    except (TypeError, ValueError, OverflowError):
+        preview_index_observed = None
+    waypoints = plan_evidence.get("waypoints_joint_si")
+    waypoint_phases = plan_evidence.get("waypoint_phases")
+    history = getattr(facade, "_accepted_motion_history", None)
+    if getattr(facade, "_motion_history_task_fingerprint", None) != task_fingerprint:
+        raise ValueError(f"{phase} accepted-motion history belongs to another task")
+    if (
+        not isinstance(history, (tuple, list))
+        or not isinstance(waypoints, list)
+        or not isinstance(waypoint_phases, list)
+        or len(waypoints) != plan_evidence.get("waypoint_count")
+        or len(waypoint_phases) != len(waypoints)
+        or len(history) < len(waypoints)
+    ):
+        raise ValueError(f"{phase} accepted-motion history is missing planned waypoint evidence")
+    history_suffix = history[-len(waypoints):]
+    verified_history_suffix = []
+    for index, (record, expected_positions, expected_phase) in enumerate(
+        zip(history_suffix, waypoints, waypoint_phases)
+    ):
+        if not isinstance(record, Mapping):
+            raise ValueError(f"{phase} accepted-motion history record {index} is malformed")
+        positions = record.get("positions")
+        if not isinstance(positions, Mapping) or set(positions) != set(joint_names):
+            raise ValueError(f"{phase} accepted-motion history record {index} lacks canonical J1-J5 state")
+        try:
+            positions = {name: float(positions[name]) for name in joint_names}
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{phase} accepted-motion history record {index} has invalid joints") from exc
+        if not all(math.isfinite(value) for value in positions.values()):
+            raise ValueError(f"{phase} accepted-motion history record {index} has non-finite joints")
+        observed_phase = str(record.get("phase") or "")
+        if observed_phase != expected_phase or not full_chain._same_vector(
+            positions, expected_positions
+        ):
+            raise ValueError(
+                f"{phase} accepted-motion history record {index} does not match its planned waypoint and phase"
+            )
+        verified_history_suffix.append(
+            {"phase": observed_phase, "positions_si": positions}
+        )
     current_guard_identity = bridge.current_task_guard_identity()
     if (
         not isinstance(current_guard_identity, Mapping)
@@ -328,6 +371,12 @@ def _verify_phase_result(
         "native_status": full_chain._jsonable(status),
         "current_guard_identity": full_chain._jsonable(current_guard_identity),
         "diagnostic_session_fingerprint": session_fingerprint,
+        "preview_index_observed_after_completion": preview_index_observed,
+        "verified_accepted_motion_history_waypoint_count": len(verified_history_suffix),
+        "verified_accepted_motion_history_phase_sequence": [
+            record["phase"] for record in verified_history_suffix
+        ],
+        "verified_accepted_motion_history_suffix": verified_history_suffix,
         "post_completion_endpoint_fk": fk,
     }
 
@@ -963,6 +1012,13 @@ def _home_error_evidence(snapshot, home):
             for name in home
         }
         for key in ("accepted", "monitored", "displayed")
+    }
+    return {
+        "per_joint_absolute_error_si": errors,
+        "accepted_monitored_displayed_all_match_saved_home": _home_converged(
+            snapshot, home
+        ),
+        "error_source": "post_return_home_state_observation",
     }
 
 

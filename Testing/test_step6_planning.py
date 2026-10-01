@@ -267,15 +267,26 @@ def test_step64_confirmation_keeps_home_context_gates_without_workspace_gate() -
     assert "home_runtime_validated" in confirm_gate
     assert "planning_scene_synchronized" in confirm_gate
     assert "workspace_runtime_validated" not in confirm_gate
+    assert "assisted_reviewed" not in confirm_gate
     prerequisite_end = source.index("preview_active = bool(", prerequisite_start)
     prerequisites = source[prerequisite_start:prerequisite_end]
     assert "Activate the verified PreparedBranch in 6.0." in prerequisites
     assert "Apply and live-validate Task Home in 6.2." in prerequisites
     assert "Refresh the Case Foundation planning anatomy." in prerequisites
     assert "Complete the authoritative planning-scene audit in 6.1." in prerequisites
-    assert "planning_prerequisites = list(confirmation_prerequisites)" in prerequisites
+    planning_prerequisites_start = source.index(
+        "planning_prerequisites = list(confirmation_prerequisites)",
+        prerequisite_start,
+    )
+    confirmation_only = source[prerequisite_start:planning_prerequisites_start]
+    assert "workspace" not in confirmation_only.lower()
+    assert "assisted_reviewed" not in confirmation_only
+    assert "if not workspace_runtime_validated:" in prerequisites
+    assert "Revalidate or generate workspace evidence in 6.3." in prerequisites
+    assert "if not assisted_reviewed:" in prerequisites
+    assert "Review and apply assisted joint limits in 6.3." in prerequisites
     assert '" ".join(planning_prerequisites or task_issues)' in prerequisites
-    assert "workspace" not in prerequisites[:prerequisites.index("planning_prerequisites =")].lower()
+    assert '" ".join(confirmation_prerequisites or task_issues)' not in prerequisites
 
 
 def test_trajectory_guide_bore_policy_is_two_mm_at_persistence_and_ui_boundaries() -> None:

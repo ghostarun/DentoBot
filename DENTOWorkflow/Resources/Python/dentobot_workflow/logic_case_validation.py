@@ -145,6 +145,20 @@ class CaseValidationLogicMixin:
 
         foundation = self.evaluateCaseFoundationEligibility(parameterNode)
         registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        reviewedTargets = []
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is not None and self.getSegmentationReviewState(segmentation) == "Reviewed":
+            for record in self.getSegmentationReviewRecords(segmentation):
+                fdi = str(record.get("fdiNumber") or "")
+                if not fdi or str(record.get("structureType") or "").upper() != "TOOTH":
+                    continue
+                tooth = registry["teeth"].get("FDI" + fdi, {})
+                target_id = tooth.get("target_id") or self._stableDentoCaseId(
+                    "target", segmentation.GetAttribute("DENTOBOT.CaseIdentity") or "",
+                    record["segmentId"], "FDI" + fdi,
+                )
+                reviewedTargets.append({"targetId": target_id, "fdi": fdi,
+                                        "segmentId": record["segmentId"]})
         preparedBranchCount = len(registry["prepared_branches"])
         caseClassification = (
             "FoundationOnly"
@@ -194,6 +208,7 @@ class CaseValidationLogicMixin:
                 "lengthUnit": "mm",
             },
             "caseClassification": caseClassification,
+            "reviewedTargets": reviewedTargets,
             "caseFoundation": {
                 **foundation,
                 "preparedBranchCount": preparedBranchCount,
