@@ -12,10 +12,10 @@ The approved Step 6 native diagnostic installed GDB 15.1 and FFmpeg 6.1.1 in the
 
 Run the launcher from that checkout so its container module, backend, ROS
 package sources, and simulation handoff all resolve to the same source tree.
-For the Step 6 renovation checkout:
+For the consolidated integration checkout:
 
 ```bash
-cd /home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-renovation
+cd /home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-5.10-integration
 Workspace/scripts/launch-dentoworkflow.bash
 ```
 
@@ -25,7 +25,7 @@ and run one checkout at a time. It rebuilds the selected description and
 MoveIt packages into the shared `ros2_ws/install`; launching another checkout
 later replaces those installed packages with that checkout's versions. The
 launcher prints the resolved DENTO Workflow module path before opening Slicer;
-confirm it names `DentoBot-step6-renovation`.
+confirm it names `DentoBot-step6-5.10-integration`.
 
 ## Slicer UI stall watchdog — 2026-09-24
 
@@ -1956,3 +1956,10 @@ Reuse `/tmp/dentobot-five-dof-20260928/install` only after exact source/config v
 SlicerROS2 is separately selected from `/tmp/dentobot-s6-u01-install/slicer_ros2_module`, built against Slicer 5.10 from reviewed shutdown source baseline `261a130` plus the dated teardown corrections. Loaded Logic `.so` SHA-256 `254ff8bd199448f4299955859c1e75896ebdd974b56e090275fbc76a1ac3c9fb`; MRML `.so` `4f3b38ca42e01df57aa24fcd8f18f9a0954110308a986f72f6efb70f900c27c1`. Host/container teardown source hashes match for Logic, RobotNode and PublisherInternals. The separate upgrade checkout is not native build provenance.
 
 Run the existing screen recorder with an explicitly bound integration module/runner path, fresh evidence directory, private Xvfb and serialized ROS domain 73. Do not invoke the normal launcher during parallel renovation: it can restart the shared container or write shared installs. `DENTOBOT_HEADED_CONNECT_ONLY=1` permits only bounded restore/Connect/Disconnect with all motion and save opt-ins off. Results require itemized evidence and owned-process cleanup; a functional PASS and shutdown result are separate.
+
+## 1 October — consolidated source checkout and DentoCase development
+
+Future source development targets `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-5.10-integration`, branch `integration/step6-5.10-reviewed-20260927`; renovation is preserved as source provenance. DentoCase uses stdlib sqlite3, an explicitly opened library at `~/.dentobot/DentoCase/catalog.sqlite`, and operator-selected scans. No dependency installation or image change. Offline projection launches the existing Slicer launcher executable in a disposable process; no ROS initialization or operator-scene mutation. Source additions alone are not installation/runtime acceptance. See the DentoCase controlled record for source and runtime gates.
+
+
+**Verified offline DentoCase environment — 1 October:** The synthetic persistence gate uses the existing native Slicer5.10 executable and integration checkout Python/module paths directly, private Xvfb, ROS_DOMAIN_ID232 and no ROS initialization. This is not a shared-install rebuild or connected workflow acceptance. Attempt4 exits0 with clear teardown and separate full/partial case IDs. The newer guard source is SHA256 `b67bd8e223465a618eae66c9b72d6e8f24169c4f1c3415a5f67b00caae1913aa`; its previously approved renovation build/install binary SHA256 is `19cdc7800e39d241fe72fbfbc8d20a953f5ab110a9e44b511e0f2ed6c6cbe6a1`. The older isolated guard prefix above is historical evidence for its own checkpoint and does not match the consolidated newer source. Do not treat offline package verification as current connected guard/scene authority.

@@ -1,5 +1,15 @@
 # DENTOBOT agent context
 
+## Permanent performance and reliability monitoring
+
+For every workflow/container quality investigation and authorized representative
+runtime, follow [PERFORMANCE_MONITORING.md](PERFORMANCE_MONITORING.md). Keep
+watchdog evidence, bug triage, performance comparisons and cleanup checks
+under existing `S6-P2-03`/`S6-U-01` and affected workflow tasks. `backlog.md`
+remains the sole pending queue; TASKS/logbooks retain contracts/results.
+Preserve the r18 correction: no scheduled Python traceback dumping. Read-only
+monitor review grants no runtime approval; current Step 6 and 5.12 holds apply.
+
 Last reconciled: 2026-09-28. `S6-LIVE-01` remains Priority 0.
 
 **Current execution order:** Checkpoint commit `84234a6` records the preceding
@@ -494,3 +504,20 @@ from reading a roadmap.
 A concise daily entry records operator observation, decision delta, changes,
 commands/results, evidence limits and next action. Repeated histories belong
 neither here nor in the active work order.
+
+
+## 1 October — checkout correction and consolidation direction (supersedes preceding routing)
+
+Operator corrected his earlier recollection: reviewed performance integration happened in DentoBot-step6-5.10-integration, while he continued newer development in DentoBot-step6-renovation. He now directs future implementation onto the integration branch, with Step6 development retaining the accepted performance changes. Earlier same-day assertions that integration completed into renovation, or that the newest manual watchdog session proved failure of the combined integration code, are withdrawn. The measured stalls remain valid observations; deployed-checkout attribution is unconfirmed.
+
+Read-only Git evidence: integration/step6-5.10-reviewed-20260927 HEAD a795f89 includes immutable renovation checkpoint e7cd29f plus 14 subsequent integration commits. Renovation HEAD remains e7cd29f with substantial tracked and untracked later Step6 and DentoCase work. Integration has separate dirty documentation. Project DentoCase contract currently routes implementation to renovation; its production code is there. Neither tree may be overwritten, reset or blindly copied.
+
+Direction: integration is the intended consolidated development target. First let the active DentoCase operation reach a stable checkpoint, preserve both complete development deltas, then reconcile renovation changes relative to e7cd29f against the existing integration corrections. Retain source-only/unaccepted states and focus verification on actual overlaps; no main promotion, runtime, 5.12 work or acceptance is inferred. The existing integration preparation contract governs transfer mechanics, superseded only as to future development target; backlog remains the sole pending queue. Performance upgrades requested the active DentoCase chat to hold further writes after its current bounded operation and report ownership/evidence before transfer. Actual transfer has not yet occurred.
+
+## 1 October — approved consolidation and DentoCase completion
+
+Tarun agrees to and approves the proposed consolidation and complete DentoCase goal, with up to four GPT-6 Luna Max workers apart from the orchestrator. Available concurrency remains three workers plus coordinator; four disjoint worker scopes are scheduled with the fourth following a released slot. This supersedes the earlier transfer hold for this bounded consolidation and moves future development to DentoBot-step6-5.10-integration, branch integration/step6-5.10-reviewed-20260927. Main promotion/publication, 5.12 and robot/hardware actions are excluded. Offline full/partial persistence verification is approved by the agreed plan; runtime resources remain serialized and existing operator processes preserved.
+
+Git evidence: integration a795f89 already contains renovation e7cd29f; no renovation commits are missing. Later source/test changes are uncommitted. Both development deltas preserved in /tmp/dentocase-consolidation-20261001 with binary patches, development-only archives and SHA manifests; engineer-owned records/generated output excluded. Forty-two clean candidate source files applied and five conflicts resolved under coordinator dispositions. Accepted performance ports, strict restoration and method splits retained. No branch/HEAD change, stage, commit, main merge or rebuild performed during parallel work.
+
+Owned worker scopes: robot-shell/manual method reconciliation; headed runner/source/planning tests; new case inventory ownership adapter/test; DentoCase catalog fixture correction. Coordinator owns remaining DentoCase persistence/projection/bootstrap/lifecycle/semantic inventory changes, verification matrix, source review, runtime and controlled records. No worker executes Slicer/ROS/build/runtime or edits controlled records. Current pending states remain under DCP-09..10, S6-REUSABLE-CASE-SETUP, S6-P2-01, S6-LIVE-01 and S6-P2-03. Source consolidation does not close native or operator acceptance.
