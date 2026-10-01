@@ -1999,3 +1999,6 @@ Prerequisites are a working Ubuntu NVIDIA driver (`nvidia-smi`) and the NVIDIA C
 Host/mock/profile tests and frame-probe `--self-check` are authorized here. GPU runtime, container reconfiguration and FPS verification are deliberately not run on this GPU-less workstation. On a later approved NVIDIA workstation, record device/driver/VRAM, container exposure and Slicer OpenGL vendor/renderer/viewport. The frame probe measures forced VTK EndEvent throughput, not presented/VSync FPS; software rendering cannot establish the >=60FPS requirement. Save/close Slicer before a normal profile launch, which may recreate the container. No new image/Slicer rebuild or5.12 promotion is required.
 
 Profile host test result:13passed/0.08s; shell syntax and frame-probe self-check passed. These are source/mock evidence only; NVIDIA workstation verification deliberately deferred. Existing container on this PC was not reconfigured.
+
+
+Native responsive-plan source pin (2October): separate slicer_ros2_module commit58fce9bc21709d9fd4e23fdb95febac9e19402c5, parent333c410. Existing normal5.10 installation was built from these identical bytes; integration1581380 alone does not contain this separate repository. Reconstruct affected native package from this pin; no5.12 update is authorized.
